@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   if (l2)      filter["ชุดประกอบ_L2"]       = l2
   if (l3)      filter["ชิ้นส่วน_L3"]        = l3
   if (brand)   filter["ยี่ห้อ"]             = { $regex: brand, $options: "i" }
-  if (vehicle) filter["ทะเบียนหรือรุ่นรถ"] = { $regex: vehicle, $options: "i" }
+  if (vehicle) filter["ทะเบียนหรือรุ่นรถ"] = { $elemMatch: { $regex: vehicle, $options: "i" } }
   if (status)  filter["status"]             = status
   if (q) {
     filter["$or"] = [
@@ -44,6 +44,14 @@ export async function GET(req: NextRequest) {
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
+
+  // Distinct-brand facet request
+  const distinct = searchParams.get("distinct")
+  if (distinct === "brand") {
+    const brands = await col.distinct("ยี่ห้อ", filter)
+    return NextResponse.json(brands.filter(Boolean).sort())
+  }
+
   const total  = await col.countDocuments(filter)
   const items  = await col
     .find(filter)
@@ -108,7 +116,7 @@ export async function POST(req: NextRequest) {
     ยี่ห้อ:            rest.brand     ?? "",
     เบอร์แท้อ้างอิง:   rest.oemRef    ?? "",
     เบอร์เทียบอ้างอิง: Array.isArray(rest.compatRefs) ? rest.compatRefs : (rest.compatRef ? [rest.compatRef] : []),
-    ทะเบียนหรือรุ่นรถ: rest.vehicle   ?? "",
+    ทะเบียนหรือรุ่นรถ: Array.isArray(rest.vehicles) ? rest.vehicles : (rest.vehicle ? [rest.vehicle] : []),
     Grade:             rest.grade     ?? "NA",
     รหัสATMS:          Array.isArray(rest.atmsCodes) ? rest.atmsCodes : (rest.atmsCode ? [rest.atmsCode] : []),
     createdAt:         new Date(),

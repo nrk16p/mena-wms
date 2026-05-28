@@ -6,8 +6,6 @@ import { PlusCircle, Search, Pencil, Trash2, ChevronLeft, ChevronRight, X } from
 import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2 } from "@/lib/codes"
 import { COMPONENT_L3 } from "@/lib/codes-l3"
 
-type CodeMap = Record<string, { th: string; en: string }>
-
 type SkuRow = {
   _id: string
   SKU: string
@@ -46,15 +44,7 @@ export default function SkuListPage() {
   const [page, setPage]         = useState(1)
   const [loading, setLoading]   = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [brandOptions, setBrandOptions] = useState<CodeMap>({})
-
-  useEffect(() => {
-    fetch("/api/codes/BRAND")
-      .then((r) => r.json())
-      .then((rows: { code: string; th: string; en: string }[]) => {
-        if (rows.length) setBrandOptions(Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }])))
-      }).catch(() => {})
-  }, [])
+  const [brandOptions, setBrandOptions] = useState<string[]>([])
 
   // filters
   const [q,       setQ]       = useState("")
@@ -78,6 +68,21 @@ export default function SkuListPage() {
     setWh(""); setType(""); setL1(""); setL2(""); setL3("")
     setBrand(""); setVehicle(""); setQ(""); setPage(1)
   }
+
+  // Fetch distinct brands that match current filters (excluding brand itself)
+  useEffect(() => {
+    const params = new URLSearchParams({ distinct: "brand", status: "approved" })
+    if (q)    params.set("q", q)
+    if (wh)   params.set("wh", wh)
+    if (type) params.set("type", type)
+    if (l1)   params.set("l1", l1)
+    if (l2)   params.set("l2", l2)
+    if (l3)   params.set("l3", l3)
+    fetch(`/api/sku?${params}`)
+      .then((r) => r.json())
+      .then((brands: string[]) => setBrandOptions(Array.isArray(brands) ? brands : []))
+      .catch(() => {})
+  }, [q, wh, type, l1, l2, l3])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -180,10 +185,14 @@ export default function SkuListPage() {
             {l3Options.map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
           </select>
 
-          {/* Brand */}
-          <select value={brand} onChange={(e) => { setBrand(e.target.value); setPage(1) }} className={selCls}>
-            <option value="">ยี่ห้อทั้งหมด</option>
-            {Object.entries(brandOptions).map(([k, v]) => <option key={k} value={k}>{v.th || k}</option>)}
+          {/* Brand — dynamic from current filtered data */}
+          <select
+            value={brandOptions.includes(brand) ? brand : ""}
+            onChange={(e) => { setBrand(e.target.value); setPage(1) }}
+            className={selCls}
+          >
+            <option value="">ยี่ห้อทั้งหมด {brandOptions.length > 0 ? `(${brandOptions.length})` : ""}</option>
+            {brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
           </select>
 
           {/* Vehicle — free text: matches รุ่นรถ code or ทะเบียนรถ plate */}
