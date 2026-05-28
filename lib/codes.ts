@@ -246,11 +246,13 @@ export const UNIT: Record<string, string> = {
 }
 
 export const GRADE: Record<string, string> = {
-  OEM: "แท้ศูนย์",
-  OE:  "เทียบเท่าแท้",
-  A:   "เกรด A",
-  B:   "เกรด B",
-  NA:  "ไม่ระบุ",
+  G1: "แท้ศูนย์นำเข้า (ซื้อศูนย์)",
+  G2: "แท้ศูนย์ Local (ซื้อศูนย์)",
+  G3: "เทียบ OEM หรือเทียบมี Brand",
+  G4: "อะไหล่เก่าแท้ เซียงกง",
+  G5: "เทียบ ไม่มี Brand ❌",
+  G6: "อะไหล่เก่ารีบิ้ว โรงงาน",
+  G7: "อะไหล่เก่ารีบิ้วเอง",
 }
 
 export const VEHICLE_TYPE: Record<string, { th: string; brand: string; engine: string }> = {
