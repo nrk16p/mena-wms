@@ -28,8 +28,8 @@ export function ThemeToggle({ collapsed }: { collapsed: boolean }) {
       title={dark ? "Light mode" : "Dark mode"}
       className={`
         flex items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition-all duration-150
-        text-gray-400 dark:text-gray-500
-        hover:bg-gray-100 dark:hover:bg-white/6 hover:text-gray-700 dark:hover:text-gray-300
+        text-[#64748B] dark:text-gray-500
+        hover:bg-[#F4FBF5] dark:hover:bg-white/6 hover:text-[#0F6A3C] dark:hover:text-gray-300
         ${collapsed ? "justify-center px-0 w-full" : "px-2.5 w-full"}
       `}
     >

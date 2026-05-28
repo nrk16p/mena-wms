@@ -9,6 +9,7 @@ const bgStyle: React.CSSProperties = {
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
+  backgroundPositionX: "left",
 }
 
 function LoginContent() {
