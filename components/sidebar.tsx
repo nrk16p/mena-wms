@@ -14,6 +14,7 @@ import {
   LogOut,
   Clock,
   Car,
+  Inbox,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -32,6 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/sku", label: "รายการ SKU", icon: PackageSearch, exact: true },
       { href: "/sku/new", label: "เพิ่ม SKU ใหม่", icon: PlusCircle },
+      { href: "/sku/my-submissions", label: "รายการของฉัน", icon: Inbox },
     ],
   },
   {

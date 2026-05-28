@@ -11,16 +11,17 @@ const COLL = "master_sku"
 // GET /api/sku  — list with optional filters
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const wh      = searchParams.get("wh")      ?? ""
-  const type    = searchParams.get("type")    ?? ""
-  const l1      = searchParams.get("l1")      ?? ""
-  const l2      = searchParams.get("l2")      ?? ""
-  const l3      = searchParams.get("l3")      ?? ""
-  const brand   = searchParams.get("brand")   ?? ""
-  const grade   = searchParams.get("grade")   ?? ""
-  const vehicle = searchParams.get("vehicle") ?? ""
-  const status  = searchParams.get("status")  ?? ""
-  const q       = searchParams.get("q")       ?? ""
+  const wh        = searchParams.get("wh")        ?? ""
+  const type      = searchParams.get("type")      ?? ""
+  const l1        = searchParams.get("l1")        ?? ""
+  const l2        = searchParams.get("l2")        ?? ""
+  const l3        = searchParams.get("l3")        ?? ""
+  const brand     = searchParams.get("brand")     ?? ""
+  const grade     = searchParams.get("grade")     ?? ""
+  const vehicle   = searchParams.get("vehicle")   ?? ""
+  const status    = searchParams.get("status")    ?? ""
+  const createdBy = searchParams.get("createdBy") ?? ""
+  const q         = searchParams.get("q")         ?? ""
   const page    = Math.max(1, parseInt(searchParams.get("page") ?? "1"))
   const limit   = Math.min(200, parseInt(searchParams.get("limit") ?? "50"))
 
@@ -31,9 +32,10 @@ export async function GET(req: NextRequest) {
   if (l2)      filter["ชุดประกอบ_L2"]       = l2
   if (l3)      filter["ชิ้นส่วน_L3"]        = l3
   if (brand)   filter["ยี่ห้อ"]             = { $regex: brand, $options: "i" }
-  if (grade)   filter["Grade"]              = grade
-  if (vehicle) filter["ทะเบียนหรือรุ่นรถ"] = { $elemMatch: { $regex: vehicle, $options: "i" } }
-  if (status)  filter["status"]             = status
+  if (grade)     filter["Grade"]              = grade
+  if (vehicle)   filter["ทะเบียนหรือรุ่นรถ"] = { $elemMatch: { $regex: vehicle, $options: "i" } }
+  if (status)    filter["status"]             = status
+  if (createdBy) filter["createdBy"]          = createdBy
   if (q) {
     filter["$or"] = [
       { "ชื่ออะไหล่_TH": { $regex: q, $options: "i" } },
