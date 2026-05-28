@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2, POSITION, UNIT, GRADE, VEHICLE_TYPE, EXPENSE_TYPES_NO_PRICE } from "@/lib/codes"
 import { COMPONENT_L3 } from "@/lib/codes-l3"
+import { BrandCombobox } from "@/components/brand-combobox"
 
 type SkuDoc = Record<string, unknown>
 type CodeMap = Record<string, { th: string; en: string }>
@@ -25,8 +26,11 @@ export default function EditSkuPage() {
   const [doc, setDoc]         = useState<SkuDoc | null>(null)
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState("")
-  const [atmsCodes, setAtmsCodes] = useState<string[]>([])
-  const [atmsInput, setAtmsInput] = useState("")
+  const [atmsCodes, setAtmsCodes]     = useState<string[]>([])
+  const [atmsInput, setAtmsInput]     = useState("")
+  const [brandValue, setBrandValue]   = useState("")
+  const [compatRefs, setCompatRefs]   = useState<string[]>([])
+  const [compatInput, setCompatInput] = useState("")
 
   // Code dict options fetched from MongoDB
   const [whOptions,      setWhOptions]      = useState<CodeMap>(toStaticMap(WAREHOUSE))
@@ -59,6 +63,9 @@ export default function EditSkuPage() {
         setDoc(d)
         const raw = d["รหัสATMS"]
         setAtmsCodes(Array.isArray(raw) ? raw : raw ? [raw] : [])
+        setBrandValue(String(d["ยี่ห้อ"] ?? ""))
+        const rawCompat = d["เบอร์เทียบอ้างอิง"]
+        setCompatRefs(Array.isArray(rawCompat) ? rawCompat : rawCompat ? [String(rawCompat)] : [])
       })
   }, [sku])
 
@@ -86,6 +93,7 @@ export default function EditSkuPage() {
     form.forEach((v, k) => { body[k] = String(v) })
     body["ประเภทค่าใช้จ่าย"] = type
     body["รหัสATMS"] = atmsCodes
+    body["เบอร์เทียบอ้างอิง"] = compatRefs
     if (noPrice) body["ราคาต่อหน่วย"] = "0"
 
     const res = await fetch(`/api/sku/${sku}`, {
@@ -180,13 +188,13 @@ export default function EditSkuPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>ยี่ห้อ</label>
-            <select name="ยี่ห้อ" defaultValue={field("ยี่ห้อ")} className={selectCls}>
-              <option value="">— ไม่ระบุ —</option>
-              {Object.keys(brandOptions).length === 0
-                ? <option disabled>ยังไม่มียี่ห้อ — เพิ่มใน Code Dictionary</option>
-                : Object.entries(brandOptions).map(([k, v]) => <option key={k} value={k}>{v.th || k}</option>)
-              }
-            </select>
+            <input type="hidden" name="ยี่ห้อ" value={brandValue} />
+            <BrandCombobox
+              options={brandOptions}
+              value={brandValue}
+              onChange={setBrandValue}
+              className={inputCls}
+            />
           </div>
           <div>
             <label className={labelCls}>Grade</label>
@@ -202,8 +210,29 @@ export default function EditSkuPage() {
             <input name="เบอร์แท้อ้างอิง" defaultValue={field("เบอร์แท้อ้างอิง")} className={inputCls} />
           </div>
           <div>
-            <label className={labelCls}>เบอร์เทียบอ้างอิง</label>
-            <input name="เบอร์เทียบอ้างอิง" defaultValue={field("เบอร์เทียบอ้างอิง")} className={inputCls} />
+            <label className={labelCls}>เบอร์เทียบอ้างอิง <span className="font-normal text-gray-400">(ใส่ได้หลายเบอร์)</span></label>
+            <div className={inputCls + " min-h-[38px] flex flex-wrap gap-1 items-center py-1.5"}>
+              {compatRefs.map((c) => (
+                <span key={c} className="inline-flex items-center gap-1 rounded bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 px-1.5 py-0.5 text-xs font-mono">
+                  {c}
+                  <button type="button" onClick={() => setCompatRefs((p) => p.filter((x) => x !== c))} className="hover:text-red-500">×</button>
+                </span>
+              ))}
+              <input
+                value={compatInput}
+                onChange={(e) => setCompatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.key === "Enter" || e.key === ",") && compatInput.trim()) {
+                    e.preventDefault()
+                    const v = compatInput.trim()
+                    if (!compatRefs.includes(v)) setCompatRefs((p) => [...p, v])
+                    setCompatInput("")
+                  }
+                }}
+                placeholder={compatRefs.length === 0 ? "SO-7660 แล้วกด Enter" : ""}
+                className="flex-1 min-w-[80px] bg-transparent outline-none text-sm placeholder-gray-400"
+              />
+            </div>
           </div>
         </div>
 

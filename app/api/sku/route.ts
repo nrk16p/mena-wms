@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     หน่วย:             rest.unit      ?? "PC",
     ยี่ห้อ:            rest.brand     ?? "",
     เบอร์แท้อ้างอิง:   rest.oemRef    ?? "",
-    เบอร์เทียบอ้างอิง: rest.compatRef ?? "",
+    เบอร์เทียบอ้างอิง: Array.isArray(rest.compatRefs) ? rest.compatRefs : (rest.compatRef ? [rest.compatRef] : []),
     ทะเบียนหรือรุ่นรถ: rest.vehicle   ?? "",
     Grade:             rest.grade     ?? "NA",
     รหัสATMS:          Array.isArray(rest.atmsCodes) ? rest.atmsCodes : (rest.atmsCode ? [rest.atmsCode] : []),
