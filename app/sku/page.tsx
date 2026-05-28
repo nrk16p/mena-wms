@@ -173,8 +173,16 @@ export default function SkuListPage() {
           </select>
         </div>
 
-        {/* Row 2: L1 → L2 → L3 + brand + vehicle */}
+        {/* Row 2: vehicle + L1 → L2 → L3 + brand + grade */}
         <div className="flex flex-wrap gap-2 items-center">
+          {/* Vehicle — leftmost: matches รุ่นรถ / ทะเบียนรถ / engineNo / chassisNo */}
+          <input
+            value={vehicle}
+            onChange={(e) => { setVehicle(e.target.value); setPage(1) }}
+            placeholder="รุ่นรถ / ทะเบียนรถ"
+            className="w-40 px-3 py-2 text-sm border border-gray-200 dark:border-white/10 rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
+          />
+
           {/* L1 */}
           <select
             value={l1}
@@ -226,14 +234,6 @@ export default function SkuListPage() {
             <option value="">Grade ทั้งหมด {gradeOptions.length > 0 ? `(${gradeOptions.length})` : ""}</option>
             {gradeOptions.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
-
-          {/* Vehicle — free text: matches รุ่นรถ code or ทะเบียนรถ plate */}
-          <input
-            value={vehicle}
-            onChange={(e) => { setVehicle(e.target.value); setPage(1) }}
-            placeholder="รุ่นรถ / ทะเบียนรถ"
-            className="w-36 px-3 py-2 text-sm border border-gray-200 dark:border-white/10 rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
-          />
 
           {/* Clear all */}
           {activeFilters > 0 && (
