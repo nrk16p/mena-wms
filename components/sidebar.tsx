@@ -10,8 +10,6 @@ import {
   LayoutDashboard,
   PackageSearch,
   PlusCircle,
-  Tags,
-  BarChart3,
   Layers,
   Database,
   LogOut,
@@ -40,7 +38,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/codes/parts", label: "Parts Catalog", icon: Layers },
       { href: "/codes", label: "Code Dictionary", icon: Database },
-      { href: "/stats", label: "สถิติ", icon: BarChart3 },
     ],
   },
 ]
