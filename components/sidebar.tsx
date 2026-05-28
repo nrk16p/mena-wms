@@ -15,6 +15,7 @@ import {
   Clock,
   Car,
   Inbox,
+  GitCompare,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -35,6 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/sku",              label: "รายการ SKU",     icon: PackageSearch, exact: true },
       { href: "/sku/new",          label: "เพิ่ม SKU ใหม่", icon: PlusCircle },
       { href: "/sku/my-submissions", label: "รายการของฉัน", icon: Inbox },
+      { href: "/sku/oe-search",    label: "OE Cross-Ref",   icon: GitCompare },
     ],
   },
   {
