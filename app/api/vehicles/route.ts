@@ -4,15 +4,31 @@ import clientPromise from "@/lib/mongo"
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "vehicle_master"
 
-// GET /api/vehicles?q=สบ71&type=Mixer&limit=50
+// GET /api/vehicles?q=สบ71&type=Mixer&limit=50&groups=true
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const q     = searchParams.get("q")?.trim()     ?? ""
-  const type  = searchParams.get("type")?.trim()  ?? ""
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "100"), 500)
+  const q      = searchParams.get("q")?.trim()     ?? ""
+  const type   = searchParams.get("type")?.trim()  ?? ""
+  const limit  = Math.min(parseInt(searchParams.get("limit") ?? "100"), 500)
+  const groups = searchParams.get("groups") === "true"
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
+
+  // Return vehicle type groups with counts
+  if (groups) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const matchStage: Record<string, any> = {}
+    if (q) matchStage.vehicleType = { $regex: q, $options: "i" }
+
+    const agg = await col.aggregate([
+      { $match: matchStage },
+      { $group: { _id: "$vehicleType", count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]).toArray()
+
+    return NextResponse.json(agg.filter((g) => g._id).map((g) => ({ vehicleType: g._id as string, count: g.count as number })))
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = {}
