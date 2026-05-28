@@ -6,16 +6,25 @@ const COLL = "master_codes"
 
 type Params = { params: Promise<{ dict: string }> }
 
-// GET /api/codes/[dict]?parent=ENG
+// GET /api/codes/[dict]?parent=ENG&expenseType=LAB
 export async function GET(req: NextRequest, { params }: Params) {
-  const { dict } = await params
-  const parent   = req.nextUrl.searchParams.get("parent") ?? undefined
-  const client   = await clientPromise
-  const col      = client.db(DB).collection(COLL)
+  const { dict }      = await params
+  const parent        = req.nextUrl.searchParams.get("parent") ?? undefined
+  const expenseType   = req.nextUrl.searchParams.get("expenseType") ?? undefined
+  const client        = await clientPromise
+  const col           = client.db(DB).collection(COLL)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = { dict }
   if (parent !== undefined) filter.parent = parent
+
+  if (expenseType === "LAB") {
+    filter["meta.expenseType"] = "LAB"
+  } else if (expenseType) {
+    // PRT, PM, SVC, CLN, TRP, ACC — exclude labor-specific codes
+    filter["meta.expenseType"] = { $ne: "LAB" }
+  }
+  // No expenseType → return all (used by Code Dictionary admin page)
 
   const items = await col.find(filter).sort({ order: 1, code: 1 }).toArray()
   return NextResponse.json(items)

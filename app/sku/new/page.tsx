@@ -67,6 +67,20 @@ export default function NewSkuPage() {
   const toMap = (rows: Row[]): CodeMap =>
     Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }]))
 
+  // Which L1 codes are appropriate per expense type
+  const L1_FILTER: Record<string, string[]> = {
+    PRT: ["ENG","COL","FUL","TRN","SUS","BRK","STR","ELC","EXH","TYR","LUB","MXS","REF","PTO","TRL","BOD","SAF","CSM","ACS"],
+    PM:  ["ENG","COL","FUL","TRN","SUS","BRK","STR","ELC","TYR","LUB","MXS","PTO","ACS"],
+    LAB: ["ENG","TRN","BRK","SUS","STR","ELC","MXS","TRL","BOD","TYR","PTO","ACS"],
+    SVC: ["SVC"],
+    CLN: ["CLN"],
+    TRP: ["TRP"],
+    ACC: ["BOD","ENG","TRN","BRK","SUS"],
+  }
+
+  // All L1 options fetched from DB, filtered by expense type in the component
+  const [allL1Options, setAllL1Options] = useState<CodeMap>({})
+
   // Load all static dicts from MongoDB on mount
   useEffect(() => {
     const load = (dict: string, set: (m: CodeMap) => void) =>
@@ -77,7 +91,7 @@ export default function NewSkuPage() {
 
     load("WAREHOUSE",    setWhOptions)
     load("EXPENSE_TYPE", setTypeOptions)
-    load("SYSTEM_L1",    setL1Options)
+    load("SYSTEM_L1",    setAllL1Options)
     load("POSITION",     setPosOptions)
     load("UNIT",         setUnitOptions)
     load("GRADE",        setGradeOptions)
@@ -85,23 +99,36 @@ export default function NewSkuPage() {
     load("BRAND",        setBrandOptions)
   }, [])
 
-  // Load L2 from MongoDB when L1 changes
+  // Filter L1 options by expense type
+  useEffect(() => {
+    const allowed = L1_FILTER[type]
+    if (!allowed) { setL1Options(allL1Options); return }
+    const filtered = Object.fromEntries(
+      Object.entries(allL1Options).filter(([code]) => allowed.includes(code))
+    )
+    setL1Options(filtered)
+    // Reset L1 if current value not in new filtered list
+    if (l1 && !allowed.includes(l1)) { setL1(""); setL2(""); setL3("") }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, allL1Options])
+
+  // Load L2 from MongoDB when L1 or expense type changes
   useEffect(() => {
     if (!l1) { setL2Options({}); return }
-    fetch(`/api/codes/SUB_ASSEMBLY_L2?parent=${l1}`)
+    fetch(`/api/codes/SUB_ASSEMBLY_L2?parent=${l1}&expenseType=${type}`)
       .then((r) => r.json())
       .then((rows: Row[]) => setL2Options(toMap(rows)))
       .catch(() => setL2Options({}))
-  }, [l1])
+  }, [l1, type])
 
-  // Load L3 from MongoDB when L1+L2 changes
+  // Load L3 from MongoDB when L1+L2 or expense type changes
   useEffect(() => {
     if (!l1 || !l2) { setL3Options({}); setL3(""); return }
-    fetch(`/api/codes/COMPONENT_L3?parent=${l1}:${l2}`)
+    fetch(`/api/codes/COMPONENT_L3?parent=${l1}:${l2}&expenseType=${type}`)
       .then((r) => r.json())
       .then((rows: Row[]) => setL3Options(toMap(rows)))
       .catch(() => setL3Options({}))
-  }, [l1, l2])
+  }, [l1, l2, type])
 
   // Reset downstream when L1 changes
   useEffect(() => { setL2(""); setL3("") }, [l1])
