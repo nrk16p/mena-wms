@@ -3,12 +3,11 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import {
-  WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2,
+  WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1,
   POSITION, UNIT, GRADE, VEHICLE_TYPE, EXPENSE_TYPES_NO_PRICE,
 } from "@/lib/codes"
 
-type L2Map = Record<string, { th: string; en: string }>
-type L3Map = Record<string, { th: string; en: string }>
+type CodeMap = Record<string, { th: string; en: string }>
 
 export default function NewSkuPage() {
   const router = useRouter()
@@ -36,33 +35,50 @@ export default function NewSkuPage() {
   const [saving, setSaving]         = useState(false)
   const [error, setError]           = useState("")
 
-  // Cascading selects
-  const l2Options: L2Map = l1 ? (SUB_ASSEMBLY_L2[l1] ?? {}) : {}
-  const [l3Options, setL3Options] = useState<L3Map>({})
+  // All fetched from MongoDB so new codes added via Code Dictionary show immediately
+  const [l1Options,      setL1Options]      = useState<CodeMap>(SYSTEM_L1)
+  const [l2Options,      setL2Options]      = useState<CodeMap>({})
+  const [l3Options,      setL3Options]      = useState<CodeMap>({})
+  const [vehicleOptions, setVehicleOptions] = useState<CodeMap>(
+    Object.fromEntries(Object.entries(VEHICLE_TYPE).map(([k, v]) => [k, { th: v.th, en: "" }]))
+  )
 
-  // Load L2 options from MongoDB when L1 changes
-  const [l2OptionsDb, setL2OptionsDb] = useState<Record<string, { th: string; en: string }>>({})
+  type Row = { code: string; th: string; en: string }
+  const toMap = (rows: Row[]): CodeMap =>
+    Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }]))
+
+  // Load L1 from MongoDB on mount
   useEffect(() => {
-    if (!l1) { setL2OptionsDb({}); return }
+    fetch("/api/codes/SYSTEM_L1")
+      .then((r) => r.json())
+      .then((rows: Row[]) => { if (rows.length) setL1Options(toMap(rows)) })
+      .catch(() => {})
+  }, [])
+
+  // Load Vehicle Type from MongoDB on mount
+  useEffect(() => {
+    fetch("/api/codes/VEHICLE_TYPE")
+      .then((r) => r.json())
+      .then((rows: Row[]) => { if (rows.length) setVehicleOptions(toMap(rows)) })
+      .catch(() => {})
+  }, [])
+
+  // Load L2 from MongoDB when L1 changes
+  useEffect(() => {
+    if (!l1) { setL2Options({}); return }
     fetch(`/api/codes/SUB_ASSEMBLY_L2?parent=${l1}`)
       .then((r) => r.json())
-      .then((rows: { code: string; th: string; en: string }[]) => {
-        setL2OptionsDb(Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }])))
-      }).catch(() => setL2OptionsDb(SUB_ASSEMBLY_L2[l1] ?? {}))
+      .then((rows: Row[]) => setL2Options(toMap(rows)))
+      .catch(() => setL2Options({}))
   }, [l1])
 
-  // Load L3 options from MongoDB when L1+L2 changes
+  // Load L3 from MongoDB when L1+L2 changes
   useEffect(() => {
     if (!l1 || !l2) { setL3Options({}); setL3(""); return }
     fetch(`/api/codes/COMPONENT_L3?parent=${l1}:${l2}`)
       .then((r) => r.json())
-      .then((rows: { code: string; th: string; en: string }[]) => {
-        setL3Options(Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }])))
-      }).catch(() => {
-        import("@/lib/codes-l3").then((m) => {
-          setL3Options((m.COMPONENT_L3[l1] ?? {})[l2] ?? {})
-        }).catch(() => setL3Options({}))
-      })
+      .then((rows: Row[]) => setL3Options(toMap(rows)))
+      .catch(() => setL3Options({}))
   }, [l1, l2])
 
   // Reset downstream when L1 changes
@@ -184,14 +200,14 @@ export default function NewSkuPage() {
             <label className={labelCls}>ระบบ L1 *</label>
             <select value={l1} onChange={(e) => setL1(e.target.value)} className={selectCls} required>
               <option value="">— เลือก L1 —</option>
-              {Object.entries(SYSTEM_L1).map(([k, v]) => <option key={k} value={k}>{k} {v.th}</option>)}
+              {Object.entries(l1Options).map(([k, v]) => <option key={k} value={k}>{k} {v.th}</option>)}
             </select>
           </div>
           <div>
             <label className={labelCls}>ชุดประกอบ L2 *</label>
             <select value={l2} onChange={(e) => setL2(e.target.value)} className={selectCls} required disabled={!l1}>
               <option value="">— เลือก L2 —</option>
-              {Object.entries(l2OptionsDb).map(([k, v]) => <option key={k} value={k}>{k} {v.th}</option>)}
+              {Object.entries(l2Options).map(([k, v]) => <option key={k} value={k}>{k} {v.th}</option>)}
             </select>
           </div>
           <div>
@@ -283,7 +299,7 @@ export default function NewSkuPage() {
           <label className={labelCls}>ทะเบียนหรือรุ่นรถ</label>
           <select value={vehicle} onChange={(e) => setVehicle(e.target.value)} className={selectCls}>
             <option value="">— ทุกรุ่น / ไม่ระบุ —</option>
-            {Object.entries(VEHICLE_TYPE).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
+            {Object.entries(vehicleOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
           </select>
         </div>
 
