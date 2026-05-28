@@ -14,6 +14,7 @@ import {
   Database,
   LogOut,
   Clock,
+  Car,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -38,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Reference",
     items: [
       { href: "/codes/parts", label: "Parts Catalog", icon: Layers },
+      { href: "/vehicles", label: "ยานพาหนะ", icon: Car },
       { href: "/codes", label: "Code Dictionary", icon: Database },
     ],
   },

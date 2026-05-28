@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2, POSITION, UNIT, GRADE, VEHICLE_TYPE, EXPENSE_TYPES_NO_PRICE } from "@/lib/codes"
 import { COMPONENT_L3 } from "@/lib/codes-l3"
 import { BrandCombobox } from "@/components/brand-combobox"
+import { VehicleMultiSelect } from "@/components/vehicle-multi-select"
 
 type SkuDoc = Record<string, unknown>
 type CodeMap = Record<string, { th: string; en: string }>
@@ -31,6 +32,7 @@ export default function EditSkuPage() {
   const [brandValue, setBrandValue]   = useState("")
   const [compatRefs, setCompatRefs]   = useState<string[]>([])
   const [compatInput, setCompatInput] = useState("")
+  const [vehicles, setVehicles]       = useState<string[]>([])
 
   // Code dict options fetched from MongoDB
   const [whOptions,      setWhOptions]      = useState<CodeMap>(toStaticMap(WAREHOUSE))
@@ -65,6 +67,8 @@ export default function EditSkuPage() {
         setBrandValue(String(d["ยี่ห้อ"] ?? ""))
         const rawCompat = d["เบอร์เทียบอ้างอิง"]
         setCompatRefs(Array.isArray(rawCompat) ? rawCompat : rawCompat ? [String(rawCompat)] : [])
+        const rawVehicles = d["ทะเบียนหรือรุ่นรถ"]
+        setVehicles(Array.isArray(rawVehicles) ? rawVehicles : rawVehicles ? [String(rawVehicles)] : [])
         // Load grades filtered by this SKU's expense type
         const expenseType = String(d["ประเภทค่าใช้จ่าย"] ?? "PRT")
         type Row = { code: string; th: string; en: string }
@@ -101,6 +105,7 @@ export default function EditSkuPage() {
     body["ประเภทค่าใช้จ่าย"] = type
     body["รหัสATMS"] = atmsCodes
     body["เบอร์เทียบอ้างอิง"] = compatRefs
+    body["ทะเบียนหรือรุ่นรถ"] = vehicles
     if (noPrice) body["ราคาต่อหน่วย"] = "0"
 
     const res = await fetch(`/api/sku/${sku}`, {
@@ -255,11 +260,12 @@ export default function EditSkuPage() {
         </div>
 
         <div>
-          <label className={labelCls}>ทะเบียนหรือรุ่นรถ</label>
-          <select name="ทะเบียนหรือรุ่นรถ" defaultValue={field("ทะเบียนหรือรุ่นรถ")} className={selectCls}>
-            <option value="">— ทุกรุ่น / ไม่ระบุ —</option>
-            {Object.entries(vehicleOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
-          </select>
+          <label className={labelCls}>ทะเบียนหรือรุ่นรถ <span className="font-normal text-gray-400">(เลือกได้หลายคัน)</span></label>
+          <VehicleMultiSelect
+            values={vehicles}
+            onChange={setVehicles}
+            className={inputCls}
+          />
         </div>
 
         {/* ATMS Code — tags */}

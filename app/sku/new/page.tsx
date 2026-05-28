@@ -8,6 +8,7 @@ import {
   POSITION, UNIT, GRADE, VEHICLE_TYPE, EXPENSE_TYPES_NO_PRICE,
 } from "@/lib/codes"
 import { BrandCombobox } from "@/components/brand-combobox"
+import { VehicleMultiSelect } from "@/components/vehicle-multi-select"
 
 type CodeMap = Record<string, { th: string; en: string }>
 
@@ -42,7 +43,7 @@ export default function NewSkuPage() {
   const [oemRef, setOemRef]         = useState("")
   const [compatRefs, setCompatRefs] = useState<string[]>([])
   const [compatInput, setCompatInput] = useState("")
-  const [vehicle, setVehicle] = useState("")
+  const [vehicles, setVehicles] = useState<string[]>([])
   const [grade, setGrade]     = useState("OEM")
   const [atmsCodes, setAtmsCodes] = useState<string[]>([])
   const [atmsInput, setAtmsInput] = useState("")
@@ -166,7 +167,7 @@ export default function NewSkuPage() {
     const res = await fetch("/api/sku", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wh, type, l1, l2, l3, nameTh, nameEn, partNo, position, price: noPrice ? "0" : price, unit, brand, oemRef, compatRefs, vehicle, grade, atmsCodes }),
+      body: JSON.stringify({ wh, type, l1, l2, l3, nameTh, nameEn, partNo, position, price: noPrice ? "0" : price, unit, brand, oemRef, compatRefs, vehicles, grade, atmsCodes }),
     })
 
     setSaving(false)
@@ -405,11 +406,12 @@ export default function NewSkuPage() {
 
         {/* Row 8: Vehicle */}
         <div>
-          <label className={labelCls}>ทะเบียนหรือรุ่นรถ</label>
-          <select value={vehicle} onChange={(e) => setVehicle(e.target.value)} className={selectCls}>
-            <option value="">— ทุกรุ่น / ไม่ระบุ —</option>
-            {Object.entries(vehicleOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
-          </select>
+          <label className={labelCls}>ทะเบียนหรือรุ่นรถ <span className="font-normal text-gray-400">(เลือกได้หลายคัน)</span></label>
+          <VehicleMultiSelect
+            values={vehicles}
+            onChange={setVehicles}
+            className={inputCls}
+          />
         </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}
