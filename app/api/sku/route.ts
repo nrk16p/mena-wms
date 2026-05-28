@@ -1,0 +1,107 @@
+import { NextRequest, NextResponse } from "next/server"
+import clientPromise from "@/lib/mongo"
+import { buildSku } from "@/lib/codes"
+
+const DB   = process.env.MONGO_DB ?? "master_data"
+const COLL = "master_sku"
+
+// GET /api/sku  — list with optional filters
+export async function GET(req: NextRequest) {
+  const { searchParams } = req.nextUrl
+  const wh      = searchParams.get("wh")      ?? ""
+  const type    = searchParams.get("type")    ?? ""
+  const l1      = searchParams.get("l1")      ?? ""
+  const l2      = searchParams.get("l2")      ?? ""
+  const l3      = searchParams.get("l3")      ?? ""
+  const brand   = searchParams.get("brand")   ?? ""
+  const vehicle = searchParams.get("vehicle") ?? ""
+  const q       = searchParams.get("q")       ?? ""
+  const page    = Math.max(1, parseInt(searchParams.get("page") ?? "1"))
+  const limit   = Math.min(200, parseInt(searchParams.get("limit") ?? "50"))
+
+  const filter: Record<string, unknown> = {}
+  if (wh)      filter["คลังสินค้า"]          = wh
+  if (type)    filter["ประเภทค่าใช้จ่าย"]   = type
+  if (l1)      filter["ระบบ_L1"]             = l1
+  if (l2)      filter["ชุดประกอบ_L2"]        = l2
+  if (l3)      filter["ชิ้นส่วน_L3"]         = l3
+  if (brand)   filter["ยี่ห้อ"]              = { $regex: brand, $options: "i" }
+  if (vehicle) filter["ทะเบียนหรือรุ่นรถ"]  = { $regex: vehicle, $options: "i" }
+  if (q) {
+    filter["$or"] = [
+      { "ชื่ออะไหล่_TH": { $regex: q, $options: "i" } },
+      { "Part_Name_EN":   { $regex: q, $options: "i" } },
+      { "เบอร์อะไหล่":   { $regex: q, $options: "i" } },
+      { "รหัสATMS":       { $elemMatch: { $regex: q, $options: "i" } } },
+      { SKU:              { $regex: q, $options: "i" } },
+    ]
+  }
+
+  const client = await clientPromise
+  const col    = client.db(DB).collection(COLL)
+  const total  = await col.countDocuments(filter)
+  const items  = await col
+    .find(filter)
+    .sort({ SKU: 1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .toArray()
+
+  return NextResponse.json({ total, page, limit, items })
+}
+
+// POST /api/sku  — create new SKU
+export async function POST(req: NextRequest) {
+  const body = await req.json()
+  const { wh, type, l1, l2, l3, ...rest } = body
+
+  if (!wh || !type || !l1 || !l2 || !l3) {
+    return NextResponse.json({ error: "Missing required fields: wh, type, l1, l2, l3" }, { status: 400 })
+  }
+
+  const client = await clientPromise
+  const col    = client.db(DB).collection(COLL)
+
+  // Auto-increment SEQ per wh+type+l1+l2+l3
+  const prefix = `${wh}-${type}-${l1}-${l2}-${l3}-`
+  const last   = await col
+    .find({ SKU: { $regex: `^${prefix}` } })
+    .sort({ SKU: -1 })
+    .limit(1)
+    .toArray()
+
+  const seq = last.length > 0
+    ? parseInt(last[0].SKU.split("-").pop() ?? "0") + 1
+    : 1
+
+  const sku = buildSku(wh, type, l1, l2, l3, seq)
+
+  const noPrice = ["LAB", "SVC", "CLN", "TRP", "ACC"].includes(type)
+  const price   = noPrice ? 0 : (parseFloat(rest.price) || 0)
+
+  const doc = {
+    SKU:               sku,
+    คลังสินค้า:        wh,
+    ประเภทค่าใช้จ่าย: type,
+    ชื่ออะไหล่_TH:    rest.nameTh    ?? "",
+    Part_Name_EN:      rest.nameEn    ?? "",
+    เบอร์อะไหล่:       rest.partNo    ?? "",
+    ระบบ_L1:           l1,
+    ชุดประกอบ_L2:      l2,
+    ชิ้นส่วน_L3:       l3,
+    ตำแหน่ง:           rest.position  ?? "GN",
+    ราคาต่อหน่วย:      price,
+    หน่วย:             rest.unit      ?? "PC",
+    ยี่ห้อ:            rest.brand     ?? "",
+    เบอร์แท้อ้างอิง:   rest.oemRef    ?? "",
+    เบอร์เทียบอ้างอิง: rest.compatRef ?? "",
+    ทะเบียนหรือรุ่นรถ: rest.vehicle   ?? "",
+    Grade:             rest.grade     ?? "NA",
+    รหัสATMS:          Array.isArray(rest.atmsCodes) ? rest.atmsCodes : (rest.atmsCode ? [rest.atmsCode] : []),
+    createdAt:         new Date(),
+    updatedAt:         new Date(),
+  }
+
+  await col.insertOne(doc)
+  return NextResponse.json({ sku, doc }, { status: 201 })
+}

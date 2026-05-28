@@ -1,0 +1,228 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useParams, useRouter } from "next/navigation"
+import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2, POSITION, UNIT, GRADE, VEHICLE_TYPE, EXPENSE_TYPES_NO_PRICE } from "@/lib/codes"
+import { COMPONENT_L3 } from "@/lib/codes-l3"
+
+type SkuDoc = Record<string, unknown>
+
+export default function EditSkuPage() {
+  const { sku } = useParams<{ sku: string }>()
+  const router  = useRouter()
+
+  const [doc, setDoc]         = useState<SkuDoc | null>(null)
+  const [saving, setSaving]   = useState(false)
+  const [error, setError]     = useState("")
+  const [atmsCodes, setAtmsCodes] = useState<string[]>([])
+  const [atmsInput, setAtmsInput] = useState("")
+
+  useEffect(() => {
+    fetch(`/api/sku/${sku}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setDoc(d)
+        const raw = d["รหัสATMS"]
+        setAtmsCodes(Array.isArray(raw) ? raw : raw ? [raw] : [])
+      })
+  }, [sku])
+
+  if (!doc) return <div className="text-sm text-gray-400 p-6">กำลังโหลด...</div>
+
+  if (!doc) return null
+  const type = String(doc["ประเภทค่าใช้จ่าย"] ?? "")
+  const l1   = String(doc["ระบบ_L1"] ?? "")
+  const l2   = String(doc["ชุดประกอบ_L2"] ?? "")
+  const l3   = String(doc["ชิ้นส่วน_L3"] ?? "")
+  const noPrice = EXPENSE_TYPES_NO_PRICE.includes(type)
+
+  const l2Options = l1 ? (SUB_ASSEMBLY_L2[l1] ?? {}) : {}
+  const l3Options = l1 && l2 ? ((COMPONENT_L3[l1] ?? {})[l2] ?? {}) : {}
+
+  function field(key: string) { return String((doc as SkuDoc)[key] ?? "") }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setSaving(true)
+    setError("")
+
+    const form = new FormData(e.currentTarget)
+    const body: Record<string, unknown> = {}
+    form.forEach((v, k) => { body[k] = String(v) })
+    body["ประเภทค่าใช้จ่าย"] = type
+    body["รหัสATMS"] = atmsCodes
+    if (noPrice) body["ราคาต่อหน่วย"] = "0"
+
+    const res = await fetch(`/api/sku/${sku}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+
+    setSaving(false)
+    if (!res.ok) { setError("เกิดข้อผิดพลาด"); return }
+    router.push("/sku")
+  }
+
+  const labelCls  = "block text-[12px] font-medium text-gray-600 dark:text-gray-400 mb-1"
+  const inputCls  = "w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
+  const selectCls = inputCls
+
+  return (
+    <div className="max-w-3xl">
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">แก้ไข SKU</h1>
+        <p className="font-mono text-sm text-gray-500 dark:text-gray-400 mt-0.5">{sku}</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>คลังสินค้า</label>
+            <select name="คลังสินค้า" defaultValue={field("คลังสินค้า")} className={selectCls}>
+              {Object.entries(WAREHOUSE).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>ประเภทค่าใช้จ่าย</label>
+            <input value={EXPENSE_TYPE[type]?.th ?? type} disabled className={inputCls + " opacity-50 cursor-not-allowed"} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className={labelCls}>ระบบ L1</label>
+            <input value={`${l1} — ${SYSTEM_L1[l1]?.th ?? l1}`} disabled className={inputCls + " opacity-50 cursor-not-allowed"} />
+          </div>
+          <div>
+            <label className={labelCls}>ชุดประกอบ L2</label>
+            <input value={`${l2} — ${l2Options[l2]?.th ?? l2}`} disabled className={inputCls + " opacity-50 cursor-not-allowed"} />
+          </div>
+          <div>
+            <label className={labelCls}>ชิ้นส่วน L3</label>
+            <input value={`${l3} — ${l3Options[l3]?.th ?? l3}`} disabled className={inputCls + " opacity-50 cursor-not-allowed"} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>ชื่ออะไหล่ (TH) *</label>
+            <input name="ชื่ออะไหล่_TH" defaultValue={field("ชื่ออะไหล่_TH")} className={inputCls} required />
+          </div>
+          <div>
+            <label className={labelCls}>Part Name (EN)</label>
+            <input name="Part_Name_EN" defaultValue={field("Part_Name_EN")} className={inputCls} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>เบอร์อะไหล่</label>
+            <input name="เบอร์อะไหล่" defaultValue={field("เบอร์อะไหล่")} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>ตำแหน่ง</label>
+            <select name="ตำแหน่ง" defaultValue={field("ตำแหน่ง")} className={selectCls}>
+              {Object.entries(POSITION).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>ราคาต่อหน่วย</label>
+            <input name="ราคาต่อหน่วย" defaultValue={noPrice ? "0" : field("ราคาต่อหน่วย")} disabled={noPrice} type="number" min="0" step="0.01" className={inputCls + (noPrice ? " opacity-50 cursor-not-allowed" : "")} />
+          </div>
+          <div>
+            <label className={labelCls}>หน่วย</label>
+            <select name="หน่วย" defaultValue={field("หน่วย")} className={selectCls}>
+              {Object.entries(UNIT).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>ยี่ห้อ</label>
+            <input name="ยี่ห้อ" defaultValue={field("ยี่ห้อ")} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Grade</label>
+            <select name="Grade" defaultValue={field("Grade")} className={selectCls}>
+              {Object.entries(GRADE).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>เบอร์แท้อ้างอิง</label>
+            <input name="เบอร์แท้อ้างอิง" defaultValue={field("เบอร์แท้อ้างอิง")} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>เบอร์เทียบอ้างอิง</label>
+            <input name="เบอร์เทียบอ้างอิง" defaultValue={field("เบอร์เทียบอ้างอิง")} className={inputCls} />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelCls}>ทะเบียนหรือรุ่นรถ</label>
+          <select name="ทะเบียนหรือรุ่นรถ" defaultValue={field("ทะเบียนหรือรุ่นรถ")} className={selectCls}>
+            <option value="">— ทุกรุ่น / ไม่ระบุ —</option>
+            {Object.entries(VEHICLE_TYPE).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
+          </select>
+        </div>
+
+        {/* ATMS Code — tags */}
+        <div className="rounded-xl border-2 border-dashed border-blue-200 dark:border-blue-800/60 bg-blue-50/50 dark:bg-blue-950/20 px-5 py-4">
+          <label className="block text-[11px] font-semibold uppercase tracking-widest text-blue-500 dark:text-blue-400 mb-2">
+            รหัสสินค้า ATMS <span className="normal-case font-normal">(รองรับหลายรหัส)</span>
+          </label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {atmsCodes.map((code) => (
+              <span key={code} className="inline-flex items-center gap-1 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-xs font-mono">
+                {code}
+                <button type="button" onClick={() => setAtmsCodes((p) => p.filter((c) => c !== code))} className="hover:text-red-500 transition-colors">×</button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={atmsInput}
+              onChange={(e) => setAtmsInput(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === ",") && atmsInput.trim()) {
+                  e.preventDefault()
+                  const v = atmsInput.trim()
+                  if (!atmsCodes.includes(v)) setAtmsCodes((p) => [...p, v])
+                  setAtmsInput("")
+                }
+              }}
+              placeholder="พิมพ์รหัส แล้วกด Enter หรือ ,"
+              className="flex-1 rounded-lg border border-blue-200 dark:border-blue-700/50 bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
+            />
+            <button
+              type="button"
+              onClick={() => { if (atmsInput.trim() && !atmsCodes.includes(atmsInput.trim())) { setAtmsCodes((p) => [...p, atmsInput.trim()]); setAtmsInput("") } }}
+              className="rounded-lg bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold transition-colors"
+            >
+              เพิ่ม
+            </button>
+          </div>
+          <p className="text-[10px] text-blue-400 dark:text-blue-600 mt-1.5">รหัสอ้างอิงจากระบบ ATMS — เพิ่มได้หลายรหัส</p>
+        </div>
+
+        {error && <p className="text-sm text-red-500">{error}</p>}
+
+        <div className="flex gap-3 pt-2">
+          <button type="submit" disabled={saving} className="flex-1 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50">
+            {saving ? "กำลังบันทึก..." : "บันทึก"}
+          </button>
+          <button type="button" onClick={() => router.back()} className="rounded-lg border border-gray-200 dark:border-white/10 px-5 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors">
+            ยกเลิก
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
