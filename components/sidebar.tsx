@@ -17,6 +17,7 @@ import {
   Inbox,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
+import { ManualBook } from "./manual-book"
 
 type NavItem = { href: string; label: string; icon: React.ElementType; exact?: boolean }
 type NavGroup = { label: string; items: NavItem[] }
@@ -212,6 +213,9 @@ export function Sidebar() {
         <div className="mb-2 mx-0.5 h-px bg-[#E2E8F0] dark:bg-white/5" />
 
         <ThemeToggle collapsed={collapsed} />
+
+        {/* Manual */}
+        <ManualBook collapsed={collapsed} />
 
         {session?.user && (
           <div className={`
