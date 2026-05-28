@@ -21,6 +21,7 @@ const DICT_LABEL: Record<string, string> = {
   SYSTEM_L1: "ระบบ L1", SUB_ASSEMBLY_L2: "ชุดประกอบ L2",
   COMPONENT_L3: "ชิ้นส่วน L3", POSITION: "ตำแหน่ง",
   UNIT: "หน่วย", GRADE: "Grade", VEHICLE_TYPE: "รุ่น/ประเภทรถ",
+  BRAND: "ยี่ห้อ",
 }
 
 const HAS_PARENT: Record<string, boolean> = {
@@ -139,7 +140,7 @@ export default function DictPage() {
 
   const inputCls  = "w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
 
-  const hasMeta = ["EXPENSE_TYPE", "VEHICLE_TYPE"].includes(dict)
+  const hasMeta = ["EXPENSE_TYPE", "VEHICLE_TYPE", "BRAND"].includes(dict)
 
   return (
     <div>
@@ -205,8 +206,10 @@ export default function DictPage() {
             )}
             {hasMeta && (
               <div className="col-span-2 sm:col-span-4">
-                <label className="block text-[11px] font-medium text-gray-500 mb-1">Meta (JSON) — เช่น color สำหรับ EXPENSE_TYPE</label>
-                <input value={addMeta} onChange={(e) => setAddMeta(e.target.value)} placeholder='{"color":"#DEEAF1"}' className={inputCls} />
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                  {dict === "BRAND" ? 'หมวดหมู่ (Meta JSON) — เช่น {"category":"filter"}' : 'Meta (JSON) — เช่น color สำหรับ EXPENSE_TYPE'}
+                </label>
+                <input value={addMeta} onChange={(e) => setAddMeta(e.target.value)} placeholder={dict === "BRAND" ? '{"category":"chassis"}' : '{"color":"#DEEAF1"}'} className={inputCls} />
               </div>
             )}
           </div>
@@ -232,7 +235,7 @@ export default function DictPage() {
                 {hasParent && <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">Parent</th>}
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">ชื่อ TH</th>
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">ชื่อ EN</th>
-                {hasMeta && <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">Meta</th>}
+                {hasMeta && <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">{dict === "BRAND" ? "หมวดหมู่" : "Meta"}</th>}
                 <th className="px-3 py-2.5 w-20"></th>
               </tr>
             </thead>
@@ -262,8 +265,10 @@ export default function DictPage() {
                     {hasMeta && (
                       <td className="px-3 py-2 text-gray-400 dark:text-gray-600 text-xs font-mono max-w-[200px] truncate">
                         {isEditing
-                          ? <input value={editMeta} onChange={(e) => setEditMeta(e.target.value)} className={inputCls} placeholder='{"color":"#DEEAF1"}' />
-                          : JSON.stringify(item.meta)
+                          ? <input value={editMeta} onChange={(e) => setEditMeta(e.target.value)} className={inputCls} placeholder={dict === "BRAND" ? '{"category":"filter"}' : '{"color":"#DEEAF1"}'} />
+                          : dict === "BRAND"
+                            ? String((item.meta as { category?: string })?.category ?? "—")
+                            : JSON.stringify(item.meta)
                         }
                       </td>
                     )}

@@ -15,6 +15,7 @@ const DICT_META: Record<string, { label: string; description: string; color: str
   UNIT:            { label: "หน่วย",                   description: "PC / SET / LTR / KG / JOB ...",        color: "bg-cyan-50 dark:bg-cyan-950 text-cyan-600 dark:text-cyan-400" },
   GRADE:           { label: "Grade",                   description: "OEM / OE / A / B / NA",                color: "bg-yellow-50 dark:bg-yellow-950 text-yellow-600 dark:text-yellow-400" },
   VEHICLE_TYPE:    { label: "รุ่น/ประเภทรถ",           description: "MX10_ISZ / HD_HIN / TRL_SEM ...",      color: "bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400" },
+  BRAND:           { label: "ยี่ห้อ",                  description: "ISUZU / HINO / VOLVO / MICHELIN ...",   color: "bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-400" },
 }
 
 async function getDictSummary() {
