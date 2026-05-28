@@ -11,6 +11,8 @@ type VehicleItem = {
   model:        string
   fuelType:     string
   year:         string
+  engineNo:     string
+  chassisNo:    string
 }
 
 type VehicleGroup = {
@@ -154,10 +156,16 @@ export function VehicleMultiSelect({ values, onChange, className }: VehicleMulti
         {selected.map((v) => (
           <span
             key={v.plate}
-            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${typeColor(v.vehicleType)}`}
+            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${typeColor(v.vehicleType)}`}
           >
-            <span className="font-mono">{v.plate}</span>
+            <span className="font-mono font-semibold">{v.plate}</span>
             {v.vehicleType && <span className="opacity-60 text-[10px]">{v.vehicleType}</span>}
+            {(v.chassisNo || v.engineNo) && (
+              <span className="flex flex-col gap-0 opacity-70 text-[9px] font-mono leading-tight border-l border-current/30 pl-1.5 ml-0.5">
+                {v.chassisNo && <span>ตัวถัง {v.chassisNo}</span>}
+                {v.engineNo  && <span>เครื่อง {v.engineNo}</span>}
+              </span>
+            )}
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); remove(v.plate) }}
@@ -246,7 +254,7 @@ export function VehicleMultiSelect({ values, onChange, className }: VehicleMulti
                   key={v.plate}
                   type="button"
                   onClick={() => addPlate(v)}
-                  className="w-full text-left px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors border-b border-gray-50 dark:border-white/3 last:border-0"
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors border-b border-gray-50 dark:border-white/3 last:border-0"
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-mono font-semibold text-sm text-gray-900 dark:text-white w-28 shrink-0">{v.plate}</span>
@@ -254,6 +262,12 @@ export function VehicleMultiSelect({ values, onChange, className }: VehicleMulti
                     <span className="text-xs text-gray-500 dark:text-gray-400 truncate">{v.brand}{v.model ? ` · ${v.model}` : ""}{v.year ? ` (${v.year})` : ""}</span>
                     {v.fleetNo && <span className="ml-auto text-[11px] font-mono text-gray-400 shrink-0">#{v.fleetNo}</span>}
                   </div>
+                  {(v.chassisNo || v.engineNo) && (
+                    <div className="flex gap-4 mt-0.5 pl-[124px]">
+                      {v.chassisNo && <span className="text-[10px] font-mono text-gray-400">ตัวถัง: {v.chassisNo}</span>}
+                      {v.engineNo  && <span className="text-[10px] font-mono text-gray-400">เครื่อง: {v.engineNo}</span>}
+                    </div>
+                  )}
                 </button>
               ))}
             </>
