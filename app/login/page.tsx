@@ -4,8 +4,15 @@ import { signIn, useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, Suspense } from "react"
 
+const bgStyle: React.CSSProperties = {
+  backgroundImage: "url('/mena-login.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+}
+
 function LoginContent() {
-  const { data: session, status } = useSession()
+  const { status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
   const error = searchParams.get("error")
@@ -16,27 +23,20 @@ function LoginContent() {
 
   if (status === "loading") {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#f5f5f7] dark:bg-[#0a0a10]">
-        <div className="text-sm text-gray-400">กำลังโหลด...</div>
+      <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
+        <div className="absolute inset-0 bg-black/30" />
+        <div className="relative z-10 text-sm text-white/60">กำลังโหลด...</div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-[#f5f5f7] dark:bg-[#0a0a10]">
-      <div className="w-full max-w-sm">
-        {/* Logo / Brand */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-gray-800 to-gray-950 dark:from-white dark:to-gray-300 text-white dark:text-gray-900 text-2xl font-bold shadow-lg">
-            S
-          </div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Mena WMS</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Warehouse Management · Mena Transport</p>
-        </div>
-
+    <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
+      <div className="absolute inset-0 bg-black/30" />
+      <div className="relative top-40 z-10 w-full max-w-md px-4">
         {/* Card */}
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-8 py-8 shadow-sm">
-          <p className="mb-6 text-center text-sm text-gray-600 dark:text-gray-400">
+        <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md px-8 py-8 shadow-xl">
+          <p className="mb-6 text-center text-sm text-white/80">
             เข้าสู่ระบบด้วยบัญชี Google ของบริษัท
           </p>
 
@@ -50,7 +50,7 @@ function LoginContent() {
 
           <button
             onClick={() => signIn("google", { callbackUrl: "/" })}
-            className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/10 transition-colors shadow-sm"
+            className="flex w-full cursor-pointer items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/90 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-white transition-colors shadow-sm"
           >
             {/* Google icon */}
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -62,7 +62,7 @@ function LoginContent() {
             Sign in with Google
           </button>
 
-          <p className="mt-5 text-center text-[11px] text-gray-400 dark:text-gray-600">
+          <p className="mt-5 text-center text-[11px] text-white/50">
             รองรับเฉพาะบัญชี @menatransport.co.th
           </p>
         </div>

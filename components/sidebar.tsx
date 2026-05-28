@@ -31,7 +31,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Master SKU",
     items: [
-      { href: "/sku", label: "รายการ SKU", icon: PackageSearch },
+      { href: "/sku", label: "รายการ SKU", icon: PackageSearch, exact: true },
       { href: "/sku/new", label: "เพิ่ม SKU ใหม่", icon: PlusCircle },
     ],
   },
@@ -40,15 +40,15 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/codes/parts", label: "Parts Catalog", icon: Layers },
       { href: "/vehicles", label: "ยานพาหนะ", icon: Car },
-      { href: "/codes", label: "Code Dictionary", icon: Database },
+      { href: "/codes", label: "Code Dictionary", icon: Database, exact: true },
     ],
   },
 ]
 
 export function Sidebar() {
-  const [collapsed, setCollapsed]       = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
-  const pathname  = usePathname()
+  const pathname = usePathname()
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
 
@@ -57,12 +57,12 @@ export function Sidebar() {
     fetch("/api/sku?status=pending&limit=1")
       .then((r) => r.json())
       .then((d) => setPendingCount(d.total ?? 0))
-      .catch(() => {})
+      .catch(() => { })
   }, [isAdmin, pathname])
 
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href
-    return pathname.startsWith(href)
+    return pathname === href || pathname.startsWith(href + "/")
   }
 
   return (

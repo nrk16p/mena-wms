@@ -8,7 +8,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === "/login"
 
   if (isLoginPage) {
-    return <>{children}</>
+    return <div className="w-full h-full">{children}</div>
   }
 
   return (
