@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
+import { isAdmin } from "./roles"
 
 const ALLOWED_DOMAIN = "menatransport.co.th"
 
@@ -12,22 +13,23 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ user, profile }) {
-      // user.email is always set; profile may be undefined on some flows
-      const email = user?.email ?? profile?.email ?? ""
+      const email  = user?.email ?? profile?.email ?? ""
       const domain = email.split("@")[1]?.toLowerCase()
       return domain === ALLOWED_DOMAIN
-    },
-    async session({ session, token }) {
-      if (session.user && token.sub) {
-        (session.user as { id?: string }).id = token.sub
-      }
-      return session
     },
     async jwt({ token, account, profile }) {
       if (account) {
         token.email = token.email ?? (profile as { email?: string })?.email
       }
+      token.role = isAdmin(token.email as string) ? "admin" : "user"
       return token
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.role = token.role
+        if (token.sub) (session.user as { id?: string }).id = token.sub
+      }
+      return session
     },
   },
   pages: {

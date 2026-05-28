@@ -70,7 +70,7 @@ export default function SkuListPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+    const params = new URLSearchParams({ page: String(page), limit: String(limit), status: "approved" })
     if (q)       params.set("q", q)
     if (wh)      params.set("wh", wh)
     if (type)    params.set("type", type)

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
 import clientPromise from "@/lib/mongo"
 import { buildSku } from "@/lib/codes"
+import { authOptions } from "@/lib/auth"
+import { isAdmin } from "@/lib/roles"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "master_sku"
@@ -15,18 +18,20 @@ export async function GET(req: NextRequest) {
   const l3      = searchParams.get("l3")      ?? ""
   const brand   = searchParams.get("brand")   ?? ""
   const vehicle = searchParams.get("vehicle") ?? ""
+  const status  = searchParams.get("status")  ?? ""
   const q       = searchParams.get("q")       ?? ""
   const page    = Math.max(1, parseInt(searchParams.get("page") ?? "1"))
   const limit   = Math.min(200, parseInt(searchParams.get("limit") ?? "50"))
 
   const filter: Record<string, unknown> = {}
-  if (wh)      filter["คลังสินค้า"]          = wh
-  if (type)    filter["ประเภทค่าใช้จ่าย"]   = type
-  if (l1)      filter["ระบบ_L1"]             = l1
-  if (l2)      filter["ชุดประกอบ_L2"]        = l2
-  if (l3)      filter["ชิ้นส่วน_L3"]         = l3
-  if (brand)   filter["ยี่ห้อ"]              = { $regex: brand, $options: "i" }
-  if (vehicle) filter["ทะเบียนหรือรุ่นรถ"]  = { $regex: vehicle, $options: "i" }
+  if (wh)      filter["คลังสินค้า"]         = wh
+  if (type)    filter["ประเภทค่าใช้จ่าย"]  = type
+  if (l1)      filter["ระบบ_L1"]            = l1
+  if (l2)      filter["ชุดประกอบ_L2"]       = l2
+  if (l3)      filter["ชิ้นส่วน_L3"]        = l3
+  if (brand)   filter["ยี่ห้อ"]             = { $regex: brand, $options: "i" }
+  if (vehicle) filter["ทะเบียนหรือรุ่นรถ"] = { $regex: vehicle, $options: "i" }
+  if (status)  filter["status"]             = status
   if (q) {
     filter["$or"] = [
       { "ชื่ออะไหล่_TH": { $regex: q, $options: "i" } },
@@ -52,6 +57,11 @@ export async function GET(req: NextRequest) {
 
 // POST /api/sku  — create new SKU
 export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const body = await req.json()
   const { wh, type, l1, l2, l3, ...rest } = body
 
@@ -62,7 +72,7 @@ export async function POST(req: NextRequest) {
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
 
-  // Auto-increment SEQ per wh+type+l1+l2+l3
+  // Auto-increment SEQ per wh+type+l1+l2+l3 (include pending in count so SKU is reserved)
   const prefix = `${wh}-${type}-${l1}-${l2}-${l3}-`
   const last   = await col
     .find({ SKU: { $regex: `^${prefix}` } })
@@ -74,13 +84,16 @@ export async function POST(req: NextRequest) {
     ? parseInt(last[0].SKU.split("-").pop() ?? "0") + 1
     : 1
 
-  const sku = buildSku(wh, type, l1, l2, l3, seq)
-
-  const noPrice = ["LAB", "SVC", "CLN", "TRP", "ACC"].includes(type)
-  const price   = noPrice ? 0 : (parseFloat(rest.price) || 0)
+  const sku      = buildSku(wh, type, l1, l2, l3, seq)
+  const noPrice  = ["LAB", "SVC", "CLN", "TRP", "ACC"].includes(type)
+  const price    = noPrice ? 0 : (parseFloat(rest.price) || 0)
+  const userIsAdmin = isAdmin(session.user.email)
 
   const doc = {
     SKU:               sku,
+    status:            userIsAdmin ? "approved" : "pending",
+    createdBy:         session.user.email,
+    createdByName:     session.user.name ?? "",
     คลังสินค้า:        wh,
     ประเภทค่าใช้จ่าย: type,
     ชื่ออะไหล่_TH:    rest.nameTh    ?? "",
@@ -103,5 +116,5 @@ export async function POST(req: NextRequest) {
   }
 
   await col.insertOne(doc)
-  return NextResponse.json({ sku, doc }, { status: 201 })
+  return NextResponse.json({ sku, status: doc.status, doc }, { status: 201 })
 }

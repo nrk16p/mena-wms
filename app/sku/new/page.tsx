@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
 import {
   WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1,
   POSITION, UNIT, GRADE, VEHICLE_TYPE, EXPENSE_TYPES_NO_PRICE,
@@ -22,6 +23,8 @@ function toStaticMap(obj: Record<string, any>): CodeMap {
 
 export default function NewSkuPage() {
   const router = useRouter()
+  const { data: session } = useSession()
+  const isAdmin = session?.user?.role === "admin"
 
   const [wh, setWh]           = useState("LK")
   const [type, setType]       = useState("PRT")
@@ -130,7 +133,11 @@ export default function NewSkuPage() {
     }
 
     const d = await res.json()
-    router.push(`/sku?highlight=${d.sku}`)
+    if (d.status === "pending") {
+      router.push("/sku/pending-submitted")
+    } else {
+      router.push(`/sku?highlight=${d.sku}`)
+    }
   }
 
   const labelCls = "block text-[12px] font-medium text-gray-600 dark:text-gray-400 mb-1"
@@ -142,6 +149,12 @@ export default function NewSkuPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-900 dark:text-white">เพิ่ม SKU ใหม่</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">กรอกข้อมูลด้านล่าง ระบบจะสร้าง SKU ให้อัตโนมัติ</p>
+        {!isAdmin && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+            <span className="shrink-0">⏳</span>
+            SKU ที่สร้างจะต้องรอ Admin อนุมัติก่อนจึงจะปรากฏในรายการ
+          </div>
+        )}
       </div>
 
       {/* SKU Preview + ATMS Code side-by-side */}

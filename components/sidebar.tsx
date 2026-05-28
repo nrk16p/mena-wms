@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useSession, signOut } from "next-auth/react"
 import {
   ChevronLeft,
@@ -13,6 +13,7 @@ import {
   Layers,
   Database,
   LogOut,
+  Clock,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -43,9 +44,19 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 export function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false)
-  const pathname = usePathname()
+  const [collapsed, setCollapsed]       = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
+  const pathname  = usePathname()
   const { data: session } = useSession()
+  const isAdmin = session?.user?.role === "admin"
+
+  useEffect(() => {
+    if (!isAdmin) return
+    fetch("/api/sku?status=pending&limit=1")
+      .then((r) => r.json())
+      .then((d) => setPendingCount(d.total ?? 0))
+      .catch(() => {})
+  }, [isAdmin, pathname])
 
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href
@@ -125,6 +136,39 @@ export function Sidebar() {
             </div>
           </div>
         ))}
+
+        {/* Admin: pending approvals */}
+        {isAdmin && (
+          <div>
+            {!collapsed && (
+              <p className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-amber-500 dark:text-amber-600">
+                Admin
+              </p>
+            )}
+            <Link
+              href="/sku/pending"
+              title={collapsed ? "รออนุมัติ" : undefined}
+              className={`
+                group relative flex items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition-all duration-150
+                ${collapsed ? "justify-center px-0" : "px-2.5"}
+                ${isActive("/sku/pending")
+                  ? "bg-amber-500 text-white"
+                  : "text-amber-600 dark:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                }
+              `}
+            >
+              <Clock size={15} className="shrink-0" />
+              {!collapsed && (
+                <span className="flex-1 truncate">รออนุมัติ SKU</span>
+              )}
+              {pendingCount > 0 && (
+                <span className={`shrink-0 rounded-full text-[10px] font-bold px-1.5 py-0.5 ${isActive("/sku/pending") ? "bg-white/20 text-white" : "bg-amber-500 text-white"}`}>
+                  {pendingCount}
+                </span>
+              )}
+            </Link>
+          </div>
+        )}
       </nav>
 
       <div className="border-t border-gray-200 dark:border-white/8 px-2 py-3 space-y-1">
