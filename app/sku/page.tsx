@@ -54,7 +54,9 @@ export default function SkuListPage() {
   const [l2,      setL2]      = useState("")
   const [l3,      setL3]      = useState("")
   const [brand,   setBrand]   = useState("")
+  const [grade,   setGrade]   = useState("")
   const [vehicle, setVehicle] = useState("")
+  const [gradeOptions, setGradeOptions] = useState<string[]>([])
 
   const limit = 50
 
@@ -62,27 +64,39 @@ export default function SkuListPage() {
   const l2Options = l1 ? Object.entries(SUB_ASSEMBLY_L2[l1] ?? {}) : []
   const l3Options = l1 && l2 ? Object.entries((COMPONENT_L3[l1] ?? {})[l2] ?? {}) : []
 
-  const activeFilters = [wh, type, l1, l2, l3, brand, vehicle].filter(Boolean).length
+  const activeFilters = [wh, type, l1, l2, l3, brand, grade, vehicle].filter(Boolean).length
 
   function resetFilters() {
     setWh(""); setType(""); setL1(""); setL2(""); setL3("")
-    setBrand(""); setVehicle(""); setQ(""); setPage(1)
+    setBrand(""); setGrade(""); setVehicle(""); setQ(""); setPage(1)
   }
 
-  // Fetch distinct brands that match current filters (excluding brand itself)
+  // Fetch distinct brands/grades that match current filters (excluding each from its own facet)
   useEffect(() => {
-    const params = new URLSearchParams({ distinct: "brand", status: "approved" })
-    if (q)    params.set("q", q)
-    if (wh)   params.set("wh", wh)
-    if (type) params.set("type", type)
-    if (l1)   params.set("l1", l1)
-    if (l2)   params.set("l2", l2)
-    if (l3)   params.set("l3", l3)
-    fetch(`/api/sku?${params}`)
-      .then((r) => r.json())
-      .then((brands: string[]) => setBrandOptions(Array.isArray(brands) ? brands : []))
-      .catch(() => {})
-  }, [q, wh, type, l1, l2, l3])
+    const base = new URLSearchParams({ status: "approved" })
+    if (q)     base.set("q", q)
+    if (wh)    base.set("wh", wh)
+    if (type)  base.set("type", type)
+    if (l1)    base.set("l1", l1)
+    if (l2)    base.set("l2", l2)
+    if (l3)    base.set("l3", l3)
+
+    const brandParams = new URLSearchParams(base)
+    brandParams.set("distinct", "brand")
+    if (grade) brandParams.set("grade", grade)
+
+    const gradeParams = new URLSearchParams(base)
+    gradeParams.set("distinct", "grade")
+    if (brand) gradeParams.set("brand", brand)
+
+    Promise.all([
+      fetch(`/api/sku?${brandParams}`).then((r) => r.json()),
+      fetch(`/api/sku?${gradeParams}`).then((r) => r.json()),
+    ]).then(([brands, grades]) => {
+      setBrandOptions(Array.isArray(brands) ? brands : [])
+      setGradeOptions(Array.isArray(grades) ? grades : [])
+    }).catch(() => {})
+  }, [q, wh, type, l1, l2, l3, brand, grade])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -94,6 +108,7 @@ export default function SkuListPage() {
     if (l2)      params.set("l2", l2)
     if (l3)      params.set("l3", l3)
     if (brand)   params.set("brand", brand)
+    if (grade)   params.set("grade", grade)
     if (vehicle) params.set("vehicle", vehicle)
 
     const res  = await window.fetch(`/api/sku?${params}`)
@@ -101,7 +116,7 @@ export default function SkuListPage() {
     setItems(data.items ?? [])
     setTotal(data.total ?? 0)
     setLoading(false)
-  }, [page, q, wh, type, l1, l2, l3, brand, vehicle])
+  }, [page, q, wh, type, l1, l2, l3, brand, grade, vehicle])
 
   useEffect(() => { load() }, [load])
 
@@ -193,6 +208,16 @@ export default function SkuListPage() {
           >
             <option value="">ยี่ห้อทั้งหมด {brandOptions.length > 0 ? `(${brandOptions.length})` : ""}</option>
             {brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+
+          {/* Grade — dynamic from current filtered data */}
+          <select
+            value={gradeOptions.includes(grade) ? grade : ""}
+            onChange={(e) => { setGrade(e.target.value); setPage(1) }}
+            className={selCls}
+          >
+            <option value="">Grade ทั้งหมด {gradeOptions.length > 0 ? `(${gradeOptions.length})` : ""}</option>
+            {gradeOptions.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
 
           {/* Vehicle — free text: matches รุ่นรถ code or ทะเบียนรถ plate */}

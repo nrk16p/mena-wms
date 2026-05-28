@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const l2      = searchParams.get("l2")      ?? ""
   const l3      = searchParams.get("l3")      ?? ""
   const brand   = searchParams.get("brand")   ?? ""
+  const grade   = searchParams.get("grade")   ?? ""
   const vehicle = searchParams.get("vehicle") ?? ""
   const status  = searchParams.get("status")  ?? ""
   const q       = searchParams.get("q")       ?? ""
@@ -30,6 +31,7 @@ export async function GET(req: NextRequest) {
   if (l2)      filter["ชุดประกอบ_L2"]       = l2
   if (l3)      filter["ชิ้นส่วน_L3"]        = l3
   if (brand)   filter["ยี่ห้อ"]             = { $regex: brand, $options: "i" }
+  if (grade)   filter["Grade"]              = grade
   if (vehicle) filter["ทะเบียนหรือรุ่นรถ"] = { $elemMatch: { $regex: vehicle, $options: "i" } }
   if (status)  filter["status"]             = status
   if (q) {
@@ -45,11 +47,15 @@ export async function GET(req: NextRequest) {
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
 
-  // Distinct-brand facet request
+  // Distinct facet request
   const distinct = searchParams.get("distinct")
   if (distinct === "brand") {
     const brands = await col.distinct("ยี่ห้อ", filter)
     return NextResponse.json(brands.filter(Boolean).sort())
+  }
+  if (distinct === "grade") {
+    const grades = await col.distinct("Grade", filter)
+    return NextResponse.json(grades.filter(Boolean).sort())
   }
 
   const total  = await col.countDocuments(filter)
