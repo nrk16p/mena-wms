@@ -77,6 +77,7 @@ export default function EditSkuPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (atmsCodes.length === 0) { setError("กรุณาระบุรหัส ATMS อย่างน้อย 1 รหัส"); return }
     setSaving(true)
     setError("")
 
@@ -95,6 +96,7 @@ export default function EditSkuPage() {
 
     setSaving(false)
     if (!res.ok) { setError("เกิดข้อผิดพลาด"); return }
+
     router.push("/sku")
   }
 
@@ -214,9 +216,9 @@ export default function EditSkuPage() {
         </div>
 
         {/* ATMS Code — tags */}
-        <div className="rounded-xl border-2 border-dashed border-blue-200 dark:border-blue-800/60 bg-blue-50/50 dark:bg-blue-950/20 px-5 py-4">
-          <label className="block text-[11px] font-semibold uppercase tracking-widest text-blue-500 dark:text-blue-400 mb-2">
-            รหัสสินค้า ATMS <span className="normal-case font-normal">(รองรับหลายรหัส)</span>
+        <div className={`rounded-xl border-2 border-dashed px-5 py-4 ${atmsCodes.length === 0 && error ? "border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-950/20" : "border-blue-200 dark:border-blue-800/60 bg-blue-50/50 dark:bg-blue-950/20"}`}>
+          <label className={`block text-[11px] font-semibold uppercase tracking-widest mb-2 ${atmsCodes.length === 0 && error ? "text-red-500 dark:text-red-400" : "text-blue-500 dark:text-blue-400"}`}>
+            รหัสสินค้า ATMS <span className="normal-case font-normal">(จำเป็น — อย่างน้อย 1 รหัส)</span>
           </label>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {atmsCodes.map((code) => (

@@ -118,6 +118,7 @@ export default function NewSkuPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!l1 || !l2 || !l3) { setError("กรุณาเลือก L1, L2, L3"); return }
+    if (atmsCodes.length === 0) { setError("กรุณาระบุรหัส ATMS อย่างน้อย 1 รหัส"); return }
     setError("")
     setSaving(true)
 
@@ -167,9 +168,9 @@ export default function NewSkuPage() {
             {previewSku || <span className="text-gray-400 dark:text-gray-600">เลือก WH + Type + L1 + L2 + L3 ก่อน</span>}
           </p>
         </div>
-        <div className="rounded-xl border-2 border-dashed border-blue-200 dark:border-blue-800/60 bg-blue-50/50 dark:bg-blue-950/20 px-5 py-4">
-          <label className="block text-[11px] font-semibold uppercase tracking-widest text-blue-500 dark:text-blue-400 mb-2">
-            รหัสสินค้า ATMS <span className="normal-case font-normal">(รองรับหลายรหัส)</span>
+        <div className={`rounded-xl border-2 border-dashed px-5 py-4 ${atmsCodes.length === 0 && error ? "border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-950/20" : "border-blue-200 dark:border-blue-800/60 bg-blue-50/50 dark:bg-blue-950/20"}`}>
+          <label className={`block text-[11px] font-semibold uppercase tracking-widest mb-2 ${atmsCodes.length === 0 && error ? "text-red-500 dark:text-red-400" : "text-blue-500 dark:text-blue-400"}`}>
+            รหัสสินค้า ATMS <span className="normal-case font-normal">(จำเป็น — อย่างน้อย 1 รหัส)</span>
           </label>
           {/* Tags */}
           <div className="flex flex-wrap gap-1.5 mb-2">
