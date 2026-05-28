@@ -48,10 +48,10 @@ export function VehicleMultiSelect({ values, onChange, className }: VehicleMulti
     if (plateValues.length === 0) { setSelected([]); return }
     const missing = plateValues.filter((p) => !selected.find((s) => s.plate === p))
     if (missing.length === 0) return
-    fetch(`/api/vehicles?q=&limit=500`)
+    fetch(`/api/vehicles?plates=${encodeURIComponent(plateValues.join(","))}`)
       .then((r) => r.json())
-      .then((all: VehicleItem[]) => {
-        setSelected(plateValues.map((p) => all.find((v) => v.plate === p) ?? { plate: p, fleetNo: "", vehicleType: "", brand: "", model: "", fuelType: "", year: "" }))
+      .then((fetched: VehicleItem[]) => {
+        setSelected(plateValues.map((p) => fetched.find((v) => v.plate === p) ?? { plate: p, fleetNo: "", vehicleType: "", brand: "", model: "", fuelType: "", year: "", engineNo: "", chassisNo: "" }))
       }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values])

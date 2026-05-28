@@ -11,9 +11,19 @@ export async function GET(req: NextRequest) {
   const type   = searchParams.get("type")?.trim()  ?? ""
   const limit  = Math.min(parseInt(searchParams.get("limit") ?? "100"), 500)
   const groups = searchParams.get("groups") === "true"
+  const plates = searchParams.get("plates")?.split(",").map((p) => p.trim()).filter(Boolean) ?? []
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
+
+  // Batch fetch by specific plates
+  if (plates.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const items = await col.find({ plate: { $in: plates } } as any)
+      .project({ plate: 1, fleetNo: 1, fleet: 1, brand: 1, model: 1, vehicleType: 1, fuelType: 1, year: 1, engineNo: 1, chassisNo: 1 })
+      .toArray()
+    return NextResponse.json(items)
+  }
 
   // Return vehicle type groups with counts
   if (groups) {
