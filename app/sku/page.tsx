@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useSession } from "next-auth/react"
 import Link from "next/link"
 import { PlusCircle, Search, Pencil, Trash2, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2 } from "@/lib/codes"
@@ -39,6 +40,9 @@ const TYPE_COLOR: Record<string, string> = {
 const selCls = "text-sm border border-gray-200 dark:border-white/10 rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
 
 export default function SkuListPage() {
+  const { data: session }       = useSession()
+  const isAdmin                  = session?.user?.role === "admin"
+
   const [items, setItems]       = useState<SkuRow[]>([])
   const [total, setTotal]       = useState(0)
   const [page, setPage]         = useState(1)
@@ -247,16 +251,16 @@ export default function SkuListPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
-                {["SKU", "คลัง", "ประเภท", "ชื่ออะไหล่", "เบอร์", "L1-L2-L3", "ATMS", "ราคา", "หน่วย", "ยี่ห้อ", "รุ่นรถ", "Grade", ""].map((h) => (
+                {["SKU", "คลัง", "ประเภท", "ชื่ออะไหล่", "เบอร์", "L1-L2-L3", "ATMS", "ราคา", "หน่วย", "ยี่ห้อ", "รุ่นรถ", "Grade", ...(isAdmin ? [""] : [])].map((h) => (
                   <th key={h} className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-600 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={13} className="px-4 py-10 text-center text-gray-400 text-sm">กำลังโหลด...</td></tr>
+                <tr><td colSpan={isAdmin ? 13 : 12} className="px-4 py-10 text-center text-gray-400 text-sm">กำลังโหลด...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={13} className="px-4 py-10 text-center text-gray-400 text-sm">ไม่พบรายการ</td></tr>
+                <tr><td colSpan={isAdmin ? 13 : 12} className="px-4 py-10 text-center text-gray-400 text-sm">ไม่พบรายการ</td></tr>
               ) : items.map((row, i) => (
                 <tr key={row.SKU} className={`border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/3 transition-colors ${i % 2 === 0 ? "" : "bg-gray-50/50 dark:bg-white/1"}`}>
                   <td className="px-3 py-2.5 font-mono text-xs text-gray-900 dark:text-white whitespace-nowrap">{row.SKU}</td>
@@ -287,16 +291,18 @@ export default function SkuListPage() {
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     <span className="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium bg-gray-100 dark:bg-white/8 text-gray-600 dark:text-gray-300">{row.Grade}</span>
                   </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <Link href={`/sku/${row.SKU}`} className="text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors">
-                        <Pencil size={13} />
-                      </Link>
-                      <button onClick={() => handleDelete(row.SKU)} disabled={deleting === row.SKU} className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-50">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
+                  {isAdmin && (
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <Link href={`/sku/${row.SKU}`} className="text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors">
+                          <Pencil size={13} />
+                        </Link>
+                        <button onClick={() => handleDelete(row.SKU)} disabled={deleting === row.SKU} className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-50">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
