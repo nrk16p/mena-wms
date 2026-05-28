@@ -9,6 +9,17 @@ import {
 
 type CodeMap = Record<string, { th: string; en: string }>
 
+// Convert static code dicts to CodeMap — handles both string values and {th,en} objects
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toStaticMap(obj: Record<string, any>): CodeMap {
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [
+      k,
+      typeof v === "string" ? { th: v, en: "" } : { th: v.th ?? "", en: v.en ?? "" },
+    ])
+  )
+}
+
 export default function NewSkuPage() {
   const router = useRouter()
 
@@ -35,32 +46,36 @@ export default function NewSkuPage() {
   const [saving, setSaving]         = useState(false)
   const [error, setError]           = useState("")
 
-  // All fetched from MongoDB so new codes added via Code Dictionary show immediately
-  const [l1Options,      setL1Options]      = useState<CodeMap>(SYSTEM_L1)
+  // All fetched from MongoDB — static codes are fallback only
+  const [whOptions,      setWhOptions]      = useState<CodeMap>(toStaticMap(WAREHOUSE))
+  const [typeOptions,    setTypeOptions]    = useState<CodeMap>(toStaticMap(EXPENSE_TYPE))
+  const [l1Options,      setL1Options]      = useState<CodeMap>(toStaticMap(SYSTEM_L1))
   const [l2Options,      setL2Options]      = useState<CodeMap>({})
   const [l3Options,      setL3Options]      = useState<CodeMap>({})
-  const [vehicleOptions, setVehicleOptions] = useState<CodeMap>(
-    Object.fromEntries(Object.entries(VEHICLE_TYPE).map(([k, v]) => [k, { th: v.th, en: "" }]))
-  )
+  const [posOptions,     setPosOptions]     = useState<CodeMap>(toStaticMap(POSITION))
+  const [unitOptions,    setUnitOptions]    = useState<CodeMap>(toStaticMap(UNIT))
+  const [gradeOptions,   setGradeOptions]   = useState<CodeMap>(toStaticMap(GRADE))
+  const [vehicleOptions, setVehicleOptions] = useState<CodeMap>(toStaticMap(VEHICLE_TYPE))
 
   type Row = { code: string; th: string; en: string }
   const toMap = (rows: Row[]): CodeMap =>
     Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }]))
 
-  // Load L1 from MongoDB on mount
+  // Load all static dicts from MongoDB on mount
   useEffect(() => {
-    fetch("/api/codes/SYSTEM_L1")
-      .then((r) => r.json())
-      .then((rows: Row[]) => { if (rows.length) setL1Options(toMap(rows)) })
-      .catch(() => {})
-  }, [])
+    const load = (dict: string, set: (m: CodeMap) => void) =>
+      fetch(`/api/codes/${dict}`)
+        .then((r) => r.json())
+        .then((rows: Row[]) => { if (rows.length) set(toMap(rows)) })
+        .catch(() => {})
 
-  // Load Vehicle Type from MongoDB on mount
-  useEffect(() => {
-    fetch("/api/codes/VEHICLE_TYPE")
-      .then((r) => r.json())
-      .then((rows: Row[]) => { if (rows.length) setVehicleOptions(toMap(rows)) })
-      .catch(() => {})
+    load("WAREHOUSE",       setWhOptions)
+    load("EXPENSE_TYPE",    setTypeOptions)
+    load("SYSTEM_L1",       setL1Options)
+    load("POSITION",        setPosOptions)
+    load("UNIT",            setUnitOptions)
+    load("GRADE",           setGradeOptions)
+    load("VEHICLE_TYPE",    setVehicleOptions)
   }, [])
 
   // Load L2 from MongoDB when L1 changes
@@ -183,13 +198,13 @@ export default function NewSkuPage() {
           <div>
             <label className={labelCls}>คลังสินค้า *</label>
             <select value={wh} onChange={(e) => setWh(e.target.value)} className={selectCls} required>
-              {Object.entries(WAREHOUSE).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(whOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
           <div>
             <label className={labelCls}>ประเภทค่าใช้จ่าย *</label>
             <select value={type} onChange={(e) => setType(e.target.value)} className={selectCls} required>
-              {Object.entries(EXPENSE_TYPE).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
+              {Object.entries(typeOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
@@ -240,7 +255,7 @@ export default function NewSkuPage() {
           <div>
             <label className={labelCls}>ตำแหน่ง</label>
             <select value={position} onChange={(e) => setPosition(e.target.value)} className={selectCls}>
-              {Object.entries(POSITION).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(posOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
@@ -263,7 +278,7 @@ export default function NewSkuPage() {
           <div>
             <label className={labelCls}>หน่วย *</label>
             <select value={unit} onChange={(e) => setUnit(e.target.value)} className={selectCls} required>
-              {Object.entries(UNIT).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(unitOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
@@ -277,7 +292,7 @@ export default function NewSkuPage() {
           <div>
             <label className={labelCls}>Grade</label>
             <select value={grade} onChange={(e) => setGrade(e.target.value)} className={selectCls}>
-              {Object.entries(GRADE).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(gradeOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
