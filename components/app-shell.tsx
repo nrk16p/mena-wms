@@ -2,6 +2,8 @@
 
 import { usePathname } from "next/navigation"
 import { Sidebar } from "./sidebar"
+import { Navbar } from "./navbar"
+import { TourHighlight } from "./tour-highlight"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -14,7 +16,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Sidebar />
-      <main className="flex-1 overflow-y-auto px-8 py-7">{children}</main>
+      <TourHighlight />
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <Navbar />
+        <main className="flex-1 overflow-y-auto px-8 py-7">{children}</main>
+      </div>
     </>
   )
 }

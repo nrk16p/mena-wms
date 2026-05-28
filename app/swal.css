@@ -1,0 +1,27 @@
+/* SweetAlert2 — dark mode */
+.dark .swal2-popup {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark .swal2-input,
+.dark .swal2-textarea,
+.dark .swal2-select {
+  background: #0a0a10 !important;
+  color: #f9fafb !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark .swal2-input:focus,
+.dark .swal2-textarea:focus {
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark .swal2-input-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dark .swal2-validation-message {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}

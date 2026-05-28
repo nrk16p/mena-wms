@@ -1,4 +1,6 @@
 import "./globals.css"
+import "./swal.css"
+import "sweetalert2/dist/sweetalert2.min.css"
 import { Providers } from "@/components/providers"
 import { AppShell } from "@/components/app-shell"
 

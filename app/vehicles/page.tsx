@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Search, Plus, Pencil, Trash2, Check, X, Car, ChevronDown, ChevronUp } from "lucide-react"
+import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 
 type Vehicle = {
   plate:        string
@@ -79,9 +80,16 @@ export default function VehiclesPage() {
       body: JSON.stringify(form),
     })
     setSaving(false)
-    if (!res.ok) { const d = await res.json(); setAddError(d.error ?? "เกิดข้อผิดพลาด"); return }
+    if (!res.ok) {
+      const d = await res.json()
+      const msg = d.error ?? "เกิดข้อผิดพลาด"
+      setAddError(msg)
+      swalError(msg)
+      return
+    }
     setShowAdd(false)
     setForm(EMPTY)
+    swalToast("success", "เพิ่มยานพาหนะสำเร็จ")
     load()
   }
 
@@ -89,19 +97,23 @@ export default function VehiclesPage() {
     e.preventDefault()
     if (!editPlate) return
     setSaving(true)
-    await fetch(`/api/vehicles/${encodeURIComponent(editPlate)}`, {
+    const res = await fetch(`/api/vehicles/${encodeURIComponent(editPlate)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     })
     setSaving(false)
+    if (!res.ok) { swalError("บันทึกไม่สำเร็จ"); return }
     setEditPlate(null)
+    swalToast("success", "บันทึกสำเร็จ")
     load()
   }
 
   async function handleDelete(plate: string) {
-    if (!confirm(`ลบยานพาหนะ "${plate}"?`)) return
+    const result = await swalDeleteConfirm(`ลบยานพาหนะ "${plate}"?`)
+    if (!result.isConfirmed) return
     await fetch(`/api/vehicles/${encodeURIComponent(plate)}`, { method: "DELETE" })
+    swalToast("success", "ลบยานพาหนะสำเร็จ")
     load()
   }
 

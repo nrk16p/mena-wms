@@ -520,6 +520,7 @@ export function ManualBook({ collapsed }: { collapsed?: boolean }) {
   return (
     <>
       <button
+        id="sidebar-manual-btn"
         onClick={() => { setOpen(true); setActiveId("login"); setOpenVisuals(new Set()) }}
         title="คู่มือการใช้งาน"
         className={`flex w-full items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition-all duration-150 text-[#64748B] dark:text-gray-500 hover:bg-[#F4FBF5] dark:hover:bg-white/6 hover:text-[#0F6A3C] dark:hover:text-gray-300 ${collapsed ? "justify-center px-0" : "px-2.5"}`}

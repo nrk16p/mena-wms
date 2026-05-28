@@ -5,6 +5,7 @@ import {
   Search, Plus, Pencil, Check, X, Trash2,
   ChevronDown, ChevronRight, Shield, Eye, RefreshCw,
 } from "lucide-react"
+import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Entry = {
@@ -144,24 +145,28 @@ export default function PartsPage() {
   async function saveEdit(e: Entry) {
     setSaving(true)
     const codeKey = e._id.slice(e.dict.length + 1)
-    await fetch(`/api/codes/${e.dict}/${encodeURIComponent(codeKey)}`, {
+    const res = await fetch(`/api/codes/${e.dict}/${encodeURIComponent(codeKey)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ th: editTh, en: editEn }),
     })
     setSaving(false)
+    if (!res.ok) { swalError("บันทึกไม่สำเร็จ"); return }
     setEditId(null)
+    swalToast("success", "บันทึกสำเร็จ")
     load()
   }
 
   // ── Delete ──────────────────────────────────────────────────────────────
   async function handleDelete(e: Entry) {
     const label = `"${e.code}" (${e.th})`
-    const warn  = e.dict === "SYSTEM_L1"       ? `\n⚠️ จะลบ L2 และ L3 ทั้งหมดของ ${e.code} ด้วย` :
-                  e.dict === "SUB_ASSEMBLY_L2"  ? `\n⚠️ จะลบ L3 ทั้งหมดของ ${e.parent}:${e.code} ด้วย` : ""
-    if (!confirm(`ลบ ${label}?${warn}`)) return
+    const warn  = e.dict === "SYSTEM_L1"      ? ` — จะลบ L2 และ L3 ทั้งหมดของ ${e.code} ด้วย` :
+                  e.dict === "SUB_ASSEMBLY_L2" ? ` — จะลบ L3 ทั้งหมดของ ${e.parent}:${e.code} ด้วย` : ""
+    const result = await swalDeleteConfirm(`ลบ ${label}?${warn}`)
+    if (!result.isConfirmed) return
     const codeKey = e._id.slice(e.dict.length + 1)
     await fetch(`/api/codes/${e.dict}/${encodeURIComponent(codeKey)}`, { method: "DELETE" })
+    swalToast("success", "ลบสำเร็จ")
     load()
   }
 
@@ -188,8 +193,9 @@ export default function PartsPage() {
       body: JSON.stringify({ code: addCode.toUpperCase(), th: addTh, en: addEn, parent }),
     })
     setAdding(false)
-    if (!res.ok) { const d = await res.json(); setAddErr(d.error ?? "Error"); return }
+    if (!res.ok) { const d = await res.json(); setAddErr(d.error ?? "Error"); swalError(d.error ?? "เกิดข้อผิดพลาด"); return }
     closeAdd()
+    swalToast("success", "เพิ่มสำเร็จ")
     load()
   }
 

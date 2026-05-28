@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { Plus, Pencil, Trash2, Check, X, ChevronLeft, Search } from "lucide-react"
+import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 
 type CodeEntry = {
   _id:    string
@@ -92,20 +93,26 @@ export default function DictPage() {
     try { if (editMeta.trim()) meta = JSON.parse(editMeta) } catch {}
 
     const codeKey = item._id.slice(dict.length + 1)
-    await fetch(`/api/codes/${dict}/${encodeURIComponent(codeKey)}`, {
+    const res = await fetch(`/api/codes/${dict}/${encodeURIComponent(codeKey)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ th: editTh, en: editEn, meta }),
     })
     setSaving(false)
+    if (!res.ok) { swalError("บันทึกไม่สำเร็จ"); return }
     setEditId(null)
+    swalToast("success", "บันทึกสำเร็จ")
     load()
   }
 
   async function handleDelete(item: CodeEntry) {
-    if (!confirm(`ลบ code "${item.code}" (${item.th})?\n\nหากเป็น L1 จะลบ L2/L3 ที่เกี่ยวข้องทั้งหมดด้วย`)) return
+    const result = await swalDeleteConfirm(
+      `ลบ code "${item.code}" (${item.th})?\n\nหากเป็น L1 จะลบ L2/L3 ที่เกี่ยวข้องทั้งหมดด้วย`
+    )
+    if (!result.isConfirmed) return
     const codeKey = item._id.slice(dict.length + 1)
     await fetch(`/api/codes/${dict}/${encodeURIComponent(codeKey)}`, { method: "DELETE" })
+    swalToast("success", "ลบ code สำเร็จ")
     load()
   }
 
@@ -129,12 +136,15 @@ export default function DictPage() {
     setAdding(false)
     if (!res.ok) {
       const d = await res.json()
-      setAddError(d.error ?? "เกิดข้อผิดพลาด")
+      const msg = d.error ?? "เกิดข้อผิดพลาด"
+      setAddError(msg)
+      swalError(msg)
       return
     }
 
     setAddCode(""); setAddTh(""); setAddEn(""); setAddParent(""); setAddMeta("")
     setShowAdd(false)
+    swalToast("success", "เพิ่ม code สำเร็จ")
     load()
   }
 

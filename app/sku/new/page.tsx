@@ -9,6 +9,7 @@ import {
 } from "@/lib/codes"
 import { BrandCombobox } from "@/components/brand-combobox"
 import { VehicleMultiSelect } from "@/components/vehicle-multi-select"
+import { swalError } from "@/lib/swal"
 
 type CodeMap = Record<string, { th: string; en: string }>
 
@@ -173,7 +174,9 @@ export default function NewSkuPage() {
     setSaving(false)
     if (!res.ok) {
       const d = await res.json()
-      setError(d.error ?? "เกิดข้อผิดพลาด")
+      const msg = d.error ?? "เกิดข้อผิดพลาด"
+      setError(msg)
+      swalError(msg)
       return
     }
 

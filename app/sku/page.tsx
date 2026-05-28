@@ -6,6 +6,7 @@ import Link from "next/link"
 import { PlusCircle, Search, Pencil, Trash2, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2 } from "@/lib/codes"
 import { COMPONENT_L3 } from "@/lib/codes-l3"
+import { swalDeleteConfirm, swalToast } from "@/lib/swal"
 
 type SkuRow = {
   _id: string
@@ -125,10 +126,12 @@ export default function SkuListPage() {
   useEffect(() => { load() }, [load])
 
   async function handleDelete(sku: string) {
-    if (!confirm(`ลบ SKU: ${sku} ?`)) return
+    const result = await swalDeleteConfirm(`ลบ SKU: ${sku}`)
+    if (!result.isConfirmed) return
     setDeleting(sku)
     await window.fetch(`/api/sku/${sku}`, { method: "DELETE" })
     setDeleting(null)
+    swalToast("success", "ลบ SKU สำเร็จ")
     load()
   }
 

@@ -1,9 +1,12 @@
 import Link from "next/link"
 import { PackageSearch, PlusCircle, Tags, BarChart3 } from "lucide-react"
+import { Suspense } from "react"
+import { WelcomePopup } from "@/components/welcome-popup"
 
 export default function Home() {
   return (
     <div className="max-w-4xl mx-auto">
+      <Suspense><WelcomePopup /></Suspense>
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Mena WMS</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">ระบบจัดการข้อมูลอะไหล่และชิ้นส่วน — Mena Transport</p>

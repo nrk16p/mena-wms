@@ -6,6 +6,7 @@ import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2, POSITION, UNIT, GR
 import { COMPONENT_L3 } from "@/lib/codes-l3"
 import { BrandCombobox } from "@/components/brand-combobox"
 import { VehicleMultiSelect } from "@/components/vehicle-multi-select"
+import { swalToast, swalError } from "@/lib/swal"
 
 type SkuDoc = Record<string, unknown>
 type CodeMap = Record<string, { th: string; en: string }>
@@ -115,8 +116,14 @@ export default function EditSkuPage() {
     })
 
     setSaving(false)
-    if (!res.ok) { setError("เกิดข้อผิดพลาด"); return }
+    if (!res.ok) {
+      const msg = "บันทึกไม่สำเร็จ"
+      setError(msg)
+      swalError(msg)
+      return
+    }
 
+    await swalToast("success", "บันทึก SKU สำเร็จ")
     router.push("/sku")
   }
 

@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, Layers } from "lucide-react"
 import Link from "next/link"
+import { swalRejectInput, swalToast } from "@/lib/swal"
 
 type SkuRow = {
   SKU: string
@@ -57,48 +58,6 @@ function toArr(v: string | string[] | undefined): string[] {
   return Array.isArray(v) ? v.filter(Boolean) : (v ? [v] : [])
 }
 
-function RejectDialog({ sku, onConfirm, onCancel }: { sku: string; onConfirm: (reason: string) => void; onCancel: () => void }) {
-  const [reason, setReason] = useState("")
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => { textareaRef.current?.focus() }, [])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-2xl p-6">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">ปฏิเสธ SKU</h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4 font-mono">{sku}</p>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-          เหตุผลการปฏิเสธ <span className="text-gray-400 font-normal">(ไม่บังคับ)</span>
-        </label>
-        <textarea
-          ref={textareaRef}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && e.metaKey) onConfirm(reason) }}
-          rows={3}
-          placeholder="เช่น ซ้ำกับ SKU-XXX, ข้อมูลไม่ครบ, ยี่ห้อไม่ถูกต้อง..."
-          className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-sm text-gray-900 dark:text-white placeholder-gray-400 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-red-400 dark:focus:ring-red-500 resize-none"
-        />
-        <div className="flex gap-2 mt-4 justify-end">
-          <button
-            onClick={onCancel}
-            className="rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 px-4 py-2 text-sm font-medium transition-colors"
-          >
-            ยกเลิก
-          </button>
-          <button
-            onClick={() => onConfirm(reason)}
-            className="flex items-center gap-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold transition-colors"
-          >
-            <XCircle size={14} />
-            ยืนยันปฏิเสธ
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function SimilarSkus({ row }: { row: SkuRow }) {
   const [open, setOpen]       = useState(false)
@@ -189,10 +148,9 @@ export default function PendingPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
-  const [items, setItems]         = useState<SkuRow[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [acting, setActing]       = useState<string | null>(null)
-  const [rejectingSku, setRejectingSku] = useState<string | null>(null)
+  const [items, setItems]     = useState<SkuRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [acting, setActing]   = useState<string | null>(null)
 
   const isAdmin = session?.user?.role === "admin"
 
@@ -214,18 +172,21 @@ export default function PendingPage() {
     setActing(sku)
     await fetch(`/api/sku/${sku}/approve`, { method: "PUT" })
     setActing(null)
+    swalToast("success", "อนุมัติ SKU สำเร็จ")
     load()
   }
 
-  async function reject(sku: string, reason: string) {
-    setRejectingSku(null)
+  async function handleReject(sku: string) {
+    const result = await swalRejectInput(sku)
+    if (!result.isConfirmed) return
     setActing(sku)
     await fetch(`/api/sku/${sku}/approve`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason: result.value ?? "" }),
     })
     setActing(null)
+    swalToast("info", "ปฏิเสธ SKU แล้ว")
     load()
   }
 
@@ -235,13 +196,6 @@ export default function PendingPage() {
 
   return (
     <div>
-      {rejectingSku && (
-        <RejectDialog
-          sku={rejectingSku}
-          onConfirm={(reason) => reject(rejectingSku, reason)}
-          onCancel={() => setRejectingSku(null)}
-        />
-      )}
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
           <Clock size={20} className="text-amber-500" />
@@ -391,7 +345,7 @@ export default function PendingPage() {
                         อนุมัติ
                       </button>
                       <button
-                        onClick={() => setRejectingSku(row.SKU)}
+                        onClick={() => handleReject(row.SKU)}
                         disabled={acting === row.SKU}
                         className="flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 px-4 py-2 text-xs font-semibold transition-colors disabled:opacity-50"
                       >
