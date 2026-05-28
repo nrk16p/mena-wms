@@ -1,30 +1,28 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-import { getToken } from "next-auth/jwt"
 
-export async function middleware(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  })
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
 
-  const isLoginPage = request.nextUrl.pathname === "/login"
-
-  if (!token && !isLoginPage) {
-    const loginUrl = new URL("/login", request.url)
-    loginUrl.searchParams.set("callbackUrl", request.nextUrl.pathname)
-    return NextResponse.redirect(loginUrl)
+  // Allow auth API and login page through
+  if (pathname.startsWith("/api/auth") || pathname === "/login") {
+    return NextResponse.next()
   }
 
-  if (token && isLoginPage) {
-    return NextResponse.redirect(new URL("/", request.url))
+  // Check for session cookie — NextAuth uses different names for http vs https
+  const sessionToken =
+    request.cookies.get("next-auth.session-token")?.value ??
+    request.cookies.get("__Secure-next-auth.session-token")?.value
+
+  if (!sessionToken) {
+    const loginUrl = new URL("/login", request.url)
+    loginUrl.searchParams.set("callbackUrl", pathname)
+    return NextResponse.redirect(loginUrl)
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: [
-    "/((?!api/auth|_next/static|_next/image|favicon.ico).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)" ],
 }
