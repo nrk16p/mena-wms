@@ -11,8 +11,9 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async signIn({ profile }) {
-      const email = profile?.email ?? ""
+    async signIn({ user, profile }) {
+      // user.email is always set; profile may be undefined on some flows
+      const email = user?.email ?? profile?.email ?? ""
       const domain = email.split("@")[1]?.toLowerCase()
       return domain === ALLOWED_DOMAIN
     },
@@ -22,10 +23,16 @@ export const authOptions: NextAuthOptions = {
       }
       return session
     },
+    async jwt({ token, account, profile }) {
+      if (account) {
+        token.email = token.email ?? (profile as { email?: string })?.email
+      }
+      return token
+    },
   },
   pages: {
-    signIn:  "/login",
-    error:   "/login",
+    signIn: "/login",
+    error:  "/login",
   },
   session: { strategy: "jwt" },
 }
