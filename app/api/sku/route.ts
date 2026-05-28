@@ -26,16 +26,15 @@ export async function GET(req: NextRequest) {
   const limit   = Math.min(200, parseInt(searchParams.get("limit") ?? "50"))
 
   const filter: Record<string, unknown> = {}
-  if (wh)      filter["คลังสินค้า"]         = wh
-  if (type)    filter["ประเภทค่าใช้จ่าย"]  = type
-  if (l1)      filter["ระบบ_L1"]            = l1
-  if (l2)      filter["ชุดประกอบ_L2"]       = l2
-  if (l3)      filter["ชิ้นส่วน_L3"]        = l3
-  if (brand)   filter["ยี่ห้อ"]             = { $regex: brand, $options: "i" }
-  if (grade)     filter["Grade"]              = grade
-  if (vehicle)   filter["ทะเบียนหรือรุ่นรถ"] = { $elemMatch: { $regex: vehicle, $options: "i" } }
-  if (status)    filter["status"]             = status
-  if (createdBy) filter["createdBy"]          = createdBy
+  if (wh)      filter["คลังสินค้า"]        = wh
+  if (type)    filter["ประเภทค่าใช้จ่าย"] = type
+  if (l1)      filter["ระบบ_L1"]           = l1
+  if (l2)      filter["ชุดประกอบ_L2"]      = l2
+  if (l3)      filter["ชิ้นส่วน_L3"]       = l3
+  if (brand)   filter["ยี่ห้อ"]            = { $regex: brand, $options: "i" }
+  if (grade)   filter["Grade"]             = grade
+  if (status)    filter["status"]            = status
+  if (createdBy) filter["createdBy"]         = createdBy
   if (q) {
     filter["$or"] = [
       { "ชื่ออะไหล่_TH": { $regex: q, $options: "i" } },
@@ -48,6 +47,36 @@ export async function GET(req: NextRequest) {
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
+
+  // Vehicle filter: cross-lookup vehicle_master so searching by plate also
+  // returns SKUs tagged with that plate's type-group (@type:X), and vice versa.
+  if (vehicle) {
+    const vcol = client.db(DB).collection("vehicle_master")
+    const matches = await vcol
+      .find({
+        $or: [
+          { plate:       { $regex: vehicle, $options: "i" } },
+          { vehicleType: { $regex: vehicle, $options: "i" } },
+          { engineNo:    { $regex: vehicle, $options: "i" } },
+          { chassisNo:   { $regex: vehicle, $options: "i" } },
+        ],
+      } as never)
+      .project({ plate: 1, vehicleType: 1 })
+      .limit(500)
+      .toArray()
+
+    const relatedPlates = [...new Set(matches.map((v) => (v as { plate: string }).plate).filter(Boolean))]
+    const relatedTypes  = [...new Set(matches.map((v) => (v as { vehicleType: string }).vehicleType).filter(Boolean))]
+      .map((t) => `@type:${t}`)
+
+    const vehicleConds: object[] = [
+      { "ทะเบียนหรือรุ่นรถ": { $elemMatch: { $regex: vehicle, $options: "i" } } },
+    ]
+    if (relatedPlates.length > 0) vehicleConds.push({ "ทะเบียนหรือรุ่นรถ": { $in: relatedPlates } })
+    if (relatedTypes.length  > 0) vehicleConds.push({ "ทะเบียนหรือรุ่นรถ": { $in: relatedTypes  } })
+
+    filter["$and"] = [{ $or: vehicleConds }]
+  }
 
   // Distinct facet request
   const distinct = searchParams.get("distinct")
