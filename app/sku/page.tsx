@@ -6,6 +6,8 @@ import { PlusCircle, Search, Pencil, Trash2, ChevronLeft, ChevronRight, X } from
 import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2 } from "@/lib/codes"
 import { COMPONENT_L3 } from "@/lib/codes-l3"
 
+type CodeMap = Record<string, { th: string; en: string }>
+
 type SkuRow = {
   _id: string
   SKU: string
@@ -44,6 +46,15 @@ export default function SkuListPage() {
   const [page, setPage]         = useState(1)
   const [loading, setLoading]   = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [brandOptions, setBrandOptions] = useState<CodeMap>({})
+
+  useEffect(() => {
+    fetch("/api/codes/BRAND")
+      .then((r) => r.json())
+      .then((rows: { code: string; th: string; en: string }[]) => {
+        if (rows.length) setBrandOptions(Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }])))
+      }).catch(() => {})
+  }, [])
 
   // filters
   const [q,       setQ]       = useState("")
@@ -170,14 +181,10 @@ export default function SkuListPage() {
           </select>
 
           {/* Brand */}
-          <div className="relative">
-            <input
-              value={brand}
-              onChange={(e) => { setBrand(e.target.value); setPage(1) }}
-              placeholder="ยี่ห้อ"
-              className="w-32 px-3 py-2 text-sm border border-gray-200 dark:border-white/10 rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
-            />
-          </div>
+          <select value={brand} onChange={(e) => { setBrand(e.target.value); setPage(1) }} className={selCls}>
+            <option value="">ยี่ห้อทั้งหมด</option>
+            {Object.entries(brandOptions).map(([k, v]) => <option key={k} value={k}>{v.th || k}</option>)}
+          </select>
 
           {/* Vehicle — free text: matches รุ่นรถ code or ทะเบียนรถ plate */}
           <input

@@ -6,6 +6,17 @@ import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2, POSITION, UNIT, GR
 import { COMPONENT_L3 } from "@/lib/codes-l3"
 
 type SkuDoc = Record<string, unknown>
+type CodeMap = Record<string, { th: string; en: string }>
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toStaticMap(obj: Record<string, any>): CodeMap {
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [
+      k,
+      typeof v === "string" ? { th: v, en: "" } : { th: v.th ?? "", en: v.en ?? "" },
+    ])
+  )
+}
 
 export default function EditSkuPage() {
   const { sku } = useParams<{ sku: string }>()
@@ -16,6 +27,30 @@ export default function EditSkuPage() {
   const [error, setError]     = useState("")
   const [atmsCodes, setAtmsCodes] = useState<string[]>([])
   const [atmsInput, setAtmsInput] = useState("")
+
+  // Code dict options fetched from MongoDB
+  const [whOptions,      setWhOptions]      = useState<CodeMap>(toStaticMap(WAREHOUSE))
+  const [posOptions,     setPosOptions]     = useState<CodeMap>(toStaticMap(POSITION))
+  const [unitOptions,    setUnitOptions]    = useState<CodeMap>(toStaticMap(UNIT))
+  const [gradeOptions,   setGradeOptions]   = useState<CodeMap>(toStaticMap(GRADE))
+  const [vehicleOptions, setVehicleOptions] = useState<CodeMap>(toStaticMap(VEHICLE_TYPE))
+  const [brandOptions,   setBrandOptions]   = useState<CodeMap>({})
+
+  useEffect(() => {
+    type Row = { code: string; th: string; en: string }
+    const toMap = (rows: Row[]): CodeMap =>
+      Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }]))
+    const load = (dict: string, set: (m: CodeMap) => void) =>
+      fetch(`/api/codes/${dict}`).then((r) => r.json())
+        .then((rows: Row[]) => { if (rows.length) set(toMap(rows)) }).catch(() => {})
+
+    load("WAREHOUSE",    setWhOptions)
+    load("POSITION",     setPosOptions)
+    load("UNIT",         setUnitOptions)
+    load("GRADE",        setGradeOptions)
+    load("VEHICLE_TYPE", setVehicleOptions)
+    load("BRAND",        setBrandOptions)
+  }, [])
 
   useEffect(() => {
     fetch(`/api/sku/${sku}`)
@@ -29,7 +64,6 @@ export default function EditSkuPage() {
 
   if (!doc) return <div className="text-sm text-gray-400 p-6">กำลังโหลด...</div>
 
-  if (!doc) return null
   const type = String(doc["ประเภทค่าใช้จ่าย"] ?? "")
   const l1   = String(doc["ระบบ_L1"] ?? "")
   const l2   = String(doc["ชุดประกอบ_L2"] ?? "")
@@ -80,7 +114,7 @@ export default function EditSkuPage() {
           <div>
             <label className={labelCls}>คลังสินค้า</label>
             <select name="คลังสินค้า" defaultValue={field("คลังสินค้า")} className={selectCls}>
-              {Object.entries(WAREHOUSE).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(whOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
           <div>
@@ -123,7 +157,7 @@ export default function EditSkuPage() {
           <div>
             <label className={labelCls}>ตำแหน่ง</label>
             <select name="ตำแหน่ง" defaultValue={field("ตำแหน่ง")} className={selectCls}>
-              {Object.entries(POSITION).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(posOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
@@ -136,7 +170,7 @@ export default function EditSkuPage() {
           <div>
             <label className={labelCls}>หน่วย</label>
             <select name="หน่วย" defaultValue={field("หน่วย")} className={selectCls}>
-              {Object.entries(UNIT).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(unitOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
@@ -144,12 +178,18 @@ export default function EditSkuPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>ยี่ห้อ</label>
-            <input name="ยี่ห้อ" defaultValue={field("ยี่ห้อ")} className={inputCls} />
+            <select name="ยี่ห้อ" defaultValue={field("ยี่ห้อ")} className={selectCls}>
+              <option value="">— ไม่ระบุ —</option>
+              {Object.keys(brandOptions).length === 0
+                ? <option disabled>ยังไม่มียี่ห้อ — เพิ่มใน Code Dictionary</option>
+                : Object.entries(brandOptions).map(([k, v]) => <option key={k} value={k}>{v.th || k}</option>)
+              }
+            </select>
           </div>
           <div>
             <label className={labelCls}>Grade</label>
             <select name="Grade" defaultValue={field("Grade")} className={selectCls}>
-              {Object.entries(GRADE).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}
+              {Object.entries(gradeOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
@@ -169,7 +209,7 @@ export default function EditSkuPage() {
           <label className={labelCls}>ทะเบียนหรือรุ่นรถ</label>
           <select name="ทะเบียนหรือรุ่นรถ" defaultValue={field("ทะเบียนหรือรุ่นรถ")} className={selectCls}>
             <option value="">— ทุกรุ่น / ไม่ระบุ —</option>
-            {Object.entries(VEHICLE_TYPE).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
+            {Object.entries(vehicleOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
           </select>
         </div>
 

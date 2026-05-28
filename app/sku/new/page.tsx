@@ -59,6 +59,7 @@ export default function NewSkuPage() {
   const [unitOptions,    setUnitOptions]    = useState<CodeMap>(toStaticMap(UNIT))
   const [gradeOptions,   setGradeOptions]   = useState<CodeMap>(toStaticMap(GRADE))
   const [vehicleOptions, setVehicleOptions] = useState<CodeMap>(toStaticMap(VEHICLE_TYPE))
+  const [brandOptions,   setBrandOptions]   = useState<CodeMap>({})
 
   type Row = { code: string; th: string; en: string }
   const toMap = (rows: Row[]): CodeMap =>
@@ -72,13 +73,14 @@ export default function NewSkuPage() {
         .then((rows: Row[]) => { if (rows.length) set(toMap(rows)) })
         .catch(() => {})
 
-    load("WAREHOUSE",       setWhOptions)
-    load("EXPENSE_TYPE",    setTypeOptions)
-    load("SYSTEM_L1",       setL1Options)
-    load("POSITION",        setPosOptions)
-    load("UNIT",            setUnitOptions)
-    load("GRADE",           setGradeOptions)
-    load("VEHICLE_TYPE",    setVehicleOptions)
+    load("WAREHOUSE",    setWhOptions)
+    load("EXPENSE_TYPE", setTypeOptions)
+    load("SYSTEM_L1",    setL1Options)
+    load("POSITION",     setPosOptions)
+    load("UNIT",         setUnitOptions)
+    load("GRADE",        setGradeOptions)
+    load("VEHICLE_TYPE", setVehicleOptions)
+    load("BRAND",        setBrandOptions)
   }, [])
 
   // Load L2 from MongoDB when L1 changes
@@ -300,7 +302,13 @@ export default function NewSkuPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>ยี่ห้อ</label>
-            <input value={brand} onChange={(e) => setBrand(e.target.value)} className={inputCls} placeholder="ISUZU / DENSO / SAKURA ..." />
+            <select value={brand} onChange={(e) => setBrand(e.target.value)} className={selectCls}>
+              <option value="">— ไม่ระบุ —</option>
+              {Object.keys(brandOptions).length === 0
+                ? <option disabled>ยังไม่มียี่ห้อ — เพิ่มใน Code Dictionary</option>
+                : Object.entries(brandOptions).map(([k, v]) => <option key={k} value={k}>{v.th || k}</option>)
+              }
+            </select>
           </div>
           <div>
             <label className={labelCls}>Grade</label>
