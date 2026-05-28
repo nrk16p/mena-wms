@@ -51,7 +51,6 @@ export default function EditSkuPage() {
     load("WAREHOUSE",    setWhOptions)
     load("POSITION",     setPosOptions)
     load("UNIT",         setUnitOptions)
-    load("GRADE",        setGradeOptions)
     load("VEHICLE_TYPE", setVehicleOptions)
     load("BRAND",        setBrandOptions)
   }, [])
@@ -66,6 +65,14 @@ export default function EditSkuPage() {
         setBrandValue(String(d["ยี่ห้อ"] ?? ""))
         const rawCompat = d["เบอร์เทียบอ้างอิง"]
         setCompatRefs(Array.isArray(rawCompat) ? rawCompat : rawCompat ? [String(rawCompat)] : [])
+        // Load grades filtered by this SKU's expense type
+        const expenseType = String(d["ประเภทค่าใช้จ่าย"] ?? "PRT")
+        type Row = { code: string; th: string; en: string }
+        fetch(`/api/codes/GRADE?expenseType=${expenseType}`)
+          .then((r) => r.json())
+          .then((rows: Row[]) => {
+            if (rows.length) setGradeOptions(Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }])))
+          }).catch(() => {})
       })
   }, [sku])
 

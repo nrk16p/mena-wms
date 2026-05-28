@@ -94,7 +94,6 @@ export default function NewSkuPage() {
     load("SYSTEM_L1",    setAllL1Options)
     load("POSITION",     setPosOptions)
     load("UNIT",         setUnitOptions)
-    load("GRADE",        setGradeOptions)
     load("VEHICLE_TYPE", setVehicleOptions)
     load("BRAND",        setBrandOptions)
   }, [])
@@ -129,6 +128,19 @@ export default function NewSkuPage() {
       .then((rows: Row[]) => setL3Options(toMap(rows)))
       .catch(() => setL3Options({}))
   }, [l1, l2, type])
+
+  // Load grade options filtered by expense type + reset grade default
+  useEffect(() => {
+    fetch(`/api/codes/GRADE?expenseType=${type}`)
+      .then((r) => r.json())
+      .then((rows: Row[]) => {
+        if (rows.length) {
+          setGradeOptions(toMap(rows))
+          setGrade(rows[0].code) // default to first option for that type
+        }
+      })
+      .catch(() => {})
+  }, [type])
 
   // Reset downstream when L1 changes
   useEffect(() => { setL2(""); setL3("") }, [l1])
