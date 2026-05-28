@@ -108,6 +108,17 @@ export default function EditSkuPage() {
     router.push("/sku")
   }
 
+  const NAME_LABEL: Record<string, { th: string; en: string }> = {
+    PRT: { th: "ชื่ออะไหล่ (TH) *",    en: "Part Name (EN)" },
+    PM:  { th: "ชื่อรายการ PM (TH) *", en: "Item Name (EN)" },
+    LAB: { th: "ชื่องาน/บริการ (TH) *", en: "Service Name (EN)" },
+    SVC: { th: "ชื่อบริการ (TH) *",    en: "Service Name (EN)" },
+    CLN: { th: "ชื่อบริการ (TH) *",    en: "Service Name (EN)" },
+    TRP: { th: "ชื่อบริการ (TH) *",    en: "Service Name (EN)" },
+    ACC: { th: "ชื่อรายการซ่อม (TH) *", en: "Repair Item (EN)" },
+  }
+  const nameLabel = NAME_LABEL[type] ?? NAME_LABEL.PRT
+
   const labelCls  = "block text-[12px] font-medium text-gray-600 dark:text-gray-400 mb-1"
   const inputCls  = "w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
   const selectCls = inputCls
@@ -150,11 +161,11 @@ export default function EditSkuPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelCls}>ชื่ออะไหล่ (TH) *</label>
+            <label className={labelCls}>{nameLabel.th}</label>
             <input name="ชื่ออะไหล่_TH" defaultValue={field("ชื่ออะไหล่_TH")} className={inputCls} required />
           </div>
           <div>
-            <label className={labelCls}>Part Name (EN)</label>
+            <label className={labelCls}>{nameLabel.en}</label>
             <input name="Part_Name_EN" defaultValue={field("Part_Name_EN")} className={inputCls} />
           </div>
         </div>

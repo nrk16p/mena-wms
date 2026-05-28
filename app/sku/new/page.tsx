@@ -172,6 +172,17 @@ export default function NewSkuPage() {
     }
   }
 
+  const NAME_LABEL: Record<string, { th: string; en: string; placeholder: string }> = {
+    PRT: { th: "ชื่ออะไหล่ (TH) *",    en: "Part Name (EN)",    placeholder: "กรองน้ำมันเครื่อง Isuzu 6HK1" },
+    PM:  { th: "ชื่อรายการ PM (TH) *", en: "Item Name (EN)",    placeholder: "เปลี่ยนถ่ายน้ำมันเครื่อง" },
+    LAB: { th: "ชื่องาน/บริการ (TH) *", en: "Service Name (EN)", placeholder: "ถอดประกอบเครื่องยนต์ทั้งตัว" },
+    SVC: { th: "ชื่อบริการ (TH) *",    en: "Service Name (EN)", placeholder: "ค่าบริการตรวจสภาพ" },
+    CLN: { th: "ชื่อบริการ (TH) *",    en: "Service Name (EN)", placeholder: "ล้างรถ-ดูดฝุ่นห้องโดยสาร" },
+    TRP: { th: "ชื่อบริการ (TH) *",    en: "Service Name (EN)", placeholder: "ค่าลากจูงฉุกเฉิน" },
+    ACC: { th: "ชื่อรายการซ่อม (TH) *", en: "Repair Item (EN)", placeholder: "ซ่อมตัวถังหน้า-ชน" },
+  }
+  const nameLabel = NAME_LABEL[type] ?? NAME_LABEL.PRT
+
   const labelCls = "block text-[12px] font-medium text-gray-600 dark:text-gray-400 mb-1"
   const inputCls = "w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30 placeholder-gray-400"
   const selectCls = inputCls
@@ -282,12 +293,12 @@ export default function NewSkuPage() {
         {/* Row 3: Names */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelCls}>ชื่ออะไหล่ (TH) *</label>
-            <input value={nameTh} onChange={(e) => setNameTh(e.target.value)} className={inputCls} placeholder="กรองน้ำมันเครื่อง Isuzu 6HK1" required />
+            <label className={labelCls}>{nameLabel.th}</label>
+            <input value={nameTh} onChange={(e) => setNameTh(e.target.value)} className={inputCls} placeholder={nameLabel.placeholder} required />
           </div>
           <div>
-            <label className={labelCls}>Part Name (EN)</label>
-            <input value={nameEn} onChange={(e) => setNameEn(e.target.value)} className={inputCls} placeholder="Oil Filter Isuzu 6HK1" />
+            <label className={labelCls}>{nameLabel.en}</label>
+            <input value={nameEn} onChange={(e) => setNameEn(e.target.value)} className={inputCls} placeholder="" />
           </div>
         </div>
 
