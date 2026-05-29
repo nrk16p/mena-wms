@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import {
   X, BookOpen, LogIn, LayoutDashboard, PackageSearch,
-  PlusCircle, Inbox, Layers, Car, Database, Clock, Eye, EyeOff,
+  PlusCircle, Inbox, Layers, Car, Database, Clock, Eye, EyeOff, GitCompare,
 } from "lucide-react"
 
 // ── SVG Visual Mockups ──────────────────────────────────────────────
@@ -310,6 +310,43 @@ function VisualVehicleRow() {
   )
 }
 
+function VisualOESearch() {
+  return (
+    <svg viewBox="0 0 400 190" className="w-full rounded-xl" aria-label="OE Cross-Reference Search">
+      <rect width="400" height="190" fill="#f8fafc" rx="10" />
+      <text x="12" y="20" fill="#1e293b" fontSize="11" fontWeight="700">OE Cross-Reference Search</text>
+      {/* Search box */}
+      <rect x="8" y="26" width="384" height="26" rx="8" fill="white" stroke="#6366f1" strokeWidth="1.5" />
+      <text x="22" y="43" fill="#94a3b8" fontSize="9">🔍</text>
+      <text x="36" y="43" fill="#1e293b" fontSize="9" fontFamily="monospace">23401-E0300</text>
+      <rect x="6" y="24" width="388" height="30" rx="10" fill="none" stroke="#6366f1" strokeWidth="1.5" opacity="0.4" />
+      {/* Legend badges */}
+      <rect x="8" y="60" width="50" height="14" rx="4" fill="#d1fae5" />
+      <text x="33" y="71" textAnchor="middle" fill="#065f46" fontSize="7.5" fontWeight="700">เบอร์ตรง</text>
+      <rect x="64" y="60" width="44" height="14" rx="4" fill="#dbeafe" />
+      <text x="86" y="71" textAnchor="middle" fill="#1d4ed8" fontSize="7.5" fontWeight="700">OEM ref</text>
+      <rect x="114" y="60" width="50" height="14" rx="4" fill="#fed7aa" />
+      <text x="139" y="71" textAnchor="middle" fill="#92400e" fontSize="7.5" fontWeight="700">เทียบได้</text>
+      {/* "ตรงเป๊ะ" section */}
+      <text x="8" y="90" fill="#059669" fontSize="7.5" fontWeight="800" letterSpacing="1">ตรงเป๊ะ (1)</text>
+      <rect x="8" y="95" width="384" height="26" rx="6" fill="white" stroke="#a7f3d0" strokeWidth="1" />
+      <text x="16" y="113" fill="#1e293b" fontSize="8" fontFamily="monospace">BKK-PRT-ENG-FLT-OIL-0003</text>
+      <text x="156" y="113" fill="#374151" fontSize="8">กรองน้ำมัน Isuzu</text>
+      <rect x="290" y="99" width="50" height="14" rx="3" fill="#d1fae5" />
+      <text x="315" y="110" textAnchor="middle" fill="#065f46" fontSize="7" fontWeight="700">เบอร์ตรง</text>
+      <text x="380" y="112" textAnchor="end" fill="#6366f1" fontSize="9">↗</text>
+      {/* "เบอร์ใกล้เคียง" section */}
+      <text x="8" y="135" fill="#94a3b8" fontSize="7.5" fontWeight="800" letterSpacing="1">เบอร์ใกล้เคียง (2)</text>
+      <rect x="8" y="140" width="384" height="22" rx="5" fill="white" stroke="#e2e8f0" strokeWidth="0.6" />
+      <text x="16" y="155" fill="#374151" fontSize="7.5" fontFamily="monospace">BKK-PRT-ENG-FLT-OIL-0005</text>
+      <text x="156" y="155" fill="#64748b" fontSize="7.5">กรองน้ำมันเครื่อง Hino</text>
+      <rect x="290" y="144" width="44" height="12" rx="3" fill="#fed7aa" />
+      <text x="312" y="153.5" textAnchor="middle" fill="#92400e" fontSize="6.5" fontWeight="700">เทียบได้</text>
+      <text x="200" y="178" textAnchor="middle" fill="#6366f1" fontSize="8.5" fontWeight="600">พิมพ์เบอร์ — ระบบแยก "ตรงเป๊ะ" กับ "ใกล้เคียง" ให้อัตโนมัติ</text>
+    </svg>
+  )
+}
+
 function VisualAdminApprove() {
   return (
     <svg viewBox="0 0 400 185" className="w-full rounded-xl" aria-label="Admin approve reject">
@@ -359,6 +396,7 @@ const VISUALS: Record<string, React.ReactNode> = {
   "vehicles-2":         <VisualVehicleRow />,
   "admin-2":            <VisualAdminApprove />,
   "admin-3":            <VisualAdminApprove />,
+  "oe-search-0":        <VisualOESearch />,
 }
 
 // ── Data ─────────────────────────────────────────────────────────────
@@ -384,7 +422,7 @@ const SECTIONS: Section[] = [
     title: "Dashboard",
     steps: [
       { title: "ภาพรวม", desc: "หน้าแรกแสดง stat ทั่วไป — จำนวน SKU ทั้งหมดและ breakdown ตามประเภท" },
-      { title: "Quick Link", desc: "กดปุ่ม shortcut เพื่อไปยัง SKU List, เพิ่ม SKU, Parts Catalog หรือ Stats ได้ทันที" },
+      { title: "Quick Link", desc: "กดปุ่ม shortcut เพื่อไปยัง SKU List, เพิ่ม SKU, OE Cross-Ref, Parts Catalog หรือ Code Dictionary ได้ทันที" },
       { title: "Sidebar", desc: "ใช้เมนูซ้ายมือในการนำทางระหว่าง feature ต่าง ๆ กดลูกศรเพื่อย่อ/ขยาย sidebar" },
     ],
   },
@@ -398,6 +436,17 @@ const SECTIONS: Section[] = [
       { title: "ค้นหา", desc: "พิมพ์ในช่อง Search เพื่อค้นหาตามชื่อ SKU หรือ code" },
       { title: "เปิดรายละเอียด", desc: "กดที่แถวใดก็ได้เพื่อดู หรือแก้ไขรายละเอียด SKU นั้น" },
       { title: "แก้ไข SKU", desc: "ในหน้า Edit — ชื่อ, ราคา, Brand, ยานพาหนะแก้ไขได้ ส่วน Warehouse/Type/L1-L2-L3 จะล็อกไว้" },
+    ],
+  },
+  {
+    id: "oe-search",
+    icon: GitCompare,
+    title: "OE Cross-Reference",
+    steps: [
+      { title: "เปิดหน้าค้นหา", desc: "กด \"OE Cross-Ref\" ใน sidebar หมวด Master SKU หรือกด shortcut บน Dashboard" },
+      { title: "พิมพ์เบอร์อะไหล่", desc: "กรอกเบอร์อะไหล่ (เช่น 23401-E0300), เบอร์แท้ OEM ref, หรือเบอร์เทียบ — ระบบค้นหาแบบ real-time ขณะพิมพ์" },
+      { title: "ดูผลลัพธ์", desc: "ระบบแบ่งผลเป็น 2 กลุ่ม — \"ตรงเป๊ะ\" คือเบอร์เดียวกันทุกตัวอักษร และ \"เบอร์ใกล้เคียง\" คือเบอร์ที่มีส่วนนั้นอยู่บางส่วน" },
+      { title: "เปิด SKU", desc: "กดไอคอน ↗ ที่ขวาสุดของแถวเพื่อเปิดหน้า SKU นั้น พร้อม highlight เบอร์ที่ตรง" },
     ],
   },
   {
