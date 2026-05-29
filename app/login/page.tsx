@@ -25,7 +25,7 @@ function LoginContent() {
   if (status === "loading") {
     return (
       <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
-        <div className="absolute inset-0 bg-black/10" />
+        <div className="absolute inset-0 bg-black/15" />
         <div className="relative z-10 text-[10px] tracking-[0.3em] text-white/35 uppercase">Loading</div>
       </div>
     )
@@ -33,7 +33,7 @@ function LoginContent() {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
-      <div className="absolute inset-0 bg-black/10" />
+      <div className="absolute inset-0 bg-black/15" />
 
       <div className="relative z-10 w-full max-w-xs px-6" style={{ transform: "scale(1.25)" }}>
        
