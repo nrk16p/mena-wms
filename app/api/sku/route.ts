@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
     ระบบ_L1:           l1,
     ชุดประกอบ_L2:      l2,
     ชิ้นส่วน_L3:       l3,
-    ตำแหน่ง:           rest.position  ?? "GN",
+    ตำแหน่ง:           Array.isArray(rest.positions) ? rest.positions : (rest.position ? [rest.position] : ["GN"]),
     ราคาต่อหน่วย:      price,
     หน่วย:             rest.unit      ?? "PC",
     ยี่ห้อ:            rest.brand     ?? "",

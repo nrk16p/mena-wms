@@ -26,7 +26,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     ชื่ออะไหล่_TH:    body.ชื่ออะไหล่_TH    ?? "",
     Part_Name_EN:      body.Part_Name_EN      ?? "",
     เบอร์อะไหล่:       body.เบอร์อะไหล่       ?? "",
-    ตำแหน่ง:           body.ตำแหน่ง           ?? "GN",
+    ตำแหน่ง:           Array.isArray(body.ตำแหน่ง) ? body.ตำแหน่ง : (body.ตำแหน่ง ? [body.ตำแหน่ง] : ["GN"]),
     ราคาต่อหน่วย:      noPrice ? 0 : (parseFloat(body.ราคาต่อหน่วย) || 0),
     หน่วย:             body.หน่วย             ?? "PC",
     ยี่ห้อ:            body.ยี่ห้อ            ?? "",

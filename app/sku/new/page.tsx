@@ -37,7 +37,7 @@ export default function NewSkuPage() {
   const [nameTh, setNameTh]   = useState("")
   const [nameEn, setNameEn]   = useState("")
   const [partNo, setPartNo]   = useState("")
-  const [position, setPosition] = useState("GN")
+  const [positions, setPositions] = useState<string[]>(["GN"])
   const [price, setPrice]     = useState("")
   const [unit, setUnit]       = useState("PC")
   const [brand, setBrand]           = useState("")
@@ -168,7 +168,7 @@ export default function NewSkuPage() {
     const res = await fetch("/api/sku", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wh, type, l1, l2, l3, nameTh, nameEn, partNo, position, price: noPrice ? "0" : price, unit, brand, oemRef, compatRefs, vehicles, grade, atmsCodes }),
+      body: JSON.stringify({ wh, type, l1, l2, l3, nameTh, nameEn, partNo, positions, price: noPrice ? "0" : price, unit, brand, oemRef, compatRefs, vehicles, grade, atmsCodes }),
     })
 
     setSaving(false)
@@ -325,10 +325,23 @@ export default function NewSkuPage() {
             <input value={partNo} onChange={(e) => setPartNo(e.target.value)} className={inputCls} placeholder="8-97306044-0" />
           </div>
           <div>
-            <label className={labelCls}>ตำแหน่ง</label>
-            <select value={position} onChange={(e) => setPosition(e.target.value)} className={selectCls}>
-              {Object.entries(posOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
-            </select>
+            <label className={labelCls}>ตำแหน่ง <span className="font-normal text-gray-400">(เลือกได้หลายตำแหน่ง)</span></label>
+            <div className={inputCls + " min-h-[38px] flex flex-wrap gap-1 items-center py-1.5"}>
+              {positions.map((p) => (
+                <span key={p} className="inline-flex items-center gap-1 rounded bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 px-1.5 py-0.5 text-xs font-mono">
+                  {p} — {posOptions[p]?.th ?? p}
+                  <button type="button" onClick={() => setPositions((prev) => prev.filter((x) => x !== p))} className="hover:text-red-500">×</button>
+                </span>
+              ))}
+              <select
+                value=""
+                onChange={(e) => { const v = e.target.value; if (v && !positions.includes(v)) setPositions((prev) => [...prev, v]) }}
+                className="flex-1 min-w-[80px] bg-transparent outline-none text-sm text-gray-500 dark:text-gray-400"
+              >
+                <option value="">+ เพิ่มตำแหน่ง</option>
+                {Object.entries(posOptions).filter(([k]) => !positions.includes(k)).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 

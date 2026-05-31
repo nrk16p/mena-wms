@@ -34,6 +34,7 @@ export default function EditSkuPage() {
   const [compatRefs, setCompatRefs]   = useState<string[]>([])
   const [compatInput, setCompatInput] = useState("")
   const [vehicles, setVehicles]       = useState<string[]>([])
+  const [positions, setPositions]     = useState<string[]>([])
 
   // Code dict options fetched from MongoDB
   const [whOptions,      setWhOptions]      = useState<CodeMap>(toStaticMap(WAREHOUSE))
@@ -70,6 +71,8 @@ export default function EditSkuPage() {
         setCompatRefs(Array.isArray(rawCompat) ? rawCompat : rawCompat ? [String(rawCompat)] : [])
         const rawVehicles = d["ทะเบียนหรือรุ่นรถ"]
         setVehicles(Array.isArray(rawVehicles) ? rawVehicles : rawVehicles ? [String(rawVehicles)] : [])
+        const rawPositions = d["ตำแหน่ง"]
+        setPositions(Array.isArray(rawPositions) ? rawPositions : rawPositions ? [String(rawPositions)] : ["GN"])
         // Load grades filtered by this SKU's expense type
         const expenseType = String(d["ประเภทค่าใช้จ่าย"] ?? "PRT")
         type Row = { code: string; th: string; en: string }
@@ -107,6 +110,7 @@ export default function EditSkuPage() {
     body["รหัสATMS"] = atmsCodes
     body["เบอร์เทียบอ้างอิง"] = compatRefs
     body["ทะเบียนหรือรุ่นรถ"] = vehicles
+    body["ตำแหน่ง"] = positions
     if (noPrice) body["ราคาต่อหน่วย"] = "0"
 
     const res = await fetch(`/api/sku/${sku}`, {
@@ -195,10 +199,23 @@ export default function EditSkuPage() {
             <input name="เบอร์อะไหล่" defaultValue={field("เบอร์อะไหล่")} className={inputCls} />
           </div>
           <div>
-            <label className={labelCls}>ตำแหน่ง</label>
-            <select name="ตำแหน่ง" defaultValue={field("ตำแหน่ง")} className={selectCls}>
-              {Object.entries(posOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
-            </select>
+            <label className={labelCls}>ตำแหน่ง <span className="font-normal text-gray-400">(เลือกได้หลายตำแหน่ง)</span></label>
+            <div className={inputCls + " min-h-[38px] flex flex-wrap gap-1 items-center py-1.5"}>
+              {positions.map((p) => (
+                <span key={p} className="inline-flex items-center gap-1 rounded bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 px-1.5 py-0.5 text-xs font-mono">
+                  {p} — {posOptions[p]?.th ?? p}
+                  <button type="button" onClick={() => setPositions((prev) => prev.filter((x) => x !== p))} className="hover:text-red-500">×</button>
+                </span>
+              ))}
+              <select
+                value=""
+                onChange={(e) => { const v = e.target.value; if (v && !positions.includes(v)) setPositions((prev) => [...prev, v]) }}
+                className="flex-1 min-w-[80px] bg-transparent outline-none text-sm text-gray-500 dark:text-gray-400"
+              >
+                <option value="">+ เพิ่มตำแหน่ง</option>
+                {Object.entries(posOptions).filter(([k]) => !positions.includes(k)).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 
