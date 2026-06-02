@@ -283,5 +283,6 @@ export const VEHICLE_TYPE: Record<string, { th: string; brand: string; engine: s
 export const EXPENSE_TYPES_NO_PRICE = ["LAB", "SVC", "CLN", "TRP", "ACC"]
 
 export function buildSku(wh: string, type: string, l1: string, l2: string, l3: string, seq: number): string {
-  return `${wh}-${type}-${l1}-${l2}-${l3}-${String(seq).padStart(4, "0")}`
+  const parts = l3 ? [wh, type, l1, l2, l3] : [wh, type, l1, l2]
+  return `${parts.join("-")}-${String(seq).padStart(4, "0")}`
 }

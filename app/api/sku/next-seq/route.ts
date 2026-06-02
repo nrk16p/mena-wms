@@ -13,11 +13,11 @@ export async function GET(req: NextRequest) {
   const l2   = searchParams.get("l2")   ?? ""
   const l3   = searchParams.get("l3")   ?? ""
 
-  if (!wh || !type || !l1 || !l2 || !l3) {
+  if (!wh || !type || !l1 || !l2) {
     return NextResponse.json({ seq: 1, sku: "" })
   }
 
-  const prefix = `${wh}-${type}-${l1}-${l2}-${l3}-`
+  const prefix = l3 ? `${wh}-${type}-${l1}-${l2}-${l3}-` : `${wh}-${type}-${l1}-${l2}-`
   const client = await clientPromise
   const last   = await client.db(DB).collection(COLL)
     .find({ SKU: { $regex: `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` } })

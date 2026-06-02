@@ -150,17 +150,18 @@ export default function NewSkuPage() {
 
   // Preview SKU
   useEffect(() => {
-    if (!wh || !type || !l1 || !l2 || !l3) { setPreviewSku(""); return }
+    if (!wh || !type || !l1 || !l2 || (l3Required && !l3)) { setPreviewSku(""); return }
     fetch(`/api/sku/next-seq?wh=${wh}&type=${type}&l1=${l1}&l2=${l2}&l3=${l3}`)
       .then((r) => r.json())
       .then((d) => setPreviewSku(d.sku ?? ""))
   }, [wh, type, l1, l2, l3])
 
-  const noPrice = EXPENSE_TYPES_NO_PRICE.includes(type)
+  const noPrice    = EXPENSE_TYPES_NO_PRICE.includes(type)
+  const l3Required = !["LAB", "SVC", "CLN", "TRP"].includes(type)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!l1 || !l2 || !l3) { setError("กรุณาเลือก L1, L2, L3"); return }
+    if (!l1 || !l2 || (l3Required && !l3)) { setError(l3Required ? "กรุณาเลือก L1, L2, L3" : "กรุณาเลือก L1, L2"); return }
     if (atmsCodes.length === 0) { setError("กรุณาระบุรหัส ATMS อย่างน้อย 1 รหัส"); return }
     setError("")
     setSaving(true)
@@ -221,7 +222,7 @@ export default function NewSkuPage() {
         <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3 px-5 py-4">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-600 mb-1">SKU ที่จะสร้าง</p>
           <p className="font-mono text-lg font-semibold text-gray-900 dark:text-white">
-            {previewSku || <span className="text-gray-400 dark:text-gray-600">เลือก WH + Type + L1 + L2 + L3 ก่อน</span>}
+            {previewSku || <span className="text-gray-400 dark:text-gray-600">{l3Required ? "เลือก WH + Type + L1 + L2 + L3 ก่อน" : "เลือก WH + Type + L1 + L2 ก่อน"}</span>}
           </p>
         </div>
         <div className={`rounded-xl border-2 border-dashed px-5 py-4 ${atmsCodes.length === 0 && error ? "border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-950/20" : "border-blue-200 dark:border-blue-800/60 bg-blue-50/50 dark:bg-blue-950/20"}`}>
@@ -298,8 +299,8 @@ export default function NewSkuPage() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>ชิ้นส่วน L3 *</label>
-            <select value={l3} onChange={(e) => setL3(e.target.value)} className={selectCls} required disabled={!l2}>
+            <label className={labelCls}>ชิ้นส่วน L3 {l3Required ? "*" : <span className="font-normal text-gray-400">(ไม่บังคับ)</span>}</label>
+            <select value={l3} onChange={(e) => setL3(e.target.value)} className={selectCls} required={l3Required} disabled={!l2}>
               <option value="">— เลือก L3 —</option>
               {Object.entries(l3Options).map(([k, v]) => <option key={k} value={k}>{k} {v.th}</option>)}
             </select>

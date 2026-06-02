@@ -7,9 +7,10 @@ import { TourHighlight } from "./tour-highlight"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isLoginPage = pathname === "/login"
+  const isLoginPage        = pathname === "/login"
+  const isPresentationPage = pathname === "/presentation"
 
-  if (isLoginPage) {
+  if (isLoginPage || isPresentationPage) {
     return <div className="w-full h-full">{children}</div>
   }
 

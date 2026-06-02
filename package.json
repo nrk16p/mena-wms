@@ -18,6 +18,7 @@
     "radix-ui": "^1.4.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "reveal.js": "^6.0.1",
     "shadcn": "^4.8.2",
     "sweetalert2": "^11.26.25",
     "tailwind-merge": "^3.6.0",

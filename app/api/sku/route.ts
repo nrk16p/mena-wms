@@ -110,8 +110,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { wh, type, l1, l2, l3, ...rest } = body
 
-  if (!wh || !type || !l1 || !l2 || !l3) {
-    return NextResponse.json({ error: "Missing required fields: wh, type, l1, l2, l3" }, { status: 400 })
+  const l3Required = !["LAB", "SVC", "CLN", "TRP"].includes(type)
+  if (!wh || !type || !l1 || !l2 || (l3Required && !l3)) {
+    return NextResponse.json({ error: "Missing required fields: wh, type, l1, l2" + (l3Required ? ", l3" : "") }, { status: 400 })
   }
 
   const client = await clientPromise

@@ -112,9 +112,17 @@ export default function Home() {
             ระบบจัดการข้อมูล Master SKU — Mena Transport
           </p>
         </div>
-        <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400 dark:text-gray-600 mt-1">
-          <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-          Live
+        <div className="flex items-center gap-3 mt-1">
+          <Link
+            href="/presentation"
+            className="hidden sm:flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/4 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors"
+          >
+            <span>▶</span> Present
+          </Link>
+          <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400 dark:text-gray-600">
+            <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+            Live
+          </div>
         </div>
       </div>
 
