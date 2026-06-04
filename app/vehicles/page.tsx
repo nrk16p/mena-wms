@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Search, Plus, Pencil, Trash2, Check, X, Car, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, Check, X, Car, ChevronDown, ChevronUp, Download } from "lucide-react"
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
+import * as XLSX from "xlsx"
 
 type Vehicle = {
   plate:        string
@@ -207,6 +208,30 @@ export default function VehiclesPage() {
     </div>
   )
 
+  function exportToExcel() {
+    const rows = items.map((v) => ({
+      ทะเบียน: v.plate,
+      เลขรถ: v.fleetNo,
+      ฟลีท: v.fleet,
+      ประเภทยานพาหนะ: v.vehicleType,
+      ยี่ห้อ: v.brand,
+      รุ่น: v.model,
+      ปี: v.year,
+      เชื้อเพลิง: v.fuelType,
+      สาขา: v.branch,
+      กรรมสิทธิ์: v.ownership,
+      เลขเครื่องยนต์: v.engineNo,
+      เลขตัวถัง: v.chassisNo,
+      มีปั๊ม: v.hasPump ? "ใช่" : "ไม่",
+      เป็นหาง: v.isTrailer ? "ใช่" : "ไม่",
+      หมายเหตุ: v.note,
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Vehicles")
+    XLSX.writeFile(wb, `vehicles-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-2">
@@ -228,6 +253,14 @@ export default function VehiclesPage() {
           <option value="">— ทุกประเภท —</option>
           {VEHICLE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
+        <button
+          onClick={exportToExcel}
+          disabled={items.length === 0}
+          className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3.5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/8 disabled:opacity-40 transition-colors"
+        >
+          <Download size={14} />
+          Export Excel
+        </button>
         <button
           onClick={() => { setShowAdd(!showAdd); setEditPlate(null); setForm(EMPTY); setAddError("") }}
           className="ml-auto flex items-center gap-1.5 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-3.5 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
