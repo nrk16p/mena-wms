@@ -31,8 +31,10 @@ export async function POST(req: NextRequest) {
     plate,
     truckNumber,
     currentOdometer,
-    requestedBy:      session?.user?.name  ?? "",
-    requestedByEmail: session?.user?.email ?? "",
+    // session for web; body fields for mobile (x-api-key) callers
+    requestedBy:      session?.user?.name  || String(body.requestedBy ?? ""),
+    requestedByEmail: session?.user?.email || String(body.requestedByEmail ?? ""),
+    source:           session ? "web" : "mobile",
     createdAt:        new Date(),
   }
 
