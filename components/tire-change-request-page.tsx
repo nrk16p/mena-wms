@@ -4,19 +4,27 @@ import { useState } from "react"
 import { ClipboardList, Search, User, Truck, Gauge, Hash, Camera, X, Check } from "lucide-react"
 import { swalToast, swalError } from "@/lib/swal"
 
-type TireChange = {
-  _id:                string
-  vehicle:            string
-  tirePosition:       string
-  product:            string
-  serialNo:           string
-  treadMm:            number
-  mileageStart:       number
-  mileageEnd:         number
-  maintenanceRequest: string
-  changeIn:           string | null
-  changeOut:          string | null
-  isLatest:           boolean
+// แถวจาก /api/tire-change-request/lookup — ค่าคำนวณทั้งหมดมาจาก API
+type LookupRow = {
+  _id:            string
+  vehicle:        string
+  tirePosition:   string
+  positionCode:   string
+  positionName:   string
+  product:        string
+  serialNo:       string
+  treadMm:        number
+  mileageStart:   number
+  changeIn:       string | null
+  isLatest:       boolean
+  unitPrice:      number | null
+  stockDistance:  number | null
+  usedDistance:   number | null
+  remainingPct:   number | null
+  remainingLevel: "green" | "amber" | "red" | null
+  bahtPerKm:      number | null
+  age:            { text: string; level: "normal" | "warn" | "danger" } | null
+  request:        { itemStatus: string; requestStatus: string; appointmentDate?: string | null } | null
 }
 
 const fmtDate = (s: string | null) => {
@@ -47,34 +55,6 @@ function resizeImage(file: File, maxSize = 1280): Promise<string> {
   })
 }
 
-// "F1ล้อหน้าข้างซ้าย" → { code: "F1", name: "ล้อหน้าข้างซ้าย" }
-function splitPosition(pos: string): { code: string; name: string } {
-  const m = (pos ?? "").trim().match(/^([A-Z]{1,3}\d{1,2})\s*(.*)$/i)
-  if (!m) return { code: "", name: (pos ?? "").trim() }
-  return { code: m[1].toUpperCase(), name: m[2] }
-}
-
-// today - changeIn → adaptive "วัน / สัปดาห์ / เดือน / ปี" + warning level by age
-function tireAge(changeIn: string | null): { text: string; level: "normal" | "warn" | "danger" } | null {
-  if (!changeIn) return null
-  const d = new Date(changeIn)
-  if (isNaN(d.getTime())) return null
-  const days = Math.max(0, (Date.now() - d.getTime()) / 86400000)
-
-  let text: string
-  if (days < 7) text = `${Math.floor(days)} วัน`
-  else if (days < 30.44) text = `${Math.floor(days / 7)} สัปดาห์`
-  else if (days < 365.25) text = `${Math.floor(days / 30.44)} เดือน`
-  else {
-    const years  = Math.floor(days / 365.25)
-    const months = Math.floor((days - years * 365.25) / 30.44)
-    text = months > 0 ? `${years} ปี ${months} เดือน` : `${years} ปี`
-  }
-
-  const level = days >= 730.5 ? "danger" : days >= 365.25 ? "warn" : "normal"
-  return { text, level }
-}
-
 const ageChip = {
   normal: "",
   warn:   "inline-block rounded-md px-2 py-0.5 text-[11px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
@@ -90,12 +70,13 @@ type VehicleInfo = {
   plant?:      string
 }
 
-type StockInfo = { unitPrice: number; distance: number }
-
-// สถานะคำขอที่ค้างอยู่ของยางแต่ละเส้น (จากคำขอก่อนหน้า)
-type SerialStatus = { itemStatus: string; requestStatus: string; appointmentDate?: string }
-
 const REASON_OPTIONS = ["หมดดอก", "ยางระเบิด", "ยางฉีก", "ยางบวม", "รถกินยาง"]
+
+const remainingChip = {
+  red:   "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300",
+  amber: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
+  green: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
+}
 
 const fmtPrice = (n: number) =>
   n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -116,21 +97,19 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
   const [odometer, setOdometer]       = useState("")
   const [fleet, setFleet]             = useState("")
   const [plant, setPlant]             = useState("")
-  const [items, setItems]             = useState<TireChange[]>([])
+  const [items, setItems]             = useState<LookupRow[]>([])
   const [submittedOdo, setSubmittedOdo] = useState(0)
   const [vehicleInfo, setVehicleInfo] = useState<VehicleInfo | null>(null)
-  const [stockMap, setStockMap]       = useState<Record<string, StockInfo>>({})
   const [searched, setSearched]       = useState(false)
   const [loading, setLoading]         = useState(false)
   const [requestId, setRequestId]     = useState<string | null>(null)
-  const [modalTire, setModalTire]     = useState<TireChange | null>(null)
+  const [modalTire, setModalTire]     = useState<LookupRow | null>(null)
   const [reason, setReason]           = useState("")
   const [note, setNote]               = useState("")
   const [treadMm, setTreadMm]         = useState("")
   const [photos, setPhotos]           = useState<string[]>([])
   const [savingItem, setSavingItem]   = useState(false)
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
-  const [serialStatus, setSerialStatus] = useState<Record<string, SerialStatus>>({})
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -140,68 +119,24 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
     setRequestId(null)
     setRequestedIds(new Set())
 
-    // look up tire history + vehicle master in parallel
-    const qs = new URLSearchParams({ branch, vehicle: plate.trim(), limit: "500" })
-    const [res, vehRes] = await Promise.all([
-      fetch(`/api/tire-change?${qs}`),
-      fetch(`/api/vehicles?plates=${encodeURIComponent(plate.trim())}`),
-    ])
-    const d   = await res.json()
-    const veh = await vehRes.json().catch(() => [])
-    const vInfo: VehicleInfo | null = Array.isArray(veh) && veh.length > 0 ? veh[0] : null
+    // endpoint เดียวจบ — ประวัติยาง + ข้อมูลรถ + สต๊อก + สถานะคำขอ + ค่าคำนวณทุกคอลัมน์
+    const odo = Number(odometer.replace(/,/g, "")) || 0
+    const qs = new URLSearchParams({ branch, plate: plate.trim(), odometer: String(odo) })
+    const res = await fetch(`/api/tire-change-request/lookup?${qs}`)
+    const d   = await res.json().catch(() => ({}))
+
+    const vInfo: VehicleInfo | null = d.vehicle ?? null
     setVehicleInfo(vInfo)
     // pre-fill fleet/plant from vehicle master — driver can edit before requesting
     setFleet(vInfo?.fleet ?? "")
     setPlant(vInfo?.plant ?? "")
-    const rows: TireChange[] = Array.isArray(d.items) ? d.items : []
-    // current tires (ล่าสุด = yes) first, then by position
-    rows.sort((a, b) =>
-      Number(b.isLatest) - Number(a.isLatest) ||
-      a.tirePosition.localeCompare(b.tirePosition, "th")
-    )
-    // join stock-tire data by serial no (unit price + ระยะทาง) + existing requests for this plate
-    const serials = [...new Set(rows.map((r) => r.serialNo.trim()).filter(Boolean))]
-    const [stock, existing] = await Promise.all([
-      serials.length > 0
-        ? fetch(`/api/tire-stock?branch=${branch}&serials=${encodeURIComponent(serials.join(","))}&limit=2000`).then((r) => r.json()).catch(() => [])
-        : Promise.resolve([]),
-      fetch(`/api/tire-change-request?branch=${branch}&plate=${encodeURIComponent(plate.trim())}&limit=100`).then((r) => r.json()).catch(() => ({})),
-    ])
-
-    let map: Record<string, StockInfo> = {}
-    if (Array.isArray(stock)) {
-      map = Object.fromEntries(
-        stock.map((s: { serialNo: string; unitPrice: number; distance: number }) =>
-          [s.serialNo.trim(), { unitPrice: s.unitPrice ?? 0, distance: s.distance ?? 0 }])
-      )
-    }
-    setStockMap(map)
-
-    // serial → สถานะคำขอที่ยังค้างอยู่ (pending/approved/appointment) — ยกเว้น done และเส้นที่ถูกปฏิเสธ
-    const statusMap: Record<string, SerialStatus> = {}
-    type ExistingItem = { serialNo?: string; status?: string }
-    type ExistingReq  = { status?: string; appointmentDate?: string; items?: ExistingItem[] }
-    const reqs: ExistingReq[] = Array.isArray(existing?.items) ? existing.items : []
-    for (const er of reqs) {
-      const rStatus = er.status ?? "pending"
-      if (rStatus === "done" || rStatus === "rejected") continue
-      for (const it of er.items ?? []) {
-        const iStatus = it.status ?? "pending"
-        if (iStatus === "rejected" || !it.serialNo) continue
-        const key = it.serialNo.trim()
-        if (statusMap[key]) continue // list is newest-first — keep the latest request's status
-        statusMap[key] = { itemStatus: iStatus, requestStatus: rStatus, appointmentDate: er.appointmentDate }
-      }
-    }
-    setSerialStatus(statusMap)
-
-    setItems(rows)
-    setSubmittedOdo(Number(odometer.replace(/,/g, "")) || 0)
+    setItems(Array.isArray(d.items) ? d.items : [])
+    setSubmittedOdo(odo)
     setSearched(true)
     setLoading(false)
   }
 
-  function openModal(t: TireChange) {
+  function openModal(t: LookupRow) {
     setModalTire(t)
     setReason("")
     setNote("")
@@ -256,15 +191,13 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
       setRequestId(rid)
     }
 
-    const pos  = splitPosition(modalTire.tirePosition)
-    const used = submittedOdo > 0 && modalTire.mileageStart > 0 ? submittedOdo - modalTire.mileageStart : 0
     const res = await fetch(`/api/tire-change-request/${rid}/items`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tirePosition: modalTire.tirePosition,
-        positionCode: pos.code,
-        positionName: pos.name,
+        positionCode: modalTire.positionCode,
+        positionName: modalTire.positionName,
         serialNo:     modalTire.serialNo,
         product:      modalTire.product,
         reason,
@@ -272,7 +205,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
         photos,
         currentTreadMm: Number(treadMm) || 0,
         mileageStart: modalTire.mileageStart,
-        usedDistance: used,
+        usedDistance: modalTire.usedDistance ?? 0,
       }),
     })
     setSavingItem(false)
@@ -283,7 +216,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
     }
     setRequestedIds((prev) => new Set(prev).add(modalTire._id))
     setModalTire(null)
-    swalToast("success", `ส่งคำขอเปลี่ยนยาง ${splitPosition(modalTire.tirePosition).code || modalTire.serialNo} สำเร็จ`)
+    swalToast("success", `ส่งคำขอเปลี่ยนยาง ${modalTire.positionCode || modalTire.serialNo} สำเร็จ`)
   }
 
   const inp = "w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30 placeholder-gray-400"
@@ -436,55 +369,40 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
                         <td className={td + " font-mono font-semibold text-gray-900 dark:text-white"}>
                           {t.vehicle}
                         </td>
-                        <td className={td + " font-mono font-semibold"}>{splitPosition(t.tirePosition).code || "—"}</td>
-                        <td className={td}>{splitPosition(t.tirePosition).name || "—"}</td>
+                        <td className={td + " font-mono font-semibold"}>{t.positionCode || "—"}</td>
+                        <td className={td}>{t.positionName || "—"}</td>
                         <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">{t.product || "—"}</td>
                         <td className={td + " font-mono"}>{t.serialNo || "—"}</td>
                         <td className={td + " text-right"}>
-                          {stockMap[t.serialNo.trim()] ? fmtPrice(stockMap[t.serialNo.trim()].unitPrice) : "—"}
+                          {t.unitPrice !== null ? fmtPrice(t.unitPrice) : "—"}
                         </td>
                         <td className={td + " text-right"}>
-                          {stockMap[t.serialNo.trim()] ? fmtNum(stockMap[t.serialNo.trim()].distance) : "—"}
+                          {t.stockDistance !== null ? fmtNum(t.stockDistance) : "—"}
                         </td>
                         <td className={td + " text-right"}>{t.treadMm || "—"}</td>
                         <td className={td + " text-right"}>{fmtNum(t.mileageStart)}</td>
                         <td className={td + " text-right font-semibold text-gray-900 dark:text-white"}>
-                          {submittedOdo > 0 && t.mileageStart > 0 ? fmtNum(submittedOdo - t.mileageStart) : "—"}
+                          {t.usedDistance !== null ? fmtNum(t.usedDistance) : "—"}
                         </td>
                         <td className={td + " text-right"}>
-                          {(() => {
-                            const stock = stockMap[t.serialNo.trim()]
-                            const used  = submittedOdo > 0 && t.mileageStart > 0 ? submittedOdo - t.mileageStart : null
-                            if (!stock || stock.distance <= 0 || used === null) return "—"
-                            const remaining = Math.round((1 - used / stock.distance) * 100)
-                            const chip =
-                              remaining <= 20 ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
-                              : remaining <= 50 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
-                              : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
-                            return (
-                              <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${chip}`}>
-                                {remaining}%
-                              </span>
-                            )
-                          })()}
+                          {t.remainingPct !== null && t.remainingLevel ? (
+                            <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${remainingChip[t.remainingLevel]}`}>
+                              {t.remainingPct}%
+                            </span>
+                          ) : "—"}
                         </td>
                         <td className={td + " text-right"}>
-                          {(() => {
-                            const stock = stockMap[t.serialNo.trim()]
-                            const used  = submittedOdo > 0 && t.mileageStart > 0 ? submittedOdo - t.mileageStart : null
-                            if (!stock || stock.unitPrice <= 0 || used === null || used <= 0) return "—"
-                            return (stock.unitPrice / used).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
-                          })()}
+                          {t.bahtPerKm !== null
+                            ? t.bahtPerKm.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                            : "—"}
                         </td>
                         <td className={td}>{fmtDate(t.changeIn)}</td>
                         <td className={td}>
-                          {(() => {
-                            const age = tireAge(t.changeIn)
-                            if (!age) return "—"
-                            return age.level === "normal"
-                              ? age.text
-                              : <span className={ageChip[age.level]}>{age.text}</span>
-                          })()}
+                          {t.age
+                            ? t.age.level === "normal"
+                              ? t.age.text
+                              : <span className={ageChip[t.age.level]}>{t.age.text}</span>
+                            : "—"}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">
                           {(() => {
@@ -495,7 +413,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
                                 </span>
                               )
                             }
-                            const st = serialStatus[t.serialNo.trim()]
+                            const st = t.request
                             if (st) {
                               if (st.requestStatus === "appointment") {
                                 return (
@@ -549,8 +467,8 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">ขอเปลี่ยนยาง</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  <span className="font-mono font-semibold">{splitPosition(modalTire.tirePosition).code || "—"}</span>
-                  {" "}{splitPosition(modalTire.tirePosition).name}
+                  <span className="font-mono font-semibold">{modalTire.positionCode || "—"}</span>
+                  {" "}{modalTire.positionName}
                   {" · "}<span className="font-mono">{modalTire.serialNo}</span>
                 </p>
               </div>

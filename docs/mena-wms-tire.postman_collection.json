@@ -1,0 +1,240 @@
+{
+  "info": {
+    "name": "Mena WMS — Tire APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Tire Management APIs (Change Tire Request flow + Stock + Change History). Set collection variables: base_url, api_key."
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://mena-wms.vercel.app" },
+    { "key": "api_key", "value": "PUT-YOUR-KEY-HERE" },
+    { "key": "request_id", "value": "" },
+    { "key": "item_id", "value": "" }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "x-api-key", "type": "string" },
+      { "key": "value", "value": "{{api_key}}", "type": "string" },
+      { "key": "in", "value": "header", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. Change Tire Request Flow",
+      "item": [
+        {
+          "name": "⭐ Lookup (ค้นหา — endpoint เดียวจบ)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/tire-change-request/lookup?branch=latkrabang&plate=สบ.71-3569&odometer=250000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change-request", "lookup"],
+              "query": [
+                { "key": "branch", "value": "latkrabang" },
+                { "key": "plate", "value": "สบ.71-3569" },
+                { "key": "odometer", "value": "250000" }
+              ]
+            },
+            "description": "คืนประวัติยาง + ข้อมูลรถ + สต๊อก + สถานะคำขอ + ค่าคำนวณครบทุกคอลัมน์ (usedDistance, remainingPct, bahtPerKm, age)"
+          }
+        },
+        {
+          "name": "Create Request (สร้างคำขอ — เรียกตอนยางเส้นแรก)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/tire-change-request",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change-request"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branch\": \"latkrabang\",\n  \"driverName\": \"สมชาย ใจดี\",\n  \"plate\": \"สบ.71-3569\",\n  \"truckNumber\": \"112\",\n  \"currentOdometer\": 250000,\n  \"fleet\": \"Asia\",\n  \"plant\": \"สรงประภา\",\n  \"vehicleType\": \"Mixer 10 ล้อ\",\n  \"requestedBy\": \"postman-test\"\n}"
+            },
+            "description": "201 → เก็บ _id จาก response ไปใส่ตัวแปร request_id"
+          }
+        },
+        {
+          "name": "Add Tire Item (ขอเปลี่ยนยางรายเส้น + รูป)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/tire-change-request/{{request_id}}/items",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change-request", "{{request_id}}", "items"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tirePosition\": \"F1ล้อหน้าข้างซ้าย\",\n  \"positionCode\": \"F1\",\n  \"positionName\": \"ล้อหน้าข้างซ้าย\",\n  \"serialNo\": \"GLZ-DS C6Y22150\",\n  \"product\": \"ยางผ้าใบดอกสร้อย 1000-20\",\n  \"reason\": \"หมดดอก\",\n  \"note\": \"ทดสอบจาก postman\",\n  \"photos\": [\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\"],\n  \"currentTreadMm\": 3.5,\n  \"mileageStart\": 248234,\n  \"usedDistance\": 1766\n}"
+            },
+            "description": "reason บังคับ (หมดดอก/ยางระเบิด/ยางฉีก/ยางบวม/รถกินยาง), photos สูงสุด 2 รูป base64. 201 → photoUrls"
+          }
+        },
+        {
+          "name": "List Requests (สำหรับ admin / เช็คสถานะ)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/tire-change-request?branch=latkrabang&status=pending&page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change-request"],
+              "query": [
+                { "key": "branch", "value": "latkrabang" },
+                { "key": "status", "value": "pending", "description": "pending / approved / appointment / done / rejected (ว่าง = ทั้งหมด)" },
+                { "key": "plate", "value": "สบ.71-3569", "disabled": true, "description": "exact match" },
+                { "key": "q", "value": "", "disabled": true, "description": "fuzzy: ทะเบียน/คนขับ/เบอร์รถ" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Approve/Reject Tire Item (อนุมัติรายเส้น)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/tire-change-request/{{request_id}}/items/{{item_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change-request", "{{request_id}}", "items", "{{item_id}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve\",\n  \"by\": \"postman-admin\"\n}"
+            },
+            "description": "action: approve | reject (+ reason). request status คำนวณใหม่อัตโนมัติ"
+          }
+        },
+        {
+          "name": "Request Workflow (นัดหมาย / เสร็จสิ้น)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/tire-change-request/{{request_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change-request", "{{request_id}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"appointment\",\n  \"date\": \"2026-06-20T09:00\",\n  \"note\": \"เข้าอู่ช่วงเช้า\",\n  \"by\": \"postman-admin\"\n}"
+            },
+            "description": "action: appointment (ต้อง approved ก่อน) | done (ต้อง appointment ก่อน) | approve | reject"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Supporting APIs",
+      "item": [
+        {
+          "name": "Tire Change History (ประวัติเปลี่ยนยางจาก ATMS)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/tire-change?branch=latkrabang&vehicle=สบ.71-3569&limit=500",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change"],
+              "query": [
+                { "key": "branch", "value": "latkrabang" },
+                { "key": "vehicle", "value": "สบ.71-3569", "description": "exact plate" },
+                { "key": "q", "value": "", "disabled": true },
+                { "key": "latest", "value": "yes", "disabled": true },
+                { "key": "page", "value": "1", "disabled": true },
+                { "key": "limit", "value": "500" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Sync Change History from ATMS",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/tire-change/sync",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-change", "sync"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branch\": \"latkrabang\"\n}"
+            },
+            "description": "ดึงข้อมูลจาก mena-atms.com (ใช้ ATMS_SESSION ใน env; 401 = ส่ง phpsessid ใหม่ใน body)"
+          }
+        },
+        {
+          "name": "Vehicles (ข้อมูลรถจากทะเบียน)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/vehicles?plates=สบ.71-3569",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles"],
+              "query": [
+                { "key": "plates", "value": "สบ.71-3569", "description": "หลายทะเบียนคั่น comma" },
+                { "key": "q", "value": "", "disabled": true },
+                { "key": "type", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Tire Stock (สต๊อกยาง)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/tire-stock?branch=latkrabang&limit=500",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-stock"],
+              "query": [
+                { "key": "branch", "value": "latkrabang" },
+                { "key": "serials", "value": "TCS-DS D6A18893", "disabled": true, "description": "exact, คั่น comma" },
+                { "key": "q", "value": "", "disabled": true },
+                { "key": "status", "value": "In Stock", "disabled": true },
+                { "key": "limit", "value": "500" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Tire Stock — Add (เพิ่มรายการเดียว)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/tire-stock",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-stock"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branch\": \"latkrabang\",\n  \"prCode\": \"LBPR26060999\",\n  \"ddCode\": \"LBDD26060999\",\n  \"depositDate\": \"12-06-2026\",\n  \"productCode\": \"LB09R00151\",\n  \"productName\": \"ยางผ้าใบดอกสร้อย 1000-20\",\n  \"serialNo\": \"POSTMAN-TEST-001\",\n  \"unitPrice\": 4465,\n  \"brand\": \"Deestone\",\n  \"tireSize\": \"1000-20\",\n  \"tireModel\": \"DSS111\",\n  \"distance\": 20000,\n  \"status\": \"In Stock\",\n  \"tireType\": \"เรเดียล\",\n  \"warrantyUntil\": \"\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Tire Stock — Bulk Add (วางจาก Excel)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/tire-stock/bulk",
+              "host": ["{{base_url}}"],
+              "path": ["api", "tire-stock", "bulk"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branch\": \"latkrabang\",\n  \"items\": [\n    {\n      \"prCode\": \"LBPR26060999\",\n      \"ddCode\": \"LBDD26060999\",\n      \"depositDate\": \"12-06-2026\",\n      \"productCode\": \"LB09R00151\",\n      \"productName\": \"ยางผ้าใบดอกสร้อย 1000-20\",\n      \"serialNo\": \"POSTMAN-BULK-001\",\n      \"unitPrice\": \"4465\",\n      \"brand\": \"Deestone\",\n      \"tireSize\": \"1000-20\",\n      \"tireModel\": \"DSS111\",\n      \"distance\": \"20000\",\n      \"status\": \"in-stock\",\n      \"tireType\": \"เรเดียล\",\n      \"warrantyUntil\": \"\"\n    }\n  ]\n}"
+            },
+            "description": "ตอบ inserted + skipped (serial ซ้ำ/ว่าง)"
+          }
+        }
+      ]
+    }
+  ]
+}
