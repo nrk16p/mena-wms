@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (plates.length > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items = await col.find({ plate: { $in: plates } } as any)
-      .project({ plate: 1, fleetNo: 1, fleet: 1, brand: 1, model: 1, vehicleType: 1, fuelType: 1, year: 1, engineNo: 1, chassisNo: 1 })
+      .project({ plate: 1, fleetNo: 1, fleet: 1, brand: 1, model: 1, vehicleType: 1, fuelType: 1, year: 1, engineNo: 1, chassisNo: 1, plant: 1, branch: 1 })
       .toArray()
     return NextResponse.json(items)
   }

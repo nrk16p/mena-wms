@@ -21,6 +21,7 @@ import {
   History,
   MapPin,
   ClipboardList,
+  ClipboardCheck,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -32,6 +33,7 @@ type NavItem  = {
   exact?: boolean
   subheader?: boolean // non-clickable mini label (e.g. branch name)
   indent?: boolean    // indented link under a subheader
+  adminOnly?: boolean // shown only to admins, amber styling
 }
 type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean }
 
@@ -63,10 +65,12 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/tire/latkrabang/stock-tire",     label: "Stock Tire",     icon: Disc3,          indent: true },
       { href: "/tire/latkrabang/change-history", label: "Change History", icon: History, indent: true },
       { href: "/tire/latkrabang/change-tire-request", label: "Change Tire Request", icon: ClipboardList, indent: true },
+      { href: "/tire/latkrabang/requests", label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
       { href: "#saraburi",                       label: "Saraburi",       icon: MapPin, subheader: true },
       { href: "/tire/saraburi/stock-tire",       label: "Stock Tire",     icon: Disc3,          indent: true },
       { href: "/tire/saraburi/change-history",   label: "Change History", icon: History, indent: true },
       { href: "/tire/saraburi/change-tire-request", label: "Change Tire Request", icon: ClipboardList, indent: true },
+      { href: "/tire/saraburi/requests", label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
     ],
   },
 ]
@@ -193,6 +197,7 @@ export function Sidebar() {
             <div className={["space-y-1", !collapsed && !open ? "hidden" : ""].join(" ")}>
               {group.items.map((item) => {
                 const Icon   = item.icon
+                if (item.adminOnly && !isAdmin) return null
                 if (item.subheader) {
                   if (collapsed) return null
                   return (
@@ -212,9 +217,13 @@ export function Sidebar() {
                       "relative flex items-center gap-2.5 rounded-xl text-[13px] font-semibold",
                       "transition-all duration-100 ease-out",
                       collapsed ? "h-10 w-10 mx-auto justify-center" : item.indent ? "h-9 pl-7 pr-2.5" : "h-9 px-2.5",
-                      active
-                        ? "bg-[#1B8C4B] text-white font-bold"
-                        : "text-[#4b5563] dark:text-gray-400 hover:bg-[#f0fdf4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
+                      item.adminOnly
+                        ? active
+                          ? "bg-amber-400 text-[#1a1a2e] font-bold"
+                          : "text-amber-600/80 dark:text-amber-500/70 hover:bg-amber-50 dark:hover:bg-amber-950/20 hover:text-amber-700"
+                        : active
+                          ? "bg-[#1B8C4B] text-white font-bold"
+                          : "text-[#4b5563] dark:text-gray-400 hover:bg-[#f0fdf4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
                     ].join(" ")}
                   >
                     <Icon size={15} className="shrink-0" />
