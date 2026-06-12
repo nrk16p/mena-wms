@@ -16,12 +16,24 @@ import {
   Car,
   Inbox,
   GitCompare,
+  ChevronDown,
+  Disc3,
+  History,
+  MapPin,
+  ClipboardList,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
 
-type NavItem  = { href: string; label: string; icon: React.ElementType; exact?: boolean }
-type NavGroup = { label: string; items: NavItem[] }
+type NavItem  = {
+  href: string
+  label: string
+  icon: React.ElementType
+  exact?: boolean
+  subheader?: boolean // non-clickable mini label (e.g. branch name)
+  indent?: boolean    // indented link under a subheader
+}
+type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean }
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -32,19 +44,29 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Master SKU",
+    collapsible: true,
     items: [
       { href: "/sku",              label: "รายการ SKU",     icon: PackageSearch, exact: true },
       { href: "/sku/new",          label: "เพิ่ม SKU ใหม่", icon: PlusCircle },
       { href: "/sku/my-submissions", label: "รายการของฉัน", icon: Inbox },
       { href: "/sku/oe-search",    label: "OE Cross-Ref",   icon: GitCompare },
-    ],
-  },
-  {
-    label: "Reference",
-    items: [
       { href: "/codes/parts", label: "Parts Catalog",    icon: Layers },
       { href: "/vehicles",    label: "ยานพาหนะ",         icon: Car },
       { href: "/codes",       label: "Code Dictionary",  icon: Database, exact: true },
+    ],
+  },
+  {
+    label: "Tire Management",
+    collapsible: true,
+    items: [
+      { href: "#latkrabang",                     label: "Latkrabang",     icon: MapPin, subheader: true },
+      { href: "/tire/latkrabang/stock-tire",     label: "Stock Tire",     icon: Disc3,          indent: true },
+      { href: "/tire/latkrabang/change-history", label: "Change History", icon: History, indent: true },
+      { href: "/tire/latkrabang/change-tire-request", label: "Change Tire Request", icon: ClipboardList, indent: true },
+      { href: "#saraburi",                       label: "Saraburi",       icon: MapPin, subheader: true },
+      { href: "/tire/saraburi/stock-tire",       label: "Stock Tire",     icon: Disc3,          indent: true },
+      { href: "/tire/saraburi/change-history",   label: "Change History", icon: History, indent: true },
+      { href: "/tire/saraburi/change-tire-request", label: "Change Tire Request", icon: ClipboardList, indent: true },
     ],
   },
 ]
@@ -53,9 +75,13 @@ const NAV_GROUPS: NavGroup[] = [
 export function Sidebar() {
   const [collapsed, setCollapsed]   = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({})
   const pathname  = usePathname()
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
+
+  // reset manual toggles on navigation so groups auto-open/auto-hide per route
+  useEffect(() => { setGroupOpen({}) }, [pathname])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -68,6 +94,17 @@ export function Sidebar() {
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href
     return pathname === href || pathname.startsWith(href + "/")
+  }
+
+  function isGroupOpen(group: NavGroup) {
+    if (!group.collapsible) return true
+    const manual = groupOpen[group.label]
+    if (manual !== undefined) return manual
+    // auto-open when the current route lives inside this group
+    return (
+      group.items.some((i) => isActive(i.href, i.exact)) ||
+      (group.label === "Master SKU" && isActive("/sku/pending"))
+    )
   }
 
   return (
@@ -118,11 +155,29 @@ export function Sidebar() {
 
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-2.5 py-3">
-        {NAV_GROUPS.map((group, gi) => (
+        {NAV_GROUPS.map((group, gi) => {
+          const open = isGroupOpen(group)
+          return (
           <div key={group.label} className={gi > 0 ? "mt-1" : ""}>
 
             {/* Section label */}
-            {!collapsed && (
+            {!collapsed && group.collapsible && (
+              <button
+                onClick={() => setGroupOpen((prev) => ({ ...prev, [group.label]: !open }))}
+                className={[
+                  "flex w-full items-center justify-between px-2 pb-1.5 text-[9px] font-black uppercase tracking-[0.22em]",
+                  "text-[#1B8C4B] dark:text-[#1B8C4B]/60 hover:text-[#0F6A3C] dark:hover:text-[#1B8C4B] transition-colors",
+                  gi > 0 ? "pt-4" : "pt-1",
+                ].join(" ")}
+              >
+                <span>— {group.label} —</span>
+                <ChevronDown
+                  size={11}
+                  className={["shrink-0 transition-transform duration-150", open ? "" : "-rotate-90"].join(" ")}
+                />
+              </button>
+            )}
+            {!collapsed && !group.collapsible && (
               <p className={[
                 "px-2 pb-1.5 text-[9px] font-black uppercase tracking-[0.22em]",
                 "text-[#1B8C4B] dark:text-[#1B8C4B]/60",
@@ -135,9 +190,18 @@ export function Sidebar() {
               <div className="my-2.5 mx-auto h-[2px] w-8 rounded-full bg-[#e2e8f0] dark:bg-white/10" />
             )}
 
-            <div className="space-y-1">
+            <div className={["space-y-1", !collapsed && !open ? "hidden" : ""].join(" ")}>
               {group.items.map((item) => {
                 const Icon   = item.icon
+                if (item.subheader) {
+                  if (collapsed) return null
+                  return (
+                    <p key={item.href} className="flex items-center gap-1.5 px-2 pt-2 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] dark:text-gray-500">
+                      <Icon size={10} className="shrink-0" />
+                      {item.label}
+                    </p>
+                  )
+                }
                 const active = isActive(item.href, item.exact)
                 return (
                   <Link
@@ -147,7 +211,7 @@ export function Sidebar() {
                     className={[
                       "relative flex items-center gap-2.5 rounded-xl text-[13px] font-semibold",
                       "transition-all duration-100 ease-out",
-                      collapsed ? "h-10 w-10 mx-auto justify-center" : "h-9 px-2.5",
+                      collapsed ? "h-10 w-10 mx-auto justify-center" : item.indent ? "h-9 pl-7 pr-2.5" : "h-9 px-2.5",
                       active
                         ? "bg-[#1B8C4B] text-white font-bold"
                         : "text-[#4b5563] dark:text-gray-400 hover:bg-[#f0fdf4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
@@ -162,21 +226,9 @@ export function Sidebar() {
                   </Link>
                 )
               })}
-            </div>
-          </div>
-        ))}
 
-        {/* ── Admin section ── */}
-        {isAdmin && (
-          <div className="mt-1">
-            {!collapsed && (
-              <p className="px-2 pb-1.5 pt-4 text-[9px] font-black uppercase tracking-[0.22em] text-amber-500 dark:text-amber-500/60">
-                — Admin —
-              </p>
-            )}
-            {collapsed && (
-              <div className="my-2.5 mx-auto h-[2px] w-8 rounded-full bg-[#e2e8f0] dark:bg-white/10" />
-            )}
+              {/* ── Admin link (admin only, part of the Master SKU group) ── */}
+              {group.label === "Master SKU" && isAdmin && (
             <Link
               href="/sku/pending"
               title={collapsed ? "รออนุมัติ" : undefined}
@@ -204,8 +256,11 @@ export function Sidebar() {
                 <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-white dark:ring-[#0a0e14]" />
               )}
             </Link>
+              )}
+            </div>
           </div>
-        )}
+          )
+        })}
       </nav>
 
       {/* ── Footer ── */}
