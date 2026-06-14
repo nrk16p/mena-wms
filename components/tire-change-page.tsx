@@ -116,7 +116,7 @@ export function TireChangePage({ branch, branchLabel }: { branch: string; branch
         <div className="flex items-center gap-1.5 rounded-full border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/4 px-2.5 py-1">
           <span className={`h-1.5 w-1.5 rounded-full ${cronStatus === null ? "bg-gray-300" : cronStatus.ok ? "bg-green-500" : "bg-red-500"}`} />
           <span className="text-[11px] text-gray-500 dark:text-gray-400">
-            Auto-sync ทุก 6 ชั่วโมง
+            Auto-sync ทุกวัน 02:00
             {cronStatus?.syncedAt && (
               <> · ล่าสุด {fmtDate(cronStatus.syncedAt)}</>
             )}
