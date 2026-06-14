@@ -1,73 +1,77 @@
 # ระบบจัดการยาง — Swimlane Flow
 
-```mermaid
-flowchart TD
+```zenuml
+title ระบบจัดการยาง — MENA Transport
 
-    subgraph ADMIN ["🏭  Admin คลัง  (/stock-tire)"]
-        direction LR
-        A1["รับยางเข้า\nบันทึก Stock\nPR Code + Serial No\nราคา / ระยะมาตรฐาน"]
-        A2{"ตรวจสอบ\nStock คงเหลือ"}
-        A3["ดู PR Report\n฿/กม. จริง vs มาตรฐาน\nสาเหตุ / ประสิทธิภาพ\nแนบรายงานประกอบ PR"]
-        A4["🔴 Stock เหลือน้อย\nสร้าง PR ขอสั่งซื้อยาง\nระบุยี่ห้อ / ขนาด / จำนวน"]
-        A5["รับยางใหม่\nตรวจนับ + บันทึก\nSerial No ทุกเส้น"]
-        A1 --> A2
-        A2 -->|"✅ เพียงพอ"| A3
-        A2 -->|"⚠️ ไม่พอ"| A4
-        A5 --> A1
-    end
+@Actor Driver as "🚛 คนขับ"
+@Boundary App as "📱 App / Web"
+@Control System as "⚙️ ระบบ (mena-wms)"
+@Actor Admin as "🏭 Admin คลัง"
+@Actor Manager as "👔 ผู้จัดการ"
+@Database ATMS as "🔄 ATMS"
 
-    subgraph DRIVER ["🚛  คนขับ  (/change-tire-request)"]
-        direction LR
-        D1["พบปัญหายาง"]
-        D2["กรอกทะเบียน\n+ เลขไมล์ปัจจุบัน"]
-        D3["ระบบแสดงยางบนรถ\nตำแหน่ง / Serial No\n% ประสิทธิภาพคงเหลือ\n⚠ แดง = ใกล้หมด"]
-        D4["เลือกยางที่ต้องเปลี่ยน\nกรอกสาเหตุ\nแนบรูปถ่าย ≤ 2 รูป/เส้น"]
-        D5(["ส่งคำขอ\n📱 Mobile / 💻 Web"])
-        D9(["รับแจ้งผล\nอนุมัติ + วันนัดหมาย"])
-        D1 --> D2 --> D3 --> D4 --> D5
-    end
+// ── 1. รับยางเข้า Stock ──────────────────────────────
+Admin -> System.addStock("PR Code + Serial No\nราคา / ระยะมาตรฐาน") {
+  return "บันทึก Stock เรียบร้อย"
+}
 
-    subgraph MANAGER ["👔  ผู้จัดการ  (/requests)"]
-        direction LR
-        M1["รับคำขอเปลี่ยนยาง\n🟡 Pending"]
-        M2["ตรวจสอบข้อมูล\nรูปถ่าย / ฿ต่อกม.\nประสิทธิภาพ"]
-        M3{"อนุมัติ\nเปลี่ยนยาง?"}
-        M4["🔵 Approved\nกำหนดวันนัดหมาย"]
-        M5["🟢 Done\nปิดงาน"]
-        M6["❌ Rejected\nระบุเหตุผล"]
-        M7["พิจารณา PR\nขอซื้อยางใหม่\nดู PR Report ประกอบ"]
-        M8{"อนุมัติ\nสั่งซื้อ?"}
-        M9["✅ อนุมัติ PR\nส่งฝ่ายจัดซื้อ\nดำเนินการสั่งซื้อ"]
-        M10["❌ ปฏิเสธ / ปรับแก้\nระบุเหตุผล"]
-        M1 --> M2 --> M3
-        M3 -->|"✅"| M4 --> M5
-        M3 -->|"❌"| M6
-        M7 --> M8
-        M8 -->|"✅"| M9
-        M8 -->|"❌"| M10
-    end
+// ── 2. คนขับขอเปลี่ยนยาง ─────────────────────────────
+Driver -> App.enterVehicle("ทะเบียน + เลขไมล์ปัจจุบัน") {
+  App -> System.getTires("plate, odometer") {
+    return "รายการยางบนรถ\nตำแหน่ง / Serial No / % ประสิทธิภาพ"
+  }
+  return "แสดงยางบนรถ ⚠️ แดง = ใกล้หมด"
+}
 
-    subgraph SYSTEM ["⚙️  ระบบ / ATMS  (/change-history)"]
-        direction LR
-        S1(["Sync อัตโนมัติ\nทุกวัน 02:00\nหรือกด Manual"])
-        S2["อัปเดต\nChange History\nประวัติยางรายเส้น"]
-        S3["อัปเดต\nStock Status\nIn Stock / Withdraw / Sold"]
-        S1 --> S2 --> S3
-    end
+Driver -> App.selectTires("เลือกยาง + สาเหตุ + รูปถ่าย") {
+  App -> System.submitRequest("items[]") {
+    return "🟡 Pending — รอผู้จัดการอนุมัติ"
+  }
+}
 
-    %% การขอเปลี่ยนยาง
-    A1  -->|"ยางพร้อมใช้ใน Stock"| D3
-    D5  -->|"คำขอใหม่"| M1
-    M4  -->|"แจ้งผล + วันนัดหมาย"| D9
-    M6  -->|"แจ้งผลปฏิเสธ"| D9
-    M5  -->|"บันทึกใน ATMS"| S1
-    S3  -->|"สถานะอัปเดต"| A2
-    S3  -->|"ข้อมูลครบล็อต PR"| A3
+// ── 3. ผู้จัดการอนุมัติ ───────────────────────────────
+System -> Manager: "แจ้ง Pending Request"
 
-    %% การสั่งซื้อยางใหม่
-    A4  -->|"ส่ง PR พร้อม\nรายงานประกอบ"| M7
-    A3  -->|"แนบรายงาน\nประสิทธิภาพล็อตเก่า"| M7
-    M9  -->|"ยางใหม่มาถึง"| A5
+Manager -> System.review("ดูรูป / ฿ต่อกม. / ประสิทธิภาพ") {
+  if "อนุมัติ" {
+    Manager -> System.approve("กำหนดวันนัดหมาย") {
+      System -> Driver: "🔵 Approved + วันนัดหมาย"
+    }
+    Manager -> System.done() {
+      System -> ATMS: "บันทึกการเปลี่ยนยาง"
+    }
+  } else {
+    Manager -> System.reject("ระบุเหตุผล") {
+      System -> Driver: "❌ Rejected + เหตุผล"
+    }
+  }
+}
+
+// ── 4. Sync ข้อมูลจาก ATMS ───────────────────────────
+ATMS -> System.autoSync("ทุกวัน 02:00 UTC") {
+  System -> System.updateChangeHistory()
+  System -> System.updateStockStatus("Withdraw / Sold / Retreaded")
+  System -> Admin: "สถานะ Stock อัปเดตแล้ว"
+}
+
+// ── 5. ตรวจสอบ Stock + ขอสั่งซื้อใหม่ ───────────────
+Admin -> System.checkStock() {
+  if "Stock เหลือน้อย" {
+    Admin -> System.getPRReport("ล็อตก่อนหน้า") {
+      return "฿/กม. จริง vs มาตรฐาน\nสาเหตุหลัก / ประสิทธิภาพ"
+    }
+    Admin -> Manager.sendPurchasePR("จำนวน / ยี่ห้อ / ขนาด\n+ แนบ PR Report ประกอบ") {
+      if "อนุมัติ PR" {
+        Manager -> Admin: "✅ อนุมัติ — ส่งฝ่ายจัดซื้อ"
+        Admin -> System.receiveNewTires("Serial No ทุกเส้น\nPR Code ใหม่") {
+          return "🟢 Stock พร้อมใช้งาน"
+        }
+      } else {
+        Manager -> Admin: "❌ ปรับแก้ + เหตุผล"
+      }
+    }
+  }
+}
 ```
 
 ---
@@ -76,34 +80,7 @@ flowchart TD
 
 | เลน | หน้าที่ | หน้าเว็บ |
 |-----|---------|---------|
-| 🏭 Admin คลัง | รับยาง · บันทึก Stock · ตรวจจับ Stock ต่ำ · สร้าง PR ขอซื้อ | `/stock-tire` |
+| 🏭 Admin คลัง | รับยาง · บันทึก Stock · ตรวจ Stock ต่ำ · สร้าง PR ขอซื้อ | `/stock-tire` |
 | 🚛 คนขับ | ขอเปลี่ยนยาง · แนบรูป · รับผลอนุมัติ | `/change-tire-request` |
 | 👔 ผู้จัดการ | อนุมัติเปลี่ยนยาง · อนุมัติ PR ขอซื้อยางใหม่ | `/requests` |
 | ⚙️ ระบบ / ATMS | Sync อัตโนมัติ · อัปเดตประวัติ + สถานะ Stock | `/change-history` |
-
----
-
-## จุดเชื่อมต่อ Stock ต่ำ → สั่งซื้อใหม่
-
-```
-Stock คงเหลือน้อย
-      │
-      ▼
-Admin ดู PR Report ล็อตเก่า
-      │  (฿/กม. / ประสิทธิภาพ / สาเหตุหลัก)
-      │  → ใช้เป็นข้อมูลประกอบเลือกยี่ห้อ / รุ่นถัดไป
-      ▼
-สร้าง PR ขอสั่งซื้อ (แนบรายงานประกอบ)
-      │
-      ▼
-ผู้จัดการพิจารณาอนุมัติ PR
-      │
-      ▼
-ฝ่ายจัดซื้อดำเนินการ → ยางมาถึง
-      │
-      ▼
-Admin รับยาง + บันทึก Serial No ทุกเส้นเข้า Stock
-      │
-      ▼
-ยางพร้อมใช้งาน → วนรอบใหม่
-```
