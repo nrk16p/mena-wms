@@ -1,5 +1,10 @@
+import { Suspense } from "react"
 import { TireStockPage } from "@/components/tire-stock-page"
 
 export default function TireSaraburiStockPage() {
-  return <TireStockPage branch="saraburi" branchLabel="สระบุรี" />
+  return (
+    <Suspense>
+      <TireStockPage branch="saraburi" branchLabel="สระบุรี" />
+    </Suspense>
+  )
 }
