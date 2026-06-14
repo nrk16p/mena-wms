@@ -20,6 +20,13 @@ type RequestItem = {
   currentTreadMm: number
   mileageStart:   number
   usedDistance:   number
+  unitPrice:      number | null
+  stockDistance:  number | null
+  remainingPct:   number | null
+  bahtPerKm:      number | null
+  bahtPerKmStock: number | null
+  lastPR:         string | null
+  lastChangeIn:   string | null
   createdAt:      string
   status?:        string
   approvedBy?:    string
@@ -362,6 +369,8 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                                     <th className={th + " text-right"}>มิลยาง (มม.)</th>
                                     <th className={th + " text-right"}>ไมล์เริ่มต้น</th>
                                     <th className={th + " text-right"}>ระยะทางใช้งาน</th>
+                                    <th className={th + " text-right"}>ประสิทธิภาพคงเหลือ</th>
+                                    <th className={th + " text-right"}>บาทต่อกิโล<br/><span className="font-normal normal-case opacity-60">มาตรฐาน / ใช้จริง</span></th>
                                     <th className={th}>รูปถ่าย</th>
                                     <th className={th}>เวลาที่ขอ</th>
                                     <th className={th}>Status</th>
@@ -380,6 +389,27 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                                       <td className={td + " text-right"}>{it.currentTreadMm > 0 ? it.currentTreadMm : "—"}</td>
                                       <td className={td + " text-right"}>{fmtNum(it.mileageStart)}</td>
                                       <td className={td + " text-right"}>{it.usedDistance > 0 ? fmtNum(it.usedDistance) : "—"}</td>
+                                      <td className={td + " text-right"}>
+                                        {it.remainingPct !== null ? (
+                                          <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                                            it.remainingPct <= 20 ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
+                                            : it.remainingPct <= 50 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                                            : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                                          }`}>{it.remainingPct}%</span>
+                                        ) : "—"}
+                                      </td>
+                                      <td className={td + " text-right"}>
+                                        <div className="text-gray-400 text-[10px]">
+                                          {it.bahtPerKmStock !== null
+                                            ? it.bahtPerKmStock.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                                            : "—"}
+                                        </div>
+                                        <div className={`font-semibold ${it.bahtPerKm !== null && it.bahtPerKmStock !== null && it.bahtPerKm > it.bahtPerKmStock ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>
+                                          {it.bahtPerKm !== null
+                                            ? it.bahtPerKm.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                                            : "—"}
+                                        </div>
+                                      </td>
                                       <td className="px-3 py-1.5 whitespace-nowrap">
                                         {(() => {
                                           const urls = it.photoUrls?.length ? it.photoUrls : it.photoUrl ? [it.photoUrl] : []

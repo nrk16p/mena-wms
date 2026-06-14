@@ -44,7 +44,71 @@ export async function GET(req: NextRequest) {
     col.countDocuments(filter),
   ])
 
-  return NextResponse.json({ items, total, page, pages: Math.ceil(total / limit) })
+  // join tire_stock for unitPrice + distance → compute remainingPct + bahtPerKm per item
+  const serials = [...new Set(
+    items.flatMap((r) => (r.items ?? []).map((it: { serialNo?: string }) => String(it.serialNo ?? "").trim()))
+  )].filter(Boolean)
+
+  const stockMap = new Map<string, { unitPrice: number; distance: number }>()
+  const changeMap = new Map<string, { lastPR: string; lastChangeIn: Date | null }>()
+
+  if (serials.length > 0 && branch) {
+    const [stockRows, changeRows] = await Promise.all([
+      client.db(DB).collection("tire_stock")
+        .find({ branch, serialNo: { $in: serials } })
+        .project({ serialNo: 1, unitPrice: 1, distance: 1 })
+        .toArray(),
+      client.db(DB).collection("tire_change")
+        .find({ branch, serialNo: { $in: serials }, isLatest: true })
+        .project({ serialNo: 1, maintenanceRequest: 1, changeIn: 1 })
+        .toArray(),
+    ])
+    for (const s of stockRows) {
+      stockMap.set(String(s.serialNo).trim(), {
+        unitPrice: Number(s.unitPrice) || 0,
+        distance:  Number(s.distance)  || 0,
+      })
+    }
+    for (const c of changeRows) {
+      changeMap.set(String(c.serialNo).trim(), {
+        lastPR:       String(c.maintenanceRequest ?? ""),
+        lastChangeIn: c.changeIn ? new Date(c.changeIn) : null,
+      })
+    }
+  }
+
+  const enriched = items.map((r) => ({
+    ...r,
+    items: (r.items ?? []).map((it: Record<string, unknown>) => {
+      const sn          = String(it.serialNo ?? "").trim()
+      const stock       = stockMap.get(sn)
+      const change      = changeMap.get(sn)
+      const usedDist    = Number(it.usedDistance) || 0
+      const unitPrice   = stock?.unitPrice ?? null
+      const stockDist   = stock?.distance  ?? null
+      const remainingPct =
+        stockDist && stockDist > 0 && usedDist > 0
+          ? Math.round((1 - usedDist / stockDist) * 100)
+          : null
+      const bahtPerKm =
+        unitPrice && unitPrice > 0 && usedDist > 0
+          ? Math.round((unitPrice / usedDist) * 10000) / 10000
+          : null
+      const bahtPerKmStock =
+        unitPrice && unitPrice > 0 && stockDist && stockDist > 0
+          ? Math.round((unitPrice / stockDist) * 10000) / 10000
+          : null
+      return {
+        ...it,
+        unitPrice, stockDistance: stockDist,
+        remainingPct, bahtPerKm, bahtPerKmStock,
+        lastPR:       change?.lastPR       ?? null,
+        lastChangeIn: change?.lastChangeIn ?? null,
+      }
+    }),
+  }))
+
+  return NextResponse.json({ items: enriched, total, page, pages: Math.ceil(total / limit) })
 }
 
 // POST /api/tire-change-request — save a tire change request

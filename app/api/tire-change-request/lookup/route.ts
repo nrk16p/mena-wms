@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const [history, vehicle, requests] = await Promise.all([
     db.collection("tire_change")
-      .find({ branch, vehicle: plate })
+      .find({ branch, vehicle: plate, sellRepairStatus: "อื่นๆ" })
       .limit(500)
       .toArray(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -33,11 +33,14 @@ const fmtDate = (s: string | null) => {
 const fmtNum = (n: number) => (n ?? 0).toLocaleString("th-TH")
 
 export function TireChangePage({ branch, branchLabel }: { branch: string; branchLabel: string }) {
+  type CronStatus = { ok: boolean; syncedAt: string | null; error: string | null; count: number } | null
+
   const [items, setItems]       = useState<TireChange[]>([])
   const [total, setTotal]       = useState(0)
   const [pages, setPages]       = useState(1)
   const [page, setPage]         = useState(1)
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
+  const [cronStatus, setCronStatus] = useState<CronStatus>(null)
   const [loading, setLoading]   = useState(true)
   const [syncing, setSyncing]   = useState(false)
   const [q, setQ]               = useState("")
@@ -54,6 +57,7 @@ export function TireChangePage({ branch, branchLabel }: { branch: string; branch
     setTotal(d.total ?? 0)
     setPages(d.pages ?? 1)
     setSyncedAt(d.syncedAt ?? null)
+    setCronStatus(d.cronStatus ?? null)
     setLoading(false)
   }, [branch, q, latestFilter, page])
 
@@ -104,9 +108,24 @@ export function TireChangePage({ branch, branchLabel }: { branch: string; branch
         <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Change History — {branchLabel}</h1>
         <span className="text-sm text-gray-400">({total.toLocaleString()} รายการ)</span>
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        ประวัติเปลี่ยนยางจากระบบ ATMS — sync ล่าสุด: {syncedAt ? fmtDate(syncedAt) : "ยังไม่เคย sync"}
-      </p>
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          sync ล่าสุด: {syncedAt ? fmtDate(syncedAt) : "ยังไม่เคย sync"}
+        </p>
+        {/* Auto-sync status */}
+        <div className="flex items-center gap-1.5 rounded-full border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/4 px-2.5 py-1">
+          <span className={`h-1.5 w-1.5 rounded-full ${cronStatus === null ? "bg-gray-300" : cronStatus.ok ? "bg-green-500" : "bg-red-500"}`} />
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">
+            Auto-sync ทุก 6 ชั่วโมง
+            {cronStatus?.syncedAt && (
+              <> · ล่าสุด {fmtDate(cronStatus.syncedAt)}</>
+            )}
+            {cronStatus && !cronStatus.ok && (
+              <span className="ml-1 text-red-500" title={cronStatus.error ?? ""}>· ⚠ Session หมดอายุ</span>
+            )}
+          </span>
+        </div>
+      </div>
 
       {/* Controls */}
       <div className="flex flex-wrap gap-3 mb-4">

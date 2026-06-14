@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     ]
   }
 
-  const [items, total, lastDoc] = await Promise.all([
+  const [items, total, lastDoc, cronLog] = await Promise.all([
     col.find(filter)
       .sort({ updatedAt: -1 })
       .skip((page - 1) * limit)
@@ -41,6 +41,9 @@ export async function GET(req: NextRequest) {
       .toArray(),
     col.countDocuments(filter),
     col.find(branch ? { branch } : {}).sort({ syncedAt: -1 }).limit(1).project({ syncedAt: 1 }).next(),
+    branch
+      ? client.db(DB).collection("tire_sync_log").findOne({ branch, trigger: "cron" }, { projection: { ok: 1, syncedAt: 1, error: 1, count: 1 } })
+      : Promise.resolve(null),
   ])
 
   return NextResponse.json({
@@ -49,5 +52,6 @@ export async function GET(req: NextRequest) {
     page,
     pages: Math.ceil(total / limit),
     syncedAt: lastDoc?.syncedAt ?? null,
+    cronStatus: cronLog ? { ok: cronLog.ok, syncedAt: cronLog.syncedAt, error: cronLog.error ?? null, count: cronLog.count ?? 0 } : null,
   })
 }

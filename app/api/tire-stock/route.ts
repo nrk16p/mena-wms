@@ -5,14 +5,17 @@ import { normStatus } from "@/lib/tire"
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_stock"
 
-// GET /api/tire-stock?branch=latkrabang&q=...&status=...&serials=a,b,c&limit=200
+// GET /api/tire-stock?branch=latkrabang&q=...&status=...&prCode=...&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&serials=a,b,c&limit=200
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const branch  = searchParams.get("branch")?.trim() ?? ""
-  const q       = searchParams.get("q")?.trim()      ?? ""
-  const status  = searchParams.get("status")?.trim() ?? ""
-  const serials = searchParams.get("serials")?.split(",").map((s) => s.trim()).filter(Boolean) ?? []
-  const limit   = Math.min(parseInt(searchParams.get("limit") ?? "500"), 2000)
+  const branch   = searchParams.get("branch")?.trim()   ?? ""
+  const q        = searchParams.get("q")?.trim()        ?? ""
+  const status   = searchParams.get("status")?.trim()   ?? ""
+  const prCode   = searchParams.get("prCode")?.trim()   ?? ""
+  const dateFrom = searchParams.get("dateFrom")?.trim() ?? ""
+  const dateTo   = searchParams.get("dateTo")?.trim()   ?? ""
+  const serials  = searchParams.get("serials")?.split(",").map((s) => s.trim()).filter(Boolean) ?? []
+  const limit    = Math.min(parseInt(searchParams.get("limit") ?? "500"), 2000)
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
@@ -21,6 +24,12 @@ export async function GET(req: NextRequest) {
   const filter: Record<string, any> = {}
   if (branch) filter.branch = branch
   if (status) filter.status = status
+  if (prCode) filter.prCode = { $regex: prCode, $options: "i" }
+  if (dateFrom || dateTo) {
+    filter.depositDate = {}
+    if (dateFrom) filter.depositDate.$gte = dateFrom
+    if (dateTo)   filter.depositDate.$lte = dateTo
+  }
   if (serials.length > 0) filter.serialNo = { $in: serials }
   if (q) {
     filter["$or"] = [
