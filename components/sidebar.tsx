@@ -22,6 +22,8 @@ import {
   MapPin,
   ClipboardList,
   ClipboardCheck,
+  TableProperties,
+  TrendingUp,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -48,29 +50,32 @@ const NAV_GROUPS: NavGroup[] = [
     label: "จัดการ SKU",
     collapsible: true,
     items: [
-      { href: "/sku",               label: "รายการ SKU",        icon: PackageSearch, exact: true },
-      { href: "/sku/new",           label: "เพิ่ม SKU ใหม่",    icon: PlusCircle },
-      { href: "/sku/my-submissions",label: "รายการของฉัน",      icon: Inbox },
-      { href: "/sku/oe-search",     label: "ค้นหา OE",          icon: GitCompare },
-      { href: "/codes/parts",       label: "แคตาล็อกอะไหล่",   icon: Layers },
-      { href: "/vehicles",          label: "ยานพาหนะ",          icon: Car },
-      { href: "/codes",             label: "พจนานุกรมโค้ด",    icon: Database, exact: true },
+      { href: "/sku",                label: "รายการ SKU",       icon: PackageSearch, exact: true },
+      { href: "/sku/new",            label: "เพิ่ม SKU ใหม่",   icon: PlusCircle },
+      { href: "/sku/my-submissions", label: "รายการของฉัน",     icon: Inbox },
+      { href: "/sku/oe-search",      label: "ค้นหา OE",         icon: GitCompare },
+      { href: "/sku/bulk-update",    label: "Bulk Update",       icon: TableProperties },
+      { href: "/codes/parts",        label: "แคตาล็อกอะไหล่",  icon: Layers },
+      { href: "/vehicles",           label: "ยานพาหนะ",         icon: Car },
+      { href: "/codes",              label: "พจนานุกรมโค้ด",   icon: Database, exact: true },
     ],
   },
   {
     label: "จัดการยาง",
     collapsible: true,
     items: [
-      { href: "#latkrabang",                         label: "ลาดกระบัง",           icon: MapPin, subheader: true },
-      { href: "/tire/latkrabang/stock-tire",         label: "สต็อกยาง",            icon: Disc3,         indent: true },
-      { href: "/tire/latkrabang/change-history",     label: "ประวัติการเปลี่ยน",   icon: History,       indent: true },
-      { href: "/tire/latkrabang/change-tire-request",label: "คำขอเปลี่ยนยาง",     icon: ClipboardList, indent: true },
-      { href: "/tire/latkrabang/requests",           label: "อนุมัติเปลี่ยนยาง",  icon: ClipboardCheck,indent: true, adminOnly: true },
-      { href: "#saraburi",                           label: "สระบุรี",              icon: MapPin, subheader: true },
-      { href: "/tire/saraburi/stock-tire",           label: "สต็อกยาง",            icon: Disc3,         indent: true },
-      { href: "/tire/saraburi/change-history",       label: "ประวัติการเปลี่ยน",   icon: History,       indent: true },
-      { href: "/tire/saraburi/change-tire-request",  label: "คำขอเปลี่ยนยาง",     icon: ClipboardList, indent: true },
-      { href: "/tire/saraburi/requests",             label: "อนุมัติเปลี่ยนยาง",  icon: ClipboardCheck,indent: true, adminOnly: true },
+      { href: "#latkrabang",                          label: "ลาดกระบัง",          icon: MapPin,         subheader: true },
+      { href: "/tire/latkrabang/stock-tire",          label: "สต็อกยาง",           icon: Disc3,          indent: true },
+      { href: "/tire/latkrabang/change-history",      label: "ประวัติการเปลี่ยน",  icon: History,        indent: true },
+      { href: "/tire/latkrabang/change-tire-request", label: "คำขอเปลี่ยนยาง",    icon: ClipboardList,  indent: true },
+      { href: "/tire/latkrabang/requests",            label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
+      { href: "/tire/latkrabang/mileage-compare",     label: "เปรียบเทียบไมล์",   icon: TrendingUp,     indent: true },
+      { href: "#saraburi",                            label: "สระบุรี",             icon: MapPin,         subheader: true },
+      { href: "/tire/saraburi/stock-tire",            label: "สต็อกยาง",           icon: Disc3,          indent: true },
+      { href: "/tire/saraburi/change-history",        label: "ประวัติการเปลี่ยน",  icon: History,        indent: true },
+      { href: "/tire/saraburi/change-tire-request",   label: "คำขอเปลี่ยนยาง",    icon: ClipboardList,  indent: true },
+      { href: "/tire/saraburi/requests",              label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
+      { href: "/tire/saraburi/mileage-compare",       label: "เปรียบเทียบไมล์",   icon: TrendingUp,     indent: true },
     ],
   },
 ]
@@ -258,7 +263,7 @@ export function Sidebar() {
               })}
 
               {/* ── Admin link (admin only, part of the Master SKU group) ── */}
-              {group.label === "Master SKU" && isAdmin && (
+              {group.label === "จัดการ SKU" && isAdmin && (
             <Link
               href="/sku/pending"
               title={collapsed ? "รออนุมัติ" : undefined}

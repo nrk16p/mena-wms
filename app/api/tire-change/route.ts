@@ -7,10 +7,11 @@ const COLL = "tire_change"
 // GET /api/tire-change?branch=latkrabang&q=...&vehicle=สบ.71-1234&latest=yes&page=1&limit=100
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const branch  = searchParams.get("branch")?.trim()  ?? ""
-  const q       = searchParams.get("q")?.trim()       ?? ""
-  const vehicle = searchParams.get("vehicle")?.trim() ?? ""
-  const latest  = searchParams.get("latest")?.trim()  ?? ""
+  const branch       = searchParams.get("branch")?.trim()       ?? ""
+  const q            = searchParams.get("q")?.trim()            ?? ""
+  const vehicle      = searchParams.get("vehicle")?.trim()      ?? ""
+  const latest       = searchParams.get("latest")?.trim()       ?? ""
+  const sellRepair   = searchParams.get("sellRepair")?.trim()   ?? ""
   const page   = Math.max(parseInt(searchParams.get("page") ?? "1"), 1)
   const limit  = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "100"), 1), 500)
 
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest) {
   if (vehicle) filter.vehicle = vehicle
   if (latest === "yes") filter.isLatest = true
   if (latest === "no")  filter.isLatest = false
+  if (sellRepair)       filter.sellRepairStatus = sellRepair
   if (q) {
     filter["$or"] = [
       { vehicle:            { $regex: q, $options: "i" } },
@@ -35,7 +37,7 @@ export async function GET(req: NextRequest) {
 
   const [items, total, lastDoc, cronLog] = await Promise.all([
     col.find(filter)
-      .sort({ updatedAt: -1 })
+      .sort({ updatedAt: -1, _id: 1 })   // _id tie-breaks for stable pagination
       .skip((page - 1) * limit)
       .limit(limit)
       .toArray(),

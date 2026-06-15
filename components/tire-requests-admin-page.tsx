@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
-import { ClipboardCheck, Search, ChevronDown, ChevronUp, Check, X, CalendarClock, Flag } from "lucide-react"
+import { ClipboardCheck, Search, ChevronDown, ChevronUp, Check, X, Flag } from "lucide-react"
 import Swal from "sweetalert2"
 import { swalConfirm, swalToast, swalError } from "@/lib/swal"
 
@@ -63,7 +63,6 @@ const STATUS_TABS = [
   { value: "",            label: "ทั้งหมด" },
   { value: "pending",     label: "Pending" },
   { value: "approved",    label: "Approved" },
-  { value: "appointment", label: "นัดหมาย" },
   { value: "done",        label: "Done" },
   { value: "rejected",    label: "Rejected" },
 ]
@@ -71,7 +70,6 @@ const STATUS_TABS = [
 function statusChip(status: string) {
   switch (status) {
     case "approved":    return "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
-    case "appointment": return "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300"
     case "done":        return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
     case "rejected":    return "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
     default:            return "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" // pending
@@ -102,9 +100,6 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
   const [statusTab, setStatusTab] = useState("pending")
   const [q, setQ]             = useState("")
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [apptModal, setApptModal] = useState<TireRequest | null>(null)
-  const [apptDate, setApptDate]   = useState("")
-  const [apptNote, setApptNote]   = useState("")
   const [acting, setActing]       = useState(false)
 
   const load = useCallback(async () => {
@@ -200,21 +195,8 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
     itemPatch(r._id, it._id, { action: "reject", reason: value ?? "" }, `ปฏิเสธ ${it.serialNo} แล้ว`)
   }
 
-  function openAppointment(r: TireRequest) {
-    setApptModal(r)
-    setApptDate(r.appointmentDate ? new Date(r.appointmentDate).toISOString().slice(0, 16) : "")
-    setApptNote(r.appointmentNote ?? "")
-  }
-
-  async function handleAppointmentSave(e: React.FormEvent) {
-    e.preventDefault()
-    if (!apptModal) return
-    const ok = await patch(apptModal._id, { action: "appointment", date: apptDate, note: apptNote }, "บันทึกนัดหมายแล้ว")
-    if (ok) setApptModal(null)
-  }
-
   async function handleDone(r: TireRequest) {
-    const result = await swalConfirm("ปิดงานเปลี่ยนยาง?", `${r.plate} · นัดหมาย ${fmtDate(r.appointmentDate)}`)
+    const result = await swalConfirm("ปิดงานเปลี่ยนยาง?", `${r.plate} · ${r.driverName}`)
     if (!result.isConfirmed) return
     patch(r._id, { action: "done" }, "ปิดงานแล้ว")
   }
@@ -240,7 +222,7 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
         <span className="text-sm text-gray-400">({total.toLocaleString()} คำขอ)</span>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        Pending → Approve/Reject → นัดหมาย → Done — คลิกแถวเพื่อดูรายละเอียดยางแต่ละเส้น
+        Pending → Approve/Reject → Done — คลิกแถวเพื่อดูรายละเอียดยางแต่ละเส้น
       </p>
 
       {/* Status tabs */}
@@ -284,15 +266,14 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                 <th className={th + " text-right"}>เลขไมล์</th>
                 <th className={th + " text-center"}>ยางที่ขอ</th>
                 <th className={th}>Status</th>
-                <th className={th}>นัดหมาย</th>
                 <th className={th + " w-48"}></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} className="px-4 py-10 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={11} className="px-4 py-10 text-center text-sm text-gray-400">ไม่พบคำขอ</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">ไม่พบคำขอ</td></tr>
               ) : items.map((r, i) => {
                 const status = r.status ?? "pending"
                 const tireCount = (r.items ?? []).length
@@ -321,29 +302,16 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                           {status}
                         </span>
                       </td>
-                      <td className={td}>{fmtDate(r.appointmentDate)}</td>
                       <td className="px-3 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
                           {status === "pending" && (
                             <span className="text-[11px] text-gray-400">อนุมัติรายเส้น ↓ คลิกแถว</span>
                           )}
                           {status === "approved" && (
-                            <button disabled={acting} onClick={() => openAppointment(r)}
-                              className={btn + " bg-purple-600 text-white inline-flex items-center gap-1"}>
-                              <CalendarClock size={11} /> นัดหมาย
+                            <button disabled={acting} onClick={() => handleDone(r)}
+                              className={btn + " bg-green-600 text-white inline-flex items-center gap-1"}>
+                              <Flag size={11} /> เสร็จสิ้น
                             </button>
-                          )}
-                          {status === "appointment" && (
-                            <>
-                              <button disabled={acting} onClick={() => openAppointment(r)}
-                                className={btn + " border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 inline-flex items-center gap-1"}>
-                                <CalendarClock size={11} /> เลื่อนนัด
-                              </button>
-                              <button disabled={acting} onClick={() => handleDone(r)}
-                                className={btn + " bg-green-600 text-white inline-flex items-center gap-1"}>
-                                <Flag size={11} /> เสร็จสิ้น
-                              </button>
-                            </>
                           )}
                         </div>
                       </td>
@@ -352,7 +320,7 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                     {/* Expanded: tire items */}
                     {isOpen && (
                       <tr className="border-b border-gray-100 dark:border-white/5 bg-blue-50/30 dark:bg-blue-950/10">
-                        <td colSpan={11} className="px-4 py-3">
+                        <td colSpan={10} className="px-4 py-3">
                           {tireCount === 0 ? (
                             <p className="text-xs text-gray-400">ไม่มีรายการยาง (คนขับยังไม่ได้กดขอเปลี่ยนรายเส้น)</p>
                           ) : (
@@ -464,9 +432,6 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                           {r.rejectReason && (
                             <p className="mt-2 text-xs text-red-500">เหตุผลปฏิเสธ: {r.rejectReason}</p>
                           )}
-                          {r.appointmentNote && (
-                            <p className="mt-2 text-xs text-purple-600 dark:text-purple-400">หมายเหตุนัดหมาย: {r.appointmentNote}</p>
-                          )}
                         </td>
                       </tr>
                     )}
@@ -495,41 +460,6 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
         )}
       </div>
 
-      {/* ── Appointment modal ── */}
-      {apptModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !acting && setApptModal(null)}>
-          <form
-            onSubmit={handleAppointmentSave}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#0f1117] border border-gray-200 dark:border-white/10 p-5 shadow-xl"
-          >
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-1">นัดหมายเปลี่ยนยาง</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-              {apptModal.plate} · {apptModal.driverName} · {(apptModal.items ?? []).length} เส้น
-            </p>
-
-            <label className="block mb-3">
-              <span className="block text-[11px] font-medium text-gray-500 mb-1">วันเวลานัดหมาย *</span>
-              <input type="datetime-local" value={apptDate} onChange={(e) => setApptDate(e.target.value)} required className={inp + " w-full"} />
-            </label>
-            <label className="block mb-4">
-              <span className="block text-[11px] font-medium text-gray-500 mb-1">หมายเหตุ</span>
-              <input value={apptNote} onChange={(e) => setApptNote(e.target.value)} placeholder="เช่น เข้าอู่ลาดกระบัง ช่วงเช้า" className={inp + " w-full"} />
-            </label>
-
-            <div className="flex gap-2">
-              <button type="submit" disabled={acting || !apptDate}
-                className="flex-1 rounded-lg bg-purple-600 text-white px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50">
-                {acting ? "กำลังบันทึก..." : "บันทึกนัดหมาย"}
-              </button>
-              <button type="button" onClick={() => setApptModal(null)} disabled={acting}
-                className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8">
-                ยกเลิก
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   )
 }
