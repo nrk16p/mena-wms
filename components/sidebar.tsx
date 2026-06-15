@@ -39,42 +39,41 @@ type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean }
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Overview",
+    label: "ภาพรวม",
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
+      { href: "/", label: "หน้าหลัก", icon: LayoutDashboard, exact: true },
     ],
   },
   {
-    label: "Master SKU",
+    label: "จัดการ SKU",
     collapsible: true,
     items: [
-      { href: "/sku",              label: "รายการ SKU",     icon: PackageSearch, exact: true },
-      { href: "/sku/new",          label: "เพิ่ม SKU ใหม่", icon: PlusCircle },
-      { href: "/sku/my-submissions", label: "รายการของฉัน", icon: Inbox },
-      { href: "/sku/oe-search",    label: "OE Cross-Ref",   icon: GitCompare },
-      { href: "/codes/parts", label: "Parts Catalog",    icon: Layers },
-      { href: "/vehicles",    label: "ยานพาหนะ",         icon: Car },
-      { href: "/codes",       label: "Code Dictionary",  icon: Database, exact: true },
+      { href: "/sku",               label: "รายการ SKU",        icon: PackageSearch, exact: true },
+      { href: "/sku/new",           label: "เพิ่ม SKU ใหม่",    icon: PlusCircle },
+      { href: "/sku/my-submissions",label: "รายการของฉัน",      icon: Inbox },
+      { href: "/sku/oe-search",     label: "ค้นหา OE",          icon: GitCompare },
+      { href: "/codes/parts",       label: "แคตาล็อกอะไหล่",   icon: Layers },
+      { href: "/vehicles",          label: "ยานพาหนะ",          icon: Car },
+      { href: "/codes",             label: "พจนานุกรมโค้ด",    icon: Database, exact: true },
     ],
   },
   {
-    label: "Tire Management",
+    label: "จัดการยาง",
     collapsible: true,
     items: [
-      { href: "#latkrabang",                     label: "Latkrabang",     icon: MapPin, subheader: true },
-      { href: "/tire/latkrabang/stock-tire",     label: "Stock Tire",     icon: Disc3,          indent: true },
-      { href: "/tire/latkrabang/change-history", label: "Change History", icon: History, indent: true },
-      { href: "/tire/latkrabang/change-tire-request", label: "Change Tire Request", icon: ClipboardList, indent: true },
-      { href: "/tire/latkrabang/requests", label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
-      { href: "#saraburi",                       label: "Saraburi",       icon: MapPin, subheader: true },
-      { href: "/tire/saraburi/stock-tire",       label: "Stock Tire",     icon: Disc3,          indent: true },
-      { href: "/tire/saraburi/change-history",   label: "Change History", icon: History, indent: true },
-      { href: "/tire/saraburi/change-tire-request", label: "Change Tire Request", icon: ClipboardList, indent: true },
-      { href: "/tire/saraburi/requests", label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
+      { href: "#latkrabang",                         label: "ลาดกระบัง",           icon: MapPin, subheader: true },
+      { href: "/tire/latkrabang/stock-tire",         label: "สต็อกยาง",            icon: Disc3,         indent: true },
+      { href: "/tire/latkrabang/change-history",     label: "ประวัติการเปลี่ยน",   icon: History,       indent: true },
+      { href: "/tire/latkrabang/change-tire-request",label: "คำขอเปลี่ยนยาง",     icon: ClipboardList, indent: true },
+      { href: "/tire/latkrabang/requests",           label: "อนุมัติเปลี่ยนยาง",  icon: ClipboardCheck,indent: true, adminOnly: true },
+      { href: "#saraburi",                           label: "สระบุรี",              icon: MapPin, subheader: true },
+      { href: "/tire/saraburi/stock-tire",           label: "สต็อกยาง",            icon: Disc3,         indent: true },
+      { href: "/tire/saraburi/change-history",       label: "ประวัติการเปลี่ยน",   icon: History,       indent: true },
+      { href: "/tire/saraburi/change-tire-request",  label: "คำขอเปลี่ยนยาง",     icon: ClipboardList, indent: true },
+      { href: "/tire/saraburi/requests",             label: "อนุมัติเปลี่ยนยาง",  icon: ClipboardCheck,indent: true, adminOnly: true },
     ],
   },
 ]
-
 // ── Sidebar ───────────────────────────────────────────────────────────
 export function Sidebar() {
   const [collapsed, setCollapsed]   = useState(false)
@@ -168,17 +167,39 @@ export function Sidebar() {
             {!collapsed && group.collapsible && (
               <button
                 onClick={() => setGroupOpen((prev) => ({ ...prev, [group.label]: !open }))}
+                aria-expanded={open}
                 className={[
-                  "flex w-full items-center justify-between px-2 pb-1.5 text-[9px] font-black uppercase tracking-[0.22em]",
-                  "text-[#1B8C4B] dark:text-[#1B8C4B]/60 hover:text-[#0F6A3C] dark:hover:text-[#1B8C4B] transition-colors",
-                  gi > 0 ? "pt-4" : "pt-1",
+                  "group/header relative flex w-full items-center gap-2 rounded-xl py-2 pl-3 pr-2",
+                  gi > 0 ? "mt-3" : "mt-0.5",
+                  "transition-colors duration-150",
+                  open
+                    ? "bg-[#f0fdf4] dark:bg-[#1B8C4B]/10"
+                    : "hover:bg-[#f0fdf4] dark:hover:bg-white/5",
                 ].join(" ")}
               >
-                <span>— {group.label} —</span>
-                <ChevronDown
-                  size={11}
-                  className={["shrink-0 transition-transform duration-150", open ? "" : "-rotate-90"].join(" ")}
+                {/* left accent bar */}
+                <span
+                  className={[
+                    "absolute left-0 top-1/2 -translate-y-1/2 w-0.75 rounded-full bg-[#1B8C4B] transition-all duration-200",
+                    open ? "h-5 opacity-100" : "h-2 opacity-40 group-hover/header:opacity-70",
+                  ].join(" ")}
                 />
+                <span className="flex-1 text-left text-[11px] font-bold tracking-tight text-[#1B8C4B] dark:text-[#1B8C4B]/90">
+                  {group.label}
+                </span>
+                <span
+                  className={[
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-md transition-colors duration-150",
+                    open
+                      ? "bg-[#1B8C4B] text-white"
+                      : "bg-[#1B8C4B]/10 text-[#1B8C4B] group-hover/header:bg-[#1B8C4B]/20",
+                  ].join(" ")}
+                >
+                  <ChevronDown
+                    size={12}
+                    className={["transition-transform duration-200", open ? "" : "-rotate-90"].join(" ")}
+                  />
+                </span>
               </button>
             )}
             {!collapsed && !group.collapsible && (
