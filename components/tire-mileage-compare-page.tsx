@@ -319,7 +319,7 @@ export function TireMileageComparePage({ branch, branchLabel }: { branch: string
           <TrendingUp size={20} className="text-gray-400" />
           <div>
             <h1 className="text-xl font-semibold text-gray-900 dark:text-white leading-none">
-              เปรียบเทียบไมล์ยาง — {branchLabel}
+              ตรวจสอบสถานะยางติดรถ — {branchLabel}
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               ส่ง ขาย / ซ่อม = <span className="font-semibold text-amber-600 dark:text-amber-400">อื่นๆ</span>
