@@ -18,26 +18,43 @@ type TreeL3 = { entry: Entry }
 type TreeL2 = { entry: Entry; l3: TreeL3[] }
 type TreeL1 = { entry: Entry; l2: TreeL2[] }
 
-// ─── L1 colour palette ───────────────────────────────────────────────────────
-const L1_COLOR: Record<string, { bg: string; badge: string; dot: string }> = {
-  ENG: { bg: "bg-orange-50 dark:bg-orange-950/40",  badge: "bg-orange-100 dark:bg-orange-900/60 text-orange-700 dark:text-orange-300",  dot: "bg-orange-400" },
-  COL: { bg: "bg-blue-50 dark:bg-blue-950/40",      badge: "bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300",          dot: "bg-blue-400" },
-  FUL: { bg: "bg-yellow-50 dark:bg-yellow-950/40",  badge: "bg-yellow-100 dark:bg-yellow-900/60 text-yellow-700 dark:text-yellow-300",  dot: "bg-yellow-400" },
-  TRN: { bg: "bg-purple-50 dark:bg-purple-950/40",  badge: "bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300",  dot: "bg-purple-400" },
-  SUS: { bg: "bg-green-50 dark:bg-green-950/40",    badge: "bg-green-100 dark:bg-green-900/60 text-green-700 dark:text-green-300",      dot: "bg-green-400" },
-  BRK: { bg: "bg-red-50 dark:bg-red-950/40",        badge: "bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300",              dot: "bg-red-400" },
-  STR: { bg: "bg-teal-50 dark:bg-teal-950/40",      badge: "bg-teal-100 dark:bg-teal-900/60 text-teal-700 dark:text-teal-300",          dot: "bg-teal-400" },
-  ELC: { bg: "bg-amber-50 dark:bg-amber-950/40",    badge: "bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300",      dot: "bg-amber-400" },
-  EXH: { bg: "bg-stone-50 dark:bg-stone-950/40",    badge: "bg-stone-100 dark:bg-stone-900/60 text-stone-700 dark:text-stone-300",      dot: "bg-stone-400" },
-  TYR: { bg: "bg-lime-50 dark:bg-lime-950/40",      badge: "bg-lime-100 dark:bg-lime-900/60 text-lime-700 dark:text-lime-300",          dot: "bg-lime-400" },
-  LUB: { bg: "bg-cyan-50 dark:bg-cyan-950/40",      badge: "bg-cyan-100 dark:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300",          dot: "bg-cyan-400" },
-  MXS: { bg: "bg-rose-50 dark:bg-rose-950/40",      badge: "bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300",          dot: "bg-rose-400" },
-  REF: { bg: "bg-sky-50 dark:bg-sky-950/40",        badge: "bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300",              dot: "bg-sky-400" },
-  ACS: { bg: "bg-indigo-50 dark:bg-indigo-950/40",  badge: "bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300",  dot: "bg-indigo-400" },
-}
-const DEFAULT_COLOR = { bg: "bg-gray-50 dark:bg-white/3", badge: "bg-gray-100 dark:bg-white/8 text-gray-600 dark:text-gray-300", dot: "bg-gray-400" }
+// Which L1 codes belong to each expense type
+const PRT_L1 = new Set(["ENG","COL","FUL","TRN","SUS","BRK","STR","ELC","EXH","TYR","LUB","MXS","REF","PTO","TRL","BOD","SAF","CSM","ACS"])
+const LAB_L1 = new Set(["ENG","TRN","BRK","SUS","STR","ELC","MXS","TRL","BOD","TYR","PTO","ACS"])
 
-function c(l1code: string) { return L1_COLOR[l1code] ?? DEFAULT_COLOR }
+// ─── L1 colour palette — 2 tones only ───────────────────────────────────────
+const COLOR_LAB  = { bg: "bg-amber-50 dark:bg-amber-950/40",  badge: "bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300",  dot: "bg-amber-400" }
+const COLOR_PRT  = { bg: "bg-blue-50 dark:bg-blue-950/40",    badge: "bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300",      dot: "bg-blue-400" }
+const COLOR_NONE = { bg: "bg-gray-50 dark:bg-white/3",        badge: "bg-gray-100 dark:bg-white/8 text-gray-600 dark:text-gray-300",          dot: "bg-gray-400" }
+
+function c(l1code: string) {
+  if (LAB_L1.has(l1code)) return COLOR_LAB
+  if (PRT_L1.has(l1code)) return COLOR_PRT
+  return COLOR_NONE
+}
+
+function TypeLabels({ code, meta }: { code: string; meta?: Record<string, unknown> }) {
+  let isPRT: boolean
+  let isLAB: boolean
+
+  if (meta !== undefined) {
+    // L2 / L3: derive from stored meta.expenseType
+    isLAB = meta.expenseType === "LAB"
+    isPRT = !isLAB && PRT_L1.has(code)
+  } else {
+    // L1: derive from expense-type filter sets
+    isPRT = PRT_L1.has(code)
+    isLAB = LAB_L1.has(code)
+  }
+
+  if (!isPRT && !isLAB) return null
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      {isPRT && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300">อะไหล่</span>}
+      {isLAB && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-300">ค่าแรง</span>}
+    </span>
+  )
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function matches(entry: Entry, q: string) {
@@ -65,7 +82,7 @@ function buildTree(l1s: Entry[], l2s: Entry[], l3s: Entry[]): TreeL1[] {
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
-export default function PartsPage() {
+export default function PartsPage({ allowAdminMode = true }: { allowAdminMode?: boolean }) {
   const [tree, setTree]       = useState<TreeL1[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState("")
@@ -248,12 +265,14 @@ export default function PartsPage() {
           <button onClick={load} className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors">
             <RefreshCw size={12} /> รีเฟรช
           </button>
-          <button
-            onClick={() => setAdminMode(!adminMode)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${adminMode ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900" : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8"}`}
-          >
-            {adminMode ? <><Shield size={12} /> Admin Mode</> : <><Eye size={12} /> View Mode</>}
-          </button>
+          {allowAdminMode && (
+            <button
+              onClick={() => setAdminMode(!adminMode)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${adminMode ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900" : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8"}`}
+            >
+              {adminMode ? <><Shield size={12} /> Admin Mode</> : <><Eye size={12} /> View Mode</>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -330,6 +349,7 @@ export default function PartsPage() {
                   <span className="text-gray-400 dark:text-gray-500">
                     {l1open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                   </span>
+                  <TypeLabels code={t1.entry.code} />
                   <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${col.badge}`}>{t1.entry.code}</span>
 
                   {isEditL1 ? (
@@ -343,7 +363,7 @@ export default function PartsPage() {
                     <>
                       <div className="flex-1 min-w-0">
                         <span className="font-semibold text-sm text-gray-900 dark:text-white">{t1.entry.th}</span>
-                        <span className="ml-2 text-xs text-gray-400 dark:text-gray-600">{t1.entry.en}</span>
+                        <span className="ml-2 text-xs text-gray-400 dark:text-gray-600 hidden sm:inline">{t1.entry.en}</span>
                       </div>
                       <span className="text-[11px] text-gray-400 dark:text-gray-600 mr-2">{t1.l2.length} L2 · {t1.l2.reduce((a, u) => a + u.l3.length, 0)} L3</span>
                       {adminMode && (
@@ -375,6 +395,7 @@ export default function PartsPage() {
                               {l2open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                             </span>
                             <div className={`h-2 w-2 shrink-0 rounded-full ${col.dot}`} />
+                            <TypeLabels code={t1.entry.code} meta={t2.entry.meta} />
                             <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-gray-100 dark:bg-white/8 text-gray-600 dark:text-gray-400 font-mono">{t2.entry.code}</span>
 
                             {isEditL2 ? (
@@ -423,6 +444,7 @@ export default function PartsPage() {
                                     key={t3.entry._id}
                                     className={`flex items-center gap-2 pl-14 pr-4 py-2 border-t border-gray-100 dark:border-white/5 ${hl ? "bg-yellow-50/60 dark:bg-yellow-900/10" : "hover:bg-gray-50 dark:hover:bg-white/2"}`}
                                   >
+                                    <TypeLabels code={t1.entry.code} meta={t3.entry.meta} />
                                     <span className="shrink-0 text-[10px] font-bold font-mono text-gray-400 dark:text-gray-600 w-8">{t3.entry.code}</span>
 
                                     {isEditL3 ? (

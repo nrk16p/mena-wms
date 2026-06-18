@@ -10,6 +10,7 @@ import {
 import { BrandCombobox } from "@/components/brand-combobox"
 import { VehicleMultiSelect } from "@/components/vehicle-multi-select"
 import { swalError } from "@/lib/swal"
+import PartsPage from "@/app/codes/parts/page"
 
 type CodeMap = Record<string, { th: string; en: string }>
 
@@ -216,7 +217,8 @@ export default function NewSkuPage() {
   const selectCls = inputCls
 
   return (
-    <div className="max-w-3xl">
+    <div className="flex gap-8 items-start">
+    <div className="w-[600px] shrink-0">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-900 dark:text-white">เพิ่ม SKU ใหม่</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">กรอกข้อมูลด้านล่าง ระบบจะสร้าง SKU ให้อัตโนมัติ</p>
@@ -453,6 +455,12 @@ export default function NewSkuPage() {
           </button>
         </div>
       </form>
+    </div>
+
+    {/* Parts catalog reference panel */}
+    <div className="flex-1 min-w-0 border-l border-gray-200 dark:border-white/8 pl-8">
+      <PartsPage allowAdminMode={isAdmin} />
+    </div>
     </div>
   )
 }
