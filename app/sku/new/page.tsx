@@ -159,6 +159,17 @@ export default function NewSkuPage() {
   const noPrice    = EXPENSE_TYPES_NO_PRICE.includes(type)
   const l3Required = !["LAB", "SVC", "CLN", "TRP"].includes(type)
 
+  const LAB_UNITS = ["DAY", "HR"]
+  const filteredUnitOptions = type === "LAB"
+    ? Object.fromEntries(Object.entries(unitOptions).filter(([k]) => LAB_UNITS.includes(k)))
+    : unitOptions
+
+  // Reset unit to DAY when switching to LAB and current unit is not valid
+  useEffect(() => {
+    if (type === "LAB" && !LAB_UNITS.includes(unit)) setUnit("DAY")
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!l1 || !l2 || (l3Required && !l3)) { setError(l3Required ? "กรุณาเลือก L1, L2, L3" : "กรุณาเลือก L1, L2"); return }
@@ -364,7 +375,7 @@ export default function NewSkuPage() {
           <div>
             <label className={labelCls}>หน่วย *</label>
             <select value={unit} onChange={(e) => setUnit(e.target.value)} className={selectCls} required>
-              {Object.entries(unitOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
+              {Object.entries(filteredUnitOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
