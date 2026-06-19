@@ -285,7 +285,7 @@ export default function SkuListPage() {
                   <td className="px-3 py-2.5 text-right text-gray-900 dark:text-white whitespace-nowrap">{row.ราคาต่อหน่วย > 0 ? row.ราคาต่อหน่วย.toLocaleString() : "—"}</td>
                   <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400">{row.หน่วย}</td>
                   <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{row.ยี่ห้อ || "—"}</td>
-                  <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">
+                  <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs max-w-[200px] truncate">
                     {row.ทะเบียนหรือรุ่นรถ
                       ? <span className="inline-block rounded px-1.5 py-0.5 bg-gray-100 dark:bg-white/8 text-gray-600 dark:text-gray-300 font-medium">{row.ทะเบียนหรือรุ่นรถ}</span>
                       : <span className="text-gray-300 dark:text-gray-700">—</span>
