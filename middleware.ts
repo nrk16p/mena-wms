@@ -10,26 +10,12 @@ const MOBILE_API_PREFIXES = [
   "/api/vehicles",
 ]
 
-// Routes restricted to admin role only
-const ADMIN_PREFIXES = ["/codes", "/api/codes"]
-
-// Page routes under /codes that non-admins can view (read-only)
-const CODES_PAGE_READONLY_PREFIXES = ["/codes/parts"]
-
-// Read-only API routes under /api/codes that non-admins still need
-const CODES_API_READONLY_PREFIXES = [
-  "/api/codes/parts-tree",
-  "/api/codes/SYSTEM_L1",
-  "/api/codes/SUB_ASSEMBLY_L2",
-  "/api/codes/COMPONENT_L3",
-  "/api/codes/EXPENSE_TYPE",
-  "/api/codes/WAREHOUSE",
-  "/api/codes/POSITION",
-  "/api/codes/UNIT",
-  "/api/codes/GRADE",
-  "/api/codes/VEHICLE_TYPE",
-  "/api/codes/BRAND",
-]
+// Code Dictionary access model:
+//   • /codes pages       → viewable by everyone (read-only views)
+//   • /api/codes  GET    → readable by everyone (dropdowns, tables, parts tree)
+//   • /api/codes  writes → admin only (POST / PUT / PATCH / DELETE)
+const CODES_API_PREFIX = "/api/codes"
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -62,17 +48,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Admin-only routes — decode JWT to check role
-  const isReadonlyCodesApi  = CODES_API_READONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
-  const isReadonlyCodesPage = CODES_PAGE_READONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
-  const isAdminRoute = !isReadonlyCodesApi && !isReadonlyCodesPage && ADMIN_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
-  if (isAdminRoute) {
+  // Code Dictionary: pages + GET are open to all; writes are admin-only.
+  const isCodesApi      = pathname === CODES_API_PREFIX || pathname.startsWith(CODES_API_PREFIX + "/")
+  const isCodesApiWrite = isCodesApi && !READ_METHODS.has(request.method)
+  if (isCodesApiWrite) {
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
     if (token?.role !== "admin") {
-      if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
-      }
-      return NextResponse.redirect(new URL("/", request.url))
+      return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
     }
   }
 

@@ -140,6 +140,8 @@ export async function POST(req: NextRequest) {
     status:            userIsAdmin ? "approved" : "pending",
     createdBy:         session.user.email,
     createdByName:     session.user.name ?? "",
+    // admin submissions are auto-approved → record the admin as approver too
+    ...(userIsAdmin ? { approvedBy: session.user.email, approvedAt: new Date() } : {}),
     คลังสินค้า:        wh,
     ประเภทค่าใช้จ่าย: type,
     ชื่ออะไหล่_TH:    rest.nameTh    ?? "",
@@ -157,6 +159,7 @@ export async function POST(req: NextRequest) {
     ทะเบียนหรือรุ่นรถ: Array.isArray(rest.vehicles) ? rest.vehicles : (rest.vehicle ? [rest.vehicle] : []),
     Grade:             rest.grade     ?? "NA",
     รหัสATMS:          Array.isArray(rest.atmsCodes) ? rest.atmsCodes : (rest.atmsCode ? [rest.atmsCode] : []),
+    images:            Array.isArray(rest.images) ? rest.images : [],
     createdAt:         new Date(),
     updatedAt:         new Date(),
   }

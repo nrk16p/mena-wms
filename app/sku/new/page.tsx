@@ -9,7 +9,9 @@ import {
 } from "@/lib/codes"
 import { BrandCombobox } from "@/components/brand-combobox"
 import { VehicleMultiSelect } from "@/components/vehicle-multi-select"
+import { ImageUpload } from "@/components/image-upload"
 import { swalError } from "@/lib/swal"
+import type { SkuImage } from "@/lib/media"
 import PartsPage from "@/app/codes/parts/page"
 
 type CodeMap = Record<string, { th: string; en: string }>
@@ -49,6 +51,7 @@ export default function NewSkuPage() {
   const [grade, setGrade]     = useState("OEM")
   const [atmsCodes, setAtmsCodes] = useState<string[]>([])
   const [atmsInput, setAtmsInput] = useState("")
+  const [images, setImages] = useState<SkuImage[]>([])
 
   const [previewSku, setPreviewSku] = useState("")
   const [saving, setSaving]         = useState(false)
@@ -181,7 +184,7 @@ export default function NewSkuPage() {
     const res = await fetch("/api/sku", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wh, type, l1, l2, l3, nameTh, nameEn, partNo, positions, price: noPrice ? "0" : price, unit, brand, oemRef, compatRefs, vehicles, grade, atmsCodes }),
+      body: JSON.stringify({ wh, type, l1, l2, l3, nameTh, nameEn, partNo, positions, price: noPrice ? "0" : price, unit, brand, oemRef, compatRefs, vehicles, grade, atmsCodes, images }),
     })
 
     setSaving(false)
@@ -442,6 +445,12 @@ export default function NewSkuPage() {
             onChange={setVehicles}
             className={inputCls}
           />
+        </div>
+
+        {/* Row 9: Images */}
+        <div>
+          <label className={labelCls}>รูปภาพประกอบ <span className="font-normal text-gray-400">(แนบได้หลายรูป)</span></label>
+          <ImageUpload onChange={setImages} />
         </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}

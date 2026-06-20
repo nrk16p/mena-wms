@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
+import { useSession } from "next-auth/react"
 import Link from "next/link"
-import { Plus, Pencil, Trash2, Check, X, ChevronLeft, Search } from "lucide-react"
+import { Plus, Pencil, Trash2, Check, X, ChevronLeft, Search, Lock } from "lucide-react"
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 
 type CodeEntry = {
@@ -36,6 +37,8 @@ const PARENT_LABEL: Record<string, string> = {
 
 export default function DictPage() {
   const { dict } = useParams<{ dict: string }>()
+  const { data: session } = useSession()
+  const canAdmin = session?.user?.role === "admin"
 
   const [items, setItems]           = useState<CodeEntry[]>([])
   const [loading, setLoading]       = useState(true)
@@ -151,6 +154,8 @@ export default function DictPage() {
   const inputCls  = "w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
 
   const hasMeta = ["EXPENSE_TYPE", "VEHICLE_TYPE", "BRAND"].includes(dict)
+  // Code · TH · EN are always shown; the rest are conditional
+  const colCount = 3 + (hasParent ? 1 : 0) + (hasMeta ? 1 : 0) + (canAdmin ? 1 : 0)
 
   return (
     <div>
@@ -182,17 +187,24 @@ export default function DictPage() {
           />
         )}
 
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="ml-auto flex items-center gap-1.5 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-3.5 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          <Plus size={14} />
-          เพิ่ม code ใหม่
-        </button>
+        {canAdmin ? (
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="ml-auto flex items-center gap-1.5 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-3.5 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            <Plus size={14} />
+            เพิ่ม code ใหม่
+          </button>
+        ) : (
+          <span className="ml-auto flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 text-xs font-medium text-gray-400 dark:text-gray-500">
+            <Lock size={12} />
+            อ่านอย่างเดียว — แก้ไขได้เฉพาะ admin
+          </span>
+        )}
       </div>
 
       {/* Add form */}
-      {showAdd && (
+      {canAdmin && showAdd && (
         <form onSubmit={handleAdd} className="mb-4 rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-4">
           <p className="text-sm font-semibold text-gray-900 dark:text-white mb-3">เพิ่ม code ใหม่ใน {DICT_LABEL[dict] ?? dict}</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -246,14 +258,14 @@ export default function DictPage() {
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">ชื่อ TH</th>
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">ชื่อ EN</th>
                 {hasMeta && <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400">{dict === "BRAND" ? "หมวดหมู่" : "Meta"}</th>}
-                <th className="px-3 py-2.5 w-20"></th>
+                {canAdmin && <th className="px-3 py-2.5 w-20"></th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
+                <tr><td colSpan={colCount} className="px-4 py-10 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-400">ไม่พบรายการ</td></tr>
+                <tr><td colSpan={colCount} className="px-4 py-10 text-center text-sm text-gray-400">ไม่พบรายการ</td></tr>
               ) : filtered.map((item, i) => {
                 const isEditing = editId === item._id
                 return (
@@ -282,6 +294,7 @@ export default function DictPage() {
                         }
                       </td>
                     )}
+                    {canAdmin && (
                     <td className="px-3 py-2 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         {isEditing ? (
@@ -305,6 +318,7 @@ export default function DictPage() {
                         )}
                       </div>
                     </td>
+                    )}
                   </tr>
                 )
               })}

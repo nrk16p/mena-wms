@@ -6,6 +6,8 @@ import { WAREHOUSE, EXPENSE_TYPE, SYSTEM_L1, SUB_ASSEMBLY_L2, POSITION, UNIT, GR
 import { COMPONENT_L3 } from "@/lib/codes-l3"
 import { BrandCombobox } from "@/components/brand-combobox"
 import { VehicleMultiSelect } from "@/components/vehicle-multi-select"
+import { ImageUpload } from "@/components/image-upload"
+import type { SkuImage } from "@/lib/media"
 import { swalToast, swalError } from "@/lib/swal"
 
 type SkuDoc = Record<string, unknown>
@@ -35,6 +37,7 @@ export default function EditSkuPage() {
   const [compatInput, setCompatInput] = useState("")
   const [vehicles, setVehicles]       = useState<string[]>([])
   const [positions, setPositions]     = useState<string[]>([])
+  const [images, setImages]           = useState<SkuImage[]>([])
 
   // Code dict options fetched from MongoDB
   const [whOptions,      setWhOptions]      = useState<CodeMap>(toStaticMap(WAREHOUSE))
@@ -95,6 +98,8 @@ export default function EditSkuPage() {
   const l2Options = l1 ? (SUB_ASSEMBLY_L2[l1] ?? {}) : {}
   const l3Options = l1 && l2 ? ((COMPONENT_L3[l1] ?? {})[l2] ?? {}) : {}
 
+  const initialImages: SkuImage[] = Array.isArray(doc["images"]) ? (doc["images"] as SkuImage[]) : []
+
   function field(key: string) { return String((doc as SkuDoc)[key] ?? "") }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -111,6 +116,7 @@ export default function EditSkuPage() {
     body["เบอร์เทียบอ้างอิง"] = compatRefs
     body["ทะเบียนหรือรุ่นรถ"] = vehicles
     body["ตำแหน่ง"] = positions
+    body["images"] = images
     if (noPrice) body["ราคาต่อหน่วย"] = "0"
 
     const res = await fetch(`/api/sku/${sku}`, {
@@ -290,6 +296,12 @@ export default function EditSkuPage() {
             onChange={setVehicles}
             className={inputCls}
           />
+        </div>
+
+        {/* Images — existing ones are loaded for view / delete, can add more */}
+        <div>
+          <label className={labelCls}>รูปภาพประกอบ <span className="font-normal text-gray-400">(แนบได้หลายรูป)</span></label>
+          <ImageUpload onChange={setImages} initial={initialImages} />
         </div>
 
         {/* ATMS Code — tags */}

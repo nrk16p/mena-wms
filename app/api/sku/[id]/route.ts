@@ -35,6 +35,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     ทะเบียนหรือรุ่นรถ: body.ทะเบียนหรือรุ่นรถ ?? "",
     Grade:             body.Grade             ?? "NA",
     รหัสATMS:          Array.isArray(body.รหัสATMS) ? body.รหัสATMS : (body.รหัสATMS ? [body.รหัสATMS] : []),
+    ...(Array.isArray(body.images) ? { images: body.images } : {}),
     updatedAt:         new Date(),
   }
 
