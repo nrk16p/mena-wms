@@ -13,6 +13,9 @@ const MOBILE_API_PREFIXES = [
 // Routes restricted to admin role only
 const ADMIN_PREFIXES = ["/codes", "/api/codes"]
 
+// Page routes under /codes that non-admins can view (read-only)
+const CODES_PAGE_READONLY_PREFIXES = ["/codes/parts"]
+
 // Read-only API routes under /api/codes that non-admins still need
 const CODES_API_READONLY_PREFIXES = [
   "/api/codes/parts-tree",
@@ -60,8 +63,9 @@ export async function middleware(request: NextRequest) {
   }
 
   // Admin-only routes — decode JWT to check role
-  const isReadonlyCodesApi = CODES_API_READONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
-  const isAdminRoute = !isReadonlyCodesApi && ADMIN_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
+  const isReadonlyCodesApi  = CODES_API_READONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
+  const isReadonlyCodesPage = CODES_PAGE_READONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
+  const isAdminRoute = !isReadonlyCodesApi && !isReadonlyCodesPage && ADMIN_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
   if (isAdminRoute) {
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
     if (token?.role !== "admin") {

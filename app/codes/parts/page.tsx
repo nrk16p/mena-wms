@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
+import { useSession } from "next-auth/react"
 import {
   Search, Plus, Pencil, Check, X, Trash2,
   ChevronDown, ChevronRight, Shield, Eye, RefreshCw,
@@ -82,7 +83,10 @@ function buildTree(l1s: Entry[], l2s: Entry[], l3s: Entry[]): TreeL1[] {
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
-export default function PartsPage({ allowAdminMode = true }: { allowAdminMode?: boolean }) {
+export default function PartsPage({ allowAdminMode }: { allowAdminMode?: boolean }) {
+  const { data: session } = useSession()
+  const canAdmin = allowAdminMode ?? session?.user?.role === "admin"
+
   const [tree, setTree]       = useState<TreeL1[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState("")
@@ -265,7 +269,7 @@ export default function PartsPage({ allowAdminMode = true }: { allowAdminMode?: 
           <button onClick={load} className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors">
             <RefreshCw size={12} /> รีเฟรช
           </button>
-          {allowAdminMode && (
+          {canAdmin && (
             <button
               onClick={() => setAdminMode(!adminMode)}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${adminMode ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900" : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8"}`}
