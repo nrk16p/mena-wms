@@ -178,6 +178,7 @@ export default function NewSkuPage() {
     e.preventDefault()
     if (!l1 || !l2 || (l3Required && !l3)) { setError(l3Required ? "กรุณาเลือก L1, L2, L3" : "กรุณาเลือก L1, L2"); return }
     if (atmsCodes.length === 0) { setError("กรุณาระบุรหัส ATMS อย่างน้อย 1 รหัส"); return }
+    if (images.length === 0) { setError("กรุณาแนบรูปภาพประกอบ"); return }
     setError("")
     setSaving(true)
 
@@ -449,8 +450,12 @@ export default function NewSkuPage() {
 
         {/* Row 9: Images */}
         <div>
-          <label className={labelCls}>รูปภาพประกอบ <span className="font-normal text-gray-400">(แนบได้หลายรูป)</span></label>
-          <ImageUpload onChange={setImages} />
+          <label className={labelCls}>
+            รูปภาพประกอบ * <span className="font-normal text-gray-400">(จำเป็น — อย่างน้อย 1 รูป)</span>
+          </label>
+          <div className={images.length === 0 && error ? "rounded-lg ring-1 ring-red-300 dark:ring-red-700" : ""}>
+            <ImageUpload onChange={setImages} />
+          </div>
         </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}

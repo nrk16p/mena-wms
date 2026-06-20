@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
   if (!wh || !type || !l1 || !l2 || (l3Required && !l3)) {
     return NextResponse.json({ error: "Missing required fields: wh, type, l1, l2" + (l3Required ? ", l3" : "") }, { status: 400 })
   }
+  if (!Array.isArray(rest.images) || rest.images.length === 0) {
+    return NextResponse.json({ error: "กรุณาแนบรูปภาพประกอบอย่างน้อย 1 รูป" }, { status: 400 })
+  }
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
