@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     .filter(Boolean)
 
   if (!reason) return NextResponse.json({ error: "กรุณาระบุสาเหตุ" }, { status: 400 })
-  if (photos.length > 2) return NextResponse.json({ error: "รูปถ่ายได้สูงสุด 2 รูป" }, { status: 400 })
+  if (photos.length > 3) return NextResponse.json({ error: "รูปถ่ายได้สูงสุด 3 รูป" }, { status: 400 })
   for (const p of photos) {
     if (!p.startsWith("data:image/")) {
       return NextResponse.json({ error: "รูปถ่ายต้องเป็น data URL (data:image/...)" }, { status: 400 })
