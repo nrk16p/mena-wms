@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Search, Plus, Pencil, Trash2, Disc3, Download, FileBarChart2, X, Link2 } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, Disc3, Download, FileBarChart2, X, Link2, TrendingUp, ChevronDown, ChevronRight } from "lucide-react"
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 import * as XLSX from "xlsx"
 
@@ -47,11 +47,33 @@ const fmtDate = (s: string | Date | null | undefined) => {
   return d.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 
+type MrStatus = {
+  mrId: string
+  status: string
+  note: string
+  updatedAt: string
+}
+
+type TirePerf = {
+  serialNo: string; unitPrice: number; status: string
+  plate: string | null; reason: string | null
+  usedDistance: number | null; remainingPct: number | null
+  bahtPerKm: number | null; stdBahtPerKm: number | null
+  requestStatus: string | null; itemCreatedAt: string | null
+}
+type PerfGroup = {
+  brand: string; tireSize: string; tireModel: string
+  stdDistance: number; count: number; countIssued: number
+  avgUsedDistance: number | null; avgRemainingPct: number | null
+  avgBahtPerKm: number | null; avgStdBahtPerKm: number | null
+  costVariance: number | null; tires: TirePerf[]
+}
+
 type PrReqItem = {
   requestId: string; requestDate: string | null; plate: string; truckNumber: string
   driverName: string; fleet: string; plant: string; currentOdometer: number; requestStatus: string
   tirePosition: string; positionCode: string; positionName: string; product: string
-  reason: string; note: string; photoUrls: string[]; currentTreadMm: number
+  reason: string; note: string; photoUrls: string[]; odometerPhotoUrl: string; currentTreadMm: number
   mileageStart: number; usedDistance: number; itemCreatedAt: string | null; itemStatus: string
   remainingPct: number | null; bahtPerKm: number | null; bahtPerKmStock: number | null
 }
@@ -98,11 +120,19 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
   const [saving, setSaving]         = useState(false)
 
   // PR Report
-  const [mode, setMode]             = useState<"stock" | "report">("stock")
+  const [mode, setMode]             = useState<"stock" | "report" | "performance">("stock")
   const [prCodes, setPrCodes]       = useState<string[]>([])
   const [selectedPr, setSelectedPr] = useState("")
   const [reportRows, setReportRows] = useState<PrReportRow[]>([])
   const [reportLoading, setReportLoading] = useState(false)
+
+  // Performance
+  const [perfGroups, setPerfGroups]       = useState<PerfGroup[]>([])
+  const [perfLoading, setPerfLoading]     = useState(false)
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+
+  // MR status (internal)
+  const [mrStatusMap, setMrStatusMap] = useState<Record<string, MrStatus>>({})
 
   // PR dropdown search
   const [prSearch, setPrSearch]     = useState("")
@@ -115,20 +145,22 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
     const pr  = searchParams.get("pr")
     if (tab === "report") {
       setMode("report")
-      if (pr) {
-        setSelectedPr(pr)
-        setPrSearch(pr)
-      }
+      if (pr) { setSelectedPr(pr); setPrSearch(pr) }
+    } else if (tab === "performance") {
+      setMode("performance")
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Push URL params when mode / selectedPr changes ───────────────────────
-  const pushParams = useCallback((nextMode: "stock" | "report", nextPr: string) => {
+  const pushParams = useCallback((nextMode: "stock" | "report" | "performance", nextPr: string) => {
     const params = new URLSearchParams(searchParams.toString())
     if (nextMode === "report") {
       params.set("tab", "report")
       if (nextPr) params.set("pr", nextPr)
       else        params.delete("pr")
+    } else if (nextMode === "performance") {
+      params.set("tab", "performance")
+      params.delete("pr")
     } else {
       params.delete("tab")
       params.delete("pr")
@@ -136,7 +168,7 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
     router.push(`?${params.toString()}`, { scroll: false })
   }, [router, searchParams])
 
-  function switchMode(next: "stock" | "report") {
+  function switchMode(next: "stock" | "report" | "performance") {
     setMode(next)
     pushParams(next, next === "report" ? selectedPr : "")
   }
@@ -193,12 +225,31 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
     if (!pr) return
     setReportLoading(true)
     const res = await fetch(`/api/tire-stock/pr-report?branch=${branch}&prCode=${encodeURIComponent(pr)}`)
-    const d   = await res.json()
-    setReportRows(Array.isArray(d) ? d : [])
+    const raw = await res.json().catch(() => [])
+    const d: PrReportRow[] = Array.isArray(raw) ? raw : []
+    setReportRows(d)
     setReportLoading(false)
+
+    // fetch internal MR latest status for all plates in this report
+    const plates = [...new Set(d.flatMap((r) => r.requests.map((rq) => rq.plate)).filter(Boolean))]
+    if (plates.length > 0) {
+      fetch(`/api/tire-mr/latest?branch=${branch}&plates=${encodeURIComponent(plates.join(","))}`)
+        .then((r) => r.json())
+        .then((data: Record<string, MrStatus>) => setMrStatusMap(data))
+        .catch(() => {})
+    }
   }
 
   useEffect(() => { if (selectedPr) loadReport(selectedPr) }, [selectedPr]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (mode !== "performance") return
+    setPerfLoading(true)
+    fetch(`/api/tire-stock/performance?branch=${branch}`)
+      .then((r) => r.json())
+      .then((d) => { setPerfGroups(Array.isArray(d) ? d : []); setPerfLoading(false) })
+      .catch(() => setPerfLoading(false))
+  }, [mode, branch])
 
   async function copyLink() {
     try {
@@ -337,6 +388,15 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
     </div>
   )
 
+  function mrChip(status: string) {
+    switch (status) {
+      case "completed":   return { label: "ซ่อมเสร็จ",     cls: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" }
+      case "in_progress": return { label: "กำลังซ่อม",     cls: "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300" }
+      case "pending":     return { label: "รอดำเนินการ",   cls: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" }
+      default:            return { label: status,            cls: "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400" }
+    }
+  }
+
   const th = "px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap"
   // First column of each column group gets a left border separator
   const thGroup = th + " border-l-2 border-gray-200 dark:border-white/10"
@@ -396,6 +456,10 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
           <button onClick={() => switchMode("report")}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${mode === "report" ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900" : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/8"}`}>
             <FileBarChart2 size={14} /> รายงาน PR
+          </button>
+          <button onClick={() => switchMode("performance")}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${mode === "performance" ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900" : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/8"}`}>
+            <TrendingUp size={14} /> ประสิทธิภาพยาง
           </button>
         </div>
       </div>
@@ -665,7 +729,17 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
                         <tr key={`${row.serialNo}-${qi}`} className={`border-b border-gray-100 dark:border-white/5 ${baseRow}`}>
                           {stockCells}
                           {/* Group 2: คำขอ — first cell gets left border */}
-                          <td className={tdGroup + " font-mono font-semibold text-gray-900 dark:text-white"}>{rq.plate}</td>
+                          <td className={tdGroup + " font-mono font-semibold text-gray-900 dark:text-white"}>
+                            <div>{rq.plate}</div>
+                            {mrStatusMap[rq.plate] && (() => {
+                              const { label, cls } = mrChip(mrStatusMap[rq.plate].status)
+                              return (
+                                <span className={`mt-0.5 inline-block rounded px-1.5 py-px text-[9px] font-medium ${cls}`}>
+                                  MR · {label}
+                                </span>
+                              )
+                            })()}
+                          </td>
                           <td className={td0}>{rq.truckNumber || "—"}</td>
                           <td className={td0}>{rq.driverName || "—"}</td>
                           <td className={td0}>{[rq.fleet, rq.plant].filter(Boolean).join("/") || "—"}</td>
@@ -691,15 +765,28 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
                           </td>
                           {/* Group 5: หลักฐาน — first cell gets left border */}
                           <td className="px-2 py-1 whitespace-nowrap border-l-2 border-gray-100 dark:border-white/5">
-                            {rq.photoUrls.length > 0 ? (
-                              <div className="flex gap-1">
-                                {rq.photoUrls.map((u, ui) => (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img key={ui} src={u} alt="" onClick={() => window.open(u, "_blank")}
-                                    className="h-7 w-7 cursor-zoom-in rounded object-cover ring-1 ring-gray-200 dark:ring-white/10" />
-                                ))}
-                              </div>
-                            ) : <span className="text-[11px] text-gray-400">—</span>}
+                            <div className="flex flex-col gap-1">
+                              {rq.photoUrls.length > 0 && (
+                                <div className="flex gap-1">
+                                  {rq.photoUrls.map((u, ui) => (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img key={ui} src={u} alt="" onClick={() => window.open(u, "_blank")}
+                                      className="h-7 w-7 cursor-zoom-in rounded object-cover ring-1 ring-gray-200 dark:ring-white/10" />
+                                  ))}
+                                </div>
+                              )}
+                              {rq.odometerPhotoUrl && (
+                                <div className="flex items-center gap-1">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={rq.odometerPhotoUrl} alt="เลขไมล์" onClick={() => window.open(rq.odometerPhotoUrl, "_blank")}
+                                    className="h-7 w-7 cursor-zoom-in rounded object-cover ring-1 ring-blue-200 dark:ring-blue-700" />
+                                  <span className="text-[9px] text-blue-500 dark:text-blue-400">ไมล์</span>
+                                </div>
+                              )}
+                              {rq.photoUrls.length === 0 && !rq.odometerPhotoUrl && (
+                                <span className="text-[11px] text-gray-400">—</span>
+                              )}
+                            </div>
                           </td>
                           <td className={td0 + " text-gray-400"}>{fmtDate(rq.itemCreatedAt)}</td>
                           <td className="px-2 py-1 whitespace-nowrap">
@@ -716,6 +803,211 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
           )}
         </div>
       )}
+
+      {/* ── Performance tab ── */}
+      {mode === "performance" && (
+        <div>
+          {perfLoading ? (
+            <p className="text-sm text-gray-400 py-10 text-center">กำลังโหลด...</p>
+          ) : perfGroups.length === 0 ? (
+            <p className="text-sm text-gray-400 py-10 text-center">ไม่พบข้อมูลยาง</p>
+          ) : (() => {
+            const totalTires   = perfGroups.reduce((s, g) => s + g.count, 0)
+            const totalIssued  = perfGroups.reduce((s, g) => s + g.countIssued, 0)
+            const groupsWithBpk = perfGroups.filter((g) => g.avgBahtPerKm !== null)
+            const overBudget   = groupsWithBpk.filter((g) => (g.costVariance ?? 0) > 0)
+            const underBudget  = groupsWithBpk.filter((g) => (g.costVariance ?? 0) <= 0)
+            const overallAvgBpk = groupsWithBpk.length
+              ? groupsWithBpk.reduce((s, g) => s + (g.avgBahtPerKm ?? 0), 0) / groupsWithBpk.length
+              : null
+            const overallStdBpk = groupsWithBpk.length
+              ? groupsWithBpk.reduce((s, g) => s + (g.avgStdBahtPerKm ?? 0), 0) / groupsWithBpk.length
+              : null
+
+            return (
+              <>
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-3 py-3">
+                    <p className="text-[11px] text-gray-400 mb-1">ยางทั้งหมด</p>
+                    <p className="text-xl font-bold text-gray-900 dark:text-white">{totalTires}<span className="text-xs font-normal text-gray-400 ml-1">เส้น</span></p>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <div className="flex-1 h-1.5 rounded-full bg-gray-100 dark:bg-white/8 overflow-hidden">
+                        <div className="h-full rounded-full bg-blue-500" style={{ width: `${totalTires ? (totalIssued / totalTires) * 100 : 0}%` }} />
+                      </div>
+                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap">{totalIssued} มีข้อมูล</span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-3 py-3">
+                    <p className="text-[11px] text-gray-400 mb-1">รุ่นยางในระบบ</p>
+                    <p className="text-xl font-bold text-gray-900 dark:text-white">{perfGroups.length}<span className="text-xs font-normal text-gray-400 ml-1">รุ่น</span></p>
+                    <p className="text-[11px] text-gray-400 mt-1">{groupsWithBpk.length} รุ่นมีข้อมูล ฿/กม.</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-3 py-3">
+                    <p className="text-[11px] text-gray-400 mb-1">฿/กม. เฉลี่ย (จริง)</p>
+                    <p className={`text-xl font-bold ${overallAvgBpk !== null && overallStdBpk !== null && overallAvgBpk > overallStdBpk ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>
+                      {overallAvgBpk !== null ? overallAvgBpk.toFixed(4) : "—"}
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-1">มาตรฐาน {overallStdBpk !== null ? overallStdBpk.toFixed(4) : "—"}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-3 py-3">
+                    <p className="text-[11px] text-gray-400 mb-1">งบประมาณ</p>
+                    <div className="flex items-end gap-2 mt-1">
+                      {overBudget.length > 0 && (
+                        <div>
+                          <p className="text-xl font-bold text-red-600 dark:text-red-400">{overBudget.length}</p>
+                          <p className="text-[11px] text-red-500">รุ่นเกินงบ</p>
+                        </div>
+                      )}
+                      {underBudget.length > 0 && (
+                        <div>
+                          <p className="text-xl font-bold text-green-600 dark:text-green-400">{underBudget.length}</p>
+                          <p className="text-[11px] text-green-500">รุ่นในงบ</p>
+                        </div>
+                      )}
+                      {groupsWithBpk.length === 0 && <p className="text-sm text-gray-400">—</p>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Performance table */}
+                <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
+                          <th className={th + " w-8"}></th>
+                          <th className={th}>ยี่ห้อ</th>
+                          <th className={th}>ขนาด</th>
+                          <th className={th}>รุ่น</th>
+                          <th className={th + " text-right"}>ระยะมาตรฐาน</th>
+                          <th className={th + " text-right"}>เฉลี่ยใช้งาน</th>
+                          <th className={th + " text-right"}>ประสิทธิภาพ</th>
+                          <th className={th + " text-right"}>฿/กม. มาตรฐาน</th>
+                          <th className={th + " text-right"}>฿/กม. จริง</th>
+                          <th className={th + " text-right"}>ผลต่าง</th>
+                          <th className={th + " text-center"}>เส้น</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {perfGroups.map((g, gi) => {
+                          const key = `${g.brand}||${g.tireSize}||${g.tireModel}`
+                          const isExpanded = expandedGroup === key
+                          const isOver = (g.costVariance ?? 0) > 0 && g.costVariance !== null
+                          const isUnder = g.costVariance !== null && (g.costVariance ?? 0) <= 0
+                          const effPct = g.stdDistance > 0 && g.avgUsedDistance
+                            ? Math.round((g.avgUsedDistance / g.stdDistance) * 100)
+                            : null
+
+                          return [
+                            <tr
+                              key={key}
+                              onClick={() => setExpandedGroup(isExpanded ? null : key)}
+                              className={`border-b border-gray-100 dark:border-white/5 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/3 transition-colors ${gi % 2 === 1 ? "bg-gray-50/40 dark:bg-white/1" : ""} ${isExpanded ? "bg-blue-50/60 dark:bg-blue-900/10" : ""}`}
+                            >
+                              <td className="px-2 py-2 text-center text-gray-400">
+                                {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                              </td>
+                              <td className="px-2 py-2 text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">{g.brand || "—"}</td>
+                              <td className="px-2 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{g.tireSize || "—"}</td>
+                              <td className="px-2 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{g.tireModel || "—"}</td>
+                              <td className="px-2 py-2 text-sm text-right whitespace-nowrap text-gray-500">{fmtInt(g.stdDistance)} <span className="text-[10px]">กม.</span></td>
+                              <td className="px-2 py-2 text-sm text-right whitespace-nowrap font-medium text-gray-900 dark:text-white">
+                                {g.avgUsedDistance !== null ? fmtInt(g.avgUsedDistance) : "—"}
+                                {g.avgUsedDistance !== null && <span className="text-[10px] text-gray-400 ml-1">กม.</span>}
+                              </td>
+                              <td className="px-2 py-2 text-right whitespace-nowrap">
+                                {effPct !== null ? (
+                                  <span className={`inline-block rounded px-1.5 py-px text-[11px] font-semibold ${effPct >= 90 ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" : effPct >= 70 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"}`}>
+                                    {effPct}%
+                                  </span>
+                                ) : <span className="text-gray-400 text-xs">—</span>}
+                              </td>
+                              <td className="px-2 py-2 text-sm text-right whitespace-nowrap text-gray-500 font-mono">
+                                {g.avgStdBahtPerKm !== null ? g.avgStdBahtPerKm.toFixed(4) : "—"}
+                              </td>
+                              <td className={`px-2 py-2 text-sm text-right whitespace-nowrap font-mono font-semibold ${isOver ? "text-red-600 dark:text-red-400" : isUnder ? "text-green-600 dark:text-green-400" : "text-gray-900 dark:text-white"}`}>
+                                {g.avgBahtPerKm !== null ? g.avgBahtPerKm.toFixed(4) : "—"}
+                              </td>
+                              <td className="px-2 py-2 text-right whitespace-nowrap">
+                                {g.costVariance !== null ? (
+                                  <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold ${isOver ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
+                                    {isOver ? "↑" : "↓"} {Math.abs(g.costVariance).toFixed(4)}
+                                  </span>
+                                ) : <span className="text-gray-400 text-xs">—</span>}
+                              </td>
+                              <td className="px-2 py-2 text-center">
+                                <span className="text-xs text-gray-700 dark:text-gray-300 font-medium">{g.countIssued}</span>
+                                <span className="text-[10px] text-gray-400">/{g.count}</span>
+                              </td>
+                            </tr>,
+
+                            // expanded individual tires
+                            isExpanded && (
+                              <tr key={key + "-detail"} className="border-b border-gray-100 dark:border-white/5">
+                                <td colSpan={11} className="px-0 py-0 bg-blue-50/30 dark:bg-blue-900/5">
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-xs">
+                                      <thead>
+                                        <tr className="border-b border-blue-100 dark:border-white/5">
+                                          <th className="pl-8 pr-2 py-2 text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Serial No</th>
+                                          <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                                          <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider">ทะเบียน</th>
+                                          <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider">สาเหตุ</th>
+                                          <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider">ราคา</th>
+                                          <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider">ใช้งาน (กม.)</th>
+                                          <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider">เหลือ%</th>
+                                          <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider">฿/กม. มาตรฐาน</th>
+                                          <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider">฿/กม. จริง</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {g.tires.map((t) => {
+                                          const tireOver = t.bahtPerKm !== null && t.stdBahtPerKm !== null && t.bahtPerKm > t.stdBahtPerKm
+                                          return (
+                                            <tr key={t.serialNo} className="border-b border-blue-50 dark:border-white/3 last:border-0">
+                                              <td className="pl-8 pr-2 py-1.5 font-mono font-semibold text-gray-900 dark:text-white whitespace-nowrap">{t.serialNo}</td>
+                                              <td className="px-2 py-1.5 whitespace-nowrap">
+                                                <span className={`inline-block rounded px-1.5 py-px text-[10px] font-medium ${statusChip(t.status)}`}>{t.status || "—"}</span>
+                                              </td>
+                                              <td className="px-2 py-1.5 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{t.plate || "—"}</td>
+                                              <td className="px-2 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">{t.reason || "—"}</td>
+                                              <td className="px-2 py-1.5 text-right text-gray-500 whitespace-nowrap">{fmtNum(t.unitPrice)}</td>
+                                              <td className="px-2 py-1.5 text-right font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                                {t.usedDistance !== null ? fmtInt(t.usedDistance) : "—"}
+                                              </td>
+                                              <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                                {t.remainingPct !== null ? (
+                                                  <span className={`inline-block rounded px-1.5 py-px text-[10px] font-semibold ${t.remainingPct <= 20 ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300" : t.remainingPct <= 50 ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"}`}>
+                                                    {t.remainingPct}%
+                                                  </span>
+                                                ) : "—"}
+                                              </td>
+                                              <td className="px-2 py-1.5 text-right font-mono text-gray-500 whitespace-nowrap">{t.stdBahtPerKm !== null ? t.stdBahtPerKm.toFixed(4) : "—"}</td>
+                                              <td className={`px-2 py-1.5 text-right font-mono font-semibold whitespace-nowrap ${tireOver ? "text-red-600 dark:text-red-400" : t.bahtPerKm !== null ? "text-green-600 dark:text-green-400" : "text-gray-400"}`}>
+                                                {t.bahtPerKm !== null ? t.bahtPerKm.toFixed(4) : "—"}
+                                              </td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </td>
+                              </tr>
+                            ),
+                          ]
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
+
 
       {/* ── Stock view ── */}
       {mode === "stock" && <>

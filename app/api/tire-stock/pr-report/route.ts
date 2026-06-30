@@ -40,27 +40,28 @@ export async function GET(req: NextRequest) {
 
   // build serial → [{ request header + item }] map (may have multiple requests per serial)
   type ReqItem = {
-    requestId:       string
-    requestDate:     Date | null
-    plate:           string
-    truckNumber:     string
-    driverName:      string
-    fleet:           string
-    plant:           string
-    currentOdometer: number
-    requestStatus:   string
-    tirePosition:    string
-    positionCode:    string
-    positionName:    string
-    product:         string
-    reason:          string
-    note:            string
-    photoUrls:       string[]
-    currentTreadMm:  number
-    mileageStart:    number
-    usedDistance:    number
-    itemCreatedAt:   Date | null
-    itemStatus:      string
+    requestId:        string
+    requestDate:      Date | null
+    plate:            string
+    truckNumber:      string
+    driverName:       string
+    fleet:            string
+    plant:            string
+    currentOdometer:  number
+    requestStatus:    string
+    tirePosition:     string
+    positionCode:     string
+    positionName:     string
+    product:          string
+    reason:           string
+    note:             string
+    photoUrls:        string[]
+    odometerPhotoUrl: string
+    currentTreadMm:   number
+    mileageStart:     number
+    usedDistance:     number
+    itemCreatedAt:    Date | null
+    itemStatus:       string
   }
 
   const serialToReqs = new Map<string, ReqItem[]>()
@@ -84,7 +85,8 @@ export async function GET(req: NextRequest) {
         product:         String(it.product ?? ""),
         reason:          String(it.reason ?? ""),
         note:            String(it.note ?? ""),
-        photoUrls:       Array.isArray(it.photoUrls) ? (it.photoUrls as string[]) : (it.photoUrl ? [String(it.photoUrl)] : []),
+        photoUrls:        Array.isArray(it.photoUrls) ? (it.photoUrls as string[]) : (it.photoUrl ? [String(it.photoUrl)] : []),
+        odometerPhotoUrl: String(r.odometerPhoto ?? ""),
         currentTreadMm:  Number(it.currentTreadMm) || 0,
         mileageStart:    Number(it.mileageStart) || 0,
         usedDistance:    Number(it.usedDistance) || 0,

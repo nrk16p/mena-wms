@@ -23,7 +23,8 @@ import {
   ClipboardList,
   ClipboardCheck,
   TableProperties,
-  TrendingUp,
+  Search,
+  BookOpen,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -69,13 +70,24 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/tire/latkrabang/change-history",      label: "ประวัติการเปลี่ยน",  icon: History,        indent: true },
       { href: "/tire/latkrabang/change-tire-request", label: "คำขอเปลี่ยนยาง",    icon: ClipboardList,  indent: true },
       { href: "/tire/latkrabang/requests",            label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
-      { href: "/tire/latkrabang/mileage-compare",     label: "ตรวจสอบสถานะยางติดรถ",   icon: TrendingUp,     indent: true },
       { href: "#saraburi",                            label: "สระบุรี",             icon: MapPin,         subheader: true },
       { href: "/tire/saraburi/stock-tire",            label: "สต็อกยาง",           icon: Disc3,          indent: true },
       { href: "/tire/saraburi/change-history",        label: "ประวัติการเปลี่ยน",  icon: History,        indent: true },
       { href: "/tire/saraburi/change-tire-request",   label: "คำขอเปลี่ยนยาง",    icon: ClipboardList,  indent: true },
       { href: "/tire/saraburi/requests",              label: "อนุมัติเปลี่ยนยาง", icon: ClipboardCheck, indent: true, adminOnly: true },
-      { href: "/tire/saraburi/mileage-compare",       label: "ตรวจสอบสถานะยางติดรถ",   icon: TrendingUp,     indent: true },
+    ],
+  },
+  {
+    label: "จัดซื้อ",
+    items: [
+      { href: "/procurement-search", label: "ค้นหาห่วงโซ่จัดซื้อ", icon: Search },
+    ],
+  },
+  {
+    label: "ตั้งค่า",
+    collapsible: true,
+    items: [
+      { href: "/tire/master", label: "สเปคยาง", icon: BookOpen },
     ],
   },
 ]

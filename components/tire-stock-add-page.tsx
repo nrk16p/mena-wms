@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, ClipboardPaste, Plus, Trash2, Save, Disc3 } from "lucide-react"
@@ -91,6 +91,28 @@ export function TireStockAddPage({ branch, branchLabel }: { branch: string; bran
   const [rows, setRows]     = useState<Row[]>([])
   const [saving, setSaving] = useState(false)
 
+  const lookupTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+
+  async function lookupSpec(ri: number, row: Row) {
+    const { brand, tireSize, tireModel } = row
+    if (!brand.trim() || !tireSize.trim() || !tireModel.trim()) return
+    const qs = new URLSearchParams({ brand: brand.trim(), tireSize: tireSize.trim(), tireModel: tireModel.trim() })
+    const res = await fetch(`/api/tire-spec-master/lookup?${qs}`)
+    const spec = await res.json()
+    if (!spec) return
+    setRows((prev) =>
+      prev.map((r, i) => {
+        if (i !== ri) return r
+        return {
+          ...r,
+          distance:    r.distance    || String(spec.distance),
+          productCode: r.productCode || spec.productCode,
+          productName: r.productName || spec.productName,
+        }
+      })
+    )
+  }
+
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     e.preventDefault()
     const parsed = parsePaste(e.clipboardData.getData("text/plain"))
@@ -98,11 +120,25 @@ export function TireStockAddPage({ branch, branchLabel }: { branch: string; bran
       swalError("ไม่พบข้อมูลที่วางได้ — กรุณา copy จาก Excel เป็นแถว")
       return
     }
-    setRows((prev) => [...prev, ...parsed])
+    setRows((prev) => {
+      const next = [...prev, ...parsed]
+      parsed.forEach((row, pi) => {
+        const ri = prev.length + pi
+        setTimeout(() => lookupSpec(ri, next[ri]), 50 * pi)
+      })
+      return next
+    })
   }
 
   function setCell(ri: number, key: keyof Row, value: string) {
-    setRows((prev) => prev.map((r, i) => (i === ri ? { ...r, [key]: value } : r)))
+    setRows((prev) => {
+      const next = prev.map((r, i) => (i === ri ? { ...r, [key]: value } : r))
+      if (key === "brand" || key === "tireSize" || key === "tireModel") {
+        clearTimeout(lookupTimers.current[ri])
+        lookupTimers.current[ri] = setTimeout(() => lookupSpec(ri, next[ri]), 300)
+      }
+      return next
+    })
   }
 
   function removeRow(ri: number) {

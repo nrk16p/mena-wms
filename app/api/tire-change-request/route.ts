@@ -136,6 +136,7 @@ export async function POST(req: NextRequest) {
     plate,
     truckNumber,
     currentOdometer,
+    odometerPhoto: String(body.odometerPhoto ?? ""),
     // vehicle master snapshot at request time
     fleet:       String(body.fleet ?? ""),
     plant:       String(body.plant ?? ""),

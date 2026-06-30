@@ -101,6 +101,8 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
   const [q, setQ]             = useState("")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [acting, setActing]       = useState(false)
+  // internal MR: plate → { mrId, status, note, updatedAt } | null (null = no MR created yet)
+  const [mrMap, setMrMap] = useState<Record<string, { mrId: string; status: string; note: string; updatedAt: string } | null>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -133,6 +135,21 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [statusTab, q])
+
+  // fetch internal MR when expanding a row with a รถกินยาง item
+  useEffect(() => {
+    if (!expanded) return
+    const req = items.find((r) => r._id === expanded)
+    if (!req) return
+    if (!(req.items ?? []).some((it) => it.reason === "รถกินยาง")) return
+    const plate = req.plate
+    fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(req.branch)}&plates=${encodeURIComponent(plate)}`)
+      .then((r) => r.json())
+      .then((data: Record<string, { mrId: string; status: string; note: string; updatedAt: string }>) => {
+        setMrMap((prev) => ({ ...prev, [plate]: data[plate] ?? null }))
+      })
+      .catch(() => {})
+  }, [expanded, items])
 
   async function patch(id: string, body: Record<string, unknown>, successMsg: string) {
     setActing(true)
@@ -169,7 +186,76 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
     load()
   }
 
+  function mrChip(status: string) {
+    if (status === "completed")  return { label: "ซ่อมเสร็จแล้ว", cls: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" }
+    if (status === "in_progress") return { label: "กำลังซ่อม",     cls: "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300" }
+    return { label: "รอดำเนินการ",    cls: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" }
+  }
+
+  async function handleCreateMr(r: TireRequest) {
+    const { value, isConfirmed } = await Swal.fire<string>({
+      title: "สร้าง MR",
+      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b></div>`,
+      input: "textarea",
+      inputLabel: "หมายเหตุ (ไม่บังคับ)",
+      inputAttributes: { rows: "3", placeholder: "ระบุรายละเอียดการซ่อม..." },
+      showCancelButton: true,
+      confirmButtonText: "สร้าง MR",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    })
+    if (!isConfirmed) return
+    const res = await fetch("/api/tire-mr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: r.branch, plate: r.plate, requestId: r._id, note: value ?? "", createdBy: session?.user?.name ?? "" }),
+    })
+    if (!res.ok) { swalError("สร้าง MR ไม่สำเร็จ"); return }
+    const data = await res.json()
+    setMrMap((prev) => ({ ...prev, [r.plate]: { mrId: String(data._id), status: "pending", note: value ?? "", updatedAt: new Date().toISOString() } }))
+    swalToast("success", "สร้าง MR แล้ว")
+  }
+
+  async function handleMrStatusUpdate(r: TireRequest, nextStatus: string) {
+    const mr = mrMap[r.plate]
+    if (!mr) return
+    const label = nextStatus === "in_progress" ? "เริ่มดำเนินการซ่อม" : "ปิด MR — ซ่อมเสร็จแล้ว"
+    const { value, isConfirmed } = await Swal.fire<string>({
+      title: label,
+      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b></div>`,
+      input: "textarea",
+      inputLabel: "หมายเหตุ (ไม่บังคับ)",
+      inputAttributes: { rows: "2" },
+      showCancelButton: true,
+      confirmButtonText: "ยืนยัน",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    })
+    if (!isConfirmed) return
+    const res = await fetch(`/api/tire-mr/${mr.mrId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: nextStatus, note: value ?? "", updatedBy: session?.user?.name ?? "" }),
+    })
+    if (!res.ok) { swalError("อัปเดตไม่สำเร็จ"); return }
+    setMrMap((prev) => ({ ...prev, [r.plate]: { ...mr, status: nextStatus, updatedAt: new Date().toISOString() } }))
+    swalToast("success", `อัปเดต MR เป็น "${mrChip(nextStatus).label}" แล้ว`)
+  }
+
   async function handleItemApprove(r: TireRequest, it: RequestItem) {
+    // Gate: รถกินยาง requires MR completed before tire change is approved
+    if (it.reason === "รถกินยาง") {
+      const mr = mrMap[r.plate]
+      if (!mr || mr.status !== "completed") {
+        await Swal.fire({
+          icon: "warning",
+          title: "รอ MR ซ่อมเสร็จก่อน",
+          html: `ยางเส้นนี้สาเหตุ <b>รถกินยาง</b><br>ต้องปิด MR ก่อนจึงจะอนุมัติเปลี่ยนยางได้<br><br>สถานะ MR ปัจจุบัน: <b>${mr ? mrChip(mr.status).label : "ยังไม่มี MR"}</b>`,
+          confirmButtonText: "รับทราบ",
+        })
+        return
+      }
+    }
     const result = await swalConfirm(
       "อนุมัติยางเส้นนี้?",
       `คนขับ: ${r.driverName} · ${r.plate}\n${it.positionCode} ${it.positionName} · ${it.serialNo}`
@@ -352,7 +438,44 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                                       <td className={td}>{it.positionName || "—"}</td>
                                       <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">{it.product || "—"}</td>
                                       <td className={td + " font-mono"}>{it.serialNo || "—"}</td>
-                                      <td className={td + " font-medium"}>{it.reason}</td>
+                                      <td className={td + " font-medium"}>
+                                        <div className="flex flex-col gap-1.5">
+                                          <span>{it.reason}</span>
+                                          {it.reason === "รถกินยาง" && (() => {
+                                            const mr = mrMap[r.plate]
+                                            // still loading
+                                            if (mr === undefined) return <span className="text-[10px] text-gray-400">กำลังตรวจ MR...</span>
+                                            // no MR yet
+                                            if (mr === null) return (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleCreateMr(r)}
+                                                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-blue-600 text-white hover:opacity-90 transition-opacity"
+                                              >
+                                                + สร้าง MR
+                                              </button>
+                                            )
+                                            const { label, cls } = mrChip(mr.status)
+                                            return (
+                                              <div className="flex flex-col gap-1">
+                                                <span className={`inline-block rounded px-1.5 py-px text-[10px] font-semibold ${cls}`}>MR: {label}</span>
+                                                {mr.status === "pending" && (
+                                                  <button type="button" onClick={() => handleMrStatusUpdate(r, "in_progress")}
+                                                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-orange-500 text-white hover:opacity-90 transition-opacity">
+                                                    เริ่มซ่อม
+                                                  </button>
+                                                )}
+                                                {mr.status === "in_progress" && (
+                                                  <button type="button" onClick={() => handleMrStatusUpdate(r, "completed")}
+                                                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-green-600 text-white hover:opacity-90 transition-opacity">
+                                                    ซ่อมเสร็จ ✓
+                                                  </button>
+                                                )}
+                                              </div>
+                                            )
+                                          })()}
+                                        </div>
+                                      </td>
                                       <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={it.note || undefined}>{it.note || "—"}</td>
                                       <td className={td + " text-right"}>{it.currentTreadMm > 0 ? it.currentTreadMm : "—"}</td>
                                       <td className={td + " text-right"}>{fmtNum(it.mileageStart)}</td>
@@ -408,12 +531,19 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                                       <td className="px-3 py-2 whitespace-nowrap">
                                         {(status === "pending" || status === "approved" || status === "rejected") && (
                                           <div className="flex items-center gap-1.5">
-                                            {(it.status ?? "pending") !== "approved" && (
-                                              <button disabled={acting} onClick={() => handleItemApprove(r, it)}
-                                                className={btn + " bg-green-600 text-white inline-flex items-center gap-1"}>
-                                                <Check size={11} /> อนุมัติ
-                                              </button>
-                                            )}
+                                            {(it.status ?? "pending") !== "approved" && (() => {
+                                              const mrBlocked = it.reason === "รถกินยาง" && mrMap[r.plate]?.status !== "completed"
+                                              return (
+                                                <button
+                                                  disabled={acting}
+                                                  onClick={() => handleItemApprove(r, it)}
+                                                  title={mrBlocked ? "รอ MR ซ่อมเสร็จก่อน" : undefined}
+                                                  className={btn + " inline-flex items-center gap-1 " + (mrBlocked ? "bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed" : "bg-green-600 text-white")}
+                                                >
+                                                  <Check size={11} /> อนุมัติ
+                                                </button>
+                                              )
+                                            })()}
                                             {(it.status ?? "pending") !== "rejected" && (
                                               <button disabled={acting} onClick={() => handleItemReject(r, it)}
                                                 className={btn + " bg-red-600 text-white inline-flex items-center gap-1"}>

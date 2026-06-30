@@ -9,9 +9,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isLoginPage        = pathname === "/login"
   const isPresentationPage = pathname === "/presentation"
+  const isPrdPage          = pathname === "/prd"
 
   if (isLoginPage || isPresentationPage) {
     return <div className="w-full h-full">{children}</div>
+  }
+
+  if (isPrdPage) {
+    return <div className="w-full h-full overflow-y-auto">{children}</div>
   }
 
   return (

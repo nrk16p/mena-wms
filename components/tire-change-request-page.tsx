@@ -108,6 +108,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
   const [note, setNote]               = useState("")
   const [treadMm, setTreadMm]         = useState("")
   const [photos, setPhotos]           = useState<string[]>([])
+  const [odometerPhoto, setOdometerPhoto] = useState<string | null>(null)
   const [savingItem, setSavingItem]   = useState(false)
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
 
@@ -134,6 +135,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
     setSubmittedOdo(odo)
     setSearched(true)
     setLoading(false)
+
   }
 
   function openModal(t: LookupRow) {
@@ -142,6 +144,18 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
     setNote("")
     setTreadMm("")
     setPhotos([])
+  }
+
+  async function handleOdometerPhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    try {
+      const img = await resizeImage(file)
+      setOdometerPhoto(img)
+    } catch {
+      swalError("อ่านรูปไม่สำเร็จ กรุณาลองใหม่")
+    }
   }
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -177,6 +191,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
           fleet,
           plant,
           vehicleType: vehicleInfo?.vehicleType ?? "",
+          odometerPhoto: odometerPhoto ?? "",
         }),
       })
       if (!saveRes.ok) {
@@ -215,8 +230,10 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
       return
     }
     setRequestedIds((prev) => new Set(prev).add(modalTire._id))
-    setModalTire(null)
+
     swalToast("success", `ส่งคำขอเปลี่ยนยาง ${modalTire.positionCode || modalTire.serialNo} สำเร็จ`)
+
+    setModalTire(null)
   }
 
   const inp = "w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30 placeholder-gray-400"
@@ -278,6 +295,29 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
               <Hash size={11} /> Plant
             </label>
             <input value={plant} onChange={(e) => setPlant(e.target.value)} className={inp} placeholder="เติมอัตโนมัติหลังค้นหา" />
+          </div>
+        </div>
+        {/* odometer photo — upload once, shown in every tire-change modal */}
+        <div className="mt-3">
+          <span className="flex items-center gap-1 text-[11px] font-medium text-gray-500 mb-1">
+            <Camera size={11} /> รูปเลขไมล์รถ
+          </span>
+          <div className="flex items-start gap-2">
+            {odometerPhoto ? (
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={odometerPhoto} alt="รูปเลขไมล์รถ" className="h-24 w-36 rounded-lg object-cover bg-gray-50 dark:bg-white/5" />
+                <button type="button" onClick={() => setOdometerPhoto(null)}
+                  className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80">
+                  <X size={12} />
+                </button>
+              </div>
+            ) : (
+              <label className="flex h-24 w-36 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-white/15 text-sm text-gray-400 hover:border-gray-400 dark:hover:border-white/30 transition-colors">
+                <span className="flex items-center gap-1.5 text-xs"><Camera size={14} /> ถ่ายรูป</span>
+                <input type="file" accept="image/*" capture="environment" onChange={handleOdometerPhotoChange} className="hidden" />
+              </label>
+            )}
           </div>
         </div>
         <button
@@ -478,10 +518,10 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
               </button>
             </div>
 
-            {/* photos (max 2) */}
+            {/* photos (max 3) */}
             <div className="mb-3">
               <span className="flex items-center gap-1 text-[11px] font-medium text-gray-500 mb-1">
-                <Camera size={11} /> รูปถ่าย (สูงสุด 2 รูป) — {photos.length}/2
+                <Camera size={11} /> รูปถ่าย (สูงสุด 3 รูป) — {photos.length}/3
               </span>
               <div className="grid grid-cols-2 gap-2">
                 {photos.map((p, pi) => (
@@ -494,7 +534,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
                     </button>
                   </div>
                 ))}
-                {photos.length < 2 && (
+                {photos.length < 3 && (
                   <label className="flex h-28 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-white/15 text-sm text-gray-400 hover:border-gray-400 dark:hover:border-white/30 transition-colors">
                     <span className="flex items-center gap-1.5 text-xs"><Camera size={14} /> ถ่ายรูป / เลือกรูป</span>
                     <input type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
@@ -502,6 +542,17 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
                 )}
               </div>
             </div>
+
+            {/* odometer photo — read-only preview, uploaded in the main form */}
+            {odometerPhoto && (
+              <div className="mb-3">
+                <span className="flex items-center gap-1 text-[11px] font-medium text-gray-500 mb-1">
+                  <Camera size={11} /> รูปเลขไมล์รถ
+                </span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={odometerPhoto} alt="รูปเลขไมล์รถ" className="h-28 w-full rounded-lg object-cover bg-gray-50 dark:bg-white/5" />
+              </div>
+            )}
 
             {/* tread mm */}
             <label className="block mb-3">
