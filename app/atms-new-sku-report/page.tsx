@@ -249,7 +249,7 @@ export default function AtmsNewSkuReportPage() {
                   <td className="py-1.5 font-medium text-gray-700 dark:text-gray-300">{u.username}</td>
                   <td className="py-1.5 text-right tabular-nums text-gray-900 dark:text-white font-semibold">{u.count.toLocaleString()}</td>
                   <td className="py-1.5 text-right text-gray-400 dark:text-gray-600 whitespace-nowrap pl-2">
-                    ล่าสุด {new Date(u.lastAt).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                    ล่าสุด {new Date(u.lastAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })}
                   </td>
                 </tr>
               ))}
