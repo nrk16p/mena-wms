@@ -38,7 +38,6 @@ type NavItem  = {
   subheader?: boolean // non-clickable mini label (e.g. branch name)
   indent?: boolean    // indented link under a subheader
   adminOnly?: boolean // shown only to admins, amber styling
-  allowEmails?: string[] // shown only to these accounts
 }
 type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean }
 
@@ -88,8 +87,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "รายงาน",
     items: [
-      { href: "/atms-new-sku-report",          label: "SKU ใหม่ ATMS",      icon: BarChart3, exact: true, allowEmails: ["narongkorn.a@menatransport.co.th"] },
-      { href: "/atms-new-sku-report/baseline", label: "นิยาม & Baseline",   icon: BookOpen,  indent: true, allowEmails: ["narongkorn.a@menatransport.co.th"] },
+      { href: "/atms-new-sku-report",          label: "SKU ใหม่ ATMS",      icon: BarChart3, exact: true },
+      { href: "/atms-new-sku-report/baseline", label: "นิยาม & Baseline",   icon: BookOpen,  indent: true },
     ],
   },
   {
@@ -185,11 +184,6 @@ export function Sidebar() {
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-2.5 py-3">
         {NAV_GROUPS.map((group, gi) => {
-          const userEmail = session?.user?.email ?? ""
-          const hasVisibleItems = group.items.some(
-            (i) => (!i.adminOnly || isAdmin) && (!i.allowEmails || i.allowEmails.includes(userEmail))
-          )
-          if (!hasVisibleItems) return null
           const open = isGroupOpen(group)
           return (
           <div key={group.label} className={gi > 0 ? "mt-1" : ""}>
@@ -250,7 +244,6 @@ export function Sidebar() {
               {group.items.map((item) => {
                 const Icon   = item.icon
                 if (item.adminOnly && !isAdmin) return null
-                if (item.allowEmails && !item.allowEmails.includes(session?.user?.email ?? "")) return null
                 if (item.subheader) {
                   if (collapsed) return null
                   return (
