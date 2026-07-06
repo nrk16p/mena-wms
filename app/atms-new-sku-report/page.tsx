@@ -374,19 +374,19 @@ export default function AtmsNewSkuReportPage() {
             {/* Slide header */}
             <div className="flex items-start justify-between mb-5">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 leading-tight">รายงาน SKU ใหม่ในระบบ ATMS</h2>
-                <p className="text-sm text-gray-500 mt-1">{slideWhLabel}</p>
+                <h2 className="text-4xl font-bold text-gray-900 leading-tight">รายงาน SKU ใหม่ในระบบ ATMS</h2>
+                <p className="text-lg text-gray-500 mt-2">{slideWhLabel}</p>
               </div>
               <div className="flex gap-3">
-                <div className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-3 text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">เฉลี่ย 12 เดือน</p>
-                  <p className="text-2xl font-bold text-gray-900 tabular-nums">{kpi.avg12.toLocaleString()}</p>
-                  <p className="text-[10px] text-gray-400">SKU / เดือน</p>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-7 py-4 text-center">
+                  <p className="text-sm font-semibold uppercase tracking-wider text-gray-400">เฉลี่ย 12 เดือน</p>
+                  <p className="text-4xl font-bold text-gray-900 tabular-nums">{kpi.avg12.toLocaleString()}</p>
+                  <p className="text-sm text-gray-400">SKU / เดือน</p>
                 </div>
-                <div className="rounded-xl border border-[#1B8C4B]/30 bg-[#f0fdf4] px-5 py-3 text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#1B8C4B]">สะสมทั้งหมด</p>
-                  <p className="text-2xl font-bold text-[#0F6A3C] tabular-nums">{kpi.total.toLocaleString()}</p>
-                  <p className="text-[10px] text-gray-400">ตั้งแต่ ธ.ค. 2015</p>
+                <div className="rounded-xl border border-[#1B8C4B]/30 bg-[#f0fdf4] px-7 py-4 text-center">
+                  <p className="text-sm font-semibold uppercase tracking-wider text-[#1B8C4B]">สะสมทั้งหมด</p>
+                  <p className="text-4xl font-bold text-[#0F6A3C] tabular-nums">{kpi.total.toLocaleString()}</p>
+                  <p className="text-sm text-gray-400">ตั้งแต่ ธ.ค. 2015</p>
                 </div>
               </div>
             </div>
@@ -395,25 +395,25 @@ export default function AtmsNewSkuReportPage() {
             <div className="flex-1 grid grid-cols-5 gap-6 min-h-0">
               {/* Year × month matrix */}
               <div className="col-span-3 flex flex-col min-h-0">
-                <p className="text-sm font-bold text-gray-800 mb-2">รายเดือนทุกปี</p>
-                <table className="w-full text-[11px] leading-tight">
+                <p className="text-xl font-bold text-gray-800 mb-3">รายเดือนทุกปี</p>
+                <table className="w-full text-[15px] leading-tight">
                   <thead>
                     <tr className="text-gray-400 border-b border-gray-200">
-                      <th className="text-left font-semibold py-1 pr-1">ปี</th>
-                      {TH_MONTHS.map((m) => <th key={m} className="text-right font-semibold py-1 px-0.5">{m}</th>)}
-                      <th className="text-right font-semibold py-1 pl-1">รวม</th>
+                      <th className="text-left font-semibold py-1.5 pr-1">ปี</th>
+                      {TH_MONTHS.map((m) => <th key={m} className="text-right font-semibold py-1.5 px-0.5">{m}</th>)}
+                      <th className="text-right font-semibold py-1.5 pl-1">รวม</th>
                     </tr>
                   </thead>
                   <tbody>
                     {byYear.map(([year, months]) => (
                       <tr key={year} className="border-b border-gray-100">
-                        <td className="py-[3px] pr-1 font-semibold text-gray-700">{year}</td>
+                        <td className="py-1.5 pr-1 font-semibold text-gray-700">{year}</td>
                         {months.map((c, i) => (
-                          <td key={i} className="py-[3px] px-0.5 text-right text-gray-600 tabular-nums">
+                          <td key={i} className="py-1.5 px-0.5 text-right text-gray-600 tabular-nums">
                             {c === null ? "–" : c.toLocaleString()}
                           </td>
                         ))}
-                        <td className="py-[3px] pl-1 text-right font-bold text-gray-900 tabular-nums">
+                        <td className="py-1.5 pl-1 text-right font-bold text-gray-900 tabular-nums">
                           {months.reduce<number>((s, c) => s + (c ?? 0), 0).toLocaleString()}
                         </td>
                       </tr>
@@ -424,16 +424,16 @@ export default function AtmsNewSkuReportPage() {
 
               {/* Top groups */}
               <div className="col-span-2 flex flex-col min-h-0">
-                <p className="text-sm font-bold text-gray-800 mb-2">กลุ่มสินค้ายอดนิยม</p>
-                <div className="space-y-2.5">
+                <p className="text-xl font-bold text-gray-800 mb-3">กลุ่มสินค้ายอดนิยม</p>
+                <div className="space-y-4">
                   {topGroups.map((g) => (
                     <div key={g.group}>
-                      <div className="flex justify-between text-[11px] mb-0.5">
+                      <div className="flex justify-between text-[15px] mb-1">
                         <span className="truncate text-gray-700">{g.group}</span>
                         <span className="text-gray-500 tabular-nums shrink-0 ml-2">{g.count.toLocaleString()}</span>
                       </div>
-                      <div className="h-2 w-full rounded-full bg-gray-100">
-                        <div className="h-2 rounded-full bg-[#1B8C4B]/75" style={{ width: `${(g.count / maxGroup) * 100}%` }} />
+                      <div className="h-3 w-full rounded-full bg-gray-100">
+                        <div className="h-3 rounded-full bg-[#1B8C4B]/75" style={{ width: `${(g.count / maxGroup) * 100}%` }} />
                       </div>
                     </div>
                   ))}
@@ -443,8 +443,8 @@ export default function AtmsNewSkuReportPage() {
 
             {/* Slide footer */}
             <div className="flex items-center justify-between border-t border-gray-100 pt-3 mt-4">
-              <p className="text-[10px] text-gray-400">ที่มา: ATMS activity log (การเพิ่มรหัสสินค้า) • Mena WMS</p>
-              <p className="text-[10px] text-gray-400">
+              <p className="text-sm text-gray-400">ที่มา: ATMS activity log (การเพิ่มรหัสสินค้า) • Mena WMS</p>
+              <p className="text-sm text-gray-400">
                 สร้างเมื่อ {now.toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}
               </p>
             </div>
