@@ -25,6 +25,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Vercel Cron requests carry no session cookie — the routes enforce CRON_SECRET themselves
+  if (pathname.startsWith("/api/cron/")) {
+    return NextResponse.next()
+  }
+
   // Mobile app access via API key
   if (MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     const apiKey = request.headers.get("x-api-key")

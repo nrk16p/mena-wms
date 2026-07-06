@@ -25,6 +25,7 @@ import {
   TableProperties,
   Search,
   BookOpen,
+  BarChart3,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -81,6 +82,12 @@ const NAV_GROUPS: NavGroup[] = [
     label: "จัดซื้อ",
     items: [
       { href: "/procurement-search", label: "ค้นหาห่วงโซ่จัดซื้อ", icon: Search },
+    ],
+  },
+  {
+    label: "รายงาน",
+    items: [
+      { href: "/atms-new-sku-report", label: "SKU ใหม่ ATMS", icon: BarChart3 },
     ],
   },
   {
