@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { getUserPermissions } from "@/lib/permissions"
 import clientPromise from "@/lib/mongo"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
 // GET /api/atms-sku-report?warehouse=<name>[,<name>...] — data for the new-SKU report page
 // All aggregations run over atms_sku_add_events (full history since Dec 2015).
+// Requires the "report" section permission (or superadmin).
 export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  const perms = await getUserPermissions(session?.user?.email)
+  if (!perms.isSuperAdmin && !perms.allowed.includes("report")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   const selected = (req.nextUrl.searchParams.get("warehouse") ?? "").split(",").filter(Boolean)
   const match = selected.length ? { warehouse: { $in: selected } } : {}
 

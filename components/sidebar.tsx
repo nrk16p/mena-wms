@@ -26,6 +26,7 @@ import {
   Search,
   BookOpen,
   BarChart3,
+  UserCog,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -38,9 +39,14 @@ type NavItem  = {
   subheader?: boolean // non-clickable mini label (e.g. branch name)
   indent?: boolean    // indented link under a subheader
   adminOnly?: boolean // shown only to admins, amber styling
-  allowEmails?: string[] // shown only to these accounts
 }
-type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean }
+type NavGroup = {
+  label: string
+  items: NavItem[]
+  collapsible?: boolean
+  sectionKey?: string      // permission section controlling this group's visibility
+  superAdminOnly?: boolean // Admin panel
+}
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -51,6 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "จัดการ SKU",
+    sectionKey: "sku",
     collapsible: true,
     items: [
       { href: "/sku",                label: "รายการ SKU",       icon: PackageSearch, exact: true },
@@ -65,6 +72,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "จัดการยาง",
+    sectionKey: "tire",
     collapsible: true,
     items: [
       { href: "#latkrabang",                          label: "ลาดกระบัง",          icon: MapPin,         subheader: true },
@@ -81,33 +89,62 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "จัดซื้อ",
+    sectionKey: "procurement",
     items: [
       { href: "/procurement-search", label: "ค้นหาห่วงโซ่จัดซื้อ", icon: Search },
     ],
   },
   {
     label: "รายงาน",
+    sectionKey: "report",
     items: [
-      { href: "/atms-new-sku-report",          label: "SKU ใหม่ ATMS",      icon: BarChart3, exact: true, allowEmails: ["narongkorn.a@menatransport.co.th"] },
-      { href: "/atms-new-sku-report/baseline", label: "นิยาม & Baseline",   icon: BookOpen,  indent: true, allowEmails: ["narongkorn.a@menatransport.co.th"] },
+      { href: "/atms-new-sku-report",          label: "SKU ใหม่ ATMS",      icon: BarChart3, exact: true },
+      { href: "/atms-new-sku-report/baseline", label: "นิยาม & Baseline",   icon: BookOpen,  indent: true },
     ],
   },
   {
     label: "ตั้งค่า",
+    sectionKey: "tire",
     collapsible: true,
     items: [
       { href: "/tire/master", label: "สเปคยาง", icon: BookOpen },
     ],
   },
+  {
+    label: "Admin",
+    superAdminOnly: true,
+    items: [
+      { href: "/admin/users",  label: "จัดการผู้ใช้", icon: UserCog },
+      { href: "/admin/groups", label: "กลุ่มสิทธิ์",  icon: Layers },
+    ],
+  },
 ]
 // ── Sidebar ───────────────────────────────────────────────────────────
+type Perms = { isSuperAdmin: boolean; allowed: string[] }
+// before permissions load, mirror DEFAULT_ACCESS so the sidebar doesn't flash
+const LOADING_PERMS: Perms = { isSuperAdmin: false, allowed: ["sku", "tire", "procurement"] }
+
 export function Sidebar() {
   const [collapsed, setCollapsed]   = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({})
+  const [perms, setPerms] = useState<Perms>(LOADING_PERMS)
   const pathname  = usePathname()
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
+
+  useEffect(() => {
+    fetch("/api/me/permissions")
+      .then((r) => r.json())
+      .then((p) => { if (p && Array.isArray(p.allowed)) setPerms(p) })
+      .catch(() => {})
+  }, [])
+
+  function groupVisible(group: NavGroup): boolean {
+    if (group.superAdminOnly) return perms.isSuperAdmin
+    if (!group.sectionKey) return true
+    return perms.isSuperAdmin || perms.allowed.includes(group.sectionKey)
+  }
 
   // reset manual toggles on navigation so groups auto-open/auto-hide per route
   useEffect(() => { setGroupOpen({}) }, [pathname])
@@ -185,10 +222,8 @@ export function Sidebar() {
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-2.5 py-3">
         {NAV_GROUPS.map((group, gi) => {
-          const userEmail = session?.user?.email ?? ""
-          const hasVisibleItems = group.items.some(
-            (i) => (!i.adminOnly || isAdmin) && (!i.allowEmails || i.allowEmails.includes(userEmail))
-          )
+          if (!groupVisible(group)) return null
+          const hasVisibleItems = group.items.some((i) => !i.adminOnly || isAdmin)
           if (!hasVisibleItems) return null
           const open = isGroupOpen(group)
           return (
@@ -250,7 +285,6 @@ export function Sidebar() {
               {group.items.map((item) => {
                 const Icon   = item.icon
                 if (item.adminOnly && !isAdmin) return null
-                if (item.allowEmails && !item.allowEmails.includes(session?.user?.email ?? "")) return null
                 if (item.subheader) {
                   if (collapsed) return null
                   return (

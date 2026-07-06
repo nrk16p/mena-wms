@@ -17,10 +17,6 @@ const MOBILE_API_PREFIXES = [
 const CODES_API_PREFIX = "/api/codes"
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 
-// ATMS new-SKU report: restricted to a single owner account
-const ATMS_REPORT_PREFIXES = ["/atms-new-sku-report", "/api/atms-sku-report"]
-const ATMS_REPORT_ALLOWED_EMAILS = new Set(["narongkorn.a@menatransport.co.th"])
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -57,16 +53,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // ATMS new-SKU report: owner-only (pages + API)
-  if (ATMS_REPORT_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
-    if (!ATMS_REPORT_ALLOWED_EMAILS.has(token?.email ?? "")) {
-      if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-      }
-      return NextResponse.redirect(new URL("/", request.url))
-    }
-  }
+  // Section permissions (incl. ATMS report) are enforced by per-section layout.tsx
+  // guards and inside the API routes — middleware only guarantees a session exists.
 
   // Code Dictionary: pages + GET are open to all; writes are admin-only.
   const isCodesApi      = pathname === CODES_API_PREFIX || pathname.startsWith(CODES_API_PREFIX + "/")
