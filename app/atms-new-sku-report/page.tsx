@@ -86,7 +86,6 @@ export default function AtmsNewSkuReportPage() {
 
   const last24 = useMemo(() => monthly.slice(-24), [monthly])
   const maxBar = Math.max(1, ...last24.map((r) => r.count))
-  const maxWh    = Math.max(1, ...warehouses.map((r) => r.count))
   const maxGroup = Math.max(1, ...topGroups.map((r) => r.count))
 
   const byYear = useMemo(() => {
@@ -191,31 +190,7 @@ export default function AtmsNewSkuReportPage() {
       </div>
 
       {/* Breakdown cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        {/* By warehouse */}
-        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">แยกตามคลังสินค้า</p>
-          <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-            {warehouses.map((w) => (
-              <button key={w.warehouse} onClick={() => setSelWh((prev) => prev.includes(w.warehouse) ? prev.filter((x) => x !== w.warehouse) : [...prev, w.warehouse])} className="w-full text-left group">
-                <div className="flex justify-between text-xs mb-1">
-                  <span className={`truncate ${selWh.includes(w.warehouse) ? "font-bold text-[#1B8C4B]" : "text-gray-700 dark:text-gray-300 group-hover:text-[#1B8C4B]"}`}>
-                    {w.warehouse}
-                  </span>
-                  <span className="text-gray-500 dark:text-gray-400 tabular-nums shrink-0 ml-2">{w.count.toLocaleString()}</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-white/8">
-                  <div
-                    className={`h-1.5 rounded-full ${selWh.includes(w.warehouse) ? "bg-[#1B8C4B]" : "bg-[#1B8C4B]/60 group-hover:bg-[#1B8C4B]"}`}
-                    style={{ width: `${(w.count / maxWh) * 100}%` }}
-                  />
-                </div>
-              </button>
-            ))}
-          </div>
-          <p className="mt-3 text-[10px] text-gray-400 dark:text-gray-600">คลิกเพื่อกรอง • คลังจาก SKU ปัจจุบัน (SKU ที่ถูกลบ = ไม่ระบุ)</p>
-        </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         {/* Top groups */}
         <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
           <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
