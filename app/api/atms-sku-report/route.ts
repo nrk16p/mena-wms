@@ -3,11 +3,11 @@ import clientPromise from "@/lib/mongo"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
-// GET /api/atms-sku-report?warehouse=<name> — data for the new-SKU report page
+// GET /api/atms-sku-report?warehouse=<name>[,<name>...] — data for the new-SKU report page
 // All aggregations run over atms_sku_add_events (full history since Dec 2015).
 export async function GET(req: NextRequest) {
-  const warehouse = req.nextUrl.searchParams.get("warehouse") ?? ""
-  const match = warehouse ? { warehouse } : {}
+  const selected = (req.nextUrl.searchParams.get("warehouse") ?? "").split(",").filter(Boolean)
+  const match = selected.length ? { warehouse: { $in: selected } } : {}
 
   const client = await clientPromise
   const db     = client.db(DB)

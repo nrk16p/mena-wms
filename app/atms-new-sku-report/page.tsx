@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 
 type MonthRow  = { month: string; count: number }
 type WhRow     = { warehouse: string; count: number }
@@ -31,7 +32,7 @@ function pctBadge(cur: number, prev: number) {
 }
 
 export default function AtmsNewSkuReportPage() {
-  const [warehouse, setWarehouse] = useState("")
+  const [selWh, setSelWh] = useState<string[]>([])
   const [monthly, setMonthly]     = useState<MonthRow[]>([])
   const [warehouses, setWarehouses] = useState<WhRow[]>([])
   const [topGroups, setTopGroups] = useState<GroupRow[]>([])
@@ -40,9 +41,9 @@ export default function AtmsNewSkuReportPage() {
   const [lastSync, setLastSync]   = useState<SyncLog>(null)
   const [loading, setLoading]     = useState(true)
 
-  const load = useCallback((wh: string) => {
+  const load = useCallback((whs: string[]) => {
     setLoading(true)
-    fetch(`/api/atms-sku-report${wh ? `?warehouse=${encodeURIComponent(wh)}` : ""}`)
+    fetch(`/api/atms-sku-report${whs.length ? `?warehouse=${encodeURIComponent(whs.join(","))}` : ""}`)
       .then((r) => r.json())
       .then((d) => {
         setMonthly(d.monthly ?? [])
@@ -56,7 +57,9 @@ export default function AtmsNewSkuReportPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { load(warehouse) }, [warehouse, load])
+  useEffect(() => { load(selWh) }, [selWh, load])
+
+  const whSuffix = selWh.length === 0 ? "" : selWh.length === 1 ? ` — ${selWh[0]}` : ` — ${selWh.length} คลัง`
 
   const now = new Date()
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
@@ -113,22 +116,21 @@ export default function AtmsNewSkuReportPage() {
       </p>
 
       {/* Warehouse filter */}
-      <div className="flex flex-wrap items-center gap-2 mb-6">
-        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">คลังสินค้า:</label>
-        <select
-          value={warehouse}
-          onChange={(e) => setWarehouse(e.target.value)}
-          className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/40"
-        >
-          <option value="">ทั้งหมด ({warehouses.reduce((s, w) => s + w.count, 0).toLocaleString()})</option>
-          {warehouses.map((w) => (
-            <option key={w.warehouse} value={w.warehouse}>{w.warehouse} ({w.count.toLocaleString()})</option>
-          ))}
-        </select>
-        {warehouse && (
-          <button onClick={() => setWarehouse("")} className="text-xs text-[#1B8C4B] hover:underline">ล้างตัวกรอง</button>
+      <div className="flex flex-wrap items-start gap-2 mb-6">
+        <label className="text-sm font-medium text-gray-700 dark:text-gray-300 pt-2">คลังสินค้า:</label>
+        <div className="min-w-72 max-w-xl flex-1">
+          <MultiSelectCombobox
+            options={Object.fromEntries(warehouses.map((w) => [w.warehouse, { th: `${w.count.toLocaleString()} รายการ`, en: "" }]))}
+            values={selWh}
+            onChange={setSelWh}
+            placeholder="— ทุกคลัง —"
+            className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-3 text-sm"
+          />
+        </div>
+        {selWh.length > 0 && (
+          <button onClick={() => setSelWh([])} className="text-xs text-[#1B8C4B] hover:underline pt-2.5">ล้างตัวกรอง</button>
         )}
-        {loading && <span className="text-xs text-gray-400 animate-pulse">กำลังโหลด...</span>}
+        {loading && <span className="text-xs text-gray-400 animate-pulse pt-2.5">กำลังโหลด...</span>}
       </div>
 
       {/* KPI tiles */}
@@ -167,7 +169,7 @@ export default function AtmsNewSkuReportPage() {
       {/* Trend chart — last 24 months */}
       <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-6">
         <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-          แนวโน้ม 24 เดือนล่าสุด{warehouse ? ` — ${warehouse}` : ""}
+          แนวโน้ม 24 เดือนล่าสุด{whSuffix}
         </p>
         <div className="flex items-end gap-1 h-40 overflow-x-auto">
           {last24.map((r) => (
@@ -195,16 +197,16 @@ export default function AtmsNewSkuReportPage() {
           <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">แยกตามคลังสินค้า</p>
           <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
             {warehouses.map((w) => (
-              <button key={w.warehouse} onClick={() => setWarehouse(w.warehouse === warehouse ? "" : w.warehouse)} className="w-full text-left group">
+              <button key={w.warehouse} onClick={() => setSelWh((prev) => prev.includes(w.warehouse) ? prev.filter((x) => x !== w.warehouse) : [...prev, w.warehouse])} className="w-full text-left group">
                 <div className="flex justify-between text-xs mb-1">
-                  <span className={`truncate ${w.warehouse === warehouse ? "font-bold text-[#1B8C4B]" : "text-gray-700 dark:text-gray-300 group-hover:text-[#1B8C4B]"}`}>
+                  <span className={`truncate ${selWh.includes(w.warehouse) ? "font-bold text-[#1B8C4B]" : "text-gray-700 dark:text-gray-300 group-hover:text-[#1B8C4B]"}`}>
                     {w.warehouse}
                   </span>
                   <span className="text-gray-500 dark:text-gray-400 tabular-nums shrink-0 ml-2">{w.count.toLocaleString()}</span>
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-white/8">
                   <div
-                    className={`h-1.5 rounded-full ${w.warehouse === warehouse ? "bg-[#1B8C4B]" : "bg-[#1B8C4B]/60 group-hover:bg-[#1B8C4B]"}`}
+                    className={`h-1.5 rounded-full ${selWh.includes(w.warehouse) ? "bg-[#1B8C4B]" : "bg-[#1B8C4B]/60 group-hover:bg-[#1B8C4B]"}`}
                     style={{ width: `${(w.count / maxWh) * 100}%` }}
                   />
                 </div>
@@ -217,7 +219,7 @@ export default function AtmsNewSkuReportPage() {
         {/* Top groups */}
         <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
           <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-            กลุ่มสินค้ายอดนิยม{warehouse ? ` — ${warehouse}` : ""}
+            กลุ่มสินค้ายอดนิยม{whSuffix}
           </p>
           <div className="space-y-2.5">
             {topGroups.map((g) => (
@@ -237,7 +239,7 @@ export default function AtmsNewSkuReportPage() {
         {/* Top users */}
         <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
           <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-            ผู้เพิ่ม SKU สูงสุด{warehouse ? ` — ${warehouse}` : ""}
+            ผู้เพิ่ม SKU สูงสุด{whSuffix}
           </p>
           <table className="w-full text-xs">
             <tbody>
@@ -260,7 +262,7 @@ export default function AtmsNewSkuReportPage() {
         {/* Year × month matrix */}
         <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 overflow-x-auto">
           <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-            รายเดือนทุกปี{warehouse ? ` — ${warehouse}` : ""}
+            รายเดือนทุกปี{whSuffix}
           </p>
           <table className="w-full text-xs">
             <thead>
@@ -291,7 +293,7 @@ export default function AtmsNewSkuReportPage() {
         {/* Recent additions */}
         <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
           <p className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-            SKU เพิ่มล่าสุด{warehouse ? ` — ${warehouse}` : ""} <span className="font-normal text-gray-400">(100 รายการ)</span>
+            SKU เพิ่มล่าสุด{whSuffix} <span className="font-normal text-gray-400">(100 รายการ)</span>
           </p>
           {recent.length === 0 ? (
             <p className="text-xs text-gray-400">ยังไม่มีข้อมูล</p>
