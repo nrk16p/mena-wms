@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb } from "lucide-react"
+import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb, Download } from "lucide-react"
 
 type MonthRow = { month: string; count: number }
 
@@ -43,6 +43,8 @@ function QA({ q, a }: { q: string; a: React.ReactNode }) {
 export default function AtmsNewSkuBaselinePage() {
   const [monthly, setMonthly] = useState<MonthRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [savingPng, setSavingPng] = useState(false)
+  const slideRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetch("/api/atms-sku-report")
@@ -73,6 +75,38 @@ export default function AtmsNewSkuBaselinePage() {
       max: Math.max(...vals),
     }
   }, [monthly])
+
+  const savePng = async () => {
+    const el = slideRef.current
+    if (!el || savingPng) return
+    setSavingPng(true)
+    try {
+      const { toBlob } = await import("html-to-image")
+      const opts = {
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+        // system fonts only — skipping web-font embedding avoids CORS SecurityError and speeds capture
+        skipFonts: true,
+      }
+      // WebKit/Safari: first capture can come back blank — warm up, then capture
+      await toBlob(el, opts)
+      const blob = await toBlob(el, opts)
+      if (!blob) throw new Error("capture returned empty image")
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.download = `atms-new-sku-baseline-${new Date().toISOString().slice(0, 10)}.png`
+      a.href = url
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e) {
+      console.error("save png failed", e)
+      alert(`บันทึก PNG ไม่สำเร็จ: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setSavingPng(false)
+    }
+  }
 
   return (
     <div className="max-w-5xl">
@@ -222,6 +256,120 @@ export default function AtmsNewSkuBaselinePage() {
           <li>ทบทวน Baseline ทุก 6 เดือน หรือเมื่อมีการเปลี่ยนแปลงเชิงโครงสร้าง (เปิดคลังใหม่, เปลี่ยนนโยบายจัดซื้อ)</li>
           <li>ขยายการวัดไปถึงคุณภาพของรหัส เช่น ความครบถ้วนของ Oracle Code, กลุ่มสินค้า, ยี่ห้อ ในแต่ละรหัสใหม่</li>
         </ul>
+      </div>
+
+      {/* ── Presentation slide (16:9 PNG export) ── */}
+      <div className="mt-8">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            สไลด์สำหรับรายงาน (16:9)
+          </p>
+          <button
+            onClick={savePng}
+            disabled={savingPng || loading}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-50 transition-colors"
+          >
+            <Download size={14} />
+            {savingPng ? "กำลังบันทึก..." : "Export PNG"}
+          </button>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-white/8">
+          {/* fixed 1280×720 → PNG 2560×1440; light theme only */}
+          <div ref={slideRef} className="w-[1280px] aspect-video shrink-0 bg-white p-10 flex flex-col">
+            {/* Header */}
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h2 className="text-3xl font-bold text-gray-900 leading-tight">
+                  นิยามตัวชี้วัด &amp; Baseline — รหัสสินค้าใหม่ (New SKU)
+                </h2>
+                <p className="text-lg text-gray-500 mt-1.5">ATMS × Mena-WMS • การควบคุมความครบถ้วนของฐานข้อมูลเพื่อจัดทำราคากลาง</p>
+              </div>
+              {stat && (
+                <div className="flex gap-3 shrink-0">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-6 py-3 text-center">
+                    <p className="text-sm font-semibold text-gray-400">Baseline</p>
+                    <p className="text-3xl font-bold text-gray-900 tabular-nums">{stat.avg}</p>
+                    <p className="text-sm text-gray-400">รหัส/เดือน</p>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-3 text-center">
+                    <p className="text-sm font-semibold text-amber-600">ขั้นต่ำ</p>
+                    <p className="text-3xl font-bold text-amber-600 tabular-nums">{stat.lcl}</p>
+                    <p className="text-sm text-gray-400">รหัส/เดือน</p>
+                  </div>
+                  <div className="rounded-xl border border-[#1B8C4B]/30 bg-[#f0fdf4] px-6 py-3 text-center">
+                    <p className="text-sm font-semibold text-[#1B8C4B]">ความครบถ้วน</p>
+                    <p className="text-3xl font-bold text-[#0F6A3C] tabular-nums">100%</p>
+                    <p className="text-sm text-gray-400">WMS = ATMS</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 4 numbered cards */}
+            <div className="grid grid-cols-4 gap-4 mb-5">
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-[#1B8C4B]">1.</span> แหล่งที่มาของข้อมูล</p>
+                <p className="text-[15px] text-gray-600 leading-relaxed">
+                  <span className="font-semibold text-gray-800">ATMS</span> — Activity Log การเพิ่มรหัสสินค้า (mena-atms.com)<br />
+                  <span className="font-semibold text-gray-800">Mena-WMS</span> — ระบบจัดการฐานข้อมูลใหม่สำหรับรหัสสินค้าและราคากลาง
+                </p>
+              </div>
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-[#1B8C4B]">2.</span> การเก็บข้อมูล (As-Is)</p>
+                <p className="text-[15px] text-gray-600 leading-relaxed">
+                  ย้อนหลังตั้งแต่ <span className="font-semibold text-gray-800">ธ.ค. 2015 – ปัจจุบัน</span>
+                  {stat && <> รวม {stat.monthCount} เดือน {stat.total.toLocaleString()} รหัส</>} วัดผลเป็นจำนวนรหัสใหม่ต่อเดือน
+                </p>
+              </div>
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-[#1B8C4B]">3.</span> ความเกี่ยวข้องของข้อมูล</p>
+                <p className="text-[15px] text-gray-600 leading-relaxed">
+                  รหัสใหม่ใน ATMS ต้องถูกสร้างใน Mena-WMS <span className="font-semibold text-gray-800">ครบถ้วน 1 : 1</span> เพื่อไม่ให้ข้อมูลตกหล่น — เป็นฐานของราคากลาง
+                </p>
+              </div>
+              <div className="rounded-xl border border-gray-200 p-4">
+                <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-[#1B8C4B]">4.</span> สูตร Baseline</p>
+                {stat && (
+                  <p className="text-[15px] text-gray-600 leading-relaxed">
+                    X̄ = Σ 12 เดือนล่าสุด ÷ 12 = <span className="font-bold text-[#1B8C4B]">{stat.avg}</span><br />
+                    ขั้นต่ำ = X̄ − 1SD = <span className="font-bold text-amber-600">{stat.lcl} รหัส/เดือน</span><br />
+                    ความครบถ้วน = WMS ÷ ATMS × 100 = <span className="font-bold text-[#0F6A3C]">100%</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Definition + trust */}
+            <div className="flex-1 grid grid-cols-2 gap-4 min-h-0">
+              <div className="rounded-xl bg-gray-50 p-4">
+                <p className="text-base font-bold text-gray-900 mb-2">นิยามการวัด (Measurement Definition)</p>
+                <ul className="text-[15px] text-gray-600 leading-relaxed space-y-1.5">
+                  <li><span className="font-semibold text-gray-800">วัดอะไร:</span> &quot;รหัสสินค้าใหม่&quot; = รหัสที่ถูกสร้างครั้งแรกใน ATMS — นิยามเดียวกันทั้งองค์กร</li>
+                  <li><span className="font-semibold text-gray-800">ทำไมต้องเก็บ:</span> ป้องกันรหัสใหม่ตกหล่นจากฐานข้อมูลราคากลาง</li>
+                  <li><span className="font-semibold text-gray-800">วัดอย่างไร:</span> เปรียบเทียบจำนวนรหัสใหม่รายเดือน Mena-WMS กับ ATMS (ผลต่าง = 0)</li>
+                  <li><span className="font-semibold text-gray-800">ใช้ทำอะไรต่อ:</span> ตรวจสอบและควบคุมเพื่อลดข้อผิดพลาด — ต่ำกว่าเกณฑ์ = เข้าตรวจสอบทันที</li>
+                </ul>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-4">
+                <p className="text-base font-bold text-gray-900 mb-2">ความน่าเชื่อถือและเจ้าของข้อมูล</p>
+                <ul className="text-[15px] text-gray-600 leading-relaxed space-y-1.5">
+                  <li><span className="font-semibold text-gray-800">ที่มา:</span> ระบบ ATMS และ Mena-WMS — ซิงค์อัตโนมัติรายวัน</li>
+                  <li><span className="font-semibold text-gray-800">ความน่าเชื่อถือ:</span> สูงทั้งสองระบบ — ข้อมูล System-generated ไม่มีการกรอกมือ ทุกเหตุการณ์มีหลักฐานใน Activity Log (ผู้สร้าง / เวลา / รายละเอียด)</li>
+                  <li><span className="font-semibold text-gray-800">เจ้าของข้อมูล:</span> ทีมจัดซื้อและยานยนต์ (Procurement &amp; Automotive)</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-gray-100 pt-3 mt-4">
+              <p className="text-sm text-gray-400">ที่มา: ATMS activity log × Mena-WMS • เอกสารกำกับตัวชี้วัด</p>
+              <p className="text-sm text-gray-400">
+                สร้างเมื่อ {new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
