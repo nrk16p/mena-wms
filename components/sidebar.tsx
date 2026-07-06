@@ -87,7 +87,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "รายงาน",
     items: [
-      { href: "/atms-new-sku-report", label: "SKU ใหม่ ATMS", icon: BarChart3 },
+      { href: "/atms-new-sku-report",          label: "SKU ใหม่ ATMS",      icon: BarChart3, exact: true },
+      { href: "/atms-new-sku-report/baseline", label: "นิยาม & Baseline",   icon: BookOpen,  indent: true },
     ],
   },
   {

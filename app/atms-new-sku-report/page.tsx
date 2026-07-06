@@ -149,7 +149,8 @@ export default function AtmsNewSkuReportPage() {
         )}
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        จำนวนรหัสสินค้าที่ถูกเพิ่มใหม่ในระบบ ATMS แยกตามเดือน (จาก activity log)
+        จำนวนรหัสสินค้าที่ถูกเพิ่มใหม่ในระบบ ATMS แยกตามเดือน (จาก activity log) •{" "}
+        <a href="/atms-new-sku-report/baseline" className="text-[#1B8C4B] hover:underline">นิยามตัวชี้วัด &amp; Baseline</a>
       </p>
 
       {/* Warehouse filter */}
