@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Download } from "lucide-react"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 
 type MonthRow  = { month: string; count: number }
@@ -40,6 +41,8 @@ export default function AtmsNewSkuReportPage() {
   const [recent, setRecent]       = useState<RecentRow[]>([])
   const [lastSync, setLastSync]   = useState<SyncLog>(null)
   const [loading, setLoading]     = useState(true)
+  const [savingPng, setSavingPng] = useState(false)
+  const slideRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback((whs: string[]) => {
     setLoading(true)
@@ -97,6 +100,41 @@ export default function AtmsNewSkuReportPage() {
     }
     return Object.entries(years).sort(([a], [b]) => b.localeCompare(a))
   }, [monthly])
+
+  const savePng = async () => {
+    const el = slideRef.current
+    if (!el || savingPng) return
+    setSavingPng(true)
+    try {
+      const { toBlob } = await import("html-to-image")
+      const opts = {
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+        // system fonts only — skipping web-font embedding avoids CORS SecurityError and speeds capture
+        skipFonts: true,
+      }
+      // WebKit/Safari: first capture can come back blank — warm up, then capture
+      await toBlob(el, opts)
+      const blob = await toBlob(el, opts)
+      if (!blob) throw new Error("capture returned empty image")
+      // blob + object URL downloads reliably across Chrome/Safari/Firefox
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.download = `atms-new-sku-report-${new Date().toISOString().slice(0, 10)}.png`
+      a.href = url
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e) {
+      console.error("save png failed", e)
+      alert(`บันทึก PNG ไม่สำเร็จ: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setSavingPng(false)
+    }
+  }
+
+  const slideWhLabel = selWh.length === 0 ? "ทุกคลังสินค้า" : selWh.join(" • ")
 
   return (
     <div>
@@ -310,6 +348,107 @@ export default function AtmsNewSkuReportPage() {
               </table>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── Presentation slide (16:9 PNG export) ── */}
+      <div className="mt-8">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+            สไลด์สำหรับรายงาน (16:9)
+            <span className="ml-2 font-normal text-xs text-gray-400">อัปเดตตามตัวกรองคลังสินค้าด้านบน</span>
+          </p>
+          <button
+            onClick={savePng}
+            disabled={savingPng || loading}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-50 transition-colors"
+          >
+            <Download size={14} />
+            {savingPng ? "กำลังบันทึก..." : "Export PNG"}
+          </button>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-white/8">
+          {/* fixed 1280×720 → PNG 2560×1440; light theme only, matches report decks */}
+          <div ref={slideRef} className="w-[1280px] aspect-video shrink-0 bg-white p-10 flex flex-col">
+            {/* Slide header */}
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 leading-tight">รายงาน SKU ใหม่ในระบบ ATMS</h2>
+                <p className="text-sm text-gray-500 mt-1">{slideWhLabel}</p>
+              </div>
+              <div className="flex gap-3">
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-3 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">เฉลี่ย 12 เดือน</p>
+                  <p className="text-2xl font-bold text-gray-900 tabular-nums">{kpi.avg12.toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-400">SKU / เดือน</p>
+                </div>
+                <div className="rounded-xl border border-[#1B8C4B]/30 bg-[#f0fdf4] px-5 py-3 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#1B8C4B]">สะสมทั้งหมด</p>
+                  <p className="text-2xl font-bold text-[#0F6A3C] tabular-nums">{kpi.total.toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-400">ตั้งแต่ ธ.ค. 2015</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Slide body */}
+            <div className="flex-1 grid grid-cols-5 gap-6 min-h-0">
+              {/* Year × month matrix */}
+              <div className="col-span-3 flex flex-col min-h-0">
+                <p className="text-sm font-bold text-gray-800 mb-2">รายเดือนทุกปี</p>
+                <table className="w-full text-[11px] leading-tight">
+                  <thead>
+                    <tr className="text-gray-400 border-b border-gray-200">
+                      <th className="text-left font-semibold py-1 pr-1">ปี</th>
+                      {TH_MONTHS.map((m) => <th key={m} className="text-right font-semibold py-1 px-0.5">{m}</th>)}
+                      <th className="text-right font-semibold py-1 pl-1">รวม</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byYear.map(([year, months]) => (
+                      <tr key={year} className="border-b border-gray-100">
+                        <td className="py-[3px] pr-1 font-semibold text-gray-700">{year}</td>
+                        {months.map((c, i) => (
+                          <td key={i} className="py-[3px] px-0.5 text-right text-gray-600 tabular-nums">
+                            {c === null ? "–" : c.toLocaleString()}
+                          </td>
+                        ))}
+                        <td className="py-[3px] pl-1 text-right font-bold text-gray-900 tabular-nums">
+                          {months.reduce<number>((s, c) => s + (c ?? 0), 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Top groups */}
+              <div className="col-span-2 flex flex-col min-h-0">
+                <p className="text-sm font-bold text-gray-800 mb-2">กลุ่มสินค้ายอดนิยม</p>
+                <div className="space-y-2.5">
+                  {topGroups.map((g) => (
+                    <div key={g.group}>
+                      <div className="flex justify-between text-[11px] mb-0.5">
+                        <span className="truncate text-gray-700">{g.group}</span>
+                        <span className="text-gray-500 tabular-nums shrink-0 ml-2">{g.count.toLocaleString()}</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-gray-100">
+                        <div className="h-2 rounded-full bg-[#1B8C4B]/75" style={{ width: `${(g.count / maxGroup) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Slide footer */}
+            <div className="flex items-center justify-between border-t border-gray-100 pt-3 mt-4">
+              <p className="text-[10px] text-gray-400">ที่มา: ATMS activity log (การเพิ่มรหัสสินค้า) • Mena WMS</p>
+              <p className="text-[10px] text-gray-400">
+                สร้างเมื่อ {now.toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
