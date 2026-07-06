@@ -100,7 +100,8 @@ export default function AtmsNewSkuBaselinePage() {
             โดยอ้างอิงเหตุการณ์ &quot;เพิ่มรหัสสินค้า&quot; จาก Activity Log ของระบบ (บันทึกอัตโนมัติทุกครั้งที่มีการสร้างรหัส)
           </p>
           <p>
-            <span className="font-semibold text-gray-800 dark:text-gray-200">ระบบ Mena-WMS</span> — ฐานข้อมูลรหัสสินค้า (master_sku)
+            <span className="font-semibold text-gray-800 dark:text-gray-200">ระบบ Mena-WMS</span> — ระบบจัดการฐานข้อมูลใหม่
+            สำหรับการจัดการรหัสสินค้าและราคากลาง (ฐานข้อมูลรหัสสินค้า master_sku)
             ซิงค์ข้อมูลจาก ATMS อัตโนมัติทุกวัน เวลา 03:00 น. พร้อม sync log สำหรับตรวจสอบย้อนหลัง
           </p>
         </Card>
