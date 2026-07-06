@@ -9,6 +9,21 @@ export function atmsSkuSession(): string {
   return process.env.ATMS_SKU_SESSION || ATMS_FALLBACK_SESSION
 }
 
+/** ATMS inventory_id → warehouse display name (from the SKU index dropdown) */
+export const INVENTORY_NAMES: Record<string, string> = {
+  "3": "คลังสระบุรี", "4": "คลังลาดกระบัง", "5": "คลัง HR กรุงเทพ",
+  "6": "คลัง HR ลาดกระบัง", "7": "คลัง HR สระบุรี", "8": "คลัง จป.สระบุรี",
+  "9": "คลัง จป.ลาดกระบัง", "10": "คลังทรัพย์สิน", "11": "คลังขอนแก่น",
+  "12": "คลัง IT", "13": "คลังฝ่ายขาย", "15": "คลังไม่มีสต๊อก ลาดกระบัง",
+  "16": "คลัง จป. ขอนแก่น", "17": "คลังทรัพย์สินลาดกระบัง", "18": "คลังทรัพย์สินสระบุรี",
+  "21": "คลังไม่มีสต๊อก สระบุรี", "22": "คลังไม่มีสต๊อก กรุงเทพฯ", "23": "คลังจัดส่ง ลาดกระบัง",
+  "24": "คลัง DIST", "25": "คลัง DIST จป.สระบุรี", "26": "คลัง DIST HR สระบุรี",
+  "31": "คลัง DIST จป.ขอนแก่น", "32": "คลัง DIST จัดส่ง ขอนแก่น", "33": "คลัง DIST ขอนแก่น (SB)",
+  "34": "คลัง TDM", "35": "คลัง OPS", "36": "คลังฝ่ายสำนักเลขา",
+  "37": "คลัง HR-ศูนย์จัดส่งบางปะกง", "38": "คลังจัดส่ง (บางปะกง)",
+  "39": "คลัง บัญชีการเงิน สกท.", "40": "คลังจัดส่่ง (สระบุรี)",
+}
+
 const agent = new https.Agent({ rejectUnauthorized: false })
 
 function fetchHtml(url: string, phpsessid: string): Promise<string> {
@@ -77,10 +92,12 @@ function parseTotal(html: string): number | null {
 }
 
 export type SkuAddEvent = {
-  skuPk:    number
-  username: string
-  addedAt:  Date
-  month:    string // "YYYY-MM", derived from the ATMS-displayed (Thai local) date
+  skuPk:       number
+  username:    string
+  addedAt:     Date
+  addedAtText: string // "dd/mm/yyyy HH:MM" as displayed by ATMS (Thai local)
+  month:       string // "YYYY-MM", derived from the ATMS-displayed date
+  logId:       string // ATMS log row id, for the detail page with the input payload
 }
 
 function parseEventRows(html: string): SkuAddEvent[] {
@@ -93,11 +110,14 @@ function parseEventRows(html: string): SkuAddEvent[] {
     if (tds.length < 5 || tds[4] !== "add") continue
     const dm = tds[1].match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/)
     if (!dm) continue
+    const logId = tr[1].match(/\/account\/log\/view\/id\/([a-f0-9]+)/)?.[1] ?? ""
     events.push({
-      skuPk:    Number(tds[2]),
-      username: tds[0],
-      addedAt:  new Date(+dm[3], +dm[2] - 1, +dm[1], +(dm[4] ?? 0), +(dm[5] ?? 0)),
-      month:    `${dm[3]}-${dm[2]}`,
+      skuPk:       Number(tds[2]),
+      username:    tds[0],
+      addedAt:     new Date(+dm[3], +dm[2] - 1, +dm[1], +(dm[4] ?? 0), +(dm[5] ?? 0)),
+      addedAtText: tds[1],
+      month:       `${dm[3]}-${dm[2]}`,
+      logId,
     })
   }
   return events
@@ -123,4 +143,59 @@ export async function fetchMonthCount(year: number, month: number, phpsessid: st
   const html = await fetchHtml(logIndexUrl(from, to, 1, "created_at asc"), phpsessid)
   const total = parseTotal(html)
   return total ?? parseEventRows(html).length
+}
+
+export type LogInput = { code: string; name: string; inventoryId: string }
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+}
+
+/** The log detail page carries the submitted form as JSON — code, name, inventory_id, etc. */
+export async function fetchLogInput(logId: string, phpsessid: string): Promise<LogInput | null> {
+  const html = await fetchHtml(`https://www.mena-atms.com/account/log/view/id/${logId}`, phpsessid)
+  const m = decodeEntities(stripTags(html)).match(/input\s*:\s*(\{[\s\S]*?\})\s*(?:ย้อนกลับ|$)/)
+  if (!m) return null
+  try {
+    const input = JSON.parse(m[1])
+    return {
+      code:        String(input.code ?? ""),
+      name:        String(input.name ?? ""),
+      inventoryId: String(input.inventory_id ?? ""),
+    }
+  } catch {
+    return null
+  }
+}
+
+export type SkuMasterRow = {
+  skuPk: number; code: string; name: string; group: string
+  warehouse: string; oracleCode: string; brand: string; unit: string
+}
+
+/** Look a SKU up on the index by exact code — gives group/warehouse display names. */
+export async function fetchSkuByCode(code: string, phpsessid: string): Promise<SkuMasterRow | null> {
+  const qs = new URLSearchParams({
+    code, name: "", remark: "", type: "", inventory_id: "", sku_tag_id: "",
+    stock_unit_id: "", brand_id: "", is_tire: "", trackable: "", has_serial_no: "",
+    no_gl_code: "0", submit: "ค้นหา", order_by: "s.code asc",
+  })
+  const html = await fetchHtml(`https://www.mena-atms.com/inv/sku/index?${qs}`, phpsessid)
+  const tbody = html.match(/<tbody[\s\S]*?<\/tbody>/)
+  if (!tbody) return null
+  for (const tr of tbody[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const raw = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+    if (raw.length < 15) continue
+    const tds = raw.map((m) => stripTags(m[1]))
+    if (tds[0].toLowerCase() !== code.toLowerCase()) continue
+    const pk = raw[14][1].match(/\/inv\/sku\/view\/id\/(\d+)/)
+    if (!pk) continue
+    return {
+      skuPk: Number(pk[1]), code: tds[0], name: tds[1], group: tds[2],
+      warehouse: tds[3], oracleCode: tds[4], brand: tds[5], unit: tds[9],
+    }
+  }
+  return null
 }
