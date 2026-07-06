@@ -1,7 +1,6 @@
 import type { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 import { isAdmin } from "./roles"
-import { upsertAppUser } from "./permissions"
 
 const ALLOWED_DOMAIN = "menatransport.co.th"
 
@@ -16,12 +15,7 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, profile }) {
       const email  = user?.email ?? profile?.email ?? ""
       const domain = email.split("@")[1]?.toLowerCase()
-      if (domain !== ALLOWED_DOMAIN) return false
-      // record the user for the admin panel — a DB hiccup must not block sign-in
-      try {
-        await upsertAppUser({ email, name: user?.name, image: user?.image })
-      } catch {}
-      return true
+      return domain === ALLOWED_DOMAIN
     },
     async jwt({ token, account, profile }) {
       if (account) {
