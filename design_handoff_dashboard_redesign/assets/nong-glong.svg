@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="60" cy="110" rx="33" ry="6" fill="#1B8C4B" opacity="0.09"></ellipse>
+  <path d="M30 50 L18 30 L46 40 Z" fill="#dab686"></path>
+  <path d="M90 50 L102 30 L74 40 Z" fill="#dab686"></path>
+  <rect x="26" y="44" width="68" height="58" rx="11" fill="#ecca99"></rect>
+  <path d="M26 60 H94" stroke="#d3a96f" stroke-width="2.4"></path>
+  <path d="M60 44 V60" stroke="#d3a96f" stroke-width="2.4"></path>
+  <rect x="44" y="80" width="32" height="14" rx="4" fill="#1B8C4B"></rect>
+  <text x="60" y="90.5" font-size="8" fill="#fff" text-anchor="middle" font-family="Mitr, sans-serif" font-weight="600">MENA</text>
+  <circle cx="48" cy="69" r="3.6" fill="#2b2b2b"></circle>
+  <circle cx="72" cy="69" r="3.6" fill="#2b2b2b"></circle>
+  <circle cx="49.3" cy="67.7" r="1" fill="#fff"></circle>
+  <circle cx="73.3" cy="67.7" r="1" fill="#fff"></circle>
+  <circle cx="40" cy="75" r="3" fill="#f3a98f" opacity="0.55"></circle>
+  <circle cx="80" cy="75" r="3" fill="#f3a98f" opacity="0.55"></circle>
+  <path d="M52 75 Q60 81 68 75" stroke="#2b2b2b" stroke-width="2" stroke-linecap="round" fill="none"></path>
+</svg>

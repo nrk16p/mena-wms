@@ -5,10 +5,11 @@ import { useSession } from "next-auth/react"
 import { useEffect, useState, Suspense } from "react"
 import {
   PackageSearch, PlusCircle, Database, Car,
-  GitCompare, Clock, Inbox, CheckCircle,
+  GitCompare, Clock, Inbox,
   TrendingUp, Layers, Tag,
 } from "lucide-react"
 import { WelcomePopup } from "@/components/welcome-popup"
+import { Mascot } from "@/components/mascot"
 
 type Stats = {
   totalApproved: number
@@ -19,34 +20,90 @@ type Stats = {
   recentSkus:    { SKU: string; ชื่ออะไหล่_TH: string; ประเภทค่าใช้จ่าย: string; createdAt: string }[]
 }
 
-const TYPE_META: Record<string, { label: string; color: string; bar: string }> = {
-  PRT: { label: "อะไหล่",        color: "text-blue-600 dark:text-blue-400",   bar: "bg-blue-500" },
-  PM:  { label: "PM",            color: "text-green-600 dark:text-green-400", bar: "bg-green-500" },
-  LAB: { label: "ค่าแรง",        color: "text-yellow-600 dark:text-yellow-400", bar: "bg-yellow-500" },
-  SVC: { label: "บริการ",        color: "text-orange-600 dark:text-orange-400", bar: "bg-orange-500" },
-  CLN: { label: "สารเคมี",       color: "text-purple-600 dark:text-purple-400", bar: "bg-purple-500" },
-  TRP: { label: "ขนส่ง",         color: "text-gray-600 dark:text-gray-400",   bar: "bg-gray-500" },
-  ACC: { label: "อุปกรณ์เสริม",  color: "text-red-600 dark:text-red-400",    bar: "bg-red-500" },
+const TYPE_META: Record<string, { label: string; color: string; colorHex: string }> = {
+  PRT: { label: "อะไหล่",       color: "text-[#1D4ED8]", colorHex: "#1D4ED8" },
+  PM:  { label: "PM",           color: "text-[#15803D]", colorHex: "#15803D" },
+  LAB: { label: "ค่าแรง",       color: "text-[#A16207]", colorHex: "#A16207" },
+  SVC: { label: "บริการ",       color: "text-[#C2410C]", colorHex: "#C2410C" },
+  CLN: { label: "สารเคมี",      color: "text-[#7C3AED]", colorHex: "#7C3AED" },
+  TRP: { label: "ขนส่ง",        color: "text-[#6B7C72]", colorHex: "#6B7C72" },
+  ACC: { label: "อุปกรณ์เสริม", color: "text-red-600",   colorHex: "#DC2626" },
 }
 
-const TYPE_COLOR_BADGE: Record<string, string> = {
-  PRT: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  PM:  "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-  LAB: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
-  SVC: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
-  CLN: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-  TRP: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-  ACC: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+const TYPE_COLOR_BADGE: Record<string, { bg: string; text: string }> = {
+  PRT: { bg: "#DBEAFE", text: "#1D4ED8" },
+  PM:  { bg: "#DCFCE7", text: "#15803D" },
+  LAB: { bg: "#FEF9C3", text: "#A16207" },
+  SVC: { bg: "#FFEDD5", text: "#C2410C" },
+  CLN: { bg: "#F3E8FF", text: "#7C3AED" },
+  TRP: { bg: "#F1F5F9", text: "#6B7C72" },
+  ACC: { bg: "#FEE2E2", text: "#DC2626" },
 }
 
 const QUICK_LINKS = [
-  { href: "/sku",           label: "รายการ SKU",     desc: "ค้นหาและดูอะไหล่ทั้งหมด",          icon: PackageSearch, color: "bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400" },
-  { href: "/sku/new",       label: "เพิ่ม SKU ใหม่", desc: "สร้าง SKU พร้อมรหัสอัตโนมัติ",      icon: PlusCircle,    color: "bg-green-50 dark:bg-green-950/50 text-green-600 dark:text-green-400" },
-  { href: "/sku/oe-search", label: "OE Cross-Ref",   desc: "ค้นข้ามเบอร์อะไหล่ / OEM ref",      icon: GitCompare,    color: "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400" },
-  { href: "/vehicles",      label: "ยานพาหนะ",        desc: "ดูและจัดการข้อมูลรถทั้งหมด",        icon: Car,           color: "bg-orange-50 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400" },
-  { href: "/codes/parts",   label: "Parts Catalog",  desc: "โครงสร้าง L1 · L2 · L3 ทั้งหมด",    icon: Layers,        color: "bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400" },
-  { href: "/codes",         label: "Code Dictionary", desc: "ดู code ยี่ห้อ หน่วย Grade ฯลฯ",   icon: Database,      color: "bg-gray-50 dark:bg-white/5 text-gray-600 dark:text-gray-400" },
+  { href: "/sku",                label: "ค้นหา SKU",        desc: "ดูอะไหล่ทั้งหมด",         icon: PackageSearch },
+  { href: "/sku/new",            label: "เพิ่ม SKU ใหม่",   desc: "รหัสอัตโนมัติ",            icon: PlusCircle    },
+  { href: "/sku/oe-search",      label: "OE Cross-Ref",     desc: "ค้นข้ามเบอร์อะไหล่",       icon: GitCompare    },
+  { href: "/tire/latkrabang/stock-tire", label: "สต็อกยาง", desc: "ลาดกระบัง · สระบุรี",    icon: Database      },
+  { href: "/vehicles",           label: "ยานพาหนะ",          desc: "ข้อมูลรถทั้งหมด",          icon: Car           },
+  { href: "/codes/parts",        label: "แคตาล็อกอะไหล่",  desc: "L1 · L2 · L3",             icon: Layers        },
 ]
+
+// ── Stat Card ──
+function StatCard({
+  icon,
+  label,
+  value,
+  caption,
+  pending,
+  link,
+  isAdmin,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string | number
+  caption?: React.ReactNode
+  pending?: boolean
+  link?: string
+  isAdmin?: boolean
+}) {
+  return (
+    <div
+      className="bg-white dark:bg-[#151a10] rounded-[16px] p-[16px_18px]"
+      style={{
+        border: `1px solid ${pending ? "#FBE7C4" : "#EEF2F0"}`,
+        boxShadow: "0 2px 8px rgba(20,39,28,.04)",
+      }}
+    >
+      <div className="flex items-center gap-[9px] mb-3">
+        <div
+          className="w-8 h-8 rounded-[10px] flex items-center justify-center"
+          style={{ background: pending ? "#FDF3DD" : "#EAF6EE" }}
+        >
+          {icon}
+        </div>
+        <span className="text-[12px] text-[#6B7C72] dark:text-[#9AA8A0]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+          {label}
+        </span>
+      </div>
+      <p
+        className="text-[28px] leading-none"
+        style={{
+          fontFamily: "'Mitr', sans-serif",
+          fontWeight: 600,
+          color: pending ? "#E8A317" : "#14271C",
+        }}
+      >
+        {value}
+      </p>
+      <div className="mt-1 text-[11px] text-[#9AA8A0]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+        {pending && link && isAdmin ? (
+          <Link href={link} className="text-[#E8A317] font-medium">ดูรายการ →</Link>
+        ) : caption}
+      </div>
+    </div>
+  )
+}
 
 export default function Home() {
   const { data: session } = useSession()
@@ -95,124 +152,118 @@ export default function Home() {
   const maxType = stats ? Math.max(...Object.values(stats.byType), 1) : 1
 
   const hour = new Date().getHours()
-  const greeting = hour < 12 ? "อรุณสวัสดิ์" : hour < 17 ? "สวัสดีตอนบ่าย" : "สวัสดีตอนเย็น"
+  const greeting = hour < 12 ? "สวัสดีตอนเช้า" : hour < 17 ? "สวัสดีตอนบ่าย" : "สวัสดีตอนเย็น"
+  const userName = session?.user?.name ?? "คุณ"
+
+  const approvalRate = stats && (stats.totalApproved + stats.totalPending + stats.totalRejected) > 0
+    ? Math.round(stats.totalApproved / (stats.totalApproved + stats.totalPending + stats.totalRejected) * 100)
+    : null
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-[1000px] mx-auto flex flex-col gap-4">
       <Suspense><WelcomePopup /></Suspense>
 
-      {/* ── Header ── */}
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-gray-400 dark:text-gray-500">{greeting} 👋</p>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-0.5">
-            {session?.user?.name ?? "Mena WMS"}
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            ระบบจัดการข้อมูล Master SKU — Mena Transport
-          </p>
-        </div>
-        <div className="flex items-center gap-3 mt-1">
-          <Link
-            href="/presentation"
-            className="hidden sm:flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/4 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors"
+      {/* ── Hero greeting card ── */}
+      <div
+        className="flex items-center gap-5 bg-white dark:bg-[#151a10] rounded-[20px] p-[20px_24px]"
+        style={{ border: "1px solid #EEF2F0", boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}
+      >
+        <Mascot size={88} wave bubble="สวัสดีครับ!" />
+        <div className="flex-1">
+          <h1
+            className="text-[22px] text-[#14271C] dark:text-white leading-snug"
+            style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}
           >
-            <span>▶</span> Present
-          </Link>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400 dark:text-gray-600">
-            <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-            Live
-          </div>
+            {greeting}, {userName}
+          </h1>
+          {stats && (
+            <p className="text-[14px] text-[#6B7C72] mt-1" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+              {stats.totalPending > 0 && (
+                <>มี <span className="text-[#E8A317] font-semibold">{stats.totalPending} SKU</span> รออนุมัติ · </>
+              )}
+              SKU ทั้งหมด {stats.totalApproved.toLocaleString()} รายการ
+            </p>
+          )}
         </div>
+        {isAdmin && stats && stats.totalPending > 0 && (
+          <Link
+            href="/sku/pending"
+            className="shrink-0 text-white text-[14px] rounded-[13px] px-[22px] py-3"
+            style={{
+              fontFamily: "'IBM Plex Sans Thai', sans-serif",
+              fontWeight: 500,
+              background: "#1B8C4B",
+              boxShadow: "0 5px 12px -3px rgba(27,140,75,.5)",
+            }}
+          >
+            ดูคำขอ
+          </Link>
+        )}
       </div>
 
       {/* ── Stat cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* Total SKU */}
-        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
-              <PackageSearch size={14} />
-            </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400">SKU ทั้งหมด</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {loading ? "—" : stats!.totalApproved.toLocaleString()}
-          </p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">อนุมัติแล้ว</p>
-        </div>
-
-        {/* Pending */}
-        <div className="rounded-xl border border-amber-200 dark:border-amber-800/30 bg-white dark:bg-[#0f1117] p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
-              <Clock size={14} />
-            </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400">รออนุมัติ</span>
-          </div>
-          <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-            {loading ? "—" : stats!.totalPending.toLocaleString()}
-          </p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">
-            {isAdmin && stats && stats.totalPending > 0
-              ? <Link href="/sku/pending" className="text-amber-500 hover:underline">ดูรายการ →</Link>
-              : "รายการ"}
-          </p>
-        </div>
-
-        {/* Brands */}
-        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
-              <Tag size={14} />
-            </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400">ยี่ห้อ</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {loading ? "—" : stats!.totalBrands.toLocaleString()}
-          </p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">Brand ที่มี SKU</p>
-        </div>
-
-        {/* Approved rate */}
-        <div className="rounded-xl border border-green-200 dark:border-green-800/30 bg-white dark:bg-[#0f1117] p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 dark:bg-green-950/60 text-green-600 dark:text-green-400">
-              <CheckCircle size={14} />
-            </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400">อนุมัติ %</span>
-          </div>
-          <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-            {loading || !stats ? "—" : (
-              stats.totalApproved + stats.totalPending + stats.totalRejected === 0
-                ? "—"
-                : `${Math.round(stats.totalApproved / (stats.totalApproved + stats.totalPending + stats.totalRejected) * 100)}%`
-            )}
-          </p>
-          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">จากทุก submission</p>
-        </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-[14px]">
+        <StatCard
+          icon={<PackageSearch size={17} color="#1B8C4B" />}
+          label="SKU ทั้งหมด"
+          value={loading ? "—" : stats!.totalApproved.toLocaleString()}
+          caption="อนุมัติแล้ว"
+        />
+        <StatCard
+          icon={<Clock size={17} color="#E8A317" />}
+          label="รออนุมัติ"
+          value={loading ? "—" : stats!.totalPending}
+          caption="รายการ"
+          pending
+          link="/sku/pending"
+          isAdmin={isAdmin}
+        />
+        <StatCard
+          icon={<Tag size={17} color="#1B8C4B" />}
+          label="ยี่ห้อ"
+          value={loading ? "—" : stats?.totalBrands ?? 0}
+          caption="Brand ที่มี SKU"
+        />
+        <StatCard
+          icon={
+            <svg width="17" height="17" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8.5l3 3 7-7.5" stroke="#1B8C4B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          }
+          label="อนุมัติ %"
+          value={loading || approvalRate === null ? "—" : `${approvalRate}%`}
+          caption="จากทุก submission"
+        />
       </div>
 
-      {/* ── Body: breakdown + quick links ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      {/* ── SKU breakdown + Quick links ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-[14px]">
 
-        {/* SKU breakdown by type */}
-        <div className="lg:col-span-2 rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={14} className="text-gray-400" />
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">SKU แยกตามประเภท</p>
-          </div>
+        {/* SKU breakdown */}
+        <div
+          className="lg:col-span-2 bg-white dark:bg-[#151a10] rounded-[16px] p-[18px_20px]"
+          style={{ border: "1px solid #EEF2F0", boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}
+        >
+          <p
+            className="text-[14px] text-[#14271C] dark:text-white mb-4"
+            style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}
+          >
+            SKU แยกตามประเภท
+          </p>
           {loading ? (
             <div className="space-y-3">
               {[1,2,3,4].map((i) => (
                 <div key={i} className="animate-pulse">
-                  <div className="flex justify-between mb-1.5"><div className="h-3 w-16 bg-gray-200 dark:bg-white/8 rounded" /><div className="h-3 w-8 bg-gray-200 dark:bg-white/8 rounded" /></div>
-                  <div className="h-1.5 bg-gray-100 dark:bg-white/5 rounded-full"><div className="h-1.5 bg-gray-200 dark:bg-white/10 rounded-full" style={{ width: `${30 + i * 15}%` }} /></div>
+                  <div className="flex justify-between mb-1.5">
+                    <div className="h-3 w-16 bg-[#F0F4F1] rounded" />
+                    <div className="h-3 w-8 bg-[#F0F4F1] rounded" />
+                  </div>
+                  <div className="h-1.5 bg-[#F0F4F1] rounded-full" style={{ width: `${30 + i * 15}%` }} />
                 </div>
               ))}
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="flex flex-col gap-[13px]">
               {Object.entries(stats!.byType)
                 .filter(([, v]) => v > 0)
                 .sort(([, a], [, b]) => b - a)
@@ -221,18 +272,18 @@ export default function Home() {
                   const pct  = Math.round(count / maxType * 100)
                   return (
                     <Link key={type} href={`/sku?type=${type}`} className="block group">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-bold font-mono ${meta?.color}`}>{type}</span>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">{meta?.label}</span>
-                        </div>
-                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
+                      <div className="flex justify-between mb-1.5">
+                        <span className="text-[12px]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif", color: "#4B5F54" }}>
+                          <strong className={meta?.color} style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>{type}</strong>
+                          {" "}{meta?.label}
+                        </span>
+                        <span className="text-[12px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
                           {count.toLocaleString()}
                         </span>
                       </div>
-                      <div className="h-1.5 rounded-full bg-gray-100 dark:bg-white/5 overflow-hidden">
+                      <div className="h-[7px] rounded-[5px] bg-[#F0F4F1]">
                         <div
-                          className={`h-full rounded-full transition-all duration-500 ${meta?.bar}`}
+                          className="h-[7px] rounded-[5px] bg-[#1B8C4B] transition-all duration-500"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
@@ -240,54 +291,85 @@ export default function Home() {
                   )
                 })}
               {stats && Object.values(stats.byType).every((v) => v === 0) && (
-                <p className="text-xs text-gray-400 dark:text-gray-600">ยังไม่มีข้อมูล</p>
+                <p className="text-[12px] text-[#9AA8A0]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>ยังไม่มีข้อมูล</p>
               )}
             </div>
           )}
         </div>
 
         {/* Quick links */}
-        <div className="lg:col-span-3 rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Layers size={14} className="text-gray-400" />
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">เมนูหลัก</p>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        <div
+          className="lg:col-span-3 bg-white dark:bg-[#151a10] rounded-[16px] p-[18px_20px]"
+          style={{ border: "1px solid #EEF2F0", boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}
+        >
+          <p
+            className="text-[14px] text-[#14271C] dark:text-white mb-4"
+            style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}
+          >
+            เมนูหลัก
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-[11px]">
             {QUICK_LINKS.map((link) => {
               const Icon = link.icon
               return (
                 <Link
                   key={link.href}
                   href={link.href}
-                  className="flex flex-col gap-2 rounded-xl border border-gray-100 dark:border-white/6 p-3.5 hover:border-gray-300 dark:hover:border-white/15 hover:shadow-sm transition-all duration-150 group"
+                  className="flex flex-col gap-[10px] rounded-[14px] p-[14px] transition-all duration-150"
+                  style={{ border: "1px solid #EEF2F0" }}
+                  onMouseEnter={e => {
+                    const el = e.currentTarget as HTMLElement
+                    el.style.borderColor = "#CFE3D6"
+                    el.style.boxShadow = "0 6px 16px -10px rgba(20,39,28,.25)"
+                  }}
+                  onMouseLeave={e => {
+                    const el = e.currentTarget as HTMLElement
+                    el.style.borderColor = "#EEF2F0"
+                    el.style.boxShadow = "none"
+                  }}
                 >
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${link.color}`}>
-                    <Icon size={16} />
+                  <div className="w-9 h-9 rounded-[11px] bg-[#EAF6EE] flex items-center justify-center">
+                    <Icon size={18} color="#1B8C4B" />
                   </div>
                   <div>
-                    <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-snug group-hover:text-gray-700 dark:group-hover:text-gray-100">
+                    <p className="text-[13px] font-medium text-[#14271C] dark:text-white leading-snug" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
                       {link.label}
                     </p>
-                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">{link.desc}</p>
+                    <p className="text-[10.5px] text-[#9AA8A0] mt-0.5 leading-snug" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                      {link.desc}
+                    </p>
                   </div>
                 </Link>
               )
             })}
-            {/* My submissions */}
+            {/* รายการของฉัน */}
             <Link
               href="/sku/my-submissions"
-              className="flex flex-col gap-2 rounded-xl border border-gray-100 dark:border-white/6 p-3.5 hover:border-gray-300 dark:hover:border-white/15 hover:shadow-sm transition-all duration-150 group"
+              className="flex flex-col gap-[10px] rounded-[14px] p-[14px] transition-all duration-150"
+              style={{ border: "1px solid #EEF2F0" }}
+              onMouseEnter={e => {
+                const el = e.currentTarget as HTMLElement
+                el.style.borderColor = "#CFE3D6"
+                el.style.boxShadow = "0 6px 16px -10px rgba(20,39,28,.25)"
+              }}
+              onMouseLeave={e => {
+                const el = e.currentTarget as HTMLElement
+                el.style.borderColor = "#EEF2F0"
+                el.style.boxShadow = "none"
+              }}
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 dark:bg-teal-950/50 text-teal-600 dark:text-teal-400">
-                <Inbox size={16} />
+              <div className="w-9 h-9 rounded-[11px] bg-[#EAF6EE] flex items-center justify-center">
+                <Inbox size={18} color="#1B8C4B" />
               </div>
               <div>
-                <p className="text-[13px] font-semibold text-gray-900 dark:text-white leading-snug">รายการของฉัน</p>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">
+                <p className="text-[13px] font-medium text-[#14271C] dark:text-white leading-snug" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                  รายการของฉัน
+                </p>
+                <p className="text-[10.5px] text-[#9AA8A0] mt-0.5 leading-snug" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
                   รออนุมัติ / ถูกปฏิเสธ
-                  {!loading && stats && stats.totalPending > 0
-                    ? <span className="ml-1 text-amber-500 font-semibold">· {stats.totalPending}</span>
-                    : ""}
+                  {!loading && stats && stats.totalPending > 0 && (
+                    <span className="ml-1 text-[#E8A317] font-semibold">· {stats.totalPending}</span>
+                  )}
                 </p>
               </div>
             </Link>
@@ -297,43 +379,84 @@ export default function Home() {
 
       {/* ── Recent SKUs ── */}
       {!loading && stats && stats.recentSkus.length > 0 && (
-        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 dark:border-white/6">
-            <div className="flex items-center gap-2">
-              <Clock size={13} className="text-gray-400" />
-              <p className="text-sm font-semibold text-gray-900 dark:text-white">SKU ล่าสุด</p>
-            </div>
-            <Link href="/sku" className="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-white transition-colors">
+        <div
+          className="bg-white dark:bg-[#151a10] rounded-[16px] overflow-hidden"
+          style={{ border: "1px solid #EEF2F0", boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}
+        >
+          <div className="flex items-center justify-between px-5 py-[14px] border-b border-[#F2F6F4] dark:border-white/5">
+            <p
+              className="text-[14px] text-[#14271C] dark:text-white"
+              style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}
+            >
+              SKU ล่าสุด
+            </p>
+            <Link
+              href="/sku"
+              className="text-[12px] font-medium text-[#1B8C4B]"
+              style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
+            >
               ดูทั้งหมด →
             </Link>
           </div>
-          <div className="divide-y divide-gray-100 dark:divide-white/5">
-            {stats.recentSkus.slice(0, 5).map((row) => (
-              <Link
-                key={row.SKU}
-                href={`/sku/${row.SKU}`}
-                className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 dark:hover:bg-white/3 transition-colors"
-              >
-                <span className={`shrink-0 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${TYPE_COLOR_BADGE[row.ประเภทค่าใช้จ่าย] ?? ""}`}>
-                  {row.ประเภทค่าใช้จ่าย}
-                </span>
-                <span className="font-mono text-xs text-gray-500 dark:text-gray-400 shrink-0">{row.SKU}</span>
-                <span className="flex-1 text-sm text-gray-900 dark:text-white truncate">{row.ชื่ออะไหล่_TH}</span>
-                <span className="text-[11px] text-gray-400 dark:text-gray-600 shrink-0">
-                  {new Date(row.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
-                </span>
-              </Link>
-            ))}
+          <div>
+            {stats.recentSkus.slice(0, 5).map((row, i) => {
+              const badge = TYPE_COLOR_BADGE[row.ประเภทค่าใช้จ่าย]
+              return (
+                <Link
+                  key={row.SKU}
+                  href={`/sku/${row.SKU}`}
+                  className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-[#F7FBF8] dark:hover:bg-white/3"
+                  style={{ borderBottom: i < 4 ? "1px solid #F4F7F5" : undefined }}
+                >
+                  <span
+                    className="shrink-0 text-[9.5px] font-bold rounded-[6px] px-[7px] py-[3px]"
+                    style={{
+                      fontFamily: "'IBM Plex Sans Thai', sans-serif",
+                      background: badge?.bg ?? "#F1F5F9",
+                      color: badge?.text ?? "#6B7C72",
+                    }}
+                  >
+                    {row.ประเภทค่าใช้จ่าย}
+                  </span>
+                  <span className="text-[11px] text-[#9AA8A0] shrink-0" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                    {row.SKU}
+                  </span>
+                  <span className="flex-1 text-[13px] text-[#14271C] dark:text-white truncate" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                    {row.ชื่ออะไหล่_TH}
+                  </span>
+                  <span className="text-[11px] text-[#9AA8A0] shrink-0" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                    {new Date(row.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                  </span>
+                </Link>
+              )
+            })}
           </div>
         </div>
       )}
 
       {/* ── SKU format footer ── */}
-      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-5 py-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-600 mb-2">SKU Format</p>
-        <code className="text-sm font-mono text-gray-900 dark:text-white">[WH]-[TYPE]-[L1]-[L2]-[L3]-[SEQ]</code>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          ตัวอย่าง: <code className="font-mono">XX-PRT-TRN-CLT-DSC-0001</code> → คลัง XX · อะไหล่ · ระบบส่งกำลัง · คลัทช์ · จานครัช · ลำดับ 1
+      <div
+        className="bg-white dark:bg-[#151a10] rounded-[16px] px-5 py-4"
+        style={{ border: "1px solid #EEF2F0", boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}
+      >
+        <p
+          className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#9AA8A0] mb-2"
+          style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif", letterSpacing: "0.16em" }}
+        >
+          รูปแบบรหัส SKU
+        </p>
+        <code
+          className="text-[15px] font-bold text-[#14271C] dark:text-white tracking-[0.02em]"
+          style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
+        >
+          [WH]-[TYPE]-[L1]-[L2]-[L3]-[SEQ]
+        </code>
+        <p className="text-[12px] text-[#6B7C72] mt-1.5" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+          ตัวอย่าง{" "}
+          <code className="text-[#1B8C4B] font-medium" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+            XX-PRT-TRN-CLT-DSC-0001
+          </code>
+          {" "}→ คลัง XX · อะไหล่ · ระบบส่งกำลัง · คลัทช์ · จานครัช · ลำดับ 1
         </p>
       </div>
     </div>

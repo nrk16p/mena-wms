@@ -1,0 +1,399 @@
+﻿"use client"
+
+import { useState, useEffect, useCallback } from "react"
+import {
+  Database, Search, Plus, Pencil, Trash2, X, RotateCcw,
+  ArrowUp, ArrowDown, ChevronsUpDown, ChevronLeft, ChevronRight,
+} from "lucide-react"
+import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
+
+type Master = {
+  _id:               string
+  brand:             string
+  tireSize:          string
+  tireModel:         string
+  tireType:          string
+  standardDistance:  number
+  standardPrice:     number
+  standardTreadMm:   number
+  standardBahtPerKm: number
+  note:              string
+  active:            boolean
+}
+
+const TIRE_TYPES = ["เรเดียล", "ผ้าใบ"]
+const LIMIT = 50
+
+const EMPTY: Omit<Master, "_id" | "standardBahtPerKm"> = {
+  brand: "", tireSize: "", tireModel: "", tireType: "",
+  standardDistance: 0, standardPrice: 0, standardTreadMm: 0,
+  note: "", active: true,
+}
+
+const fmtInt = (n: number) => (n ?? 0).toLocaleString("th-TH")
+const fmtBaht = (n: number) => (n ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+const fmtBahtKm = (n: number) => (n ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+
+type SortKey = "brand" | "tireSize" | "tireModel" | "tireType" | "standardDistance" | "standardPrice" | "standardBahtPerKm"
+
+const TH_CLS = "px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap select-none"
+
+function typeChip(t: string) {
+  if (!t) return <span className="text-gray-300 dark:text-gray-600">—</span>
+  const cls = t === "เรเดียล"
+    ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+    : "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+  return <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-medium ${cls}`}>{t}</span>
+}
+
+// Plain render helper (called, not mounted as a component) to stay sort-stable
+function sortTh(
+  k: SortKey, label: string, align: "left" | "right",
+  sortBy: SortKey, sortDir: "asc" | "desc", onSort: (k: SortKey) => void,
+) {
+  const active = sortBy === k
+  const Icon = !active ? ChevronsUpDown : sortDir === "asc" ? ArrowUp : ArrowDown
+  return (
+    <th className={TH_CLS} aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={[
+          "inline-flex items-center gap-1 transition-colors hover:text-gray-700 dark:hover:text-white",
+          align === "right" ? "flex-row-reverse" : "",
+          active ? "text-[#1B8C4B] dark:text-[#1B8C4B]" : "",
+        ].join(" ")}
+      >
+        {label}
+        <Icon size={12} className={active ? "" : "opacity-50"} />
+      </button>
+    </th>
+  )
+}
+
+export default function TireMasterPage() {
+  const [items, setItems]     = useState<Master[]>([])
+  const [total, setTotal]     = useState(0)
+  const [brands, setBrands]   = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [qInput, setQInput] = useState("")
+  const [q, setQ]           = useState("")
+  const [brand, setBrand]       = useState("")
+  const [tireType, setTireType] = useState("")
+  const [page, setPage]         = useState(1)
+  const [sortBy, setSortBy]   = useState<SortKey>("brand")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
+
+  // add / edit form
+  const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId]     = useState<string | null>(null)
+  const [form, setForm]         = useState(EMPTY)
+  const [saving, setSaving]     = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const qs = new URLSearchParams({
+      page: String(page), limit: String(LIMIT), sortBy, sortDir,
+    })
+    if (q)        qs.set("q", q)
+    if (brand)    qs.set("brand", brand)
+    if (tireType) qs.set("tireType", tireType)
+    const res  = await fetch(`/api/tire-master?${qs}`)
+    const data = await res.json()
+    setItems(Array.isArray(data.items) ? data.items : [])
+    setTotal(data.total ?? 0)
+    setBrands(Array.isArray(data.brands) ? data.brands : [])
+    setLoading(false)
+  }, [page, sortBy, sortDir, q, brand, tireType])
+
+  useEffect(() => { load() }, [load])
+
+  // every filter / sort change also returns to the first page
+  function applySearch() { setQ(qInput.trim()); setPage(1) }
+  function changeBrand(v: string)    { setBrand(v); setPage(1) }
+  function changeTireType(v: string) { setTireType(v); setPage(1) }
+
+  function resetFilters() {
+    setQInput(""); setQ(""); setBrand(""); setTireType("")
+    setSortBy("brand"); setSortDir("asc"); setPage(1)
+  }
+
+  function toggleSort(key: SortKey) {
+    if (sortBy === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    else { setSortBy(key); setSortDir("asc") }
+    setPage(1)
+  }
+
+  function setF(k: keyof typeof EMPTY, v: string | number | boolean) {
+    setForm((p) => ({ ...p, [k]: v }))
+  }
+
+  function openAdd() {
+    setEditId(null); setForm(EMPTY); setShowForm(true)
+  }
+
+  function openEdit(m: Master) {
+    setEditId(m._id)
+    setForm({
+      brand: m.brand, tireSize: m.tireSize, tireModel: m.tireModel, tireType: m.tireType,
+      standardDistance: m.standardDistance, standardPrice: m.standardPrice,
+      standardTreadMm: m.standardTreadMm, note: m.note, active: m.active,
+    })
+    setShowForm(true)
+  }
+
+  function closeForm() { setShowForm(false); setEditId(null); setForm(EMPTY) }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.brand.trim())    { swalError("กรุณาระบุยี่ห้อยาง"); return }
+    if (!form.tireSize.trim()) { swalError("กรุณาระบุขนาดยาง"); return }
+    setSaving(true)
+    const url    = editId ? `/api/tire-master/${editId}` : "/api/tire-master"
+    const method = editId ? "PUT" : "POST"
+    const res = await fetch(url, {
+      method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form),
+    })
+    setSaving(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      swalError(d.error ?? "บันทึกไม่สำเร็จ"); return
+    }
+    swalToast("success", editId ? "แก้ไขสำเร็จ" : "เพิ่ม Master สำเร็จ")
+    closeForm(); load()
+  }
+
+  async function handleDelete(m: Master) {
+    const r = await swalDeleteConfirm(`ลบ Master "${m.brand} ${m.tireSize}${m.tireModel ? " " + m.tireModel : ""}"?`)
+    if (!r.isConfirmed) return
+    await fetch(`/api/tire-master/${m._id}`, { method: "DELETE" })
+    swalToast("success", "ลบสำเร็จ")
+    load()
+  }
+
+  const inp = "w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B8C4B] dark:focus:ring-[#1B8C4B]/60 placeholder-gray-400"
+  const lbl = "block text-[11px] font-medium text-gray-500 mb-1"
+
+  const hasFilters = q || brand || tireType || sortBy !== "brand" || sortDir !== "asc"
+  const from = total === 0 ? 0 : (page - 1) * LIMIT + 1
+  const to   = Math.min(page * LIMIT, total)
+  const totalPages = Math.max(1, Math.ceil(total / LIMIT))
+
+  const th = TH_CLS
+
+  return (
+    <div>
+      {/* ── Header ── */}
+      <div className="flex items-center gap-3 mb-1.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1B8C4B]/10 text-[#1B8C4B]">
+          <Database size={18} />
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Master — ข้อมูลพื้นฐานยาง</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            กำหนดยี่ห้อ · ขนาด · อายุการใช้งานมาตรฐาน (กม.) และค่ามาตรฐานต่าง ๆ
+          </p>
+        </div>
+        <button
+          onClick={openAdd}
+          className="ml-auto flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] text-white px-3.5 py-2 text-sm font-medium hover:bg-[#0F6A3C] transition-colors"
+        >
+          <Plus size={15} /> เพิ่ม Master
+        </button>
+      </div>
+
+      {/* ── Add / Edit form ── */}
+      {showForm && (
+        <form onSubmit={handleSave} className="mb-4 rounded-xl border border-[#1B8C4B]/30 dark:border-[#1B8C4B]/40 bg-[#1B8C4B]/[0.03] dark:bg-[#1B8C4B]/[0.06] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              {editId ? "แก้ไข Master" : "เพิ่ม Master ใหม่"}
+            </p>
+            <button type="button" onClick={closeForm} className="text-gray-400 hover:text-gray-700 dark:hover:text-white">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label className={lbl}>ยี่ห้อยาง *</label>
+              <input value={form.brand} onChange={(e) => setF("brand", e.target.value)} className={inp} placeholder="Deestone" />
+            </div>
+            <div>
+              <label className={lbl}>ขนาดยาง *</label>
+              <input value={form.tireSize} onChange={(e) => setF("tireSize", e.target.value)} className={inp} placeholder="1000-20" />
+            </div>
+            <div>
+              <label className={lbl}>รุ่นยาง</label>
+              <input value={form.tireModel} onChange={(e) => setF("tireModel", e.target.value)} className={inp} placeholder="DSS111" />
+            </div>
+            <div>
+              <label className={lbl}>ประเภทยาง</label>
+              <select value={form.tireType} onChange={(e) => setF("tireType", e.target.value)} className={inp}>
+                <option value="">— เลือก —</option>
+                {TIRE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={lbl}>อายุการใช้งานมาตรฐาน (กม.)</label>
+              <input type="number" min="0" value={form.standardDistance} onChange={(e) => setF("standardDistance", Number(e.target.value))} className={inp} placeholder="40000" />
+            </div>
+            <div>
+              <label className={lbl}>ราคามาตรฐาน (บาท)</label>
+              <input type="number" min="0" step="0.01" value={form.standardPrice} onChange={(e) => setF("standardPrice", Number(e.target.value))} className={inp} placeholder="4500" />
+            </div>
+            <div>
+              <label className={lbl}>ดอกยางใหม่ (มม.)</label>
+              <input type="number" min="0" step="0.1" value={form.standardTreadMm} onChange={(e) => setF("standardTreadMm", Number(e.target.value))} className={inp} placeholder="15" />
+            </div>
+            <div>
+              <label className={lbl}>฿/กม. (คำนวณอัตโนมัติ)</label>
+              <input
+                disabled
+                value={form.standardDistance > 0 ? fmtBahtKm(form.standardPrice / form.standardDistance) : "—"}
+                className={inp + " opacity-60 cursor-not-allowed"}
+              />
+            </div>
+            <div className="col-span-2 sm:col-span-3">
+              <label className={lbl}>หมายเหตุ</label>
+              <input value={form.note} onChange={(e) => setF("note", e.target.value)} className={inp} placeholder="รายละเอียดเพิ่มเติม" />
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 pb-1.5 cursor-pointer">
+                <input type="checkbox" checked={form.active} onChange={(e) => setF("active", e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-[#1B8C4B] focus:ring-[#1B8C4B]" />
+                ใช้งาน
+              </label>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button type="submit" disabled={saving} className="rounded-lg bg-[#1B8C4B] text-white px-4 py-2 text-sm font-medium hover:bg-[#0F6A3C] disabled:opacity-50 transition-colors">
+              {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}
+            </button>
+            <button type="button" onClick={closeForm} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors">
+              ยกเลิก
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ── Toolbar: search + filters ── */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") applySearch() }}
+            placeholder="ค้นหา ยี่ห้อ / ขนาด / รุ่น / หมายเหตุ..."
+            className={inp + " pl-8"}
+          />
+        </div>
+        <button
+          onClick={applySearch}
+          className="flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] text-white px-3.5 py-1.5 text-sm font-medium hover:bg-[#0F6A3C] transition-colors"
+        >
+          <Search size={14} /> ค้นหา
+        </button>
+
+        {/* Filter dropdowns (below header) */}
+        <select value={brand} onChange={(e) => changeBrand(e.target.value)} className={inp + " max-w-[160px]"}>
+          <option value="">— ทุกยี่ห้อ —</option>
+          {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select value={tireType} onChange={(e) => changeTireType(e.target.value)} className={inp + " max-w-[150px]"}>
+          <option value="">— ทุกประเภท —</option>
+          {TIRE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        {hasFilters && (
+          <button
+            onClick={resetFilters}
+            className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-white/10 px-2.5 py-1.5 text-[12px] text-gray-500 hover:text-gray-800 dark:hover:text-white transition-colors"
+          >
+            <RotateCcw size={12} /> ล้างตัวกรอง
+          </button>
+        )}
+      </div>
+
+      {/* ── Table ── */}
+      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
+                {sortTh("brand",     "ยี่ห้อยาง", "left",  sortBy, sortDir, toggleSort)}
+                {sortTh("tireModel",     "ชื่อสินค้า", "left",  sortBy, sortDir, toggleSort)}
+                {sortTh("tireSize",  "ขนาดยาง",  "left",  sortBy, sortDir, toggleSort)}
+                {sortTh("tireModel", "รุ่นยาง",   "left",  sortBy, sortDir, toggleSort)}
+                {sortTh("tireType",  "ประเภท",    "left",  sortBy, sortDir, toggleSort)}
+                {sortTh("standardDistance",  "อายุมาตรฐาน (กม.)", "right", sortBy, sortDir, toggleSort)}
+                {sortTh("standardPrice",     "ราคามาตรฐาน (฿)",  "right", sortBy, sortDir, toggleSort)}
+                {sortTh("standardBahtPerKm", "฿/กม.",            "right", sortBy, sortDir, toggleSort)}
+                <th className={th + " text-right"}>ดอกใหม่ (มม.)</th>
+                <th className={th}>หมายเหตุ</th>
+                <th className={th + " text-center"}>สถานะ</th>
+                <th className="px-3 py-2.5 w-20"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={11} className="px-4 py-12 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
+              ) : items.length === 0 ? (
+                <tr><td colSpan={11} className="px-4 py-12 text-center text-sm text-gray-400">
+                  ไม่พบข้อมูล Master — กด “เพิ่ม Master” เพื่อเริ่มกำหนดค่ามาตรฐาน
+                </td></tr>
+              ) : items.map((m, i) => (
+                <tr key={m._id} className={`border-b border-gray-100 dark:border-white/5 ${i % 2 === 1 ? "bg-gray-50/50 dark:bg-white/1" : ""} ${!m.active ? "opacity-50" : ""}`}>
+                  <td className="px-3 py-2 text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">{m.brand}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">ยาง{m.tireType}{m.tireModel || "—"} {m.tireSize}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">{m.tireSize}</td>
+                  <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">{m.tireModel || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{typeChip(m.tireType)}</td>
+                  <td className="px-3 py-2 text-sm font-semibold text-gray-900 dark:text-white text-right whitespace-nowrap">{fmtInt(m.standardDistance)}</td>
+                  <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 text-right whitespace-nowrap">{fmtBaht(m.standardPrice)}</td>
+                  <td className="px-3 py-2 text-xs font-medium text-[#1B8C4B] dark:text-[#1B8C4B] text-right whitespace-nowrap">{m.standardBahtPerKm ? fmtBahtKm(m.standardBahtPerKm) : "—"}</td>
+                  <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 text-right whitespace-nowrap">{m.standardTreadMm || "—"}</td>
+                  <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={m.note}>{m.note || "—"}</td>
+                  <td className="px-3 py-2 text-center whitespace-nowrap">
+                    {m.active
+                      ? <span className="inline-block rounded-md bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 px-2 py-0.5 text-[11px] font-medium">ใช้งาน</span>
+                      : <span className="inline-block rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 px-2 py-0.5 text-[11px] font-medium">ปิด</span>}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openEdit(m)} className="text-gray-400 hover:text-[#1B8C4B] transition-colors"><Pencil size={14} /></button>
+                      <button onClick={() => handleDelete(m)} className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── Pagination ── */}
+        <div className="flex items-center justify-between gap-3 border-t border-gray-200 dark:border-white/8 px-3 py-2.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {total === 0 ? "ไม่มีรายการ" : <>แสดง <span className="font-medium text-gray-700 dark:text-gray-200">{from}–{to}</span> จาก <span className="font-medium text-gray-700 dark:text-gray-200">{fmtInt(total)}</span> รายการ · {LIMIT}/หน้า</>}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1 || loading}
+              className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/8 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft size={13} /> ก่อนหน้า
+            </button>
+            <span className="px-2 text-xs text-gray-500 dark:text-gray-400">หน้า {page} / {totalPages}</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages || loading}
+              className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/8 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              ถัดไป <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

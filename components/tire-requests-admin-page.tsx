@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
-import { ClipboardCheck, Search, ChevronDown, ChevronUp, Check, X, Flag } from "lucide-react"
+import { ClipboardCheck, Search, ChevronDown, ChevronUp, Check, X, Flag, History } from "lucide-react"
 import Swal from "sweetalert2"
 import { swalConfirm, swalToast, swalError } from "@/lib/swal"
 
@@ -59,6 +59,23 @@ type TireRequest = {
 }
 
 
+type RepairRecord = {
+  id?: string | number
+  _id?: string
+  truckplate?: string
+  repairType?: string
+  category?: string
+  description?: string
+  detail?: string
+  status?: string
+  repairDate?: string
+  reportedAt?: string
+  createdAt?: string
+  technician?: string
+  note?: string
+  [key: string]: unknown
+}
+
 const STATUS_TABS = [
   { value: "",            label: "ทั้งหมด" },
   { value: "pending",     label: "Pending" },
@@ -103,6 +120,7 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
   const [acting, setActing]       = useState(false)
   // internal MR: plate → { mrId, status, note, updatedAt } | null (null = no MR created yet)
   const [mrMap, setMrMap] = useState<Record<string, { mrId: string; status: string; note: string; updatedAt: string } | null>>({})
+  const [repairPlate, setRepairPlate] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -287,10 +305,10 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
     patch(r._id, { action: "done" }, "ปิดงานแล้ว")
   }
 
-  const inp = "rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30 placeholder-gray-400"
-  const th  = "px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap"
-  const td  = "px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
-  const btn = "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+  const inp = "rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white px-2.5 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30 placeholder-[#9AA8A0]"
+  const th  = "px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider text-[#9AA8A0] whitespace-nowrap"
+  const td  = "px-3 py-2 text-[12px] text-[#6B7C72] dark:text-gray-300 whitespace-nowrap"
+  const btn = "rounded-[10px] px-2.5 py-1 text-[11px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
 
   if (session && !isAdmin) {
     return (
@@ -303,9 +321,9 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
   return (
     <div>
       <div className="flex items-center gap-3 mb-2">
-        <ClipboardCheck size={20} className="text-gray-400" />
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">อนุมัติคำขอเปลี่ยนยาง — {branchLabel}</h1>
-        <span className="text-sm text-gray-400">({total.toLocaleString()} คำขอ)</span>
+        <ClipboardCheck size={20} className="text-[#1B8C4B]" />
+        <h1 className="text-[22px] text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}>อนุมัติคำขอเปลี่ยนยาง — {branchLabel}</h1>
+        <span className="text-[13px] text-[#9AA8A0]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>({total.toLocaleString()} คำขอ)</span>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
         Pending → Approve/Reject → Done — คลิกแถวเพื่อดูรายละเอียดยางแต่ละเส้น
@@ -320,8 +338,8 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
             className={[
               "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
               statusTab === t.value
-                ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900"
-                : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/8",
+                ? "bg-[#1B8C4B] text-white"
+                : "border border-[#EEF2F0] dark:border-white/10 text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/8",
             ].join(" ")}
           >
             {t.label}
@@ -338,11 +356,11 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">
+      <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
+              <tr className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/3">
                 <th className={th}>วันที่</th>
                 <th className={th}>ทะเบียน</th>
                 <th className={th}>เบอร์รถ</th>
@@ -399,6 +417,12 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                               <Flag size={11} /> เสร็จสิ้น
                             </button>
                           )}
+                          <button
+                            onClick={() => setRepairPlate(r.plate)}
+                            className={btn + " bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 inline-flex items-center gap-1"}
+                          >
+                            <History size={11} /> ประวัติซ่อม
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -413,7 +437,7 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                             <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117]">
                               <table className="w-full text-sm">
                                 <thead>
-                                  <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
+                                  <tr className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/3">
                                     <th className={th}>Position</th>
                                     <th className={th}>ชื่อตำแหน่ง</th>
                                     <th className={th}>สินค้า</th>
@@ -590,6 +614,175 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
         )}
       </div>
 
+      {repairPlate && (
+        <RepairHistoryDialog plate={repairPlate} onClose={() => setRepairPlate(null)} />
+      )}
+    </div>
+  )
+}
+
+function RepairHistoryDialog({ plate, onClose }: { plate: string; onClose: () => void }) {
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState<string | null>(null)
+  const [records, setRecords]     = useState<RepairRecord[]>([])
+  const [detailId, setDetailId]   = useState<string | null>(null)
+  const [detail, setDetail]       = useState<Record<string, unknown> | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch(`/api/repair-history?truckplate=${encodeURIComponent(plate)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        if (!cancelled) setRecords(Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [])
+      })
+      .catch((e) => { if (!cancelled) setError(e.message ?? "โหลดข้อมูลไม่สำเร็จ") })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [plate])
+
+  function openDetail(id: string) {
+    if (detailId === id) { setDetailId(null); setDetail(null); return }
+    setDetailId(id)
+    setDetail(null)
+    setDetailLoading(true)
+    fetch(`/api/repair-history/${id}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then((data) => setDetail(data))
+      .catch(() => setDetail(null))
+      .finally(() => setDetailLoading(false))
+  }
+
+  const th = "px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider text-[#9AA8A0] whitespace-nowrap"
+  const td = "px-3 py-2 text-[12px] text-[#6B7C72] dark:text-gray-300 whitespace-nowrap"
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-5xl max-h-[85vh] overflow-auto rounded-[16px] bg-white dark:bg-[#151a10] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-5 py-4">
+          <div className="flex items-center gap-2">
+            <History size={16} className="text-sky-600" />
+            <span className="text-[15px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
+              ประวัติการแจ้งซ่อม
+            </span>
+            <span className="font-mono text-sm text-[#1B8C4B] font-bold">{plate}</span>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-4">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-gray-400">กำลังโหลดประวัติซ่อม...</div>
+          ) : error ? (
+            <div className="py-12 text-center text-sm text-red-500">เกิดข้อผิดพลาด: {error}</div>
+          ) : records.length === 0 ? (
+            <div className="py-12 text-center text-sm text-gray-400">ไม่พบประวัติการแจ้งซ่อมสำหรับ {plate}</div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-[#EEF2F0] dark:border-white/8">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/3">
+                    <th className={th}>#</th>
+                    <th className={th}>วันที่แจ้ง</th>
+                    <th className={th}>ประเภทซ่อม</th>
+                    <th className={th}>รายละเอียด</th>
+                    <th className={th}>สถานะ</th>
+                    <th className={th}>ช่าง</th>
+                    <th className={th}>หมายเหตุ</th>
+                    <th className={th + " w-20"}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map((rec, i) => {
+                    const recId = String(rec.id ?? rec._id ?? i)
+                    const isOpen = detailId === recId
+                    const dateStr =
+                      (rec.repairDate as string) ||
+                      (rec.reportedAt as string) ||
+                      (rec.createdAt as string) ||
+                      null
+                    const repairType = (rec.repairType as string) || (rec.category as string) || "—"
+                    const description = (rec.description as string) || (rec.detail as string) || "—"
+                    const status = (rec.status as string) || "—"
+                    const technician = (rec.technician as string) || "—"
+                    const note = (rec.note as string) || "—"
+                    return (
+                      <React.Fragment key={recId}>
+                        <tr className={`border-b border-gray-100 dark:border-white/5 ${i % 2 === 1 ? "bg-gray-50/50 dark:bg-white/1" : ""}`}>
+                          <td className={td + " text-gray-400"}>{i + 1}</td>
+                          <td className={td}>{dateStr ? fmtDate(dateStr) : "—"}</td>
+                          <td className={td + " font-medium text-gray-900 dark:text-white"}>{repairType}</td>
+                          <td className="px-3 py-2 text-[12px] text-[#6B7C72] dark:text-gray-300 max-w-[200px] truncate" title={description !== "—" ? description : undefined}>{description}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                              status === "done" || status === "completed"
+                                ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                                : status === "pending"
+                                ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                                : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                            }`}>{status}</span>
+                          </td>
+                          <td className={td}>{technician}</td>
+                          <td className={td + " text-gray-500 dark:text-gray-400"}>{note}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <button
+                              onClick={() => openDetail(recId)}
+                              className="rounded-lg px-2 py-1 text-[11px] font-medium bg-slate-100 dark:bg-white/8 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/12 transition-colors inline-flex items-center gap-1"
+                            >
+                              {isOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                              รายละเอียด
+                            </button>
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="border-b border-gray-100 dark:border-white/5 bg-slate-50/60 dark:bg-white/2">
+                            <td colSpan={8} className="px-5 py-4">
+                              {detailLoading ? (
+                                <p className="text-xs text-gray-400">กำลังโหลด...</p>
+                              ) : !detail ? (
+                                <p className="text-xs text-red-400">โหลดรายละเอียดไม่สำเร็จ</p>
+                              ) : (
+                                <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 sm:grid-cols-3">
+                                  {Object.entries(detail)
+                                    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                                    .map(([k, v]) => (
+                                      <div key={k} className="flex flex-col gap-0.5">
+                                        <span className="text-[10px] uppercase tracking-wider text-[#9AA8A0]">{k}</span>
+                                        <span className="text-[12px] text-[#14271C] dark:text-white break-all">
+                                          {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

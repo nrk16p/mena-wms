@@ -216,16 +216,16 @@ export default function NewSkuPage() {
   }
   const nameLabel = NAME_LABEL[type] ?? NAME_LABEL.PRT
 
-  const labelCls = "block text-[12px] font-medium text-gray-600 dark:text-gray-400 mb-1"
-  const inputCls = "w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30 placeholder-gray-400"
+  const labelCls = "block text-[12px] font-medium text-[#6B7C72] dark:text-gray-400 mb-1"
+  const inputCls = "w-full rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30 placeholder-[#9AA8A0]"
   const selectCls = inputCls
 
   return (
     <div className="flex gap-8 items-start">
     <div className="w-[600px] shrink-0">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">เพิ่ม SKU ใหม่</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">กรอกข้อมูลด้านล่าง ระบบจะสร้าง SKU ให้อัตโนมัติ</p>
+        <h1 className="text-[22px] text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}>เพิ่ม SKU ใหม่</h1>
+        <p className="text-[13px] text-[#6B7C72] mt-0.5" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>กรอกข้อมูลด้านล่าง ระบบจะสร้าง SKU ให้อัตโนมัติ</p>
         {!isAdmin && (
           <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
             <span className="shrink-0">⏳</span>
@@ -236,7 +236,7 @@ export default function NewSkuPage() {
 
       {/* SKU Preview + ATMS Code side-by-side */}
       <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3 px-5 py-4">
+        <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/3 px-5 py-4">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-600 mb-1">SKU ที่จะสร้าง</p>
           <p className="font-mono text-lg font-semibold text-gray-900 dark:text-white">
             {previewSku || <span className="text-gray-400 dark:text-gray-600">{l3Required ? "เลือก WH + Type + L1 + L2 + L3 ก่อน" : "เลือก WH + Type + L1 + L2 ก่อน"}</span>}
@@ -461,7 +461,7 @@ export default function NewSkuPage() {
         {error && <p className="text-sm text-red-500">{error}</p>}
 
         <div className="flex gap-3 pt-2">
-          <button type="submit" disabled={saving} className="flex-1 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 py-2.5 text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50">
+          <button type="submit" disabled={saving} className="flex-1 rounded-[13px] text-white py-3 text-[14px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50" style={{ background: "#1B8C4B", boxShadow: "0 5px 12px -3px rgba(27,140,75,.5)", fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
             {saving ? "กำลังบันทึก..." : "บันทึก SKU"}
           </button>
           <button type="button" onClick={() => router.back()} className="rounded-lg border border-gray-200 dark:border-white/10 px-5 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors">

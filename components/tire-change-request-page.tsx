@@ -164,7 +164,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
     if (!file) return
     try {
       const img = await resizeImage(file)
-      setPhotos((prev) => (prev.length >= 2 ? prev : [...prev, img]))
+      setPhotos((prev) => (prev.length >= 3 ? prev : [...prev, img]))
     } catch {
       swalError("อ่านรูปไม่สำเร็จ กรุณาลองใหม่")
     }
@@ -236,22 +236,22 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
     setModalTire(null)
   }
 
-  const inp = "w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30 placeholder-gray-400"
-  const th  = "px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap"
+  const inp = "w-full rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white px-2.5 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30 placeholder-[#9AA8A0]"
+  const th  = "px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider text-[#9AA8A0] whitespace-nowrap"
   const td  = "px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap"
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-2">
         <ClipboardList size={20} className="text-gray-400" />
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Change Tire Request — {branchLabel}</h1>
+        <h1 className="text-[22px] text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}>คำขอเปลี่ยนยาง — {branchLabel}</h1>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
         กรอกข้อมูลคนขับและรถ จากนั้นระบบจะแสดงประวัติยางของทะเบียนนั้นจาก Change History
       </p>
 
       {/* Request form */}
-      <form onSubmit={handleSubmit} className="mb-6 rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-4">
+      <form onSubmit={handleSubmit} className="mb-6 rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <label className="flex items-center gap-1 text-[11px] font-medium text-gray-500 mb-1">
@@ -323,7 +323,8 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
         <button
           type="submit"
           disabled={loading}
-          className="mt-4 flex items-center gap-1.5 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          className="mt-4 flex items-center gap-1.5 rounded-[13px] text-white px-[22px] py-3 text-[14px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          style={{ background: "#1B8C4B", boxShadow: "0 5px 12px -3px rgba(27,140,75,.5)", fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
         >
           <Search size={14} />
           {loading ? "กำลังค้นหา..." : "บันทึกคำขอ & ดูประวัติยาง"}
@@ -334,7 +335,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
       {searched && (
         <>
           {/* Vehicle info from vehicle master */}
-          <div className="mb-4 rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-4 py-3">
+          <div className="mb-4 rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-3">
             {vehicleInfo ? (
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                 <div>
@@ -369,15 +370,15 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
           </div>
 
           {items.length === 0 ? (
-            <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-4 py-10 text-center text-sm text-gray-400">
+            <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-10 text-center text-sm text-gray-400">
               ไม่พบทะเบียน &quot;{plate.trim()}&quot; ใน Change History สาขา{branchLabel} — ตรวจสอบทะเบียน หรือกด Sync from ATMS ที่หน้า Change History
             </div>
           ) : (
-            <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">
+            <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
+                    <tr className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/3">
                       <th className={th}>ยานพาหนะ</th>
                       <th className={th}>Position</th>
                       <th className={th}>ชื่อตำแหน่ง</th>
@@ -597,7 +598,8 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
 
             <div className="flex gap-2">
               <button type="submit" disabled={savingItem || !reason.trim()}
-                className="flex-1 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity">
+                className="flex-1 rounded-[13px] text-white px-4 py-2 text-[14px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+                style={{ background: "#1B8C4B", boxShadow: "0 5px 12px -3px rgba(27,140,75,.5)", fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
                 {savingItem ? "กำลังส่ง..." : "ส่งคำขอ"}
               </button>
               <button type="button" onClick={() => setModalTire(null)} disabled={savingItem}

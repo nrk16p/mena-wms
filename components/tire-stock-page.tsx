@@ -86,11 +86,11 @@ type PrReportRow = {
 
 function statusChip(status: string) {
   switch (status) {
-    case "In Stock":   return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
-    case "เบิกใช้แล้ว": return "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
-    case "เคลม":       return "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
-    case "ขายแล้ว":    return "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400"
-    default:           return "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400"
+    case "In Stock":   return "bg-[#EAF6EE] text-[#1B8C4B]"
+    case "เบิกใช้แล้ว": return "bg-[#DBEAFE] text-[#1D4ED8]"
+    case "เคลม":       return "bg-[#FDF3DD] text-[#B07D12]"
+    case "ขายแล้ว":    return "bg-[#F1F5F1] text-[#6B7C72]"
+    default:           return "bg-[#F1F5F1] text-[#6B7C72]"
   }
 }
 
@@ -260,7 +260,7 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
     }
   }
 
-  const inp = "w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30 placeholder-gray-400"
+  const inp = "w-full rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white px-2.5 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30 placeholder-[#9AA8A0]"
 
   function setF(k: string, v: string | number) { setForm((p) => ({ ...p, [k]: v })) }
 
@@ -397,9 +397,9 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
     }
   }
 
-  const th = "px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap"
+  const th = "px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#9AA8A0] whitespace-nowrap"
   // First column of each column group gets a left border separator
-  const thGroup = th + " border-l-2 border-gray-200 dark:border-white/10"
+  const thGroup = th + " border-l-2 border-[#EEF2F0] dark:border-white/10"
 
   // Filtered PR list for dropdown
   const filteredPrCodes = prSearch
@@ -445,16 +445,18 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
   return (
     <div>
       <div className="flex items-center gap-3 mb-2">
-        <Disc3 size={20} className="text-gray-400" />
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Tire Stock — {branchLabel}</h1>
-        <span className="text-sm text-gray-400">({items.length} รายการ)</span>
+        <Disc3 size={20} className="text-[#1B8C4B]" />
+        <h1 className="text-[22px] text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}>สต็อกยาง — {branchLabel}</h1>
+        <span className="text-[13px] text-[#9AA8A0]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>({items.length} รายการ)</span>
         <div className="ml-auto flex gap-1.5">
           <button onClick={() => switchMode("stock")}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${mode === "stock" ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900" : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/8"}`}>
+            className={`rounded-[11px] px-3 py-1.5 text-[13px] font-medium transition-colors`}
+            style={mode === "stock" ? { background: "#1B8C4B", color: "#fff" } : { border: "1px solid #EEF2F0", color: "#6B7C72", fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
             Stock
           </button>
           <button onClick={() => switchMode("report")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${mode === "report" ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900" : "border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/8"}`}>
+            className={`flex items-center gap-1.5 rounded-[11px] px-3 py-1.5 text-[13px] font-medium transition-colors`}
+            style={mode === "report" ? { background: "#1B8C4B", color: "#fff" } : { border: "1px solid #EEF2F0", color: "#6B7C72", fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
             <FileBarChart2 size={14} /> รายงาน PR
           </button>
           <button onClick={() => switchMode("performance")}
@@ -463,7 +465,7 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
           </button>
         </div>
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+      <p className="text-[13px] text-[#6B7C72] mb-6" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
         สต๊อกยางสาขา{branchLabel} — ค้นหาด้วย PR Code / DD Code / รหัสสินค้า / Serial No / ยี่ห้อ
       </p>
 
@@ -658,11 +660,11 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
               </div>
             )}
 
-            <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">
+            <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
+                    <tr className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/3">
                       {/* Group 1: สต๊อก */}
                       <th className={th + " sticky left-0 z-20 bg-gray-50 dark:bg-[#0f1117] shadow-[1px_0_0_0_#e5e7eb] dark:shadow-[1px_0_0_0_rgba(255,255,255,0.08)]"}>Serial No</th>
                       <th className={th}>สินค้า</th>

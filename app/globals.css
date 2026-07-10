@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter), var(--font-noto-thai), system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans Thai', 'Mitr', system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -48,89 +48,92 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 1rem; /* 16px — base card radius */
 
-  /* Neutral */
-  --background: #F8FAFC;
-  --foreground: #1E293B;
+  /* ── Mena Design Tokens ── */
+  --mena-primary:     #1B8C4B;
+  --mena-primary-dark:#0F6A3C;
+  --mena-ink:         #14271C;
+  --mena-muted:       #6B7C72;
+  --mena-muted-2:     #9AA8A0;
+  --mena-mint:        #EAF6EE;
+  --mena-mint-2:      #F0FDF4;
+  --mena-canvas:      #F6FAF7;
+  --mena-border:      #EEF2F0;
+  --mena-border-2:    #F4F7F5;
+  --mena-warning:     #E8A317;
+  --mena-warning-bg:  #FDF3DD;
 
-  /* Card / Popover */
-  --card: #FFFFFF;
-  --card-foreground: #1E293B;
-  --popover: #FFFFFF;
-  --popover-foreground: #1E293B;
-
-  /* Primary — Mena Green */
-  --primary: #1B8C4B;
+  /* Semantic */
+  --background:      #F6FAF7;
+  --foreground:      #14271C;
+  --card:            #FFFFFF;
+  --card-foreground: #14271C;
+  --popover:         #FFFFFF;
+  --popover-foreground: #14271C;
+  --primary:         #1B8C4B;
   --primary-foreground: #FFFFFF;
-
-  /* Secondary — Pale Green */
-  --secondary: #DFF3E3;
-  --secondary-foreground: #1E293B;
-
-  /* Muted — Light Green BG */
-  --muted: #F4FBF5;
-  --muted-foreground: #64748B;
-
-  /* Accent — Mint Green */
-  --accent: #A5D6A7;
-  --accent-foreground: #1E293B;
-
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: #E2E8F0;
-  --input: #E2E8F0;
-  --ring: #1B8C4B;
+  --secondary:       #EAF6EE;
+  --secondary-foreground: #14271C;
+  --muted:           #EAF6EE;
+  --muted-foreground:#6B7C72;
+  --accent:          #F0FDF4;
+  --accent-foreground:#14271C;
+  --destructive:     oklch(0.577 0.245 27.325);
+  --border:          #EEF2F0;
+  --input:           #EEF2F0;
+  --ring:            #1B8C4B;
 
   /* Charts */
   --chart-1: #1B8C4B;
   --chart-2: #4CAF50;
   --chart-3: #0F6A3C;
-  --chart-4: #F6E27A;
-  --chart-5: #A67C52;
+  --chart-4: #E8A317;
+  --chart-5: #ECCA99;
 
   /* Sidebar */
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #1E293B;
-  --sidebar-primary: #1B8C4B;
+  --sidebar:                    #FFFFFF;
+  --sidebar-foreground:         #14271C;
+  --sidebar-primary:            #1B8C4B;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F4FBF5;
-  --sidebar-accent-foreground: #1E293B;
-  --sidebar-border: #E2E8F0;
-  --sidebar-ring: #1B8C4B;
+  --sidebar-accent:             #F0FDF4;
+  --sidebar-accent-foreground:  #14271C;
+  --sidebar-border:             #EEF2F0;
+  --sidebar-ring:               #1B8C4B;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --background:      oklch(0.145 0 0);
+  --foreground:      oklch(0.985 0 0);
+  --card:            oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover:         oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary:         #1B8C4B;
+  --primary-foreground: #FFFFFF;
+  --secondary:       oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --muted:           oklch(0.269 0 0);
+  --muted-foreground:oklch(0.708 0 0);
+  --accent:          oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --destructive:     oklch(0.704 0.191 22.216);
+  --border:          oklch(1 0 0 / 10%);
+  --input:           oklch(1 0 0 / 15%);
+  --ring:            #1B8C4B;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar:                    oklch(0.18 0 0);
+  --sidebar-foreground:         oklch(0.985 0 0);
+  --sidebar-primary:            #1B8C4B;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent:             oklch(0.269 0 0);
+  --sidebar-accent-foreground:  oklch(0.985 0 0);
+  --sidebar-border:             oklch(1 0 0 / 10%);
+  --sidebar-ring:               #1B8C4B;
 }
 
 @layer base {
@@ -139,50 +142,41 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-inter), var(--font-noto-thai), system-ui, sans-serif;
+    font-family: 'IBM Plex Sans Thai', 'Mitr', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-/* Dark mode overrides for hardcoded utility classes used across pages */
+/* ── Mascot animations ── */
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-5px); }
+}
+@keyframes wave {
+  0%, 100%  { transform: rotate(0deg); }
+  45%, 55%  { transform: rotate(-24deg); }
+}
+.m-float { animation: floaty 3.4s ease-in-out infinite; }
+.m-wave  { transform-box: fill-box; transform-origin: 50% 95%; animation: wave 1.7s ease-in-out infinite; }
+
+/* ── Dark mode overrides for hardcoded utility classes ── */
 .dark .bg-white {
   background-color: oklch(0.2 0 0) !important;
   color: oklch(0.92 0 0);
 }
-.dark .bg-gray-50 {
-  background-color: oklch(0.17 0 0) !important;
-}
-.dark .bg-gray-100 {
-  background-color: oklch(0.22 0 0) !important;
-}
-.dark .border {
-  border-color: oklch(1 0 0 / 10%) !important;
-}
+.dark .bg-gray-50  { background-color: oklch(0.17 0 0) !important; }
+.dark .bg-gray-100 { background-color: oklch(0.22 0 0) !important; }
+.dark .border      { border-color: oklch(1 0 0 / 10%) !important; }
 .dark .border-b,
 .dark .border-t,
-.dark .border-r {
-  border-color: oklch(1 0 0 / 10%) !important;
-}
-.dark .text-gray-900 {
-  color: oklch(0.95 0 0) !important;
-}
-.dark .text-gray-700 {
-  color: oklch(0.82 0 0) !important;
-}
-.dark .text-gray-600 {
-  color: oklch(0.72 0 0) !important;
-}
-.dark .text-gray-500 {
-  color: oklch(0.62 0 0) !important;
-}
-.dark .text-gray-400 {
-  color: oklch(0.55 0 0) !important;
-}
-.dark .text-muted-foreground {
-  color: oklch(0.6 0 0) !important;
-}
-.dark .shadow-sm {
-  box-shadow: 0 1px 3px oklch(0 0 0 / 40%) !important;
-}
+.dark .border-r    { border-color: oklch(1 0 0 / 10%) !important; }
+.dark .text-gray-900 { color: oklch(0.95 0 0) !important; }
+.dark .text-gray-700 { color: oklch(0.82 0 0) !important; }
+.dark .text-gray-600 { color: oklch(0.72 0 0) !important; }
+.dark .text-gray-500 { color: oklch(0.62 0 0) !important; }
+.dark .text-gray-400 { color: oklch(0.55 0 0) !important; }
+.dark .text-muted-foreground { color: oklch(0.6 0 0) !important; }
+.dark .shadow-sm   { box-shadow: 0 1px 3px oklch(0 0 0 / 40%) !important; }
 .dark input,
 .dark select,
 .dark textarea {
@@ -190,43 +184,17 @@
   color: oklch(0.92 0 0) !important;
   border-color: oklch(1 0 0 / 15%) !important;
 }
-.dark table thead {
-  background-color: oklch(0.17 0 0) !important;
-}
-.dark table tr:hover {
-  background-color: oklch(0.22 0 0) !important;
-}
-.dark .divide-y > * + * {
-  border-color: oklch(1 0 0 / 8%) !important;
-}
+.dark table thead  { background-color: oklch(0.17 0 0) !important; }
+.dark table tr:hover { background-color: oklch(0.22 0 0) !important; }
+.dark .divide-y > * + * { border-color: oklch(1 0 0 / 8%) !important; }
 
-/* ── Main content background — Mena Mixer cartoon theme ── */
+/* ── Main content canvas — dot grid ── */
 .main-canvas {
-  background-color: #f0fdf6;
-  background-image:
-    radial-gradient(circle, rgba(34, 197, 94, 0.13) 1px, transparent 1px);
-  background-size: 22px 22px;
-  position: relative;
+  background-color: #F6FAF7;
+  background-image: radial-gradient(circle, rgba(27,140,75,.06) 1px, transparent 1px);
+  background-size: 20px 20px;
 }
-
-/* Green-yellow glow from top-left corner (brand mood) */
-.main-canvas::before {
-  content: "";
-  pointer-events: none;
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: 220px;
-  background: linear-gradient(
-    135deg,
-    rgba(245, 200, 66, 0.08) 0%,
-    rgba(27, 140, 75, 0.1) 40%,
-    transparent 100%
-  );
-  z-index: 0;
-}
-
 .dark .main-canvas {
   background-color: #0a0a10;
   background-image: none;
 }
-.dark .main-canvas::before { display: none; }

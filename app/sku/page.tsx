@@ -132,16 +132,16 @@ function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
 }
 
 const TYPE_COLOR: Record<string, string> = {
-  PRT: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  PM:  "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-  LAB: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
-  SVC: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
-  CLN: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-  TRP: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-  ACC: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  PRT: "text-[#1D4ED8] bg-[#DBEAFE]",
+  PM:  "text-[#15803D] bg-[#DCFCE7]",
+  LAB: "text-[#A16207] bg-[#FEF9C3]",
+  SVC: "text-[#C2410C] bg-[#FFEDD5]",
+  CLN: "text-[#7C3AED] bg-[#F3E8FF]",
+  TRP: "text-[#6B7C72] bg-[#F1F5F1]",
+  ACC: "text-[#DC2626] bg-[#FEE2E2]",
 }
 
-const selCls = "text-sm border border-gray-200 dark:border-white/10 rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
+const selCls = "text-[13px] border border-[#EEF2F0] dark:border-white/10 rounded-[11px] bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30"
 
 export default function SkuListPage() {
   const { data: session }       = useSession()
@@ -281,17 +281,21 @@ export default function SkuListPage() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">รายการ SKU</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{total.toLocaleString()} รายการ</p>
+          <h1 className="text-[22px] text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}>รายการ SKU</h1>
+          <p className="text-[13px] text-[#6B7C72] mt-0.5" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>{total.toLocaleString()} รายการ</p>
         </div>
-        <Link href="/sku/new" className="flex items-center gap-2 rounded-lg bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity">
+        <Link
+          href="/sku/new"
+          className="flex items-center gap-2 text-white text-[14px] rounded-[13px] px-[22px] py-3"
+          style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif", fontWeight: 500, background: "#1B8C4B", boxShadow: "0 5px 12px -3px rgba(27,140,75,.5)" }}
+        >
           <PlusCircle size={15} />
           เพิ่ม SKU ใหม่
         </Link>
       </div>
 
       {/* Filters */}
-      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-4 py-3 mb-4 space-y-2.5">
+      <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-3 mb-4 space-y-2.5">
         {/* Row 1: search + warehouse + type */}
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-[220px]">
@@ -300,7 +304,8 @@ export default function SkuListPage() {
               value={q}
               onChange={(e) => { setQ(e.target.value); setPage(1) }}
               placeholder="ค้นหา SKU, ชื่ออะไหล่, เบอร์, ATMS..."
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-white/10 rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
+              className="w-full pl-9 pr-3 py-2 text-[13px] border border-[#EEF2F0] dark:border-white/10 rounded-[11px] bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white placeholder-[#9AA8A0] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30"
+              style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
             />
           </div>
           <select value={wh} onChange={(e) => { setWh(e.target.value); setPage(1) }} className={selCls}>
@@ -320,7 +325,8 @@ export default function SkuListPage() {
             value={vehicle}
             onChange={(e) => { setVehicle(e.target.value); setPage(1) }}
             placeholder="รุ่นรถ / ทะเบียนรถ"
-            className="w-40 px-3 py-2 text-sm border border-gray-200 dark:border-white/10 rounded-lg bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
+            className="w-40 px-3 py-2 text-[13px] border border-[#EEF2F0] dark:border-white/10 rounded-[11px] bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white placeholder-[#9AA8A0] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30"
+            style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
           />
 
           {/* L1 */}
@@ -379,7 +385,8 @@ export default function SkuListPage() {
           {activeFilters > 0 && (
             <button
               onClick={resetFilters}
-              className="flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 px-3 py-2 text-xs font-medium hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors"
+              className="flex items-center gap-1.5 rounded-[11px] border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 px-3 py-2 text-[12px] font-medium hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors"
+              style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
             >
               <X size={12} />
               ล้างตัวกรอง ({activeFilters})
@@ -389,16 +396,17 @@ export default function SkuListPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">
+      <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm [&_td]:border-r [&_td]:border-gray-100 dark:[&_td]:border-white/4 [&_th]:border-r [&_th]:border-gray-200 dark:[&_th]:border-white/8 [&_td:last-child]:border-r-0 [&_th:last-child]:border-r-0">
             <thead>
               {/* sortable header */}
-              <tr className="border-b border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/3">
+              <tr className="border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/3">
                 {COLUMNS.filter((c) => !c.adminOnly || isAdmin).map((col) => (
                   <th
                     key={col.key}
-                    className={`px-2.5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 whitespace-nowrap ${col.align === "right" ? "text-right" : "text-left"}`}
+                    className={`px-2.5 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[#9AA8A0] dark:text-gray-400 whitespace-nowrap ${col.align === "right" ? "text-right" : "text-left"}`}
+                    style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
                   >
                     {col.sortable ? (
                       <button
@@ -453,7 +461,7 @@ export default function SkuListPage() {
               ) : displayItems.length === 0 ? (
                 <tr><td colSpan={isAdmin ? 15 : 14} className="px-4 py-10 text-center text-gray-400 text-sm">ไม่พบรายการ</td></tr>
               ) : displayItems.map((row, i) => (
-                <tr key={row.SKU} className={`border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/3 transition-colors ${i % 2 === 0 ? "" : "bg-gray-50/50 dark:bg-white/1"}`}>
+                <tr key={row.SKU} className={`border-b border-[#F4F7F5] dark:border-white/5 hover:bg-[#F7FBF8] dark:hover:bg-white/3 transition-colors`}>
                   <td className="px-2.5 py-2 align-top font-mono text-xs text-gray-900 dark:text-white whitespace-nowrap">
                     {row.SKU}
                     <ImageThumbs images={row.images} />
@@ -535,13 +543,13 @@ export default function SkuListPage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-white/8">
-            <p className="text-xs text-gray-500 dark:text-gray-400">หน้า {page} / {totalPages}</p>
+          <div className="flex items-center justify-between px-4 py-3 border-t border-[#EEF2F0] dark:border-white/8">
+            <p className="text-[12px] text-[#6B7C72]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>หน้า {page} / {totalPages}</p>
             <div className="flex gap-2">
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="flex items-center justify-center h-7 w-7 rounded-md border border-gray-200 dark:border-white/10 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="flex items-center justify-center h-8 w-8 rounded-[10px] border border-[#EEF2F0] dark:border-white/10 disabled:opacity-40 hover:bg-[#F0FDF4] text-[#6B7C72] hover:text-[#1B8C4B] transition-colors">
                 <ChevronLeft size={14} />
               </button>
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="flex items-center justify-center h-7 w-7 rounded-md border border-gray-200 dark:border-white/10 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors">
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="flex items-center justify-center h-8 w-8 rounded-[10px] border border-[#EEF2F0] dark:border-white/10 disabled:opacity-40 hover:bg-[#F0FDF4] text-[#6B7C72] hover:text-[#1B8C4B] transition-colors">
                 <ChevronRight size={14} />
               </button>
             </div>
