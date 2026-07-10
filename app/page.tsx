@@ -44,7 +44,7 @@ const QUICK_LINKS = [
   { href: "/sku",                label: "ค้นหา SKU",        desc: "ดูอะไหล่ทั้งหมด",         icon: PackageSearch },
   { href: "/sku/new",            label: "เพิ่ม SKU ใหม่",   desc: "รหัสอัตโนมัติ",            icon: PlusCircle    },
   { href: "/sku/oe-search",      label: "OE Cross-Ref",     desc: "ค้นข้ามเบอร์อะไหล่",       icon: GitCompare    },
-  { href: "/tire/latkrabang/stock-tire", label: "สต็อกยาง", desc: "ลาดกระบัง · สระบุรี",    icon: Database      },
+  { href: "/tire",               label: "ศูนย์จัดการยางรถ", desc: "ทุกคัน · ทุกสาขา",       icon: Database      },
   { href: "/vehicles",           label: "ยานพาหนะ",          desc: "ข้อมูลรถทั้งหมด",          icon: Car           },
   { href: "/codes/parts",        label: "แคตาล็อกอะไหล่",  desc: "L1 · L2 · L3",             icon: Layers        },
 ]

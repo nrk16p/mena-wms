@@ -1,5 +1,6 @@
-import { TireRequestsAdminPage } from "@/components/tire-requests-admin-page"
+import { redirect } from "next/navigation"
 
+// รวมเข้าหน้าศูนย์จัดการยางรถ (ทุกสาขา) แล้ว
 export default function TireSaraburiRequestsPage() {
-  return <TireRequestsAdminPage branch="saraburi" branchLabel="สระบุรี" />
+  redirect("/tire")
 }

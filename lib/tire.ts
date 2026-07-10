@@ -5,11 +5,18 @@ export function normStatus(s: unknown): string {
   return t || "In Stock"
 }
 
-// "F1ล้อหน้าข้างซ้าย" → { code: "F1", name: "ล้อหน้าข้างซ้าย" }
+// "F1ล้อหน้าข้างซ้าย"          → { code: "F1",  name: "ล้อหน้าข้างซ้าย" }
+// "RB 6 หางคู่ 2 ซ้ายเส้นใน"   → { code: "RB6", name: "หางคู่ 2 ซ้ายเส้นใน" }
 export function splitPosition(pos: string): { code: string; name: string } {
-  const m = (pos ?? "").trim().match(/^([A-Z]{1,3}\d{1,2})\s*(.*)$/i)
+  const m = (pos ?? "").trim().match(/^([A-Z]{1,3})\s*(\d{1,2})\s*(.*)$/i)
   if (!m) return { code: "", name: (pos ?? "").trim() }
-  return { code: m[1].toUpperCase(), name: m[2] }
+  return { code: (m[1] + m[2]).toUpperCase(), name: m[3].trim() }
+}
+
+// ตำแหน่งรหัส RB หรือมีคำว่า "หาง" = ยางหางพ่วง ที่เหลือ (F, RA) = ยางหัวรถ
+export function isTrailerPosition(pos: string): boolean {
+  const { code } = splitPosition(pos)
+  return code.startsWith("RB") || pos.includes("หาง")
 }
 
 export type TireAge = { text: string; level: "normal" | "warn" | "danger" }

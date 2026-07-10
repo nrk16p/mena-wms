@@ -111,6 +111,8 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
   const [odometerPhoto, setOdometerPhoto] = useState<string | null>(null)
   const [savingItem, setSavingItem]   = useState(false)
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set())
+  // กรองตำแหน่งยาง: หัว (รถ) / หาง (พ่วง) — default หัว
+  const [unitFilter, setUnitFilter]   = useState<"head" | "trailer" | "all">("head")
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -119,6 +121,7 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
     // request is only created when the user actually submits a tire item (ขอเปลี่ยนยาง)
     setRequestId(null)
     setRequestedIds(new Set())
+    setUnitFilter("head")
 
     // endpoint เดียวจบ — ประวัติยาง + ข้อมูลรถ + สต๊อก + สถานะคำขอ + ค่าคำนวณทุกคอลัมน์
     const odo = Number(odometer.replace(/,/g, "")) || 0
@@ -235,6 +238,16 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
 
     setModalTire(null)
   }
+
+  // ตำแหน่งที่มีคำว่า "หาง" = ยางหางพ่วง ที่เหลือ = ยางหัวรถ
+  const isTrailerTire = (t: LookupRow) =>
+    (t.positionName + " " + t.tirePosition).includes("หาง")
+
+  const headCount    = items.filter((t) => !isTrailerTire(t)).length
+  const trailerCount = items.length - headCount
+  const shownItems   = unitFilter === "all"
+    ? items
+    : items.filter((t) => (unitFilter === "trailer" ? isTrailerTire(t) : !isTrailerTire(t)))
 
   const inp = "w-full rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white px-2.5 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30 placeholder-[#9AA8A0]"
   const th  = "px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider text-[#9AA8A0] whitespace-nowrap"
@@ -362,11 +375,35 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
             )}
           </div>
 
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
               ประวัติยาง — {plate.trim()}
             </h2>
-            <span className="text-sm text-gray-400">({items.length} รายการ)</span>
+            <span className="text-sm text-gray-400">({shownItems.length} รายการ)</span>
+
+            {/* กรอง หัว / หาง */}
+            <div className="ml-auto flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
+              {([
+                { key: "head",    label: `หัว (${headCount})` },
+                { key: "trailer", label: `หาง (${trailerCount})` },
+                { key: "all",     label: `ทั้งหมด (${items.length})` },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setUnitFilter(opt.key)}
+                  className={[
+                    "rounded-[9px] px-3 py-1 text-[12px] font-medium transition-colors",
+                    unitFilter === opt.key
+                      ? "bg-[#1B8C4B] text-white"
+                      : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5",
+                  ].join(" ")}
+                  style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {items.length === 0 ? (
@@ -397,7 +434,14 @@ export function TireChangeRequestPage({ branch, branchLabel }: { branch: string;
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((t, i) => (
+                    {shownItems.length === 0 && (
+                      <tr>
+                        <td colSpan={15} className="px-4 py-8 text-center text-sm text-gray-400">
+                          ไม่มียาง{unitFilter === "trailer" ? "หาง" : "หัว"}สำหรับทะเบียนนี้ — ลองสลับตัวกรองด้านบน
+                        </td>
+                      </tr>
+                    )}
+                    {shownItems.map((t, i) => (
                       <tr
                         key={t._id}
                         className={[
