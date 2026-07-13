@@ -10,17 +10,8 @@ const MOBILE_API_PREFIXES = [
   "/api/vehicles",
 ]
 
-// Browser origins allowed to call the mobile API cross-origin (PWA deployments + local dev).
-// Extend via ALLOWED_ORIGINS env (comma-separated) without a code change.
-const ALLOWED_ORIGINS = new Set([
-  "https://mena-pwa-app-548129382487.asia-southeast1.run.app",
-  "http://localhost:5173",
-  "http://localhost:3000",
-  ...(process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean) ?? []),
-])
-
 function withCors(res: NextResponse, origin: string | null): NextResponse {
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin) {
     res.headers.set("Access-Control-Allow-Origin", origin)
     res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
     res.headers.set("Access-Control-Allow-Headers", "Content-Type, Accept, x-api-key")
