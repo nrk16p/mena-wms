@@ -10,6 +10,26 @@ const MOBILE_API_PREFIXES = [
   "/api/vehicles",
 ]
 
+// Browser origins allowed to call the mobile API cross-origin (PWA deployments + local dev).
+// Extend via ALLOWED_ORIGINS env (comma-separated) without a code change.
+const ALLOWED_ORIGINS = new Set([
+  "https://mena-pwa-app-548129382487.asia-southeast1.run.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  ...(process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean) ?? []),
+])
+
+function withCors(res: NextResponse, origin: string | null): NextResponse {
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.headers.set("Access-Control-Allow-Origin", origin)
+    res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+    res.headers.set("Access-Control-Allow-Headers", "Content-Type, Accept, x-api-key")
+    res.headers.set("Access-Control-Max-Age", "86400")
+    res.headers.set("Vary", "Origin")
+  }
+  return res
+}
+
 // Code Dictionary access model:
 //   • /codes pages       → viewable by everyone (read-only views)
 //   • /api/codes  GET    → readable by everyone (dropdowns, tables, parts tree)
@@ -31,10 +51,16 @@ export async function middleware(request: NextRequest) {
   }
 
   // Mobile app access via API key
-  if (MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+  const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
+  const origin = request.headers.get("origin")
+  if (isMobileApi) {
+    // CORS preflight carries no x-api-key or cookie — answer it before any auth check
+    if (request.method === "OPTIONS") {
+      return withCors(new NextResponse(null, { status: 204 }), origin)
+    }
     const apiKey = request.headers.get("x-api-key")
     if (apiKey && process.env.MOBILE_API_KEY && apiKey === process.env.MOBILE_API_KEY) {
-      return NextResponse.next()
+      return withCors(NextResponse.next(), origin)
     }
   }
 
@@ -46,7 +72,8 @@ export async function middleware(request: NextRequest) {
   if (!sessionToken) {
     // API calls get a JSON 401 (mobile-friendly); pages redirect to login
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Unauthorized — login session or valid x-api-key required" }, { status: 401 })
+      const res = NextResponse.json({ error: "Unauthorized — login session or valid x-api-key required" }, { status: 401 })
+      return isMobileApi ? withCors(res, origin) : res
     }
     const loginUrl = new URL("/login", request.url)
     loginUrl.searchParams.set("callbackUrl", pathname)
