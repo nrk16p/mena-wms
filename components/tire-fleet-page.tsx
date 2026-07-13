@@ -123,6 +123,9 @@ const BRANCHES = [
 
 const branchLabel = (b: string) => BRANCHES.find((x) => x.value === b)?.label ?? b
 
+// Sync ดึงรวมสาขาย่อยจาก ATMS: ลาดกระบัง+ขอนแก่น / สระบุรี+DIST
+const SYNC_SCOPE: Record<string, string> = { latkrabang: "+ขอนแก่น", saraburi: "+DIST" }
+
 const REASON_OPTIONS = ["หมดดอก", "ยางระเบิด", "ยางฉีก", "ยางบวม", "รถกินยาง", "เช็คสภาพยาง"]
 
 // โครงเพลามาตรฐาน — แสดงเฉพาะแถวที่มียางจริงในข้อมูล
@@ -1707,7 +1710,7 @@ function HistoryTab({ branchFilter }: { branchFilter: string }) {
               style={fontThai}
             >
               <RefreshCw size={12} className={syncing === b ? "animate-spin" : ""} />
-              {syncing === b ? "กำลัง Sync..." : `Sync ${branchLabel(b)}`}
+              {syncing === b ? "กำลัง Sync..." : `Sync ${branchLabel(b)}${SYNC_SCOPE[b] ? ` (${SYNC_SCOPE[b]})` : ""}`}
             </button>
           ))}
         </div>

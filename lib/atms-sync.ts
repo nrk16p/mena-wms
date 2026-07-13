@@ -5,9 +5,11 @@ import clientPromise from "@/lib/mongo"
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change"
 
-export const BRANCH_IDS: Record<string, string> = {
-  latkrabang: "2",
-  saraburi:   "3",
+// ATMS branch_id: 2=ลาดกระบัง, 3=สระบุรี, 5=ขอนแก่น, 7=DIST
+// ขอนแก่น รวมเข้า ลาดกระบัง / DIST รวมเข้า สระบุรี
+export const BRANCH_IDS: Record<string, string[]> = {
+  latkrabang: ["2", "5"],
+  saraburi:   ["3", "7"],
 }
 
 export class AtmsSessionError extends Error { constructor() { super("session_expired") } }
@@ -86,25 +88,28 @@ export type SyncResult = {
   syncedAt:     Date
 }
 
-/** Fetch from ATMS, replace tire_change for this branch, auto-update tire_stock statuses. */
+/** Fetch from ATMS (ทุก branch_id ของสาขานั้น), replace tire_change for this branch, auto-update tire_stock statuses. */
 export async function runBranchSync(branch: string, phpsessid: string): Promise<SyncResult> {
-  const branchId = BRANCH_IDS[branch]
-  if (!branchId) throw new Error(`Unknown branch: ${branch}`)
+  const branchIds = BRANCH_IDS[branch]
+  if (!branchIds?.length) throw new Error(`Unknown branch: ${branch}`)
 
-  let raw: { contentType: string; buffer: Buffer }
-  try {
-    raw = await fetchAtms(exportUrl(branchId), phpsessid)
-  } catch (err) {
-    throw err instanceof AtmsNetworkError ? err : new AtmsNetworkError(String(err))
+  const rows: Record<string, unknown>[] = []
+  for (const branchId of branchIds) {
+    let raw: { contentType: string; buffer: Buffer }
+    try {
+      raw = await fetchAtms(exportUrl(branchId), phpsessid)
+    } catch (err) {
+      throw err instanceof AtmsNetworkError ? err : new AtmsNetworkError(String(err))
+    }
+
+    if (!raw.contentType.includes("excel") && !raw.contentType.includes("spreadsheet")) {
+      throw new AtmsSessionError()
+    }
+
+    const workbook = XLSX.read(raw.buffer, { type: "buffer", raw: true })
+    const sheet    = workbook.Sheets[workbook.SheetNames[0]]
+    rows.push(...XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true }))
   }
-
-  if (!raw.contentType.includes("excel") && !raw.contentType.includes("spreadsheet")) {
-    throw new AtmsSessionError()
-  }
-
-  const workbook = XLSX.read(raw.buffer, { type: "buffer", raw: true })
-  const sheet    = workbook.Sheets[workbook.SheetNames[0]]
-  const rows     = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true })
   if (rows.length === 0) throw new AtmsEmptyError()
 
   const syncedAt = new Date()
