@@ -44,6 +44,8 @@ export async function middleware(request: NextRequest) {
   // Mobile app access via API key
   const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
   const origin = request.headers.get("origin")
+  // Why the x-api-key check failed (if it did) — used to build a diagnosable 401 below
+  let apiKeyReason: "not_sent" | "server_key_not_set" | "mismatch" | null = null
   if (isMobileApi) {
     // CORS preflight carries no x-api-key or cookie — answer it before any auth check
     if (request.method === "OPTIONS") {
@@ -53,6 +55,9 @@ export async function middleware(request: NextRequest) {
     if (apiKey && process.env.MOBILE_API_KEY && apiKey === process.env.MOBILE_API_KEY) {
       return withCors(NextResponse.next(), origin)
     }
+    if (!apiKey) apiKeyReason = "not_sent"
+    else if (!process.env.MOBILE_API_KEY) apiKeyReason = "server_key_not_set"
+    else apiKeyReason = "mismatch"
   }
 
   // Check for session cookie — NextAuth uses different names for http vs https
@@ -63,7 +68,22 @@ export async function middleware(request: NextRequest) {
   if (!sessionToken) {
     // API calls get a JSON 401 (mobile-friendly); pages redirect to login
     if (pathname.startsWith("/api/")) {
-      const res = NextResponse.json({ error: "Unauthorized — login session or valid x-api-key required" }, { status: 401 })
+      const apiKeyDetail =
+        apiKeyReason === "not_sent"           ? "x-api-key header was not sent"
+        : apiKeyReason === "server_key_not_set" ? "server has no MOBILE_API_KEY configured"
+        : apiKeyReason === "mismatch"          ? "x-api-key does not match"
+        : "route does not accept x-api-key"
+      console.warn(
+        `[middleware] 401 ${request.method} ${pathname} — no session cookie; api-key: ${apiKeyDetail}` +
+        (origin ? ` (origin: ${origin})` : "")
+      )
+      const res = NextResponse.json(
+        {
+          error: "Unauthorized — login session or valid x-api-key required",
+          reason: { session: "no session cookie", apiKey: apiKeyDetail },
+        },
+        { status: 401 }
+      )
       return isMobileApi ? withCors(res, origin) : res
     }
     const loginUrl = new URL("/login", request.url)
