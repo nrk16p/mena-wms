@@ -17,20 +17,6 @@ const MOBILE_API_PREFIXES = [
 const CODES_API_PREFIX = "/api/codes"
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 
-// อนุญาต cross-origin เฉพาะ mobile API — ปลอดภัยเพราะ endpoint เหล่านี้บังคับ x-api-key
-// และ client ส่ง credentials: 'omit' (ไม่มี cookie ข้าม origin)
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Accept, x-api-key",
-  "Access-Control-Max-Age": "86400",
-}
-
-function withCors(res: NextResponse): NextResponse {
-  Object.entries(CORS_HEADERS).forEach(([k, v]) => res.headers.set(k, v))
-  return res
-}
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -44,18 +30,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
-
-  // Preflight OPTIONS ไม่แนบ x-api-key/cookie — ต้องตอบ 204 + CORS ก่อนถึงด่าน auth
-  if (isMobileApi && request.method === "OPTIONS") {
-    return withCors(new NextResponse(null, { status: 204 }))
-  }
-
   // Mobile app access via API key
-  if (isMobileApi) {
+  if (MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     const apiKey = request.headers.get("x-api-key")
     if (apiKey && process.env.MOBILE_API_KEY && apiKey === process.env.MOBILE_API_KEY) {
-      return withCors(NextResponse.next())
+      return NextResponse.next()
     }
   }
 
@@ -67,8 +46,7 @@ export async function middleware(request: NextRequest) {
   if (!sessionToken) {
     // API calls get a JSON 401 (mobile-friendly); pages redirect to login
     if (pathname.startsWith("/api/")) {
-      const res = NextResponse.json({ error: "Unauthorized — login session or valid x-api-key required" }, { status: 401 })
-      return isMobileApi ? withCors(res) : res
+      return NextResponse.json({ error: "Unauthorized — login session or valid x-api-key required" }, { status: 401 })
     }
     const loginUrl = new URL("/login", request.url)
     loginUrl.searchParams.set("callbackUrl", pathname)
