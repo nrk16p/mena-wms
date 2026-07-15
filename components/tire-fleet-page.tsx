@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
+import { createPortal } from "react-dom"
 import { useSession } from "next-auth/react"
 import {
   Truck, Search, ArrowLeft, RefreshCw, History, ClipboardCheck,
@@ -230,9 +231,6 @@ const fontHead = { fontFamily: "'Mitr', sans-serif", fontWeight: 500 }
 // ===========================================================================
 
 export function TireFleetPage() {
-  const { data: session } = useSession()
-  const isAdmin = session?.user?.role === "admin"
-
   const [tab, setTab] = useState<"fleet" | "requests" | "history">("fleet")
   const [branchFilter, setBranchFilter] = useState("")
   const [selected, setSelected] = useState<{ branch: string; plate: string } | null>(null)
@@ -314,10 +312,10 @@ export function TireFleetPage() {
 
       {tab === "fleet" && (
         selected
-          ? <VehicleDetail branch={selected.branch} plate={selected.plate} isAdmin={isAdmin} onBack={() => setSelected(null)} onChanged={loadBadge} />
+          ? <VehicleDetail branch={selected.branch} plate={selected.plate} onBack={() => setSelected(null)} onChanged={loadBadge} />
           : <FleetGrid branchFilter={branchFilter} onSelect={(v) => setSelected(v)} />
       )}
-      {tab === "requests" && <RequestsTab branchFilter={branchFilter} isAdmin={isAdmin} onChanged={loadBadge} />}
+      {tab === "requests" && <RequestsTab branchFilter={branchFilter} onChanged={loadBadge} />}
       {tab === "history"  && <HistoryTab branchFilter={branchFilter} />}
     </div>
   )
@@ -593,10 +591,9 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-function VehicleDetail({ branch, plate, isAdmin, onBack, onChanged }: {
+function VehicleDetail({ branch, plate, onBack, onChanged }: {
   branch: string
   plate: string
-  isAdmin: boolean
   onBack: () => void
   onChanged: () => void
 }) {
@@ -829,7 +826,7 @@ function VehicleDetail({ branch, plate, isAdmin, onBack, onChanged }: {
                             {selectedTire.request.appointmentDate ? ` · นัด ${fmtDate(selectedTire.request.appointmentDate)}` : ""}
                           </p>
                         </div>
-                        {isAdmin && selectedTire.request.itemStatus === "pending" && (
+                        {selectedTire.request.itemStatus === "pending" && (
                           <div className="flex shrink-0 gap-1.5">
                             <button disabled={acting} onClick={() => handleApprove(selectedTire)}
                               className={btnSmall + " inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
@@ -1179,6 +1176,32 @@ function RequestModal({ branch, plate, tire, odometer, vehicle, onClose, onSaved
 // SECTION 8: Requests tab — คำขอ + อนุมัติ รวม 2 สาขา
 // ===========================================================================
 
+function PhotoThumb({ src, alt }: { src: string; alt: string }) {
+  const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt}
+        onClick={() => window.open(src, "_blank")}
+        onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY })}
+        onMouseMove={(e) => setHover({ x: e.clientX, y: e.clientY })}
+        onMouseLeave={() => setHover(null)}
+        className="h-10 w-10 cursor-zoom-in rounded-md object-cover ring-1 ring-gray-200 dark:ring-white/10"
+      />
+      {hover && createPortal(
+        <img
+          src={src}
+          alt={alt}
+          className="pointer-events-none fixed z-50 rounded-lg object-cover shadow-2xl ring-2 ring-white dark:ring-white/20"
+          style={{ left: hover.x + 16, top: hover.y + 16, width: 480, height: 320 }}
+        />,
+        document.body,
+      )}
+    </>
+  )
+}
+
 const REQ_STATUS_TABS = [
   { value: "",            label: "ทั้งหมด" },
   { value: "pending",     label: "รออนุมัติ" },
@@ -1188,9 +1211,8 @@ const REQ_STATUS_TABS = [
   { value: "rejected",    label: "ปฏิเสธ" },
 ]
 
-function RequestsTab({ branchFilter, isAdmin, onChanged }: {
+function RequestsTab({ branchFilter, onChanged }: {
   branchFilter: string
-  isAdmin: boolean
   onChanged: () => void
 }) {
   const { data: session } = useSession()
@@ -1454,22 +1476,20 @@ function RequestsTab({ branchFilter, isAdmin, onChanged }: {
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                        {isAdmin && (
-                          <div className="flex items-center justify-end gap-1.5">
-                            {status === "approved" && (
-                              <button disabled={acting} onClick={() => handleAppointment(r)}
-                                className={btnSmall + " inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
-                                <CalendarClock size={11} /> นัดหมาย
-                              </button>
-                            )}
-                            {status === "appointment" && (
-                              <button disabled={acting} onClick={() => handleDone(r)}
-                                className={btnSmall + " inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
-                                <Flag size={11} /> เสร็จสิ้น
-                              </button>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex items-center justify-end gap-1.5">
+                          {status === "approved" && (
+                            <button disabled={acting} onClick={() => handleAppointment(r)}
+                              className={btnSmall + " inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
+                              <CalendarClock size={11} /> นัดหมาย
+                            </button>
+                          )}
+                          {status === "appointment" && (
+                            <button disabled={acting} onClick={() => handleDone(r)}
+                              className={btnSmall + " inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
+                              <Flag size={11} /> เสร็จสิ้น
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
 
@@ -1510,23 +1530,23 @@ function RequestsTab({ branchFilter, isAdmin, onChanged }: {
                                             <span style={fontThai}>{it.reason}</span>
                                             {it.reason === "รถกินยาง" && (() => {
                                               if (mr === undefined) return <span className="text-[10px] text-gray-400" style={fontThai}>กำลังตรวจ MR...</span>
-                                              if (mr === null) return isAdmin ? (
+                                              if (mr === null) return (
                                                 <button type="button" onClick={() => handleCreateMr(r)}
                                                   className="inline-flex w-fit items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-90" style={fontThai}>
                                                   + สร้าง MR
                                                 </button>
-                                              ) : <span className="text-[10px] text-gray-400" style={fontThai}>ยังไม่มี MR</span>
+                                              )
                                               const c = mrChip(mr.status)
                                               return (
                                                 <div className="flex flex-col gap-1">
                                                   <span className={`inline-block w-fit rounded px-1.5 py-px text-[10px] font-semibold ${c.cls}`} style={fontThai}>MR: {c.label}</span>
-                                                  {isAdmin && mr.status === "pending" && (
+                                                  {mr.status === "pending" && (
                                                     <button type="button" onClick={() => handleMrStatusUpdate(r, "in_progress")}
                                                       className="inline-flex w-fit items-center rounded bg-orange-500 px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-90" style={fontThai}>
                                                       เริ่มซ่อม
                                                     </button>
                                                   )}
-                                                  {isAdmin && mr.status === "in_progress" && (
+                                                  {mr.status === "in_progress" && (
                                                     <button type="button" onClick={() => handleMrStatusUpdate(r, "completed")}
                                                       className="inline-flex w-fit items-center rounded bg-green-600 px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-90" style={fontThai}>
                                                       ซ่อมเสร็จ ✓
@@ -1550,9 +1570,7 @@ function RequestsTab({ branchFilter, isAdmin, onChanged }: {
                                           {urls.length === 0 ? <span className="text-xs text-gray-400">—</span> : (
                                             <div className="flex gap-1.5">
                                               {urls.map((u, ui) => (
-                                                // eslint-disable-next-line @next/next/no-img-element
-                                                <img key={ui} src={u} alt={`รูปยาง ${ui + 1}`} onClick={() => window.open(u, "_blank")}
-                                                  className="h-10 w-10 cursor-zoom-in rounded-md object-cover ring-1 ring-gray-200 dark:ring-white/10" />
+                                                 <PhotoThumb key={ui} src={u} alt={`รูปยาง ${ui + 1}`} />
                                               ))}
                                             </div>
                                           )}
@@ -1565,7 +1583,7 @@ function RequestsTab({ branchFilter, isAdmin, onChanged }: {
                                           </span>
                                         </td>
                                         <td className="whitespace-nowrap px-3 py-2">
-                                          {isAdmin && (status === "pending" || status === "approved" || status === "rejected") && (
+                                          {(status === "pending" || status === "approved" || status === "rejected") && (
                                             <div className="flex items-center gap-1.5">
                                               {itStatus !== "approved" && (
                                                 <button disabled={acting} onClick={() => handleItemApprove(r, it)}
