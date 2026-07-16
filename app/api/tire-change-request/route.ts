@@ -31,9 +31,10 @@ export async function GET(req: NextRequest) {
   else if (status) filter.status = status
   if (q) {
     const search = [
-      { plate:       { $regex: q, $options: "i" } },
-      { driverName:  { $regex: q, $options: "i" } },
-      { truckNumber: { $regex: q, $options: "i" } },
+      { plate:         { $regex: q, $options: "i" } },
+      { driverName:    { $regex: q, $options: "i" } },
+      { truckNumber:   { $regex: q, $options: "i" } },
+      { "items.jobNo": { $regex: q, $options: "i" } },
     ]
     if (filter.$or) { filter.$and = [{ $or: filter.$or }, { $or: search }]; delete filter.$or }
     else filter.$or = search

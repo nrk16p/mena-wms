@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
     usedDistance:     number
     itemCreatedAt:    Date | null
     itemStatus:       string
+    jobNo:            string
   }
 
   const serialToReqs = new Map<string, ReqItem[]>()
@@ -92,6 +93,7 @@ export async function GET(req: NextRequest) {
         usedDistance:    Number(it.usedDistance) || 0,
         itemCreatedAt:   it.createdAt ? new Date(it.createdAt as string) : null,
         itemStatus:      String(it.status ?? "pending"),
+        jobNo:           String(it.jobNo ?? ""),
       }
       const arr = serialToReqs.get(sn) ?? []
       arr.push(entry)

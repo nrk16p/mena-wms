@@ -65,13 +65,13 @@ export async function GET(req: NextRequest) {
   type ReqRef = {
     requestId: string; itemId: string
     itemStatus: string; requestStatus: string
-    appointmentDate: Date | null; reason: string; driverName: string
+    appointmentDate: Date | null; reason: string; driverName: string; jobNo: string
   }
   const statusMap = new Map<string, ReqRef>()
   for (const r of requests) {
     const rStatus = (r.status as string) ?? "pending"
     if (rStatus === "done" || rStatus === "rejected") continue
-    type ReqItem = { _id?: unknown; serialNo?: string; status?: string; reason?: string }
+    type ReqItem = { _id?: unknown; serialNo?: string; status?: string; reason?: string; jobNo?: string }
     for (const it of (r.items ?? []) as ReqItem[]) {
       const iStatus = it.status ?? "pending"
       const key = String(it.serialNo ?? "").trim()
@@ -84,6 +84,7 @@ export async function GET(req: NextRequest) {
         appointmentDate: r.appointmentDate ?? null,
         reason:          String(it.reason ?? ""),
         driverName:      String(r.driverName ?? ""),
+        jobNo:           String(it.jobNo ?? ""),
       })
     }
   }

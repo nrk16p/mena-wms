@@ -30,6 +30,7 @@ type RequestItem = {
   createdAt:      string
   status?:        string
   approvedBy?:    string
+  jobNo?:         string
   rejectedBy?:    string
   rejectReason?:  string
 }
@@ -274,12 +275,20 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
         return
       }
     }
-    const result = await swalConfirm(
-      "อนุมัติยางเส้นนี้?",
-      `คนขับ: ${r.driverName} · ${r.plate}\n${it.positionCode} ${it.positionName} · ${it.serialNo}`
-    )
-    if (!result.isConfirmed) return
-    itemPatch(r._id, it._id, { action: "approve" }, `อนุมัติ ${it.serialNo} แล้ว`)
+    const { value: jobNo, isConfirmed } = await Swal.fire<string>({
+      title: "อนุมัติยางเส้นนี้?",
+      html: `<div style="font-size:0.85rem;margin-bottom:6px">คนขับ: <b>${r.driverName}</b> · ${r.plate}<br>${it.positionCode} ${it.positionName} · ${it.serialNo}</div>`,
+      input: "text",
+      inputLabel: "เลข Job",
+      inputPlaceholder: "ระบุเลข Job",
+      inputValidator: (value) => (!value || !value.trim() ? "กรุณากรอกเลข Job" : undefined),
+      showCancelButton: true,
+      confirmButtonText: "อนุมัติ",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    })
+    if (!isConfirmed || !jobNo) return
+    itemPatch(r._id, it._id, { action: "approve", jobNo: String(jobNo).trim() }, `อนุมัติ ${it.serialNo} แล้ว`)
   }
 
   async function handleItemReject(r: TireRequest, it: RequestItem) {
@@ -351,7 +360,7 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
       <div className="flex flex-wrap gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียน / คนขับ / เบอร์รถ..." className={inp + " w-full pl-8"} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียน / คนขับ / เบอร์รถ / เลข Job..." className={inp + " w-full pl-8"} />
         </div>
       </div>
 
@@ -551,6 +560,9 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                                           title={it.rejectReason ? `เหตุผล: ${it.rejectReason}` : undefined}>
                                           {it.status ?? "pending"}
                                         </span>
+                                        {it.jobNo && (
+                                          <div className="mt-1 text-[10px] text-gray-400">Job: <span className="font-mono font-medium text-gray-600 dark:text-gray-300">{it.jobNo}</span></div>
+                                        )}
                                       </td>
                                       <td className="px-3 py-2 whitespace-nowrap">
                                         {(status === "pending" || status === "approved" || status === "rejected") && (
