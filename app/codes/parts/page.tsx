@@ -82,6 +82,52 @@ function buildTree(l1s: Entry[], l2s: Entry[], l3s: Entry[]): TreeL1[] {
   }))
 }
 
+// ─── Shared style shortcuts ──────────────────────────────────────────────────
+const inputCls = "rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
+const iconBtn  = (color = "text-gray-400 hover:text-gray-700 dark:hover:text-white") => `transition-colors ${color}`
+
+// ─── Inline add form ─────────────────────────────────────────────────────────
+// Must stay at module scope: nested inside PartsPage it gets a fresh function
+// identity every render, which remounts the inputs and drops focus mid-typing.
+function AddForm({
+  label, code, th, en, err, adding, onCode, onTh, onEn, onSubmit, onCancel,
+}: {
+  label: string
+  code: string; th: string; en: string
+  err: string; adding: boolean
+  onCode: (v: string) => void
+  onTh: (v: string) => void
+  onEn: (v: string) => void
+  onSubmit: (e: React.FormEvent) => void
+  onCancel: () => void
+}) {
+  return (
+    <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 py-2 px-3 bg-gray-50 dark:bg-white/3 rounded-lg border border-dashed border-gray-300 dark:border-white/15 mt-1 mb-1">
+      <div>
+        <p className="text-[10px] font-semibold text-gray-400 mb-1 uppercase tracking-wider">{label}</p>
+        <input value={code} onChange={(e) => onCode(e.target.value)} placeholder="Code (เช่น DSC)" className={inputCls + " w-28 uppercase"} required />
+      </div>
+      <div>
+        <p className="text-[10px] font-semibold text-gray-400 mb-1">ชื่อ TH *</p>
+        <input value={th} onChange={(e) => onTh(e.target.value)} placeholder="ชื่อภาษาไทย" className={inputCls + " w-52"} required />
+      </div>
+      <div>
+        <p className="text-[10px] font-semibold text-gray-400 mb-1">ชื่อ EN</p>
+        <input value={en} onChange={(e) => onEn(e.target.value)} placeholder="English name" className={inputCls + " w-44"} />
+      </div>
+      {err && <p className="w-full text-xs text-red-500">{err}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={adding} className="flex items-center gap-1 rounded-md bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+          <Check size={12} /> {adding ? "..." : "บันทึก"}
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-md border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8">
+          <X size={12} />
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function PartsPage({ allowAdminMode }: { allowAdminMode?: boolean }) {
   const { data: session } = useSession()
@@ -220,37 +266,10 @@ export default function PartsPage({ allowAdminMode }: { allowAdminMode?: boolean
     load()
   }
 
-  // ── Shared style shortcuts ───────────────────────────────────────────────
-  const inputCls = "rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0a0a10] text-gray-900 dark:text-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-white/30"
-  const iconBtn  = (color = "text-gray-400 hover:text-gray-700 dark:hover:text-white") => `transition-colors ${color}`
-
-  // ── Inline add form ──────────────────────────────────────────────────────
-  function AddForm({ label }: { label: string }) {
-    return (
-      <form onSubmit={submitAdd} className="flex flex-wrap items-end gap-2 py-2 px-3 bg-gray-50 dark:bg-white/3 rounded-lg border border-dashed border-gray-300 dark:border-white/15 mt-1 mb-1">
-        <div>
-          <p className="text-[10px] font-semibold text-gray-400 mb-1 uppercase tracking-wider">{label}</p>
-          <input value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code (เช่น DSC)" className={inputCls + " w-28 uppercase"} required />
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold text-gray-400 mb-1">ชื่อ TH *</p>
-          <input value={addTh} onChange={(e) => setAddTh(e.target.value)} placeholder="ชื่อภาษาไทย" className={inputCls + " w-52"} required />
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold text-gray-400 mb-1">ชื่อ EN</p>
-          <input value={addEn} onChange={(e) => setAddEn(e.target.value)} placeholder="English name" className={inputCls + " w-44"} />
-        </div>
-        {addErr && <p className="w-full text-xs text-red-500">{addErr}</p>}
-        <div className="flex gap-2">
-          <button type="submit" disabled={adding} className="flex items-center gap-1 rounded-md bg-gray-950 dark:bg-white text-white dark:text-gray-900 px-3 py-1.5 text-xs font-semibold hover:opacity-90 disabled:opacity-50">
-            <Check size={12} /> {adding ? "..." : "บันทึก"}
-          </button>
-          <button type="button" onClick={closeAdd} className="rounded-md border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8">
-            <X size={12} />
-          </button>
-        </div>
-      </form>
-    )
+  const addFormProps = {
+    code: addCode, th: addTh, en: addEn, err: addErr, adding,
+    onCode: setAddCode, onTh: setAddTh, onEn: setAddEn,
+    onSubmit: submitAdd, onCancel: closeAdd,
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────
@@ -324,7 +343,7 @@ export default function PartsPage({ allowAdminMode }: { allowAdminMode?: boolean
       {adminMode && (
         <div className="mb-3">
           {addTarget?.level === "l1" ? (
-            <AddForm label="เพิ่ม L1 ระบบใหม่" />
+            <AddForm label="เพิ่ม L1 ระบบใหม่" {...addFormProps} />
           ) : (
             <button onClick={() => openAdd({ level: "l1" })} className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white transition-colors">
               <Plus size={13} /> เพิ่มระบบ L1 ใหม่
@@ -433,7 +452,7 @@ export default function PartsPage({ allowAdminMode }: { allowAdminMode?: boolean
                           {/* Add L3 inline form */}
                           {adminMode && addTarget && addTarget.level === "l3" && addTarget.l1 === t1.entry.code && addTarget.l2 === t2.entry.code && (
                             <div className="pl-12 pr-4 pb-2">
-                              <AddForm label={`เพิ่ม L3 ใน ${t1.entry.code}:${t2.entry.code}`} />
+                              <AddForm label={`เพิ่ม L3 ใน ${t1.entry.code}:${t2.entry.code}`} {...addFormProps} />
                             </div>
                           )}
 
@@ -483,7 +502,7 @@ export default function PartsPage({ allowAdminMode }: { allowAdminMode?: boolean
                     {adminMode && (
                       <div className="border-t border-gray-100 dark:border-white/5 pl-8 pr-4 py-2">
                         {addTarget?.level === "l2" && addTarget.l1 === l1key ? (
-                          <AddForm label={`เพิ่ม L2 ใน ${l1key}`} />
+                          <AddForm label={`เพิ่ม L2 ใน ${l1key}`} {...addFormProps} />
                         ) : (
                           <button
                             onClick={() => { openAdd({ level: "l2", l1: l1key }); setExpanded((p) => ({ ...p, [l1key]: true })) }}
