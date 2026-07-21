@@ -498,14 +498,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const breachedPlates = rows.filter((r) => slaInfo(r)?.over).map((r) => r.plate).filter(Boolean).slice(0, 4)
         return (
           <div className="mb-3 grid gap-3 lg:grid-cols-[220px_210px_1fr]">
-            {/* ค่าเฉลี่ยวันซ่อม */}
+            {/* รถทั้งหมด */}
             <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">ค่าเฉลี่ยวันซ่อม</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">รถทั้งหมด</p>
               <div className="mt-1.5 flex items-baseline gap-1.5">
-                <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{stats.avgDays}</span>
-                <span className="text-xs text-[#9AA8A0]">วัน / คัน</span>
+                <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{stats.total}</span>
+                <span className="text-xs text-[#9AA8A0]">คัน</span>
               </div>
-              <p className="mt-1.5 text-[11px] text-gray-400">เฉลี่ยจากวันรับแจ้ง → วันนี้</p>
+              <p className="mt-1.5 text-[11px] text-gray-400">เฉลี่ยซ่อม {stats.avgDays} วัน/คัน</p>
             </div>
             {/* ค้างเกินกำหนด (SLA) — ตรงกับปุ่มกรอง ⏱️ */}
             <button
