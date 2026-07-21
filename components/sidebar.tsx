@@ -24,6 +24,9 @@ import {
   Search,
   BookOpen,
   BarChart3,
+  Wrench,
+  Flag,
+  Factory,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -72,6 +75,16 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "#stock",                      label: "สต็อกยาง",          icon: MapPin,  subheader: true },
       { href: "/tire/latkrabang/stock-tire", label: "ลาดกระบัง",         icon: Disc3,   indent: true },
       { href: "/tire/saraburi/stock-tire",   label: "สระบุรี",            icon: Disc3,   indent: true },
+    ],
+  },
+  {
+    label: "จัดการซ่อม",
+    collapsible: true,
+    items: [
+      { href: "/repair-external",           label: "รถซ่อมอู่นอก", icon: Wrench, exact: true },
+      { href: "/repair-external/completed",  label: "รถซ่อมเสร็จ",  icon: Flag },
+      { href: "/garages",                    label: "จัดการอู่",     icon: Factory },
+      { href: "/repair-external/guide",      label: "คู่มือการใช้งาน", icon: BookOpen },
     ],
   },
 ]
