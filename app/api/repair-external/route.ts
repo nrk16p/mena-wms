@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
   const status   = searchParams.get("status")?.trim()   ?? ""
   const scope    = searchParams.get("scope")?.trim()    ?? ""  // active = ยังไม่เสร็จ, done = รถเสร็จ
   const garage    = searchParams.get("garage")?.trim()    ?? ""
+  const fleet     = searchParams.get("fleet")?.trim()     ?? ""
   const createdBy = searchParams.get("createdBy")?.trim() ?? ""
   const editedBy  = searchParams.get("editedBy")?.trim()  ?? ""
   const plate    = searchParams.get("plate")?.trim()    ?? ""
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
   else if (scope === "done")   filter.status = "รถเสร็จ"
   else if (scope === "active") filter.status = { $ne: "รถเสร็จ" }
   if (garage)    filter.garage    = garage
+  if (fleet)     filter.fleet     = fleet
   if (createdBy) filter.createdBy = createdBy
   if (editedBy)  filter.editedBy  = editedBy
   if (plate)  filter.plate  = { $regex: plate, $options: "i" }

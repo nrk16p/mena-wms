@@ -38,6 +38,9 @@ const barColor = (s: string) => BAR_COLORS[s] ?? "#9ca3af"
 // คอลัมน์ตารางโปร่ง (1a): อายุงาน / รถ / อาการ / อู่ / สถานะ·เอกสาร / จัดการ
 const TABLE_GRID = "116px 1.5fr 2.4fr 1fr 1.7fr 96px"
 
+// จานสีสำหรับสัดส่วนตามฟลีท
+const FLEET_PALETTE = ["#1B8C4B", "#3b82f6", "#eab308", "#f97316", "#14b8a6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16", "#ef4444", "#8b5cf6", "#64748b"]
+
 type Comment = {
   _id: string
   parentId: string | null
@@ -65,6 +68,7 @@ type Stats = {
   slaBreached: number
   avgDays: number
   agingBuckets: { lt8: number; d8_14: number; gte15: number }
+  fleetDist: { fleet: string; count: number }[]
 }
 
 const TODAY_STR = new Date().toISOString().slice(0, 10)
@@ -173,11 +177,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // view + สรุปสถานะ
   const [view, setView]   = useState<"table" | "board">("table")
-  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, avgDays: 0, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 } })
+  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, avgDays: 0, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
 
-  // ตัวกรองผู้สร้าง/ผู้แก้ไข + ค้างเกิน SLA
+  // ตัวกรอง ฟลีท / ผู้สร้าง / ผู้แก้ไข + ค้างเกิน SLA
+  const [fFleet, setFFleet]         = useState("")
   const [fCreatedBy, setFCreatedBy] = useState("")
   const [fEditedBy, setFEditedBy]   = useState("")
   const [slaOnly, setSlaOnly]       = useState(false)
@@ -190,6 +195,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     if (q)        p.set("q", q)
     if (fStatus)    p.set("status", fStatus)
     if (fGarage)    p.set("garage", fGarage)
+    if (fFleet)     p.set("fleet", fFleet)
     if (fCreatedBy) p.set("createdBy", fCreatedBy)
     if (fEditedBy)  p.set("editedBy", fEditedBy)
     if (dateFrom) p.set("dateFrom", dateFrom)
@@ -203,7 +209,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } finally {
       setLoading(false)
     }
-  }, [mode, q, fStatus, fGarage, fCreatedBy, fEditedBy, dateFrom, dateTo])
+  }, [mode, q, fStatus, fGarage, fFleet, fCreatedBy, fEditedBy, dateFrom, dateTo])
 
   const loadGarages = useCallback(async () => {
     try {
@@ -217,7 +223,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     try {
       const res  = await fetch(`/api/repair-external/stats?scope=${mode}`)
       const data = await res.json()
-      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, avgDays: 0, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 } })
+      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, avgDays: 0, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
     } catch { /* ignore */ }
   }, [mode])
 
@@ -431,9 +437,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  const hasFilter = q || fStatus || fGarage || fCreatedBy || fEditedBy || slaOnly || dateFrom || dateTo
+  const hasFilter = q || fStatus || fGarage || fFleet || fCreatedBy || fEditedBy || slaOnly || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFStatus(""); setFGarage(""); setFCreatedBy(""); setFEditedBy(""); setSlaOnly(false); setDateFrom(""); setDateTo("")
+    setQ(""); setFStatus(""); setFGarage(""); setFFleet(""); setFCreatedBy(""); setFEditedBy(""); setSlaOnly(false); setDateFrom(""); setDateTo("")
   }
 
   // กรองฝั่ง client เฉพาะรายการค้างเกิน SLA (เปิดจากปุ่ม ⏱️)
@@ -548,6 +554,46 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         )
       })()}
 
+      {/* สัดส่วนตามฟลีท */}
+      {!isDone && stats.fleetDist.length > 0 && (() => {
+        const fleetTotal = stats.fleetDist.reduce((s, f) => s + f.count, 0)
+        return (
+          <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">สัดส่วนตามฟลีท</p>
+              <span className="text-xs text-gray-400">{stats.fleetDist.length} ฟลีท · {fleetTotal} คัน</span>
+            </div>
+            <div className="mt-2.5 flex h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
+              {stats.fleetDist.map((f, i) => (f.count && fleetTotal ? (
+                <button
+                  key={f.fleet}
+                  title={`${f.fleet} · ${f.count} คัน`}
+                  onClick={() => setFFleet(fFleet === f.fleet ? "" : f.fleet)}
+                  className="h-full transition-opacity hover:opacity-80"
+                  style={{ width: `${(f.count / fleetTotal) * 100}%`, background: FLEET_PALETTE[i % FLEET_PALETTE.length] }}
+                />
+              ) : null))}
+            </div>
+            <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
+              {stats.fleetDist.map((f, i) => {
+                const active = fFleet === f.fleet
+                return (
+                  <button
+                    key={f.fleet}
+                    onClick={() => setFFleet(active ? "" : f.fleet)}
+                    className={`inline-flex items-center gap-1.5 rounded px-1 text-xs transition ${active ? "bg-[#F0FDF4] dark:bg-white/5" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                  >
+                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: FLEET_PALETTE[i % FLEET_PALETTE.length] }} />
+                    <span className={active ? "font-semibold text-[#14271C] dark:text-white" : "text-gray-600 dark:text-gray-300"}>{f.fleet}</span>
+                    <span className="font-semibold text-[#14271C] dark:text-white">{f.count}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Search + filter bar (1a) — แนวตั้ง บนลงล่าง */}
       <div className="mb-3 flex flex-col gap-2">
         <div className="relative">
@@ -562,6 +608,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-[140px] flex-1">
             <GarageCombobox value={fGarage} garages={garages} onChange={setFGarage} filterMode placeholder="🏭 ทุกอู่" />
+          </div>
+          <div className="min-w-[140px] flex-1">
+            <FilterCombobox value={fFleet} options={stats.fleetDist.map((f) => f.fleet)} onChange={setFFleet} placeholder="🚚 ทุกฟลีท" />
           </div>
           <div className="min-w-[140px] flex-1">
             <FilterCombobox value={fCreatedBy} options={users.createdBy} onChange={setFCreatedBy} placeholder="👤 สร้างโดย" />

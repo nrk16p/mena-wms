@@ -63,5 +63,13 @@ export async function GET(req: NextRequest) {
   }
   const avgDays = n ? Math.round((sum / n) * 10) / 10 : 0
 
-  return NextResponse.json({ counts, total, overdue, slaBreached, avgDays, agingBuckets })
+  // สัดส่วนตามฟลีท
+  const fleetAgg = await col.aggregate([
+    { $match: { ...match, fleet: { $ne: "" } } },
+    { $group: { _id: "$fleet", n: { $sum: 1 } } },
+    { $sort: { n: -1 } },
+  ]).toArray()
+  const fleetDist = fleetAgg.map((f) => ({ fleet: (f._id as string) || "—", count: f.n as number }))
+
+  return NextResponse.json({ counts, total, overdue, slaBreached, avgDays, agingBuckets, fleetDist })
 }
