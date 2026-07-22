@@ -1122,7 +1122,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   <div>
                     <label className={labelCls}>รหัส PO {isReq("poCode") && <span className="text-amber-500">*</span>} <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
-                    <TagInput value={form.poCode} onChange={(v) => setForm({ ...form, poCode: v })} placeholder="พิมพ์รหัส PO แล้วกด Enter" invalid={isReq("poCode") && !form.poCode.trim()} />
+                    <TagInput value={form.poCode} onChange={(v) => setForm({ ...form, poCode: v })} placeholder="พิมพ์รหัส PO แล้วกด Enter" invalid={isReq("poCode") && !form.poCode.trim()} mono />
                   </div>
                   <div>
                     <label className={labelCls}>วันกำหนดเสร็จ {isReq("dueDate") && <span className="text-amber-500">*</span>}</label>
@@ -1168,8 +1168,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     </div>
                     {form.negotiationScope === "ระบุสินค้า/บริการ" && (
                       <div className="mb-3">
-                        <label className={labelCls}>ระบุสินค้า / บริการที่ต่อรอง</label>
-                        <input value={form.negotiationItem} onChange={(e) => setForm({ ...form, negotiationItem: e.target.value })} className={inputCls} placeholder="เช่น เปลี่ยนคอมเพรสเซอร์แอร์, ค่าแรง" />
+                        <label className={labelCls}>ระบุสินค้า / บริการที่ต่อรอง <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
+                        <TagInput value={form.negotiationItem} onChange={(v) => setForm({ ...form, negotiationItem: v })} placeholder="พิมพ์สินค้า/บริการ แล้วกด Enter" />
                       </div>
                     )}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1559,12 +1559,13 @@ function CommentRow({ c, reply }: { c: Comment; reply?: boolean }) {
 
 /* ── Tag input: หลายค่าเป็นชิป (เก็บเป็น string คั่นด้วย ,) เช่น รหัส PO ── */
 function TagInput({
-  value, onChange, placeholder, invalid,
+  value, onChange, placeholder, invalid, mono,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
   invalid?: boolean
+  mono?: boolean
 }) {
   const tags = value.split(",").map((t) => t.trim()).filter(Boolean)
   const [text, setText] = useState("")
@@ -1582,7 +1583,7 @@ function TagInput({
   return (
     <div className={`flex flex-wrap items-center gap-1.5 rounded-[11px] border bg-white dark:bg-[#0f1117] px-2.5 py-2 focus-within:border-[#1B8C4B] focus-within:ring-1 focus-within:ring-[#1B8C4B] ${invalid ? "border-amber-400 ring-1 ring-amber-400" : "border-[#E2E8E4] dark:border-white/10"}`}>
       {tags.map((t, i) => (
-        <span key={i} className="inline-flex items-center gap-1 rounded-md bg-[#F0FDF4] dark:bg-[#1B8C4B]/15 px-2 py-0.5 font-mono text-xs font-medium text-[#1B8C4B]">
+        <span key={i} className={`inline-flex items-center gap-1 rounded-md bg-[#F0FDF4] dark:bg-[#1B8C4B]/15 px-2 py-0.5 text-xs font-medium text-[#1B8C4B] ${mono ? "font-mono" : ""}`}>
           {t}
           <button type="button" onClick={() => removeAt(i)} className="text-[#1B8C4B]/60 hover:text-[#DC2626]"><X size={12} /></button>
         </span>
