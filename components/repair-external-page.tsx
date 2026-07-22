@@ -123,6 +123,7 @@ const EMPTY: Omit<RepairExternal, "_id"> = {
   fleet: "", plant: "",
   garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
   note: "", repairPrice: 0, warranty: "",
+  negotiationScope: "ทั้งหมด", negotiationItem: "",
   offerPrice: 0, negotiatedPrice: 0, offerWarranty: "",
   statusSince: "",
 }
@@ -1057,7 +1058,27 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
                   {/* ── การต่อรอง ── */}
                   <div className="sm:col-span-2 rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] p-3">
-                    <p className="mb-2.5 text-sm font-semibold text-gray-800 dark:text-gray-100">💬 การต่อรอง</p>
+                    <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">💬 การต่อรอง</p>
+                      <div className="inline-flex rounded-lg border border-[#E2E8E4] dark:border-white/10 p-0.5">
+                        {["ทั้งหมด", "ระบุสินค้า/บริการ"].map((sc) => (
+                          <button
+                            key={sc}
+                            type="button"
+                            onClick={() => setForm({ ...form, negotiationScope: sc, ...(sc === "ทั้งหมด" ? { negotiationItem: "" } : {}) })}
+                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${form.negotiationScope === sc ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                          >
+                            {sc}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {form.negotiationScope === "ระบุสินค้า/บริการ" && (
+                      <div className="mb-3">
+                        <label className={labelCls}>ระบุสินค้า / บริการที่ต่อรอง</label>
+                        <input value={form.negotiationItem} onChange={(e) => setForm({ ...form, negotiationItem: e.target.value })} className={inputCls} placeholder="เช่น เปลี่ยนคอมเพรสเซอร์แอร์, ค่าแรง" />
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div>
                         <label className={labelCls}>ราคาเสนอครั้งแรก (บาท)</label>

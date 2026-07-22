@@ -67,6 +67,8 @@ export type RepairExternal = {
   note:         string  // หมายเหตุ
   repairPrice:  number  // ราคาซ่อม
   warranty:     string  // รับประกัน
+  negotiationScope: string      // ขอบเขตต่อรอง: "ทั้งหมด" | "ระบุสินค้า/บริการ"
+  negotiationItem:  string      // สินค้า/บริการที่ต่อรอง (เมื่อเลือก "ระบุสินค้า/บริการ")
   offerPrice:      number       // ราคาเสนอครั้งแรก (ก่อนต่อรอง)
   negotiatedPrice: number       // ราคาต่อรอง (หลังต่อรอง)
   offerWarranty:   string       // ประกันเสนอครั้งแรก

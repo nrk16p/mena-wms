@@ -28,6 +28,8 @@ export function buildDoc(body: Record<string, unknown>) {
     note:         s(body.note),
     repairPrice:  Number(body.repairPrice) || 0,
     warranty:     s(body.warranty),
+    negotiationScope: s(body.negotiationScope) || "ทั้งหมด",
+    negotiationItem:  s(body.negotiationItem),
     offerPrice:      Number(body.offerPrice) || 0,
     negotiatedPrice: Number(body.negotiatedPrice) || 0,
     offerWarranty:   s(body.offerWarranty),
