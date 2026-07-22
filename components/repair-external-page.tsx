@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, MessageSquare, Send, CornerDownRight, Copy, Link2 } from "lucide-react"
-import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
+import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
 import {
   REPAIR_STATUSES,
   REPAIR_STATUS_VALUES,
   REPAIR_DONE_STATUS,
+  REPAIR_LOCKED_STATUS,
   requiredFieldsFor,
   REPAIR_STATUS_SLA_DAYS,
   REPAIR_SLA_FROM_DUE,
@@ -121,7 +122,9 @@ const EMPTY: Omit<RepairExternal, "_id"> = {
   receivedDate: "", garageInDate: "", dueDate: "", completedDate: "", mrNo: "", symptom: "", plate: "", fleetNo: "",
   fleet: "", plant: "",
   garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
-  note: "", repairPrice: 0, warranty: "", statusSince: "",
+  note: "", repairPrice: 0, warranty: "",
+  offerPrice: 0, negotiatedPrice: 0, offerWarranty: "",
+  statusSince: "",
 }
 
 const fmtNum = (n: number) =>
@@ -158,7 +161,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [form, setForm]     = useState<Omit<RepairExternal, "_id">>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [step, setStep]     = useState(1)  // 1..3 (guided form)
+  const [origStatus, setOrigStatus] = useState("")  // สถานะเดิมของรายการ (ล็อกถ้ารถเสร็จ)
   const [formImages, setFormImages] = useState<SkuImage[]>([])
+  const [formNegImages, setFormNegImages] = useState<SkuImage[]>([])  // หลักฐานการต่อรอง
   const [vdRef, setVdRef] = useState("")  // วันที่ข้อมูล fleet/plant (จาก vehicle_daily)
 
   // comments (drawer)
@@ -292,7 +297,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openAdd() {
     setEditId(null)
     setStep(1)
-    setFormImages([]); setVdRef("")
+    setFormImages([]); setFormNegImages([]); setVdRef(""); setOrigStatus("")
     setForm({
       ...EMPTY,
       receivedDate: new Date().toISOString().slice(0, 10),
@@ -303,7 +308,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEdit(r: RepairExternal) {
     setEditId(r._id)
     setStep(1)
-    setFormImages(r.images ?? []); setVdRef("")
+    setFormImages(r.images ?? []); setFormNegImages(r.negotiationImages ?? []); setVdRef(""); setOrigStatus(r.status)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id, ...rest } = r
     setForm({ ...EMPTY, ...rest })
@@ -362,7 +367,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const res    = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, images: formImages }),
+        body: JSON.stringify({ ...form, images: formImages, negotiationImages: formNegImages }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -409,6 +414,28 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
+  // ย้อนสถานะกลับ (จาก log drawer) — รถเสร็จแล้วย้อนไม่ได้
+  async function revertStatus(record: RepairExternal, toStatus: string) {
+    if (record.status === REPAIR_LOCKED_STATUS) { swalError("รายการที่ซ่อมเสร็จแล้ว ย้อนสถานะไม่ได้"); return }
+    const ok = await swalConfirm("ย้อนสถานะกลับ?", `จาก “${record.status}” → “${toStatus}”`)
+    if (!ok.isConfirmed) return
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { _id, ...rest } = record
+      const res = await fetch(`/api/repair-external/${record._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...rest, status: toStatus }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "ย้อนไม่สำเร็จ") }
+      swalToast("success", `ย้อนสถานะเป็น “${toStatus}”`)
+      setLogFor(null)
+      load(); loadStats()
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "ย้อนไม่สำเร็จ")
+    }
+  }
+
   async function remove(r: RepairExternal) {
     const ok = await swalDeleteConfirm(`ลบรายการซ่อมของ ${r.plate || "รถคันนี้"}?`)
     if (!ok.isConfirmed) return
@@ -446,6 +473,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const displayRows = slaOnly ? rows.filter((r) => slaInfo(r)?.over) : rows
 
   // ฟิลด์ที่ต้องกรอก "สะสม" ตามสถานะ (รวมสถานะก่อนหน้าที่ข้ามมา) — สำหรับ hint/ไฮไลต์/validate
+  const statusLocked = origStatus === REPAIR_LOCKED_STATUS  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
   const reqFields    = requiredFieldsFor(form.status)
   const reqFieldSet  = new Set(reqFields.map((r) => r.field))
   const missingReq   = reqFields.filter((r) => !String(form[r.field] ?? "").trim())
@@ -762,7 +790,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     {(r.prCode || r.poCode) && (
                       <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10.5px] text-[#5B7568]">
                         {r.prCode && <span className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PR <CopyText value={r.prCode} /></span>}
-                        {r.poCode && <span className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PO <CopyText value={r.poCode} /></span>}
+                        {r.poCode && r.poCode.split(",").map((po) => po.trim()).filter(Boolean).map((po, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PO <CopyText value={po} /></span>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -982,9 +1012,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
-                    <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={inputCls}>
+                    <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
                       {REPAIR_STATUSES.map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
                     </select>
+                    {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว (รถเสร็จ) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
                     {missingReq.length > 0 && (
                       <p className="mt-1 rounded-md bg-[#FDF3DD] px-2 py-1 text-[11px] text-[#B07D12]">
                         ⚠ สถานะนี้ต้องกรอกให้ครบก่อนบันทึก: {missingReq.map((m) => m.label).join(", ")}
@@ -996,8 +1027,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <input value={form.prCode} onChange={(e) => setForm({ ...form, prCode: e.target.value })} className={inputCls + reqCls("prCode")} placeholder="รหัส PR" />
                   </div>
                   <div>
-                    <label className={labelCls}>รหัส PO {isReq("poCode") && <span className="text-amber-500">*</span>}</label>
-                    <input value={form.poCode} onChange={(e) => setForm({ ...form, poCode: e.target.value })} className={inputCls + reqCls("poCode")} placeholder="รหัส PO" />
+                    <label className={labelCls}>รหัส PO {isReq("poCode") && <span className="text-amber-500">*</span>} <span className="text-[10px] font-normal text-gray-400">(หลายอันคั่นด้วย ,)</span></label>
+                    <input value={form.poCode} onChange={(e) => setForm({ ...form, poCode: e.target.value })} className={inputCls + reqCls("poCode")} placeholder="เช่น LBPO...1, LBPO...2" />
                   </div>
                   <div>
                     <label className={labelCls}>วันกำหนดเสร็จ {isReq("dueDate") && <span className="text-amber-500">*</span>}</label>
@@ -1022,6 +1053,36 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="sm:col-span-2">
                     <label className={labelCls}>หมายเหตุ</label>
                     <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} className={inputCls} placeholder="หมายเหตุเพิ่มเติม" />
+                  </div>
+
+                  {/* ── การต่อรอง ── */}
+                  <div className="sm:col-span-2 rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] p-3">
+                    <p className="mb-2.5 text-sm font-semibold text-gray-800 dark:text-gray-100">💬 การต่อรอง</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className={labelCls}>ราคาเสนอครั้งแรก (บาท)</label>
+                        <input type="number" min={0} step="0.01" value={form.offerPrice || ""} onChange={(e) => setForm({ ...form, offerPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>ราคาต่อรอง (บาท)</label>
+                        <input type="number" min={0} step="0.01" value={form.negotiatedPrice || ""} onChange={(e) => setForm({ ...form, negotiatedPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>ประกันเสนอครั้งแรก</label>
+                        <select value={form.offerWarranty} onChange={(e) => setForm({ ...form, offerWarranty: e.target.value })} className={inputCls}>
+                          <option value="">— ไม่ระบุ —</option>
+                          {WARRANTY_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
+                          {form.offerWarranty && !WARRANTY_OPTIONS.includes(form.offerWarranty) && <option value={form.offerWarranty}>{form.offerWarranty}</option>}
+                        </select>
+                      </div>
+                    </div>
+                    {form.offerPrice > 0 && form.negotiatedPrice > 0 && form.negotiatedPrice < form.offerPrice && (
+                      <p className="mt-2 text-[11px] font-medium text-[#1B8C4B]">✓ ต่อรองลดได้ ฿{fmtNum(form.offerPrice - form.negotiatedPrice)} ({Math.round((1 - form.negotiatedPrice / form.offerPrice) * 100)}%)</p>
+                    )}
+                    <div className="mt-3">
+                      <label className={labelCls}>แนบหลักฐานการต่อรอง <span className="text-[10px] font-normal text-gray-400">(ใบเสนอราคา / แชท / เอกสาร)</span></label>
+                      <ImageUpload initial={formNegImages} onChange={setFormNegImages} />
+                    </div>
                   </div>
                 </div>
               )}
@@ -1117,6 +1178,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <X size={18} />
               </button>
             </div>
+
+            {/* ย้อนสถานะกลับ (รถเสร็จแล้วย้อนไม่ได้) */}
+            {(() => {
+              if (logFor.status === REPAIR_LOCKED_STATUS) {
+                return <div className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/[0.02] px-5 py-2 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว (รถเสร็จ) — ย้อนสถานะไม่ได้</div>
+              }
+              const lastSC = logEntries.find((e) => e.statusChange && e.action !== "create")
+              const prev = lastSC?.statusChange?.from
+              if (!prev || prev === logFor.status) return null
+              return (
+                <div className="flex items-center justify-between gap-2 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] px-5 py-2.5">
+                  <span className="text-xs text-[#9AA8A0]">ปัจจุบัน: <b className="text-[#5B7568] dark:text-gray-300">{statusMeta(logFor.status).emoji} {logFor.status}</b></span>
+                  <button onClick={() => revertStatus(logFor, prev)} className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
+                    <ArrowRight size={13} className="rotate-180" /> ย้อนเป็น “{prev}”
+                  </button>
+                </div>
+              )
+            })()}
 
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {logLoading ? (

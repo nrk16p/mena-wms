@@ -35,6 +35,11 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const existing = await col.findOne({ _id: new ObjectId(id) })
   if (!existing) return NextResponse.json({ error: "ไม่พบรายการ" }, { status: 404 })
 
+  // ล็อกสถานะ "รถเสร็จ" — เปลี่ยน/ย้อนสถานะกลับไม่ได้เมื่อปิดงานแล้ว
+  if (String(existing.status ?? "") === "รถเสร็จ" && doc.status !== "รถเสร็จ") {
+    return NextResponse.json({ error: "รายการที่ซ่อมเสร็จแล้ว ย้อนสถานะกลับไม่ได้" }, { status: 409 })
+  }
+
   const changes = diffRepair(existing, doc)
   const now = new Date()
   // อัปเดตวันเข้าสถานะเมื่อสถานะเปลี่ยนเท่านั้น (ไว้คำนวณ "ค้างในสถานะกี่วัน")

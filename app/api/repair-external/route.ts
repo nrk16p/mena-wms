@@ -28,6 +28,10 @@ export function buildDoc(body: Record<string, unknown>) {
     note:         s(body.note),
     repairPrice:  Number(body.repairPrice) || 0,
     warranty:     s(body.warranty),
+    offerPrice:      Number(body.offerPrice) || 0,
+    negotiatedPrice: Number(body.negotiatedPrice) || 0,
+    offerWarranty:   s(body.offerWarranty),
+    negotiationImages: Array.isArray(body.negotiationImages) ? body.negotiationImages : [],
     images:       Array.isArray(body.images) ? body.images : [],
   }
 }

@@ -67,6 +67,10 @@ export type RepairExternal = {
   note:         string  // หมายเหตุ
   repairPrice:  number  // ราคาซ่อม
   warranty:     string  // รับประกัน
+  offerPrice:      number       // ราคาเสนอครั้งแรก (ก่อนต่อรอง)
+  negotiatedPrice: number       // ราคาต่อรอง (หลังต่อรอง)
+  offerWarranty:   string       // ประกันเสนอครั้งแรก
+  negotiationImages?: RepairImage[] // ไฟล์หลักฐานการต่อรอง
   statusSince:  string  // YYYY-MM-DD วันที่เข้าสู่สถานะปัจจุบัน (ระบบตั้งเมื่อเปลี่ยนสถานะ)
   createdBy?:   string  // ผู้สร้าง (ระบบตั้งจาก session)
   editedBy?:    string  // ผู้แก้ไขล่าสุด (ระบบตั้งจาก session)
@@ -89,6 +93,7 @@ export const REPAIR_STATUS_SLA_DAYS: Record<string, number> = {
   "รถเข้าอู่ซ่อม":   2,
   "รอใบเสนอราคา":   2,
   "รออนุมัติ":      2,
+  "ซ่อมไม่มีกำหนด":  2,
   "ซ่อมมีกำหนดเสร็จ": 2,
 }
 
@@ -97,18 +102,21 @@ export const REPAIR_SLA_FROM_DUE = new Set<string>(["ซ่อมมีกำห
 
 // คำอธิบาย SLA สำหรับแสดงบน UI
 export const REPAIR_SLA_NOTE =
-  "รอรถเข้า / รถเข้าอู่ซ่อม / รอใบเสนอราคา / รออนุมัติ ไม่ควรค้างเกิน 2 วัน (นับจากวันเข้าสถานะ) · ซ่อมมีกำหนดเสร็จ ไม่ควรเกิน 2 วันจากวันกำหนดเสร็จ"
+  "รอรถเข้า / รถเข้าอู่ซ่อม / รอใบเสนอราคา / รออนุมัติ / ซ่อมไม่มีกำหนด ไม่ควรค้างเกิน 2 วัน (นับจากวันเข้าสถานะ) · ซ่อมมีกำหนดเสร็จ ไม่ควรเกิน 2 วันจากวันกำหนดเสร็จ"
 
 export type RepairField = keyof Omit<RepairExternal, "_id">
 
 // ฟิลด์ที่ "ต้องกรอก" เมื่อเลือกสถานะนั้น (workflow-driven) — ใช้ทั้ง validate และ hint บน UI
 export const REPAIR_STATUS_REQUIRED_FIELD: Record<string, { field: RepairField; label: string }> = {
   "รถเข้าอู่ซ่อม":    { field: "garageInDate",  label: "วันที่รถเข้าซ่อม" },
-  "รอใบเสนอราคา":     { field: "prCode",        label: "รหัส PR" },
+  // รอใบเสนอราคา: PR ไม่บังคับ (ยังไม่มี PR ก็ได้)
   "รออนุมัติ":        { field: "poCode",        label: "รหัส PO" },
   "ซ่อมมีกำหนดเสร็จ": { field: "dueDate",       label: "วันกำหนดเสร็จ" },
   "รถเสร็จ":          { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
 }
+
+// สถานะปลายทาง (ปิดงาน) — ห้ามย้อนสถานะกลับเมื่อถึงสถานะนี้แล้ว
+export const REPAIR_LOCKED_STATUS = "รถเสร็จ"
 
 // ฟิลด์ที่ต้องกรอก "สะสม" ถึงสถานะเป้าหมาย — รวมของทุกสถานะก่อนหน้าใน workflow ด้วย
 // (ข้ามสถานะได้ก็ต่อเมื่อกรอกข้อมูลของสถานะที่ข้ามครบ)
