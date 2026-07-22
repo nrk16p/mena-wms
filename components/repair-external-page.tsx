@@ -343,6 +343,33 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } catch { /* ignore */ }
   }
 
+  // คัดลอกข้อมูลทั้งคอลัมน์เป็นข้อความพร้อมอีโมจิ (สำหรับส่งกลุ่มไลน์)
+  function copyColumnLine(s: { value: string; emoji: string }, colRows: RepairExternal[], avgCol: number) {
+    const lines: string[] = []
+    lines.push(`${s.emoji} ${s.value} — ${colRows.length} คัน (อายุเฉลี่ย ${avgCol} วัน)`)
+    lines.push("━━━━━━━━━━━━━━")
+    colRows.forEach((r, i) => {
+      const sla = slaInfo(r)
+      lines.push(`${i + 1}. 🚚 ${r.plate || "-"}${r.fleetNo ? ` (${r.fleetNo})` : ""}${r.fleet ? ` · ${r.fleet}` : ""}`)
+      if (r.symptom) lines.push(`   🔧 ${r.symptom}`)
+      const meta: string[] = []
+      if (r.garage) meta.push(`🏭 ${r.garage}`)
+      if (r.dueDate) meta.push(`📅 ${fmtDateShort(r.dueDate)}`)
+      if (sla?.over) meta.push(`⏱️ ค้าง ${sla.days} วัน`)
+      if (meta.length) lines.push(`   ${meta.join("  ")}`)
+      const doc: string[] = []
+      if (r.prCode) doc.push(`PR ${r.prCode}`)
+      if (r.poCode) doc.push(`PO ${r.poCode}`)
+      if (r.repairPrice > 0) doc.push(`💰 ${fmtNum(r.repairPrice)}`)
+      if (doc.length) lines.push(`   ${doc.join("  ")}`)
+    })
+    const text = lines.join("\n")
+    navigator.clipboard?.writeText(text).then(
+      () => swalToast("success", `คัดลอก ${s.value} (${colRows.length} คัน) แล้ว`),
+      () => swalError("คัดลอกไม่สำเร็จ"),
+    )
+  }
+
   function copyShareLink() {
     if (!editId || typeof window === "undefined") return
     const url = `${window.location.origin}/repair-external?id=${editId}`
@@ -833,9 +860,20 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
                         <span>{s.emoji}</span>{s.value}
                       </span>
-                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold" style={{ background: colColor + "22", color: colColor }}>
-                        {colRows.length}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        {colRows.length > 0 && (
+                          <button
+                            onClick={() => copyColumnLine(s, colRows, avgCol)}
+                            title="คัดลอกทั้งคอลัมน์ (ส่งไลน์)"
+                            className="flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B]"
+                          >
+                            <Copy size={12} />
+                          </button>
+                        )}
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold" style={{ background: colColor + "22", color: colColor }}>
+                          {colRows.length}
+                        </span>
+                      </div>
                     </div>
                     <p className="mt-0.5 text-[10px] text-gray-400">อายุเฉลี่ย {avgCol} วัน</p>
                   </div>
