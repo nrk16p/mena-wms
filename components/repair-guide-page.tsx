@@ -1,7 +1,7 @@
 import Link from "next/link"
 import {
   Wrench, Table as TableIcon, Columns3, Plus, Search, Filter, Clock, Timer,
-  MessageSquare, History, Link2, Factory, Flag, Truck, FileText, MousePointerClick,
+  MessageSquare, History, Link2, Factory, Flag, FileText, MousePointerClick,
 } from "lucide-react"
 import {
   REPAIR_STATUSES,
@@ -92,37 +92,45 @@ export function RepairGuidePage() {
             </table>
           </div>
           <p className="pt-1 text-[12px] text-[#9AA8A0]">* สถานะปกติวัดค้างจาก <b>วันที่เข้าสถานะ</b> · "ซ่อมมีกำหนดเสร็จ" วัดจาก <b>วันกำหนดเสร็จ</b></p>
+          <ul className="mt-1 ml-1 space-y-1">
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↔️</span><span><b>ข้ามสถานะได้</b> — แต่ต้องกรอกข้อมูลของ<b>ทุกสถานะก่อนหน้าที่ข้ามมา</b>ให้ครบด้วย (เช่น ข้ามไป "รถเสร็จ" ต้องมีครบทั้ง วันที่รถเข้าซ่อม / PO / วันกำหนดเสร็จ / วันที่ซ่อมเสร็จ)</span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↩️</span><span><b>ย้อนสถานะกลับได้</b> ผ่านปุ่มประวัติ (นาฬิกา) → "ย้อนเป็นสถานะก่อนหน้า"</span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">🔒</span><span><b>"รถเสร็จ" แล้วล็อก</b> — เปลี่ยน/ย้อนสถานะไม่ได้อีก (แก้ฟิลด์อื่นได้)</span></li>
+          </ul>
         </Section>
 
         {/* เพิ่ม/แก้ไข */}
         <Section icon={Plus} title="เพิ่ม / แก้ไขรายการ (ฟอร์ม 3 ขั้นตอน)">
           <ol className="ml-1 space-y-1.5">
-            <li className="flex gap-2"><b className="text-[#1B8C4B]">1.</b><span><b>ข้อมูลรถ</b> — พิมพ์ <b>ทะเบียนรถ</b> แล้วเลือก ระบบจะ<b>เติมเบอร์รถ / ฟลีท / แพล้นท์อัตโนมัติ</b> · แนบรูป/เอกสารได้</span></li>
+            <li className="flex gap-2"><b className="text-[#1B8C4B]">1.</b><span><b>ข้อมูลรถ</b> — พิมพ์/เลือก <b>ทะเบียนรถ</b> ระบบ<b>เติมเบอร์รถ / ฟลีท / แพล้นท์อัตโนมัติ</b> (จาก vehicle_daily พร้อมบอก<b>วันที่ของข้อมูล</b>) · แนบรูป/เอกสารได้</span></li>
             <li className="flex gap-2"><b className="text-[#1B8C4B]">2.</b><span><b>งานซ่อม</b> — รายละเอียดอาการ, อู่, วันที่รถเข้าอู่</span></li>
-            <li className="flex gap-2"><b className="text-[#1B8C4B]">3.</b><span><b>สถานะ · เอกสาร</b> — สถานะ, รหัส PR/PO, วันกำหนดเสร็จ, ราคาซ่อม, รับประกัน, หมายเหตุ</span></li>
+            <li className="flex gap-2"><b className="text-[#1B8C4B]">3.</b><span><b>สถานะ · เอกสาร</b> — สถานะ, รหัส PR, <b>รหัส PO (ใส่ได้หลายอัน — พิมพ์+Enter เป็นชิป)</b>, วันกำหนดเสร็จ, ราคาซ่อม, รับประกัน, หมายเหตุ</span></li>
           </ol>
           <p className="flex items-start gap-2 rounded-lg bg-[#FDF3DD] px-3 py-2 text-[12px] text-[#B07D12]">
             <Clock size={14} className="mt-0.5 shrink-0" />
-            ถ้าเลือกสถานะที่ต้องกรอกฟิลด์ (เช่น "รออนุมัติ" ต้องมีรหัส PO) ช่องนั้นจะ<b>ไฮไลต์สีเหลือง</b>และ<b>บันทึกไม่ได้</b>จนกว่าจะกรอก
+            ช่องที่<b>ต้องกรอกตามสถานะ</b> (รวมสถานะที่ข้ามมา) จะ<b>ไฮไลต์สีเหลือง</b>และ<b>บันทึกไม่ได้</b>จนกว่าจะกรอกครบ
           </p>
+          <p className="flex items-start gap-2"><span className="mt-0.5 shrink-0">💬</span><span><b>การต่อรอง</b> (ในหน้าแก้ไข ใต้หมายเหตุ) — เลือกขอบเขต <b>ทั้งหมด / ระบุสินค้า·บริการ</b> (ระบุได้หลายอัน) · กรอก <b>ราคาเสนอครั้งแรก · ราคาต่อรอง · ประกันเสนอครั้งแรก</b> (ระบบคำนวณส่วนลด %) · <b>แนบหลักฐานการต่อรอง</b>ได้</span></p>
         </Section>
 
         {/* มุมมองตาราง */}
         <Section icon={TableIcon} title="มุมมองตาราง">
           <ul className="ml-1 space-y-1.5">
-            <li className="flex items-start gap-2"><Filter size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>การ์ดสรุปด้านบน</b> — ค่าเฉลี่ยวันซ่อม, เลยกำหนด, การกระจายตามวันซ่อม</span></li>
-            <li className="flex items-start gap-2"><Search size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ค้นหา + ตัวกรอง</b> — ค้นหา MR/ทะเบียน/อาการ/PR/PO · กรองตาม อู่ / สร้างโดย / แก้ไขโดย (พิมพ์ค้นหาได้)</span></li>
-            <li className="flex items-start gap-2"><MousePointerClick size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ชิปสถานะ</b> — คลิกเพื่อกรองตามสถานะ · <b>คลิกทั้งแถว</b>เพื่อเปิดแก้ไข</span></li>
-            <li className="flex items-start gap-2"><Clock size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>คอลัมน์อายุงาน</b> — จำนวนวันตั้งแต่รับแจ้ง · แถวที่ค้าง ≥ 15 วันพื้นจะเป็นสีอ่อน</span></li>
+            <li className="flex items-start gap-2"><Filter size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>การ์ดสรุปด้านบน</b> — รถทั้งหมด (+เฉลี่ยวันซ่อม), ค้างเกินกำหนด (คลิกกรองได้), การกระจายตามวันซ่อม, และ<b>สัดส่วนตามฟลีท</b> (คลิกฟลีทเพื่อกรอง)</span></li>
+            <li className="flex items-start gap-2"><Search size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ค้นหา + ตัวกรอง</b> — ค้นหา MR/ทะเบียน/อาการ/PR/PO · กรองตาม <b>อู่ / ฟลีท / สร้างโดย / แก้ไขโดย</b> (พิมพ์ค้นหาได้)</span></li>
+            <li className="flex items-start gap-2"><MousePointerClick size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ชิปสถานะ</b> — คลิกกรองตามสถานะ · ปุ่ม <b>⏱️ ค้างเกินกำหนด</b> และ <b>🔍 ไม่มี PR</b> (รอใบเสนอราคาที่ยังไม่มี PR) · <b>คลิกทั้งแถว</b>เพื่อเปิดแก้ไข</span></li>
+            <li className="flex items-start gap-2"><Clock size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>คอลัมน์อายุงาน</b> — จำนวนวันตั้งแต่รับแจ้ง · แถวที่ค้าง ≥ 15 วันพื้นจะเป็นสีอ่อน · แสดง <b>ฟลีท/แพล้นท์</b> เป็นชิป</span></li>
             <li className="flex items-start gap-2"><Link2 size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>คลิกเลข MR / PR / PO</b> เพื่อ<b>คัดลอก</b>ได้ทันที</span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">📋</span><span>ปุ่ม <b>"คัดลอกสรุป"</b> (ข้าง "สถานะ:") — คัดลอกสรุปจำนวน/เฉลี่ยวันต่อสถานะ + priority + ลิงก์ พร้อมส่งกลุ่มไลน์</span></li>
           </ul>
         </Section>
 
         {/* มุมมองบอร์ด */}
         <Section icon={Columns3} title="มุมมองบอร์ด (Kanban)">
           <ul className="ml-1 space-y-1.5">
-            <li className="flex items-start gap-2"><Columns3 size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span>คอลัมน์ = สถานะ · การ์ด = รายการซ่อม (มีแถบความคืบหน้า, อายุงาน, ต้นทุน)</span></li>
-            <li className="flex items-start gap-2"><MousePointerClick size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ลากการ์ดข้ามคอลัมน์</b> = เปลี่ยนสถานะ — ถ้าสถานะปลายทางต้องกรอกฟิลด์ จะเด้งฟอร์มให้กรอกก่อน</span></li>
+            <li className="flex items-start gap-2"><Columns3 size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span>คอลัมน์ = 6 สถานะที่กำลังดำเนินการ · หัวคอลัมน์บอก<b>จำนวน + เฉลี่ยวัน</b> · การ์ดมี แถบความคืบหน้า, อายุ, ฟลีท/แพล้นท์, ต้นทุน, ป้าย <b>"⚠ ยังไม่มี PR"</b></span></li>
+            <li className="flex items-start gap-2"><MousePointerClick size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ลากการ์ดข้ามคอลัมน์</b> = เปลี่ยนสถานะ — ถ้าปลายทางต้องกรอกฟิลด์ (รวมที่ข้ามมา) จะเด้งฟอร์มให้กรอกก่อน <span className="text-[#9AA8A0]">(บนมือถือลากไม่ได้ ให้แก้ในฟอร์มแทน)</span></span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">📋</span><span>ปุ่ม<b>คัดลอกที่หัวคอลัมน์</b> — คัดลอกข้อมูลทุกคันในสถานะนั้นพร้อมอีโมจิ (ทะเบียน/ฟลีท/อาการ/อู่/อายุ/PR-PO/ราคา) พร้อมส่งกลุ่มไลน์</span></li>
           </ul>
         </Section>
 
