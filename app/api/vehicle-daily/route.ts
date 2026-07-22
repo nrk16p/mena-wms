@@ -11,10 +11,17 @@ const COLL = "vehicle_daily"
 export async function GET(req: NextRequest) {
   const plate   = req.nextUrl.searchParams.get("plate")?.trim()   ?? ""
   const fleetNo = req.nextUrl.searchParams.get("fleetNo")?.trim() ?? ""
-  if (!plate && !fleetNo) return NextResponse.json({})
 
   const client = await clientPromise
   const col    = client.db(ATMS).collection(COLL)
+
+  // ?fleets=1 → รายชื่อฟลีททั้งหมด (สำหรับ dropdown)
+  if (req.nextUrl.searchParams.get("fleets") === "1") {
+    const fleets = (await col.distinct("ฟลีท")).map((f) => String(f ?? "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b, "th"))
+    return NextResponse.json(fleets)
+  }
+
+  if (!plate && !fleetNo) return NextResponse.json({})
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = plate ? { "ทะเบียน": plate } : { "เบอร์รถ": fleetNo }
   const doc = await col.findOne(filter)

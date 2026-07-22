@@ -196,6 +196,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [slaOnly, setSlaOnly]       = useState(false)
   const [noPrOnly, setNoPrOnly]     = useState(false)
   const [users, setUsers] = useState<{ createdBy: string[]; editedBy: string[] }>({ createdBy: [], editedBy: [] })
+  const [fleetOptions, setFleetOptions] = useState<string[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -244,9 +245,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } catch { /* ignore */ }
   }, [])
 
+  const loadFleets = useCallback(async () => {
+    try {
+      const res  = await fetch("/api/vehicle-daily?fleets=1")
+      const data = await res.json()
+      setFleetOptions(Array.isArray(data) ? data : [])
+    } catch { /* ignore */ }
+  }, [])
+
   useEffect(() => { loadGarages() }, [loadGarages])
   useEffect(() => { loadStats() }, [loadStats])
   useEffect(() => { loadUsers() }, [loadUsers])
+  useEffect(() => { loadFleets() }, [loadFleets])
   // เปิดรายการจากลิงก์แชร์ ?id= (ครั้งเดียวตอนโหลด)
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("id")
@@ -1062,8 +1072,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <input type="date" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} className={inputCls} />
                   </div>
                   <div>
-                    <label className={labelCls}>ฟลีท <span className="text-[10px] font-normal text-gray-400">(auto)</span></label>
-                    <input value={form.fleet} onChange={(e) => setForm({ ...form, fleet: e.target.value })} className={inputCls + " bg-[#F6FAF7] dark:bg-white/5"} placeholder="ฟลีท" />
+                    <label className={labelCls}>ฟลีท <span className="text-[10px] font-normal text-gray-400">(auto · ไม่มีเลือกจาก list)</span></label>
+                    <input list="fleet-options" value={form.fleet} onChange={(e) => setForm({ ...form, fleet: e.target.value })} className={inputCls + " bg-[#F6FAF7] dark:bg-white/5"} placeholder="ฟลีท — พิมพ์หรือเลือก" />
+                    <datalist id="fleet-options">
+                      {fleetOptions.map((f) => <option key={f} value={f} />)}
+                    </datalist>
                   </div>
                   <div>
                     <label className={labelCls}>แพล้นท์ <span className="text-[10px] font-normal text-gray-400">(auto)</span></label>
@@ -1256,9 +1269,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <button onClick={() => setStep(step - 1)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">← ย้อนกลับ</button>
                 )}
                 <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
-                {step < 3 ? (
-                  <button onClick={() => setStep(step + 1)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]">ถัดไป →</button>
-                ) : (
+                {step < 3 && (
+                  editId ? (
+                    <button onClick={() => setStep(step + 1)} className="rounded-lg border border-[#1B8C4B]/40 px-4 py-2 text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/5">ถัดไป →</button>
+                  ) : (
+                    <button onClick={() => setStep(step + 1)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]">ถัดไป →</button>
+                  )
+                )}
+                {/* แก้ไข: บันทึกได้ทุกหน้า · สร้างใหม่: บันทึกที่หน้าสุดท้าย */}
+                {(editId || step === 3) && (
                   <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
                 )}
               </div>
