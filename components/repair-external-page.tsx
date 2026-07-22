@@ -189,13 +189,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
 
-  // ตัวกรอง ฟลีท / ผู้สร้าง / ผู้แก้ไข + ค้างเกิน SLA
-  const [fFleet, setFFleet]         = useState("")
-  const [fCreatedBy, setFCreatedBy] = useState("")
-  const [fEditedBy, setFEditedBy]   = useState("")
-  const [slaOnly, setSlaOnly]       = useState(false)
-  const [noPrOnly, setNoPrOnly]     = useState(false)
-  const [users, setUsers] = useState<{ createdBy: string[]; editedBy: string[] }>({ createdBy: [], editedBy: [] })
+  // ตัวกรอง ฟลีท + ค้างเกิน SLA
+  const [fFleet, setFFleet]     = useState("")
+  const [slaOnly, setSlaOnly]   = useState(false)
+  const [noPrOnly, setNoPrOnly] = useState(false)
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
 
   const load = useCallback(async () => {
@@ -206,8 +203,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     if (fStatus)    p.set("status", fStatus)
     if (fGarage)    p.set("garage", fGarage)
     if (fFleet)     p.set("fleet", fFleet)
-    if (fCreatedBy) p.set("createdBy", fCreatedBy)
-    if (fEditedBy)  p.set("editedBy", fEditedBy)
     if (dateFrom) p.set("dateFrom", dateFrom)
     if (dateTo)   p.set("dateTo", dateTo)
     try {
@@ -219,7 +214,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } finally {
       setLoading(false)
     }
-  }, [mode, q, fStatus, fGarage, fFleet, fCreatedBy, fEditedBy, dateFrom, dateTo])
+  }, [mode, q, fStatus, fGarage, fFleet, dateFrom, dateTo])
 
   const loadGarages = useCallback(async () => {
     try {
@@ -237,14 +232,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } catch { /* ignore */ }
   }, [mode])
 
-  const loadUsers = useCallback(async () => {
-    try {
-      const res  = await fetch("/api/repair-external/users")
-      const data = await res.json()
-      setUsers({ createdBy: data?.createdBy ?? [], editedBy: data?.editedBy ?? [] })
-    } catch { /* ignore */ }
-  }, [])
-
   const loadFleets = useCallback(async () => {
     try {
       const res  = await fetch("/api/vehicle-daily?fleets=1")
@@ -255,7 +242,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   useEffect(() => { loadGarages() }, [loadGarages])
   useEffect(() => { loadStats() }, [loadStats])
-  useEffect(() => { loadUsers() }, [loadUsers])
   useEffect(() => { loadFleets() }, [loadFleets])
   // เปิดรายการจากลิงก์แชร์ ?id= (ครั้งเดียวตอนโหลด)
   useEffect(() => {
@@ -534,9 +520,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  const hasFilter = q || fStatus || fGarage || fFleet || fCreatedBy || fEditedBy || slaOnly || noPrOnly || dateFrom || dateTo
+  const hasFilter = q || fStatus || fGarage || fFleet || slaOnly || noPrOnly || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFStatus(""); setFGarage(""); setFFleet(""); setFCreatedBy(""); setFEditedBy(""); setSlaOnly(false); setNoPrOnly(false); setDateFrom(""); setDateTo("")
+    setQ(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setDateFrom(""); setDateTo("")
   }
 
   // กรองฝั่ง client — ค้างเกิน SLA และ/หรือ รอใบเสนอราคาที่ไม่มี PR
@@ -711,12 +697,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           </div>
           <div className="min-w-[140px] flex-1">
             <FilterCombobox value={fFleet} options={stats.fleetDist.map((f) => f.fleet)} onChange={setFFleet} placeholder="🚚 ทุกฟลีท" />
-          </div>
-          <div className="min-w-[140px] flex-1">
-            <FilterCombobox value={fCreatedBy} options={users.createdBy} onChange={setFCreatedBy} placeholder="👤 สร้างโดย" />
-          </div>
-          <div className="min-w-[140px] flex-1">
-            <FilterCombobox value={fEditedBy} options={users.editedBy} onChange={setFEditedBy} placeholder="✎ แก้ไขโดย" />
           </div>
           {hasFilter && (
             <button onClick={clearFilters} className="inline-flex shrink-0 items-center gap-1 rounded-[11px] border border-[#E2E8E4] dark:border-white/10 px-3.5 py-2.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
