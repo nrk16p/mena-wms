@@ -67,7 +67,9 @@ type Stats = {
   total: number
   overdue: number
   slaBreached: number
+  noPr: number
   avgDays: number
+  avgByStatus: Record<string, number>
   agingBuckets: { lt8: number; d8_14: number; gte15: number }
   fleetDist: { fleet: string; count: number }[]
 }
@@ -183,7 +185,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // view + สรุปสถานะ
   const [view, setView]   = useState<"table" | "board">("table")
-  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, avgDays: 0, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
+  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
 
@@ -192,6 +194,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [fCreatedBy, setFCreatedBy] = useState("")
   const [fEditedBy, setFEditedBy]   = useState("")
   const [slaOnly, setSlaOnly]       = useState(false)
+  const [noPrOnly, setNoPrOnly]     = useState(false)
   const [users, setUsers] = useState<{ createdBy: string[]; editedBy: string[] }>({ createdBy: [], editedBy: [] })
 
   const load = useCallback(async () => {
@@ -229,7 +232,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     try {
       const res  = await fetch(`/api/repair-external/stats?scope=${mode}`)
       const data = await res.json()
-      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, avgDays: 0, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
+      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
     } catch { /* ignore */ }
   }, [mode])
 
@@ -373,6 +376,32 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     )
   }
 
+  // คัดลอกสรุปสถานะงาน (สำหรับส่งไลน์)
+  function copySummary() {
+    if (typeof window === "undefined") return
+    const lines: string[] = ["📋 สถานะงาน — รถซ่อมอู่นอก", ""]
+    let priority: { value: string; emoji: string } | null = null
+    let maxAvg = -1
+    ACTIVE_STATUSES.forEach((s) => {
+      const c = stats.counts[s.value] || 0
+      if (!c) return
+      const a = stats.avgByStatus[s.value] || 0
+      lines.push(`${s.emoji} ${s.value}  ${c} คัน | ⏱️เฉลี่ย ${a} วัน`)
+      if (a > maxAvg) { maxAvg = a; priority = s }
+    })
+    lines.push("", "-------------")
+    if (priority) {
+      const level = maxAvg >= 10 ? "High" : maxAvg >= 5 ? "Medium" : "Low"
+      lines.push(`priority : ${level} (${(priority as { emoji: string }).emoji} ${(priority as { value: string }).value})`)
+    }
+    lines.push("", `url : ${window.location.origin}/repair-external`)
+    const text = lines.join("\n")
+    navigator.clipboard?.writeText(text).then(
+      () => swalToast("success", "คัดลอกสรุปแล้ว"),
+      () => swalError("คัดลอกไม่สำเร็จ"),
+    )
+  }
+
   function copyShareLink() {
     if (!editId || typeof window === "undefined") return
     const url = `${window.location.origin}/repair-external?id=${editId}`
@@ -495,13 +524,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  const hasFilter = q || fStatus || fGarage || fFleet || fCreatedBy || fEditedBy || slaOnly || dateFrom || dateTo
+  const hasFilter = q || fStatus || fGarage || fFleet || fCreatedBy || fEditedBy || slaOnly || noPrOnly || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFStatus(""); setFGarage(""); setFFleet(""); setFCreatedBy(""); setFEditedBy(""); setSlaOnly(false); setDateFrom(""); setDateTo("")
+    setQ(""); setFStatus(""); setFGarage(""); setFFleet(""); setFCreatedBy(""); setFEditedBy(""); setSlaOnly(false); setNoPrOnly(false); setDateFrom(""); setDateTo("")
   }
 
-  // กรองฝั่ง client เฉพาะรายการค้างเกิน SLA (เปิดจากปุ่ม ⏱️)
-  const displayRows = slaOnly ? rows.filter((r) => slaInfo(r)?.over) : rows
+  // กรองฝั่ง client — ค้างเกิน SLA และ/หรือ รอใบเสนอราคาที่ไม่มี PR
+  let displayRows = rows
+  if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
+  if (noPrOnly) displayRows = displayRows.filter((r) => r.status === "รอใบเสนอราคา" && !r.prCode?.trim())
 
   // ฟิลด์ที่ต้องกรอก "สะสม" ตามสถานะ (รวมสถานะก่อนหน้าที่ข้ามมา) — สำหรับ hint/ไฮไลต์/validate
   const statusLocked = origStatus === REPAIR_LOCKED_STATUS  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
@@ -690,6 +721,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         <div className="mb-4 flex w-full flex-wrap items-center gap-1.5">
           <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">สถานะ:</span>
           <button
+            onClick={copySummary}
+            title="คัดลอกสรุปสถานะงาน (ส่งไลน์)"
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
+          >
+            <Copy size={12} /> คัดลอกสรุป
+          </button>
+          <button
             onClick={() => setFStatus("")}
             className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${!fStatus ? "bg-[#14271C] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
           >
@@ -718,6 +756,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${slaOnly ? "bg-[#DC2626] text-white" : "border border-[#F7CFCF] text-[#DC2626] hover:bg-[#FEECEC] dark:border-red-900/40 dark:hover:bg-red-950/20"}`}
           >
             ⏱️ ค้างเกินกำหนด <span className="opacity-80">{stats.slaBreached} คัน</span>
+          </button>
+          {/* รอใบเสนอราคา ไม่มี PR */}
+          <button
+            onClick={() => setNoPrOnly((v) => !v)}
+            title="รอใบเสนอราคา ที่ยังไม่มี PR"
+            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${noPrOnly ? "bg-[#B07D12] text-white" : "border border-[#FDE9BE] text-[#B07D12] hover:bg-[#FDF3DD] dark:border-amber-900/40 dark:hover:bg-amber-950/20"}`}
+          >
+            🔍 ไม่มี PR <span className="opacity-80">{stats.noPr} คัน</span>
           </button>
         </div>
       )}

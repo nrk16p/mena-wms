@@ -47,11 +47,15 @@ export async function GET(req: NextRequest) {
   })
   const slaBreached = slaConds.length ? await col.countDocuments({ $or: slaConds }) : 0
 
-  // ค่าเฉลี่ยวันซ่อม (today − receivedDate) + การกระจายตามอายุงาน
-  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, _id: 0 }).toArray()
+  // รอใบเสนอราคา ที่ยังไม่มี PR
+  const noPr = await col.countDocuments({ status: "รอใบเสนอราคา", $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
+
+  // ค่าเฉลี่ยวันซ่อม (today − receivedDate) + การกระจายตามอายุงาน + เฉลี่ยต่อสถานะ
+  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, status: 1, _id: 0 }).toArray()
   const nowMs = Date.now()
   let sum = 0, n = 0
   const agingBuckets = { lt8: 0, d8_14: 0, gte15: 0 }
+  const stSum: Record<string, number> = {}, stN: Record<string, number> = {}
   for (const d of dated) {
     const dt = new Date(d.receivedDate as string)
     if (isNaN(dt.getTime())) continue
@@ -60,8 +64,13 @@ export async function GET(req: NextRequest) {
     if (days >= 15) agingBuckets.gte15++
     else if (days >= 8) agingBuckets.d8_14++
     else agingBuckets.lt8++
+    const st = (d.status as string) || ""
+    stSum[st] = (stSum[st] || 0) + days
+    stN[st]   = (stN[st] || 0) + 1
   }
   const avgDays = n ? Math.round((sum / n) * 10) / 10 : 0
+  const avgByStatus: Record<string, number> = {}
+  for (const st of Object.keys(stN)) avgByStatus[st] = Math.round(stSum[st] / stN[st])
 
   // สัดส่วนตามฟลีท
   const fleetAgg = await col.aggregate([
@@ -71,5 +80,5 @@ export async function GET(req: NextRequest) {
   ]).toArray()
   const fleetDist = fleetAgg.map((f) => ({ fleet: (f._id as string) || "—", count: f.n as number }))
 
-  return NextResponse.json({ counts, total, overdue, slaBreached, avgDays, agingBuckets, fleetDist })
+  return NextResponse.json({ counts, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist })
 }

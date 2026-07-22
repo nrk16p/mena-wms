@@ -102,7 +102,7 @@ async function main() {
         plant:         v.plant,
         garage:        pick(garages),
         status,
-        prCode:        needPR ? `LBPR2607${String(100 + rnd(899))}` : "",
+        prCode:        (needPR && (status !== "รอใบเสนอราคา" || i % 2 === 0)) ? `LBPR2607${String(100 + rnd(899))}` : "",
         poCode:        needPO ? `LBPO2607${String(100 + rnd(899))}` : "",
         note:          Math.random() < 0.35 ? pick(["รออะไหล่", "มีนาจัดอะไหล่", "เคลมประกัน", "งานเพิ่ม"]) : "",
         repairPrice:   ["ซ่อมมีกำหนดเสร็จ", "รถเสร็จ", "รออนุมัติ"].includes(status) ? (1000 + rnd(40) * 500) : 0,
