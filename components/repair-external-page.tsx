@@ -346,19 +346,22 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // คัดลอกข้อมูลทั้งคอลัมน์เป็นข้อความพร้อมอีโมจิ (สำหรับส่งกลุ่มไลน์)
   function copyColumnLine(s: { value: string; emoji: string }, colRows: RepairExternal[], avgCol: number) {
     const lines: string[] = []
-    lines.push(`${s.emoji} ${s.value} — ${colRows.length} คัน (อายุเฉลี่ย ${avgCol} วัน)`)
+    lines.push(`${s.emoji} ${s.value} — ${colRows.length} คัน (เฉลี่ย ${avgCol} วัน)`)
     lines.push("━━━━━━━━━━━━━━")
     colRows.forEach((r, i) => {
       const sla = slaInfo(r)
+      const age = ageDays(r.receivedDate)
       lines.push(`${i + 1}. 🚚 ${r.plate || "-"}${r.fleetNo ? ` (${r.fleetNo})` : ""}${r.fleet ? ` · ${r.fleet}` : ""}`)
       if (r.symptom) lines.push(`   🔧 ${r.symptom}`)
       const meta: string[] = []
       if (r.garage) meta.push(`🏭 ${r.garage}`)
+      if (age !== null) meta.push(`🕐 ${age} วัน`)
       if (r.dueDate) meta.push(`📅 ${fmtDateShort(r.dueDate)}`)
       if (sla?.over) meta.push(`⏱️ ค้าง ${sla.days} วัน`)
       if (meta.length) lines.push(`   ${meta.join("  ")}`)
       const doc: string[] = []
       if (r.prCode) doc.push(`PR ${r.prCode}`)
+      else if (r.status === "รอใบเสนอราคา") doc.push("⚠ ยังไม่มี PR")
       if (r.poCode) doc.push(`PO ${r.poCode}`)
       if (r.repairPrice > 0) doc.push(`💰 ${fmtNum(r.repairPrice)}`)
       if (doc.length) lines.push(`   ${doc.join("  ")}`)
@@ -815,6 +818,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     </div>
                     {r.dueDate && <div className={`mt-1 text-[10.5px] ${dueOverdue ? "font-semibold text-[#DC2626]" : "text-[#9AA8A0]"}`}>📅 กำหนด {fmtDateShort(r.dueDate)}</div>}
                     {isDone && r.completedDate && <div className="mt-1 text-[10.5px] font-medium text-[#1B8C4B]">🏁 เสร็จ {fmtDateShort(r.completedDate)}</div>}
+                    {r.status === "รอใบเสนอราคา" && !r.prCode?.trim() && (
+                      <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
+                    )}
                     {(r.prCode || r.poCode) && (
                       <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10.5px] text-[#5B7568]">
                         {r.prCode && <span className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PR <CopyText value={r.prCode} /></span>}
@@ -875,7 +881,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         </span>
                       </div>
                     </div>
-                    <p className="mt-0.5 text-[10px] text-gray-400">อายุเฉลี่ย {avgCol} วัน</p>
+                    <p className="mt-0.5 text-[10px] text-gray-400">เฉลี่ย {avgCol} วัน</p>
                   </div>
                   <div className="min-h-[140px] flex-1 space-y-2 p-2">
                     {colRows.map((r) => {
@@ -912,6 +918,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                             {r.fleet && <span className="rounded bg-[#EAF6EE] px-1.5 py-0.5 text-[9.5px] font-medium text-[#0F6A3C] dark:bg-[#1B8C4B]/15 dark:text-[#4ade80]">🚚 {r.fleet}</span>}
                             {r.plant && <span className="rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[9.5px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🏭 {r.plant}</span>}
                           </div>
+                        )}
+                        {r.status === "รอใบเสนอราคา" && !r.prCode?.trim() && (
+                          <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
                         )}
                         <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#9AA8A0]">
                           <span className="truncate">{r.garage || "ยังไม่ระบุอู่"}</span>
