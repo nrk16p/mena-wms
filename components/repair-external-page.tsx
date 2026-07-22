@@ -1121,8 +1121,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <input value={form.prCode} onChange={(e) => setForm({ ...form, prCode: e.target.value })} className={inputCls + reqCls("prCode")} placeholder="รหัส PR" />
                   </div>
                   <div>
-                    <label className={labelCls}>รหัส PO {isReq("poCode") && <span className="text-amber-500">*</span>} <span className="text-[10px] font-normal text-gray-400">(หลายอันคั่นด้วย ,)</span></label>
-                    <input value={form.poCode} onChange={(e) => setForm({ ...form, poCode: e.target.value })} className={inputCls + reqCls("poCode")} placeholder="เช่น LBPO...1, LBPO...2" />
+                    <label className={labelCls}>รหัส PO {isReq("poCode") && <span className="text-amber-500">*</span>} <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
+                    <TagInput value={form.poCode} onChange={(v) => setForm({ ...form, poCode: v })} placeholder="พิมพ์รหัส PO แล้วกด Enter" invalid={isReq("poCode") && !form.poCode.trim()} />
                   </div>
                   <div>
                     <label className={labelCls}>วันกำหนดเสร็จ {isReq("dueDate") && <span className="text-amber-500">*</span>}</label>
@@ -1553,6 +1553,51 @@ function CommentRow({ c, reply }: { c: Comment; reply?: boolean }) {
         </div>
         <p className="whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">{c.text}</p>
       </div>
+    </div>
+  )
+}
+
+/* ── Tag input: หลายค่าเป็นชิป (เก็บเป็น string คั่นด้วย ,) เช่น รหัส PO ── */
+function TagInput({
+  value, onChange, placeholder, invalid,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  invalid?: boolean
+}) {
+  const tags = value.split(",").map((t) => t.trim()).filter(Boolean)
+  const [text, setText] = useState("")
+
+  function add(t: string) {
+    const v = t.trim()
+    setText("")
+    if (!v || tags.includes(v)) return
+    onChange([...tags, v].join(","))
+  }
+  function removeAt(i: number) {
+    onChange(tags.filter((_, j) => j !== i).join(","))
+  }
+
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 rounded-[11px] border bg-white dark:bg-[#0f1117] px-2.5 py-2 focus-within:border-[#1B8C4B] focus-within:ring-1 focus-within:ring-[#1B8C4B] ${invalid ? "border-amber-400 ring-1 ring-amber-400" : "border-[#E2E8E4] dark:border-white/10"}`}>
+      {tags.map((t, i) => (
+        <span key={i} className="inline-flex items-center gap-1 rounded-md bg-[#F0FDF4] dark:bg-[#1B8C4B]/15 px-2 py-0.5 font-mono text-xs font-medium text-[#1B8C4B]">
+          {t}
+          <button type="button" onClick={() => removeAt(i)} className="text-[#1B8C4B]/60 hover:text-[#DC2626]"><X size={12} /></button>
+        </span>
+      ))}
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(text) }
+          else if (e.key === "Backspace" && !text && tags.length) { removeAt(tags.length - 1) }
+        }}
+        onBlur={() => { if (text.trim()) add(text) }}
+        placeholder={tags.length ? "" : placeholder}
+        className="min-w-[110px] flex-1 border-0 bg-transparent p-0 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-0"
+      />
     </div>
   )
 }
