@@ -59,13 +59,13 @@ export function RepairGuidePage() {
 
         {/* Workflow สถานะ */}
         <Section icon={Timer} title="ขั้นตอนงาน (Workflow) & เกณฑ์ค้างงาน (SLA)">
-          <p>งานไหลตามสถานะด้านล่าง — <b>เปลี่ยนสถานะบางอันต้องกรอกข้อมูลก่อน</b> ระบบจะบังคับให้กรอก และเตือนเมื่อ<b>ค้างเกินกำหนด</b>:</p>
+          <p>งานไหลตามสถานะด้านล่าง — แต่ละขั้นมีข้อมูลที่ควรกรอก · เปลี่ยนสถานะกลางได้อิสระ (<b>ไม่มี PR/PO ก็ได้</b>) · จะ<b>บังคับข้อมูลครบก็ต่อเมื่อปิดเป็น "รถเสร็จ"</b> และเตือนเมื่อ<b>ค้างเกินกำหนด</b>:</p>
           <div className="overflow-x-auto">
             <table className="mt-1 w-full min-w-[520px] border-collapse text-[12.5px]">
               <thead>
                 <tr className="border-b border-[#EEF2F0] dark:border-white/8 text-left text-[11px] uppercase text-[#9AA8A0]">
                   <th className="py-2 pr-3 font-semibold">สถานะ</th>
-                  <th className="py-2 pr-3 font-semibold">ต้องกรอก</th>
+                  <th className="py-2 pr-3 font-semibold">ข้อมูลของขั้นนี้</th>
                   <th className="py-2 font-semibold">SLA (ไม่ควรค้างเกิน)</th>
                 </tr>
               </thead>
@@ -93,7 +93,7 @@ export function RepairGuidePage() {
           </div>
           <p className="pt-1 text-[12px] text-[#9AA8A0]">* สถานะปกติวัดค้างจาก <b>วันที่เข้าสถานะ</b> · "ซ่อมมีกำหนดเสร็จ" วัดจาก <b>วันกำหนดเสร็จ</b></p>
           <ul className="mt-1 ml-1 space-y-1">
-            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↔️</span><span><b>ข้ามสถานะได้</b> — แต่ต้องกรอกข้อมูลของ<b>ทุกสถานะก่อนหน้าที่ข้ามมา</b>ให้ครบด้วย (เช่น ข้ามไป "รถเสร็จ" ต้องมีครบทั้ง วันที่รถเข้าซ่อม / PO / วันกำหนดเสร็จ / วันที่ซ่อมเสร็จ)</span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↔️</span><span><b>ข้ามสถานะได้อิสระ</b> — สถานะกลางเปลี่ยนได้แม้ยัง<b>ไม่มี PR / PO</b> · ระบบจะ<b>บังคับข้อมูลให้ครบก็ต่อเมื่อปิดเป็น "รถเสร็จ"</b> (ตอนนั้นต้องมีครบทั้ง วันที่รถเข้าซ่อม / PO / วันกำหนดเสร็จ / วันที่ซ่อมเสร็จ)</span></li>
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↩️</span><span><b>ย้อนสถานะกลับได้</b> ผ่านปุ่มประวัติ (นาฬิกา) → "ย้อนเป็นสถานะก่อนหน้า"</span></li>
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">🔒</span><span><b>"รถเสร็จ" แล้วล็อก</b> — เปลี่ยน/ย้อนสถานะไม่ได้อีก (แก้ฟิลด์อื่นได้)</span></li>
           </ul>
@@ -102,13 +102,13 @@ export function RepairGuidePage() {
         {/* เพิ่ม/แก้ไข */}
         <Section icon={Plus} title="เพิ่ม / แก้ไขรายการ (ฟอร์ม 3 ขั้นตอน)">
           <ol className="ml-1 space-y-1.5">
-            <li className="flex gap-2"><b className="text-[#1B8C4B]">1.</b><span><b>ข้อมูลรถ</b> — พิมพ์/เลือก <b>ทะเบียนรถ</b> ระบบ<b>เติมเบอร์รถ / ฟลีท / แพล้นท์อัตโนมัติ</b> (จาก vehicle_daily พร้อมบอก<b>วันที่ของข้อมูล</b>) · แนบรูป/เอกสารได้</span></li>
+            <li className="flex gap-2"><b className="text-[#1B8C4B]">1.</b><span><b>ข้อมูลรถ</b> — พิมพ์/เลือก <b>ทะเบียนรถ</b> หรือ<b>เบอร์รถ</b> ก็ได้ ระบบ<b>เติมเบอร์รถ / ทะเบียน / ฟลีท / แพล้นท์อัตโนมัติ</b>ให้อีกฝั่ง (จาก vehicle_daily พร้อมบอก<b>วันที่ของข้อมูล</b>) · ถ้าไม่พบเลือกฟลีทจาก dropdown ได้ · แนบรูป/เอกสารได้</span></li>
             <li className="flex gap-2"><b className="text-[#1B8C4B]">2.</b><span><b>งานซ่อม</b> — รายละเอียดอาการ, อู่, วันที่รถเข้าอู่</span></li>
             <li className="flex gap-2"><b className="text-[#1B8C4B]">3.</b><span><b>สถานะ · เอกสาร</b> — สถานะ, รหัส PR, <b>รหัส PO (ใส่ได้หลายอัน — พิมพ์+Enter เป็นชิป)</b>, วันกำหนดเสร็จ, ราคาซ่อม, รับประกัน, หมายเหตุ</span></li>
           </ol>
           <p className="flex items-start gap-2 rounded-lg bg-[#FDF3DD] px-3 py-2 text-[12px] text-[#B07D12]">
             <Clock size={14} className="mt-0.5 shrink-0" />
-            ช่องที่<b>ต้องกรอกตามสถานะ</b> (รวมสถานะที่ข้ามมา) จะ<b>ไฮไลต์สีเหลือง</b>และ<b>บันทึกไม่ได้</b>จนกว่าจะกรอกครบ
+            บันทึกสถานะระหว่างทางได้เสมอแม้ข้อมูลไม่ครบ · <b>เฉพาะตอนปิดเป็น "รถเสร็จ"</b> ช่องที่ยังขาดจะ<b>ไฮไลต์สีเหลือง</b>และ<b>บันทึก/เปลี่ยนเป็นรถเสร็จไม่ได้</b>จนกว่าจะกรอกครบ
           </p>
           <p className="flex items-start gap-2"><span className="mt-0.5 shrink-0">💬</span><span><b>การต่อรอง</b> (ในหน้าแก้ไข ใต้หมายเหตุ) — เลือกขอบเขต <b>ทั้งหมด / ระบุสินค้า·บริการ</b> (ระบุได้หลายอัน) · กรอก <b>ราคาเสนอครั้งแรก · ราคาต่อรอง · ประกันเสนอครั้งแรก</b> (ระบบคำนวณส่วนลด %) · <b>แนบหลักฐานการต่อรอง</b>ได้</span></p>
         </Section>
@@ -118,7 +118,7 @@ export function RepairGuidePage() {
           <ul className="ml-1 space-y-1.5">
             <li className="flex items-start gap-2"><Filter size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>การ์ดสรุปด้านบน</b> — รถทั้งหมด (+เฉลี่ยวันซ่อม), ค้างเกินกำหนด (คลิกกรองได้), การกระจายตามวันซ่อม, และ<b>สัดส่วนตามฟลีท</b> (คลิกฟลีทเพื่อกรอง)</span></li>
             <li className="flex items-start gap-2"><Search size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ค้นหา + ตัวกรอง</b> — ค้นหา MR/ทะเบียน/อาการ/PR/PO · กรองตาม <b>อู่ / ฟลีท / สร้างโดย / แก้ไขโดย</b> (พิมพ์ค้นหาได้)</span></li>
-            <li className="flex items-start gap-2"><MousePointerClick size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ชิปสถานะ</b> — คลิกกรองตามสถานะ · ปุ่ม <b>⏱️ ค้างเกินกำหนด</b> และ <b>🔍 ไม่มี PR</b> (รอใบเสนอราคาที่ยังไม่มี PR) · <b>คลิกทั้งแถว</b>เพื่อเปิดแก้ไข</span></li>
+            <li className="flex items-start gap-2"><MousePointerClick size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>ชิปสถานะ</b> — คลิกกรองตามสถานะ · ปุ่ม <b>⏱️ ค้างเกินกำหนด</b> และ <b>🔍 ไม่มี PR</b> (ทุกสถานะที่ยังไม่มี PR) · <b>คลิกทั้งแถว</b>เพื่อเปิดแก้ไข</span></li>
             <li className="flex items-start gap-2"><Clock size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>คอลัมน์อายุงาน</b> — จำนวนวันตั้งแต่รับแจ้ง · แถวที่ค้าง ≥ 15 วันพื้นจะเป็นสีอ่อน · แสดง <b>ฟลีท/แพล้นท์</b> เป็นชิป</span></li>
             <li className="flex items-start gap-2"><Link2 size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>คลิกเลข MR / PR / PO</b> เพื่อ<b>คัดลอก</b>ได้ทันที</span></li>
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">📋</span><span>ปุ่ม <b>"คัดลอกสรุป"</b> (ข้าง "สถานะ:") — คัดลอกสรุปจำนวน/เฉลี่ยวันต่อสถานะ + priority + ลิงก์ พร้อมส่งกลุ่มไลน์</span></li>

@@ -47,8 +47,8 @@ export async function GET(req: NextRequest) {
   })
   const slaBreached = slaConds.length ? await col.countDocuments({ $or: slaConds }) : 0
 
-  // รอใบเสนอราคา ที่ยังไม่มี PR
-  const noPr = await col.countDocuments({ status: "รอใบเสนอราคา", $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
+  // รายการที่ยังไม่มี PR (ทุกสถานะในขอบเขต)
+  const noPr = await col.countDocuments({ ...match, $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
 
   // ค่าเฉลี่ยวันซ่อม (today − receivedDate) + การกระจายตามอายุงาน + เฉลี่ยต่อสถานะ
   const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, status: 1, _id: 0 }).toArray()

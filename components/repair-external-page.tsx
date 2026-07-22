@@ -256,6 +256,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, form.plate])
+  // ค้นหาจากเบอร์รถ → เติมทะเบียน/ฟลีท/แพล้นท์ — debounce
+  useEffect(() => {
+    if (!open || !form.fleetNo.trim()) return
+    const t = setTimeout(() => fillByFleetNo(form.fleetNo), 400)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, form.fleetNo])
   useEffect(() => {
     const t = setTimeout(load, 250)
     return () => clearTimeout(t)
@@ -342,6 +349,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } catch { /* ignore */ }
   }
 
+  // ค้นหาจาก "เบอร์รถ" → เติมทะเบียน/ฟลีท/แพล้นท์
+  async function fillByFleetNo(fleetNo: string) {
+    if (!fleetNo.trim()) return
+    try {
+      const res = await fetch(`/api/vehicle-daily?fleetNo=${encodeURIComponent(fleetNo.trim())}`)
+      const d   = await res.json()
+      if (d && (d.plate || d.fleet || d.plant)) {
+        setForm((f) => ({ ...f, fleet: d.fleet || f.fleet, plant: d.plant || f.plant, ...(d.plate && !f.plate ? { plate: d.plate } : {}) }))
+        setVdRef(d.date || "")
+      }
+    } catch { /* ignore */ }
+  }
+
   // คัดลอกข้อมูลทั้งคอลัมน์เป็นข้อความพร้อมอีโมจิ (สำหรับส่งกลุ่มไลน์)
   function copyColumnLine(s: { value: string; emoji: string }, colRows: RepairExternal[], avgCol: number) {
     const lines: string[] = []
@@ -360,7 +380,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (meta.length) lines.push(`   ${meta.join("  ")}`)
       const doc: string[] = []
       if (r.prCode) doc.push(`PR ${r.prCode}`)
-      else if (r.status === "รอใบเสนอราคา") doc.push("⚠ ยังไม่มี PR")
+      else doc.push("⚠ ยังไม่มี PR")
       if (r.poCode) doc.push(`PO ${r.poCode}`)
       if (r.repairPrice > 0) doc.push(`💰 ${fmtNum(r.repairPrice)}`)
       if (doc.length) lines.push(`   ${doc.join("  ")}`)
@@ -410,11 +430,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   async function save() {
     if (!form.plate.trim())  { swalError("กรุณาระบุทะเบียนรถ"); return }
     if (!form.status)        { swalError("กรุณาเลือกสถานะ"); return }
-    // บังคับกรอกฟิลด์สะสม (รวมสถานะที่ข้ามมา) ก่อนบันทึก
-    const missing = requiredFieldsFor(form.status).filter((r) => !String(form[r.field] ?? "").trim())
-    if (missing.length) {
-      swalError(`สถานะ “${form.status}” ต้องกรอกให้ครบก่อนบันทึก:\n${missing.map((m) => `• ${m.label}`).join("\n")}`)
-      return
+    // บังคับกรอกให้ครบ "เฉพาะตอนปิดเป็นรถเสร็จ" (สถานะกลางไม่มี PR/PO ได้)
+    if (form.status === REPAIR_LOCKED_STATUS) {
+      const missing = requiredFieldsFor(form.status).filter((r) => !String(form[r.field] ?? "").trim())
+      if (missing.length) {
+        swalError(`ปิดงานเป็น “รถเสร็จ” ต้องกรอกให้ครบก่อน:\n${missing.map((m) => `• ${m.label}`).join("\n")}`)
+        return
+      }
     }
     setSaving(true)
     try {
@@ -442,8 +464,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // ── Kanban: ลากการ์ดเปลี่ยนสถานะ ──
   async function moveStatus(r: RepairExternal, newStatus: string) {
     if (r.status === newStatus) return
-    // ต้องกรอกฟิลด์สะสม (รวมสถานะที่ข้าม) ให้ครบ — ถ้าไม่ครบ เปิด modal ให้กรอก
-    const missing = requiredFieldsFor(newStatus).filter((f) => !String(r[f.field] ?? "").trim())
+    // บังคับข้อมูลครบ "เฉพาะตอนจะปิดเป็นรถเสร็จ" — สถานะกลางเปลี่ยนได้เลยแม้ไม่มี PR/PO
+    const missing = newStatus === REPAIR_LOCKED_STATUS
+      ? requiredFieldsFor(newStatus).filter((f) => !String(r[f.field] ?? "").trim())
+      : []
     if (missing.length) {
       setEditId(r._id)
       setStep(3)  // ไปหน้าสถานะ·เอกสาร ที่มีฟิลด์ที่ต้องกรอก
@@ -528,11 +552,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // กรองฝั่ง client — ค้างเกิน SLA และ/หรือ รอใบเสนอราคาที่ไม่มี PR
   let displayRows = rows
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
-  if (noPrOnly) displayRows = displayRows.filter((r) => r.status === "รอใบเสนอราคา" && !r.prCode?.trim())
+  if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
 
   // ฟิลด์ที่ต้องกรอก "สะสม" ตามสถานะ (รวมสถานะก่อนหน้าที่ข้ามมา) — สำหรับ hint/ไฮไลต์/validate
   const statusLocked = origStatus === REPAIR_LOCKED_STATUS  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
-  const reqFields    = requiredFieldsFor(form.status)
+  // บังคับกรอกข้อมูลครบ "เฉพาะตอนจะปิดเป็นรถเสร็จ" — สถานะกลางไม่บังคับ (ไม่มี PR/PO ได้)
+  const reqFields    = form.status === REPAIR_LOCKED_STATUS ? requiredFieldsFor(form.status) : []
   const reqFieldSet  = new Set(reqFields.map((r) => r.field))
   const missingReq   = reqFields.filter((r) => !String(form[r.field] ?? "").trim())
   const isReq = (f: RepairField) => reqFieldSet.has(f)
@@ -750,7 +775,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           {/* รอใบเสนอราคา ไม่มี PR */}
           <button
             onClick={() => setNoPrOnly((v) => !v)}
-            title="รอใบเสนอราคา ที่ยังไม่มี PR"
+            title="รายการที่ยังไม่มี PR (ทุกสถานะ)"
             className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${noPrOnly ? "bg-[#B07D12] text-white" : "border border-[#FDE9BE] text-[#B07D12] hover:bg-[#FDF3DD] dark:border-amber-900/40 dark:hover:bg-amber-950/20"}`}
           >
             🔍 ไม่มี PR <span className="opacity-80">{stats.noPr} คัน</span>
@@ -854,7 +879,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     </div>
                     {r.dueDate && <div className={`mt-1 text-[10.5px] ${dueOverdue ? "font-semibold text-[#DC2626]" : "text-[#9AA8A0]"}`}>📅 กำหนด {fmtDateShort(r.dueDate)}</div>}
                     {isDone && r.completedDate && <div className="mt-1 text-[10.5px] font-medium text-[#1B8C4B]">🏁 เสร็จ {fmtDateShort(r.completedDate)}</div>}
-                    {r.status === "รอใบเสนอราคา" && !r.prCode?.trim() && (
+                    {!r.prCode?.trim() && (
                       <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
                     )}
                     {(r.prCode || r.poCode) && (
@@ -935,8 +960,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         className={`group cursor-grab rounded-[11px] border bg-white dark:bg-[#0f1117] p-2.5 text-left shadow-sm transition hover:shadow-md active:cursor-grabbing ${dragId === r._id ? "opacity-50" : ""} border-[#EEF2F0] dark:border-white/10`}
                       >
                         <div className="flex items-center justify-between gap-1">
-                          <span className="min-w-0 truncate text-[13px] font-semibold text-[#14271C] dark:text-white">
-                            {r.plate || "—"}{r.fleetNo && <span className="ml-1 text-[10px] font-normal text-[#9AA8A0]">เบอร์ {r.fleetNo}</span>}
+                          <span className="min-w-0 truncate">
+                            <span className="text-[15px] font-bold text-[#14271C] dark:text-white">{r.fleetNo || r.plate || "—"}</span>
+                            {r.fleetNo && r.plate && <span className="ml-1.5 text-[10px] font-normal text-[#9AA8A0]">{r.plate}</span>}
                           </span>
                           {days !== null && bkt && (
                             <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ color: bkt.text, background: bkt.bg }}>{days} วัน</span>
@@ -955,7 +981,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                             {r.plant && <span className="rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[9.5px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🏭 {r.plant}</span>}
                           </div>
                         )}
-                        {r.status === "รอใบเสนอราคา" && !r.prCode?.trim() && (
+                        {!r.prCode?.trim() && (
                           <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
                         )}
                         <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#9AA8A0]">
@@ -1041,7 +1067,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     />
                   </div>
                   <div>
-                    <label className={labelCls}>เบอร์รถ <span className="text-[10px] font-normal text-gray-400">(เติมอัตโนมัติ)</span></label>
+                    <label className={labelCls}>เบอร์รถ <span className="text-[10px] font-normal text-gray-400">(auto · พิมพ์เพื่อค้นหาได้)</span></label>
                     <div className="relative">
                       <input value={form.fleetNo} onChange={(e) => setForm({ ...form, fleetNo: e.target.value })} className={inputCls + " bg-[#F6FAF7] dark:bg-white/5"} placeholder="เบอร์รถ" />
                       {form.fleetNo && <Check size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#1B8C4B]" />}
