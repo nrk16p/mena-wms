@@ -1493,8 +1493,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   )
 }
 
-/* ── ทะเบียนรถ combobox: ค้นหาจาก vehicle_master, เลือกแล้วเติมเบอร์รถให้ ── */
-type Vehicle = { plate: string; fleetNo?: string; vehicleType?: string }
+/* ── ทะเบียนรถ combobox: ค้นหาจาก atms.vehicle_daily (ล่าสุด), เลือกแล้วเติมเบอร์รถให้ ── */
+type Vehicle = { plate: string; fleetNo?: string; fleet?: string; vehicleType?: string }
 
 function PlateCombobox({
   plate, onChange,
@@ -1527,7 +1527,7 @@ function PlateCombobox({
     setLoading(true)
     const t = setTimeout(async () => {
       try {
-        const res  = await fetch(`/api/vehicles?q=${encodeURIComponent(query)}&limit=20`)
+        const res  = await fetch(`/api/vehicle-daily?q=${encodeURIComponent(query)}&limit=20`)
         const data = await res.json()
         setOpts(Array.isArray(data) ? data : [])
       } catch { setOpts([]) } finally { setLoading(false) }
@@ -1549,7 +1549,7 @@ function PlateCombobox({
         <div className="absolute z-[60] mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-lg py-1">
           {loading && <p className="px-3 py-2 text-xs text-gray-400">กำลังค้นหา...</p>}
           {!loading && opts.length === 0 && (
-            <p className="px-3 py-2 text-xs text-gray-400">ไม่พบทะเบียนใน master — ใช้ค่าที่พิมพ์ได้เลย</p>
+            <p className="px-3 py-2 text-xs text-gray-400">ไม่พบทะเบียนใน vehicle_daily — ใช้ค่าที่พิมพ์ได้เลย</p>
           )}
           {opts.map((v) => (
             <button
@@ -1560,7 +1560,7 @@ function PlateCombobox({
             >
               <span className="font-medium">{v.plate}</span>
               <span className="shrink-0 text-xs text-gray-400">
-                {v.fleetNo ? `เบอร์ ${v.fleetNo}` : ""}{v.vehicleType ? ` · ${v.vehicleType}` : ""}
+                {v.fleetNo ? `เบอร์ ${v.fleetNo}` : ""}{v.fleet ? ` · ${v.fleet}` : ""}
               </span>
             </button>
           ))}
@@ -1601,7 +1601,7 @@ function FleetNoCombobox({
     setLoading(true)
     const t = setTimeout(async () => {
       try {
-        const res  = await fetch(`/api/vehicles?q=${encodeURIComponent(query)}&limit=20`)
+        const res  = await fetch(`/api/vehicle-daily?q=${encodeURIComponent(query)}&limit=20`)
         const data = await res.json()
         setOpts(Array.isArray(data) ? (data as Vehicle[]).filter((v) => v.fleetNo?.trim()) : [])
       } catch { setOpts([]) } finally { setLoading(false) }
@@ -1624,7 +1624,7 @@ function FleetNoCombobox({
         <div className="absolute z-[60] mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-lg py-1">
           {loading && <p className="px-3 py-2 text-xs text-gray-400">กำลังค้นหา...</p>}
           {!loading && opts.length === 0 && (
-            <p className="px-3 py-2 text-xs text-gray-400">ไม่พบเบอร์รถใน master — ใช้ค่าที่พิมพ์ได้เลย</p>
+            <p className="px-3 py-2 text-xs text-gray-400">ไม่พบเบอร์รถใน vehicle_daily — ใช้ค่าที่พิมพ์ได้เลย</p>
           )}
           {opts.map((v) => (
             <button
@@ -1635,7 +1635,7 @@ function FleetNoCombobox({
             >
               <span className="font-medium">{v.fleetNo}</span>
               <span className="shrink-0 text-xs text-gray-400">
-                {v.plate}{v.vehicleType ? ` · ${v.vehicleType}` : ""}
+                {v.plate}{v.fleet ? ` · ${v.fleet}` : ""}
               </span>
             </button>
           ))}
