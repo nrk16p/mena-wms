@@ -40,6 +40,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "รายการที่ซ่อมเสร็จแล้ว ย้อนสถานะกลับไม่ได้" }, { status: 409 })
   }
 
+  // กันทะเบียนซ้ำ: ถ้าผลลัพธ์ยัง "ไม่เสร็จ" ต้องไม่มีรายการอื่นทะเบียนเดียวกันที่ยังไม่เสร็จ
+  if (doc.status !== "รถเสร็จ") {
+    const dup = await col.findOne({ _id: { $ne: new ObjectId(id) }, plate: doc.plate, status: { $ne: "รถเสร็จ" } })
+    if (dup) return NextResponse.json({ error: `รถ ${doc.plate} มีรายการซ่อมที่ยังไม่เสร็จอยู่แล้ว (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
+  }
+
   const changes = diffRepair(existing, doc)
   const now = new Date()
   // อัปเดตวันเข้าสถานะเมื่อสถานะเปลี่ยนเท่านั้น (ไว้คำนวณ "ค้างในสถานะกี่วัน")

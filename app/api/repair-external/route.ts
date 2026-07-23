@@ -105,6 +105,12 @@ export async function POST(req: NextRequest) {
   const db      = client.db(DB)
   const col     = db.collection(COLL)
 
+  // กันทะเบียนซ้ำ: รถ 1 ทะเบียน มีรายการที่ยัง "ไม่เสร็จ" ได้แค่ 1 รายการ
+  if (doc.status !== "รถเสร็จ") {
+    const dup = await col.findOne({ plate: doc.plate, status: { $ne: "รถเสร็จ" } })
+    if (dup) return NextResponse.json({ error: `รถ ${doc.plate} มีรายการซ่อมที่ยังไม่เสร็จอยู่แล้ว เปิดใหม่ไม่ได้ (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
+  }
+
   const now   = new Date()
   const today = now.toISOString().slice(0, 10)
   const by    = session?.user?.name || session?.user?.email || ""

@@ -486,11 +486,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...rest, status: newStatus }),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "เปลี่ยนสถานะไม่สำเร็จ") }
       swalToast("success", `ย้ายเป็น “${newStatus}”`)
       load(); loadStats()
-    } catch {
-      swalError("เปลี่ยนสถานะไม่สำเร็จ")
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "เปลี่ยนสถานะไม่สำเร็จ")
     }
   }
 
@@ -553,6 +553,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   let displayRows = rows
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
+
+  // ทะเบียนซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ต้องเหลือคันละ 1 รายการ (คำนวณจาก rows ทั้งหมด)
+  const dupPlates = (() => {
+    const cnt: Record<string, number> = {}
+    for (const r of rows) {
+      if (r.status === REPAIR_LOCKED_STATUS) continue
+      const p = (r.plate || "").trim()
+      if (p) cnt[p] = (cnt[p] || 0) + 1
+    }
+    return new Set(Object.keys(cnt).filter((p) => cnt[p] > 1))
+  })()
+  const isDup = (r: RepairExternal) => !!r.plate && dupPlates.has(r.plate.trim())
 
   // ฟิลด์ที่ต้องกรอก "สะสม" ตามสถานะ (รวมสถานะก่อนหน้าที่ข้ามมา) — สำหรับ hint/ไฮไลต์/validate
   const statusLocked = origStatus === REPAIR_LOCKED_STATUS  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
@@ -791,6 +803,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </p>
       )}
 
+      {/* เตือนทะเบียนซ้ำ — รถ 1 คันต้องมีรายการที่ยังไม่เสร็จได้แค่ 1 รายการ */}
+      {!isDone && dupPlates.size > 0 && (
+        <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-red-300 bg-red-50 px-4 py-3 text-[13px] text-red-700 dark:border-red-500/40 dark:bg-red-900/20 dark:text-red-300">
+          <span className="mt-0.5 shrink-0">⚠</span>
+          <span>
+            <b>พบทะเบียนซ้ำ {dupPlates.size} คัน</b> — รถ 1 คันควรมีรายการซ่อมที่ยัง<b>ไม่เสร็จ</b>ได้แค่ 1 รายการ กรุณา<b>ลบให้เหลือคันละ 1 รายการ</b>
+            <span className="ml-1 opacity-80">({Array.from(dupPlates).join(", ")})</span>
+          </span>
+        </div>
+      )}
+
       {/* Roomy table (1a) */}
       {(view === "table" || isDone) && (
         <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
@@ -850,6 +873,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   {/* รถ */}
                   <div className="min-w-0">
                     <div className="truncate text-[14px] font-semibold text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</div>
+                    {isDup(r) && <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
                     {r.fleetNo && <div className="text-[11px] text-[#5B7568]">เบอร์ {r.fleetNo}</div>}
                     {(r.fleet || r.plant) && (
                       <div className="mt-1 flex flex-wrap gap-1">
@@ -957,7 +981,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         onDragStart={() => setDragId(r._id)}
                         onDragEnd={() => { setDragId(null); setDragOverStatus(null) }}
                         onClick={() => openEdit(r)}
-                        className={`group cursor-grab rounded-[11px] border bg-white dark:bg-[#0f1117] p-2.5 text-left shadow-sm transition hover:shadow-md active:cursor-grabbing ${dragId === r._id ? "opacity-50" : ""} border-[#EEF2F0] dark:border-white/10`}
+                        className={`group cursor-grab rounded-[11px] border bg-white dark:bg-[#0f1117] p-2.5 text-left shadow-sm transition hover:shadow-md active:cursor-grabbing ${dragId === r._id ? "opacity-50" : ""} ${isDup(r) ? "border-red-400 dark:border-red-500/60" : "border-[#EEF2F0] dark:border-white/10"}`}
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span className="min-w-0 truncate">
@@ -968,6 +992,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                             <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ color: bkt.text, background: bkt.bg }}>{days} วัน</span>
                           )}
                         </div>
+                        {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[9.5px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
                         <div className="mt-1 line-clamp-2 text-[10.5px] text-[#5B7568] dark:text-gray-400" title={r.symptom}>{r.symptom || "—"}</div>
                         {/* workflow progress */}
                         <div className="mt-2 flex gap-0.5">
