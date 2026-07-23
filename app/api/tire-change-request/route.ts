@@ -131,6 +131,33 @@ export async function POST(req: NextRequest) {
 
   const session = await getServerSession(authOptions)
 
+  const client = await clientPromise
+  const col = client.db(DB).collection(COLL)
+
+  // ยางเส้นอื่นของรถคันเดียวกันที่ขอเปลี่ยนระหว่างที่ยังมีคำขอค้างอยู่ (ยังไม่ done/rejected)
+  // ให้รวมเข้าคำขอเดิม ไม่สร้างใบใหม่ — เพื่อให้นัดหมายเปลี่ยนยางทั้งคันในวันเดียวกันได้จากคำขอใบเดียว
+  const active = await col
+    .find({ branch, plate, status: { $in: ["pending", "approved", "appointment"] } })
+    .sort({ createdAt: -1 })
+    .limit(1)
+    .toArray()
+
+  if (active[0]) {
+    const existing = active[0]
+    const refresh = {
+      driverName,
+      truckNumber,
+      currentOdometer,
+      odometerPhoto: String(body.odometerPhoto ?? existing.odometerPhoto ?? ""),
+      fleet:         String(body.fleet ?? existing.fleet ?? ""),
+      plant:         String(body.plant ?? existing.plant ?? ""),
+      vehicleType:   String(body.vehicleType ?? existing.vehicleType ?? ""),
+      updatedAt:     new Date(),
+    }
+    await col.updateOne({ _id: existing._id }, { $set: refresh })
+    return NextResponse.json({ ...existing, ...refresh, _id: existing._id })
+  }
+
   const doc = {
     branch,
     driverName,
@@ -150,8 +177,6 @@ export async function POST(req: NextRequest) {
     createdAt:        new Date(),
   }
 
-  const client = await clientPromise
-  const col = client.db(DB).collection(COLL)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await col.insertOne(doc as any)
 

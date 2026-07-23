@@ -6,9 +6,12 @@ import { useSession } from "next-auth/react"
 import {
   Truck, Search, ArrowLeft, RefreshCw, History, ClipboardCheck,
   Check, X, Camera, ChevronDown, ChevronUp, Flag, CalendarClock, Gauge,
+  List, CalendarDays, ChevronLeft, ChevronRight,
 } from "lucide-react"
 import Swal from "sweetalert2"
 import { swalConfirm, swalToast, swalError } from "@/lib/swal"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Calendar } from "@/components/ui/calendar"
 
 // ===========================================================================
 // SECTION 1: Types
@@ -153,6 +156,14 @@ const fmtDate = (s?: string | null) => {
   const d = new Date(s)
   if (isNaN(d.getTime())) return "—"
   return d.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+}
+
+// นัดหมาย ไม่มีการเลือกเวลา — แสดงเฉพาะวันที่
+const fmtDateOnly = (s?: string | null) => {
+  if (!s) return "—"
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString("th-TH", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
 const fmtNum = (n?: number | null) => (n ?? 0).toLocaleString("th-TH")
@@ -869,7 +880,7 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
                           <p className="mt-0.5 text-[11px] text-blue-600/80 dark:text-blue-300/70">
                             สาเหตุ: {selectedTire.request.reason || "—"}
                             {selectedTire.request.driverName ? ` · คนขับ: ${selectedTire.request.driverName}` : ""}
-                            {selectedTire.request.appointmentDate ? ` · นัด ${fmtDate(selectedTire.request.appointmentDate)}` : ""}
+                            {selectedTire.request.appointmentDate ? ` · นัด ${fmtDateOnly(selectedTire.request.appointmentDate)}` : ""}
                           </p>
                           {selectedTire.request.itemStatus === "approved" && (
                             <button type="button" disabled={acting} onClick={() => handleEditJob(selectedTire)}
@@ -1272,11 +1283,13 @@ function RequestsTab({ branchFilter, onChanged }: {
   const { data: session } = useSession()
   const [items, setItems]     = useState<TireRequest[]>([])
   const [loading, setLoading] = useState(true)
-  const [statusTab, setStatusTab] = useState("pending")
+  const [statusTab, setStatusTab] = useState("")
   const [q, setQ]             = useState("")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [acting, setActing]   = useState(false)
   const [mrMap, setMrMap]     = useState<Record<string, MrInfo | undefined>>({})
+  const [view, setView]       = useState<"list" | "calendar">("list")
+  const [appointmentTarget, setAppointmentTarget] = useState<TireRequest | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1430,20 +1443,14 @@ function RequestsTab({ branchFilter, onChanged }: {
     itemPatch(r, it, { action: "editJob", jobNo: String(jobNo).trim() }, `อัปเดตเลข Job ${it.positionCode || it.serialNo} แล้ว`)
   }
 
-  async function handleAppointment(r: TireRequest) {
-    const { value, isConfirmed } = await Swal.fire<string>({
-      title: "นัดหมายเปลี่ยนยาง",
-      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b> · ${r.driverName}</div>`,
-      input: "text",
-      inputLabel: "วัน-เวลานัดหมาย",
-      inputAttributes: { type: "datetime-local" },
-      showCancelButton: true,
-      confirmButtonText: "บันทึกนัดหมาย",
-      cancelButtonText: "ยกเลิก",
-      reverseButtons: true,
-    })
-    if (!isConfirmed || !value) return
-    requestPatch(r, { action: "appointment", date: value }, "บันทึกนัดหมายแล้ว")
+  function handleAppointment(r: TireRequest) {
+    setAppointmentTarget(r)
+  }
+
+  function confirmAppointment(dateIso: string) {
+    if (!appointmentTarget) return
+    requestPatch(appointmentTarget, { action: "appointment", date: dateIso }, "บันทึกนัดหมายแล้ว")
+    setAppointmentTarget(null)
   }
 
   async function handleDone(r: TireRequest) {
@@ -1528,10 +1535,39 @@ function RequestsTab({ branchFilter, onChanged }: {
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียน / คนขับ / เบอร์รถ / เลข Job..." className={inp + " w-full pl-8"} />
         </div>
+        <div className="flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
+          {([
+            { key: "list" as const,     label: "รายการ", Icon: List },
+            { key: "calendar" as const, label: "ปฏิทิน",  Icon: CalendarDays },
+          ]).map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setView(key)}
+              className={[
+                "inline-flex items-center gap-1 rounded-[9px] px-3 py-1 text-[12px] font-medium transition-colors",
+                view === key
+                  ? "bg-[#1B8C4B] text-white"
+                  : "text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5",
+              ].join(" ")}
+              style={fontThai}
+            >
+              <Icon size={12} /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <p className="mb-1.5 text-[12px] text-gray-400" style={fontThai}>{loading ? "กำลังโหลด..." : `${fmtNum(groups.length)} ทะเบียน`}</p>
 
+      {view === "calendar" ? (
+        <AppointmentCalendarView
+          groups={groups}
+          onAppointment={handleAppointment}
+          onDone={handleDone}
+          acting={acting}
+        />
+      ) : (
       <div className={card + " overflow-hidden"}>
         <div>
           <table className="w-full text-sm">
@@ -1545,21 +1581,24 @@ function RequestsTab({ branchFilter, onChanged }: {
                 <th className={thCls + " text-center"}>ยางที่ขอ</th>
                 <th className={thCls}>สถานะ</th>
                 <th className={thCls}>ล่าสุด</th>
+                <th className={thCls}>จัดการ</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-14 text-center text-sm text-gray-400">
+                <tr><td colSpan={9} className="px-4 py-14 text-center text-sm text-gray-400">
                   <RefreshCw size={18} className="mx-auto mb-2 animate-spin text-gray-300 dark:text-gray-600" />
                   กำลังโหลด...
                 </td></tr>
               ) : groups.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
+                <tr><td colSpan={9} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
                   <ClipboardCheck size={20} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                   ไม่พบคำขอ
                 </td></tr>
               ) : groups.map((g, i) => {
                 const isOpen = expanded === g.key
+                const approvedReq    = g.requests.find((r) => (r.status ?? "pending") === "approved")
+                const appointmentReq = g.requests.find((r) => r.status === "appointment")
                 return (
                   <React.Fragment key={g.key}>
                     <tr
@@ -1591,12 +1630,32 @@ function RequestsTab({ branchFilter, onChanged }: {
                         </div>
                       </td>
                       <td className={tdCls}>{fmtDate(g.latestCreatedAt)}</td>
+                      <td className="whitespace-nowrap px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                        {approvedReq || appointmentReq ? (
+                          <div className="flex items-center gap-1.5">
+                            {approvedReq && (
+                              <button disabled={acting} onClick={() => handleAppointment(approvedReq)}
+                                className={btnSmall + " cursor-pointer inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
+                                <CalendarClock size={11} /> นัดหมาย
+                              </button>
+                            )}
+                            {appointmentReq && (
+                              <button disabled={acting} onClick={() => handleDone(appointmentReq)}
+                                className={btnSmall + " cursor-pointer inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
+                                <Flag size={11} /> เสร็จสิ้น
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-300 dark:text-gray-600">—</span>
+                        )}
+                      </td>
                     </tr>
 
                     {/* expanded: คำขอของทะเบียนนี้ทั้งหมด แต่ละคำขอกางดูรายละเอียดยางแต่ละเส้นได้ */}
                     {isOpen && (
                       <tr className="border-b border-gray-100 bg-[#F6FAF7]/70 dark:border-white/5 dark:bg-white/2">
-                        <td colSpan={8} className="px-4 py-3">
+                        <td colSpan={9} className="px-4 py-3">
                           {g.requests.every((r) => (r.items ?? []).length === 0) ? (
                             <p className="text-xs text-gray-400" style={fontThai}>ไม่มีรายการยาง</p>
                           ) : (
@@ -1631,7 +1690,7 @@ function RequestsTab({ branchFilter, onChanged }: {
                                             {STATUS_LABEL[status] ?? status}
                                           </span> */}
                                           {r.appointmentDate && (
-                                            <span className="text-[11px] text-purple-600 dark:text-purple-300" style={fontThai}>นัด: {fmtDate(r.appointmentDate)}</span>
+                                            <span className="text-[11px] text-purple-600 dark:text-purple-300" style={fontThai}>นัด: {fmtDateOnly(r.appointmentDate)}</span>
                                           )}
                                           {rItems.some((it) => (it.status ?? "pending") === "approved") && (
                                             <div className="flex flex-col gap-1">
@@ -1723,18 +1782,6 @@ function RequestsTab({ branchFilter, onChanged }: {
                                           <td className="whitespace-nowrap px-3 py-2">
                                             {status !== "done" && (
                                               <div className="flex items-center gap-1.5">
-                                                {ii === 0 && status === "approved" && (
-                                                  <button disabled={acting} onClick={() => handleAppointment(r)}
-                                                    className={btnSmall + "cursor-pointer inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
-                                                    <CalendarClock size={11} /> นัดหมาย
-                                                  </button>
-                                                )}
-                                                {ii === 0 && status === "appointment" && (
-                                                  <button disabled={acting} onClick={() => handleDone(r)}
-                                                    className={btnSmall + "cursor-pointer inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
-                                                    <Flag size={11} /> เสร็จสิ้น
-                                                  </button>
-                                                )}
                                                 {itStatus !== "approved" && (
                                                   <button disabled={acting} onClick={() => handleItemApprove(r, it)}
                                                     className={btnSmall + "cursor-pointer inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
@@ -1766,6 +1813,254 @@ function RequestsTab({ branchFilter, onChanged }: {
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+      )}
+
+      <AppointmentDialog
+        target={appointmentTarget}
+        onClose={() => setAppointmentTarget(null)}
+        onConfirm={confirmAppointment}
+      />
+    </div>
+  )
+}
+
+// ===========================================================================
+// SECTION 8b: Appointment dialog (shadcn Calendar) + Calendar view ของแท็บคำขอ
+// ===========================================================================
+
+function AppointmentDialog({ target, onClose, onConfirm }: {
+  target: TireRequest | null
+  onClose: () => void
+  onConfirm: (dateIso: string) => void
+}) {
+  const [date, setDate] = useState<Date | undefined>(undefined)
+
+  useEffect(() => {
+    if (!target) return
+    const existing = target.appointmentDate ? new Date(target.appointmentDate) : null
+    const valid = existing && !isNaN(existing.getTime()) ? existing : null
+    setDate(valid ?? new Date())
+  }, [target])
+
+  function handleConfirm() {
+    if (!date) return
+    const combined = new Date(date)
+    combined.setHours(0, 0, 0, 0)
+    onConfirm(combined.toISOString())
+  }
+
+  return (
+    <Dialog open={!!target} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle style={fontHead}>นัดหมายเปลี่ยนยาง</DialogTitle>
+        </DialogHeader>
+        {target && (
+          <>
+            <p className="text-[13px] text-[#6B7C72] dark:text-gray-400" style={fontThai}>
+              ทะเบียน <span className="font-mono font-semibold text-[#14271C] dark:text-white">{target.plate}</span>
+              {" · "}{target.driverName}
+            </p>
+            <div className="flex justify-center">
+              <Calendar
+                mode="single"
+                selected={date}
+                onSelect={setDate}
+                className="rounded-lg border border-[#EEF2F0] dark:border-white/10"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button type="button" disabled={!date} onClick={handleConfirm} className={btnPrimary + " flex-1"} style={fontThai}>
+                บันทึกนัดหมาย
+              </button>
+              <button type="button" onClick={onClose}
+                className="rounded-[11px] border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:border-white/10 dark:text-gray-400 dark:hover:bg-white/8" style={fontThai}>
+                ยกเลิก
+              </button>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+type ReqGroup = {
+  key: string; branch: string; plate: string; truckNumber: string
+  driverNames: string[]; requests: TireRequest[]; totalItems: number
+  latestCreatedAt: string; statuses: string[]
+}
+
+type AppointmentEvent = {
+  key:        string
+  requestId:  string
+  plate:      string
+  branch:     string
+  driverName: string
+  status:     string
+  date:       Date
+}
+
+const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
+const MONTH_LABELS = [
+  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+]
+
+const dayKey = (d: Date) => d.toDateString()
+
+function AppointmentCalendarView({ groups, onAppointment, onDone, acting }: {
+  groups: ReqGroup[]
+  onAppointment: (r: TireRequest) => void
+  onDone: (r: TireRequest) => void
+  acting: boolean
+}) {
+  const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d })
+  const [selectedDay, setSelectedDay] = useState<string | null>(dayKey(new Date()))
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, AppointmentEvent[]>()
+    for (const g of groups) {
+      for (const r of g.requests) {
+        if (!r.appointmentDate) continue
+        const d = new Date(r.appointmentDate)
+        if (isNaN(d.getTime())) continue
+        const k = dayKey(d)
+        const arr = map.get(k) ?? []
+        arr.push({ key: r._id, requestId: r._id, plate: g.plate, branch: g.branch, driverName: r.driverName, status: r.status ?? "pending", date: d })
+        map.set(k, arr)
+      }
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.date.getTime() - b.date.getTime())
+    return map
+  }, [groups])
+
+  const gridDays = useMemo(() => {
+    const year = monthCursor.getFullYear()
+    const month = monthCursor.getMonth()
+    const startOffset = new Date(year, month, 1).getDay()
+    const gridStart = new Date(year, month, 1 - startOffset)
+    return Array.from({ length: 42 }, (_, i) => {
+      const d = new Date(gridStart)
+      d.setDate(gridStart.getDate() + i)
+      return d
+    })
+  }, [monthCursor])
+
+  const todayKey = dayKey(new Date())
+  const selectedEvents = selectedDay ? eventsByDay.get(selectedDay) ?? [] : []
+
+  function shiftMonth(delta: number) {
+    setMonthCursor((prev) => { const d = new Date(prev); d.setMonth(d.getMonth() + delta); return d })
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
+      <div className={card + " p-4"}>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => shiftMonth(-1)} className="rounded-lg border border-[#EEF2F0] dark:border-white/10 p-1.5 hover:bg-[#F0FDF4] dark:hover:bg-white/5">
+              <ChevronLeft size={14} />
+            </button>
+            <button type="button" onClick={() => shiftMonth(1)} className="rounded-lg border border-[#EEF2F0] dark:border-white/10 p-1.5 hover:bg-[#F0FDF4] dark:hover:bg-white/5">
+              <ChevronRight size={14} />
+            </button>
+            <h3 className="text-[15px] text-[#14271C] dark:text-white" style={fontHead}>
+              {MONTH_LABELS[monthCursor.getMonth()]} {monthCursor.getFullYear() + 543}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); setMonthCursor(d); setSelectedDay(dayKey(new Date())) }}
+            className="rounded-lg border border-[#EEF2F0] dark:border-white/10 px-2.5 py-1 text-[12px] text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5"
+            style={fontThai}
+          >
+            วันนี้
+          </button>
+        </div>
+
+        <div className="mb-1 grid grid-cols-7 gap-1">
+          {WEEKDAY_LABELS.map((w) => (
+            <div key={w} className="py-1 text-center text-[11px] font-semibold text-[#9AA8A0]" style={fontThai}>{w}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {gridDays.map((d) => {
+            const k = dayKey(d)
+            const inMonth = d.getMonth() === monthCursor.getMonth()
+            const dayEvents = eventsByDay.get(k) ?? []
+            const isToday = k === todayKey
+            const isSelected = k === selectedDay
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setSelectedDay(k)}
+                className={[
+                  "min-h-[64px] rounded-lg border p-1.5 text-left align-top transition-colors",
+                  isSelected ? "border-[#1B8C4B] bg-[#F0FDF4] dark:bg-[#1B8C4B]/10" : "border-[#EEF2F0] dark:border-white/8 hover:bg-[#F6FAF7] dark:hover:bg-white/4",
+                  !inMonth ? "opacity-40" : "",
+                ].join(" ")}
+              >
+                <span className={isToday
+                  ? "inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#1B8C4B] text-[11px] font-semibold text-white"
+                  : "text-[11px] font-semibold text-[#14271C] dark:text-white"}>
+                  {d.getDate()}
+                </span>
+                <div className="mt-1 flex flex-col gap-0.5">
+                  {dayEvents.slice(0, 2).map((e) => (
+                    <span key={e.key} className={`truncate rounded px-1 py-px text-[9px] font-medium ${statusChip(e.status)}`} style={fontThai}>
+                      {e.plate}
+                    </span>
+                  ))}
+                  {dayEvents.length > 2 && (
+                    <span className="text-[9px] text-[#9AA8A0]" style={fontThai}>+{dayEvents.length - 2} อื่นๆ</span>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className={card + " p-4"}>
+        <h4 className="mb-2 text-[13px] font-semibold text-[#14271C] dark:text-white" style={fontThai}>
+          {selectedDay ? new Date(selectedDay).toLocaleDateString("th-TH", { day: "2-digit", month: "long", year: "numeric" }) : "เลือกวันที่เพื่อดูรายละเอียด"}
+        </h4>
+        {selectedDay && selectedEvents.length === 0 && (
+          <p className="text-[12px] text-gray-400" style={fontThai}>ไม่มีนัดหมายวันนี้</p>
+        )}
+        <div className="flex flex-col gap-2">
+          {selectedEvents.map((e) => {
+            const g = groups.find((gr) => gr.key === `${e.branch}|${e.plate}`)
+            const r = g?.requests.find((rr) => rr._id === e.requestId)
+            return (
+              <div key={e.key} className="rounded-[12px] border border-[#EEF2F0] dark:border-white/8 p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[13px] font-semibold text-[#14271C] dark:text-white">{e.plate}</span>
+                  <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${branchChipCls(e.branch)}`} style={fontThai}>{branchLabel(e.branch)}</span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-[#6B7C72] dark:text-gray-400" style={fontThai}>{e.driverName || "—"}</p>
+                <span className={`mt-1 inline-block rounded-md px-2 py-0.5 text-[10px] font-medium ${statusChip(e.status)}`} style={fontThai}>
+                  {STATUS_LABEL[e.status] ?? e.status}
+                </span>
+                {r && e.status !== "done" && (
+                  <div className="mt-2 flex gap-1.5">
+                    <button disabled={acting} onClick={() => onAppointment(r)} className={btnSmall + " inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
+                      <CalendarClock size={11} /> แก้ไขนัดหมาย
+                    </button>
+                    {e.status === "appointment" && (
+                      <button disabled={acting} onClick={() => onDone(r)} className={btnSmall + " inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
+                        <Flag size={11} /> เสร็จสิ้น
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>
