@@ -1093,10 +1093,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   <div>
                     <label className={labelCls}>เบอร์รถ <span className="text-[10px] font-normal text-gray-400">(auto · พิมพ์เพื่อค้นหาได้)</span></label>
-                    <div className="relative">
-                      <input value={form.fleetNo} onChange={(e) => setForm({ ...form, fleetNo: e.target.value })} className={inputCls + " bg-[#F6FAF7] dark:bg-white/5"} placeholder="เบอร์รถ" />
-                      {form.fleetNo && <Check size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#1B8C4B]" />}
-                    </div>
+                    <FleetNoCombobox
+                      fleetNo={form.fleetNo}
+                      onChange={(fleetNo, plate) => setForm((f) => ({ ...f, fleetNo, ...(plate !== undefined ? { plate } : {}) }))}
+                    />
                   </div>
                   <div>
                     <label className={labelCls}>วันที่รับแจ้ง</label>
@@ -1561,6 +1561,81 @@ function PlateCombobox({
               <span className="font-medium">{v.plate}</span>
               <span className="shrink-0 text-xs text-gray-400">
                 {v.fleetNo ? `เบอร์ ${v.fleetNo}` : ""}{v.vehicleType ? ` · ${v.vehicleType}` : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── เบอร์รถ combobox: ค้นหาจาก vehicle_master, เลือกแล้วเติมทะเบียนให้ ── */
+function FleetNoCombobox({
+  fleetNo, onChange,
+}: {
+  fleetNo: string
+  onChange: (fleetNo: string, plate?: string) => void
+}) {
+  const [open, setOpen]       = useState(false)
+  const [text, setText]       = useState(fleetNo)
+  const [opts, setOpts]       = useState<Vehicle[]>([])
+  const [loading, setLoading] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setText(fleetNo) }, [fleetNo])
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [])
+
+  // ค้นหาแบบ debounce แล้วเหลือเฉพาะที่มีเบอร์รถ
+  useEffect(() => {
+    if (!open) return
+    const query = text.trim()
+    if (!query) { setOpts([]); return }
+    setLoading(true)
+    const t = setTimeout(async () => {
+      try {
+        const res  = await fetch(`/api/vehicles?q=${encodeURIComponent(query)}&limit=20`)
+        const data = await res.json()
+        setOpts(Array.isArray(data) ? (data as Vehicle[]).filter((v) => v.fleetNo?.trim()) : [])
+      } catch { setOpts([]) } finally { setLoading(false) }
+    }, 200)
+    return () => clearTimeout(t)
+  }, [text, open])
+
+  return (
+    <div ref={boxRef} className="relative">
+      <input
+        value={text}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => { setText(e.target.value); setOpen(true); onChange(e.target.value) }}
+        className={inputCls + " bg-[#F6FAF7] dark:bg-white/5"}
+        placeholder="พิมพ์เพื่อค้นหา เช่น ME042"
+        autoComplete="off"
+      />
+      {!open && text.trim() && <Check size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#1B8C4B]" />}
+      {open && text.trim() && (
+        <div className="absolute z-[60] mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-lg py-1">
+          {loading && <p className="px-3 py-2 text-xs text-gray-400">กำลังค้นหา...</p>}
+          {!loading && opts.length === 0 && (
+            <p className="px-3 py-2 text-xs text-gray-400">ไม่พบเบอร์รถใน master — ใช้ค่าที่พิมพ์ได้เลย</p>
+          )}
+          {opts.map((v) => (
+            <button
+              key={v.plate}
+              type="button"
+              onClick={() => { onChange(v.fleetNo ?? "", v.plate); setText(v.fleetNo ?? ""); setOpen(false) }}
+              className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-[#F0FDF4] dark:hover:bg-white/5"
+            >
+              <span className="font-medium">{v.fleetNo}</span>
+              <span className="shrink-0 text-xs text-gray-400">
+                {v.plate}{v.vehicleType ? ` · ${v.vehicleType}` : ""}
               </span>
             </button>
           ))}
