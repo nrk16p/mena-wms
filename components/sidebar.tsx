@@ -21,7 +21,6 @@ import {
   MapPin,
   ClipboardCheck,
   TableProperties,
-  Search,
   BookOpen,
   BarChart3,
   Wrench,
@@ -54,7 +53,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: "จัดการ SKU",
     collapsible: true,
     items: [
-      { href: "/procurement-search", label: "ค้นหาห่วงโซ่จัดซื้อ", icon: Search },
       { href: "/atms-new-sku-report",label: "SKU ใหม่ ATMS",      icon: BarChart3, exact: true },
       { href: "/sku",                label: "รายการ SKU",       icon: PackageSearch, exact: true },
       { href: "/sku/new",            label: "เพิ่ม SKU ใหม่",   icon: PlusCircle },

@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { FileText, Search, RefreshCw, PackageX, Wallet, ClipboardList } from "lucide-react"
 
 type Row = {
@@ -38,6 +37,8 @@ export function PrPage() {
   const [q, setQ]             = useState("")
   const [warehouse, setWarehouse] = useState("")
   const [dept, setDept]       = useState("")
+  const [page, setPage]       = useState(1)
+  const PAGE_SIZE = 25
 
   async function load() {
     setLoading(true)
@@ -70,6 +71,12 @@ export function PrPage() {
 
   const sumValue = useMemo(() => filtered.reduce((a, r) => a + (r.total || 0), 0), [filtered])
   const noPo     = useMemo(() => filtered.filter((r) => r.po_count === 0).length, [filtered])
+
+  // pagination — รีเซ็ตหน้าเมื่อค้นหา/กรองเปลี่ยน
+  useEffect(() => { setPage(1) }, [q, warehouse, dept])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const curPage    = Math.min(page, totalPages)
+  const pageRows   = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [filtered, curPage])
 
   return (
     <div className="max-w-[1100px] mx-auto flex flex-col gap-4" style={sansThai}>
@@ -151,10 +158,10 @@ export function PrPage() {
               ))
             ) : filtered.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-14 text-center text-[13px] text-[#9AA8A0]">ไม่พบ PR ที่อนุมัติแล้วและยังไม่มีการรับของ</td></tr>
-            ) : filtered.map((r) => (
+            ) : pageRows.map((r) => (
               <tr key={r.pr_code} className="border-b border-[#F4F7F5] dark:border-white/5 hover:bg-[#F7FBF8] dark:hover:bg-white/[0.03] align-top">
                 <td className="px-4 py-3">
-                  <Link href={`/procurement-search?q=${encodeURIComponent(r.pr_code)}`} className="font-semibold text-[#1B8C4B] hover:underline">{r.pr_code}</Link>
+                  <span className="font-semibold text-[#14271C] dark:text-white">{r.pr_code}</span>
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(r.date)}</td>
                 <td className="px-3 py-3 text-[#4B5F54] dark:text-gray-400">
@@ -186,6 +193,38 @@ export function PrPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {!loading && filtered.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-[12.5px] text-[#6B7C72] dark:text-gray-400">
+          <span>
+            แสดง {(curPage - 1) * PAGE_SIZE + 1}–{Math.min(curPage * PAGE_SIZE, filtered.length)} จาก {filtered.length.toLocaleString()} รายการ
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage(1)}
+              disabled={curPage <= 1}
+              className="rounded-[8px] border border-[#EEF2F0] dark:border-white/10 px-2.5 py-1.5 disabled:opacity-40 enabled:hover:bg-[#F6FAF7] dark:enabled:hover:bg-white/5"
+            >«</button>
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={curPage <= 1}
+              className="rounded-[8px] border border-[#EEF2F0] dark:border-white/10 px-3 py-1.5 disabled:opacity-40 enabled:hover:bg-[#F6FAF7] dark:enabled:hover:bg-white/5"
+            >ก่อนหน้า</button>
+            <span className="px-2 font-medium text-[#14271C] dark:text-white">{curPage} / {totalPages}</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={curPage >= totalPages}
+              className="rounded-[8px] border border-[#EEF2F0] dark:border-white/10 px-3 py-1.5 disabled:opacity-40 enabled:hover:bg-[#F6FAF7] dark:enabled:hover:bg-white/5"
+            >ถัดไป</button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={curPage >= totalPages}
+              className="rounded-[8px] border border-[#EEF2F0] dark:border-white/10 px-2.5 py-1.5 disabled:opacity-40 enabled:hover:bg-[#F6FAF7] dark:enabled:hover:bg-white/5"
+            >»</button>
+          </div>
+        </div>
+      )}
 
       <p className="text-[11px] text-[#9AA8A0]">
         * &quot;อนุมัติแล้ว&quot; = คอลัมน์ is approved บน ATMS (✓) · &quot;ไม่มี DD&quot; = ไม่มีใบฝากของ (deposit) อ้างถึง PO ของ PR นี้ ·
