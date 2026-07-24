@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { FileText, Search, RefreshCw, PackageX, Wallet, ClipboardList } from "lucide-react"
 
+type Cmp = "no_po" | "match" | "vat" | "diff"
 type Row = {
   pr_code: string
   date: string
@@ -11,13 +12,24 @@ type Row = {
   plate: string
   requester: string
   total: number
+  po_total: number
+  po_diff: number
+  cmp: Cmp
   note: string
   po_codes: string[]
   po_count: number
   received_status: string[]
   suppliers: string[]
 }
-type ApiResp = { count: number; total_value: number; no_po: number; rows: Row[] }
+type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; rows: Row[] }
+
+const CMP_META: Record<Cmp, { label: string; cls: string; dot: string }> = {
+  match: { label: "ตรง",        cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
+  vat:   { label: "ตรง (+VAT)", cls: "bg-[#DBEAFE] text-[#1D4ED8] dark:bg-blue-500/15 dark:text-blue-300",   dot: "#1D4ED8" },
+  diff:  { label: "ต่าง",       cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",     dot: "#DC2626" },
+  no_po: { label: "ยังไม่มี PO", cls: "bg-[#FEF3C7] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300", dot: "#B07D12" },
+}
+const CMP_ORDER: Cmp[] = ["match", "vat", "diff", "no_po"]
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
@@ -37,6 +49,7 @@ export function PrPage() {
   const [q, setQ]             = useState("")
   const [warehouse, setWarehouse] = useState("")
   const [dept, setDept]       = useState("")
+  const [cmpFilter, setCmpFilter] = useState<Cmp | "">("")
   const [page, setPage]       = useState(1)
   const PAGE_SIZE = 25
 
@@ -45,9 +58,9 @@ export function PrPage() {
     try {
       const res = await fetch("/api/pr", { cache: "no-store" })
       const d   = await res.json()
-      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, rows: [] })
+      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, by_cmp: { match: 0, vat: 0, diff: 0, no_po: 0 }, rows: [] })
     } catch {
-      setData({ count: 0, total_value: 0, no_po: 0, rows: [] })
+      setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { match: 0, vat: 0, diff: 0, no_po: 0 }, rows: [] })
     } finally {
       setLoading(false)
     }
@@ -58,7 +71,8 @@ export function PrPage() {
   const warehouses = useMemo(() => [...new Set(rows.map((r) => r.warehouse).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th")), [rows])
   const depts      = useMemo(() => [...new Set(rows.map((r) => r.dept).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th")), [rows])
 
-  const filtered = useMemo(() => {
+  // กรองด้วย ค้นหา/คลัง/แผนก ก่อน (ใช้คำนวณตัวเลขสรุปสถานะ)
+  const baseFiltered = useMemo(() => {
     const kw = q.trim().toLowerCase()
     return rows.filter((r) => {
       if (warehouse && r.warehouse !== warehouse) return false
@@ -69,11 +83,23 @@ export function PrPage() {
     })
   }, [rows, q, warehouse, dept])
 
+  const cmpCounts = useMemo(() => {
+    const c: Record<Cmp, number> = { match: 0, vat: 0, diff: 0, no_po: 0 }
+    for (const r of baseFiltered) c[r.cmp]++
+    return c
+  }, [baseFiltered])
+
+  // แล้วค่อยกรองตามสถานะสรุปที่เลือก
+  const filtered = useMemo(
+    () => (cmpFilter ? baseFiltered.filter((r) => r.cmp === cmpFilter) : baseFiltered),
+    [baseFiltered, cmpFilter]
+  )
+
   const sumValue = useMemo(() => filtered.reduce((a, r) => a + (r.total || 0), 0), [filtered])
-  const noPo     = useMemo(() => filtered.filter((r) => r.po_count === 0).length, [filtered])
+  const noPo     = cmpCounts.no_po
 
   // pagination — รีเซ็ตหน้าเมื่อค้นหา/กรองเปลี่ยน
-  useEffect(() => { setPage(1) }, [q, warehouse, dept])
+  useEffect(() => { setPage(1) }, [q, warehouse, dept, cmpFilter])
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const curPage    = Math.min(page, totalPages)
   const pageRows   = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [filtered, curPage])
@@ -134,9 +160,30 @@ export function PrPage() {
         </select>
       </div>
 
+      {/* สรุปสถานะ PR↔PO (คลิกเพื่อกรอง) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-medium text-[#9AA8A0]">สถานะ PR↔PO:</span>
+        <button
+          onClick={() => setCmpFilter("")}
+          className={`rounded-full px-3 py-1 text-[12px] font-medium transition ${cmpFilter === "" ? "bg-[#1B8C4B] text-white" : "bg-[#F0F4F1] text-[#4B5F54] dark:bg-white/5 dark:text-gray-300 hover:bg-[#E6EDE8]"}`}
+        >
+          ทั้งหมด {baseFiltered.length}
+        </button>
+        {CMP_ORDER.map((k) => (
+          <button
+            key={k}
+            onClick={() => setCmpFilter(cmpFilter === k ? "" : k)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition ${CMP_META[k].cls} ${cmpFilter === k ? "ring-2 ring-offset-1 ring-[#14271C]/30 dark:ring-white/30 dark:ring-offset-[#0f1117]" : "opacity-90 hover:opacity-100"}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[k].dot }} />
+            {CMP_META[k].label} {cmpCounts[k]}
+          </button>
+        ))}
+      </div>
+
       {/* Table */}
       <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/[0.07] bg-white dark:bg-[#151a10]" style={{ boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}>
-        <table className="w-full min-w-[900px] border-collapse text-[12.5px]">
+        <table className="w-full min-w-[1160px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-[#EEF2F0] dark:border-white/8 text-left text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]">
               <th className="px-4 py-2.5">PR</th>
@@ -144,7 +191,9 @@ export function PrPage() {
               <th className="px-3 py-2.5">คลัง · แผนก</th>
               <th className="px-3 py-2.5">ทะเบียน</th>
               <th className="px-3 py-2.5">ผู้ขอซื้อ</th>
-              <th className="px-3 py-2.5 text-right">รวม (บาท)</th>
+              <th className="px-3 py-2.5 text-right">ยอด PR</th>
+              <th className="px-3 py-2.5 text-right">ยอด PO</th>
+              <th className="px-3 py-2.5">สถานะ PR↔PO</th>
               <th className="px-3 py-2.5">PO / สถานะรับ</th>
               <th className="px-4 py-2.5">หมายเหตุ</th>
             </tr>
@@ -153,11 +202,11 @@ export function PrPage() {
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-b border-[#F1F5F2] dark:border-white/5">
-                  <td colSpan={8} className="px-4 py-3"><div className="h-4 w-full animate-pulse rounded bg-[#F0F4F1] dark:bg-white/5" /></td>
+                  <td colSpan={10} className="px-4 py-3"><div className="h-4 w-full animate-pulse rounded bg-[#F0F4F1] dark:bg-white/5" /></td>
                 </tr>
               ))
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-14 text-center text-[13px] text-[#9AA8A0]">ไม่พบ PR ที่อนุมัติแล้วและยังไม่มีการรับของ</td></tr>
+              <tr><td colSpan={10} className="px-4 py-14 text-center text-[13px] text-[#9AA8A0]">ไม่พบ PR ที่อนุมัติแล้วและยังไม่มีการรับของ</td></tr>
             ) : pageRows.map((r) => (
               <tr key={r.pr_code} className="border-b border-[#F4F7F5] dark:border-white/5 hover:bg-[#F7FBF8] dark:hover:bg-white/[0.03] align-top">
                 <td className="px-4 py-3">
@@ -171,6 +220,16 @@ export function PrPage() {
                 <td className="px-3 py-3 whitespace-nowrap font-medium text-[#14271C] dark:text-white">{r.plate || "—"}</td>
                 <td className="px-3 py-3 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{r.requester || "—"}</td>
                 <td className="px-3 py-3 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white">{baht(r.total || 0)}</td>
+                <td className="px-3 py-3 whitespace-nowrap text-right text-[#4B5F54] dark:text-gray-300">{r.po_count === 0 ? "—" : baht(r.po_total || 0)}</td>
+                <td className="px-3 py-3 whitespace-nowrap">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CMP_META[r.cmp].cls}`}>
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[r.cmp].dot }} />
+                    {CMP_META[r.cmp].label}
+                  </span>
+                  {r.cmp === "diff" && (
+                    <div className="mt-0.5 text-[10px] text-[#DC2626] dark:text-red-400">{r.po_diff > 0 ? "+" : ""}{baht(r.po_diff)}</div>
+                  )}
+                </td>
                 <td className="px-3 py-3">
                   {r.po_count === 0 ? (
                     <span className="inline-flex items-center rounded bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PO</span>

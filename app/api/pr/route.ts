@@ -8,6 +8,15 @@ const PO_KEY = "รหัส"
 
 type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+// เทียบยอด PR รวม กับ ผลรวม PO → สถานะสรุป
+function comparePrPo(prTotal: number, poTotal: number, poCount: number): "no_po" | "match" | "vat" | "diff" {
+  if (poCount === 0) return "no_po"
+  if (Math.abs(prTotal - poTotal) < 0.01) return "match"
+  if (Math.abs(poTotal - prTotal * 1.07) < 0.05) return "vat"   // PO รวม VAT 7%
+  return "diff"
+}
 
 // GET /api/pr — PR ที่อนุมัติแล้ว (is approved = true) แต่ยังไม่มี DD (ไม่มีการรับของ)
 // join: PR → PO (ใบขอสั่งซื้อ (PR)) → DD (deposit_header.purchase_order)
@@ -73,25 +82,38 @@ export async function GET(req: NextRequest) {
         return { p, pr, myPos, hasDD }
       })
       .filter((r) => !r.hasDD)
-      .map(({ p, pr, myPos }) => ({
-        pr_code:   pr,
-        date:      s(p["วันที่"]),
-        warehouse: s(p["คลังสินค้า"]),
-        dept:      s(p["แผนก"]),
-        plate:     s(p["ทะเบียน"]),
-        requester: s(p["ผู้ขอซื้อ"]),
-        total:     typeof p["รวม"] === "number" ? p["รวม"] : Number(p["รวม"]) || 0,
-        note:      s(p["หมายเหตุ"]),
-        po_codes:  myPos.map((po) => s(po[PO_KEY])).filter(Boolean),
-        po_count:  myPos.length,
-        received_status: myPos.map((po) => s(po["สถานะการรับสินค้า"])).filter(Boolean),
-        suppliers: [...new Set(myPos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
-      }))
+      .map(({ p, pr, myPos }) => {
+        const prTotal = typeof p["รวม"] === "number" ? (p["รวม"] as number) : Number(p["รวม"]) || 0
+        const poTotal = round2(myPos.reduce((a, po) => a + (Number(po["รวม"]) || 0), 0))
+        const cmp = comparePrPo(prTotal, poTotal, myPos.length)
+        return {
+          pr_code:   pr,
+          date:      s(p["วันที่"]),
+          warehouse: s(p["คลังสินค้า"]),
+          dept:      s(p["แผนก"]),
+          plate:     s(p["ทะเบียน"]),
+          requester: s(p["ผู้ขอซื้อ"]),
+          total:     prTotal,        // ยอด PR
+          po_total:  poTotal,        // ยอด PO รวม
+          po_diff:   round2(poTotal - prTotal),
+          cmp,                        // no_po | match | vat | diff
+          note:      s(p["หมายเหตุ"]),
+          po_codes:  myPos.map((po) => s(po[PO_KEY])).filter(Boolean),
+          po_count:  myPos.length,
+          received_status: myPos.map((po) => s(po["สถานะการรับสินค้า"])).filter(Boolean),
+          suppliers: [...new Set(myPos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
+        }
+      })
+
+    // นับตามสถานะสรุป
+    const byCmp = { match: 0, vat: 0, diff: 0, no_po: 0 }
+    for (const r of rows) byCmp[r.cmp]++
 
     return NextResponse.json({
       count: rows.length,
       total_value: rows.reduce((a, r) => a + (r.total || 0), 0),
-      no_po: rows.filter((r) => r.po_count === 0).length,
+      no_po: byCmp.no_po,
+      by_cmp: byCmp,
       rows,
     })
   } catch (err) {
