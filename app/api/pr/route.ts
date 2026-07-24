@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
 
     // 2) PO ของ PR เหล่านี้ → map pr → [po], po → received status
     const pos = prCodes.length
-      ? await poCol.find({ [PR_KEY]: { $in: prCodes } }).project({ [PO_KEY]: 1, [PR_KEY]: 1, "สถานะการรับสินค้า": 1, "ซัพพลายเออร์": 1, "รวม": 1, _id: 0 }).toArray() as Doc[]
+      ? await poCol.find({ [PR_KEY]: { $in: prCodes } }).project({ [PO_KEY]: 1, [PR_KEY]: 1, "สถานะการรับสินค้า": 1, "ซัพพลายเออร์": 1, "รวม": 1, "วันที่": 1, "ผู้ใช้งาน": 1, "approver": 1, _id: 0 }).toArray() as Doc[]
       : []
     const posByPr = new Map<string, Doc[]>()
     const allPoCodes: string[] = []
@@ -121,6 +121,14 @@ export async function GET(req: NextRequest) {
           po_count:  myPos.length,
           received_status: myPos.map((po) => s(po["สถานะการรับสินค้า"])).filter(Boolean),
           suppliers: [...new Set(myPos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
+          pos: myPos.map((po) => ({
+            code:     s(po[PO_KEY]),
+            date:     s(po["วันที่"]),
+            supplier: s(po["ซัพพลายเออร์"]),
+            total:    Number(po["รวม"]) || 0,
+            received: s(po["สถานะการรับสินค้า"]),
+            approver: s(po["approver"]),
+          })),
         }
       })
 

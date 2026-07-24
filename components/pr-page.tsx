@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { FileText, Search, RefreshCw, PackageX, Wallet, ClipboardList } from "lucide-react"
+import { FileText, Search, RefreshCw, PackageX, Wallet, ClipboardList, X } from "lucide-react"
 
 type Cmp = "ok" | "anomaly" | "no_po"
 type VatRule = "incl" | "excl"
@@ -24,7 +24,9 @@ type Row = {
   po_count: number
   received_status: string[]
   suppliers: string[]
+  pos: PoDetail[]
 }
+type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string }
 type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; rows: Row[] }
 
 const CMP_META: Record<Cmp, { label: string; cls: string; dot: string }> = {
@@ -56,6 +58,7 @@ export function PrPage() {
   const [dept, setDept]       = useState("")
   const [cmpFilter, setCmpFilter] = useState<Cmp | "">("")
   const [page, setPage]       = useState(1)
+  const [detail, setDetail]   = useState<Row | null>(null)
   const PAGE_SIZE = 25
 
   async function load() {
@@ -213,9 +216,9 @@ export function PrPage() {
             ) : filtered.length === 0 ? (
               <tr><td colSpan={10} className="px-4 py-14 text-center text-[13px] text-[#9AA8A0]">ไม่พบ PR ที่อนุมัติแล้วและยังไม่มีการรับของ</td></tr>
             ) : pageRows.map((r) => (
-              <tr key={r.pr_code} className="border-b border-[#F4F7F5] dark:border-white/5 hover:bg-[#F7FBF8] dark:hover:bg-white/[0.03] align-top">
+              <tr key={r.pr_code} onClick={() => setDetail(r)} className="cursor-pointer border-b border-[#F4F7F5] dark:border-white/5 hover:bg-[#F7FBF8] dark:hover:bg-white/[0.03] align-top">
                 <td className="px-4 py-3">
-                  <span className="font-semibold text-[#14271C] dark:text-white">{r.pr_code}</span>
+                  <span className="font-semibold text-[#1B8C4B] hover:underline">{r.pr_code}</span>
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(r.date)}</td>
                 <td className="px-3 py-3 text-[#4B5F54] dark:text-gray-400">
@@ -297,6 +300,92 @@ export function PrPage() {
         * &quot;อนุมัติแล้ว&quot; = คอลัมน์ is approved บน ATMS (✓) · &quot;ไม่มี DD&quot; = ไม่มีใบฝากของ (deposit) อ้างถึง PO ของ PR นี้ ·
         ข้อมูลจาก atms.purchase_requests / purchase_orders / deposit_header (scrape ล่าสุด)
       </p>
+
+      {/* Detail modal */}
+      {detail && (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8" onClick={() => setDetail(null)}>
+          <div
+            className="w-full max-w-[720px] rounded-[18px] bg-white dark:bg-[#151a10] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* header */}
+            <div className="flex items-start justify-between gap-3 border-b border-[#EEF2F0] dark:border-white/10 px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EAF6EE] dark:bg-[#1B8C4B]/10 text-[#1B8C4B]"><FileText size={18} /></div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[16px] font-bold text-[#14271C] dark:text-white" style={mitr}>{detail.pr_code}</h2>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CMP_META[detail.cmp].cls}`}>
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[detail.cmp].dot }} />{CMP_META[detail.cmp].label}
+                    </span>
+                  </div>
+                  <p className="text-[11.5px] text-[#9AA8A0]">{fmtDate(detail.date)} · {detail.warehouse || "—"}</p>
+                </div>
+              </div>
+              <button onClick={() => setDetail(null)} className="rounded-lg p-1.5 text-[#9AA8A0] hover:bg-[#F0F4F1] dark:hover:bg-white/5"><X size={18} /></button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto px-5 py-4 space-y-4">
+              {/* PR info */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12.5px] sm:grid-cols-3">
+                {[
+                  ["แผนก", detail.dept], ["ทะเบียน", detail.plate], ["ผู้ขอซื้อ", detail.requester],
+                ].map(([k, v]) => (
+                  <div key={k}><div className="text-[10.5px] uppercase text-[#9AA8A0]">{k}</div><div className="text-[#14271C] dark:text-gray-200">{v || "—"}</div></div>
+                ))}
+              </div>
+
+              {/* comparison */}
+              <div className="rounded-[12px] border border-[#EEF2F0] dark:border-white/10 p-3.5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-[#14271C] dark:text-white">เทียบยอด PR ↔ PO</span>
+                  <span className="text-[11px] text-[#9AA8A0]">{detail.vat_rule === "incl" ? "สาขา VAT รวมใน PR (คาด PR = PO)" : "สาขา PR ไม่รวม VAT (คาด PO = PR + 7%)"}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 py-2"><div className="text-[10px] text-[#9AA8A0]">ยอด PR</div><div className="text-[15px] font-semibold text-[#14271C] dark:text-white" style={mitr}>{baht(detail.total)}</div></div>
+                  <div className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 py-2"><div className="text-[10px] text-[#9AA8A0]">ยอด PO รวม</div><div className="text-[15px] font-semibold text-[#14271C] dark:text-white" style={mitr}>{detail.po_count ? baht(detail.po_total) : "—"}</div></div>
+                  <div className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 py-2"><div className="text-[10px] text-[#9AA8A0]">ส่วนต่าง</div><div className={`text-[15px] font-semibold ${detail.cmp === "anomaly" ? "text-[#DC2626]" : "text-[#14271C] dark:text-white"}`} style={mitr}>{detail.po_count ? `${detail.po_diff > 0 ? "+" : ""}${baht(detail.po_diff)}` : "—"}</div></div>
+                </div>
+              </div>
+
+              {/* PO list */}
+              <div>
+                <div className="mb-1.5 text-[12px] font-semibold text-[#14271C] dark:text-white">ใบสั่งซื้อ (PO) · {detail.po_count} รายการ</div>
+                {detail.po_count === 0 ? (
+                  <div className="rounded-[10px] bg-[#FEF3C7] px-3 py-2 text-[12px] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PO สำหรับ PR นี้</div>
+                ) : (
+                  <div className="overflow-x-auto rounded-[10px] border border-[#EEF2F0] dark:border-white/10">
+                    <table className="w-full min-w-[520px] text-[12px]">
+                      <thead><tr className="border-b border-[#EEF2F0] dark:border-white/8 text-left text-[10px] uppercase text-[#9AA8A0]">
+                        <th className="px-3 py-2">PO</th><th className="px-3 py-2">วันที่</th><th className="px-3 py-2">ซัพพลายเออร์</th><th className="px-3 py-2 text-right">ยอด</th><th className="px-3 py-2">สถานะรับ</th>
+                      </tr></thead>
+                      <tbody>
+                        {detail.pos.map((po) => (
+                          <tr key={po.code} className="border-b border-[#F4F7F5] dark:border-white/5">
+                            <td className="px-3 py-2 font-medium text-[#14271C] dark:text-gray-200">{po.code}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(po.date)}</td>
+                            <td className="px-3 py-2 text-[#4B5F54] dark:text-gray-400">{po.supplier || "—"}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white">{baht(po.total)}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-[11px] text-[#9AA8A0]">{po.received || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* note */}
+              {detail.note && (
+                <div>
+                  <div className="mb-1 text-[12px] font-semibold text-[#14271C] dark:text-white">หมายเหตุ</div>
+                  <p className="whitespace-pre-wrap rounded-[10px] bg-[#F6FAF7] dark:bg-white/5 px-3 py-2 text-[12px] text-[#4B5F54] dark:text-gray-300">{detail.note}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
