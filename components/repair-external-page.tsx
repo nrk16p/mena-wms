@@ -554,17 +554,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
 
-  // ทะเบียนซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ต้องเหลือคันละ 1 รายการ (คำนวณจาก rows ทั้งหมด)
-  const dupPlates = (() => {
-    const cnt: Record<string, number> = {}
+  // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
+  const { isDup, dupList } = (() => {
+    const pCnt: Record<string, number> = {}, fCnt: Record<string, number> = {}
     for (const r of rows) {
       if (r.status === REPAIR_LOCKED_STATUS) continue
-      const p = (r.plate || "").trim()
-      if (p) cnt[p] = (cnt[p] || 0) + 1
+      const p = (r.plate || "").trim();   if (p) pCnt[p] = (pCnt[p] || 0) + 1
+      const f = (r.fleetNo || "").trim(); if (f) fCnt[f] = (fCnt[f] || 0) + 1
     }
-    return new Set(Object.keys(cnt).filter((p) => cnt[p] > 1))
+    const isDup = (r: RepairExternal) => {
+      const p = (r.plate || "").trim(), f = (r.fleetNo || "").trim()
+      return (!!p && pCnt[p] > 1) || (!!f && fCnt[f] > 1)
+    }
+    const dupList = Array.from(new Set(
+      rows.filter((r) => r.status !== REPAIR_LOCKED_STATUS && isDup(r))
+        .map((r) => (r.plate || r.fleetNo || "").trim()).filter(Boolean)
+    ))
+    return { isDup, dupList }
   })()
-  const isDup = (r: RepairExternal) => !!r.plate && dupPlates.has(r.plate.trim())
 
   // ฟิลด์ที่ต้องกรอก "สะสม" ตามสถานะ (รวมสถานะก่อนหน้าที่ข้ามมา) — สำหรับ hint/ไฮไลต์/validate
   const statusLocked = origStatus === REPAIR_LOCKED_STATUS  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
@@ -804,12 +811,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )}
 
       {/* เตือนทะเบียนซ้ำ — รถ 1 คันต้องมีรายการที่ยังไม่เสร็จได้แค่ 1 รายการ */}
-      {!isDone && dupPlates.size > 0 && (
+      {!isDone && dupList.length > 0 && (
         <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-red-300 bg-red-50 px-4 py-3 text-[13px] text-red-700 dark:border-red-500/40 dark:bg-red-900/20 dark:text-red-300">
           <span className="mt-0.5 shrink-0">⚠</span>
           <span>
-            <b>พบทะเบียนซ้ำ {dupPlates.size} คัน</b> — รถ 1 คันควรมีรายการซ่อมที่ยัง<b>ไม่เสร็จ</b>ได้แค่ 1 รายการ กรุณา<b>ลบให้เหลือคันละ 1 รายการ</b>
-            <span className="ml-1 opacity-80">({Array.from(dupPlates).join(", ")})</span>
+            <b>พบรถซ้ำ {dupList.length} คัน</b> (ทะเบียนหรือเบอร์รถตรงกัน) — รถ 1 คันควรมีรายการซ่อมที่ยัง<b>ไม่เสร็จ</b>ได้แค่ 1 รายการ กรุณา<b>ลบให้เหลือคันละ 1 รายการ</b>
+            <span className="ml-1 opacity-80">({dupList.join(", ")})</span>
           </span>
         </div>
       )}
