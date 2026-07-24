@@ -98,6 +98,7 @@ export async function GET(req: NextRequest) {
       ? await client.db("master_data").collection("pr_tracking").find({ prCode: { $in: prCodes } }).toArray() as Doc[]
       : []
     const trackByPr = new Map(trackDocs.map((t) => [s(t.prCode), t]))
+    const todayBKK = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10)  // วันนี้ (Asia/Bangkok)
 
     // 4) เก็บเฉพาะ PR ที่ "ไม่มี DD" (ไม่มี PO ตัวไหนถูกรับของเลย — รวม PR ที่ยังไม่มี PO)
     const rows = prs
@@ -126,6 +127,12 @@ export async function GET(req: NextRequest) {
         const expectedSource: "manual" | "po" | "none" = manualDue ? "manual" : (poDue ? "po" : "none")
         // สถานะติดตาม: pr (ยังไม่มี PO) → po (มี PO) → waiting (มีวันกำหนดส่งแล้ว)
         const track: "pr" | "po" | "waiting" = myPos.length === 0 ? "pr" : (expectedDelivery ? "waiting" : "po")
+        // เทียบวันกำหนดส่งกับวันนี้ (BKK)
+        const daysToDue = expectedDelivery ? Math.round((Date.parse(expectedDelivery) - Date.parse(todayBKK)) / 86400000) : null
+        const overdue = track === "waiting" && daysToDue !== null && daysToDue < 0
+        // สถานะหลัก (pipeline): เปิด PR → เปิด PO → กำหนดส่งสินค้า (due/overdue)
+        const stage: "pr" | "po" | "due" | "overdue" =
+          track === "pr" ? "pr" : track === "po" ? "po" : (overdue ? "overdue" : "due")
 
         return {
           pr_code:   pr,
@@ -159,18 +166,24 @@ export async function GET(req: NextRequest) {
           expected_delivery: expectedDelivery,  // วันคาดว่าจะได้รับ (manual || po)
           expected_source:   expectedSource,    // manual | po | none
           track,                                // pr | po | waiting
+          stage,                                // pr | po | due | overdue (สถานะหลัก)
+          days_to_due:       daysToDue,         // >0 เหลืออีก, <0 เกินมาแล้ว, null ไม่มีวัน
+          overdue,
         }
       })
 
-    // นับตามสถานะสรุป
+    // นับตามสถานะสรุป + สถานะหลัก
     const byCmp = { ok: 0, anomaly: 0, no_po: 0 }
     for (const r of rows) byCmp[r.cmp]++
+    const byStage = { pr: 0, po: 0, due: 0, overdue: 0 }
+    for (const r of rows) byStage[r.stage]++
 
     return NextResponse.json({
       count: rows.length,
       total_value: rows.reduce((a, r) => a + (r.total || 0), 0),
       no_po: byCmp.no_po,
       by_cmp: byCmp,
+      by_stage: byStage,
       rows,
     })
   } catch (err) {

@@ -29,9 +29,22 @@ type Row = {
   expected_delivery: string
   expected_source: "manual" | "po" | "none"
   track: "pr" | "po" | "waiting"
+  stage: Stage
+  days_to_due: number | null
+  overdue: boolean
 }
+type Stage = "pr" | "po" | "due" | "overdue"
 type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string; due: string }
-type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; rows: Row[] }
+type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; by_stage: Record<Stage, number>; rows: Row[] }
+
+// สถานะหลัก (ติดตาม): เปิด PR → เปิด PO → กำหนดส่งสินค้า (ตามกำหนด/เกินกำหนด)
+const STAGE_META: Record<Stage, { label: string; cls: string; dot: string }> = {
+  pr:      { label: "เปิด PR",         cls: "bg-[#F1F5F9] text-[#475569] dark:bg-white/10 dark:text-gray-300",     dot: "#64748B" },
+  po:      { label: "เปิด PO",         cls: "bg-[#DBEAFE] text-[#1D4ED8] dark:bg-blue-500/15 dark:text-blue-300",   dot: "#1D4ED8" },
+  due:     { label: "กำหนดส่งสินค้า",  cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
+  overdue: { label: "เกินกำหนด",       cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",     dot: "#DC2626" },
+}
+const STAGE_ORDER: Stage[] = ["pr", "po", "due", "overdue"]
 
 const CMP_META: Record<Cmp, { label: string; cls: string; dot: string }> = {
   ok:      { label: "ถูกต้อง",   cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
@@ -62,6 +75,20 @@ const ITEM_META: Record<ItemStatus, { label: string; cls: string }> = {
 const ITEM_ORDER: ItemStatus[] = ["ok", "qty", "price", "missing_po", "extra_po"]
 const qty = (v: number | null) => (v == null ? "—" : (Math.round(v * 100) / 100).toLocaleString("th-TH"))
 
+// "YYYY-MM-DD" → วันไทยสั้น
+function fmtISO(d: string) {
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return m ? fmtDate(`${m[3]}/${m[2]}/${m[1]}`) : (d || "—")
+}
+
+// เทียบวันกำหนดส่ง (YYYY-MM-DD) กับวันนี้ (Asia/Bangkok)
+function dueInfo(expected: string): { days: number; overdue: boolean } | null {
+  if (!expected) return null
+  const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10)
+  const days = Math.round((Date.parse(expected) - Date.parse(today)) / 86400000)
+  return { days, overdue: days < 0 }
+}
+
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const bahtShort = (n: number) => Math.round(n).toLocaleString("th-TH")   // ตารางกระชับ (ไม่มีทศนิยม)
 // ลิงก์ไปหน้า ATMS (ค้นด้วย ?code=)
@@ -85,6 +112,7 @@ export function PrPage() {
   const [warehouse, setWarehouse] = useState("")
   const [dept, setDept]       = useState("")
   const [cmpFilter, setCmpFilter] = useState<Cmp | "">("")
+  const [stageFilter, setStageFilter] = useState<Stage | "">("")
   const [page, setPage]       = useState(1)
   const [detail, setDetail]   = useState<Row | null>(null)
   const [deliveryDraft, setDeliveryDraft] = useState("")
@@ -118,11 +146,17 @@ export function PrPage() {
       if (!res.ok) throw new Error()
       const patch = (r: Row): Row => {
         const eff = deliveryDraft || r.po_due
+        const di = dueInfo(eff)
+        const track: Row["track"] = r.po_count === 0 ? "pr" : (eff ? "waiting" : "po")
+        const stage: Stage = track === "pr" ? "pr" : track === "po" ? "po" : (di?.overdue ? "overdue" : "due")
         return {
           ...r,
           expected_delivery: eff,
           expected_source: deliveryDraft ? "manual" : (r.po_due ? "po" : "none"),
-          track: r.po_count === 0 ? "pr" : (eff ? "waiting" : "po"),
+          track,
+          stage,
+          days_to_due: di?.days ?? null,
+          overdue: di?.overdue ?? false,
         }
       }
       setData((d) => (d ? { ...d, rows: d.rows.map((r) => (r.pr_code === detail.pr_code ? patch(r) : r)) } : d))
@@ -139,9 +173,9 @@ export function PrPage() {
     try {
       const res = await fetch("/api/pr", { cache: "no-store" })
       const d   = await res.json()
-      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, rows: [] })
+      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, by_stage: { pr: 0, po: 0, due: 0, overdue: 0 }, rows: [] })
     } catch {
-      setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, rows: [] })
+      setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, by_stage: { pr: 0, po: 0, due: 0, overdue: 0 }, rows: [] })
     } finally {
       setLoading(false)
     }
@@ -170,17 +204,23 @@ export function PrPage() {
     return c
   }, [baseFiltered])
 
-  // แล้วค่อยกรองตามสถานะสรุปที่เลือก
+  const stageCounts = useMemo(() => {
+    const c: Record<Stage, number> = { pr: 0, po: 0, due: 0, overdue: 0 }
+    for (const r of baseFiltered) c[r.stage]++
+    return c
+  }, [baseFiltered])
+
+  // กรองตามสถานะหลัก (ติดตาม) + สถานะสรุป PR↔PO ที่เลือก
   const filtered = useMemo(
-    () => (cmpFilter ? baseFiltered.filter((r) => r.cmp === cmpFilter) : baseFiltered),
-    [baseFiltered, cmpFilter]
+    () => baseFiltered.filter((r) => (!stageFilter || r.stage === stageFilter) && (!cmpFilter || r.cmp === cmpFilter)),
+    [baseFiltered, cmpFilter, stageFilter]
   )
 
   const sumValue = useMemo(() => filtered.reduce((a, r) => a + (r.total || 0), 0), [filtered])
   const noPo     = cmpCounts.no_po
 
   // pagination — รีเซ็ตหน้าเมื่อค้นหา/กรองเปลี่ยน
-  useEffect(() => { setPage(1) }, [q, warehouse, dept, cmpFilter])
+  useEffect(() => { setPage(1) }, [q, warehouse, dept, cmpFilter, stageFilter])
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const curPage    = Math.min(page, totalPages)
   const pageRows   = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [filtered, curPage])
@@ -239,6 +279,27 @@ export function PrPage() {
           <option value="">ทุกแผนก</option>
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+      </div>
+
+      {/* สถานะหลัก (ติดตาม) — คลิกเพื่อกรอง */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold text-[#5B7568] dark:text-gray-300">สถานะหลัก:</span>
+        <button
+          onClick={() => setStageFilter("")}
+          className={`rounded-full px-3 py-1 text-[12px] font-medium transition ${stageFilter === "" ? "bg-[#1B8C4B] text-white" : "bg-[#F0F4F1] text-[#4B5F54] dark:bg-white/5 dark:text-gray-300 hover:bg-[#E6EDE8]"}`}
+        >
+          ทั้งหมด {baseFiltered.length}
+        </button>
+        {STAGE_ORDER.map((k) => (
+          <button
+            key={k}
+            onClick={() => setStageFilter(stageFilter === k ? "" : k)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition ${STAGE_META[k].cls} ${stageFilter === k ? "ring-2 ring-offset-1 ring-[#14271C]/30 dark:ring-white/30 dark:ring-offset-[#0f1117]" : "opacity-90 hover:opacity-100"}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: STAGE_META[k].dot }} />
+            {STAGE_META[k].label} {stageCounts[k]}
+          </button>
+        ))}
       </div>
 
       {/* สรุปสถานะ PR↔PO (คลิกเพื่อกรอง) */}
@@ -510,6 +571,20 @@ export function PrPage() {
                           {detail.expected_source === "manual" ? "· กรอกเอง" : detail.expected_source === "po" ? "· ค่าตั้งต้นจาก PO" : "· PO ไม่มีวันกำหนดส่ง กรอกเองได้"}
                         </span>
                       </div>
+                      {/* เทียบกับวันนี้ */}
+                      {(() => {
+                        const di = dueInfo(detail.expected_delivery)
+                        if (!di) return null
+                        return (
+                          <div className="mt-1.5 text-[11.5px] font-semibold">
+                            {di.overdue
+                              ? <span className="text-[#DC2626]">⚠ เกินกำหนดมาแล้ว {Math.abs(di.days)} วัน (คาดรับ {fmtISO(detail.expected_delivery)})</span>
+                              : di.days === 0
+                                ? <span className="text-[#B07D12]">⏰ ครบกำหนดวันนี้</span>
+                                : <span className="text-[#15803D]">🟢 ยังไม่เกิน · เหลืออีก {di.days} วัน</span>}
+                          </div>
+                        )
+                      })()}
                     </div>
                   </li>
                 </ol>
