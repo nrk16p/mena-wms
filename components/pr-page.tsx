@@ -94,6 +94,8 @@ function ageDays(d: string): number | null {
   const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10)
   return Math.max(0, Math.round((Date.parse(today) - Date.parse(`${m[3]}-${m[2]}-${m[1]}`)) / 86400000))
 }
+// สีตามช่วงอายุ (เหมือน repair-external): <8 เขียว · 8–14 เหลือง · 15+ แดง
+const ageColor = (d: number | null) => d == null ? "#9ca3af" : d >= 15 ? "#DC2626" : d >= 8 ? "#B07D12" : "#1B8C4B"
 
 // เทียบวันกำหนดส่ง (YYYY-MM-DD) กับวันนี้ (Asia/Bangkok)
 function dueInfo(expected: string): { days: number; overdue: boolean } | null {
@@ -332,14 +334,14 @@ export function PrPage() {
       <div className="mb-3 overflow-x-auto rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
         <table className="w-full min-w-[760px] table-fixed border-collapse text-[11.5px]">
           <colgroup>
-            <col style={{ width: "11%" }} /><col style={{ width: "7%" }} /><col style={{ width: "15%" }} />
-            <col style={{ width: "8%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} />
-            <col style={{ width: "9%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} />
+            <col style={{ width: "11%" }} /><col style={{ width: "9%" }} /><col style={{ width: "15%" }} />
+            <col style={{ width: "8%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} />
+            <col style={{ width: "8%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} />
           </colgroup>
           <thead>
             <tr className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] text-left text-[10px] font-bold uppercase tracking-wide text-[#9AA8A0]">
               <th className="px-2.5 py-2.5">PR</th>
-              <th className="px-2 py-2.5">วันที่</th>
+              <th className="px-2 py-2.5">อายุงาน</th>
               <th className="px-2 py-2.5">คลัง · แผนก</th>
               <th className="px-2 py-2.5">ทะเบียน</th>
               <th className="px-2 py-2.5">ผู้ขอซื้อ</th>
@@ -364,9 +366,20 @@ export function PrPage() {
                 <td className="px-2.5 py-2.5">
                   <span className="block truncate font-semibold text-[#1B8C4B]" title={r.pr_code}>{r.pr_code}</span>
                 </td>
-                <td className="px-2 py-2.5 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">
-                  {fmtDate(r.date)}
-                  {ageDays(r.date) !== null && <div className="text-[10px] text-[#9AA8A0]">อายุ {ageDays(r.date)} วัน</div>}
+                <td className="px-2 py-2.5">
+                  {(() => {
+                    const age = ageDays(r.date)
+                    const col = ageColor(age)
+                    return (
+                      <div className="flex gap-1.5">
+                        <div className="w-1 shrink-0 self-stretch rounded-full" style={{ background: col }} />
+                        <div>
+                          <div className="text-[18px] font-semibold leading-none" style={{ ...mitr, color: col }}>{age ?? "—"}</div>
+                          <div className="mt-0.5 whitespace-nowrap text-[9px] text-[#9AA8A0]">วัน · {fmtDate(r.date)}</div>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </td>
                 <td className="px-2 py-2.5">
                   <div className="truncate text-[#14271C] dark:text-gray-200" title={r.warehouse}>{r.warehouse || "—"}</div>
