@@ -42,6 +42,26 @@ const CMP_ORDER: Cmp[] = ["ok", "anomaly", "no_po"]
 // กฎที่คาดหวังต่อสาขา (แสดงเป็น hint)
 const RULE_LABEL: Record<VatRule, string> = { incl: "คาด PR=PO", excl: "คาด PO=+7%" }
 
+// ── เทียบราย SKU ──
+type ItemStatus = "ok" | "qty" | "price" | "missing_po" | "extra_po"
+type ItemRow = {
+  sku: string; name: string; group: string
+  pr_qty: number | null; pr_total: number | null
+  po_qty: number | null; po_total: number | null
+  received: number | null; outstanding: number | null
+  status: ItemStatus
+}
+type ItemsResp = { pr: string; has_pr_items: boolean; has_po_items: boolean; pr_item_count: number; po_item_count: number; rows: ItemRow[]; summary: Record<ItemStatus, number> }
+const ITEM_META: Record<ItemStatus, { label: string; cls: string }> = {
+  ok:         { label: "ตรง",       cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300" },
+  qty:        { label: "จำนวนต่าง", cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300" },
+  price:      { label: "ราคาต่าง",  cls: "bg-[#FEF3C7] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300" },
+  missing_po: { label: "ขาดใน PO",  cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300" },
+  extra_po:   { label: "เกินใน PO", cls: "bg-[#DBEAFE] text-[#1D4ED8] dark:bg-blue-500/15 dark:text-blue-300" },
+}
+const ITEM_ORDER: ItemStatus[] = ["ok", "qty", "price", "missing_po", "extra_po"]
+const qty = (v: number | null) => (v == null ? "—" : (Math.round(v * 100) / 100).toLocaleString("th-TH"))
+
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const bahtShort = (n: number) => Math.round(n).toLocaleString("th-TH")   // ตารางกระชับ (ไม่มีทศนิยม)
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
@@ -66,9 +86,22 @@ export function PrPage() {
   const [detail, setDetail]   = useState<Row | null>(null)
   const [deliveryDraft, setDeliveryDraft] = useState("")
   const [savingTrack, setSavingTrack] = useState(false)
+  const [items, setItems]     = useState<ItemsResp | null>(null)
+  const [itemsLoading, setItemsLoading] = useState(false)
   const PAGE_SIZE = 25
 
   useEffect(() => { setDeliveryDraft(detail?.expected_source === "manual" ? detail.expected_delivery : "") }, [detail])
+
+  // โหลดรายการสินค้าเมื่อเปิด detail
+  useEffect(() => {
+    if (!detail) { setItems(null); return }
+    setItemsLoading(true)
+    fetch(`/api/pr/items?pr=${encodeURIComponent(detail.pr_code)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setItems(d?.rows ? d : null))
+      .catch(() => setItems(null))
+      .finally(() => setItemsLoading(false))
+  }, [detail])
 
   async function saveTrack() {
     if (!detail) return
@@ -378,6 +411,53 @@ export function PrPage() {
                   <div className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 py-2"><div className="text-[10px] text-[#9AA8A0]">ยอด PO รวม</div><div className="text-[15px] font-semibold text-[#14271C] dark:text-white" style={mitr}>{detail.po_count ? baht(detail.po_total) : "—"}</div></div>
                   <div className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 py-2"><div className="text-[10px] text-[#9AA8A0]">ส่วนต่าง</div><div className={`text-[15px] font-semibold ${detail.cmp === "anomaly" ? "text-[#DC2626]" : "text-[#14271C] dark:text-white"}`} style={mitr}>{detail.po_count ? `${detail.po_diff > 0 ? "+" : ""}${baht(detail.po_diff)}` : "—"}</div></div>
                 </div>
+              </div>
+
+              {/* เทียบรายการสินค้า (line item) */}
+              <div className="rounded-[12px] border border-[#EEF2F0] dark:border-white/10 p-3.5">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[12px] font-semibold text-[#14271C] dark:text-white">เทียบรายการสินค้า (ราย SKU)</span>
+                  {items && (items.has_pr_items || items.has_po_items) && (
+                    <div className="flex flex-wrap gap-1">
+                      {ITEM_ORDER.filter((k) => items.summary[k] > 0).map((k) => (
+                        <span key={k} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ITEM_META[k].cls}`}>{ITEM_META[k].label} {items.summary[k]}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {itemsLoading ? (
+                  <div className="py-3 text-center text-[12px] text-[#9AA8A0]">กำลังโหลดรายการ…</div>
+                ) : !items || (!items.has_pr_items && !items.has_po_items) ? (
+                  <div className="rounded-[10px] bg-[#F6FAF7] dark:bg-white/5 px-3 py-2 text-[11.5px] text-[#9AA8A0]">ยังไม่มีข้อมูลรายการสินค้าของ PR/PO นี้ (ยังไม่ได้ดึงหน้า detail)</div>
+                ) : (
+                  <div className="overflow-x-auto rounded-[10px] border border-[#EEF2F0] dark:border-white/10">
+                    <table className="w-full min-w-[540px] text-[11.5px]">
+                      <thead><tr className="border-b border-[#EEF2F0] dark:border-white/8 text-left text-[10px] uppercase text-[#9AA8A0]">
+                        <th className="px-2.5 py-2">สินค้า</th>
+                        <th className="px-2 py-2 text-right">PR จ.</th>
+                        <th className="px-2 py-2 text-right">PO จ.</th>
+                        <th className="px-2 py-2 text-right">PR ยอด</th>
+                        <th className="px-2 py-2 text-right">PO ยอด</th>
+                        <th className="px-2 py-2">สถานะ</th>
+                      </tr></thead>
+                      <tbody>
+                        {items.rows.map((it) => (
+                          <tr key={it.sku} className="border-b border-[#F4F7F5] dark:border-white/5 align-top">
+                            <td className="px-2.5 py-2">
+                              <div className="font-medium text-[#14271C] dark:text-gray-200">{it.sku}</div>
+                              <div className="text-[10.5px] text-[#9AA8A0] line-clamp-1" title={it.name}>{it.name}</div>
+                            </td>
+                            <td className="px-2 py-2 text-right whitespace-nowrap text-[#4B5F54] dark:text-gray-300">{qty(it.pr_qty)}</td>
+                            <td className="px-2 py-2 text-right whitespace-nowrap text-[#4B5F54] dark:text-gray-300">{qty(it.po_qty)}</td>
+                            <td className="px-2 py-2 text-right whitespace-nowrap text-[#4B5F54] dark:text-gray-300">{it.pr_total == null ? "—" : bahtShort(it.pr_total)}</td>
+                            <td className="px-2 py-2 text-right whitespace-nowrap text-[#4B5F54] dark:text-gray-300">{it.po_total == null ? "—" : bahtShort(it.po_total)}</td>
+                            <td className="px-2 py-2"><span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ITEM_META[it.status].cls}`}>{ITEM_META[it.status].label}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* ติดตามสินค้า */}
