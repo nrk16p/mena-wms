@@ -87,6 +87,14 @@ function fmtISO(d: string) {
   return m ? fmtDate(`${m[3]}/${m[2]}/${m[1]}`) : (d || "—")
 }
 
+// อายุงาน: จำนวนวันตั้งแต่เปิด PR (DD/MM/YYYY) ถึงวันนี้ (Asia/Bangkok)
+function ageDays(d: string): number | null {
+  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10)
+  return Math.max(0, Math.round((Date.parse(today) - Date.parse(`${m[3]}-${m[2]}-${m[1]}`)) / 86400000))
+}
+
 // เทียบวันกำหนดส่ง (YYYY-MM-DD) กับวันนี้ (Asia/Bangkok)
 function dueInfo(expected: string): { days: number; overdue: boolean } | null {
   if (!expected) return null
@@ -356,7 +364,10 @@ export function PrPage() {
                 <td className="px-2.5 py-2.5">
                   <span className="block truncate font-semibold text-[#1B8C4B]" title={r.pr_code}>{r.pr_code}</span>
                 </td>
-                <td className="px-2 py-2.5 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(r.date)}</td>
+                <td className="px-2 py-2.5 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">
+                  {fmtDate(r.date)}
+                  {ageDays(r.date) !== null && <div className="text-[10px] text-[#9AA8A0]">อายุ {ageDays(r.date)} วัน</div>}
+                </td>
                 <td className="px-2 py-2.5">
                   <div className="truncate text-[#14271C] dark:text-gray-200" title={r.warehouse}>{r.warehouse || "—"}</div>
                   <div className="truncate text-[10px] text-[#9AA8A0]" title={r.dept}>{r.dept || "—"}</div>
