@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { FileText, Search, RefreshCw, X } from "lucide-react"
+import { useEffect, useMemo, useState, Fragment } from "react"
+import { FileText, Search, RefreshCw, X, ChevronRight } from "lucide-react"
 
 type Cmp = "ok" | "anomaly" | "no_po"
 type VatRule = "incl" | "excl"
@@ -47,16 +47,19 @@ const STAGE_META: Record<Stage, { label: string; full: string; cls: string; dot:
   due:     { label: "กำหนดส่งสินค้า",  full: "กำหนดส่งสินค้า · ยังไม่เกิน",           cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300", dot: "#15803D" },
   overdue: { label: "เกินกำหนด",       full: "เกินกำหนดส่งสินค้าแล้ว",                cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",    dot: "#DC2626" },
 }
-const STAGE_ORDER: Stage[] = ["pr", "po_ok", "po_bad", "due", "overdue"]
+// Pipeline funnel (ยุบ po_ok+po_bad เป็นขั้น "เปิด PO" · po_ok≈0)
+const FUNNEL: { key: string; label: string; stages: Stage[]; color: string; tint: string }[] = [
+  { key: "pr",   label: "เปิด PR",        stages: ["pr"],              color: "#64748B", tint: "#F1F5F9" },
+  { key: "po",   label: "เปิด PO",        stages: ["po_ok", "po_bad"], color: "#E8A317", tint: "#FEF7E6" },
+  { key: "due",  label: "กำหนดส่งสินค้า", stages: ["due"],             color: "#15803D", tint: "#EAF6EE" },
+  { key: "over", label: "เกินกำหนด",      stages: ["overdue"],         color: "#DC2626", tint: "#FEECEC" },
+]
 
 const CMP_META: Record<Cmp, { label: string; cls: string; dot: string }> = {
   ok:      { label: "ถูกต้อง",   cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
   anomaly: { label: "ผิดปกติ",   cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",     dot: "#DC2626" },
   no_po:   { label: "ยังไม่มี PO", cls: "bg-[#FEF3C7] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300", dot: "#B07D12" },
 }
-const CMP_ORDER: Cmp[] = ["ok", "anomaly", "no_po"]
-// กฎที่คาดหวังต่อสาขา (แสดงเป็น hint)
-const RULE_LABEL: Record<VatRule, string> = { incl: "คาด PR=PO", excl: "คาด PO=+7%" }
 
 // ── เทียบราย SKU ──
 type ItemStatus = "ok" | "qty" | "price" | "missing_po" | "extra_po"
@@ -118,8 +121,7 @@ export function PrPage() {
   const [q, setQ]             = useState("")
   const [warehouse, setWarehouse] = useState("")
   const [dept, setDept]       = useState("")
-  const [cmpFilter, setCmpFilter] = useState<Cmp | "">("")
-  const [stageFilter, setStageFilter] = useState<Stage | "">("")
+  const [funnelFilter, setFunnelFilter] = useState<string>("")
   const [page, setPage]       = useState(1)
   const [detail, setDetail]   = useState<Row | null>(null)
   const [deliveryDraft, setDeliveryDraft] = useState("")
@@ -209,29 +211,30 @@ export function PrPage() {
     })
   }, [rows, q, warehouse, dept])
 
-  const cmpCounts = useMemo(() => {
-    const c: Record<Cmp, number> = { ok: 0, anomaly: 0, no_po: 0 }
-    for (const r of baseFiltered) c[r.cmp]++
-    return c
-  }, [baseFiltered])
-
   const stageCounts = useMemo(() => {
     const c: Record<Stage, number> = { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }
     for (const r of baseFiltered) c[r.stage]++
     return c
   }, [baseFiltered])
+  // จำนวนต่อขั้น funnel + ตัวย่อยที่ต้องเตือน
+  const funnelCounts = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const f of FUNNEL) m[f.key] = f.stages.reduce((a, s) => a + stageCounts[s], 0)
+    return m
+  }, [stageCounts])
 
-  // กรองตามสถานะหลัก (ติดตาม) + สถานะสรุป PR↔PO ที่เลือก
-  const filtered = useMemo(
-    () => baseFiltered.filter((r) => (!stageFilter || r.stage === stageFilter) && (!cmpFilter || r.cmp === cmpFilter)),
-    [baseFiltered, cmpFilter, stageFilter]
-  )
+  // กรองตามขั้น funnel ที่เลือก
+  const stagesOf = (key: string) => FUNNEL.find((f) => f.key === key)?.stages ?? []
+  const filtered = useMemo(() => {
+    if (!funnelFilter) return baseFiltered
+    const set = new Set(stagesOf(funnelFilter))
+    return baseFiltered.filter((r) => set.has(r.stage))
+  }, [baseFiltered, funnelFilter])
 
   const sumValue = useMemo(() => filtered.reduce((a, r) => a + (r.total || 0), 0), [filtered])
-  const noPo     = cmpCounts.no_po
 
   // pagination — รีเซ็ตหน้าเมื่อค้นหา/กรองเปลี่ยน
-  useEffect(() => { setPage(1) }, [q, warehouse, dept, cmpFilter, stageFilter])
+  useEffect(() => { setPage(1) }, [q, warehouse, dept, funnelFilter])
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const curPage    = Math.min(page, totalPages)
   const pageRows   = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [filtered, curPage])
@@ -257,36 +260,43 @@ export function PrPage() {
         </button>
       </div>
 
-      {/* Stat cards */}
-      <div className="mb-3 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">PR รออยู่</p>
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={mitr}>{loading ? "—" : filtered.length}</span>
-            <span className="text-xs text-[#9AA8A0]">รายการ</span>
-          </div>
-          <p className="mt-1.5 text-[11px] text-gray-400">มูลค่ารวม {loading ? "—" : baht(sumValue)} บาท</p>
+      {/* Pipeline funnel — สถานะการติดตาม (คลิกที่ขั้นเพื่อกรอง) */}
+      <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">สถานะการติดตาม · งานไหลซ้าย → ขวา</p>
+          <span className="text-xs text-gray-400">
+            {loading ? "…" : `${filtered.length} รายการ · มูลค่า ${baht(sumValue)} บาท`}
+            {funnelFilter && <button onClick={() => setFunnelFilter("")} className="ml-2 font-medium text-[#1B8C4B] hover:underline">แสดงทั้งหมด</button>}
+          </span>
         </div>
-        <button
-          onClick={() => setStageFilter((v) => (v === "overdue" ? "" : "overdue"))}
-          title="คลิกเพื่อดูเฉพาะรายการที่เกินกำหนด"
-          className={`rounded-2xl border p-4 text-left transition ${stageFilter === "overdue" ? "border-[#DC2626] ring-2 ring-[#DC2626]/30" : "border-[#F7CFCF] dark:border-red-900/40"} bg-[#FEECEC] dark:bg-red-950/20`}
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#B4534F] dark:text-red-400">⏰ เกินกำหนด</p>
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="text-[34px] font-semibold leading-none text-[#DC2626]" style={mitr}>{loading ? "—" : stageCounts.overdue}</span>
-            <span className="text-xs text-[#B4534F] dark:text-red-400">รายการ</span>
-          </div>
-          <p className="mt-1.5 text-[11px] text-[#B4534F] dark:text-red-400">เลยวันกำหนดส่งสินค้าแล้ว</p>
-        </button>
-        <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">ยังไม่มี PO</p>
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={mitr}>{loading ? "—" : noPo}</span>
-            <span className="text-xs text-[#9AA8A0]">รายการ</span>
-          </div>
-          <p className="mt-1.5 text-[11px] text-gray-400">อนุมัติแล้วแต่ยังไม่เปิด PO</p>
+        <div className="flex flex-wrap items-stretch gap-2">
+          {FUNNEL.map((f, i) => {
+            const active = funnelFilter === f.key
+            const warn = f.key === "po" ? stageCounts.po_bad : 0
+            return (
+              <Fragment key={f.key}>
+                {i > 0 && <div className="hidden items-center text-[#CBD5E1] dark:text-white/20 sm:flex"><ChevronRight size={18} /></div>}
+                <button
+                  onClick={() => setFunnelFilter(active ? "" : f.key)}
+                  className="relative min-w-[120px] flex-1 rounded-xl border p-3 text-left transition"
+                  style={{ borderColor: active ? f.color : "#EEF2F0", boxShadow: active ? `0 0 0 1.5px ${f.color}` : undefined }}
+                >
+                  <div className="text-[11px] font-semibold" style={{ color: f.color }}>{f.label}</div>
+                  <div className="mt-1 text-[26px] font-semibold leading-none text-[#14271C] dark:text-white" style={mitr}>{loading ? "—" : funnelCounts[f.key]}</div>
+                  {warn > 0 && <div className="mt-0.5 text-[10px] font-semibold text-[#B07D12]">⚠ {warn} ไม่ครบ</div>}
+                </button>
+              </Fragment>
+            )
+          })}
         </div>
+        {!loading && baseFiltered.length > 0 && (
+          <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
+            {FUNNEL.map((f) => {
+              const n = funnelCounts[f.key]
+              return n ? <div key={f.key} title={`${f.label} ${n}`} style={{ width: `${(n / baseFiltered.length) * 100}%`, background: f.color }} /> : null
+            })}
+          </div>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -308,56 +318,6 @@ export function PrPage() {
           <option value="">ทุกแผนก</option>
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
-      </div>
-
-      {/* สถานะหลัก (ติดตาม) — คลิกเพื่อกรอง */}
-      <div className="mb-2.5 flex w-full flex-wrap items-center gap-1.5">
-        <span className="mr-0.5 text-xs font-semibold text-[#5B7568] dark:text-gray-300">สถานะหลัก:</span>
-        <button
-          onClick={() => setStageFilter("")}
-          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${!stageFilter ? "bg-[#14271C] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-        >
-          ทั้งหมด <span className="opacity-70">{baseFiltered.length}</span>
-        </button>
-        {STAGE_ORDER.map((k) => {
-          const active = stageFilter === k
-          return (
-            <button
-              key={k}
-              onClick={() => setStageFilter(active ? "" : k)}
-              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${active ? "text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-              style={active ? { background: STAGE_META[k].dot } : undefined}
-            >
-              {!active && <span className="h-1.5 w-1.5 rounded-full" style={{ background: STAGE_META[k].dot }} />}
-              {STAGE_META[k].label} <span className="opacity-70">{stageCounts[k]}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* สรุปสถานะ PR↔PO (คลิกเพื่อกรอง) */}
-      <div className="mb-4 flex w-full flex-wrap items-center gap-1.5">
-        <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">สถานะ PR↔PO:</span>
-        <button
-          onClick={() => setCmpFilter("")}
-          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${!cmpFilter ? "bg-[#14271C] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-        >
-          ทั้งหมด <span className="opacity-70">{baseFiltered.length}</span>
-        </button>
-        {CMP_ORDER.map((k) => {
-          const active = cmpFilter === k
-          return (
-            <button
-              key={k}
-              onClick={() => setCmpFilter(active ? "" : k)}
-              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${active ? "text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-              style={active ? { background: CMP_META[k].dot } : undefined}
-            >
-              {!active && <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[k].dot }} />}
-              {CMP_META[k].label} <span className="opacity-70">{cmpCounts[k]}</span>
-            </button>
-          )
-        })}
       </div>
 
       {/* Table */}
@@ -406,10 +366,15 @@ export function PrPage() {
                 <td className="px-2 py-2.5 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white" title={baht(r.total || 0)}>{bahtShort(r.total || 0)}</td>
                 <td className="px-2 py-2.5 whitespace-nowrap text-right text-[#4B5F54] dark:text-gray-300" title={r.po_count ? baht(r.po_total || 0) : ""}>{r.po_count === 0 ? "—" : bahtShort(r.po_total || 0)}</td>
                 <td className="px-2 py-2.5">
-                  <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CMP_META[r.cmp].cls}`} title={r.cmp !== "no_po" ? `${RULE_LABEL[r.vat_rule]}${r.cmp === "anomaly" ? ` · ต่าง ${r.po_diff > 0 ? "+" : ""}${baht(r.po_diff)}` : ""}` : ""}>
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: CMP_META[r.cmp].dot }} />
-                    {CMP_META[r.cmp].label}
+                  <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STAGE_META[r.stage].cls}`}>
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: STAGE_META[r.stage].dot }} />
+                    {STAGE_META[r.stage].label}
                   </span>
+                  {r.days_to_due !== null && (r.stage === "due" || r.stage === "overdue") && (
+                    <div className={`mt-0.5 text-[10px] font-semibold ${r.overdue ? "text-[#DC2626]" : "text-[#15803D]"}`}>
+                      {r.overdue ? `เกิน ${Math.abs(r.days_to_due)} วัน` : r.days_to_due === 0 ? "ครบวันนี้" : `เหลือ ${r.days_to_due} วัน`}
+                    </div>
+                  )}
                 </td>
                 <td className="px-2 py-2.5">
                   {r.po_count === 0 ? (
