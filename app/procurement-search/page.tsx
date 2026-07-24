@@ -635,6 +635,12 @@ export default function ProcurementSearchPage() {
   // Reset selected to searched code when result changes
   useEffect(() => { if (result) setSelected(result.query) }, [result])
 
+  // Auto-search จาก ?q= ใน URL (เช่น ลิงก์มาจากหน้า /pr)
+  useEffect(() => {
+    const qp = new URLSearchParams(window.location.search).get("q")
+    if (qp) search(qp)
+  }, [search])
+
   const chain = result ? deriveChain(result) : []
 
   return (

@@ -6,7 +6,7 @@ import { useEffect, useState, Suspense } from "react"
 import {
   PackageSearch, PlusCircle, Database, Car,
   GitCompare, Clock, Inbox,
-  TrendingUp, Layers, Tag,
+  TrendingUp, Layers, Tag, FileText,
 } from "lucide-react"
 import { WelcomePopup } from "@/components/welcome-popup"
 import { Mascot } from "@/components/mascot"
@@ -47,6 +47,7 @@ const QUICK_LINKS = [
   { href: "/tire",               label: "ศูนย์จัดการยางรถ", desc: "ทุกคัน · ทุกสาขา",       icon: Database      },
   { href: "/vehicles",           label: "ยานพาหนะ",          desc: "ข้อมูลรถทั้งหมด",          icon: Car           },
   { href: "/codes/parts",        label: "แคตาล็อกอะไหล่",  desc: "L1 · L2 · L3",             icon: Layers        },
+  { href: "/pr",                 label: "การจัดการ PR",     desc: "อนุมัติแล้ว ยังไม่รับของ", icon: FileText      },
 ]
 
 // ── Stat Card ──
