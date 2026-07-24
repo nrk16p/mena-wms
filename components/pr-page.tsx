@@ -39,6 +39,7 @@ const CMP_ORDER: Cmp[] = ["ok", "anomaly", "no_po"]
 const RULE_LABEL: Record<VatRule, string> = { incl: "คาด PR=PO", excl: "คาด PO=+7%" }
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const bahtShort = (n: number) => Math.round(n).toLocaleString("th-TH")   // ตารางกระชับ (ไม่มีทศนิยม)
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const mitr = { fontFamily: "'Mitr', sans-serif" }
 
@@ -191,19 +192,24 @@ export function PrPage() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/[0.07] bg-white dark:bg-[#151a10]" style={{ boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}>
-        <table className="w-full min-w-[1160px] border-collapse text-[12.5px]">
+        <table className="w-full min-w-[760px] table-fixed border-collapse text-[11.5px]">
+          <colgroup>
+            <col style={{ width: "11%" }} /><col style={{ width: "7%" }} /><col style={{ width: "15%" }} />
+            <col style={{ width: "8%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} />
+            <col style={{ width: "9%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} />
+          </colgroup>
           <thead>
-            <tr className="border-b border-[#EEF2F0] dark:border-white/8 text-left text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]">
-              <th className="px-4 py-2.5">PR</th>
-              <th className="px-3 py-2.5">วันที่</th>
-              <th className="px-3 py-2.5">คลัง · แผนก</th>
-              <th className="px-3 py-2.5">ทะเบียน</th>
-              <th className="px-3 py-2.5">ผู้ขอซื้อ</th>
-              <th className="px-3 py-2.5 text-right">ยอด PR</th>
-              <th className="px-3 py-2.5 text-right">ยอด PO</th>
-              <th className="px-3 py-2.5">สถานะ PR↔PO</th>
-              <th className="px-3 py-2.5">PO / สถานะรับ</th>
-              <th className="px-4 py-2.5">หมายเหตุ</th>
+            <tr className="border-b border-[#EEF2F0] dark:border-white/8 text-left text-[10px] font-bold uppercase tracking-wide text-[#9AA8A0]">
+              <th className="px-2.5 py-2.5">PR</th>
+              <th className="px-2 py-2.5">วันที่</th>
+              <th className="px-2 py-2.5">คลัง · แผนก</th>
+              <th className="px-2 py-2.5">ทะเบียน</th>
+              <th className="px-2 py-2.5">ผู้ขอซื้อ</th>
+              <th className="px-2 py-2.5 text-right">ยอด PR</th>
+              <th className="px-2 py-2.5 text-right">ยอด PO</th>
+              <th className="px-2 py-2.5">สถานะ</th>
+              <th className="px-2 py-2.5">PO / รับ</th>
+              <th className="px-2.5 py-2.5">หมายเหตุ</th>
             </tr>
           </thead>
           <tbody>
@@ -217,46 +223,36 @@ export function PrPage() {
               <tr><td colSpan={10} className="px-4 py-14 text-center text-[13px] text-[#9AA8A0]">ไม่พบ PR ที่อนุมัติแล้วและยังไม่มีการรับของ</td></tr>
             ) : pageRows.map((r) => (
               <tr key={r.pr_code} onClick={() => setDetail(r)} className="cursor-pointer border-b border-[#F4F7F5] dark:border-white/5 hover:bg-[#F7FBF8] dark:hover:bg-white/[0.03] align-top">
-                <td className="px-4 py-3">
-                  <span className="font-semibold text-[#1B8C4B] hover:underline">{r.pr_code}</span>
+                <td className="px-2.5 py-2.5">
+                  <span className="block truncate font-semibold text-[#1B8C4B]" title={r.pr_code}>{r.pr_code}</span>
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(r.date)}</td>
-                <td className="px-3 py-3 text-[#4B5F54] dark:text-gray-400">
-                  <div className="text-[#14271C] dark:text-gray-200">{r.warehouse || "—"}</div>
-                  <div className="text-[11px] text-[#9AA8A0]">{r.dept || "—"}</div>
+                <td className="px-2 py-2.5 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(r.date)}</td>
+                <td className="px-2 py-2.5">
+                  <div className="truncate text-[#14271C] dark:text-gray-200" title={r.warehouse}>{r.warehouse || "—"}</div>
+                  <div className="truncate text-[10px] text-[#9AA8A0]" title={r.dept}>{r.dept || "—"}</div>
                 </td>
-                <td className="px-3 py-3 whitespace-nowrap font-medium text-[#14271C] dark:text-white">{r.plate || "—"}</td>
-                <td className="px-3 py-3 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{r.requester || "—"}</td>
-                <td className="px-3 py-3 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white">{baht(r.total || 0)}</td>
-                <td className="px-3 py-3 whitespace-nowrap text-right text-[#4B5F54] dark:text-gray-300">{r.po_count === 0 ? "—" : baht(r.po_total || 0)}</td>
-                <td className="px-3 py-3 whitespace-nowrap">
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CMP_META[r.cmp].cls}`}>
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[r.cmp].dot }} />
+                <td className="px-2 py-2.5"><span className="block truncate font-medium text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</span></td>
+                <td className="px-2 py-2.5"><span className="block truncate text-[#4B5F54] dark:text-gray-400" title={r.requester}>{r.requester || "—"}</span></td>
+                <td className="px-2 py-2.5 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white" title={baht(r.total || 0)}>{bahtShort(r.total || 0)}</td>
+                <td className="px-2 py-2.5 whitespace-nowrap text-right text-[#4B5F54] dark:text-gray-300" title={r.po_count ? baht(r.po_total || 0) : ""}>{r.po_count === 0 ? "—" : bahtShort(r.po_total || 0)}</td>
+                <td className="px-2 py-2.5">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CMP_META[r.cmp].cls}`} title={r.cmp !== "no_po" ? `${RULE_LABEL[r.vat_rule]}${r.cmp === "anomaly" ? ` · ต่าง ${r.po_diff > 0 ? "+" : ""}${baht(r.po_diff)}` : ""}` : ""}>
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: CMP_META[r.cmp].dot }} />
                     {CMP_META[r.cmp].label}
                   </span>
-                  {r.cmp !== "no_po" && (
-                    <div className="mt-0.5 text-[10px] text-[#9AA8A0]">
-                      {RULE_LABEL[r.vat_rule]}
-                      {r.cmp === "anomaly" && <span className="ml-1 text-[#DC2626] dark:text-red-400">· ต่าง {r.po_diff > 0 ? "+" : ""}{baht(r.po_diff)}</span>}
-                    </div>
-                  )}
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-2 py-2.5">
                   {r.po_count === 0 ? (
-                    <span className="inline-flex items-center rounded bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PO</span>
+                    <span className="text-[10px] text-[#9AA8A0]">—</span>
                   ) : (
-                    <div className="flex flex-col gap-0.5">
-                      {r.po_codes.map((po, i) => (
-                        <span key={po} className="whitespace-nowrap">
-                          <span className="text-[#14271C] dark:text-gray-200">{po}</span>
-                          {r.received_status[i] && <span className="ml-1 text-[10px] text-[#9AA8A0]">· {r.received_status[i]}</span>}
-                        </span>
-                      ))}
+                    <div className="truncate text-[#14271C] dark:text-gray-200" title={r.po_codes.join(", ")}>
+                      {r.po_codes[0]}{r.po_count > 1 && <span className="text-[#9AA8A0]"> +{r.po_count - 1}</span>}
+                      {r.received_status[0] && <div className="truncate text-[10px] text-[#9AA8A0]" title={r.received_status.join(", ")}>{r.received_status[0]}</div>}
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3 max-w-[260px]">
-                  <div className="line-clamp-2 text-[11.5px] text-[#6B7C72] dark:text-gray-400" title={r.note}>{r.note || "—"}</div>
+                <td className="px-2.5 py-2.5">
+                  <div className="truncate text-[#6B7C72] dark:text-gray-400" title={r.note}>{r.note || "—"}</div>
                 </td>
               </tr>
             ))}
