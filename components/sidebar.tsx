@@ -26,6 +26,7 @@ import {
   Wrench,
   Flag,
   Factory,
+  FileText,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -73,6 +74,13 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "#stock",                      label: "สต็อกยาง",          icon: MapPin,  subheader: true },
       { href: "/tire/latkrabang/stock-tire", label: "ลาดกระบัง",         icon: Disc3,   indent: true },
       { href: "/tire/saraburi/stock-tire",   label: "สระบุรี",            icon: Disc3,   indent: true },
+    ],
+  },
+  {
+    label: "จัดการติดตามสินค้า",
+    collapsible: true,
+    items: [
+      { href: "/pr", label: "ติดตาม PR / รับสินค้า", icon: FileText, exact: true },
     ],
   },
   {

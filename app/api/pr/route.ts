@@ -100,6 +100,18 @@ export async function GET(req: NextRequest) {
     const trackByPr = new Map(trackDocs.map((t) => [s(t.prCode), t]))
     const todayBKK = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10)  // วันนี้ (Asia/Bangkok)
 
+    // 3.6) detail_id (จาก items ที่ scrape) → ทำลิงก์ไปหน้า ATMS view/id ตรง
+    const prItemIds = prCodes.length
+      ? await db.collection("purchase_request_items").find({ pr_code: { $in: prCodes } }).project({ pr_code: 1, detail_id: 1, _id: 0 }).toArray() as Doc[]
+      : []
+    const prDetailId = new Map<string, string>()
+    for (const d of prItemIds) { const c = s(d.pr_code); if (c && !prDetailId.has(c)) prDetailId.set(c, s(d.detail_id)) }
+    const poItemIds = allPoCodes.length
+      ? await db.collection("purchase_order_items").find({ po_code: { $in: allPoCodes } }).project({ po_code: 1, detail_id: 1, _id: 0 }).toArray() as Doc[]
+      : []
+    const poDetailId = new Map<string, string>()
+    for (const d of poItemIds) { const c = s(d.po_code); if (c && !poDetailId.has(c)) poDetailId.set(c, s(d.detail_id)) }
+
     // 4) เก็บเฉพาะ PR ที่ "ไม่มี DD" (ไม่มี PO ตัวไหนถูกรับของเลย — รวม PR ที่ยังไม่มี PO)
     const rows = prs
       .map((p) => {
@@ -152,6 +164,7 @@ export async function GET(req: NextRequest) {
           po_count:  myPos.length,
           received_status: myPos.map((po) => s(po["สถานะการรับสินค้า"])).filter(Boolean),
           suppliers: [...new Set(myPos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
+          pr_detail_id: prDetailId.get(pr) || "",
           pos: myPos.map((po) => ({
             code:     s(po[PO_KEY]),
             date:     s(po["วันที่"]),
@@ -160,6 +173,7 @@ export async function GET(req: NextRequest) {
             received: s(po["สถานะการรับสินค้า"]),
             approver: s(po["approver"]),
             due:      toISO(s(po["กำหนดส่งสินค้า"])),
+            detail_id: poDetailId.get(s(po[PO_KEY])) || "",
           })),
           // ติดตาม
           po_due:            poDue,             // วันกำหนดส่งจาก PO (ISO)

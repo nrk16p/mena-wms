@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { FileText, Search, RefreshCw, PackageX, Wallet, ClipboardList, X } from "lucide-react"
+import { FileText, Search, RefreshCw, X } from "lucide-react"
 
 type Cmp = "ok" | "anomaly" | "no_po"
 type VatRule = "incl" | "excl"
@@ -25,6 +25,7 @@ type Row = {
   received_status: string[]
   suppliers: string[]
   pos: PoDetail[]
+  pr_detail_id: string
   po_due: string
   expected_delivery: string
   expected_source: "manual" | "po" | "none"
@@ -34,7 +35,7 @@ type Row = {
   overdue: boolean
 }
 type Stage = "pr" | "po" | "due" | "overdue"
-type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string; due: string }
+type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string; due: string; detail_id: string }
 type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; by_stage: Record<Stage, number>; rows: Row[] }
 
 // สถานะหลัก (ติดตาม): เปิด PR → เปิด PO → กำหนดส่งสินค้า (ตามกำหนด/เกินกำหนด)
@@ -91,9 +92,13 @@ function dueInfo(expected: string): { days: number; overdue: boolean } | null {
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const bahtShort = (n: number) => Math.round(n).toLocaleString("th-TH")   // ตารางกระชับ (ไม่มีทศนิยม)
-// ลิงก์ไปหน้า ATMS (ค้นด้วย ?code=)
-const atmsPr = (code: string) => `https://www.mena-atms.com/inv/purchase.request/index?code=${encodeURIComponent(code)}`
-const atmsPo = (code: string) => `https://www.mena-atms.com/inv/purchase.order/index?code=${encodeURIComponent(code)}`
+// ลิงก์ไปหน้า ATMS — ใช้ view/id ตรงถ้ามี detail_id (กัน ?code หลุดหลัง login), ไม่งั้น fallback ?code=
+const atmsPr = (code: string, id?: string) => id
+  ? `https://www.mena-atms.com/inv/purchase.request/view/id/${id}`
+  : `https://www.mena-atms.com/inv/purchase.request/index?code=${encodeURIComponent(code)}`
+const atmsPo = (code: string, id?: string) => id
+  ? `https://www.mena-atms.com/inv/purchase.order/view/id/${id}`
+  : `https://www.mena-atms.com/inv/purchase.order/index?code=${encodeURIComponent(code)}`
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const mitr = { fontFamily: "'Mitr', sans-serif" }
 
@@ -226,42 +231,60 @@ export function PrPage() {
   const pageRows   = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [filtered, curPage])
 
   return (
-    <div className="max-w-[1100px] mx-auto flex flex-col gap-4" style={sansThai}>
+    <div className="w-full px-4 py-6" style={sansThai}>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EAF6EE] dark:bg-[#1B8C4B]/10 text-[#1B8C4B]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#1B8C4B]/10 text-[#1B8C4B]">
             <FileText size={20} />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-[#14271C] dark:text-white" style={mitr}>การจัดการ PR</h1>
-            <p className="text-[12.5px] text-[#6B7C72] dark:text-gray-400">PR ที่อนุมัติแล้ว แต่ยัง<b>ไม่มีการรับของ (ไม่มี DD)</b></p>
+            <h1 className="text-lg font-bold text-[#14271C] dark:text-white" style={mitr}>จัดการติดตามสินค้า (PR)</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400">PR อนุมัติแล้วที่ยังไม่รับของ · ติดตาม PR → PO → กำหนดส่ง · {loading ? "…" : `${filtered.length} รายการ`}</p>
           </div>
         </div>
         <button
           onClick={load}
-          className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#EEF2F0] dark:border-white/10 px-3 py-2 text-[13px] text-[#4B5F54] dark:text-gray-300 hover:bg-[#F6FAF7] dark:hover:bg-white/5"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
         >
           <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> รีเฟรช
         </button>
       </div>
 
-      {/* Stat chips */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { icon: <ClipboardList size={16} />, label: "PR รออยู่", value: loading ? "—" : filtered.length.toLocaleString() },
-          { icon: <Wallet size={16} />,        label: "มูลค่ารวม (บาท)", value: loading ? "—" : baht(sumValue) },
-          { icon: <PackageX size={16} />,      label: "ยังไม่มี PO", value: loading ? "—" : noPo.toLocaleString() },
-        ].map((c) => (
-          <div key={c.label} className="rounded-[14px] border border-[#EEF2F0] dark:border-white/[0.07] bg-white dark:bg-[#151a10] p-[14px_16px]" style={{ boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}>
-            <div className="flex items-center gap-2 text-[#1B8C4B] mb-1.5">{c.icon}<span className="text-[12px] text-[#6B7C72] dark:text-[#9AA8A0]">{c.label}</span></div>
-            <p className="text-[22px] leading-none text-[#14271C] dark:text-white" style={{ ...mitr, fontWeight: 600 }}>{c.value}</p>
+      {/* Stat cards */}
+      <div className="mb-3 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">PR รออยู่</p>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={mitr}>{loading ? "—" : filtered.length}</span>
+            <span className="text-xs text-[#9AA8A0]">รายการ</span>
           </div>
-        ))}
+          <p className="mt-1.5 text-[11px] text-gray-400">มูลค่ารวม {loading ? "—" : baht(sumValue)} บาท</p>
+        </div>
+        <button
+          onClick={() => setStageFilter((v) => (v === "overdue" ? "" : "overdue"))}
+          title="คลิกเพื่อดูเฉพาะรายการที่เกินกำหนด"
+          className={`rounded-2xl border p-4 text-left transition ${stageFilter === "overdue" ? "border-[#DC2626] ring-2 ring-[#DC2626]/30" : "border-[#F7CFCF] dark:border-red-900/40"} bg-[#FEECEC] dark:bg-red-950/20`}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#B4534F] dark:text-red-400">⏰ เกินกำหนด</p>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className="text-[34px] font-semibold leading-none text-[#DC2626]" style={mitr}>{loading ? "—" : stageCounts.overdue}</span>
+            <span className="text-xs text-[#B4534F] dark:text-red-400">รายการ</span>
+          </div>
+          <p className="mt-1.5 text-[11px] text-[#B4534F] dark:text-red-400">เลยวันกำหนดส่งสินค้าแล้ว</p>
+        </button>
+        <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">ยังไม่มี PO</p>
+          <div className="mt-1.5 flex items-baseline gap-1.5">
+            <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={mitr}>{loading ? "—" : noPo}</span>
+            <span className="text-xs text-[#9AA8A0]">รายการ</span>
+          </div>
+          <p className="mt-1.5 text-[11px] text-gray-400">อนุมัติแล้วแต่ยังไม่เปิด PO</p>
+        </div>
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9AA8A0]" />
           <input
@@ -282,49 +305,57 @@ export function PrPage() {
       </div>
 
       {/* สถานะหลัก (ติดตาม) — คลิกเพื่อกรอง */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold text-[#5B7568] dark:text-gray-300">สถานะหลัก:</span>
+      <div className="mb-2.5 flex w-full flex-wrap items-center gap-1.5">
+        <span className="mr-0.5 text-xs font-semibold text-[#5B7568] dark:text-gray-300">สถานะหลัก:</span>
         <button
           onClick={() => setStageFilter("")}
-          className={`rounded-full px-3 py-1 text-[12px] font-medium transition ${stageFilter === "" ? "bg-[#1B8C4B] text-white" : "bg-[#F0F4F1] text-[#4B5F54] dark:bg-white/5 dark:text-gray-300 hover:bg-[#E6EDE8]"}`}
+          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${!stageFilter ? "bg-[#14271C] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
         >
-          ทั้งหมด {baseFiltered.length}
+          ทั้งหมด <span className="opacity-70">{baseFiltered.length}</span>
         </button>
-        {STAGE_ORDER.map((k) => (
-          <button
-            key={k}
-            onClick={() => setStageFilter(stageFilter === k ? "" : k)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition ${STAGE_META[k].cls} ${stageFilter === k ? "ring-2 ring-offset-1 ring-[#14271C]/30 dark:ring-white/30 dark:ring-offset-[#0f1117]" : "opacity-90 hover:opacity-100"}`}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: STAGE_META[k].dot }} />
-            {STAGE_META[k].label} {stageCounts[k]}
-          </button>
-        ))}
+        {STAGE_ORDER.map((k) => {
+          const active = stageFilter === k
+          return (
+            <button
+              key={k}
+              onClick={() => setStageFilter(active ? "" : k)}
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${active ? "text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              style={active ? { background: STAGE_META[k].dot } : undefined}
+            >
+              {!active && <span className="h-1.5 w-1.5 rounded-full" style={{ background: STAGE_META[k].dot }} />}
+              {STAGE_META[k].label} <span className="opacity-70">{stageCounts[k]}</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* สรุปสถานะ PR↔PO (คลิกเพื่อกรอง) */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium text-[#9AA8A0]">สถานะ PR↔PO:</span>
+      <div className="mb-4 flex w-full flex-wrap items-center gap-1.5">
+        <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">สถานะ PR↔PO:</span>
         <button
           onClick={() => setCmpFilter("")}
-          className={`rounded-full px-3 py-1 text-[12px] font-medium transition ${cmpFilter === "" ? "bg-[#1B8C4B] text-white" : "bg-[#F0F4F1] text-[#4B5F54] dark:bg-white/5 dark:text-gray-300 hover:bg-[#E6EDE8]"}`}
+          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${!cmpFilter ? "bg-[#14271C] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
         >
-          ทั้งหมด {baseFiltered.length}
+          ทั้งหมด <span className="opacity-70">{baseFiltered.length}</span>
         </button>
-        {CMP_ORDER.map((k) => (
-          <button
-            key={k}
-            onClick={() => setCmpFilter(cmpFilter === k ? "" : k)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition ${CMP_META[k].cls} ${cmpFilter === k ? "ring-2 ring-offset-1 ring-[#14271C]/30 dark:ring-white/30 dark:ring-offset-[#0f1117]" : "opacity-90 hover:opacity-100"}`}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[k].dot }} />
-            {CMP_META[k].label} {cmpCounts[k]}
-          </button>
-        ))}
+        {CMP_ORDER.map((k) => {
+          const active = cmpFilter === k
+          return (
+            <button
+              key={k}
+              onClick={() => setCmpFilter(active ? "" : k)}
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${active ? "text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              style={active ? { background: CMP_META[k].dot } : undefined}
+            >
+              {!active && <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[k].dot }} />}
+              {CMP_META[k].label} <span className="opacity-70">{cmpCounts[k]}</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/[0.07] bg-white dark:bg-[#151a10]" style={{ boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}>
+      <div className="mb-3 overflow-x-auto rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
         <table className="w-full min-w-[760px] table-fixed border-collapse text-[11.5px]">
           <colgroup>
             <col style={{ width: "11%" }} /><col style={{ width: "7%" }} /><col style={{ width: "15%" }} />
@@ -332,7 +363,7 @@ export function PrPage() {
             <col style={{ width: "9%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} />
           </colgroup>
           <thead>
-            <tr className="border-b border-[#EEF2F0] dark:border-white/8 text-left text-[10px] font-bold uppercase tracking-wide text-[#9AA8A0]">
+            <tr className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] text-left text-[10px] font-bold uppercase tracking-wide text-[#9AA8A0]">
               <th className="px-2.5 py-2.5">PR</th>
               <th className="px-2 py-2.5">วันที่</th>
               <th className="px-2 py-2.5">คลัง · แผนก</th>
@@ -395,7 +426,7 @@ export function PrPage() {
 
       {/* Pagination */}
       {!loading && filtered.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-[12.5px] text-[#6B7C72] dark:text-gray-400">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-[12.5px] text-[#6B7C72] dark:text-gray-400">
           <span>
             แสดง {(curPage - 1) * PAGE_SIZE + 1}–{Math.min(curPage * PAGE_SIZE, filtered.length)} จาก {filtered.length.toLocaleString()} รายการ
           </span>
@@ -443,7 +474,7 @@ export function PrPage() {
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EAF6EE] dark:bg-[#1B8C4B]/10 text-[#1B8C4B]"><FileText size={18} /></div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <a href={atmsPr(detail.pr_code)} target="_blank" rel="noopener noreferrer" className="text-[16px] font-bold text-[#1B8C4B] hover:underline" style={mitr} title="เปิดใน ATMS">{detail.pr_code} ↗</a>
+                    <a href={atmsPr(detail.pr_code, detail.pr_detail_id)} target="_blank" rel="noopener noreferrer" className="text-[16px] font-bold text-[#1B8C4B] hover:underline" style={mitr} title="เปิดใน ATMS">{detail.pr_code} ↗</a>
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CMP_META[detail.cmp].cls}`}>
                       <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[detail.cmp].dot }} />{CMP_META[detail.cmp].label}
                     </span>
@@ -604,7 +635,7 @@ export function PrPage() {
                       <tbody>
                         {detail.pos.map((po) => (
                           <tr key={po.code} className="border-b border-[#F4F7F5] dark:border-white/5">
-                            <td className="px-3 py-2 font-medium"><a href={atmsPo(po.code)} target="_blank" rel="noopener noreferrer" className="text-[#1B8C4B] hover:underline" title="เปิดใน ATMS">{po.code} ↗</a></td>
+                            <td className="px-3 py-2 font-medium"><a href={atmsPo(po.code, po.detail_id)} target="_blank" rel="noopener noreferrer" className="text-[#1B8C4B] hover:underline" title="เปิดใน ATMS">{po.code} ↗</a></td>
                             <td className="px-3 py-2 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(po.date)}</td>
                             <td className="px-3 py-2 text-[#4B5F54] dark:text-gray-400">{po.supplier || "—"}</td>
                             <td className="px-3 py-2 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white">{baht(po.total)}</td>
