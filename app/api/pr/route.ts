@@ -10,6 +10,12 @@ type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+// "DD/MM/YYYY" → "YYYY-MM-DD" (ปี ค.ศ.)
+function toISO(d: string): string {
+  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : ""
+}
+
 // กฎ VAT ของ PR ตามคลัง/สาขา:
 //  incl = PR ราคารวม VAT อยู่แล้ว → คาดว่า PR = PO        (DIST, สระบุรี)
 //  excl = PR ราคาไม่รวม VAT (ที่เหลือทุกสาขา) → คาดว่า PO = PR×1.07
@@ -69,7 +75,7 @@ export async function GET(req: NextRequest) {
 
     // 2) PO ของ PR เหล่านี้ → map pr → [po], po → received status
     const pos = prCodes.length
-      ? await poCol.find({ [PR_KEY]: { $in: prCodes } }).project({ [PO_KEY]: 1, [PR_KEY]: 1, "สถานะการรับสินค้า": 1, "ซัพพลายเออร์": 1, "รวม": 1, "วันที่": 1, "ผู้ใช้งาน": 1, "approver": 1, _id: 0 }).toArray() as Doc[]
+      ? await poCol.find({ [PR_KEY]: { $in: prCodes } }).project({ [PO_KEY]: 1, [PR_KEY]: 1, "สถานะการรับสินค้า": 1, "ซัพพลายเออร์": 1, "รวม": 1, "วันที่": 1, "กำหนดส่งสินค้า": 1, "ผู้ใช้งาน": 1, "approver": 1, _id: 0 }).toArray() as Doc[]
       : []
     const posByPr = new Map<string, Doc[]>()
     const allPoCodes: string[] = []
@@ -87,6 +93,12 @@ export async function GET(req: NextRequest) {
       : []
     const receivedPo = new Set(ddPoCodes.map(s).filter(Boolean))
 
+    // 3.5) ข้อมูลติดตาม (master_data.pr_tracking) — วันกำหนดส่งที่ผู้ใช้กรอก
+    const trackDocs = prCodes.length
+      ? await client.db("master_data").collection("pr_tracking").find({ prCode: { $in: prCodes } }).toArray() as Doc[]
+      : []
+    const trackByPr = new Map(trackDocs.map((t) => [s(t.prCode), t]))
+
     // 4) เก็บเฉพาะ PR ที่ "ไม่มี DD" (ไม่มี PO ตัวไหนถูกรับของเลย — รวม PR ที่ยังไม่มี PO)
     const rows = prs
       .map((p) => {
@@ -103,6 +115,18 @@ export async function GET(req: NextRequest) {
         const rule = vatRule(warehouse)
         const rel  = relationOf(prTotal, poTotal)
         const cmp  = statusOf(rule, rel, myPos.length)
+
+        // ── ติดตามสินค้า ──
+        // วันกำหนดส่งตั้งต้นจาก PO (เอาวันเร็วสุด) แล้วให้ manual override
+        const poDues = myPos.map((po) => toISO(s(po["กำหนดส่งสินค้า"]))).filter(Boolean).sort()
+        const poDue  = poDues[0] || ""
+        const tr = trackByPr.get(pr)
+        const manualDue = tr ? s(tr.expectedDelivery) : ""
+        const expectedDelivery = manualDue || poDue
+        const expectedSource: "manual" | "po" | "none" = manualDue ? "manual" : (poDue ? "po" : "none")
+        // สถานะติดตาม: pr (ยังไม่มี PO) → po (มี PO) → waiting (มีวันกำหนดส่งแล้ว)
+        const track: "pr" | "po" | "waiting" = myPos.length === 0 ? "pr" : (expectedDelivery ? "waiting" : "po")
+
         return {
           pr_code:   pr,
           date:      s(p["วันที่"]),
@@ -128,7 +152,13 @@ export async function GET(req: NextRequest) {
             total:    Number(po["รวม"]) || 0,
             received: s(po["สถานะการรับสินค้า"]),
             approver: s(po["approver"]),
+            due:      toISO(s(po["กำหนดส่งสินค้า"])),
           })),
+          // ติดตาม
+          po_due:            poDue,             // วันกำหนดส่งจาก PO (ISO)
+          expected_delivery: expectedDelivery,  // วันคาดว่าจะได้รับ (manual || po)
+          expected_source:   expectedSource,    // manual | po | none
+          track,                                // pr | po | waiting
         }
       })
 

@@ -25,8 +25,12 @@ type Row = {
   received_status: string[]
   suppliers: string[]
   pos: PoDetail[]
+  po_due: string
+  expected_delivery: string
+  expected_source: "manual" | "po" | "none"
+  track: "pr" | "po" | "waiting"
 }
-type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string }
+type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string; due: string }
 type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; rows: Row[] }
 
 const CMP_META: Record<Cmp, { label: string; cls: string; dot: string }> = {
@@ -60,7 +64,39 @@ export function PrPage() {
   const [cmpFilter, setCmpFilter] = useState<Cmp | "">("")
   const [page, setPage]       = useState(1)
   const [detail, setDetail]   = useState<Row | null>(null)
+  const [deliveryDraft, setDeliveryDraft] = useState("")
+  const [savingTrack, setSavingTrack] = useState(false)
   const PAGE_SIZE = 25
+
+  useEffect(() => { setDeliveryDraft(detail?.expected_source === "manual" ? detail.expected_delivery : "") }, [detail])
+
+  async function saveTrack() {
+    if (!detail) return
+    setSavingTrack(true)
+    try {
+      const res = await fetch("/api/pr/track", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prCode: detail.pr_code, expectedDelivery: deliveryDraft }),
+      })
+      if (!res.ok) throw new Error()
+      const patch = (r: Row): Row => {
+        const eff = deliveryDraft || r.po_due
+        return {
+          ...r,
+          expected_delivery: eff,
+          expected_source: deliveryDraft ? "manual" : (r.po_due ? "po" : "none"),
+          track: r.po_count === 0 ? "pr" : (eff ? "waiting" : "po"),
+        }
+      }
+      setData((d) => (d ? { ...d, rows: d.rows.map((r) => (r.pr_code === detail.pr_code ? patch(r) : r)) } : d))
+      setDetail((prev) => (prev ? patch(prev) : prev))
+    } catch {
+      /* เงียบ */
+    } finally {
+      setSavingTrack(false)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -342,6 +378,58 @@ export function PrPage() {
                   <div className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 py-2"><div className="text-[10px] text-[#9AA8A0]">ยอด PO รวม</div><div className="text-[15px] font-semibold text-[#14271C] dark:text-white" style={mitr}>{detail.po_count ? baht(detail.po_total) : "—"}</div></div>
                   <div className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 py-2"><div className="text-[10px] text-[#9AA8A0]">ส่วนต่าง</div><div className={`text-[15px] font-semibold ${detail.cmp === "anomaly" ? "text-[#DC2626]" : "text-[#14271C] dark:text-white"}`} style={mitr}>{detail.po_count ? `${detail.po_diff > 0 ? "+" : ""}${baht(detail.po_diff)}` : "—"}</div></div>
                 </div>
+              </div>
+
+              {/* ติดตามสินค้า */}
+              <div className="rounded-[12px] border border-[#EEF2F0] dark:border-white/10 p-3.5">
+                <div className="mb-2.5 text-[12px] font-semibold text-[#14271C] dark:text-white">ติดตามสินค้า</div>
+                <ol className="space-y-2.5">
+                  {/* 1) เปิด PR */}
+                  <li className="flex items-start gap-2.5">
+                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1B8C4B] text-white text-[9px]">✓</span>
+                    <div className="text-[12.5px]"><span className="font-medium text-[#14271C] dark:text-white">เปิด PR</span><span className="ml-2 text-[11px] text-[#9AA8A0]">{fmtDate(detail.date)}</span></div>
+                  </li>
+                  {/* 2) เปิด PO */}
+                  <li className="flex items-start gap-2.5">
+                    <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] ${detail.po_count ? "bg-[#1B8C4B] text-white" : "border border-[#D5DDD8] text-transparent dark:border-white/20"}`}>✓</span>
+                    <div className="text-[12.5px]">
+                      <span className="font-medium text-[#14271C] dark:text-white">เปิด PO</span>
+                      {detail.po_count ? (
+                        <>
+                          <span className="ml-2 text-[11px] text-[#9AA8A0]">{detail.po_count} ใบ · ตรวจรายการ/ยอด:</span>
+                          <span className={`ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CMP_META[detail.cmp].cls}`}><span className="h-1 w-1 rounded-full" style={{ background: CMP_META[detail.cmp].dot }} />{CMP_META[detail.cmp].label}</span>
+                        </>
+                      ) : <span className="ml-2 text-[11px] text-[#B07D12]">ยังไม่มี PO</span>}
+                    </div>
+                  </li>
+                  {/* 3) กำหนดส่งสินค้า */}
+                  <li className="flex items-start gap-2.5">
+                    <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] ${detail.expected_delivery ? "bg-[#1B8C4B] text-white" : "border border-[#D5DDD8] text-transparent dark:border-white/20"}`}>✓</span>
+                    <div className="flex-1 text-[12.5px]">
+                      <span className="font-medium text-[#14271C] dark:text-white">กำหนดส่งสินค้า</span>
+                      <span className="ml-2 text-[11px] text-[#9AA8A0]">วันที่คาดว่าจะได้รับสินค้า</span>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          value={deliveryDraft || (detail.expected_source === "po" ? detail.po_due : "")}
+                          onChange={(e) => setDeliveryDraft(e.target.value)}
+                          className="rounded-[8px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-[12.5px] text-[#14271C] dark:text-white"
+                        />
+                        <button
+                          onClick={saveTrack}
+                          disabled={savingTrack}
+                          className="rounded-[8px] bg-[#1B8C4B] px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
+                        >{savingTrack ? "กำลังบันทึก…" : "บันทึก"}</button>
+                        {deliveryDraft && (
+                          <button onClick={() => { setDeliveryDraft(""); }} className="text-[11px] text-[#9AA8A0] hover:underline">ล้างเป็นค่า PO</button>
+                        )}
+                        <span className="text-[10.5px] text-[#9AA8A0]">
+                          {detail.expected_source === "manual" ? "· กรอกเอง" : detail.expected_source === "po" ? "· ค่าตั้งต้นจาก PO" : "· PO ไม่มีวันกำหนดส่ง กรอกเองได้"}
+                        </span>
+                      </div>
+                    </div>
+                  </li>
+                </ol>
               </div>
 
               {/* PO list */}
