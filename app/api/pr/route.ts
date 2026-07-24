@@ -10,12 +10,26 @@ type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 const round2 = (n: number) => Math.round(n * 100) / 100
 
-// เทียบยอด PR รวม กับ ผลรวม PO → สถานะสรุป
-function comparePrPo(prTotal: number, poTotal: number, poCount: number): "no_po" | "match" | "vat" | "diff" {
+// กฎ VAT ของ PR ตามคลัง/สาขา:
+//  incl = PR ราคารวม VAT อยู่แล้ว → คาดว่า PR = PO        (DIST, สระบุรี)
+//  excl = PR ราคาไม่รวม VAT (ที่เหลือทุกสาขา) → คาดว่า PO = PR×1.07
+function vatRule(warehouse: string): "incl" | "excl" {
+  if (/สระบุรี|DIST/i.test(warehouse)) return "incl"
+  return "excl"
+}
+
+// ความสัมพันธ์ยอดจริง PR↔PO
+function relationOf(prTotal: number, poTotal: number): "eq" | "po7" | "other" {
+  if (Math.abs(prTotal - poTotal) < 0.01) return "eq"          // เท่ากัน
+  if (Math.abs(poTotal - prTotal * 1.07) < 0.05) return "po7"  // PO = PR + VAT 7%
+  return "other"
+}
+
+// สถานะสรุป: ถูกต้องตามกฎสาขา (ok) / ผิดปกติ (anomaly) / ยังไม่มี PO (no_po)
+function statusOf(rule: "incl" | "excl", rel: "eq" | "po7" | "other", poCount: number): "ok" | "anomaly" | "no_po" {
   if (poCount === 0) return "no_po"
-  if (Math.abs(prTotal - poTotal) < 0.01) return "match"
-  if (Math.abs(poTotal - prTotal * 1.07) < 0.05) return "vat"   // PO รวม VAT 7%
-  return "diff"
+  if (rule === "incl") return rel === "eq"  ? "ok" : "anomaly"
+  return rel === "po7" ? "ok" : "anomaly"   // excl
 }
 
 // GET /api/pr — PR ที่อนุมัติแล้ว (is approved = true) แต่ยังไม่มี DD (ไม่มีการรับของ)
@@ -83,20 +97,25 @@ export async function GET(req: NextRequest) {
       })
       .filter((r) => !r.hasDD)
       .map(({ p, pr, myPos }) => {
+        const warehouse = s(p["คลังสินค้า"])
         const prTotal = typeof p["รวม"] === "number" ? (p["รวม"] as number) : Number(p["รวม"]) || 0
         const poTotal = round2(myPos.reduce((a, po) => a + (Number(po["รวม"]) || 0), 0))
-        const cmp = comparePrPo(prTotal, poTotal, myPos.length)
+        const rule = vatRule(warehouse)
+        const rel  = relationOf(prTotal, poTotal)
+        const cmp  = statusOf(rule, rel, myPos.length)
         return {
           pr_code:   pr,
           date:      s(p["วันที่"]),
-          warehouse: s(p["คลังสินค้า"]),
+          warehouse,
           dept:      s(p["แผนก"]),
           plate:     s(p["ทะเบียน"]),
           requester: s(p["ผู้ขอซื้อ"]),
           total:     prTotal,        // ยอด PR
           po_total:  poTotal,        // ยอด PO รวม
           po_diff:   round2(poTotal - prTotal),
-          cmp,                        // no_po | match | vat | diff
+          vat_rule:  rule,            // incl (PR=PO) | excl (PO=PR+7%)
+          relation:  myPos.length ? rel : "none",
+          cmp,                        // ok | anomaly | no_po
           note:      s(p["หมายเหตุ"]),
           po_codes:  myPos.map((po) => s(po[PO_KEY])).filter(Boolean),
           po_count:  myPos.length,
@@ -106,7 +125,7 @@ export async function GET(req: NextRequest) {
       })
 
     // นับตามสถานะสรุป
-    const byCmp = { match: 0, vat: 0, diff: 0, no_po: 0 }
+    const byCmp = { ok: 0, anomaly: 0, no_po: 0 }
     for (const r of rows) byCmp[r.cmp]++
 
     return NextResponse.json({

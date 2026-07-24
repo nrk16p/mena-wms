@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { FileText, Search, RefreshCw, PackageX, Wallet, ClipboardList } from "lucide-react"
 
-type Cmp = "no_po" | "match" | "vat" | "diff"
+type Cmp = "ok" | "anomaly" | "no_po"
+type VatRule = "incl" | "excl"
+type Relation = "eq" | "po7" | "other" | "none"
 type Row = {
   pr_code: string
   date: string
@@ -14,6 +16,8 @@ type Row = {
   total: number
   po_total: number
   po_diff: number
+  vat_rule: VatRule
+  relation: Relation
   cmp: Cmp
   note: string
   po_codes: string[]
@@ -24,12 +28,13 @@ type Row = {
 type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; rows: Row[] }
 
 const CMP_META: Record<Cmp, { label: string; cls: string; dot: string }> = {
-  match: { label: "ตรง",        cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
-  vat:   { label: "ตรง (+VAT)", cls: "bg-[#DBEAFE] text-[#1D4ED8] dark:bg-blue-500/15 dark:text-blue-300",   dot: "#1D4ED8" },
-  diff:  { label: "ต่าง",       cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",     dot: "#DC2626" },
-  no_po: { label: "ยังไม่มี PO", cls: "bg-[#FEF3C7] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300", dot: "#B07D12" },
+  ok:      { label: "ถูกต้อง",   cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
+  anomaly: { label: "ผิดปกติ",   cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",     dot: "#DC2626" },
+  no_po:   { label: "ยังไม่มี PO", cls: "bg-[#FEF3C7] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300", dot: "#B07D12" },
 }
-const CMP_ORDER: Cmp[] = ["match", "vat", "diff", "no_po"]
+const CMP_ORDER: Cmp[] = ["ok", "anomaly", "no_po"]
+// กฎที่คาดหวังต่อสาขา (แสดงเป็น hint)
+const RULE_LABEL: Record<VatRule, string> = { incl: "คาด PR=PO", excl: "คาด PO=+7%" }
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
@@ -58,9 +63,9 @@ export function PrPage() {
     try {
       const res = await fetch("/api/pr", { cache: "no-store" })
       const d   = await res.json()
-      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, by_cmp: { match: 0, vat: 0, diff: 0, no_po: 0 }, rows: [] })
+      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, rows: [] })
     } catch {
-      setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { match: 0, vat: 0, diff: 0, no_po: 0 }, rows: [] })
+      setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, rows: [] })
     } finally {
       setLoading(false)
     }
@@ -84,7 +89,7 @@ export function PrPage() {
   }, [rows, q, warehouse, dept])
 
   const cmpCounts = useMemo(() => {
-    const c: Record<Cmp, number> = { match: 0, vat: 0, diff: 0, no_po: 0 }
+    const c: Record<Cmp, number> = { ok: 0, anomaly: 0, no_po: 0 }
     for (const r of baseFiltered) c[r.cmp]++
     return c
   }, [baseFiltered])
@@ -226,8 +231,11 @@ export function PrPage() {
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[r.cmp].dot }} />
                     {CMP_META[r.cmp].label}
                   </span>
-                  {r.cmp === "diff" && (
-                    <div className="mt-0.5 text-[10px] text-[#DC2626] dark:text-red-400">{r.po_diff > 0 ? "+" : ""}{baht(r.po_diff)}</div>
+                  {r.cmp !== "no_po" && (
+                    <div className="mt-0.5 text-[10px] text-[#9AA8A0]">
+                      {RULE_LABEL[r.vat_rule]}
+                      {r.cmp === "anomaly" && <span className="ml-1 text-[#DC2626] dark:text-red-400">· ต่าง {r.po_diff > 0 ? "+" : ""}{baht(r.po_diff)}</span>}
+                    </div>
                   )}
                 </td>
                 <td className="px-3 py-3">
