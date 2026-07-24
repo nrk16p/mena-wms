@@ -31,21 +31,23 @@ type Row = {
   expected_source: "manual" | "po" | "none"
   track: "pr" | "po" | "waiting"
   stage: Stage
+  complete: boolean
   days_to_due: number | null
   overdue: boolean
 }
-type Stage = "pr" | "po" | "due" | "overdue"
+type Stage = "pr" | "po_ok" | "po_bad" | "due" | "overdue"
 type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string; due: string; detail_id: string }
 type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; by_stage: Record<Stage, number>; rows: Row[] }
 
-// สถานะหลัก (ติดตาม): เปิด PR → เปิด PO → กำหนดส่งสินค้า (ตามกำหนด/เกินกำหนด)
-const STAGE_META: Record<Stage, { label: string; cls: string; dot: string }> = {
-  pr:      { label: "เปิด PR",         cls: "bg-[#F1F5F9] text-[#475569] dark:bg-white/10 dark:text-gray-300",     dot: "#64748B" },
-  po:      { label: "เปิด PO",         cls: "bg-[#DBEAFE] text-[#1D4ED8] dark:bg-blue-500/15 dark:text-blue-300",   dot: "#1D4ED8" },
-  due:     { label: "กำหนดส่งสินค้า",  cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
-  overdue: { label: "เกินกำหนด",       cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",     dot: "#DC2626" },
+// สถานะหลัก (ติดตาม): เปิด PR → เปิด PO (ครบ/ไม่ครบ) → กำหนดส่งสินค้า → เกินกำหนด
+const STAGE_META: Record<Stage, { label: string; full: string; cls: string; dot: string }> = {
+  pr:      { label: "เปิด PR",        full: "เปิด PR (ยังไม่มี PO)",                  cls: "bg-[#F1F5F9] text-[#475569] dark:bg-white/10 dark:text-gray-300",    dot: "#64748B" },
+  po_ok:   { label: "เปิด PO · ยอดครบ", full: "เปิด PO · ยอดตรงและรายการครบ",         cls: "bg-[#DBEAFE] text-[#1D4ED8] dark:bg-blue-500/15 dark:text-blue-300",  dot: "#1D4ED8" },
+  po_bad:  { label: "เปิด PO · ไม่ครบ", full: "เปิด PO · ยอด/รายการไม่ครบ",           cls: "bg-[#FEF3C7] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300", dot: "#E8A317" },
+  due:     { label: "กำหนดส่งสินค้า",  full: "กำหนดส่งสินค้า · ยังไม่เกิน",           cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300", dot: "#15803D" },
+  overdue: { label: "เกินกำหนด",       full: "เกินกำหนดส่งสินค้าแล้ว",                cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",    dot: "#DC2626" },
 }
-const STAGE_ORDER: Stage[] = ["pr", "po", "due", "overdue"]
+const STAGE_ORDER: Stage[] = ["pr", "po_ok", "po_bad", "due", "overdue"]
 
 const CMP_META: Record<Cmp, { label: string; cls: string; dot: string }> = {
   ok:      { label: "ถูกต้อง",   cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300",  dot: "#15803D" },
@@ -153,7 +155,11 @@ export function PrPage() {
         const eff = deliveryDraft || r.po_due
         const di = dueInfo(eff)
         const track: Row["track"] = r.po_count === 0 ? "pr" : (eff ? "waiting" : "po")
-        const stage: Stage = track === "pr" ? "pr" : track === "po" ? "po" : (di?.overdue ? "overdue" : "due")
+        const stage: Stage =
+          r.po_count === 0 ? "pr"
+          : !r.complete    ? "po_bad"
+          : eff            ? (di?.overdue ? "overdue" : "due")
+          : "po_ok"
         return {
           ...r,
           expected_delivery: eff,
@@ -178,9 +184,9 @@ export function PrPage() {
     try {
       const res = await fetch("/api/pr", { cache: "no-store" })
       const d   = await res.json()
-      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, by_stage: { pr: 0, po: 0, due: 0, overdue: 0 }, rows: [] })
+      setData(d?.rows ? d : { count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, by_stage: { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }, rows: [] })
     } catch {
-      setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, by_stage: { pr: 0, po: 0, due: 0, overdue: 0 }, rows: [] })
+      setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, by_stage: { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }, rows: [] })
     } finally {
       setLoading(false)
     }
@@ -210,7 +216,7 @@ export function PrPage() {
   }, [baseFiltered])
 
   const stageCounts = useMemo(() => {
-    const c: Record<Stage, number> = { pr: 0, po: 0, due: 0, overdue: 0 }
+    const c: Record<Stage, number> = { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }
     for (const r of baseFiltered) c[r.stage]++
     return c
   }, [baseFiltered])
@@ -475,8 +481,8 @@ export function PrPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <a href={atmsPr(detail.pr_code, detail.pr_detail_id)} target="_blank" rel="noopener noreferrer" className="text-[16px] font-bold text-[#1B8C4B] hover:underline" style={mitr} title="เปิดใน ATMS">{detail.pr_code} ↗</a>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${CMP_META[detail.cmp].cls}`}>
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: CMP_META[detail.cmp].dot }} />{CMP_META[detail.cmp].label}
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STAGE_META[detail.stage].cls}`}>
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: STAGE_META[detail.stage].dot }} />{STAGE_META[detail.stage].full}
                     </span>
                   </div>
                   <p className="text-[11.5px] text-[#9AA8A0]">{fmtDate(detail.date)} · {detail.warehouse || "—"}</p>

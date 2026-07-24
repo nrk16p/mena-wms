@@ -10,10 +10,37 @@ type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+const nn = (v: unknown) => Number(v) || 0
+
 // "DD/MM/YYYY" → "YYYY-MM-DD" (ปี ค.ศ.)
 function toISO(d: string): string {
   const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
   return m ? `${m[3]}-${m[2]}-${m[1]}` : ""
+}
+
+// เทียบ line item PR↔PO → ครบไหม (ทุก SKU ใน PR มีใน PO + จำนวน/ยอดตรง; เผื่อ VAT 7%)
+function itemsComplete(prItems: Doc[], poItems: Doc[]): { hasItems: boolean; complete: boolean } {
+  const group = (arr: Doc[]) => {
+    const m = new Map<string, { qty: number; total: number }>()
+    for (const it of arr) {
+      const k = s(it.sku) || s(it.name)
+      if (!k) continue
+      const c = m.get(k) ?? { qty: 0, total: 0 }
+      c.qty += nn(it.amount); c.total += nn(it.total)
+      m.set(k, c)
+    }
+    return m
+  }
+  const P = group(prItems), O = group(poItems)
+  if (P.size === 0 && O.size === 0) return { hasItems: false, complete: false }
+  for (const [sku, p] of P) {
+    const o = O.get(sku)
+    if (!o) return { hasItems: true, complete: false }               // ขาดใน PO
+    const qtyMatch = Math.abs(p.qty - o.qty) < 0.001
+    const totalMatch = Math.abs(p.total - o.total) < 0.01 || Math.abs(o.total - p.total * 1.07) < 0.05
+    if (!qtyMatch || !totalMatch) return { hasItems: true, complete: false }
+  }
+  return { hasItems: true, complete: true }
 }
 
 // กฎ VAT ของ PR ตามคลัง/สาขา:
@@ -100,17 +127,29 @@ export async function GET(req: NextRequest) {
     const trackByPr = new Map(trackDocs.map((t) => [s(t.prCode), t]))
     const todayBKK = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10)  // วันนี้ (Asia/Bangkok)
 
-    // 3.6) detail_id (จาก items ที่ scrape) → ทำลิงก์ไปหน้า ATMS view/id ตรง
-    const prItemIds = prCodes.length
-      ? await db.collection("purchase_request_items").find({ pr_code: { $in: prCodes } }).project({ pr_code: 1, detail_id: 1, _id: 0 }).toArray() as Doc[]
+    // 3.6) line items (detail_id สำหรับลิงก์ + เทียบความครบราย SKU)
+    const prItemDocs = prCodes.length
+      ? await db.collection("purchase_request_items").find({ pr_code: { $in: prCodes } }).project({ pr_code: 1, detail_id: 1, sku: 1, name: 1, amount: 1, total: 1, _id: 0 }).toArray() as Doc[]
       : []
     const prDetailId = new Map<string, string>()
-    for (const d of prItemIds) { const c = s(d.pr_code); if (c && !prDetailId.has(c)) prDetailId.set(c, s(d.detail_id)) }
-    const poItemIds = allPoCodes.length
-      ? await db.collection("purchase_order_items").find({ po_code: { $in: allPoCodes } }).project({ po_code: 1, detail_id: 1, _id: 0 }).toArray() as Doc[]
+    const prItemsByPr = new Map<string, Doc[]>()
+    for (const d of prItemDocs) {
+      const c = s(d.pr_code); if (!c) continue
+      if (!prDetailId.has(c)) prDetailId.set(c, s(d.detail_id))
+      if (!prItemsByPr.has(c)) prItemsByPr.set(c, [])
+      prItemsByPr.get(c)!.push(d)
+    }
+    const poItemDocs = allPoCodes.length
+      ? await db.collection("purchase_order_items").find({ po_code: { $in: allPoCodes } }).project({ po_code: 1, detail_id: 1, sku: 1, name: 1, amount: 1, total: 1, _id: 0 }).toArray() as Doc[]
       : []
     const poDetailId = new Map<string, string>()
-    for (const d of poItemIds) { const c = s(d.po_code); if (c && !poDetailId.has(c)) poDetailId.set(c, s(d.detail_id)) }
+    const poItemsByPo = new Map<string, Doc[]>()
+    for (const d of poItemDocs) {
+      const c = s(d.po_code); if (!c) continue
+      if (!poDetailId.has(c)) poDetailId.set(c, s(d.detail_id))
+      if (!poItemsByPo.has(c)) poItemsByPo.set(c, [])
+      poItemsByPo.get(c)!.push(d)
+    }
 
     // 4) เก็บเฉพาะ PR ที่ "ไม่มี DD" (ไม่มี PO ตัวไหนถูกรับของเลย — รวม PR ที่ยังไม่มี PO)
     const rows = prs
@@ -142,9 +181,18 @@ export async function GET(req: NextRequest) {
         // เทียบวันกำหนดส่งกับวันนี้ (BKK)
         const daysToDue = expectedDelivery ? Math.round((Date.parse(expectedDelivery) - Date.parse(todayBKK)) / 86400000) : null
         const overdue = track === "waiting" && daysToDue !== null && daysToDue < 0
-        // สถานะหลัก (pipeline): เปิด PR → เปิด PO → กำหนดส่งสินค้า (due/overdue)
-        const stage: "pr" | "po" | "due" | "overdue" =
-          track === "pr" ? "pr" : track === "po" ? "po" : (overdue ? "overdue" : "due")
+        // ความครบราย SKU (ยอด+รายการ) — ใช้ item ถ้ามี ไม่งั้น fallback ยอดรวม (cmp)
+        const prItems = prItemsByPr.get(pr) ?? []
+        const poItems = myPos.flatMap((po) => poItemsByPo.get(s(po[PO_KEY])) ?? [])
+        const cmpItems = itemsComplete(prItems, poItems)
+        const complete = cmpItems.hasItems ? cmpItems.complete : (cmp === "ok")
+        // สถานะหลัก (pipeline):
+        //  เปิด PR → เปิด PO ไม่ครบ (บล็อก) → [ครบ] กำหนดส่ง/เกินกำหนด (หรือ เปิด PO ยอดครบ ถ้ายังไม่มีวัน)
+        const stage: "pr" | "po_ok" | "po_bad" | "due" | "overdue" =
+          myPos.length === 0 ? "pr"
+          : !complete        ? "po_bad"
+          : expectedDelivery ? (overdue ? "overdue" : "due")
+          : "po_ok"
 
         return {
           pr_code:   pr,
@@ -180,7 +228,8 @@ export async function GET(req: NextRequest) {
           expected_delivery: expectedDelivery,  // วันคาดว่าจะได้รับ (manual || po)
           expected_source:   expectedSource,    // manual | po | none
           track,                                // pr | po | waiting
-          stage,                                // pr | po | due | overdue (สถานะหลัก)
+          stage,                                // pr | po_ok | po_bad | due | overdue (สถานะหลัก)
+          complete,                             // ยอด+รายการครบไหม
           days_to_due:       daysToDue,         // >0 เหลืออีก, <0 เกินมาแล้ว, null ไม่มีวัน
           overdue,
         }
@@ -189,7 +238,7 @@ export async function GET(req: NextRequest) {
     // นับตามสถานะสรุป + สถานะหลัก
     const byCmp = { ok: 0, anomaly: 0, no_po: 0 }
     for (const r of rows) byCmp[r.cmp]++
-    const byStage = { pr: 0, po: 0, due: 0, overdue: 0 }
+    const byStage = { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }
     for (const r of rows) byStage[r.stage]++
 
     return NextResponse.json({
