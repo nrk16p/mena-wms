@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, Fragment } from "react"
 import { FileText, Search, RefreshCw, X, ChevronRight } from "lucide-react"
+import { swalError, swalToast } from "@/lib/swal"
 
 type Cmp = "ok" | "anomaly" | "no_po"
 type VatRule = "incl" | "excl"
@@ -153,6 +154,8 @@ export function PrPage() {
   const [savingTrack, setSavingTrack] = useState(false)
   const [items, setItems]     = useState<ItemsResp | null>(null)
   const [itemsLoading, setItemsLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [progress, setProgress] = useState(0)
   const PAGE_SIZE = 25
 
   useEffect(() => { setDeliveryDraft(detail?.expected_source === "manual" ? detail.expected_delivery : "") }, [detail])
@@ -216,6 +219,49 @@ export function PrPage() {
       setData({ count: 0, total_value: 0, no_po: 0, by_cmp: { ok: 0, anomaly: 0, no_po: 0 }, by_stage: { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }, rows: [] })
     } finally {
       setLoading(false)
+    }
+  }
+
+  // นาทีที่ต้องรอก่อนรีเฟรชได้อีก (rate-limit 60 นาที จาก run ล่าสุด)
+  const cooldownMin = useMemo(() => {
+    const at = data?.last_refresh?.at
+    if (!at) return 0
+    const t = Date.parse(at.endsWith("Z") || at.includes("+") ? at : at + "Z")
+    if (isNaN(t)) return 0
+    const ageMin = (Date.now() - t) / 60000
+    return ageMin < 60 ? Math.ceil(60 - ageMin) : 0
+  }, [data])
+
+  // สั่งดึงข้อมูลใหม่ (light 7 วัน) + progress อิงเวลา จนจบแล้ว reload
+  async function doRefresh() {
+    if (refreshing || cooldownMin > 0) return
+    setRefreshing(true); setProgress(2)
+    try {
+      // baseline: finished_at ของ light run ล่าสุด (ไว้ตรวจว่ามี run ใหม่จบ)
+      const base = await fetch("/api/pr/refresh/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({}))
+      const baseFinished = base?.last_run?.finished_at ?? null
+
+      const res = await fetch("/api/pr/refresh", { method: "POST" })
+      const d = await res.json().catch(() => ({}))
+      if (res.status === 429) { swalError(`เพิ่งอัปเดตไป · รีเฟรชได้อีกใน ${d.retry_after_min} นาที`); return }
+      if (!res.ok && d.status !== "already_running") { swalError("สั่งรีเฟรชไม่สำเร็จ"); return }
+
+      const eta = (d.eta_sec || 240) * 1000
+      const start = Date.now()
+      const timer = setInterval(() => setProgress(Math.min(95, 3 + ((Date.now() - start) / eta) * 92)), 500)
+      let done = false
+      for (let i = 0; i < 80 && !done; i++) {
+        await new Promise((r) => setTimeout(r, 6000))
+        const s = await fetch("/api/pr/refresh/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({}))
+        const fin = s?.last_run?.finished_at ?? null
+        if (fin && fin !== baseFinished) done = true   // มี run ใหม่จบแล้ว
+      }
+      clearInterval(timer)
+      setProgress(100)
+      await load()
+      swalToast("success", done ? "อัปเดตข้อมูลแล้ว" : "ดึงข้อมูลอยู่ (ลองรีโหลดอีกครั้งภายหลัง)")
+    } finally {
+      setTimeout(() => { setRefreshing(false); setProgress(0) }, 800)
     }
   }
   useEffect(() => { load() }, [])
@@ -321,12 +367,32 @@ export function PrPage() {
           </div>
         </div>
         <button
-          onClick={load}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
+          onClick={doRefresh}
+          disabled={refreshing || cooldownMin > 0}
+          title={cooldownMin > 0 ? `รีเฟรชได้อีกใน ${cooldownMin} นาที (จำกัด 1 ครั้ง/ชม.)` : "ดึงข้อมูลใหม่จาก ATMS (7 วันล่าสุด ~4 นาที)"}
+          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition ${
+            refreshing || cooldownMin > 0
+              ? "cursor-not-allowed border border-gray-200 dark:border-white/10 text-gray-400"
+              : "border border-[#1B8C4B] text-[#1B8C4B] hover:bg-[#EAF6EE] dark:hover:bg-[#1B8C4B]/10"
+          }`}
         >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> รีเฟรช
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          {refreshing ? `กำลังดึงข้อมูล ${Math.round(progress)}%` : cooldownMin > 0 ? `รีเฟรชได้อีกใน ${cooldownMin} นาที` : "รีเฟรชข้อมูล"}
         </button>
       </div>
+
+      {/* Progress bar ตอนรีเฟรช */}
+      {refreshing && (
+        <div className="mb-3 rounded-lg border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-2.5">
+          <div className="mb-1.5 flex items-center justify-between text-[11px] text-[#6B7C72] dark:text-gray-400">
+            <span>กำลังดึงข้อมูลจาก ATMS (7 วันล่าสุด)…</span>
+            <span className="font-medium text-[#1B8C4B]">{Math.round(progress)}%{progress < 95 ? " · ประมาณ ~4 นาที" : " · ใกล้เสร็จ"}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
+            <div className="h-2 rounded-full bg-[#1B8C4B] transition-all duration-500" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Pipeline funnel — สถานะการติดตาม (คลิกที่ขั้นเพื่อกรอง) */}
       <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
