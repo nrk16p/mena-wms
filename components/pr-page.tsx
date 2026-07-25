@@ -37,7 +37,21 @@ type Row = {
 }
 type Stage = "pr" | "po_ok" | "po_bad" | "due" | "overdue"
 type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string; due: string; detail_id: string }
-type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; by_stage: Record<Stage, number>; rows: Row[] }
+type LastRefresh = { at: string | null; from_date: string; ok: boolean } | null
+type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; by_stage: Record<Stage, number>; last_refresh?: LastRefresh; rows: Row[] }
+
+// เวลาแบบ "x นาที/ชม./วันที่แล้ว" (ไทย)
+function timeAgo(iso: string | null): string {
+  if (!iso) return "—"
+  const t = Date.parse(iso.endsWith("Z") || iso.includes("+") ? iso : iso + "Z")
+  if (isNaN(t)) return "—"
+  const min = Math.floor((Date.now() - t) / 60000)
+  if (min < 1) return "เมื่อสักครู่"
+  if (min < 60) return `${min} นาทีที่แล้ว`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr} ชม.ที่แล้ว`
+  return `${Math.floor(hr / 24)} วันที่แล้ว`
+}
 
 // สถานะหลัก (ติดตาม): เปิด PR → เปิด PO (ครบ/ไม่ครบ) → กำหนดส่งสินค้า → เกินกำหนด
 const STAGE_META: Record<Stage, { label: string; full: string; cls: string; dot: string }> = {
@@ -205,6 +219,24 @@ export function PrPage() {
   }
   useEffect(() => { load() }, [])
 
+  // URL state — อ่านจาก ?q/wh/dept/stage ตอนเข้า แล้ว sync กลับเมื่อกรองเปลี่ยน (แชร์ลิงก์ได้)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    if (p.get("q")) setQ(p.get("q")!)
+    if (p.get("wh")) setWarehouse(p.get("wh")!)
+    if (p.get("dept")) setDept(p.get("dept")!)
+    if (p.get("stage")) setFunnelFilter(p.get("stage")!)
+  }, [])
+  useEffect(() => {
+    const p = new URLSearchParams()
+    if (q) p.set("q", q)
+    if (warehouse) p.set("wh", warehouse)
+    if (dept) p.set("dept", dept)
+    if (funnelFilter) p.set("stage", funnelFilter)
+    const qs = p.toString()
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname)
+  }, [q, warehouse, dept, funnelFilter])
+
   const rows = data?.rows ?? []
   const warehouses = useMemo(() => [...new Set(rows.map((r) => r.warehouse).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th")), [rows])
   const depts      = useMemo(() => [...new Set(rows.map((r) => r.dept).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th")), [rows])
@@ -242,12 +274,27 @@ export function PrPage() {
   }, [baseFiltered, funnelFilter])
 
   const sumValue = useMemo(() => filtered.reduce((a, r) => a + (r.total || 0), 0), [filtered])
+  // เกินกำหนดเฉลี่ย (สำหรับสรุปตอนกรอง overdue)
+  const avgOverdue = useMemo(() => {
+    const od = filtered.filter((r) => r.overdue && r.days_to_due !== null)
+    return od.length ? Math.round(od.reduce((a, r) => a + Math.abs(r.days_to_due!), 0) / od.length) : 0
+  }, [filtered])
+
+  // เรียง: เกินกำหนด(มากสุด)→ไม่ครบ→ใกล้ครบ→เปิด PR · ให้งานเร่งด่วนขึ้นก่อน
+  const sorted = useMemo(() => {
+    const rank: Record<Stage, number> = { overdue: 0, po_bad: 1, due: 2, pr: 3, po_ok: 4 }
+    return [...filtered].sort((a, b) => {
+      if (rank[a.stage] !== rank[b.stage]) return rank[a.stage] - rank[b.stage]
+      if (a.stage === "overdue" || a.stage === "due") return (a.days_to_due ?? 0) - (b.days_to_due ?? 0)
+      return (ageDays(b.date) ?? 0) - (ageDays(a.date) ?? 0)
+    })
+  }, [filtered])
 
   // pagination — รีเซ็ตหน้าเมื่อค้นหา/กรองเปลี่ยน
   useEffect(() => { setPage(1) }, [q, warehouse, dept, funnelFilter])
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const curPage    = Math.min(page, totalPages)
-  const pageRows   = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [filtered, curPage])
+  const pageRows   = useMemo(() => sorted.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [sorted, curPage])
 
   return (
     <div className="w-full px-3 py-5 sm:px-4 sm:py-6" style={sansThai}>
@@ -259,7 +306,12 @@ export function PrPage() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-[#14271C] dark:text-white" style={mitr}>จัดการติดตามสินค้า (PR)</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">PR อนุมัติแล้วที่ยังไม่รับของ · ติดตาม PR → PO → กำหนดส่ง · {loading ? "…" : `${filtered.length} รายการ`}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              PR อนุมัติแล้วที่ยังไม่รับของ · {loading ? "…" : `${filtered.length} รายการ`}
+              {!loading && data?.last_refresh && (
+                <span className="ml-1 text-[#1B8C4B]" title={data.last_refresh.at ?? ""}>· ข้อมูลอัปเดต {timeAgo(data.last_refresh.at)}</span>
+              )}
+            </p>
           </div>
         </div>
         <button
@@ -276,6 +328,7 @@ export function PrPage() {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">สถานะการติดตาม · งานไหลซ้าย → ขวา</p>
           <span className="text-xs text-gray-400">
             {loading ? "…" : `${filtered.length} รายการ · มูลค่า ${baht(sumValue)} บาท`}
+            {!loading && funnelFilter === "over" && avgOverdue > 0 && <span className="text-[#DC2626]"> · เกินเฉลี่ย {avgOverdue} วัน</span>}
             {funnelFilter && <button onClick={() => setFunnelFilter("")} className="ml-2 font-medium text-[#1B8C4B] hover:underline">แสดงทั้งหมด</button>}
           </span>
         </div>
@@ -309,8 +362,8 @@ export function PrPage() {
         )}
       </div>
 
-      {/* Toolbar */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      {/* Toolbar (sticky) */}
+      <div className="sticky top-0 z-20 mb-3 -mx-3 flex flex-wrap items-center gap-2 border-b border-transparent bg-[#F7FBF8]/90 px-3 py-2 backdrop-blur-sm dark:bg-[#0f1411]/90 sm:-mx-4 sm:px-4">
         <div className="relative flex-1 min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9AA8A0]" />
           <input
@@ -509,9 +562,9 @@ export function PrPage() {
 
       {/* Detail modal */}
       {detail && (
-        <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8" onClick={() => setDetail(null)}>
+        <div className="fixed inset-0 z-[80] flex items-end justify-center overflow-y-auto bg-black/40 p-0 sm:items-start sm:p-8" onClick={() => setDetail(null)}>
           <div
-            className="w-full max-w-[720px] rounded-[18px] bg-white dark:bg-[#151a10] shadow-2xl"
+            className="max-h-[92vh] w-full max-w-[720px] overflow-hidden rounded-t-[20px] bg-white shadow-2xl dark:bg-[#151a10] sm:max-h-none sm:rounded-[18px]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* header */}

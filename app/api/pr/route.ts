@@ -242,12 +242,20 @@ export async function GET(req: NextRequest) {
     const byStage = { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }
     for (const r of rows) byStage[r.stage]++
 
+    // ข้อมูลอัปเดตล่าสุด (จาก pipeline run-log)
+    let last_refresh: { at: string | null; from_date: string; ok: boolean } | null = null
+    try {
+      const run = await db.collection("procurement_runs").find({}).sort({ created_at: -1 }).limit(1).next() as Doc | null
+      if (run) last_refresh = { at: (run.finished_at ?? run.created_at) as string | null, from_date: s(run.from_date), ok: !!run.ok }
+    } catch { /* ไม่มีก็ข้าม */ }
+
     return NextResponse.json({
       count: rows.length,
       total_value: rows.reduce((a, r) => a + (r.total || 0), 0),
       no_po: byCmp.no_po,
       by_cmp: byCmp,
       by_stage: byStage,
+      last_refresh,
       rows,
     })
   } catch (err) {
