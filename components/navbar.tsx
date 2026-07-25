@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, Settings, CheckCircle, XCircle, Clock, ArrowRight, LogOut } from "lucide-react"
+import { Bell, Settings, CheckCircle, XCircle, Clock, ArrowRight, LogOut, Menu } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { usePathname } from "next/navigation"
 import { useSession, signOut } from "next-auth/react"
@@ -290,16 +290,23 @@ function NotifBell({ session, isAdmin }: {
 }
 
 // ── Navbar ────────────────────────────────────────────────────────────────────
-export function Navbar() {
+export function Navbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { date, time } = useThaiBangkokClock()
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
 
   return (
-    <header className="h-16 shrink-0 flex items-center justify-between px-6 bg-white dark:bg-[#111714] border-b border-[#EEF2F0] dark:border-white/[0.07]">
+    <header className="h-16 shrink-0 flex items-center justify-between px-4 lg:px-6 bg-white dark:bg-[#111714] border-b border-[#EEF2F0] dark:border-white/[0.07]">
 
-      {/* Left — live clock */}
+      {/* Left — hamburger (มือถือ) + live clock */}
       <div className="flex items-center gap-2.5 select-none">
+        <button
+          onClick={onMenuClick}
+          aria-label="เปิดเมนู"
+          className="lg:hidden flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#4B5F54] dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5"
+        >
+          <Menu size={20} />
+        </button>
         <div className="flex items-center gap-1.5">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
             <rect x="2" y="3" width="12" height="10" rx="2" stroke="#9AA8A0" strokeWidth="1.4"/>

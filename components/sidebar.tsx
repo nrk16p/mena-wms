@@ -27,6 +27,7 @@ import {
   Flag,
   Factory,
   FileText,
+  X,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { ManualBook } from "./manual-book"
@@ -96,7 +97,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-export function Sidebar() {
+export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const [collapsed, setCollapsed]       = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
   const [groupOpen, setGroupOpen]       = useState<Record<string, boolean>>({})
@@ -105,6 +106,8 @@ export function Sidebar() {
   const isAdmin = session?.user?.role === "admin"
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
+  // เปิด drawer บนมือถือ → บังคับแสดงเต็ม (ไม่ย่อ)
+  useEffect(() => { if (open) setCollapsed(false) }, [open])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -133,11 +136,15 @@ export function Sidebar() {
 
   return (
     <aside className={[
-      "relative flex h-screen flex-col shrink-0 select-none",
+      // มือถือ: drawer เลื่อนจากซ้าย (fixed) · เดสก์ท็อป: flex ในแนวเดิม
+      "fixed inset-y-0 left-0 z-50 duration-200 ease-out",
+      open ? "translate-x-0" : "-translate-x-full",
+      "lg:static lg:z-auto lg:translate-x-0 lg:transition-[width]",
+      "flex h-screen flex-col shrink-0 select-none",
       "bg-white dark:bg-[#111714]",
       "border-r border-[#EEF2F0] dark:border-white/[0.07]",
-      "transition-[width] duration-200 ease-out",
-      collapsed ? "w-[60px]" : "w-64",
+      // ความกว้าง: มือถือเต็ม w-64 เสมอ · เดสก์ท็อปย่อได้
+      collapsed ? "w-64 lg:w-[60px]" : "w-64",
     ].join(" ")}>
 
       {/* ── Logo ── */}
@@ -188,9 +195,17 @@ export function Sidebar() {
             <button
               onClick={() => setCollapsed(true)}
               title="ย่อ Sidebar"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[#9AA8A0] hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5 dark:hover:text-white transition-colors"
+              className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[#9AA8A0] transition-colors hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5 dark:hover:text-white lg:flex"
             >
               <PanelLeftClose size={13} />
+            </button>
+            {/* ปิด drawer (มือถือ) */}
+            <button
+              onClick={onClose}
+              aria-label="ปิดเมนู"
+              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#9AA8A0] hover:bg-gray-100 dark:hover:bg-white/5 lg:hidden"
+            >
+              <X size={18} />
             </button>
           </>
         )}
@@ -266,6 +281,7 @@ export function Sidebar() {
                     <Link
                       key={item.href}
                       href={item.href}
+                      onClick={onClose}
                       title={collapsed ? item.label : undefined}
                       className={[
                         "relative flex items-center gap-[11px] rounded-[11px] transition-all duration-100 ease-out",
