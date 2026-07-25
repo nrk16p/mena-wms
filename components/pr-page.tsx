@@ -146,6 +146,7 @@ export function PrPage() {
   const [warehouse, setWarehouse] = useState("")
   const [dept, setDept]       = useState("")
   const [funnelFilter, setFunnelFilter] = useState<string>("")
+  const [poOverOnly, setPoOverOnly] = useState(false)   // เฉพาะ PO ยอดเกิน PR (เกิน VAT)
   const [page, setPage]       = useState(1)
   const [detail, setDetail]   = useState<Row | null>(null)
   const [deliveryDraft, setDeliveryDraft] = useState("")
@@ -226,6 +227,7 @@ export function PrPage() {
     if (p.get("wh")) setWarehouse(p.get("wh")!)
     if (p.get("dept")) setDept(p.get("dept")!)
     if (p.get("stage")) setFunnelFilter(p.get("stage")!)
+    if (p.get("over") === "1") setPoOverOnly(true)
   }, [])
   useEffect(() => {
     const p = new URLSearchParams()
@@ -233,9 +235,10 @@ export function PrPage() {
     if (warehouse) p.set("wh", warehouse)
     if (dept) p.set("dept", dept)
     if (funnelFilter) p.set("stage", funnelFilter)
+    if (poOverOnly) p.set("over", "1")
     const qs = p.toString()
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname)
-  }, [q, warehouse, dept, funnelFilter])
+  }, [q, warehouse, dept, funnelFilter, poOverOnly])
 
   const rows = data?.rows ?? []
   const warehouses = useMemo(() => [...new Set(rows.map((r) => r.warehouse).filter(Boolean))].sort((a, b) => a.localeCompare(b, "th")), [rows])
@@ -253,6 +256,10 @@ export function PrPage() {
     })
   }, [rows, q, warehouse, dept])
 
+  // PO ยอดเกิน PR (เกิน VAT 7%) — ต้องตรวจราคาที่แพงขึ้น
+  const isPoOver = (r: Row) => r.po_count > 0 && r.po_total > r.total * 1.07 + 0.05
+  const poOverCount = useMemo(() => baseFiltered.filter(isPoOver).length, [baseFiltered])
+
   const stageCounts = useMemo(() => {
     const c: Record<Stage, number> = { pr: 0, po_ok: 0, po_bad: 0, due: 0, overdue: 0 }
     for (const r of baseFiltered) c[r.stage]++
@@ -268,10 +275,9 @@ export function PrPage() {
   // กรองตามขั้น funnel ที่เลือก
   const stagesOf = (key: string) => FUNNEL.find((f) => f.key === key)?.stages ?? []
   const filtered = useMemo(() => {
-    if (!funnelFilter) return baseFiltered
-    const set = new Set(stagesOf(funnelFilter))
-    return baseFiltered.filter((r) => set.has(r.stage))
-  }, [baseFiltered, funnelFilter])
+    const set = funnelFilter ? new Set(stagesOf(funnelFilter)) : null
+    return baseFiltered.filter((r) => (!set || set.has(r.stage)) && (!poOverOnly || isPoOver(r)))
+  }, [baseFiltered, funnelFilter, poOverOnly])
 
   const sumValue = useMemo(() => filtered.reduce((a, r) => a + (r.total || 0), 0), [filtered])
   // เกินกำหนดเฉลี่ย (สำหรับสรุปตอนกรอง overdue)
@@ -291,7 +297,7 @@ export function PrPage() {
   }, [filtered])
 
   // pagination — รีเซ็ตหน้าเมื่อค้นหา/กรองเปลี่ยน
-  useEffect(() => { setPage(1) }, [q, warehouse, dept, funnelFilter])
+  useEffect(() => { setPage(1) }, [q, warehouse, dept, funnelFilter, poOverOnly])
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const curPage    = Math.min(page, totalPages)
   const pageRows   = useMemo(() => sorted.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [sorted, curPage])
@@ -381,6 +387,14 @@ export function PrPage() {
           <option value="">ทุกแผนก</option>
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        {/* PO เกิน PR (เกิน VAT) */}
+        <button
+          onClick={() => setPoOverOnly((v) => !v)}
+          title="เฉพาะ PR ที่ยอด PO แพงกว่า PR (เกิน VAT 7%)"
+          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-[10px] border px-3 py-2 text-[13px] font-medium transition ${poOverOnly ? "border-[#DC2626] bg-[#DC2626] text-white" : "border-[#F7CFCF] text-[#DC2626] hover:bg-[#FEECEC] dark:border-red-900/40 dark:hover:bg-red-950/20"}`}
+        >
+          🔺 PO เกิน PR <span className="opacity-80">{poOverCount}</span>
+        </button>
       </div>
 
       {/* Table (desktop) */}
