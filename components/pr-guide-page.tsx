@@ -19,11 +19,21 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 }
 
 const STAGES = [
-  { label: "เปิด PR",        color: "#64748B", cond: "มี PR แต่ยังไม่มี PO" },
-  { label: "เปิด PO · ยอดครบ", color: "#1D4ED8", cond: "มี PO แล้ว · ยอด + รายการสินค้าตรงกัน (แต่ยังไม่มีวันกำหนดส่ง)" },
-  { label: "เปิด PO · ไม่ครบ", color: "#E8A317", cond: "มี PO แต่ PO แพงกว่า PR (เกิน VAT) หรือ จำนวน/รายการไม่ตรง — ต้องตรวจสอบ (PO ถูกกว่า PR ถือว่าครบ)" },
-  { label: "กำหนดส่งสินค้า",  color: "#15803D", cond: "ครบแล้ว + มีวันกำหนดส่ง + ยังไม่เกินกำหนด" },
-  { label: "เกินกำหนด",       color: "#DC2626", cond: "มีวันกำหนดส่งแล้ว แต่เลยวันมาแล้ว" },
+  { label: "เปิด PR", color: "#64748B",
+    cond: "อนุมัติ PR แล้ว แต่ยังไม่มี PO ผูกอยู่เลย",
+    mean: "ยังไม่ได้เปิดใบสั่งซื้อ → งานค้างที่ฝ่ายจัดซื้อ" },
+  { label: "เปิด PO · ยอดครบ", color: "#1D4ED8",
+    cond: "มี PO + \"ครบ\" + ยังไม่มีวันกำหนดส่ง",
+    mean: "เปิด PO ถูกต้อง รอกำหนดวันส่ง · ปกติ = 0 เสมอ (ทุก PO มีวันกำหนดส่งในตัว จึงเด้งไปขั้นถัดไป)" },
+  { label: "เปิด PO · ไม่ครบ", color: "#E8A317",
+    cond: "มี PO แต่: จำนวนไม่ตรง / PO แพงกว่า PR เกิน VAT / ขาด SKU ใน PO",
+    mean: "PR↔PO ไม่ตรง → ต้องตรวจสอบ (ดู \"เทียบราย SKU\" ในหน้า detail) · ถ้า PO ถูกกว่า PR + รายการตรง ถือว่าครบ ไม่เข้าขั้นนี้" },
+  { label: "กำหนดส่งสินค้า", color: "#15803D",
+    cond: "\"ครบ\" + มีวันกำหนดส่ง + ยังไม่เลยวัน (เทียบวันนี้ เวลาไทย)",
+    mean: "เรียบร้อย กำลังรอของตามกำหนด → บอก \"เหลืออีก N วัน\"" },
+  { label: "เกินกำหนด", color: "#DC2626",
+    cond: "\"ครบ\" + มีวันกำหนดส่ง + เลยวันมาแล้ว",
+    mean: "ของควรมาถึงแล้ว แต่ยังไม่มีการรับเข้า (DD) → เร่งตามซัพพลายเออร์/ตรวจการรับของ" },
 ]
 
 const ITEM_STATUS = [
@@ -60,16 +70,26 @@ export function PrGuidePage() {
 
         {/* สถานะการติดตาม */}
         <Section icon={Truck} title="สถานะการติดตาม (แถบ funnel ด้านบน)">
-          <p>งานไหลจากซ้ายไปขวา · คลิกที่ขั้นใดขั้นหนึ่งเพื่อกรองเฉพาะขั้นนั้น:</p>
+          <p>ระบบจัดสถานะให้แต่ละ PR โดยเช็คเงื่อนไข<b>จากบนลงล่าง</b> — เจออันแรกที่ตรง คือสถานะนั้น · คลิกที่ขั้นเพื่อกรอง:</p>
           <div className="mt-1 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/8">
             {STAGES.map((s, i) => (
-              <div key={s.label} className={`flex items-start gap-3 px-3.5 py-2.5 ${i > 0 ? "border-t border-[#F1F5F2] dark:border-white/5" : ""}`}>
-                <span className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ background: s.color }}>{s.label}</span>
-                <span className="text-[12.5px]">{s.cond}</span>
+              <div key={s.label} className={`px-3.5 py-2.5 ${i > 0 ? "border-t border-[#F1F5F2] dark:border-white/5" : ""}`}>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ background: s.color }}>{i + 1}. {s.label}</span>
+                </div>
+                <div className="mt-1 text-[12.5px]"><b className="text-[#5B7568] dark:text-gray-400">เงื่อนไข:</b> {s.cond}</div>
+                <div className="text-[12px] text-[#9AA8A0]"><b>หมายถึง:</b> {s.mean}</div>
               </div>
             ))}
           </div>
-          <p className="pt-1 text-[12px] text-[#9AA8A0]">* “ครบ/ไม่ครบ” ตัดสินจากการเทียบ <b>รายการสินค้าราย SKU</b> (จำนวน + ยอด) ระหว่าง PR กับ PO</p>
+          <div className="mt-2 rounded-lg bg-[#F6FAF7] dark:bg-white/5 px-3 py-2 text-[12px]">
+            <b className="text-[#14271C] dark:text-white">นิยาม “ครบ”</b> (ใช้ตัดสินขั้น 2–5) — เทียบราย SKU ระหว่าง PR กับ PO:
+            <ul className="ml-1 mt-1 space-y-0.5">
+              <li>• ทุก SKU ใน PR <b>มีใน PO</b> (ไม่ขาด) และ <b>จำนวนตรงกัน</b></li>
+              <li>• <b>ยอด PO ≤ ยอด PR (+VAT 7%)</b> — PO ถูกกว่า/เท่ากับที่ขอ = ครบ (แพงกว่า = ไม่ครบ)</li>
+            </ul>
+          </div>
+          <p className="pt-1 text-[12px] text-[#9AA8A0]">* เมื่อ PR มีการ <b>รับของ (DD)</b> แล้ว จะหลุดจากหน้านี้อัตโนมัติ</p>
         </Section>
 
         {/* การเทียบ PR ↔ PO */}
