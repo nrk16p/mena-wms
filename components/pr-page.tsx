@@ -250,7 +250,7 @@ export function PrPage() {
   const pageRows   = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE), [filtered, curPage])
 
   return (
-    <div className="w-full px-4 py-6" style={sansThai}>
+    <div className="w-full px-3 py-5 sm:px-4 sm:py-6" style={sansThai}>
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -279,7 +279,7 @@ export function PrPage() {
             {funnelFilter && <button onClick={() => setFunnelFilter("")} className="ml-2 font-medium text-[#1B8C4B] hover:underline">แสดงทั้งหมด</button>}
           </span>
         </div>
-        <div className="flex flex-wrap items-stretch gap-2">
+        <div className="grid grid-cols-2 items-stretch gap-2 sm:flex sm:flex-wrap">
           {FUNNEL.map((f, i) => {
             const active = funnelFilter === f.key
             const warn = f.key === "po" ? stageCounts.po_bad : 0
@@ -320,18 +320,18 @@ export function PrPage() {
             className="w-full rounded-[10px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] pl-9 pr-3 py-2 text-[13px] text-[#14271C] dark:text-white outline-none focus:border-[#CFE3D6]"
           />
         </div>
-        <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} className="rounded-[10px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] px-3 py-2 text-[13px] text-[#4B5F54] dark:text-gray-300 max-w-[200px]">
+        <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} className="flex-1 min-w-[45%] rounded-[10px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] px-3 py-2 text-[13px] text-[#4B5F54] dark:text-gray-300 sm:min-w-0 sm:max-w-[200px] sm:flex-none">
           <option value="">ทุกคลัง</option>
           {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
         </select>
-        <select value={dept} onChange={(e) => setDept(e.target.value)} className="rounded-[10px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] px-3 py-2 text-[13px] text-[#4B5F54] dark:text-gray-300 max-w-[200px]">
+        <select value={dept} onChange={(e) => setDept(e.target.value)} className="flex-1 min-w-[45%] rounded-[10px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] px-3 py-2 text-[13px] text-[#4B5F54] dark:text-gray-300 sm:min-w-0 sm:max-w-[200px] sm:flex-none">
           <option value="">ทุกแผนก</option>
           {depts.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
       </div>
 
-      {/* Table */}
-      <div className="mb-3 overflow-x-auto rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
+      {/* Table (desktop) */}
+      <div className="mb-3 hidden overflow-x-auto rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] sm:block">
         <table className="w-full min-w-[760px] table-fixed border-collapse text-[11.5px]">
           <colgroup>
             <col style={{ width: "11%" }} /><col style={{ width: "9%" }} /><col style={{ width: "15%" }} />
@@ -417,6 +417,57 @@ export function PrPage() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Card list (mobile) */}
+      <div className="mb-3 space-y-2 sm:hidden">
+        {loading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-[#F0F4F1] dark:bg-white/5" />
+          ))
+        ) : filtered.length === 0 ? (
+          <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-12 text-center text-[13px] text-[#9AA8A0]">ไม่พบ PR ที่อนุมัติแล้วและยังไม่มีการรับของ</div>
+        ) : pageRows.map((r) => {
+          const age = ageDays(r.date)
+          const col = ageColor(age)
+          return (
+            <button
+              key={r.pr_code}
+              onClick={() => setDetail(r)}
+              className="block w-full rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-3 text-left"
+            >
+              {/* header: PR + สถานะ */}
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold text-[#1B8C4B]" style={mitr}>{r.pr_code}</span>
+                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STAGE_META[r.stage].cls}`}>
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: STAGE_META[r.stage].dot }} />{STAGE_META[r.stage].label}
+                </span>
+              </div>
+              {/* อายุ + วันเกิน/เหลือ */}
+              <div className="mt-1.5 flex items-center gap-2 text-[12px]">
+                <span className="inline-flex items-baseline gap-1"><b className="text-[16px]" style={{ ...mitr, color: col }}>{age ?? "—"}</b><span className="text-[10px] text-[#9AA8A0]">วัน</span></span>
+                <span className="text-[#9AA8A0]">· {fmtDate(r.date)}</span>
+                {r.days_to_due !== null && (r.stage === "due" || r.stage === "overdue") && (
+                  <span className={`ml-auto font-semibold ${r.overdue ? "text-[#DC2626]" : "text-[#15803D]"}`}>
+                    {r.overdue ? `เกิน ${Math.abs(r.days_to_due)} วัน` : r.days_to_due === 0 ? "ครบวันนี้" : `เหลือ ${r.days_to_due} วัน`}
+                  </span>
+                )}
+              </div>
+              {/* คลัง·แผนก / ทะเบียน / ผู้ขอซื้อ */}
+              <div className="mt-1.5 text-[12px] text-[#4B5F54] dark:text-gray-400">
+                <div className="truncate">{r.warehouse || "—"}{r.dept ? ` · ${r.dept}` : ""}</div>
+                <div className="truncate text-[11px] text-[#9AA8A0]">
+                  {r.plate ? `🚗 ${r.plate} · ` : ""}{r.requester || "—"}
+                </div>
+              </div>
+              {/* ยอด PR/PO + PO */}
+              <div className="mt-2 flex items-center justify-between border-t border-[#F4F7F5] dark:border-white/5 pt-2 text-[12px]">
+                <span className="text-[#9AA8A0]">PR <b className="text-[#14271C] dark:text-white">{bahtShort(r.total || 0)}</b>{r.po_count > 0 && <> · PO <b className="text-[#14271C] dark:text-white">{bahtShort(r.po_total || 0)}</b></>}</span>
+                <span className="truncate text-[11px] text-[#9AA8A0]">{r.po_count === 0 ? "ยังไม่มี PO" : `${r.po_codes[0]}${r.po_count > 1 ? ` +${r.po_count - 1}` : ""}`}</span>
+              </div>
+            </button>
+          )
+        })}
       </div>
 
       {/* Pagination */}
