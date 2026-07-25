@@ -37,8 +37,9 @@ function itemsComplete(prItems: Doc[], poItems: Doc[]): { hasItems: boolean; com
     const o = O.get(sku)
     if (!o) return { hasItems: true, complete: false }               // ขาดใน PO
     const qtyMatch = Math.abs(p.qty - o.qty) < 0.001
-    const totalMatch = Math.abs(p.total - o.total) < 0.01 || Math.abs(o.total - p.total * 1.07) < 0.05
-    if (!qtyMatch || !totalMatch) return { hasItems: true, complete: false }
+    // ยอด: PO ถูกกว่า/เท่ากับ PR(+VAT 7%) = ครบ · ไม่ครบเฉพาะ PO แพงกว่าที่คาด
+    const amountOk = o.total <= p.total * 1.07 + 0.05
+    if (!qtyMatch || !amountOk) return { hasItems: true, complete: false }
   }
   return { hasItems: true, complete: true }
 }

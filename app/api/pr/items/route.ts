@@ -59,8 +59,9 @@ export async function GET(req: NextRequest) {
       else if (!p && o) status = "extra_po"          // มีใน PO ไม่มีใน PR
       else {
         const qtyMatch = Math.abs((p!.qty) - (o!.qty)) < 0.001
-        const totalMatch = Math.abs(p!.total - o!.total) < 0.01 || Math.abs(o!.total - p!.total * 1.07) < 0.05
-        status = !qtyMatch ? "qty" : (totalMatch ? "ok" : "price")
+        // PO ถูกกว่า/เท่ากับ PR(+VAT) = ตรง · "ราคาต่าง" เฉพาะ PO แพงกว่าที่คาด
+        const amountOk = o!.total <= p!.total * 1.07 + 0.05
+        status = !qtyMatch ? "qty" : (amountOk ? "ok" : "price")
       }
       return {
         sku,

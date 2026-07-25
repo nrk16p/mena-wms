@@ -21,7 +21,7 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 const STAGES = [
   { label: "เปิด PR",        color: "#64748B", cond: "มี PR แต่ยังไม่มี PO" },
   { label: "เปิด PO · ยอดครบ", color: "#1D4ED8", cond: "มี PO แล้ว · ยอด + รายการสินค้าตรงกัน (แต่ยังไม่มีวันกำหนดส่ง)" },
-  { label: "เปิด PO · ไม่ครบ", color: "#E8A317", cond: "มี PO แต่ยอด/รายการไม่ตรง — ต้องตรวจสอบ" },
+  { label: "เปิด PO · ไม่ครบ", color: "#E8A317", cond: "มี PO แต่ PO แพงกว่า PR (เกิน VAT) หรือ จำนวน/รายการไม่ตรง — ต้องตรวจสอบ (PO ถูกกว่า PR ถือว่าครบ)" },
   { label: "กำหนดส่งสินค้า",  color: "#15803D", cond: "ครบแล้ว + มีวันกำหนดส่ง + ยังไม่เกินกำหนด" },
   { label: "เกินกำหนด",       color: "#DC2626", cond: "มีวันกำหนดส่งแล้ว แต่เลยวันมาแล้ว" },
 ]
@@ -29,7 +29,7 @@ const STAGES = [
 const ITEM_STATUS = [
   { label: "ตรง", color: "#15803D", desc: "จำนวน + ยอด ตรงกันทั้ง PR และ PO" },
   { label: "จำนวนต่าง", color: "#DC2626", desc: "จำนวนสินค้าไม่ตรง" },
-  { label: "ราคาต่าง", color: "#B07D12", desc: "จำนวนตรงแต่ยอดเงินต่าง" },
+  { label: "ราคาต่าง", color: "#B07D12", desc: "จำนวนตรงแต่ PO แพงกว่า PR (เกิน VAT) · ถ้า PO ถูกกว่าถือว่าตรง" },
   { label: "ขาดใน PO", color: "#DC2626", desc: "มีใน PR แต่ไม่มีใน PO" },
   { label: "เกินใน PO", color: "#1D4ED8", desc: "มีใน PO แต่ไม่มีใน PR" },
 ]
