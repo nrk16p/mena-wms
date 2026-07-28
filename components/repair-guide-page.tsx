@@ -12,7 +12,8 @@ import {
 
 const COLORS: Record<string, string> = {
   "รอรถเข้า": "#9ca3af", "รถเข้าอู่ซ่อม": "#3b82f6", "รอใบเสนอราคา": "#06b6d4",
-  "รออนุมัติ": "#eab308", "ซ่อมไม่มีกำหนด": "#f97316", "ซ่อมมีกำหนดเสร็จ": "#14b8a6", "รถเสร็จ": "#22c55e",
+  "รออนุมัติ": "#eab308", "ซ่อมไม่มีกำหนด": "#f97316", "ซ่อมมีกำหนดเสร็จ": "#14b8a6",
+  "รถเสร็จ(ไม่มี PR)": "#84cc16", "รถเสร็จ": "#22c55e",
 }
 
 function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
@@ -93,7 +94,7 @@ export function RepairGuidePage() {
           </div>
           <p className="pt-1 text-[12px] text-[#9AA8A0]">* สถานะปกติวัดค้างจาก <b>วันที่เข้าสถานะ</b> · "ซ่อมมีกำหนดเสร็จ" วัดจาก <b>วันกำหนดเสร็จ</b></p>
           <ul className="mt-1 ml-1 space-y-1">
-            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↔️</span><span><b>ข้ามสถานะได้อิสระ</b> — สถานะกลางเปลี่ยนได้แม้ยัง<b>ไม่มี PR / PO</b> · ระบบจะ<b>บังคับข้อมูลให้ครบก็ต่อเมื่อปิดเป็น "รถเสร็จ"</b> (ตอนนั้นต้องมีครบทั้ง วันที่รถเข้าซ่อม / PO / วันกำหนดเสร็จ / วันที่ซ่อมเสร็จ)</span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↔️</span><span><b>ข้ามสถานะได้อิสระ</b> — สถานะกลางเปลี่ยนได้แม้ยัง<b>ไม่มี PR / PO</b> · <b>รถเสร็จ(ไม่มี PR)</b> = ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ยังไม่ปิดงาน) · ระบบจะ<b>บังคับข้อมูลให้ครบก็ต่อเมื่อปิดเป็น "รถเสร็จ"</b> (ตอนนั้นต้องมีครบทั้ง วันที่รถเข้าซ่อม / PO / วันกำหนดเสร็จ / วันที่ซ่อมเสร็จ / <b>รหัส PR</b>)</span></li>
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↩️</span><span><b>ย้อนสถานะกลับได้</b> ผ่านปุ่มประวัติ (นาฬิกา) → "ย้อนเป็นสถานะก่อนหน้า"</span></li>
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">🔒</span><span><b>"รถเสร็จ" แล้วล็อก</b> — เปลี่ยน/ย้อนสถานะไม่ได้อีก (แก้ฟิลด์อื่นได้)</span></li>
           </ul>

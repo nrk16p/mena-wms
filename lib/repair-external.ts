@@ -12,6 +12,7 @@ export const REPAIR_STATUSES: RepairStatus[] = [
   { value: "รออนุมัติ",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
   { value: "ซ่อมไม่มีกำหนด",    emoji: "🛠️", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
   { value: "ซ่อมมีกำหนดเสร็จ",  emoji: "✅", cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" },
+  { value: "รถเสร็จ(ไม่มี PR)", emoji: "🏁", cls: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300" },
   { value: "รถเสร็จ",          emoji: "🏁", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" },
 ]
 
@@ -97,6 +98,7 @@ export const REPAIR_STATUS_SLA_DAYS: Record<string, number> = {
   "รออนุมัติ":      2,
   "ซ่อมไม่มีกำหนด":  2,
   "ซ่อมมีกำหนดเสร็จ": 2,
+  "รถเสร็จ(ไม่มี PR)": 2,
 }
 
 // สถานะที่วัด SLA จาก "วันกำหนดเสร็จ" (dueDate) แทน statusSince
@@ -104,7 +106,7 @@ export const REPAIR_SLA_FROM_DUE = new Set<string>(["ซ่อมมีกำห
 
 // คำอธิบาย SLA สำหรับแสดงบน UI
 export const REPAIR_SLA_NOTE =
-  "รอรถเข้า / รถเข้าอู่ซ่อม / รอใบเสนอราคา / รออนุมัติ / ซ่อมไม่มีกำหนด ไม่ควรค้างเกิน 2 วัน (นับจากวันเข้าสถานะ) · ซ่อมมีกำหนดเสร็จ ไม่ควรเกิน 2 วันจากวันกำหนดเสร็จ"
+  "รอรถเข้า / รถเข้าอู่ซ่อม / รอใบเสนอราคา / รออนุมัติ / ซ่อมไม่มีกำหนด / รถเสร็จ(ไม่มี PR) ไม่ควรค้างเกิน 2 วัน (นับจากวันเข้าสถานะ) · ซ่อมมีกำหนดเสร็จ ไม่ควรเกิน 2 วันจากวันกำหนดเสร็จ"
 
 export type RepairField = keyof Omit<RepairExternal, "_id">
 
@@ -114,7 +116,8 @@ export const REPAIR_STATUS_REQUIRED_FIELD: Record<string, { field: RepairField; 
   // รอใบเสนอราคา: PR ไม่บังคับ (ยังไม่มี PR ก็ได้)
   "รออนุมัติ":        { field: "poCode",        label: "รหัส PO" },
   "ซ่อมมีกำหนดเสร็จ": { field: "dueDate",       label: "วันกำหนดเสร็จ" },
-  "รถเสร็จ":          { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
+  "รถเสร็จ(ไม่มี PR)": { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
+  "รถเสร็จ":          { field: "prCode",        label: "รหัส PR" },  // ปิดงานสมบูรณ์ต้องมี PR (completedDate สะสมมาจากขั้นก่อน)
 }
 
 // สถานะปลายทาง (ปิดงาน) — ห้ามย้อนสถานะกลับเมื่อถึงสถานะนี้แล้ว

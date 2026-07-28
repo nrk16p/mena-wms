@@ -32,6 +32,7 @@ const BAR_COLORS: Record<string, string> = {
   "รออนุมัติ":        "#eab308",
   "ซ่อมไม่มีกำหนด":    "#f97316",
   "ซ่อมมีกำหนดเสร็จ":  "#14b8a6",
+  "รถเสร็จ(ไม่มี PR)": "#84cc16",
   "รถเสร็จ":          "#22c55e",
 }
 const barColor = (s: string) => BAR_COLORS[s] ?? "#9ca3af"
