@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic"
 const NCAC = "https://api-ncac.onrender.com"
 const KEY  = "mena-pipeline-2026"
 const RATE_LIMIT_MIN = 60      // รีเฟรชได้ 1 ครั้ง/ชม.
-const ETA_SEC = 240            // light run ~3-4 นาที
+const ETA_SEC = 720            // light run (30 วัน) ~11-12 นาที
 
 // POST /api/pr/refresh — สั่งดึงข้อมูลใหม่ (7 วันล่าสุด) ผ่าน pipeline atms_procurement_light
 export async function POST() {

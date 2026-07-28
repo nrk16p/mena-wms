@@ -246,11 +246,11 @@ export function PrPage() {
       if (res.status === 429) { swalError(`เพิ่งอัปเดตไป · รีเฟรชได้อีกใน ${d.retry_after_min} นาที`); return }
       if (!res.ok && d.status !== "already_running") { swalError("สั่งรีเฟรชไม่สำเร็จ"); return }
 
-      const eta = (d.eta_sec || 240) * 1000
+      const eta = (d.eta_sec || 720) * 1000
       const start = Date.now()
       const timer = setInterval(() => setProgress(Math.min(95, 3 + ((Date.now() - start) / eta) * 92)), 500)
       let done = false
-      for (let i = 0; i < 80 && !done; i++) {
+      for (let i = 0; i < 200 && !done; i++) {
         await new Promise((r) => setTimeout(r, 6000))
         const s = await fetch("/api/pr/refresh/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({}))
         const fin = s?.last_run?.finished_at ?? null
@@ -369,7 +369,7 @@ export function PrPage() {
         <button
           onClick={doRefresh}
           disabled={refreshing || cooldownMin > 0}
-          title={cooldownMin > 0 ? `รีเฟรชได้อีกใน ${cooldownMin} นาที (จำกัด 1 ครั้ง/ชม.)` : "ดึงข้อมูลใหม่จาก ATMS (7 วันล่าสุด ~4 นาที)"}
+          title={cooldownMin > 0 ? `รีเฟรชได้อีกใน ${cooldownMin} นาที (จำกัด 1 ครั้ง/ชม.)` : "ดึงข้อมูลใหม่จาก ATMS (30 วันล่าสุด ~12 นาที)"}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition ${
             refreshing || cooldownMin > 0
               ? "cursor-not-allowed border border-gray-200 dark:border-white/10 text-gray-400"
@@ -385,8 +385,8 @@ export function PrPage() {
       {refreshing && (
         <div className="mb-3 rounded-lg border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-2.5">
           <div className="mb-1.5 flex items-center justify-between text-[11px] text-[#6B7C72] dark:text-gray-400">
-            <span>กำลังดึงข้อมูลจาก ATMS (7 วันล่าสุด)…</span>
-            <span className="font-medium text-[#1B8C4B]">{Math.round(progress)}%{progress < 95 ? " · ประมาณ ~4 นาที" : " · ใกล้เสร็จ"}</span>
+            <span>กำลังดึงข้อมูลจาก ATMS (30 วันล่าสุด)…</span>
+            <span className="font-medium text-[#1B8C4B]">{Math.round(progress)}%{progress < 95 ? " · ประมาณ ~12 นาที" : " · ใกล้เสร็จ"}</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
             <div className="h-2 rounded-full bg-[#1B8C4B] transition-all duration-500" style={{ width: `${progress}%` }} />
