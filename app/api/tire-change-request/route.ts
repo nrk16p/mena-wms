@@ -6,7 +6,7 @@ import clientPromise from "@/lib/mongo"
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
 
-// GET /api/tire-change-request?branch=&status=&q=&page=1&limit=50 — list requests (admin)
+// GET /api/tire-change-request?branch=&status=&q=&page=1&limit=50&stats=1 — list requests (admin)
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const branch = searchParams.get("branch")?.trim() ?? ""
@@ -15,35 +15,47 @@ export async function GET(req: NextRequest) {
   const q      = searchParams.get("q")?.trim()      ?? ""
   const page   = Math.max(parseInt(searchParams.get("page") ?? "1"), 1)
   const limit  = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50"), 1), 200)
+  const wantStats = searchParams.get("stats") === "1"
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filter: Record<string, any> = {
+  const base: Record<string, any> = {
     // only requests that actually contain tire items
     "items.0": { $exists: true },
   }
-  if (branch) filter.branch = branch
-  if (plate)  filter.plate = plate
-  // requests created before the status workflow existed count as pending
-  if (status === "pending") filter.$or = [{ status: "pending" }, { status: { $exists: false } }]
-  else if (status) filter.status = status
+  if (branch) base.branch = branch
+  if (plate)  base.plate = plate
   if (q) {
-    const search = [
+    base.$or = [
       { plate:         { $regex: q, $options: "i" } },
       { driverName:    { $regex: q, $options: "i" } },
       { truckNumber:   { $regex: q, $options: "i" } },
       { "items.jobNo": { $regex: q, $options: "i" } },
     ]
-    if (filter.$or) { filter.$and = [{ $or: filter.$or }, { $or: search }]; delete filter.$or }
-    else filter.$or = search
   }
 
-  const [items, total] = await Promise.all([
+  // filter ของรายการ = base + สถานะ / statsFilter = base เฉย ๆ เพื่อให้ตัวเลขสรุปไม่หายตอนกรองสถานะ
+  const filter = { ...base }
+  // requests created before the status workflow existed count as pending
+  if (status === "pending") filter.$and = [{ $or: [{ status: "pending" }, { status: { $exists: false } }] }]
+  else if (status) filter.status = status
+
+  const [items, total, statusRows] = await Promise.all([
     col.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
     col.countDocuments(filter),
+    wantStats
+      ? col.aggregate<{ _id: string; n: number }>([
+          { $match: base },
+          { $group: { _id: { $ifNull: ["$status", "pending"] }, n: { $sum: 1 } } },
+        ]).toArray()
+      : Promise.resolve([]),
   ])
+
+  const statusCounts = wantStats
+    ? statusRows.reduce<Record<string, number>>((acc, r) => { acc[r._id || "pending"] = r.n; return acc }, {})
+    : undefined
 
   // join tire_stock for unitPrice + distance → compute remainingPct + bahtPerKm per item
   const serials = [...new Set(
@@ -109,7 +121,7 @@ export async function GET(req: NextRequest) {
     }),
   }))
 
-  return NextResponse.json({ items: enriched, total, page, pages: Math.ceil(total / limit) })
+  return NextResponse.json({ items: enriched, total, page, pages: Math.ceil(total / limit), statusCounts })
 }
 
 // POST /api/tire-change-request — save a tire change request

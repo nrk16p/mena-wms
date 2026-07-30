@@ -244,6 +244,52 @@ const btnSmall = "rounded-[10px] px-2.5 py-1 text-[11px] font-medium transition-
 const fontThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const fontHead = { fontFamily: "'Mitr', sans-serif", fontWeight: 500 }
 
+// ── Stat card — การ์ดสถิติแบบ minimal (กดเพื่อกรองได้ ถ้าส่ง onClick) ──
+type StatTone = "slate" | "amber" | "blue" | "purple" | "green" | "red"
+
+const STAT_TONE: Record<StatTone, { dot: string; num: string; active: string }> = {
+  slate:  { dot: "bg-[#9AA8A0]",   num: "text-[#14271C] dark:text-white",         active: "border-[#14271C]/25 bg-[#F6FAF7] dark:border-white/25 dark:bg-white/5" },
+  amber:  { dot: "bg-amber-500",   num: "text-amber-600 dark:text-amber-400",     active: "border-amber-400/60 bg-amber-50 dark:border-amber-400/40 dark:bg-amber-500/10" },
+  blue:   { dot: "bg-blue-500",    num: "text-blue-600 dark:text-blue-400",       active: "border-blue-400/60 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
+  purple: { dot: "bg-purple-500",  num: "text-purple-600 dark:text-purple-400",   active: "border-purple-400/60 bg-purple-50 dark:border-purple-400/40 dark:bg-purple-500/10" },
+  green:  { dot: "bg-[#1B8C4B]",   num: "text-[#1B8C4B] dark:text-green-400",     active: "border-[#1B8C4B]/50 bg-[#F0FDF4] dark:border-green-400/40 dark:bg-green-500/10" },
+  red:    { dot: "bg-red-500",     num: "text-red-600 dark:text-red-400",         active: "border-red-400/60 bg-red-50 dark:border-red-400/40 dark:bg-red-500/10" },
+}
+
+function StatCard({ label, value, tone = "slate", caption, active, onClick }: {
+  label:    string
+  value:    string | number
+  tone?:    StatTone
+  caption?: string
+  active?:  boolean
+  onClick?: () => void
+}) {
+  const t = STAT_TONE[tone]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "rounded-[14px] border px-3.5 py-2.5 text-left transition-colors",
+        onClick ? "cursor-pointer" : "cursor-default",
+        active
+          ? t.active
+          : "border-[#EEF2F0] bg-white dark:border-white/8 dark:bg-[#151a10] " +
+            (onClick ? "hover:border-[#1B8C4B]/30 hover:bg-[#F6FAF7] dark:hover:bg-white/4" : ""),
+      ].join(" ")}
+    >
+      <span className="flex items-center gap-1.5">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.dot}`} />
+        <span className="truncate text-[11px] font-medium text-[#6B7C72] dark:text-gray-400" style={fontThai}>{label}</span>
+      </span>
+      <span className="mt-1.5 flex items-baseline gap-1">
+        <span className={`text-[20px] leading-none ${t.num}`} style={fontHead}>{value}</span>
+        {caption && <span className="text-[10px] text-[#9AA8A0]" style={fontThai}>{caption}</span>}
+      </span>
+    </button>
+  )
+}
+
 // ===========================================================================
 // SECTION 3: Main page — tab switcher
 // ===========================================================================
@@ -382,16 +428,17 @@ function FleetGrid({ branchFilter, onSelect }: {
 
   return (
     <div>
-      {/* Summary + unit filter + search */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-4 text-[13px]" style={fontThai}>
-          <span className="text-[#6B7C72] dark:text-gray-400">รถทั้งหมด <b className="text-[#14271C] dark:text-white">{fmtNum(summary.total)}</b> คัน</span>
-          <span className="text-red-600 dark:text-red-400">มียางอันตราย <b>{fmtNum(summary.danger)}</b> คัน</span>
-          <span className="text-blue-600 dark:text-blue-400">คำขอค้าง <b>{fmtNum(summary.requests)}</b> รายการ</span>
-        </div>
+      {/* Summary stat cards */}
+      {/* <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+        <StatCard label="รถทั้งหมด"   value={loading ? "—" : fmtNum(summary.total)}    caption="คัน"     tone="slate" />
+        <StatCard label="มียางอันตราย" value={loading ? "—" : fmtNum(summary.danger)}   caption="คัน"     tone="red" />
+        <StatCard label="คำขอค้าง"     value={loading ? "—" : fmtNum(summary.requests)} caption="รายการ" tone="blue" />
+      </div> */}
 
+      {/* unit filter + search */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         {/* กรองทะเบียน หัว / หาง */}
-        <div className="ml-auto flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
+        <div className="flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
           {([
             { key: "head",    label: `หัว (${headCount})` },
             { key: "trailer", label: `หาง (${trailerCount})` },
@@ -414,7 +461,7 @@ function FleetGrid({ branchFilter, onSelect }: {
           ))}
         </div>
 
-        <div className="relative min-w-[220px]">
+        <div className="relative ml-auto min-w-[220px]">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียนรถ..." className={inp + " w-full pl-8"} />
         </div>
@@ -1267,13 +1314,13 @@ function PhotoThumb({ src, alt }: { src: string; alt: string }) {
   )
 }
 
-const REQ_STATUS_TABS = [
-  { value: "",            label: "ทั้งหมด" },
-  { value: "pending",     label: "รออนุมัติ" },
-  { value: "approved",    label: "อนุมัติแล้ว" },
-  { value: "appointment", label: "นัดหมาย" },
-  { value: "done",        label: "เสร็จสิ้น" },
-  { value: "rejected",    label: "ปฏิเสธ" },
+const REQ_STATUS_TABS: { value: string; label: string; tone: StatTone }[] = [
+  { value: "",            label: "ทั้งหมด",     tone: "slate" },
+  { value: "pending",     label: "รออนุมัติ",   tone: "amber" },
+  { value: "approved",    label: "อนุมัติแล้ว", tone: "blue" },
+  { value: "appointment", label: "นัดหมาย",     tone: "purple" },
+  { value: "done",        label: "เสร็จสิ้น",   tone: "green" },
+  { value: "rejected",    label: "ปฏิเสธ",      tone: "red" },
 ]
 
 function RequestsTab({ branchFilter, onChanged }: {
@@ -1290,22 +1337,35 @@ function RequestsTab({ branchFilter, onChanged }: {
   const [mrMap, setMrMap]     = useState<Record<string, MrInfo | undefined>>({})
   const [view, setView]       = useState<"list" | "calendar">("list")
   const [appointmentTarget, setAppointmentTarget] = useState<TireRequest | null>(null)
+  // จำนวนคำขอแยกตามสถานะ — นับจาก server โดยไม่สนใจ statusTab ตัวเลขจึงไม่หายตอนกรอง
+  const [counts, setCounts]   = useState<Record<string, number> | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const results = await Promise.all(
       branchesFor(branchFilter).map((b) => {
-        const qs = new URLSearchParams({ branch: b, limit: "100" })
+        const qs = new URLSearchParams({ branch: b, limit: "100", stats: "1" })
         if (statusTab) qs.set("status", statusTab)
         if (q)         qs.set("q", q)
         return fetch(`/api/tire-change-request?${qs}`)
           .then((r) => r.json())
-          .then((d) => (Array.isArray(d.items) ? d.items : []) as TireRequest[])
-          .catch(() => [] as TireRequest[])
+          .then((d) => ({
+            items:  (Array.isArray(d.items) ? d.items : []) as TireRequest[],
+            counts: (d.statusCounts ?? {}) as Record<string, number>,
+          }))
+          .catch(() => ({ items: [] as TireRequest[], counts: {} as Record<string, number> }))
       })
     )
-    const merged = results.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    const merged = results.flatMap((r) => r.items).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    const totals: Record<string, number> = {}
+    for (const r of results) {
+      for (const [k, n] of Object.entries(r.counts)) {
+        totals[k] = (totals[k] ?? 0) + n
+        totals[""] = (totals[""] ?? 0) + n
+      }
+    }
     setItems(merged)
+    setCounts(totals)
     setLoading(false)
   }, [branchFilter, statusTab, q])
 
@@ -1512,30 +1572,27 @@ function RequestsTab({ branchFilter, onChanged }: {
 
   return (
     <div>
-      {/* status tabs + search */}
+      {/* stat cards — กดเพื่อกรองตามสถานะ */}
+      <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {REQ_STATUS_TABS.map((t) => (
+          <StatCard
+            key={t.value}
+            label={t.label}
+            value={counts ? fmtNum(counts[t.value] ?? 0) : "—"}
+            tone={t.tone}
+            active={statusTab === t.value}
+            onClick={() => setStatusTab(t.value)}
+          />
+        ))}
+      </div>
+
+      {/* search + view toggle */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1.5">
-          {REQ_STATUS_TABS.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => setStatusTab(t.value)}
-              className={[
-                "rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors",
-                statusTab === t.value
-                  ? "bg-[#1B8C4B] text-white"
-                  : "border border-[#EEF2F0] dark:border-white/10 text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/8",
-              ].join(" ")}
-              style={fontThai}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="relative ml-auto min-w-[200px]">
+        <div className="relative min-w-[200px] flex-1 sm:max-w-sm">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียน / คนขับ / เบอร์รถ / เลข Job..." className={inp + " w-full pl-8"} />
         </div>
-        <div className="flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
+        <div className="ml-auto flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
           {([
             { key: "list" as const,     label: "รายการ", Icon: List },
             { key: "calendar" as const, label: "ปฏิทิน",  Icon: CalendarDays },
