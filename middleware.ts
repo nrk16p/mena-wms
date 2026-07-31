@@ -41,6 +41,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Public read-only sync API + คู่มือ API สำหรับทีมภายนอก (ไม่ต้อง login / ไม่ต้องมี api key)
+  if (pathname === "/repair-external/api-guide") {
+    return NextResponse.next()
+  }
+  if (pathname === "/api/repair-external/sync" && READ_METHODS.has(request.method)) {
+    return withCors(NextResponse.next(), request.headers.get("origin"))
+  }
+
   // Mobile app access via API key
   const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
   const origin = request.headers.get("origin")

@@ -27,6 +27,7 @@ import {
   Flag,
   Factory,
   FileText,
+  Code2,
   X,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
@@ -93,6 +94,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/repair-external/completed",  label: "รถซ่อมเสร็จ",  icon: Flag },
       { href: "/garages",                    label: "จัดการอู่",     icon: Factory },
       { href: "/repair-external/guide",      label: "คู่มือการใช้งาน", icon: BookOpen },
+      { href: "/repair-external/api-guide",  label: "คู่มือ API Sync", icon: Code2 },
     ],
   },
 ]
