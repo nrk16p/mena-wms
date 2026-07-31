@@ -68,7 +68,8 @@ export default function Page() {
               เช่น <code>70-1234</code>, <code>M123</code>
             </Param>
             <Param name="scope">
-              กรองตามสถานะงาน — <code>active</code> = งานที่ยังไม่เสร็จ · <code>done</code> = งานที่ปิดแล้ว (สถานะ "รถเสร็จ") · ไม่ส่ง = ทั้งหมด
+              กรองตามสถานะงาน — <code>active</code> = งานที่ยังไม่เสร็จทั้งหมด · <code>done</code> = งานที่ปิดแล้วทั้งหมด (สถานะ "รถเสร็จ") ·{" "}
+              <b>ไม่ส่ง (ค่าเริ่มต้น)</b> = งานที่ยังไม่เสร็จทั้งหมด <b>+ รถเสร็จเฉพาะรายการล่าสุด 1 รายการ</b>
             </Param>
             <Param name="limit">
               จำนวนรายการสูงสุด (ค่าเริ่มต้น 100, สูงสุด 500) เรียงจากวันที่รับแจ้งล่าสุดก่อน
@@ -77,7 +78,7 @@ export default function Page() {
         </Section>
 
         <Section icon={Filter} title="ตัวอย่างการเรียกใช้">
-          <p>ค้นด้วยทะเบียนรถ:</p>
+          <p>ค้นด้วยทะเบียนรถ (ได้งานที่เปิดอยู่ทั้งหมด + รถเสร็จล่าสุด 1 รายการ):</p>
           <CodeBlock>{`curl "${BASE}/api/repair-external/sync?vehicle=70-1234"`}</CodeBlock>
           <p>ค้นด้วยเบอร์รถ เฉพาะงานที่ยังไม่เสร็จ:</p>
           <CodeBlock>{`curl "${BASE}/api/repair-external/sync?vehicle=M123&scope=active"`}</CodeBlock>
@@ -93,7 +94,7 @@ console.log(data.count, data.items)`}</CodeBlock>
           <CodeBlock>{`{
   "ok": true,
   "vehicle": "70-1234",
-  "scope": "all",
+  "scope": "default",   // default = งานเปิดทั้งหมด + รถเสร็จล่าสุด 1 รายการ
   "count": 2,
   "items": [
     {

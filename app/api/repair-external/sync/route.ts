@@ -12,6 +12,7 @@ function escapeRegex(s: string) {
 // GET /api/repair-external/sync?vehicle=<ทะเบียนหรือเบอร์รถ>&scope=active|done&limit=100
 // Public read-only endpoint สำหรับทีมภายนอก sync ข้อมูลรถซ่อมอู่นอก
 // ค้นหาด้วยทะเบียน (plate) หรือเบอร์รถ (fleetNo) อย่างใดอย่างหนึ่งด้วย parameter เดียว
+// ไม่ส่ง scope = งานที่เปิดอยู่ทั้งหมด + รถเสร็จเฉพาะรายการล่าสุด 1 รายการ
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const vehicle = searchParams.get("vehicle")?.trim() ?? ""
@@ -26,21 +27,31 @@ export async function GET(req: NextRequest) {
   }
 
   const rx = { $regex: escapeRegex(vehicle), $options: "i" }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filter: Record<string, any> = { $or: [{ plate: rx }, { fleetNo: rx }] }
-  if (scope === "done")        filter.status = "รถเสร็จ"
-  else if (scope === "active") filter.status = { $ne: "รถเสร็จ" }
+  const vehicleFilter = { $or: [{ plate: rx }, { fleetNo: rx }] }
+  // ตัด field รูปภาพออก — payload ใหญ่และไม่จำเป็นสำหรับการ sync สถานะ
+  const projection = { images: 0, negotiationImages: 0 }
+  const sort = { receivedDate: -1 as const, _id: -1 as const }
 
   const client = await clientPromise
-  const items  = await client
-    .db(DB)
-    .collection(COLL)
-    .find(filter)
-    // ตัด field รูปภาพออก — payload ใหญ่และไม่จำเป็นสำหรับการ sync สถานะ
-    .project({ images: 0, negotiationImages: 0 })
-    .sort({ receivedDate: -1, _id: -1 })
-    .limit(limit)
-    .toArray()
+  const col    = client.db(DB).collection(COLL)
 
-  return NextResponse.json({ ok: true, vehicle, scope: scope || "all", count: items.length, items })
+  let items
+  if (scope === "done") {
+    items = await col.find({ ...vehicleFilter, status: "รถเสร็จ" })
+      .project(projection).sort(sort).limit(limit).toArray()
+  } else if (scope === "active") {
+    items = await col.find({ ...vehicleFilter, status: { $ne: "รถเสร็จ" } })
+      .project(projection).sort(sort).limit(limit).toArray()
+  } else {
+    // default: งานที่ยังไม่เสร็จทั้งหมด + รถเสร็จล่าสุด 1 รายการ
+    const [active, latestDone] = await Promise.all([
+      col.find({ ...vehicleFilter, status: { $ne: "รถเสร็จ" } })
+        .project(projection).sort(sort).limit(limit).toArray(),
+      col.find({ ...vehicleFilter, status: "รถเสร็จ" })
+        .project(projection).sort(sort).limit(1).toArray(),
+    ])
+    items = [...active, ...latestDone]
+  }
+
+  return NextResponse.json({ ok: true, vehicle, scope: scope || "default", count: items.length, items })
 }
