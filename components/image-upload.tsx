@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { ImagePlus, Eye, Trash2, Loader2, AlertCircle, X } from "lucide-react"
 import { webpUrl, thumbnailUrl, MEDIA_MAX_BYTES, type SkuImage } from "@/lib/media"
+import { swalDeleteConfirm } from "@/lib/swal"
 
 type UploadItem = {
   localId:       string
@@ -143,7 +144,12 @@ export function ImageUpload({
     })
   }
 
-  function removeItem(item: UploadItem) {
+  async function removeItem(item: UploadItem) {
+    // รูปที่อัปโหลดสำเร็จแล้ว → ถามยืนยันก่อนลบ (tile ที่ error/กำลังอัปโหลด ลบได้เลย)
+    if (item.status === "done") {
+      const ok = await swalDeleteConfirm(`ลบรูป ${item.filename}?`)
+      if (!ok.isConfirmed) return
+    }
     setItems((prev) => prev.filter((i) => i.localId !== item.localId))
     URL.revokeObjectURL(item.previewUrl)
     if (item.mediaId != null) {
