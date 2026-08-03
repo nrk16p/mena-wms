@@ -151,15 +151,15 @@ export function RepairGuidePage() {
         </Section>
 
         {/* จัดการอู่ */}
-        <Section icon={Factory} title="จัดการอู่ (Master)">
-          <p>หน้า <Link href="/garages" className="font-medium text-[#1B8C4B] hover:underline">จัดการอู่</Link> ใช้ดู/เพิ่ม/แก้ชื่อ/ลบรายชื่ออู่ · แก้ชื่ออู่แล้ว<b>รายการซ่อมที่ใช้อู่นั้นจะอัปเดตตามอัตโนมัติ</b> · มีตัวเลขบอกว่าอู่ไหนถูกใช้กี่รายการ</p>
+        <Section icon={Factory} title="จัดการอู่ / ร้านอะไหล่ (Master)">
+          <p>หน้า <Link href="/garages" className="font-medium text-[#1B8C4B] hover:underline">จัดการอู่ / ร้านอะไหล่</Link> ใช้ดู/เพิ่ม/แก้ชื่อ/ลบรายชื่ออู่และร้านอะไหล่ · แก้ชื่อแล้ว<b>รายการที่ใช้ชื่อนั้นจะอัปเดตตามอัตโนมัติ</b> · มีตัวเลขบอกว่าชื่อไหนถูกใช้กี่รายการ</p>
         </Section>
 
         {/* ทางลัด */}
         <div className="flex flex-wrap gap-2 pt-1">
           <Link href="/repair-external" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><Wrench size={15} /> ไปหน้าอู่นอก & อะไหล่ลงคัน</Link>
           <Link href="/repair-external/completed" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"><Flag size={15} /> งานเสร็จ</Link>
-          <Link href="/garages" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"><Factory size={15} /> จัดการอู่</Link>
+          <Link href="/garages" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"><Factory size={15} /> จัดการอู่ / ร้านอะไหล่</Link>
         </div>
       </div>
     </div>

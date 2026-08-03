@@ -47,7 +47,7 @@ export function GarageMasterPage() {
       })
       if (!res.ok) throw new Error()
       setNewName("")
-      swalToast("success", "เพิ่มอู่แล้ว")
+      swalToast("success", "เพิ่มแล้ว")
       load()
     } catch {
       swalError("เพิ่มไม่สำเร็จ")
@@ -76,7 +76,7 @@ export function GarageMasterPage() {
 
   async function remove(r: Garage) {
     const ok = await swalDeleteConfirm(
-      r.count ? `"${r.name}" ถูกใช้ใน ${r.count} รายการ — ลบออกจาก master? (รายการซ่อมเดิมยังเก็บชื่อไว้)` : `ลบอู่ "${r.name}"?`,
+      r.count ? `"${r.name}" ถูกใช้ใน ${r.count} รายการ — ลบออกจาก master? (รายการเดิมยังเก็บชื่อไว้)` : `ลบ "${r.name}"?`,
     )
     if (!ok.isConfirmed) return
     try {
@@ -98,10 +98,10 @@ export function GarageMasterPage() {
         </div>
         <div>
           <h1 className="text-lg font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-            จัดการอู่ (Master)
+            จัดการอู่ / ร้านอะไหล่ (Master)
           </h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            รายชื่ออู่ที่ใช้ในระบบซ่อม · {rows.length} อู่ · ใช้งานรวม {totalUsed} รายการ
+            รายชื่ออู่และร้านอะไหล่ที่ใช้ในระบบ · {rows.length} รายชื่อ · ใช้งานรวม {totalUsed} รายการ
           </p>
         </div>
       </div>
@@ -113,28 +113,28 @@ export function GarageMasterPage() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add() } }}
-            placeholder="ชื่ออู่ใหม่..."
+            placeholder="ชื่ออู่ / ร้านอะไหล่ใหม่..."
             className={inputCls}
           />
           <button onClick={add} disabled={adding || !newName.trim()} className="inline-flex shrink-0 items-center gap-1.5 rounded-[11px] bg-[#1B8C4B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-50">
-            <Plus size={16} /> เพิ่มอู่
+            <Plus size={16} /> เพิ่ม
           </button>
         </div>
         <div className="relative sm:w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาอู่..." className={inputCls + " pl-9"} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาอู่ / ร้านอะไหล่..." className={inputCls + " pl-9"} />
         </div>
       </div>
 
       {/* Table */}
       <div className="overflow-hidden rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
         <div className="grid grid-cols-[1fr_120px_96px] gap-3 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/3 px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]">
-          <div>ชื่ออู่</div><div className="text-center">ใช้งาน</div><div className="text-center">จัดการ</div>
+          <div>ชื่ออู่ / ร้านอะไหล่</div><div className="text-center">ใช้งาน</div><div className="text-center">จัดการ</div>
         </div>
         {loading ? (
           <div className="px-4 py-12 text-center text-sm text-gray-400">กำลังโหลด...</div>
         ) : filtered.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-gray-400">{q ? "ไม่พบอู่ตามคำค้น" : "ยังไม่มีอู่ — เพิ่มด้านบนได้เลย"}</div>
+          <div className="px-4 py-12 text-center text-sm text-gray-400">{q ? "ไม่พบรายชื่อตามคำค้น" : "ยังไม่มีรายชื่อ — เพิ่มด้านบนได้เลย"}</div>
         ) : filtered.map((r) => (
           <div key={r._id} className="grid grid-cols-[1fr_120px_96px] items-center gap-3 border-b border-[#F1F5F2] dark:border-white/5 px-4 py-2.5 hover:bg-[#F6FAF7]/60 dark:hover:bg-white/[0.02]">
             {editId === r._id ? (

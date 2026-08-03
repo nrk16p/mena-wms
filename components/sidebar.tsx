@@ -92,7 +92,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/repair-external",           label: "อู่นอก & อะไหล่ลงคัน", icon: Wrench, exact: true },
       { href: "/repair-external/completed",  label: "งานเสร็จ",  icon: Flag },
-      { href: "/garages",                    label: "จัดการอู่",     icon: Factory },
+      { href: "/garages",                    label: "จัดการอู่ / ร้านอะไหล่", icon: Factory },
       { href: "/repair-external/guide",      label: "คู่มือการใช้งาน", icon: BookOpen },
       { href: "/repair-external/api-guide",  label: "คู่มือ API Sync", icon: Code2 },
     ],
