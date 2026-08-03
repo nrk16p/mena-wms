@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { REPAIR_DONE_STATUS, REPAIR_STATUS_SLA_DAYS, REPAIR_SLA_FROM_DUE } from "@/lib/repair-external"
+import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS, REPAIR_SLA_FROM_DUE } from "@/lib/repair-external"
 
 // วันที่ = today ลบ n วัน → "YYYY-MM-DD"
 function daysAgo(n: number): string {
@@ -12,15 +12,19 @@ function daysAgo(n: number): string {
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
 
-// GET /api/repair-external/stats?scope=active|done
-// นับจำนวนต่อสถานะ (ตาม scope) + total + overdue (เลยกำหนดและยังไม่เสร็จ)
+// GET /api/repair-external/stats?scope=active|done&type=อู่นอก|อะไหล่ลงคัน
+// นับจำนวนต่อสถานะ (ตาม scope/type) + total + overdue (เลยกำหนดและยังไม่เสร็จ)
 export async function GET(req: NextRequest) {
   const scope = req.nextUrl.searchParams.get("scope")?.trim() ?? ""
+  const type  = req.nextUrl.searchParams.get("type")?.trim()  ?? ""
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const match: Record<string, any> =
-    scope === "done"   ? { status: REPAIR_DONE_STATUS } :
-    scope === "active" ? { status: { $ne: REPAIR_DONE_STATUS } } : {}
+    scope === "done"   ? { status: { $in: DONE_STATUSES } } :
+    scope === "active" ? { status: { $nin: DONE_STATUSES } } : {}
+  // เอกสารเก่าไม่มี jobType = อู่นอก
+  if (type === JOB_TYPE_PARTS)       match.jobType = JOB_TYPE_PARTS
+  else if (type === JOB_TYPE_GARAGE) match.jobType = { $ne: JOB_TYPE_PARTS }
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
@@ -34,10 +38,15 @@ export async function GET(req: NextRequest) {
   let total = 0
   for (const g of agg) { counts[(g._id as string) || ""] = g.n as number; total += g.n as number }
 
+  // เงื่อนไขประเภทอย่างเดียว (ไม่มี status) — ใช้กับ query ที่กำหนด status เอง
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const typeMatch: Record<string, any> = match.jobType !== undefined ? { jobType: match.jobType } : {}
+
   const today = new Date().toISOString().slice(0, 10)
   const overdue = await col.countDocuments({
+    ...typeMatch,
     dueDate: { $ne: "", $lt: today },
-    status:  { $ne: REPAIR_DONE_STATUS },
+    status:  { $nin: DONE_STATUSES },
   })
 
   // ค้างเกิน SLA: อยู่ในสถานะที่มีลิมิต และเกิน N วัน (จาก statusSince หรือ dueDate)
@@ -45,7 +54,7 @@ export async function GET(req: NextRequest) {
     const field = REPAIR_SLA_FROM_DUE.has(status) ? "dueDate" : "statusSince"
     return { status, [field]: { $ne: "", $lt: daysAgo(limit) } }
   })
-  const slaBreached = slaConds.length ? await col.countDocuments({ $or: slaConds }) : 0
+  const slaBreached = slaConds.length ? await col.countDocuments({ ...typeMatch, $or: slaConds }) : 0
 
   // รายการที่ยังไม่มี PR (ทุกสถานะในขอบเขต)
   const noPr = await col.countDocuments({ ...match, $or: [{ prCode: "" }, { prCode: { $exists: false } }] })

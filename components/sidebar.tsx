@@ -87,7 +87,7 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "จัดการซ่อม",
+    label: "จัดการอู่นอกและสั่งซื้ออะไหล่ลงคัน",
     collapsible: true,
     items: [
       { href: "/repair-external",           label: "รถซ่อมอู่นอก", icon: Wrench, exact: true },

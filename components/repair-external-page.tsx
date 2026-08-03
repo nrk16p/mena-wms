@@ -9,7 +9,14 @@ import {
   REPAIR_STATUSES,
   REPAIR_STATUS_VALUES,
   REPAIR_DONE_STATUS,
-  REPAIR_LOCKED_STATUS,
+  PARTS_STATUSES,
+  PARTS_DONE_STATUS,
+  JOB_TYPE_GARAGE,
+  JOB_TYPE_PARTS,
+  jobTypeOf,
+  isDoneStatus,
+  statusesFor,
+  doneStatusFor,
   requiredFieldsFor,
   REPAIR_STATUS_SLA_DAYS,
   REPAIR_SLA_FROM_DUE,
@@ -21,8 +28,9 @@ import {
 } from "@/lib/repair-external"
 
 type Mode = "active" | "done"
-// สถานะที่เลือกได้ในตัวกรองของหน้า "รถซ่อมอู่นอก" (ตัด "รถเสร็จ" ออก)
-const ACTIVE_STATUSES = REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS)
+// สถานะที่เลือกได้ในตัวกรอง (ตัดสถานะปิดงานออก) — แยกต่อประเภทงาน
+const ACTIVE_STATUSES       = REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS)
+const PARTS_ACTIVE_STATUSES = PARTS_STATUSES.filter((s) => s.value !== PARTS_DONE_STATUS)
 
 // สีทึบต่อสถานะ (progress bar + accent การ์ด kanban)
 const BAR_COLORS: Record<string, string> = {
@@ -34,6 +42,11 @@ const BAR_COLORS: Record<string, string> = {
   "ซ่อมมีกำหนดเสร็จ":  "#14b8a6",
   "รถเสร็จ(ไม่มี PR)": "#84cc16",
   "รถเสร็จ":          "#22c55e",
+  // อะไหล่ลงคัน
+  "รอดำเนินการ":      "#9ca3af",
+  "สั่งซื้อแล้ว-รอของ": "#f97316",
+  "ของถึง-รอลงคัน":   "#14b8a6",
+  "ลงคันเสร็จ":       "#22c55e",
 }
 const barColor = (s: string) => BAR_COLORS[s] ?? "#9ca3af"
 
@@ -122,6 +135,7 @@ const slaInfo = (r: RepairExternal): { days: number; limit: number; over: boolea
 type Garage = { _id: string; name: string }
 
 const EMPTY: Omit<RepairExternal, "_id"> = {
+  jobType: JOB_TYPE_GARAGE,
   receivedDate: "", garageInDate: "", dueDate: "", completedDate: "", mrNo: "", symptom: "", plate: "", fleetNo: "",
   fleet: "", plant: "",
   garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
@@ -154,6 +168,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // filters
   const [q, setQ]               = useState("")
+  const [fType, setFType]       = useState("")   // "" = ทั้งหมด | อู่นอก | อะไหล่ลงคัน
   const [fStatus, setFStatus]   = useState("")
   const [fGarage, setFGarage]   = useState("")
   const [dateFrom, setDateFrom] = useState("")
@@ -201,6 +216,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const p = new URLSearchParams()
     p.set("scope", mode)
     if (q)        p.set("q", q)
+    if (fType)      p.set("type", fType)
     if (fStatus)    p.set("status", fStatus)
     if (fGarage)    p.set("garage", fGarage)
     if (fFleet)     p.set("fleet", fFleet)
@@ -215,7 +231,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } finally {
       setLoading(false)
     }
-  }, [mode, q, fStatus, fGarage, fFleet, dateFrom, dateTo])
+  }, [mode, q, fType, fStatus, fGarage, fFleet, dateFrom, dateTo])
 
   const loadGarages = useCallback(async () => {
     try {
@@ -227,11 +243,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   const loadStats = useCallback(async () => {
     try {
-      const res  = await fetch(`/api/repair-external/stats?scope=${mode}`)
+      const res  = await fetch(`/api/repair-external/stats?scope=${mode}${fType ? `&type=${encodeURIComponent(fType)}` : ""}`)
       const data = await res.json()
       setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
     } catch { /* ignore */ }
-  }, [mode])
+  }, [mode, fType])
 
   const loadFleets = useCallback(async () => {
     try {
@@ -306,12 +322,20 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setEditId(null)
     setStep(1)
     setFormImages([]); setFormNegImages([]); setVdRef(""); setOrigStatus("")
+    // ประเภทเริ่มต้นตาม tab ที่กรองอยู่ (เปลี่ยนได้ใน step 1)
+    const jt = fType === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE
     setForm({
       ...EMPTY,
+      jobType: jt,
       receivedDate: new Date().toISOString().slice(0, 10),
-      status: isDone ? REPAIR_DONE_STATUS : REPAIR_STATUS_VALUES[0],
+      status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value,
     })
     setOpen(true)
+  }
+
+  // เปลี่ยนประเภทงานในฟอร์ม (เฉพาะตอนสร้างใหม่) — รีเซ็ตสถานะเป็นขั้นแรกของ workflow ประเภทนั้น
+  function setJobType(jt: string) {
+    setForm((f) => ({ ...f, jobType: jt, status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value }))
   }
   function openEdit(r: RepairExternal) {
     setEditId(r._id)
@@ -396,10 +420,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // คัดลอกสรุปสถานะงาน (สำหรับส่งไลน์)
   function copySummary() {
     if (typeof window === "undefined") return
-    const lines: string[] = ["📋 สถานะงาน — รถซ่อมอู่นอก", ""]
+    const title = fType === JOB_TYPE_PARTS ? "อะไหล่ลงคัน" : fType === JOB_TYPE_GARAGE ? "รถซ่อมอู่นอก" : "อู่นอก + อะไหล่ลงคัน"
+    const lines: string[] = [`📋 สถานะงาน — ${title}`, ""]
     let priority: { value: string; emoji: string } | null = null
     let maxAvg = -1
-    ACTIVE_STATUSES.forEach((s) => {
+    chipStatuses.forEach((s) => {
       const c = stats.counts[s.value] || 0
       if (!c) return
       const a = stats.avgByStatus[s.value] || 0
@@ -431,11 +456,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   async function save() {
     if (!form.plate.trim())  { swalError("กรุณาระบุทะเบียนรถ"); return }
     if (!form.status)        { swalError("กรุณาเลือกสถานะ"); return }
-    // บังคับกรอกให้ครบ "เฉพาะตอนปิดเป็นรถเสร็จ" (สถานะกลางไม่มี PR/PO ได้)
-    if (form.status === REPAIR_LOCKED_STATUS) {
-      const missing = requiredFieldsFor(form.status).filter((r) => !String(form[r.field] ?? "").trim())
+    // บังคับกรอกให้ครบ "เฉพาะตอนปิดงาน" (รถเสร็จ/ลงคันเสร็จ — สถานะกลางไม่มี PR/PO ได้)
+    if (form.status === doneStatusFor(jobTypeOf(form))) {
+      const missing = requiredFieldsFor(form.status, jobTypeOf(form)).filter((r) => !String(form[r.field] ?? "").trim())
       if (missing.length) {
-        swalError(`ปิดงานเป็น “รถเสร็จ” ต้องกรอกให้ครบก่อน:\n${missing.map((m) => `• ${m.label}`).join("\n")}`)
+        swalError(`ปิดงานเป็น “${form.status}” ต้องกรอกให้ครบก่อน:\n${missing.map((m) => `• ${m.label}`).join("\n")}`)
         return
       }
     }
@@ -465,9 +490,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // ── Kanban: ลากการ์ดเปลี่ยนสถานะ ──
   async function moveStatus(r: RepairExternal, newStatus: string) {
     if (r.status === newStatus) return
-    // บังคับข้อมูลครบ "เฉพาะตอนจะปิดเป็นรถเสร็จ" — สถานะกลางเปลี่ยนได้เลยแม้ไม่มี PR/PO
-    const missing = newStatus === REPAIR_LOCKED_STATUS
-      ? requiredFieldsFor(newStatus).filter((f) => !String(r[f.field] ?? "").trim())
+    // บังคับข้อมูลครบ "เฉพาะตอนจะปิดงาน" — สถานะกลางเปลี่ยนได้เลยแม้ไม่มี PR/PO
+    const missing = newStatus === doneStatusFor(jobTypeOf(r))
+      ? requiredFieldsFor(newStatus, jobTypeOf(r)).filter((f) => !String(r[f.field] ?? "").trim())
       : []
     if (missing.length) {
       setEditId(r._id)
@@ -497,7 +522,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // ย้อนสถานะกลับ (จาก log drawer) — รถเสร็จแล้วย้อนไม่ได้
   async function revertStatus(record: RepairExternal, toStatus: string) {
-    if (record.status === REPAIR_LOCKED_STATUS) { swalError("รายการที่ซ่อมเสร็จแล้ว ย้อนสถานะไม่ได้"); return }
+    if (isDoneStatus(record.status)) { swalError("รายการที่ปิดงานแล้ว ย้อนสถานะไม่ได้"); return }
     const ok = await swalConfirm("ย้อนสถานะกลับ?", `จาก “${record.status}” → “${toStatus}”`)
     if (!ok.isConfirmed) return
     try {
@@ -545,9 +570,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  const hasFilter = q || fStatus || fGarage || fFleet || slaOnly || noPrOnly || dateFrom || dateTo
+  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setDateFrom(""); setDateTo("")
+    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setDateFrom(""); setDateTo("")
   }
 
   // กรองฝั่ง client — ค้างเกิน SLA และ/หรือ รอใบเสนอราคาที่ไม่มี PR
@@ -559,7 +584,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const { isDup, dupList } = (() => {
     const pCnt: Record<string, number> = {}, fCnt: Record<string, number> = {}
     for (const r of rows) {
-      if (r.status === REPAIR_LOCKED_STATUS) continue
+      if (isDoneStatus(r.status)) continue
       const p = (r.plate || "").trim();   if (p) pCnt[p] = (pCnt[p] || 0) + 1
       const f = (r.fleetNo || "").trim(); if (f) fCnt[f] = (fCnt[f] || 0) + 1
     }
@@ -568,21 +593,29 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       return (!!p && pCnt[p] > 1) || (!!f && fCnt[f] > 1)
     }
     const dupList = Array.from(new Set(
-      rows.filter((r) => r.status !== REPAIR_LOCKED_STATUS && isDup(r))
+      rows.filter((r) => !isDoneStatus(r.status) && isDup(r))
         .map((r) => (r.plate || r.fleetNo || "").trim()).filter(Boolean)
     ))
     return { isDup, dupList }
   })()
 
   // ฟิลด์ที่ต้องกรอก "สะสม" ตามสถานะ (รวมสถานะก่อนหน้าที่ข้ามมา) — สำหรับ hint/ไฮไลต์/validate
-  const statusLocked = origStatus === REPAIR_LOCKED_STATUS  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
-  // บังคับกรอกข้อมูลครบ "เฉพาะตอนจะปิดเป็นรถเสร็จ" — สถานะกลางไม่บังคับ (ไม่มี PR/PO ได้)
-  const reqFields    = form.status === REPAIR_LOCKED_STATUS ? requiredFieldsFor(form.status) : []
+  const formJobType  = jobTypeOf(form)
+  const isParts      = formJobType === JOB_TYPE_PARTS
+  const statusLocked = isDoneStatus(origStatus)  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
+  // บังคับกรอกข้อมูลครบ "เฉพาะตอนจะปิดงาน" — สถานะกลางไม่บังคับ (ไม่มี PR/PO ได้)
+  const reqFields    = form.status === doneStatusFor(formJobType) ? requiredFieldsFor(form.status, formJobType) : []
   const reqFieldSet  = new Set(reqFields.map((r) => r.field))
   const missingReq   = reqFields.filter((r) => !String(form[r.field] ?? "").trim())
   const isReq = (f: RepairField) => reqFieldSet.has(f)
   const reqCls = (f: RepairField) =>
     isReq(f) && !String(form[f] ?? "").trim() ? " ring-1 ring-amber-400 border-amber-400" : ""
+
+  // ชุดสถานะของ chips/สรุป ตาม tab ประเภทที่เลือก (ทั้งหมด = อู่นอก + สถานะเฉพาะของอะไหล่ลงคัน)
+  const chipStatuses =
+    fType === JOB_TYPE_PARTS  ? PARTS_ACTIVE_STATUSES :
+    fType === JOB_TYPE_GARAGE ? ACTIVE_STATUSES :
+    [...ACTIVE_STATUSES, ...PARTS_ACTIVE_STATUSES.filter((p) => !ACTIVE_STATUSES.some((g) => g.value === p.value))]
 
   return (
     <div className="w-full px-4 py-6" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
@@ -597,7 +630,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               {isDone ? "รถซ่อมเสร็จ" : "รถซ่อมอู่นอก"}
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {isDone ? "รายการที่ซ่อมเสร็จแล้ว" : "จัดการงานซ่อมที่กำลังดำเนินการ (ยังไม่เสร็จ)"} · {rows.length} รายการ
+              {isDone ? "รายการที่ปิดงานแล้ว (รถเสร็จ / ลงคันเสร็จ)" : "งานซ่อมอู่นอก + สั่งซื้ออะไหล่ลงคัน ที่กำลังดำเนินการ"} · {rows.length} รายการ
             </p>
           </div>
         </div>
@@ -751,6 +784,29 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       </div>
 
+      {/* Type filter tabs — อู่นอก / อะไหล่ลงคัน */}
+      {!isDone && (
+        <div className="mb-3 flex w-full flex-wrap items-center gap-1.5">
+          <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">ประเภท:</span>
+          {[
+            { value: "",              label: "ทั้งหมด",        emoji: "" },
+            { value: JOB_TYPE_GARAGE, label: JOB_TYPE_GARAGE,  emoji: "🔧" },
+            { value: JOB_TYPE_PARTS,  label: JOB_TYPE_PARTS,   emoji: "🔩" },
+          ].map((t) => {
+            const active = fType === t.value
+            return (
+              <button
+                key={t.value || "all"}
+                onClick={() => { setFType(t.value); setFStatus("") }}
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition ${active ? "bg-[#1B8C4B] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] dark:hover:bg-white/5"}`}
+              >
+                {t.emoji && <span>{t.emoji}</span>}{t.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Status filter chips (1a) — โชว์ชื่อ+จำนวนเสมอ, ตกบรรทัดในกรอบ (ไม่เกินตาราง) */}
       {!isDone && (
         <div className="mb-4 flex w-full flex-wrap items-center gap-1.5">
@@ -768,7 +824,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           >
             ทั้งหมด <span className="opacity-70">{stats.total} คัน</span>
           </button>
-          {ACTIVE_STATUSES.map((s) => {
+          {chipStatuses.map((s) => {
             const active = fStatus === s.value
             const color  = barColor(s.value)
             return (
@@ -828,7 +884,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           <div className="min-w-[920px]">
             {/* header */}
             <div className="sticky top-0 z-10 grid gap-3 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]" style={{ gridTemplateColumns: TABLE_GRID }}>
-              <div>อายุงาน</div><div>รถ</div><div>อาการ</div><div>อู่</div><div>สถานะ · เอกสาร</div><div className="text-center">จัดการ</div>
+              <div>อายุงาน</div><div>รถ</div><div>อาการ / รายการอะไหล่</div><div>อู่ / ร้านค้า</div><div>สถานะ · เอกสาร</div><div className="text-center">จัดการ</div>
             </div>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -881,6 +937,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   {/* รถ */}
                   <div className="min-w-0">
                     <div className="truncate text-[14px] font-semibold text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</div>
+                    {jobTypeOf(r) === JOB_TYPE_PARTS && <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[10px] font-bold text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🔩 อะไหล่ลงคัน</div>}
                     {isDup(r) && <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
                     {r.fleetNo && <div className="text-[11px] text-[#5B7568]">เบอร์ {r.fleetNo}</div>}
                     {(r.fleet || r.plant) && (
@@ -937,13 +994,25 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       )}
 
-      {/* Kanban board */}
-      {view === "board" && !isDone && (
+      {/* Kanban board — แยกบอร์ดต่อประเภทงาน (workflow คนละชุด) */}
+      {view === "board" && !isDone && [
+        { type: JOB_TYPE_GARAGE, emoji: "🔧", statuses: ACTIVE_STATUSES },
+        { type: JOB_TYPE_PARTS,  emoji: "🔩", statuses: PARTS_ACTIVE_STATUSES },
+      ].filter((b) => !fType || fType === b.type).map((b) => {
+        const boardRows = displayRows.filter((r) => jobTypeOf(r) === b.type)
+        return (
+        <div key={b.type} className="mb-5">
+          {!fType && (
+            <p className="mb-2 flex items-center gap-1.5 text-[13px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
+              <span>{b.emoji}</span>{b.type}
+              <span className="rounded-full bg-[#F1F5F2] dark:bg-white/10 px-1.5 text-[11px] font-semibold text-[#5B7568] dark:text-gray-300">{boardRows.length}</span>
+            </p>
+          )}
         <div className="overflow-x-auto pb-2">
           <div className="flex gap-3">
-            {ACTIVE_STATUSES.map((s) => {
-              const colRows = displayRows.filter((r) => r.status === s.value)
-              const isDropDone = s.value === REPAIR_DONE_STATUS
+            {b.statuses.map((s) => {
+              const colRows = boardRows.filter((r) => r.status === s.value)
+              const isDropDone = s.value === doneStatusFor(b.type)
               const colColor = barColor(s.value)
               const colAges  = colRows.map((r) => ageDays(r.receivedDate)).filter((n): n is number => n !== null)
               const avgCol   = colAges.length ? Math.round(colAges.reduce((a, b) => a + b, 0) / colAges.length) : 0
@@ -951,7 +1020,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <div
                   key={s.value}
                   onDragOver={(e) => { e.preventDefault(); if (dragOverStatus !== s.value) setDragOverStatus(s.value) }}
-                  onDrop={() => { const r = rows.find((x) => x._id === dragId); if (r) moveStatus(r, s.value); setDragId(null); setDragOverStatus(null) }}
+                  onDrop={() => { const r = rows.find((x) => x._id === dragId); if (r && jobTypeOf(r) === b.type) moveStatus(r, s.value); setDragId(null); setDragOverStatus(null) }}
                   className={`flex min-w-[170px] flex-1 flex-col rounded-xl border bg-gray-50/60 dark:bg-white/[0.03] transition ${dragId && dragOverStatus === s.value ? "border-[#1B8C4B] ring-2 ring-[#1B8C4B]/30" : "border-[#EEF2F0] dark:border-white/8"}`}
                 >
                   <div className="border-b border-[#EEF2F0] dark:border-white/8 px-3 py-2" style={{ borderTop: `3px solid ${colColor}`, borderTopLeftRadius: 11, borderTopRightRadius: 11 }}>
@@ -980,7 +1049,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     {colRows.map((r) => {
                       const days = ageDays(r.receivedDate)
                       const bkt  = days !== null ? agingBucket(days) : null
-                      const idx  = ACTIVE_STATUSES.findIndex((x) => x.value === r.status)
+                      const idx  = b.statuses.findIndex((x) => x.value === r.status)
                       const dueOverdue = !!r.dueDate && r.dueDate < TODAY_STR
                       return (
                       <div
@@ -1004,7 +1073,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         <div className="mt-1 line-clamp-2 text-[10.5px] text-[#5B7568] dark:text-gray-400" title={r.symptom}>{r.symptom || "—"}</div>
                         {/* workflow progress */}
                         <div className="mt-2 flex gap-0.5">
-                          {ACTIVE_STATUSES.map((_, i) => (
+                          {b.statuses.map((_, i) => (
                             <div key={i} className="h-1 flex-1 rounded-full" style={{ background: i <= idx ? colColor : "#E5E7EB" }} />
                           ))}
                         </div>
@@ -1038,7 +1107,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             })}
           </div>
         </div>
-      )}
+        </div>
+        )
+      })}
 
       {/* Modal */}
       {open && (
@@ -1047,8 +1118,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-                  {editId ? "แก้ไขรายการแจ้งซ่อม" : "รายการแจ้งซ่อม"}
+                  {isParts
+                    ? (editId ? "แก้ไขรายการอะไหล่ลงคัน" : "รายการอะไหล่ลงคัน")
+                    : (editId ? "แก้ไขรายการแจ้งซ่อม" : "รายการแจ้งซ่อม")}
                 </h2>
+                {editId && (
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${isParts ? "bg-[#EEF2FF] text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300" : "bg-[#F1F5F2] dark:bg-white/10 text-[#5B7568] dark:text-gray-300"}`}>
+                    {isParts ? "🔩" : "🔧"} {formJobType}
+                  </span>
+                )}
                 {editId && form.plate && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-[#F0FDF4] dark:bg-[#1B8C4B]/10 px-2.5 py-1 text-xs font-medium text-[#1B8C4B]">
                     🚚 {form.plate}{form.fleetNo ? ` · ${form.fleetNo}` : ""}
@@ -1069,7 +1147,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
             {/* step nav */}
             <div className="flex border-b border-[#EEF2F0] dark:border-white/8">
-              {[{ n: 1, label: "ข้อมูลรถ" }, { n: 2, label: "งานซ่อม" }, { n: 3, label: "สถานะ · เอกสาร" }].map((s) => {
+              {[{ n: 1, label: "ข้อมูลรถ" }, { n: 2, label: isParts ? "อะไหล่" : "งานซ่อม" }, { n: 3, label: "สถานะ · เอกสาร" }].map((s) => {
                 const active = step === s.n
                 const done   = editId && step > s.n
                 return (
@@ -1092,6 +1170,31 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             <div className="px-5 py-5">
               {step === 1 && (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {/* ประเภทงาน — เลือกได้เฉพาะตอนสร้างใหม่ (แก้ไขเปลี่ยนประเภทไม่ได้ เพราะ workflow คนละชุด) */}
+                  {!editId && (
+                    <div className="sm:col-span-2">
+                      <label className={labelCls}>ประเภทงาน</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { value: JOB_TYPE_GARAGE, emoji: "🔧", title: "ซ่อมอู่นอก",     desc: "ส่งรถซ่อมที่อู่ภายนอก" },
+                          { value: JOB_TYPE_PARTS,  emoji: "🔩", title: "อะไหล่ลงคัน",    desc: "สั่งซื้ออะไหล่มาลงคัน" },
+                        ].map((t) => {
+                          const active = formJobType === t.value
+                          return (
+                            <button
+                              key={t.value}
+                              type="button"
+                              onClick={() => setJobType(t.value)}
+                              className={`rounded-xl border-2 px-3 py-3 text-left transition ${active ? "border-[#1B8C4B] bg-[#F0FDF4] dark:bg-[#1B8C4B]/10" : "border-[#E2E8E4] dark:border-white/10 hover:border-[#1B8C4B]/40"}`}
+                            >
+                              <span className="flex items-center gap-1.5 text-[14px] font-bold text-[#14271C] dark:text-white">{t.emoji} {t.title}{active && <Check size={14} className="text-[#1B8C4B]" />}</span>
+                              <span className="mt-0.5 block text-[11px] text-[#9AA8A0]">{t.desc}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div className="sm:col-span-2">
                     <label className={labelCls}>ทะเบียนรถ <span className="text-red-500">*</span></label>
                     <PlateCombobox
@@ -1136,17 +1239,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               {step === 2 && (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <label className={labelCls}>รายละเอียดอาการ</label>
-                    <textarea value={form.symptom} onChange={(e) => setForm({ ...form, symptom: e.target.value })} rows={3} className={inputCls} placeholder="อาการที่พบ / สิ่งที่ต้องซ่อม" />
+                    <label className={labelCls}>{isParts ? "รายการอะไหล่ที่สั่ง" : "รายละเอียดอาการ"}</label>
+                    <textarea value={form.symptom} onChange={(e) => setForm({ ...form, symptom: e.target.value })} rows={3} className={inputCls} placeholder={isParts ? "อะไหล่ที่สั่งซื้อ / จำนวน / สเปก" : "อาการที่พบ / สิ่งที่ต้องซ่อม"} />
                   </div>
                   <div>
-                    <label className={labelCls}>อู่</label>
+                    <label className={labelCls}>{isParts ? "ร้านค้า / ผู้ขาย" : "อู่"}</label>
                     <GarageCombobox value={form.garage} garages={garages} onChange={(name) => setForm({ ...form, garage: name })} onCreated={(g) => { setGarages((prev) => [...prev, g].sort((a, b) => a.name.localeCompare(b.name, "th"))) }} />
                   </div>
-                  <div>
-                    <label className={labelCls}>วันที่รถเข้าอู่ซ่อม {isReq("garageInDate") && <span className="text-amber-500">*</span>}</label>
-                    <input type="date" value={form.garageInDate} onChange={(e) => setForm({ ...form, garageInDate: e.target.value })} className={inputCls + reqCls("garageInDate")} />
-                  </div>
+                  {!isParts && (
+                    <div>
+                      <label className={labelCls}>วันที่รถเข้าอู่ซ่อม {isReq("garageInDate") && <span className="text-amber-500">*</span>}</label>
+                      <input type="date" value={form.garageInDate} onChange={(e) => setForm({ ...form, garageInDate: e.target.value })} className={inputCls + reqCls("garageInDate")} />
+                    </div>
+                  )}
                   <div className="sm:col-span-2">
                     <label className={labelCls}>เลขใบแจ้งซ่อม MR</label>
                     <input value={form.mrNo} onChange={(e) => setForm({ ...form, mrNo: e.target.value })} className={inputCls} placeholder="เช่น MR-2568-0001" />
@@ -1159,9 +1264,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
                     <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
-                      {REPAIR_STATUSES.map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
+                      {statusesFor(formJobType).map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
                     </select>
-                    {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว (รถเสร็จ) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
+                    {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
                     {missingReq.length > 0 && (
                       <p className="mt-1 rounded-md bg-[#FDF3DD] px-2 py-1 text-[11px] text-[#B07D12]">
                         ⚠ สถานะนี้ต้องกรอกให้ครบก่อนบันทึก: {missingReq.map((m) => m.label).join(", ")}
@@ -1177,15 +1282,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <TagInput value={form.poCode} onChange={(v) => setForm({ ...form, poCode: v })} placeholder="พิมพ์รหัส PO แล้วกด Enter" invalid={isReq("poCode") && !form.poCode.trim()} mono />
                   </div>
                   <div>
-                    <label className={labelCls}>วันกำหนดเสร็จ {isReq("dueDate") && <span className="text-amber-500">*</span>}</label>
+                    <label className={labelCls}>{isParts ? "กำหนดของถึง" : "วันกำหนดเสร็จ"} {isReq("dueDate") && <span className="text-amber-500">*</span>}</label>
                     <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={inputCls + reqCls("dueDate")} />
                   </div>
                   <div>
-                    <label className={labelCls}>วันที่ซ่อมเสร็จ {isReq("completedDate") && <span className="text-amber-500">*</span>}</label>
+                    <label className={labelCls}>{isParts ? "วันที่ลงคันเสร็จ" : "วันที่ซ่อมเสร็จ"} {isReq("completedDate") && <span className="text-amber-500">*</span>}</label>
                     <input type="date" value={form.completedDate} onChange={(e) => setForm({ ...form, completedDate: e.target.value })} className={inputCls + reqCls("completedDate")} />
                   </div>
                   <div>
-                    <label className={labelCls}>ราคาซ่อม (บาท)</label>
+                    <label className={labelCls}>{isParts ? "ราคาอะไหล่ (บาท)" : "ราคาซ่อม (บาท)"}</label>
                     <input type="number" min={0} step="0.01" value={form.repairPrice || ""} onChange={(e) => setForm({ ...form, repairPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
                   </div>
                   <div>
@@ -1353,8 +1458,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
             {/* ย้อนสถานะกลับ (รถเสร็จแล้วย้อนไม่ได้) */}
             {(() => {
-              if (logFor.status === REPAIR_LOCKED_STATUS) {
-                return <div className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/[0.02] px-5 py-2 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว (รถเสร็จ) — ย้อนสถานะไม่ได้</div>
+              if (isDoneStatus(logFor.status)) {
+                return <div className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-white/[0.02] px-5 py-2 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({logFor.status}) — ย้อนสถานะไม่ได้</div>
               }
               const lastSC = logEntries.find((e) => e.statusChange && e.action !== "create")
               const prev = lastSC?.statusChange?.from

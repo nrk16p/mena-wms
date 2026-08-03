@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
+import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -11,6 +12,7 @@ const COLL = "repair_external"
 export function buildDoc(body: Record<string, unknown>) {
   const s = (v: unknown) => String(v ?? "").trim()
   return {
+    jobType:      s(body.jobType) === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE,
     receivedDate:  s(body.receivedDate),
     garageInDate:  s(body.garageInDate),
     dueDate:       s(body.dueDate),
@@ -43,7 +45,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const q        = searchParams.get("q")?.trim()        ?? ""
   const status   = searchParams.get("status")?.trim()   ?? ""
-  const scope    = searchParams.get("scope")?.trim()    ?? ""  // active = ยังไม่เสร็จ, done = รถเสร็จ
+  const scope    = searchParams.get("scope")?.trim()    ?? ""  // active = ยังไม่เสร็จ, done = รถเสร็จ/ลงคันเสร็จ
+  const type     = searchParams.get("type")?.trim()     ?? ""  // อู่นอก | อะไหล่ลงคัน (ว่าง = ทั้งหมด)
   const garage    = searchParams.get("garage")?.trim()    ?? ""
   const fleet     = searchParams.get("fleet")?.trim()     ?? ""
   const createdBy = searchParams.get("createdBy")?.trim() ?? ""
@@ -59,8 +62,11 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = {}
   if (status)               filter.status = status
-  else if (scope === "done")   filter.status = "รถเสร็จ"
-  else if (scope === "active") filter.status = { $ne: "รถเสร็จ" }
+  else if (scope === "done")   filter.status = { $in: DONE_STATUSES }
+  else if (scope === "active") filter.status = { $nin: DONE_STATUSES }
+  // เอกสารเก่าไม่มี jobType = อู่นอก
+  if (type === JOB_TYPE_PARTS)       filter.jobType = JOB_TYPE_PARTS
+  else if (type === JOB_TYPE_GARAGE) filter.jobType = { $ne: JOB_TYPE_PARTS }
   if (garage)    filter.garage    = garage
   if (fleet)     filter.fleet     = fleet
   if (createdBy) filter.createdBy = createdBy
@@ -106,13 +112,14 @@ export async function POST(req: NextRequest) {
   const col     = db.collection(COLL)
 
   // กันซ้ำ: รถคันเดียวกัน (ทะเบียน "หรือ" เบอร์รถ ตรงกัน) มีรายการที่ยัง "ไม่เสร็จ" ได้แค่ 1 รายการ
-  if (doc.status !== "รถเสร็จ") {
+  // นับรวมทุกประเภท (อู่นอก + อะไหล่ลงคัน เปิดพร้อมกันไม่ได้)
+  if (!isDoneStatus(doc.status)) {
     const or: Record<string, string>[] = [{ plate: doc.plate }]
     if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
-    const dup = await col.findOne({ status: { $ne: "รถเสร็จ" }, $or: or })
+    const dup = await col.findOne({ status: { $nin: DONE_STATUSES }, $or: or })
     if (dup) {
       const which = dup.plate === doc.plate ? `ทะเบียน ${doc.plate}` : `เบอร์รถ ${doc.fleetNo}`
-      return NextResponse.json({ error: `รถ ${which} มีรายการซ่อมที่ยังไม่เสร็จอยู่แล้ว เปิดใหม่ไม่ได้ (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
+      return NextResponse.json({ error: `รถ ${which} มีรายการ (${dup.jobType || "อู่นอก"}) ที่ยังไม่เสร็จอยู่แล้ว เปิดใหม่ไม่ได้ (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
     }
   }
 

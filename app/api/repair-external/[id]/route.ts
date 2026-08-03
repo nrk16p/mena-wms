@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { buildDoc } from "../route"
 import { diffRepair, writeRepairLog } from "@/lib/repair-log"
+import { DONE_STATUSES, isDoneStatus } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -35,19 +36,20 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const existing = await col.findOne({ _id: new ObjectId(id) })
   if (!existing) return NextResponse.json({ error: "ไม่พบรายการ" }, { status: 404 })
 
-  // ล็อกสถานะ "รถเสร็จ" — เปลี่ยน/ย้อนสถานะกลับไม่ได้เมื่อปิดงานแล้ว
-  if (String(existing.status ?? "") === "รถเสร็จ" && doc.status !== "รถเสร็จ") {
-    return NextResponse.json({ error: "รายการที่ซ่อมเสร็จแล้ว ย้อนสถานะกลับไม่ได้" }, { status: 409 })
+  // ล็อกสถานะปิดงาน (รถเสร็จ/ลงคันเสร็จ) — เปลี่ยน/ย้อนสถานะกลับไม่ได้เมื่อปิดงานแล้ว
+  const existingStatus = String(existing.status ?? "")
+  if (isDoneStatus(existingStatus) && doc.status !== existingStatus) {
+    return NextResponse.json({ error: "รายการที่ปิดงานแล้ว ย้อนสถานะกลับไม่ได้" }, { status: 409 })
   }
 
-  // กันซ้ำ: ถ้าผลลัพธ์ยัง "ไม่เสร็จ" ต้องไม่มีรายการอื่น (ทะเบียนหรือเบอร์รถตรงกัน) ที่ยังไม่เสร็จ
-  if (doc.status !== "รถเสร็จ") {
+  // กันซ้ำ: ถ้าผลลัพธ์ยัง "ไม่เสร็จ" ต้องไม่มีรายการอื่น (ทะเบียนหรือเบอร์รถตรงกัน) ที่ยังไม่เสร็จ — นับรวมทุกประเภท
+  if (!isDoneStatus(doc.status)) {
     const or: Record<string, string>[] = [{ plate: doc.plate }]
     if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
-    const dup = await col.findOne({ _id: { $ne: new ObjectId(id) }, status: { $ne: "รถเสร็จ" }, $or: or })
+    const dup = await col.findOne({ _id: { $ne: new ObjectId(id) }, status: { $nin: DONE_STATUSES }, $or: or })
     if (dup) {
       const which = dup.plate === doc.plate ? `ทะเบียน ${doc.plate}` : `เบอร์รถ ${doc.fleetNo}`
-      return NextResponse.json({ error: `รถ ${which} มีรายการซ่อมที่ยังไม่เสร็จอยู่แล้ว (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
+      return NextResponse.json({ error: `รถ ${which} มีรายการ (${dup.jobType || "อู่นอก"}) ที่ยังไม่เสร็จอยู่แล้ว (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
     }
   }
 
