@@ -940,7 +940,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       {/* Kanban board */}
       {view === "board" && !isDone && (
         <div className="overflow-x-auto pb-2">
-          <div className="flex min-w-max gap-3">
+          <div className="flex gap-3">
             {ACTIVE_STATUSES.map((s) => {
               const colRows = displayRows.filter((r) => r.status === s.value)
               const isDropDone = s.value === REPAIR_DONE_STATUS
@@ -952,7 +952,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   key={s.value}
                   onDragOver={(e) => { e.preventDefault(); if (dragOverStatus !== s.value) setDragOverStatus(s.value) }}
                   onDrop={() => { const r = rows.find((x) => x._id === dragId); if (r) moveStatus(r, s.value); setDragId(null); setDragOverStatus(null) }}
-                  className={`flex w-[196px] shrink-0 flex-col rounded-xl border bg-gray-50/60 dark:bg-white/[0.03] transition ${dragId && dragOverStatus === s.value ? "border-[#1B8C4B] ring-2 ring-[#1B8C4B]/30" : "border-[#EEF2F0] dark:border-white/8"}`}
+                  className={`flex min-w-[170px] flex-1 flex-col rounded-xl border bg-gray-50/60 dark:bg-white/[0.03] transition ${dragId && dragOverStatus === s.value ? "border-[#1B8C4B] ring-2 ring-[#1B8C4B]/30" : "border-[#EEF2F0] dark:border-white/8"}`}
                 >
                   <div className="border-b border-[#EEF2F0] dark:border-white/8 px-3 py-2" style={{ borderTop: `3px solid ${colColor}`, borderTopLeftRadius: 11, borderTopRightRadius: 11 }}>
                     <div className="flex items-center justify-between">
