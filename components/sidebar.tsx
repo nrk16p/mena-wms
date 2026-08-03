@@ -90,8 +90,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: "จัดการอู่นอกและสั่งซื้ออะไหล่ลงคัน",
     collapsible: true,
     items: [
-      { href: "/repair-external",           label: "รถซ่อมอู่นอก", icon: Wrench, exact: true },
-      { href: "/repair-external/completed",  label: "รถซ่อมเสร็จ",  icon: Flag },
+      { href: "/repair-external",           label: "อู่นอก & อะไหล่ลงคัน", icon: Wrench, exact: true },
+      { href: "/repair-external/completed",  label: "งานเสร็จ",  icon: Flag },
       { href: "/garages",                    label: "จัดการอู่",     icon: Factory },
       { href: "/repair-external/guide",      label: "คู่มือการใช้งาน", icon: BookOpen },
       { href: "/repair-external/api-guide",  label: "คู่มือ API Sync", icon: Code2 },

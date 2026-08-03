@@ -38,7 +38,7 @@ export function RepairGuidePage() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-            คู่มือการใช้งาน · รถซ่อมอู่นอก
+            คู่มือการใช้งาน · อู่นอก & อะไหล่ลงคัน
           </h1>
           <p className="text-xs text-[#9AA8A0]">ระบบติดตามงานซ่อมรถที่ส่งอู่ภายนอก — ตั้งแต่รับแจ้ง จนซ่อมเสร็จ</p>
         </div>
@@ -49,8 +49,8 @@ export function RepairGuidePage() {
         <Section icon={Wrench} title="ภาพรวม">
           <p>ระบบนี้ใช้ติดตามงานซ่อมรถที่ส่งอู่ภายนอก แบ่งเป็น 2 หน้า:</p>
           <ul className="ml-1 space-y-1">
-            <li className="flex items-start gap-2"><Wrench size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>รถซ่อมอู่นอก</b> — งานที่<b>กำลังดำเนินการ</b> (ยังไม่เสร็จ)</span></li>
-            <li className="flex items-start gap-2"><Flag size={14} className="mt-0.5 shrink-0 text-[#22c55e]" /><span><b>รถซ่อมเสร็จ</b> — งานที่ปิดแล้ว (สถานะ "รถเสร็จ") จะย้ายมาที่นี่อัตโนมัติ</span></li>
+            <li className="flex items-start gap-2"><Wrench size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>อู่นอก & อะไหล่ลงคัน</b> — งานที่<b>กำลังดำเนินการ</b> (ยังไม่เสร็จ) ทั้งซ่อมอู่นอกและสั่งซื้ออะไหล่ลงคัน</span></li>
+            <li className="flex items-start gap-2"><Flag size={14} className="mt-0.5 shrink-0 text-[#22c55e]" /><span><b>งานเสร็จ</b> — งานที่ปิดแล้ว (สถานะ "รถเสร็จ" / "ลงคันเสร็จ") จะย้ายมาที่นี่อัตโนมัติ</span></li>
           </ul>
           <p className="flex flex-wrap items-center gap-2 pt-1">มี 2 มุมมอง สลับได้ที่มุมขวาบน:
             <span className="inline-flex items-center gap-1 rounded-md bg-[#F6FAF7] dark:bg-white/5 px-2 py-0.5 text-xs"><TableIcon size={13} /> ตาราง</span>
@@ -157,8 +157,8 @@ export function RepairGuidePage() {
 
         {/* ทางลัด */}
         <div className="flex flex-wrap gap-2 pt-1">
-          <Link href="/repair-external" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><Wrench size={15} /> ไปหน้ารถซ่อมอู่นอก</Link>
-          <Link href="/repair-external/completed" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"><Flag size={15} /> รถซ่อมเสร็จ</Link>
+          <Link href="/repair-external" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><Wrench size={15} /> ไปหน้าอู่นอก & อะไหล่ลงคัน</Link>
+          <Link href="/repair-external/completed" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"><Flag size={15} /> งานเสร็จ</Link>
           <Link href="/garages" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"><Factory size={15} /> จัดการอู่</Link>
         </div>
       </div>

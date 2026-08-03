@@ -46,7 +46,7 @@ export default function Page() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-            API Sync · รถซ่อมอู่นอก
+            API Sync · อู่นอก & อะไหล่ลงคัน
           </h1>
           <p className="text-xs text-[#9AA8A0]">ดึงข้อมูลงานซ่อมด้วยทะเบียนหรือเบอร์รถ — สำหรับทีมที่ต้องการ sync ข้อมูลเข้าระบบของตัวเอง</p>
         </div>

@@ -627,7 +627,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           </div>
           <div>
             <h1 className="text-lg font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-              {isDone ? "รถซ่อมเสร็จ" : "รถซ่อมอู่นอก"}
+              {isDone ? "งานเสร็จ" : "อู่นอก & อะไหล่ลงคัน"}
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {isDone ? "รายการที่ปิดงานแล้ว (รถเสร็จ / ลงคันเสร็จ)" : "งานซ่อมอู่นอก + สั่งซื้ออะไหล่ลงคัน ที่กำลังดำเนินการ"} · {rows.length} รายการ
