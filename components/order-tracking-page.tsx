@@ -361,7 +361,7 @@ export function OrderTrackingPage() {
                       )}
                       {snap && snap.total > 0 && <div className="mt-0.5 text-[10.5px] font-medium text-[#1B8C4B]">฿ {fmtNum(snap.total)}</div>}
                       {snap?.expectedDelivery && !snap.hasDD && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">📅 คาดรับ {fmtDateShort(snap.expectedDelivery)}</div>}
-                      {snap?.note && <div className="mt-0.5 line-clamp-2 text-[10.5px] text-[#B07D12]" title={snap.note}>💬 {snap.note}</div>}
+                      {snap?.note && <div className="mt-0.5 line-clamp-2 text-[10.5px] text-[#B07D12]" title={`เหตุผลในการขอ (จาก PR): ${snap.note}`}>💬 {snap.note}</div>}
                     </>
                   ) : (
                     <span className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PR</span>
@@ -462,7 +462,7 @@ export function OrderTrackingPage() {
                       {prPreview.snapshot.warehouse} · {prPreview.snapshot.dept} · ผู้ขอซื้อ {prPreview.snapshot.requester} · ฿ {fmtNum(prPreview.snapshot.total)}
                       {prPreview.snapshot.poCodes.length > 0 && <> · PO {prPreview.snapshot.poCodes.join(", ")}</>}
                     </p>
-                    {prPreview.snapshot.note && <p className="mt-1">💬 หมายเหตุจาก PR: <b>{prPreview.snapshot.note}</b></p>}
+                    {prPreview.snapshot.note && <p className="mt-1">💬 เหตุผลในการขอ (จาก PR): <b>{prPreview.snapshot.note}</b></p>}
                     <p className="mt-1">สถานะที่จะตั้งให้: <b>{otStatusMeta(prPreview.autoStatus).emoji} {prPreview.autoStatus}</b>{prPreview.snapshot.hasDD && " (รับของครบแล้ว — ปิดจบอัตโนมัติ)"}</p>
                   </div>
                 )}
@@ -530,6 +530,11 @@ export function OrderTrackingPage() {
               {/* ข้อมูลเรื่อง + ประวัติ (ตอนแก้ไข) */}
               {current && (
                 <div className="rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] px-3.5 py-3 text-[11.5px] text-[#5B7568] dark:text-gray-400">
+                  {current.prSnapshot?.note && (
+                    <p className="mb-1.5 rounded-lg bg-[#FDF3DD] dark:bg-amber-900/20 px-2.5 py-1.5 text-[#B07D12] dark:text-amber-300">
+                      💬 <b>เหตุผลในการขอ (จาก PR):</b> {current.prSnapshot.note}
+                    </p>
+                  )}
                   <p>เปิดเรื่องโดย <b className="text-[#14271C] dark:text-white">{current.requester || "—"}</b>{current.requesterEmail && <span className="ml-1 text-[#9AA8A0]">({current.requesterEmail})</span>} · {fmtDateShort(current.createdAt || "")}</p>
                   {current.acceptedBy && <p className="mt-0.5">รับเรื่องโดย <b className="text-[#14271C] dark:text-white">{current.acceptedBy}</b> · {fmtDateShort(current.acceptedAt)}</p>}
                   {current.prSyncedAt && <p className="mt-0.5">sync ล่าสุด {new Date(current.prSyncedAt).toLocaleString("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>}
