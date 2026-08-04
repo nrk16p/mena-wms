@@ -1,4 +1,4 @@
-// ติดตามคำสั่งซื้อ (Order Request Tracking) — ตั๋วงานครอบระบบ PR
+// ติดตามคำขอเปิด PO (Order Request Tracking) — ตั๋วงานครอบระบบ PR
 // เกิดก่อนมี PR ได้ · เมื่อผูกเลข PR แล้ว sync สถานะจากข้อมูล ATMS (PR → PO → DD)
 
 export type OtStatus = {

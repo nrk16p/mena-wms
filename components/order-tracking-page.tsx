@@ -295,7 +295,7 @@ export function OrderTrackingPage() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-              ติดตามคำสั่งซื้อ
+              ติดตามคำขอเปิด PO
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               แจ้งความต้องการซื้อ (มี PR หรือยังไม่มีก็ได้) · จัดซื้อรับเรื่อง · sync สถานะจากระบบ PR อัตโนมัติ · {rows.length} เรื่อง

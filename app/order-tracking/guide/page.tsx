@@ -36,7 +36,7 @@ export default function Page() {
           <BookOpen size={22} />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-[#14271C] dark:text-white" style={mitr}>คู่มือการใช้งาน · ติดตามคำสั่งซื้อ</h1>
+          <h1 className="text-xl font-bold text-[#14271C] dark:text-white" style={mitr}>คู่มือการใช้งาน · ติดตามคำขอเปิด PO</h1>
           <p className="text-xs text-[#9AA8A0]">แจ้งความต้องการซื้อ → จัดซื้อรับเรื่อง → sync สถานะจากระบบ PR จนปิดงานอัตโนมัติ</p>
         </div>
       </div>
@@ -44,7 +44,7 @@ export default function Page() {
       <div className="space-y-4">
         {/* ภาพรวม */}
         <Section icon={ClipboardList} title="ภาพรวม">
-          <p>หน้า <Link href="/order-tracking" className="font-medium text-[#1B8C4B] hover:underline">ติดตามคำสั่งซื้อ</Link> คือ<b>ตั๋วงาน (ticket) ครอบระบบ PR</b> — ใช้แจ้งความต้องการซื้อได้<b>ตั้งแต่ยังไม่มีเลข PR</b> แล้วให้ระบบตามสถานะต่อให้จนของถึง:</p>
+          <p>หน้า <Link href="/order-tracking" className="font-medium text-[#1B8C4B] hover:underline">ติดตามคำขอเปิด PO</Link> คือ<b>ตั๋วงาน (ticket) ครอบระบบ PR</b> — ใช้แจ้งความต้องการซื้อได้<b>ตั้งแต่ยังไม่มีเลข PR</b> แล้วให้ระบบตามสถานะต่อให้จนของถึง:</p>
           <p className="rounded-lg bg-[#F6FAF7] dark:bg-white/5 px-3 py-2 font-medium text-[#14271C] dark:text-gray-200">
             🆕 แจ้งเรื่อง (มี/ไม่มี PR) → 🔄 รับเรื่องแล้ว → 📦 เปิด PO-รอของ → ✅ ปิดงาน
           </p>
@@ -119,7 +119,7 @@ export default function Page() {
 
         {/* ลิงก์ */}
         <div className="flex flex-wrap gap-2 pt-1">
-          <Link href="/order-tracking" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><ClipboardList size={15} /> ไปหน้าติดตามคำสั่งซื้อ</Link>
+          <Link href="/order-tracking" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><ClipboardList size={15} /> ไปหน้าติดตามคำขอเปิด PO</Link>
           <Link href="/pr" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ติดตาม PR / รับสินค้า</Link>
         </div>
       </div>
