@@ -1,6 +1,7 @@
 import "./globals.css"
 import "./swal.css"
 import "sweetalert2/dist/sweetalert2.min.css"
+import { Analytics } from "@vercel/analytics/next"
 import { Providers } from "@/components/providers"
 import { AppShell } from "@/components/app-shell"
 
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>
+        <Analytics />
       </body>
     </html>
   )
