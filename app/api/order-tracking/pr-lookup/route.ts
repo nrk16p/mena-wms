@@ -12,17 +12,24 @@ const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 //   ?q=      → autocomplete: ค้นเลข PR จาก atms.purchase_requests (สูงสุด 10)
 //   ?code=   → snapshot เต็ม + สถานะที่ระบบจะตั้งให้ (สำหรับ preview ในฟอร์ม)
 //   ?depts=1 → รายชื่อแผนกทั้งหมด (dropdown แผนกผู้ขอ)
+//   ?requesters=1 → รายชื่อผู้ขอซื้อทั้งหมด (autocomplete ผู้เปิดเรื่อง)
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const q     = searchParams.get("q")?.trim()    ?? ""
   const code  = searchParams.get("code")?.trim() ?? ""
   const depts = searchParams.get("depts")?.trim() ?? ""
+  const requesters = searchParams.get("requesters")?.trim() ?? ""
 
   const client = await clientPromise
 
   if (depts) {
     const list = await client.db("atms").collection("purchase_requests").distinct("แผนก") as unknown[]
     return NextResponse.json({ depts: list.map(s).filter(Boolean).sort((a, b) => a.localeCompare(b, "th")) })
+  }
+
+  if (requesters) {
+    const list = await client.db("atms").collection("purchase_requests").distinct("ผู้ขอซื้อ") as unknown[]
+    return NextResponse.json({ requesters: list.map(s).filter(Boolean).sort((a, b) => a.localeCompare(b, "th")) })
   }
 
   if (code) {

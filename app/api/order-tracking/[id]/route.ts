@@ -60,6 +60,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     detail: s(body.detail ?? existing.detail),
     note:   s(body.note ?? existing.note),
     dept:   s(body.dept ?? existing.dept),
+    requester: s(body.requester ?? existing.requester),
     estimatedDone: s(body.estimatedDone ?? existing.estimatedDone),
     prCode,
     updatedAt: now, updatedBy: by,

@@ -49,7 +49,7 @@ const ageDays = (iso?: string): number | null => {
   return Math.max(0, Math.floor((Date.now() - t) / 86400000))
 }
 
-const EMPTY = { prCode: "", title: "", detail: "", note: "", dept: "", estimatedDone: "" }
+const EMPTY = { prCode: "", title: "", detail: "", note: "", dept: "", requester: "", estimatedDone: "" }
 
 export function OrderTrackingPage() {
   const { data: session } = useSession()
@@ -58,6 +58,7 @@ export function OrderTrackingPage() {
   const [q, setQ]             = useState("")
   const [fStatus, setFStatus] = useState("")
   const [depts, setDepts]     = useState<string[]>([])
+  const [requesters, setRequesters] = useState<string[]>([])
 
   // modal
   const [open, setOpen]     = useState(false)
@@ -76,6 +77,15 @@ export function OrderTrackingPage() {
   const [deptOpen, setDeptOpen] = useState(false)
   const deptBoxRef = useRef<HTMLDivElement>(null)
 
+  // requester autocomplete (ผู้เปิดเรื่อง — เปิดแทนคนอื่นได้)
+  const [reqOpen, setReqOpen] = useState(false)
+  const reqBoxRef = useRef<HTMLDivElement>(null)
+
+  // filter แผนกผู้ขอ (หน้า list)
+  const [fDept, setFDept] = useState("")
+  const [fDeptOpen, setFDeptOpen] = useState(false)
+  const fDeptBoxRef = useRef<HTMLDivElement>(null)
+
   // comments (ในฟอร์มแก้ไข)
   const [comments, setComments]     = useState<OtComment[]>([])
   const [cmtLoading, setCmtLoading] = useState(false)
@@ -91,6 +101,7 @@ export function OrderTrackingPage() {
       const p = new URLSearchParams()
       if (q)       p.set("q", q)
       if (fStatus) p.set("status", fStatus)
+      if (fDept)   p.set("dept", fDept)
       const res  = await fetch(`/api/order-tracking?${p.toString()}`)
       const data = await res.json()
       setRows(Array.isArray(data) ? data : [])
@@ -99,7 +110,7 @@ export function OrderTrackingPage() {
     } finally {
       setLoading(false)
     }
-  }, [q, fStatus])
+  }, [q, fStatus, fDept])
 
   useEffect(() => {
     const t = setTimeout(load, 250)
@@ -110,6 +121,10 @@ export function OrderTrackingPage() {
     fetch("/api/order-tracking/pr-lookup?depts=1")
       .then((r) => r.json())
       .then((d) => setDepts(Array.isArray(d?.depts) ? d.depts : []))
+      .catch(() => {})
+    fetch("/api/order-tracking/pr-lookup?requesters=1")
+      .then((r) => r.json())
+      .then((d) => setRequesters(Array.isArray(d?.requesters) ? d.requesters : []))
       .catch(() => {})
   }, [])
 
@@ -145,6 +160,8 @@ export function OrderTrackingPage() {
     function onDoc(e: MouseEvent) {
       if (prBoxRef.current && !prBoxRef.current.contains(e.target as Node)) setPrOpen(false)
       if (deptBoxRef.current && !deptBoxRef.current.contains(e.target as Node)) setDeptOpen(false)
+      if (reqBoxRef.current && !reqBoxRef.current.contains(e.target as Node)) setReqOpen(false)
+      if (fDeptBoxRef.current && !fDeptBoxRef.current.contains(e.target as Node)) setFDeptOpen(false)
     }
     document.addEventListener("mousedown", onDoc)
     return () => document.removeEventListener("mousedown", onDoc)
@@ -178,13 +195,15 @@ export function OrderTrackingPage() {
 
   function openAdd() {
     setEditId(null); setCurrent(null)
-    setForm(EMPTY); setPrHits([]); setPrPreview(null)
+    // ผู้เปิดเรื่องตั้งต้น = ผู้ใช้ที่ล็อกอิน (แก้เป็นคนอื่นได้ — เปิดแทนกัน)
+    setForm({ ...EMPTY, requester: session?.user?.name || "" })
+    setPrHits([]); setPrPreview(null)
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
     setOpen(true)
   }
   function openEdit(r: OrderTracking) {
     setEditId(r._id); setCurrent(r)
-    setForm({ prCode: r.prCode || "", title: r.title || "", detail: r.detail || "", note: r.note || "", dept: r.dept || "", estimatedDone: r.estimatedDone || "" })
+    setForm({ prCode: r.prCode || "", title: r.title || "", detail: r.detail || "", note: r.note || "", dept: r.dept || "", requester: r.requester || "", estimatedDone: r.estimatedDone || "" })
     setPrHits([]); setPrPreview(null); setShowLog(false)
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
     loadComments(r._id)
@@ -289,10 +308,45 @@ export function OrderTrackingPage() {
         </button>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-3">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา เรื่อง / PR / ผู้ขอ / ผู้รับผิดชอบ" className={inputCls + " pl-9"} />
+      {/* Search + filter แผนก */}
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา เรื่อง / PR / ผู้ขอ / ผู้รับผิดชอบ" className={inputCls + " pl-9"} />
+        </div>
+        <div ref={fDeptBoxRef} className="relative sm:w-[240px]">
+          <input
+            value={fDept}
+            onChange={(e) => { setFDept(e.target.value); setFDeptOpen(true) }}
+            onFocus={() => setFDeptOpen(true)}
+            placeholder="🏢 ทุกแผนก — พิมพ์เพื่อค้นหา"
+            className={inputCls + (fDept ? " border-[#1B8C4B]" : "")}
+          />
+          {fDept && (
+            <button onClick={() => { setFDept(""); setFDeptOpen(false) }} title="ล้างตัวกรองแผนก" className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          )}
+          {fDeptOpen && (() => {
+            const qd = fDept.trim().toLowerCase()
+            const hits = depts.filter((d) => !qd || d.toLowerCase().includes(qd)).slice(0, 12)
+            if (!hits.length) return null
+            return (
+              <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-lg">
+                {hits.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => { setFDept(d); setFDeptOpen(false) }}
+                    className={`block w-full truncate border-b border-[#F1F5F2] dark:border-white/5 px-3 py-2 text-left text-[12.5px] hover:bg-[#F6FAF7] dark:hover:bg-white/5 ${fDept === d ? "font-semibold text-[#1B8C4B]" : "text-[#14271C] dark:text-white"}`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            )
+          })()}
+        </div>
       </div>
 
       {/* Status chips */}
@@ -491,6 +545,36 @@ export function OrderTrackingPage() {
               </div>
 
               <div className={"grid grid-cols-1 gap-4 sm:grid-cols-2" + roCls}>
+                {/* ผู้เปิดเรื่อง — พิมพ์ค้นหาจากรายชื่อผู้ขอซื้อใน PR (เปิดแทนคนอื่นได้) */}
+                <div ref={reqBoxRef} className="relative">
+                  <label className={labelCls}>ผู้เปิดเรื่อง / ผู้ขอ <span className="text-[10px] font-normal text-gray-400">(พิมพ์เพื่อค้นหา)</span></label>
+                  <input
+                    value={form.requester}
+                    onChange={(e) => { setForm({ ...form, requester: e.target.value }); setReqOpen(true) }}
+                    onFocus={() => setReqOpen(true)}
+                    placeholder="ชื่อผู้ขอ..."
+                    className={inputCls}
+                  />
+                  {reqOpen && (() => {
+                    const qr = form.requester.trim().toLowerCase()
+                    const hits = requesters.filter((n) => !qr || n.toLowerCase().includes(qr)).slice(0, 12)
+                    if (!hits.length) return null
+                    return (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-lg">
+                        {hits.map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => { setForm((f) => ({ ...f, requester: n })); setReqOpen(false) }}
+                            className={`block w-full truncate border-b border-[#F1F5F2] dark:border-white/5 px-3 py-2 text-left text-[12.5px] hover:bg-[#F6FAF7] dark:hover:bg-white/5 ${form.requester === n ? "font-semibold text-[#1B8C4B]" : "text-[#14271C] dark:text-white"}`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
                 <div ref={deptBoxRef} className="relative">
                   <label className={labelCls}>แผนกผู้ขอ <span className="text-[10px] font-normal text-gray-400">(พิมพ์เพื่อค้นหา)</span></label>
                   <input
@@ -534,11 +618,11 @@ export function OrderTrackingPage() {
                 </div>
               )}
 
-              {/* ผู้เปิดเรื่อง (ตอนสร้างใหม่ — อิงจาก session: ชื่อ + email) */}
+              {/* ผู้บันทึกจริงจาก session — log เก็บชื่อนี้เสมอ (ช่องผู้เปิดเรื่องด้านบนเปิดแทนคนอื่นได้) */}
               {!editId && session?.user && (
                 <div className="rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] px-3.5 py-2.5 text-[11.5px] text-[#5B7568] dark:text-gray-400">
-                  ✍️ เปิดเรื่องโดย <b className="text-[#14271C] dark:text-white">{session.user.name || "—"}</b>
-                  {session.user.email && <span className="ml-1 text-[#9AA8A0]">({session.user.email})</span>} — ระบบบันทึกอัตโนมัติ
+                  ✍️ บันทึกเข้าระบบโดย <b className="text-[#14271C] dark:text-white">{session.user.name || "—"}</b>
+                  {session.user.email && <span className="ml-1 text-[#9AA8A0]">({session.user.email})</span>} — log เก็บชื่อนี้อัตโนมัติ แม้เปิดเรื่องแทนคนอื่น
                 </div>
               )}
 
