@@ -1,5 +1,5 @@
 // Server-only helper: ดึงสถานะ PR → PO → DD จาก atms เป็น PrSnapshot (อ่านอย่างเดียว)
-// ใช้ logic เดียวกับหน้า /pr: มี DD (ใบรับของ) ที่ PO ใดก็ได้ = รับของแล้ว → ปิดงาน
+// ใช้ logic เดียวกับหน้า /pr: PO ยกเลิกไม่นับ · ปิดงานเมื่อ PO ที่เหลือมี DD ครบทุกใบ
 import type { MongoClient } from "mongodb"
 import type { PrSnapshot } from "@/lib/order-tracking"
 
@@ -26,12 +26,14 @@ export async function fetchPrSnapshots(client: MongoClient, prCodes: string[]): 
     atms.collection("purchase_requests").find({ [PR_KEY]: { $in: codes } })
       .project({ [PR_KEY]: 1, "วันที่": 1, "คลังสินค้า": 1, "แผนก": 1, "ผู้ขอซื้อ": 1, "หมายเหตุ": 1, "รวม": 1, _id: 0 }).toArray() as Promise<Doc[]>,
     atms.collection("purchase_orders").find({ [PR_KEY]: { $in: codes } })
-      .project({ [PR_KEY]: 1, [PO_KEY]: 1, "รวม": 1, "ซัพพลายเออร์": 1, "กำหนดส่งสินค้า": 1, _id: 0 }).toArray() as Promise<Doc[]>,
+      .project({ [PR_KEY]: 1, [PO_KEY]: 1, "รวม": 1, "ซัพพลายเออร์": 1, "กำหนดส่งสินค้า": 1, "สถานะการรับสินค้า": 1, _id: 0 }).toArray() as Promise<Doc[]>,
   ])
 
+  // PO ที่ถูกยกเลิกไม่นับ — ทั้งยอด/สถานะ/เกณฑ์ปิดงาน
   const posByPr = new Map<string, Doc[]>()
   const allPoCodes: string[] = []
   for (const po of pos) {
+    if (s(po["สถานะการรับสินค้า"]).includes("ยกเลิก")) continue
     const pr = s(po[PR_KEY]); if (!pr) continue
     if (!posByPr.has(pr)) posByPr.set(pr, [])
     posByPr.get(pr)!.push(po)
@@ -63,7 +65,8 @@ export async function fetchPrSnapshots(client: MongoClient, prCodes: string[]): 
       poTotal:   Math.round(myPos.reduce((a, po) => a + (Number(po["รวม"]) || 0), 0) * 100) / 100,
       suppliers: [...new Set(myPos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
       expectedDelivery: manualDue.get(pr) || poDues[0] || "",
-      hasDD:     myPos.some((po) => receivedPo.has(s(po[PO_KEY]))),
+      // ปิดงานเมื่อ PO ที่ไม่ยกเลิกทุกใบมีใบรับของ (DD) ครบ — ไม่ปิดเร็วเกินเพราะรับมาใบเดียว
+      hasDD:     myPos.length > 0 && myPos.every((po) => receivedPo.has(s(po[PO_KEY]))),
     })
   }
   return out

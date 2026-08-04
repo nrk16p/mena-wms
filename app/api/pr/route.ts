@@ -8,6 +8,9 @@ const PO_KEY = "รหัส"
 
 type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
+
+// PO ที่ถูกยกเลิก — ไม่นับในทุกการคำนวณ (ยอด/เทียบรายการ/สถานะ) แต่ยังแสดงใน detail
+const isCancelledPo = (po: Doc) => s(po["สถานะการรับสินค้า"]).includes("ยกเลิก")
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 const nn = (v: unknown) => Number(v) || 0
@@ -152,45 +155,47 @@ export async function GET(req: NextRequest) {
       poItemsByPo.get(c)!.push(d)
     }
 
-    // 4) เก็บเฉพาะ PR ที่ "ไม่มี DD" (ไม่มี PO ตัวไหนถูกรับของเลย — รวม PR ที่ยังไม่มี PO)
+    // 4) เก็บเฉพาะ PR ที่ยัง "รับของไม่ครบ" — จบงานก็ต่อเมื่อ PO ที่ไม่ยกเลิกทุกใบมี DD แล้ว
+    //    (PR ที่ยังไม่มี PO / PO ถูกยกเลิกหมด ยังอยู่ในหน้า = งานค้างที่จัดซื้อ)
     const rows = prs
       .map((p) => {
         const pr = s(p[PR_KEY])
         const myPos = posByPr.get(pr) ?? []
-        const hasDD = myPos.some((po) => receivedPo.has(s(po[PO_KEY])))
-        return { p, pr, myPos, hasDD }
+        const activePos = myPos.filter((po) => !isCancelledPo(po))
+        const allReceived = activePos.length > 0 && activePos.every((po) => receivedPo.has(s(po[PO_KEY])))
+        return { p, pr, myPos, activePos, allReceived }
       })
-      .filter((r) => !r.hasDD)
-      .map(({ p, pr, myPos }) => {
+      .filter((r) => !r.allReceived)
+      .map(({ p, pr, myPos, activePos }) => {
         const warehouse = s(p["คลังสินค้า"])
         const prTotal = typeof p["รวม"] === "number" ? (p["รวม"] as number) : Number(p["รวม"]) || 0
-        const poTotal = round2(myPos.reduce((a, po) => a + (Number(po["รวม"]) || 0), 0))
+        const poTotal = round2(activePos.reduce((a, po) => a + (Number(po["รวม"]) || 0), 0))
         const rule = vatRule(warehouse)
         const rel  = relationOf(prTotal, poTotal)
-        const cmp  = statusOf(rule, rel, myPos.length)
+        const cmp  = statusOf(rule, rel, activePos.length)
 
         // ── ติดตามสินค้า ──
         // วันกำหนดส่งตั้งต้นจาก PO (เอาวันเร็วสุด) แล้วให้ manual override
-        const poDues = myPos.map((po) => toISO(s(po["กำหนดส่งสินค้า"]))).filter(Boolean).sort()
+        const poDues = activePos.map((po) => toISO(s(po["กำหนดส่งสินค้า"]))).filter(Boolean).sort()
         const poDue  = poDues[0] || ""
         const tr = trackByPr.get(pr)
         const manualDue = tr ? s(tr.expectedDelivery) : ""
         const expectedDelivery = manualDue || poDue
         const expectedSource: "manual" | "po" | "none" = manualDue ? "manual" : (poDue ? "po" : "none")
-        // สถานะติดตาม: pr (ยังไม่มี PO) → po (มี PO) → waiting (มีวันกำหนดส่งแล้ว)
-        const track: "pr" | "po" | "waiting" = myPos.length === 0 ? "pr" : (expectedDelivery ? "waiting" : "po")
+        // สถานะติดตาม: pr (ยังไม่มี PO ใช้งานได้) → po (มี PO) → waiting (มีวันกำหนดส่งแล้ว)
+        const track: "pr" | "po" | "waiting" = activePos.length === 0 ? "pr" : (expectedDelivery ? "waiting" : "po")
         // เทียบวันกำหนดส่งกับวันนี้ (BKK)
         const daysToDue = expectedDelivery ? Math.round((Date.parse(expectedDelivery) - Date.parse(todayBKK)) / 86400000) : null
         const overdue = track === "waiting" && daysToDue !== null && daysToDue < 0
-        // ความครบราย SKU (ยอด+รายการ) — ใช้ item ถ้ามี ไม่งั้น fallback ยอดรวม (cmp)
+        // ความครบราย SKU (ยอด+รายการ) — เทียบเฉพาะ PO ที่ไม่ยกเลิก
         const prItems = prItemsByPr.get(pr) ?? []
-        const poItems = myPos.flatMap((po) => poItemsByPo.get(s(po[PO_KEY])) ?? [])
+        const poItems = activePos.flatMap((po) => poItemsByPo.get(s(po[PO_KEY])) ?? [])
         const cmpItems = itemsComplete(prItems, poItems)
         const complete = cmpItems.hasItems ? cmpItems.complete : (cmp === "ok")
         // สถานะหลัก (pipeline):
         //  เปิด PR → เปิด PO ไม่ครบ (บล็อก) → [ครบ] กำหนดส่ง/เกินกำหนด (หรือ เปิด PO ยอดครบ ถ้ายังไม่มีวัน)
         const stage: "pr" | "po_ok" | "po_bad" | "due" | "overdue" =
-          myPos.length === 0 ? "pr"
+          activePos.length === 0 ? "pr"
           : !complete        ? "po_bad"
           : expectedDelivery ? (overdue ? "overdue" : "due")
           : "po_ok"
@@ -209,10 +214,11 @@ export async function GET(req: NextRequest) {
           relation:  myPos.length ? rel : "none",
           cmp,                        // ok | anomaly | no_po
           note:      s(p["หมายเหตุ"]),
-          po_codes:  myPos.map((po) => s(po[PO_KEY])).filter(Boolean),
-          po_count:  myPos.length,
-          received_status: myPos.map((po) => s(po["สถานะการรับสินค้า"])).filter(Boolean),
-          suppliers: [...new Set(myPos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
+          // เลข/จำนวน/ซัพพลายเออร์ นับเฉพาะ PO ใช้งานได้ — ใบยกเลิกดูได้ในรายการ pos (detail)
+          po_codes:  activePos.map((po) => s(po[PO_KEY])).filter(Boolean),
+          po_count:  activePos.length,
+          received_status: activePos.map((po) => s(po["สถานะการรับสินค้า"])).filter(Boolean),
+          suppliers: [...new Set(activePos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
           pr_detail_id: prDetailId.get(pr) || "",
           pos: myPos.map((po) => ({
             code:     s(po[PO_KEY]),

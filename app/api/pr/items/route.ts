@@ -38,9 +38,11 @@ export async function GET(req: NextRequest) {
     const client = await clientPromise
     const db = client.db("atms")
 
-    // po codes ของ PR นี้
-    const poDocs = await db.collection("purchase_orders").find({ [PR_KEY]: pr }).project({ [PO_KEY]: 1, _id: 0 }).toArray() as Doc[]
-    const poCodes = poDocs.map((d) => s(d[PO_KEY])).filter(Boolean)
+    // po codes ของ PR นี้ — ไม่นับ PO ที่ถูกยกเลิก (จะได้ไม่ขึ้น "เกินใน PO"/ยอดเพี้ยน)
+    const poDocs = await db.collection("purchase_orders").find({ [PR_KEY]: pr }).project({ [PO_KEY]: 1, "สถานะการรับสินค้า": 1, _id: 0 }).toArray() as Doc[]
+    const poCodes = poDocs
+      .filter((d) => !s(d["สถานะการรับสินค้า"]).includes("ยกเลิก"))
+      .map((d) => s(d[PO_KEY])).filter(Boolean)
 
     const prItems = await db.collection("purchase_request_items").find({ pr_code: pr }).toArray() as Doc[]
     const poItems = poCodes.length
