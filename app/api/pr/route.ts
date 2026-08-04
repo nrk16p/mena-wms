@@ -77,7 +77,8 @@ export async function GET(req: NextRequest) {
     const q         = searchParams.get("q")?.trim()         ?? ""
     const warehouse = searchParams.get("warehouse")?.trim() ?? ""
     const dept      = searchParams.get("dept")?.trim()      ?? ""
-    const limit     = Math.min(parseInt(searchParams.get("limit") ?? "2000"), 5000)
+    // ~1,550 PR อนุมัติ/เดือน (ข้อมูลเริ่ม พ.ค. 2026) — 5000 ครอบคลุม ~3 เดือน = ทั้งหมด ณ ส.ค. 2026
+    const limit     = Math.min(parseInt(searchParams.get("limit") ?? "5000"), 10000)
 
     const client = await clientPromise
     const db     = client.db("atms")
