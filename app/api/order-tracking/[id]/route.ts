@@ -33,14 +33,16 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!existing) return NextResponse.json({ error: "ไม่พบเรื่อง" }, { status: 404 })
   const now = new Date()
 
-  // ── จัดซื้อรับเรื่อง ──
+  // ── จัดซื้อรับเรื่อง — รับได้ทุกสถานะที่ยังไม่มีผู้รับ (เรื่องที่ผูก PR แล้วข้าม "แจ้งเรื่อง" ไปก็รับได้) ──
   if (s(body.action) === "accept") {
-    if (s(existing.status) !== "แจ้งเรื่อง") {
-      return NextResponse.json({ error: "เรื่องนี้ถูกรับไปแล้ว" }, { status: 409 })
+    if (s(existing.acceptedBy)) {
+      return NextResponse.json({ error: `เรื่องนี้ถูกรับไปแล้วโดย ${s(existing.acceptedBy)}` }, { status: 409 })
     }
     await col.updateOne({ _id }, {
       $set: {
-        status: "รับเรื่องแล้ว", acceptedBy: by, acceptedAt: todayBKK(),
+        // สถานะขยับเป็น "รับเรื่องแล้ว" เฉพาะตอนยังอยู่ขั้นแจ้งเรื่อง — ขั้นที่ sync มาแล้ว (เปิด PR/PO) คงเดิม
+        ...(s(existing.status) === "แจ้งเรื่อง" ? { status: "รับเรื่องแล้ว" } : {}),
+        acceptedBy: by, acceptedAt: todayBKK(),
         ...(s(body.estimatedDone) ? { estimatedDone: s(body.estimatedDone) } : {}),
         updatedAt: now, updatedBy: by,
       },

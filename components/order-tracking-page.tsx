@@ -373,8 +373,8 @@ export function OrderTrackingPage() {
                       <div className="truncate font-medium" title={r.acceptedBy}>👤 {r.acceptedBy}</div>
                       {r.estimatedDone && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">🎯 คาดเสร็จ {fmtDateShort(r.estimatedDone)}</div>}
                     </>
-                  ) : r.status === "แจ้งเรื่อง" ? (
-                    // กดรับเรื่องได้จากตารางเลย — ระบบจดชื่อผู้กดจาก session
+                  ) : r.status !== OT_DONE_STATUS ? (
+                    // กดรับเรื่องได้จากตารางเลยทุกสถานะที่ยังไม่ปิด — ระบบจดชื่อผู้กดจาก session
                     <button
                       onClick={() => accept(r)}
                       className="inline-flex items-center gap-1 rounded-lg bg-[#eab308] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#ca9a04]"
@@ -609,10 +609,10 @@ export function OrderTrackingPage() {
             {/* footer */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2">
-                {current && current.status === "แจ้งเรื่อง" && (
+                {current && !current.acceptedBy && current.status !== OT_DONE_STATUS && (
                   <button
                     onClick={() => accept(current)}
-                    title={`กดแล้วสถานะเปลี่ยนเป็น "รับเรื่องแล้ว" และบันทึกชื่อคุณ (${session?.user?.name || session?.user?.email || ""}) เป็นผู้รับผิดชอบ`}
+                    title={`กดแล้วระบบบันทึกชื่อคุณ (${session?.user?.name || session?.user?.email || ""}) เป็นผู้รับผิดชอบ`}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-[#eab308] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#ca9a04]"
                   >
                     <UserCheck size={15} /> รับเรื่อง (จัดซื้อ)
