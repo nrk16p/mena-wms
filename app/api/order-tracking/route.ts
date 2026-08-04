@@ -36,13 +36,19 @@ export async function GET(req: NextRequest) {
       const snap = snaps.get(s(o.prCode))
       if (!snap) return []
       const newStatus = statusFromSnapshot(snap, s(o.status))
+      const autoClosed = newStatus === OT_DONE_STATUS && s(o.status) !== OT_DONE_STATUS
       return [{
         updateOne: {
           filter: { _id: o._id },
-          update: { $set: {
-            prSnapshot: snap, prSyncedAt: now.toISOString(), status: newStatus, updatedAt: now,
-            ...(newStatus === OT_DONE_STATUS && s(o.status) !== OT_DONE_STATUS ? { closedAt: todayBKK() } : {}),
-          } },
+          update: {
+            $set: {
+              prSnapshot: snap, prSyncedAt: now.toISOString(), status: newStatus, updatedAt: now,
+              ...(autoClosed ? { closedAt: todayBKK() } : {}),
+            },
+            // ปิดจบอัตโนมัติ → ลง log ให้รู้ว่าระบบปิดจากข้อมูลรับของ (DD)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...(autoClosed ? { $push: { log: { action: "close", by: "ระบบ (sync)", byEmail: "", at: now.toISOString(), note: `รับของครบ (DD) — PR ${s(o.prCode)}` } } as any } : {}),
+          },
         },
       }]
     })
@@ -96,6 +102,9 @@ export async function POST(req: NextRequest) {
   }
   const status = statusFromSnapshot(snap, "แจ้งเรื่อง")
   const now = new Date()
+  const byEmail = session?.user?.email || ""
+  const log = [{ action: "create", by, byEmail, at: now.toISOString() }]
+  if (status === OT_DONE_STATUS) log.push({ action: "close", by: "ระบบ (sync)", byEmail: "", at: now.toISOString(), note: `รับของครบ (DD) — PR ${prCode}` } as typeof log[0])
   const doc = {
     prCode,
     title,
@@ -103,11 +112,12 @@ export async function POST(req: NextRequest) {
     note:   s(body.note),
     dept:   s(body.dept),
     requester: by,
-    requesterEmail: session?.user?.email || "",
+    requesterEmail: byEmail,
     status,
     acceptedBy: "", acceptedAt: "", estimatedDone: s(body.estimatedDone),
     prSnapshot: snap, prSyncedAt: snap ? now.toISOString() : "",
     closedAt: status === OT_DONE_STATUS ? todayBKK() : "",
+    log,
     createdAt: now, updatedAt: now, updatedBy: by,
   }
   const r = await col.insertOne(doc)

@@ -38,6 +38,15 @@ export type PrSnapshot = {
   hasDD:      boolean       // มีใบรับของแล้ว (เกณฑ์ปิดงานเดียวกับหน้า /pr)
 }
 
+// บันทึกเหตุการณ์ของเรื่อง — ใครทำอะไรเมื่อไร (อิงชื่อ + email จาก session)
+export type OtLogEntry = {
+  action: "create" | "accept" | "update" | "close"
+  by:      string
+  byEmail: string
+  at:      string   // ISO datetime
+  note?:   string
+}
+
 export type OrderTracking = {
   _id:        string
   prCode:     string       // "" = ยังไม่มี PR
@@ -54,6 +63,7 @@ export type OrderTracking = {
   prSnapshot?: PrSnapshot | null
   prSyncedAt?: string
   closedAt:   string       // YYYY-MM-DD
+  log?:       OtLogEntry[] // เหตุการณ์: เปิดเรื่อง/รับเรื่อง/แก้ไข/ปิดงาน
   createdAt?: string
   updatedAt?: string
   updatedBy?: string

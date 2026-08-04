@@ -38,11 +38,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (s(existing.status) !== "แจ้งเรื่อง") {
       return NextResponse.json({ error: "เรื่องนี้ถูกรับไปแล้ว" }, { status: 409 })
     }
-    await col.updateOne({ _id }, { $set: {
-      status: "รับเรื่องแล้ว", acceptedBy: by, acceptedAt: todayBKK(),
-      ...(s(body.estimatedDone) ? { estimatedDone: s(body.estimatedDone) } : {}),
-      updatedAt: now, updatedBy: by,
-    } })
+    await col.updateOne({ _id }, {
+      $set: {
+        status: "รับเรื่องแล้ว", acceptedBy: by, acceptedAt: todayBKK(),
+        ...(s(body.estimatedDone) ? { estimatedDone: s(body.estimatedDone) } : {}),
+        updatedAt: now, updatedBy: by,
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      $push: { log: { action: "accept", by, byEmail: session?.user?.email || "", at: now.toISOString() } } as any,
+    })
     return NextResponse.json({ ok: true, acceptedBy: by })
   }
 
@@ -81,10 +85,16 @@ export async function PUT(req: NextRequest, { params }: Params) {
     set.prSyncedAt = ""
   }
   set.status = status
-  if (status === OT_DONE_STATUS && s(existing.status) !== OT_DONE_STATUS) set.closedAt = todayBKK()
+  const nowClosed = status === OT_DONE_STATUS && s(existing.status) !== OT_DONE_STATUS
+  if (nowClosed) set.closedAt = todayBKK()
   if (status !== OT_DONE_STATUS) set.closedAt = ""
 
-  await col.updateOne({ _id }, { $set: set })
+  const byEmail = session?.user?.email || ""
+  const logEntry = nowClosed
+    ? { action: "close", by, byEmail, at: now.toISOString() }
+    : { action: "update", by, byEmail, at: now.toISOString() }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await col.updateOne({ _id }, { $set: set, $push: { log: logEntry } as any })
   return NextResponse.json({ ok: true, status })
 }
 
