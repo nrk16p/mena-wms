@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
-import { Search, Plus, Pencil, Trash2, X, Check, ClipboardList, UserCheck, RefreshCw, PackageCheck, History, MessageSquare, Send, CornerDownRight } from "lucide-react"
+import { motion, AnimatePresence } from "motion/react"
+import { Search, Plus, Pencil, Trash2, X, Check, ClipboardList, UserCheck, RefreshCw, PackageCheck, History, MessageSquare, Send, CornerDownRight, ChevronDown } from "lucide-react"
 import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
 import {
   OT_STATUSES,
@@ -89,6 +90,15 @@ export function OrderTrackingPage() {
   const [replyText, setReplyText]   = useState("")
   const [posting, setPosting]       = useState(false)
   const [showLog, setShowLog]       = useState(false)  // timeline ย่อไว้ก่อน
+
+  // แถวที่กางอ่านรายละเอียดเต็ม (accordion — เปิดพร้อมกันได้หลายแถว)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const toggleExpand = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -385,11 +395,13 @@ export function OrderTrackingPage() {
             const sm   = otStatusMeta(r.status)
             const days = ageDays(r.createdAt)
             const snap = r.prSnapshot
+            const isExpanded = expandedIds.has(r._id)
+            const reason = snap?.note && snap.note.trim() !== (r.title || "").trim() ? snap.note : ""
             return (
+              <div key={r._id} className="border-b border-[#F1F5F2] dark:border-white/5">
               <div
-                key={r._id}
                 onClick={() => openEdit(r)}
-                className="grid cursor-pointer items-start gap-3 border-b border-[#F1F5F2] dark:border-white/5 px-4 py-3 transition-colors hover:bg-[#F6FAF7] dark:hover:bg-white/[0.03]"
+                className="grid cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-[#F6FAF7] dark:hover:bg-white/[0.03]"
                 style={{ gridTemplateColumns: TABLE_GRID }}
               >
                 <div className="text-[18px] font-semibold leading-none text-[#5B7568] dark:text-gray-300" style={{ fontFamily: "'Mitr', sans-serif" }}>
@@ -399,6 +411,14 @@ export function OrderTrackingPage() {
                   <div className="line-clamp-2 text-[13.5px] font-semibold text-[#14271C] dark:text-white" title={r.title}>{r.title}</div>
                   {r.detail && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-[#5B7568] dark:text-gray-400" title={r.detail}>{r.detail}</div>}
                   {r.note && <div className="mt-0.5 truncate text-[10.5px] text-[#9AA8A0]" title={r.note}>📝 {r.note}</div>}
+                  {/* กางอ่านรายละเอียดเต็มแบบ accordion (animate-ui style) */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleExpand(r._id) }}
+                    className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-[#1B8C4B] hover:underline"
+                  >
+                    <motion.span animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.25 }} className="inline-flex"><ChevronDown size={12} /></motion.span>
+                    {isExpanded ? "ย่อ" : "อ่านทั้งหมด"}
+                  </button>
                 </div>
                 <div className="min-w-0 text-[12px] text-[#4B5F54] dark:text-gray-300">
                   <div className="truncate font-medium">{r.requester || "—"}</div>
@@ -460,6 +480,41 @@ export function OrderTrackingPage() {
                   <button onClick={() => openEdit(r)} title="แก้ไข" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B]"><Pencil size={14} /></button>
                   <button onClick={() => remove(r)} title="ลบ" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#DC2626]/10 hover:text-[#DC2626]"><Trash2 size={14} /></button>
                 </div>
+              </div>
+
+              {/* Accordion panel — animation ตาม animate-ui AccordionContent (height auto, 0.35s easeInOut) */}
+              <AnimatePresence initial={false}>
+                {isExpanded && (
+                  <motion.div
+                    key="detail"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.35, ease: "easeInOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mx-4 mb-3 space-y-2 rounded-xl border-l-4 bg-[#F6FAF7] dark:bg-white/[0.03] px-4 py-3 text-[12.5px] leading-relaxed text-[#4B5F54] dark:text-gray-300" style={{ borderLeftColor: sm.color }}>
+                      <p className="whitespace-pre-wrap font-semibold text-[#14271C] dark:text-white">{r.title}</p>
+                      {reason && <p className="whitespace-pre-wrap text-[#B07D12] dark:text-amber-300">💬 <b>เหตุผลในการขอ (จาก PR):</b> {reason}</p>}
+                      {r.detail && <p className="whitespace-pre-wrap">{r.detail}</p>}
+                      {r.note && <p className="whitespace-pre-wrap text-[#9AA8A0]">📝 {r.note}</p>}
+                      {snap && (
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#EEF2F0] dark:border-white/8 pt-2 text-[11.5px]">
+                          {r.prCode && <span className="font-mono font-medium text-[#14271C] dark:text-white">{r.prCode}</span>}
+                          {snap.poCodes.map((po) => (
+                            <span key={po} className="rounded bg-[#EEF2FF] px-1.5 py-0.5 font-mono text-[10.5px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">PO {po}</span>
+                          ))}
+                          {snap.total > 0 && <span className="font-semibold text-[#1B8C4B]">฿ {fmtNum(snap.total)}</span>}
+                          {snap.hasDD
+                            ? <span className="rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[10px] font-semibold text-[#1B8C4B]">📦 รับของแล้ว</span>
+                            : snap.expectedDelivery && <span>📅 คาดรับ {fmtDateShort(snap.expectedDelivery)}</span>}
+                          {r.acceptedBy && <span>🛒 {r.acceptedBy}{r.estimatedDone ? ` · 🎯 คาดเสร็จ ${fmtDateShort(r.estimatedDone)}` : ""}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               </div>
             )
           })}
