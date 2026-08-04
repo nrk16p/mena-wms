@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
+import { normalizeImages } from "@/lib/media"
 import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus } from "@/lib/order-tracking"
 
 export const dynamic = "force-dynamic"
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
     acceptedBy: "", acceptedAt: "", estimatedDone: s(body.estimatedDone),
     prSnapshot: snap, prSyncedAt: snap ? now.toISOString() : "",
     closedAt: status === OT_DONE_STATUS ? todayBKK() : "",
-    images: Array.isArray(body.images) ? body.images : [],
+    images: normalizeImages(body.images),
     log,
     createdAt: now, updatedAt: now, updatedBy: by,
   }

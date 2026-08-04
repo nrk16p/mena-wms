@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ImagePlus, Eye, Trash2, Loader2, AlertCircle, X, Download } from "lucide-react"
-import { webpUrl, thumbnailUrl, sanitizeMediaFilename, MEDIA_MAX_BYTES, type SkuImage } from "@/lib/media"
+import { webpUrl, thumbnailUrl, sanitizeMediaFilename, MEDIA_MAX_BYTES, MEDIA_UI_MAX_BYTES, type SkuImage } from "@/lib/media"
 import { swalDeleteConfirm, swalToast } from "@/lib/swal"
 
 type UploadItem = {
@@ -26,7 +26,7 @@ function uid(): string {
 export function ImageUpload({
   onChange,
   disabled,
-  max = 12,
+  max = 30,
   initial,
 }: {
   onChange: (images: SkuImage[]) => void
@@ -123,6 +123,27 @@ export function ImageUpload({
     }
   }
 
+  // ย่อรูปในเบราว์เซอร์ให้ต่ำกว่าเพดานของ presign-api (25MB) — ลดขนาด/คุณภาพเป็นขั้น ๆ
+  async function shrinkImage(file: File): Promise<File | null> {
+    try {
+      const bmp = await createImageBitmap(file)
+      let scale = Math.min(1, 4096 / Math.max(bmp.width, bmp.height))  // จำกัดด้านยาวสุด 4096px ก่อน
+      for (let i = 0; i < 6; i++) {
+        const w = Math.max(1, Math.round(bmp.width * scale))
+        const h = Math.max(1, Math.round(bmp.height * scale))
+        const canvas = document.createElement("canvas")
+        canvas.width = w; canvas.height = h
+        canvas.getContext("2d")?.drawImage(bmp, 0, 0, w, h)
+        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.85))
+        if (blob && blob.size <= MEDIA_MAX_BYTES) {
+          return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" })
+        }
+        scale *= 0.75
+      }
+    } catch { /* decode ไม่ได้ (เช่นไฟล์เสีย) */ }
+    return null
+  }
+
   function addFiles(fileList: FileList | null) {
     if (!fileList || disabled) return
     const all = Array.from(fileList)
@@ -131,24 +152,45 @@ export function ImageUpload({
     if (blocked.length) {
       swalToast("error", `อัปโหลดได้เฉพาะรูปภาพ — บล็อก ${blocked.length} ไฟล์: ${blocked.map((f) => f.name).slice(0, 3).join(", ")}${blocked.length > 3 ? " ..." : ""}`)
     }
+    const images = all.filter((f) => f.type.startsWith("image/"))
+    // แจ้งเตือนไฟล์ใหญ่เกินเพดาน UI (50MB) — ไม่รับ
+    const tooBig = images.filter((f) => f.size > MEDIA_UI_MAX_BYTES)
+    if (tooBig.length) {
+      swalToast("error", `ไฟล์ใหญ่เกิน 50MB — อัปโหลดไม่ได้ ${tooBig.length} ไฟล์: ${tooBig.map((f) => f.name).slice(0, 3).join(", ")}`)
+    }
+    // 25–50MB → รับไว้แล้วย่ออัตโนมัติ (แจ้งให้รู้)
+    const needShrink = images.filter((f) => f.size <= MEDIA_UI_MAX_BYTES && f.size > MEDIA_MAX_BYTES)
+    if (needShrink.length) {
+      swalToast("info", `รูปใหญ่เกิน 25MB จำนวน ${needShrink.length} ไฟล์ — ระบบกำลังย่อให้อัตโนมัติ`)
+    }
+
     const remaining = max - items.length
-    const picked = all
-      .filter((f) => f.type.startsWith("image/"))
-      .slice(0, Math.max(0, remaining))
+    const picked = images.filter((f) => f.size <= MEDIA_UI_MAX_BYTES).slice(0, Math.max(0, remaining))
 
     // sanitize ชื่อไฟล์ก่อนอัปโหลด — อักขระอย่าง # ทำ URL รูปพัง (กลายเป็น fragment)
-    const safeNames = picked.map((f) => sanitizeMediaFilename(f.name))
+    const safeNames = picked.map((f) =>
+      f.size > MEDIA_MAX_BYTES
+        ? sanitizeMediaFilename(f.name.replace(/\.[^.]+$/, "") + ".jpg")  // ย่อแล้วกลายเป็น jpeg
+        : sanitizeMediaFilename(f.name)
+    )
     const fresh: UploadItem[] = picked.map((f, i) => ({
       localId:    uid(),
       filename:   safeNames[i],
       previewUrl: URL.createObjectURL(f),
-      status:     f.size > MEDIA_MAX_BYTES ? "error" : "uploading",
-      error:      f.size > MEDIA_MAX_BYTES ? "ไฟล์ใหญ่เกิน 25MB" : undefined,
+      status:     "uploading",
     }))
 
     setItems((prev) => [...prev, ...fresh])
-    picked.forEach((f, i) => {
-      if (fresh[i].status === "uploading") uploadOne(f, fresh[i].localId, safeNames[i])
+    picked.forEach(async (f, i) => {
+      let toSend: File | null = f
+      if (f.size > MEDIA_MAX_BYTES) {
+        toSend = await shrinkImage(f)
+        if (!toSend) {
+          setItems((prev) => prev.map((it) => (it.localId === fresh[i].localId ? { ...it, status: "error", error: "ย่อรูปไม่สำเร็จ — ไฟล์ใหญ่เกิน 25MB" } : it)))
+          return
+        }
+      }
+      uploadOne(toSend, fresh[i].localId, safeNames[i])
     })
   }
 
@@ -213,7 +255,7 @@ export function ImageUpload({
           {atLimit ? `ครบ ${max} รูปแล้ว` : "ลากรูปมาวาง หรือคลิกเพื่อเลือก"}
         </span>
         <span className="text-[11px] text-gray-400 dark:text-gray-500">
-          แนบได้หลายรูป · JPG / PNG / WebP · ไม่เกิน 25MB ต่อรูป
+          แนบได้หลายรูป · JPG / PNG / WebP · ไม่เกิน 50MB ต่อรูป (เกิน 25MB ระบบย่อให้อัตโนมัติ)
         </span>
       </button>
 
