@@ -92,7 +92,8 @@ export async function GET(req: NextRequest) {
     if (warehouse) prFilter["คลังสินค้า"] = warehouse
     if (dept)      prFilter["แผนก"]       = dept
     if (q) {
-      prFilter["$or"] = [
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const or: Record<string, any>[] = [
         { [PR_KEY]:      { $regex: q, $options: "i" } },
         { "ทะเบียน":     { $regex: q, $options: "i" } },
         { "ผู้ขอซื้อ":    { $regex: q, $options: "i" } },
@@ -100,6 +101,13 @@ export async function GET(req: NextRequest) {
         { "คลังสินค้า":   { $regex: q, $options: "i" } },
         { "แผนก":        { $regex: q, $options: "i" } },
       ]
+      // ค้นด้วย "เบอร์รถ" — PR เก็บแค่ทะเบียน จึงแปลงเบอร์รถ → ทะเบียนผ่าน vehiclemaster ก่อน
+      const rxq = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const plates = await db.collection("vehiclemaster")
+        .distinct("ทะเบียน", { "เลขรถ": { $regex: rxq, $options: "i" } }) as unknown[]
+      const plateList = plates.map(s).filter(Boolean).slice(0, 300)
+      if (plateList.length) or.push({ "ทะเบียน": { $in: plateList } })
+      prFilter["$or"] = or
     }
 
     // เรียง "ล่าสุดก่อน" ต้องแปลง วันที่ (DD/MM/YYYY) เป็น date จริงก่อน — sort ตรง ๆ บน string
@@ -132,6 +140,11 @@ export async function GET(req: NextRequest) {
       ? await ddCol.distinct("purchase_order", { purchase_order: { $in: allPoCodes } }) as string[]
       : []
     const receivedPo = new Set(ddPoCodes.map(s).filter(Boolean))
+
+    // 3.4) เบอร์รถต่อทะเบียน (vehiclemaster ~1.8k คัน) — ให้ค้น/แสดงเบอร์รถได้
+    const vmDocs = await db.collection("vehiclemaster")
+      .find({}).project({ "ทะเบียน": 1, "เลขรถ": 1, _id: 0 }).toArray() as Doc[]
+    const fleetByPlate = new Map(vmDocs.map((v) => [s(v["ทะเบียน"]), s(v["เลขรถ"])]))
 
     // 3.5) ข้อมูลติดตาม (master_data.pr_tracking) — วันกำหนดส่งที่ผู้ใช้กรอก
     const trackDocs = prCodes.length
@@ -215,6 +228,7 @@ export async function GET(req: NextRequest) {
           warehouse,
           dept:      s(p["แผนก"]),
           plate:     s(p["ทะเบียน"]),
+          fleet_no:  fleetByPlate.get(s(p["ทะเบียน"])) || "",
           requester: s(p["ผู้ขอซื้อ"]),
           total:     prTotal,        // ยอด PR
           po_total:  poTotal,        // ยอด PO รวม

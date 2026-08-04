@@ -13,6 +13,7 @@ type Row = {
   warehouse: string
   dept: string
   plate: string
+  fleet_no: string
   requester: string
   total: number
   po_total: number
@@ -297,7 +298,7 @@ export function PrPage() {
       if (warehouse && r.warehouse !== warehouse) return false
       if (dept && r.dept !== dept) return false
       if (!kw) return true
-      return [r.pr_code, r.plate, r.requester, r.note, r.warehouse, r.dept, ...r.po_codes]
+      return [r.pr_code, r.plate, r.fleet_no, r.requester, r.note, r.warehouse, r.dept, ...r.po_codes]
         .join(" ").toLowerCase().includes(kw)
     })
   }, [rows, q, warehouse, dept])
@@ -441,7 +442,7 @@ export function PrPage() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="ค้นหา PR / ทะเบียน / ผู้ขอซื้อ / PO / หมายเหตุ"
+            placeholder="ค้นหา PR / ทะเบียน / เบอร์รถ / ผู้ขอซื้อ / PO / หมายเหตุ"
             className="w-full rounded-[10px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] pl-9 pr-3 py-2 text-[13px] text-[#14271C] dark:text-white outline-none focus:border-[#CFE3D6]"
           />
         </div>
@@ -518,7 +519,10 @@ export function PrPage() {
                   <div className="truncate text-[#14271C] dark:text-gray-200" title={r.warehouse}>{r.warehouse || "—"}</div>
                   <div className="truncate text-[10px] text-[#9AA8A0]" title={r.dept}>{r.dept || "—"}</div>
                 </td>
-                <td className="px-2 py-2.5"><span className="block truncate font-medium text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</span></td>
+                <td className="px-2 py-2.5">
+                  <span className="block truncate font-medium text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</span>
+                  {r.fleet_no && <span className="block truncate text-[10.5px] text-[#9AA8A0]">เบอร์ {r.fleet_no}</span>}
+                </td>
                 <td className="px-2 py-2.5"><span className="block truncate text-[#4B5F54] dark:text-gray-400" title={r.requester}>{r.requester || "—"}</span></td>
                 <td className="px-2 py-2.5 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white" title={baht(r.total || 0)}>{bahtShort(r.total || 0)}</td>
                 <td className="px-2 py-2.5 whitespace-nowrap text-right text-[#4B5F54] dark:text-gray-300" title={r.po_count ? baht(r.po_total || 0) : ""}>{r.po_count === 0 ? "—" : bahtShort(r.po_total || 0)}</td>
@@ -668,7 +672,7 @@ export function PrPage() {
               {/* PR info */}
               <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12.5px] sm:grid-cols-3">
                 {[
-                  ["แผนก", detail.dept], ["ทะเบียน", detail.plate], ["ผู้ขอซื้อ", detail.requester],
+                  ["แผนก", detail.dept], ["ทะเบียน", detail.plate + (detail.fleet_no ? ` (เบอร์ ${detail.fleet_no})` : "")], ["ผู้ขอซื้อ", detail.requester],
                 ].map(([k, v]) => (
                   <div key={k}><div className="text-[10.5px] uppercase text-[#9AA8A0]">{k}</div><div className="text-[#14271C] dark:text-gray-200">{v || "—"}</div></div>
                 ))}
