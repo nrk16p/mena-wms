@@ -30,6 +30,8 @@ const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
 
+const TABLE_GRID = "88px 2.2fr 1.2fr 1.4fr 1.4fr 1.3fr 72px"
+
 type PrHit = { code: string; date: string; warehouse: string; dept: string; requester: string; total: number }
 type OtComment = { _id: string; parentId: string | null; text: string; by: string; byEmail: string; at: string }
 
@@ -87,15 +89,6 @@ export function OrderTrackingPage() {
   const [replyText, setReplyText]   = useState("")
   const [posting, setPosting]       = useState(false)
   const [showLog, setShowLog]       = useState(false)  // timeline ย่อไว้ก่อน
-
-  // แถวที่กด "อ่านทั้งหมด" — ยกเลิก line-clamp เฉพาะแถวนั้น
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const toggleExpand = (id: string) =>
-    setExpandedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -371,9 +364,12 @@ export function OrderTrackingPage() {
         })}
       </div>
 
-      {/* รายการเรื่อง — แถว 2 ชั้น: ข้อความได้พื้นที่เต็มความกว้าง อ่านได้ไม่โดนตัด */}
-      <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
-        <div>
+      {/* Table */}
+      <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
+        <div className="min-w-[960px]">
+          <div className="sticky top-0 z-10 grid gap-3 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]" style={{ gridTemplateColumns: TABLE_GRID }}>
+            <div>อายุเรื่อง</div><div>เรื่องที่ขอ</div><div>ผู้ขอ</div><div>PR / PO</div><div>จัดซื้อ</div><div>สถานะ</div><div className="text-center">จัดการ</div>
+          </div>
           {loading ? (
             <div className="px-4 py-12 text-center text-sm text-gray-400">กำลังโหลด...</div>
           ) : rows.length === 0 ? (
@@ -389,92 +385,80 @@ export function OrderTrackingPage() {
             const sm   = otStatusMeta(r.status)
             const days = ageDays(r.createdAt)
             const snap = r.prSnapshot
-            const idx  = OT_STATUSES.findIndex((s) => s.value === r.status)
-            const isExpanded = expandedIds.has(r._id)
-            // มีอะไรให้ขยายไหม — เรื่องยาว / เหตุผลยาว / รายละเอียดยาว
-            const reasonRaw  = snap?.note && snap.note.trim() !== (r.title || "").trim() ? snap.note : ""
-            const longTitle  = (r.title || "").length > 130 || reasonRaw.length > 100 || (r.detail || "").length > 100
-            // อายุเรื่องมีสี: เขียว <4 · เหลือง 4-7 · แดง ≥8 (เฉพาะเรื่องที่ยังไม่ปิด)
-            const ageColor = r.status === OT_DONE_STATUS || days === null ? { text: "#9AA8A0", bg: "#F1F5F2" }
-              : days >= 8 ? { text: "#DC2626", bg: "#FEECEC" }
-              : days >= 4 ? { text: "#B07D12", bg: "#FEF7E6" }
-              : { text: "#1B8C4B", bg: "#ECFDF3" }
-            // เหตุผลจาก PR โชว์เฉพาะตอนต่างจากเรื่องที่ขอ (auto-fill มาเหมือนกันบ่อย — กันซ้ำ)
-            const reason = reasonRaw
             return (
               <div
                 key={r._id}
                 onClick={() => openEdit(r)}
-                className="group cursor-pointer border-b border-[#F1F5F2] dark:border-white/5 py-3 pl-3 pr-4 transition-colors hover:bg-[#F6FAF7] dark:hover:bg-white/[0.03]"
-                style={{ borderLeft: `4px solid ${sm.color}` }}
+                className="grid cursor-pointer items-start gap-3 border-b border-[#F1F5F2] dark:border-white/5 px-4 py-3 transition-colors hover:bg-[#F6FAF7] dark:hover:bg-white/[0.03]"
+                style={{ gridTemplateColumns: TABLE_GRID }}
               >
-                <div className="flex items-start justify-between gap-3">
-                  {/* ซ้าย: ข้อความเต็มความกว้าง */}
-                  <div className="min-w-0 flex-1">
-                    {/* บรรทัด 1: เรื่องที่ขอ — clamp 2 บรรทัด กดอ่านทั้งหมดได้ */}
-                    <p className={`text-[13.5px] font-semibold leading-relaxed text-[#14271C] dark:text-white ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>
-                      {r.title}
-                    </p>
-                    {longTitle && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleExpand(r._id) }}
-                        className="mt-0.5 text-[11px] font-medium text-[#1B8C4B] hover:underline"
-                      >
-                        {isExpanded ? "▲ ย่อ" : "▼ อ่านทั้งหมด"}
-                      </button>
-                    )}
-                    {/* เหตุผลจาก PR — เฉพาะเมื่อไม่ซ้ำกับเรื่องที่ขอ */}
-                    {reason && (
-                      <p className={`mt-1 text-[11.5px] text-[#B07D12] dark:text-amber-300 ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-1"}`}>💬 {reason}</p>
-                    )}
-                    {r.detail && (
-                      <p className={`mt-1 text-[11.5px] text-[#5B7568] dark:text-gray-400 ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-1"}`}>{r.detail}</p>
-                    )}
-                    {/* บรรทัด meta: chips เล็ก wrap ได้ */}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5B7568] dark:text-gray-400">
-                      <span className="rounded-full px-1.5 py-0.5 font-semibold" style={{ color: ageColor.text, background: ageColor.bg }}>⏱ {days ?? "—"} วัน</span>
-                      <span className="truncate max-w-[220px]" title={r.requester}>👤 {r.requester || "—"}</span>
-                      {r.dept && <span className="truncate max-w-[220px]">🏢 {r.dept}</span>}
-                      {r.prCode ? (
-                        <>
-                          <span className="font-mono font-medium text-[#14271C] dark:text-white">{r.prCode}</span>
-                          {snap && snap.poCodes.length > 0 && <span className="font-mono text-[10.5px]">PO {snap.poCodes.length > 1 ? `${snap.poCodes.length} ใบ` : snap.poCodes[0]}</span>}
-                          {snap && snap.total > 0 && <span className="font-medium text-[#1B8C4B]">฿ {fmtNum(snap.total)}</span>}
-                          {snap?.hasDD
-                            ? <span className="rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[10px] font-semibold text-[#1B8C4B]">📦 รับของแล้ว</span>
-                            : snap?.expectedDelivery && <span>📅 คาดรับ {fmtDateShort(snap.expectedDelivery)}</span>}
-                        </>
-                      ) : (
-                        <span className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PR</span>
+                <div className="text-[18px] font-semibold leading-none text-[#5B7568] dark:text-gray-300" style={{ fontFamily: "'Mitr', sans-serif" }}>
+                  {days ?? "—"}<span className="ml-1 text-[10px] font-normal text-[#9AA8A0]">วัน</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="line-clamp-2 text-[13.5px] font-semibold text-[#14271C] dark:text-white" title={r.title}>{r.title}</div>
+                  {r.detail && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-[#5B7568] dark:text-gray-400" title={r.detail}>{r.detail}</div>}
+                  {r.note && <div className="mt-0.5 truncate text-[10.5px] text-[#9AA8A0]" title={r.note}>📝 {r.note}</div>}
+                </div>
+                <div className="min-w-0 text-[12px] text-[#4B5F54] dark:text-gray-300">
+                  <div className="truncate font-medium">{r.requester || "—"}</div>
+                  {r.dept && <div className="truncate text-[10.5px] text-[#9AA8A0]">🏢 {r.dept}</div>}
+                </div>
+                <div className="min-w-0 text-[11.5px]">
+                  {r.prCode ? (
+                    <>
+                      <div className="font-mono font-medium text-[#14271C] dark:text-white">{r.prCode}</div>
+                      {snap && snap.poCodes.length > 0 && (
+                        <div className="mt-0.5 truncate font-mono text-[10.5px] text-[#5B7568] dark:text-gray-400" title={snap.poCodes.join(", ")}>PO {snap.poCodes.join(", ")}</div>
                       )}
-                      {r.acceptedBy && (
-                        <span className="truncate max-w-[240px]" title={r.acceptedBy}>🛒 {r.acceptedBy}{r.estimatedDone ? ` · 🎯 ${fmtDateShort(r.estimatedDone)}` : ""}</span>
+                      {snap && snap.total > 0 && <div className="mt-0.5 text-[10.5px] font-medium text-[#1B8C4B]">฿ {fmtNum(snap.total)}</div>}
+                      {snap?.hasDD
+                        ? <div className="mt-0.5 inline-flex rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[10px] font-semibold text-[#1B8C4B]">📦 รับของแล้ว</div>
+                        : snap?.expectedDelivery && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">📅 คาดรับ {fmtDateShort(snap.expectedDelivery)}</div>}
+                      {snap?.note && snap.note.trim() !== (r.title || "").trim() && (
+                        <div className="mt-0.5 line-clamp-1 text-[10.5px] text-[#B07D12]" title={`เหตุผลในการขอ (จาก PR): ${snap.note}`}>💬 {snap.note}</div>
                       )}
-                      {r.status === OT_DONE_STATUS && r.closedAt && <span className="text-[#1B8C4B]">🏁 ปิด {fmtDateShort(r.closedAt)}</span>}
-                    </div>
-                  </div>
-
-                  {/* ขวา: สถานะ + progress + action */}
-                  <div className="flex w-[150px] shrink-0 flex-col items-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-                    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
-                    <div className="flex w-full gap-0.5" title={`ขั้นที่ ${idx + 1} จาก ${OT_STATUSES.length}`}>
-                      {OT_STATUSES.map((_, i) => (
-                        <span key={i} className="h-1 flex-1 rounded-full" style={{ background: i <= idx ? sm.color : "#E5E7EB" }} />
-                      ))}
-                    </div>
-                    {!r.acceptedBy && r.status !== OT_DONE_STATUS && (
-                      <button
-                        onClick={() => accept(r)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-[#eab308] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#ca9a04]"
-                      >
-                        <UserCheck size={12} /> รับเรื่อง
-                      </button>
-                    )}
-                    <div className="flex gap-1 opacity-0 transition group-hover:opacity-100">
-                      <button onClick={() => openEdit(r)} title="แก้ไข" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B]"><Pencil size={14} /></button>
-                      <button onClick={() => remove(r)} title="ลบ" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#DC2626]/10 hover:text-[#DC2626]"><Trash2 size={14} /></button>
-                    </div>
-                  </div>
+                    </>
+                  ) : (
+                    <span className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PR</span>
+                  )}
+                </div>
+                <div className="min-w-0 text-[11.5px] text-[#4B5F54] dark:text-gray-300" onClick={(e) => e.stopPropagation()}>
+                  {r.acceptedBy ? (
+                    <>
+                      <div className="truncate font-medium" title={r.acceptedBy}>👤 {r.acceptedBy}</div>
+                      {r.estimatedDone && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">🎯 คาดเสร็จ {fmtDateShort(r.estimatedDone)}</div>}
+                    </>
+                  ) : r.status !== OT_DONE_STATUS ? (
+                    // กดรับเรื่องได้จากตารางเลยทุกสถานะที่ยังไม่ปิด — ระบบจดชื่อผู้กดจาก session
+                    <button
+                      onClick={() => accept(r)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-[#eab308] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#ca9a04]"
+                    >
+                      <UserCheck size={12} /> รับเรื่อง
+                    </button>
+                  ) : (
+                    <span className="text-[10.5px] text-[#9AA8A0]">ยังไม่มีผู้รับเรื่อง</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
+                  {/* mini progress 5 ขั้น — เห็น flow โดยไม่ต้องเปิด */}
+                  {(() => {
+                    const idx = OT_STATUSES.findIndex((s) => s.value === r.status)
+                    return (
+                      <div className="mt-1.5 flex gap-0.5" title={`ขั้นที่ ${idx + 1} จาก ${OT_STATUSES.length}`}>
+                        {OT_STATUSES.map((_, i) => (
+                          <span key={i} className="h-1 flex-1 rounded-full" style={{ background: i <= idx ? sm.color : "#E5E7EB" }} />
+                        ))}
+                      </div>
+                    )
+                  })()}
+                  {r.status === OT_DONE_STATUS && r.closedAt && <div className="mt-1 text-[10.5px] text-[#1B8C4B]">🏁 {fmtDateShort(r.closedAt)}</div>}
+                </div>
+                <div className="grid grid-cols-2 justify-items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => openEdit(r)} title="แก้ไข" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B]"><Pencil size={14} /></button>
+                  <button onClick={() => remove(r)} title="ลบ" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#DC2626]/10 hover:text-[#DC2626]"><Trash2 size={14} /></button>
                 </div>
               </div>
             )
