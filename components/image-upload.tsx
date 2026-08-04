@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ImagePlus, Eye, Trash2, Loader2, AlertCircle, X } from "lucide-react"
+import { ImagePlus, Eye, Trash2, Loader2, AlertCircle, X, Download } from "lucide-react"
 import { webpUrl, thumbnailUrl, sanitizeMediaFilename, MEDIA_MAX_BYTES, type SkuImage } from "@/lib/media"
 import { swalDeleteConfirm, swalToast } from "@/lib/swal"
 
@@ -152,6 +152,27 @@ export function ImageUpload({
     })
   }
 
+  // ดาวน์โหลดไฟล์ — CDN คนละ origin ใช้ <a download> ตรง ๆ ไม่ได้ ต้อง fetch เป็น blob ก่อน
+  async function downloadItem(item: UploadItem) {
+    const url = item.webpUrl || item.previewUrl
+    if (!url) return
+    try {
+      const res  = await fetch(url)
+      if (!res.ok) throw new Error()
+      const blob = await res.blob()
+      const a    = document.createElement("a")
+      a.href     = URL.createObjectURL(blob)
+      a.download = item.filename.replace(/\.[^.]+$/, "") + ".webp"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(a.href)
+    } catch {
+      // CORS/network มีปัญหา → เปิดแท็บใหม่ให้ผู้ใช้เซฟเอง
+      window.open(url, "_blank")
+    }
+  }
+
   async function removeItem(item: UploadItem) {
     // รูปที่อัปโหลดสำเร็จแล้ว → ถามยืนยันก่อนลบ (tile ที่ error/กำลังอัปโหลด ลบได้เลย)
     if (item.status === "done") {
@@ -245,6 +266,16 @@ export function ImageUpload({
                     className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-gray-800 shadow hover:bg-white"
                   >
                     <Eye size={15} />
+                  </button>
+                )}
+                {item.status === "done" && (
+                  <button
+                    type="button"
+                    onClick={() => downloadItem(item)}
+                    title="ดาวน์โหลด"
+                    className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-gray-800 shadow hover:bg-[#1B8C4B] hover:text-white"
+                  >
+                    <Download size={15} />
                   </button>
                 )}
                 <button
