@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
     const q         = searchParams.get("q")?.trim()         ?? ""
     const warehouse = searchParams.get("warehouse")?.trim() ?? ""
     const dept      = searchParams.get("dept")?.trim()      ?? ""
-    const limit     = Math.min(parseInt(searchParams.get("limit") ?? "1000"), 5000)
+    const limit     = Math.min(parseInt(searchParams.get("limit") ?? "2000"), 5000)
 
     const client = await clientPromise
     const db     = client.db("atms")
@@ -101,7 +101,15 @@ export async function GET(req: NextRequest) {
       ]
     }
 
-    const prs = await prCol.find(prFilter).sort({ "วันที่": -1, _id: -1 }).limit(limit).toArray() as Doc[]
+    // เรียง "ล่าสุดก่อน" ต้องแปลง วันที่ (DD/MM/YYYY) เป็น date จริงก่อน — sort ตรง ๆ บน string
+    // จะเรียงตามวันของเดือนก่อน (31/07 มาก่อน 04/08) ทำให้ PR ล่าสุด/บางใบหลุด limit
+    const prs = await prCol.aggregate([
+      { $match: prFilter },
+      { $addFields: { _sortDate: { $dateFromString: { dateString: "$วันที่", format: "%d/%m/%Y", onError: null } } } },
+      { $sort: { _sortDate: -1, _id: -1 } },
+      { $limit: limit },
+      { $unset: "_sortDate" },
+    ]).toArray() as Doc[]
     const prCodes = prs.map((p) => s(p[PR_KEY])).filter(Boolean)
 
     // 2) PO ของ PR เหล่านี้ → map pr → [po], po → received status
