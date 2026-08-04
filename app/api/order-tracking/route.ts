@@ -111,8 +111,8 @@ export async function POST(req: NextRequest) {
     detail: s(body.detail),
     note:   s(body.note),
     dept:   s(body.dept),
-    // ผู้ขอ/ผู้เปิดเรื่อง — เลือกจากฟอร์มได้ (เปิดแทนคนอื่น) · ไม่ระบุ = ผู้ใช้ที่ล็อกอิน
-    requester: s(body.requester) || by,
+    // ผู้เปิดเรื่อง — อิงจากผู้ใช้ที่ล็อกอินเสมอ (ชื่อ + อีเมลจาก session, แก้ไม่ได้)
+    requester: by,
     requesterEmail: byEmail,
     status,
     acceptedBy: "", acceptedAt: "", estimatedDone: s(body.estimatedDone),
