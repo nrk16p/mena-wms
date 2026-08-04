@@ -26,7 +26,7 @@ function uid(): string {
 export function ImageUpload({
   onChange,
   disabled,
-  max = 12,
+  max = 30,
   initial,
 }: {
   onChange: (images: SkuImage[]) => void
