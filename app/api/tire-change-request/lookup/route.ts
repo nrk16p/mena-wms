@@ -46,11 +46,14 @@ export async function GET(req: NextRequest) {
   for (const r of requests) {
     const rStatus = (r.status as string) ?? "pending"
     if (rStatus === "done" || rStatus === "rejected") continue
-    for (const it of (r.items ?? []) as { serialNo?: string; status?: string }[]) {
+    const rItems = (r.items ?? []) as { serialNo?: string; status?: string; appointmentDate?: Date | null }[]
+    // fallback ไปวันระดับคำขอได้เฉพาะคำขอเก่าที่ยังไม่มีเส้นไหนนัดรายเส้น — กันวันนัดรั่วข้ามล้อ
+    const legacyDate = rItems.some((it) => it.appointmentDate) ? null : r.appointmentDate ?? null
+    for (const it of rItems) {
       const iStatus = it.status ?? "pending"
       const key = String(it.serialNo ?? "").trim()
       if (iStatus === "rejected" || !key || statusMap.has(key)) continue
-      statusMap.set(key, { itemStatus: iStatus, requestStatus: rStatus, appointmentDate: r.appointmentDate ?? null })
+      statusMap.set(key, { itemStatus: iStatus, requestStatus: rStatus, appointmentDate: it.appointmentDate ?? legacyDate })
     }
   }
 

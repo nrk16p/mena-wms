@@ -71,8 +71,12 @@ export async function GET(req: NextRequest) {
   for (const r of requests) {
     const rStatus = (r.status as string) ?? "pending"
     if (rStatus === "done" || rStatus === "rejected") continue
-    type ReqItem = { _id?: unknown; serialNo?: string; status?: string; reason?: string; jobNo?: string }
-    for (const it of (r.items ?? []) as ReqItem[]) {
+    type ReqItem = { _id?: unknown; serialNo?: string; status?: string; reason?: string; jobNo?: string; appointmentDate?: Date | null }
+    const rItems = (r.items ?? []) as ReqItem[]
+    // คำขอเก่าที่นัดไว้ระดับคำขอ → ใช้วันนั้นกับทุกเส้นได้ แต่พอมีเส้นไหนนัดรายเส้นแล้ว ห้าม fallback อีก
+    // ไม่งั้นวันนัดของเส้นเดียวจะรั่วไปโชว์ทุกล้อในคำขอเดียวกัน
+    const legacyDate = rItems.some((it) => it.appointmentDate) ? null : r.appointmentDate ?? null
+    for (const it of rItems) {
       const iStatus = it.status ?? "pending"
       const key = String(it.serialNo ?? "").trim()
       if (iStatus === "rejected" || !key || statusMap.has(key)) continue
@@ -81,7 +85,7 @@ export async function GET(req: NextRequest) {
         itemId:          String(it._id ?? ""),
         itemStatus:      iStatus,
         requestStatus:   rStatus,
-        appointmentDate: r.appointmentDate ?? null,
+        appointmentDate: it.appointmentDate ?? legacyDate,
         reason:          String(it.reason ?? ""),
         driverName:      String(r.driverName ?? ""),
         jobNo:           String(it.jobNo ?? ""),

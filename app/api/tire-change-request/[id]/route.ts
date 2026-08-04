@@ -27,6 +27,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const now = new Date()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let update: Record<string, any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let arrayFilters: Record<string, any>[] | undefined
 
   switch (action) {
     case "approve":
@@ -45,7 +47,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
       const date = new Date(String(body.date ?? ""))
       if (isNaN(date.getTime())) return NextResponse.json({ error: "กรุณาระบุวันนัดหมาย" }, { status: 400 })
-      update = { status: "appointment", appointmentDate: date, appointmentNote: String(body.note ?? ""), appointmentBy: by, appointmentAt: now }
+      // นัดทั้งคำขอ = ลงวันเดียวกันให้ยางที่อนุมัติทุกเส้น (รายเส้นแก้วันแยกได้ทีหลังที่ items endpoint)
+      update = {
+        status: "appointment", appointmentDate: date, appointmentNote: String(body.note ?? ""), appointmentBy: by, appointmentAt: now,
+        "items.$[appr].appointmentDate": date, "items.$[appr].appointmentBy": by, "items.$[appr].appointmentAt": now,
+      }
+      arrayFilters = [{ "appr.status": "approved" }]
       break
     }
 
@@ -58,6 +65,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "action must be approve / reject / appointment / done" }, { status: 400 })
   }
 
-  await col.updateOne({ _id: new ObjectId(id) }, { $set: { ...update, updatedAt: now } })
+  await col.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { ...update, updatedAt: now } },
+    arrayFilters ? { arrayFilters } : {}
+  )
   return NextResponse.json({ ok: true, status: update.status })
 }
