@@ -83,6 +83,7 @@ export function OrderTrackingPage() {
   const [replyTo, setReplyTo]       = useState<string | null>(null)
   const [replyText, setReplyText]   = useState("")
   const [posting, setPosting]       = useState(false)
+  const [showLog, setShowLog]       = useState(false)  // timeline ย่อไว้ก่อน
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -184,7 +185,7 @@ export function OrderTrackingPage() {
   function openEdit(r: OrderTracking) {
     setEditId(r._id); setCurrent(r)
     setForm({ prCode: r.prCode || "", title: r.title || "", detail: r.detail || "", note: r.note || "", dept: r.dept || "", estimatedDone: r.estimatedDone || "" })
-    setPrHits([]); setPrPreview(null)
+    setPrHits([]); setPrPreview(null); setShowLog(false)
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
     loadComments(r._id)
     if (r.prCode) previewPr(r.prCode)
@@ -261,6 +262,10 @@ export function OrderTrackingPage() {
 
   const counts: Record<string, number> = {}
   for (const r of rows) counts[r.status] = (counts[r.status] || 0) + 1
+
+  // ปิดงานแล้ว → ฟอร์ม read-only (เหลือแค่ความคิดเห็น)
+  const isClosed = !!current && current.status === OT_DONE_STATUS
+  const roCls = isClosed ? " pointer-events-none opacity-60" : ""
 
   return (
     <div className="w-full px-4 py-6" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
@@ -365,7 +370,7 @@ export function OrderTrackingPage() {
                       )}
                       {snap && snap.total > 0 && <div className="mt-0.5 text-[10.5px] font-medium text-[#1B8C4B]">฿ {fmtNum(snap.total)}</div>}
                       {snap?.expectedDelivery && !snap.hasDD && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">📅 คาดรับ {fmtDateShort(snap.expectedDelivery)}</div>}
-                      {snap?.note && <div className="mt-0.5 line-clamp-2 text-[10.5px] text-[#B07D12]" title={`เหตุผลในการขอ (จาก PR): ${snap.note}`}>💬 {snap.note}</div>}
+                      {snap?.note && <div className="mt-0.5 line-clamp-1 text-[10.5px] text-[#B07D12]" title={`เหตุผลในการขอ (จาก PR): ${snap.note}`}>💬 {snap.note}</div>}
                     </>
                   ) : (
                     <span className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PR</span>
@@ -391,6 +396,17 @@ export function OrderTrackingPage() {
                 </div>
                 <div className="min-w-0">
                   <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
+                  {/* mini progress 5 ขั้น — เห็น flow โดยไม่ต้องเปิด */}
+                  {(() => {
+                    const idx = OT_STATUSES.findIndex((s) => s.value === r.status)
+                    return (
+                      <div className="mt-1.5 flex gap-0.5" title={`ขั้นที่ ${idx + 1} จาก ${OT_STATUSES.length}`}>
+                        {OT_STATUSES.map((_, i) => (
+                          <span key={i} className="h-1 flex-1 rounded-full" style={{ background: i <= idx ? sm.color : "#E5E7EB" }} />
+                        ))}
+                      </div>
+                    )
+                  })()}
                   {r.status === OT_DONE_STATUS && r.closedAt && <div className="mt-1 text-[10.5px] text-[#1B8C4B]">🏁 {fmtDateShort(r.closedAt)}</div>}
                 </div>
                 <div className="grid grid-cols-2 justify-items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -406,24 +422,22 @@ export function OrderTrackingPage() {
       {/* Modal */}
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm">
-          <div className="my-8 w-full max-w-xl rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl">
+          <div className="my-8 w-full max-w-2xl rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl">
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-                  {editId ? "แก้ไขเรื่องติดตาม" : "เปิดเรื่องใหม่"}
-                </h2>
-                {current && (
-                  <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${otStatusMeta(current.status).cls}`}>
-                    {otStatusMeta(current.status).emoji} {current.status}
-                  </span>
-                )}
-              </div>
+              <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
+                {editId ? "แก้ไขเรื่องติดตาม" : "เปิดเรื่องใหม่"}
+              </h2>
               <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"><X size={18} /></button>
             </div>
 
+            {/* Stepper — เห็น flow ทั้งเส้น: อยู่ขั้นไหน ใครรับ ขั้นไหนระบบเดินให้เอง */}
+            {current && <OtStepper status={current.status} acceptedBy={current.acceptedBy} />}
+
             <div className="space-y-4 px-5 py-5">
+              {/* ── โซนกรอกข้อมูล ── */}
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#9AA8A0]">✏️ ข้อมูลเรื่อง {isClosed && <span className="ml-1 normal-case">🔒 ปิดงานแล้ว — แก้ไขไม่ได้</span>}</p>
               {/* PR autocomplete */}
-              <div ref={prBoxRef} className="relative">
+              <div ref={prBoxRef} className={"relative" + roCls}>
                 <label className={labelCls}>เลข PR <span className="text-[10px] font-normal text-gray-400">(ไม่มีก็เปิดเรื่องได้ — พิมพ์เพื่อค้นหาจากระบบ)</span></label>
                 <input
                   value={form.prCode}
@@ -456,34 +470,27 @@ export function OrderTrackingPage() {
                     ))}
                   </div>
                 )}
-                {/* PR preview / sync result */}
+                {/* ไม่พบ PR */}
                 {prPreview === "notfound" && form.prCode.trim() && (
                   <p className="mt-1.5 rounded-md bg-[#FDF3DD] px-2.5 py-1.5 text-[11px] text-[#B07D12]">⚠ ไม่พบ PR นี้ในระบบ — บันทึกได้ แต่จะยังไม่ sync สถานะจนกว่า PR จะเข้าระบบ</p>
                 )}
-                {prPreview && prPreview !== "notfound" && (
-                  <div className="mt-1.5 rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#F0FDF4] dark:bg-[#1B8C4B]/10 px-3 py-2.5 text-[11.5px] text-[#0F6A3C] dark:text-[#4ade80]">
-                    <p className="flex items-center gap-1.5 font-semibold"><RefreshCw size={12} /> พบข้อมูล PR — จะ sync สถานะอัตโนมัติ</p>
-                    <p className="mt-1">
-                      {prPreview.snapshot.warehouse} · {prPreview.snapshot.dept} · ผู้ขอซื้อ {prPreview.snapshot.requester} · ฿ {fmtNum(prPreview.snapshot.total)}
-                      {prPreview.snapshot.poCodes.length > 0 && <> · PO {prPreview.snapshot.poCodes.join(", ")}</>}
-                    </p>
-                    {prPreview.snapshot.note && <p className="mt-1">💬 เหตุผลในการขอ (จาก PR): <b>{prPreview.snapshot.note}</b></p>}
-                    <p className="mt-1">สถานะที่จะตั้งให้: <b>{otStatusMeta(prPreview.autoStatus).emoji} {prPreview.autoStatus}</b>{prPreview.snapshot.hasDD && " (รับของครบแล้ว — ปิดจบอัตโนมัติ)"}</p>
-                  </div>
+                {/* การ์ด PR ตอนสร้างใหม่ (edit จะแสดงในโซนติดตามด้านล่าง) */}
+                {!editId && prPreview && prPreview !== "notfound" && (
+                  <PrCard snap={prPreview.snapshot} autoStatus={prPreview.autoStatus} />
                 )}
               </div>
 
-              <div>
+              <div className={roCls}>
                 <label className={labelCls}>เรื่องที่ขอ <span className="text-red-500">*</span> <span className="text-[10px] font-normal text-gray-400">(เลือก PR แล้วเติมจากเหตุผลในการขอให้อัตโนมัติ)</span></label>
                 <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={inputCls} placeholder="เช่น ขอซื้อยางอะไหล่ 10 เส้น" />
               </div>
 
-              <div>
+              <div className={roCls}>
                 <label className={labelCls}>รายละเอียด</label>
                 <textarea value={form.detail} onChange={(e) => setForm({ ...form, detail: e.target.value })} rows={3} className={inputCls} placeholder="สเปก / จำนวน / เหตุผลที่ขอ" />
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className={"grid grid-cols-1 gap-4 sm:grid-cols-2" + roCls}>
                 <div ref={deptBoxRef} className="relative">
                   <label className={labelCls}>แผนกผู้ขอ <span className="text-[10px] font-normal text-gray-400">(พิมพ์เพื่อค้นหา)</span></label>
                   <input
@@ -519,10 +526,13 @@ export function OrderTrackingPage() {
                 </div>
               </div>
 
-              <div>
-                <label className={labelCls}>Note</label>
-                <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} className={inputCls} placeholder="หมายเหตุเพิ่มเติม" />
-              </div>
+              {/* Note — เฉพาะตอนเปิดเรื่องใหม่ (หลังจากนั้นให้ใช้ความคิดเห็นแทน — มีชื่อ+เวลา) */}
+              {!editId && (
+                <div>
+                  <label className={labelCls}>Note</label>
+                  <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} className={inputCls} placeholder="หมายเหตุเพิ่มเติม" />
+                </div>
+              )}
 
               {/* ผู้เปิดเรื่อง (ตอนสร้างใหม่ — อิงจาก session: ชื่อ + email) */}
               {!editId && session?.user && (
@@ -532,38 +542,48 @@ export function OrderTrackingPage() {
                 </div>
               )}
 
-              {/* ข้อมูลเรื่อง + ประวัติ (ตอนแก้ไข) */}
+              {/* ── โซนการติดตาม (อ่านอย่างเดียว — sync จากระบบ) ── */}
               {current && (
-                <div className="rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] px-3.5 py-3 text-[11.5px] text-[#5B7568] dark:text-gray-400">
-                  {current.prSnapshot?.note && (
-                    <p className="mb-1.5 rounded-lg bg-[#FDF3DD] dark:bg-amber-900/20 px-2.5 py-1.5 text-[#B07D12] dark:text-amber-300">
-                      💬 <b>เหตุผลในการขอ (จาก PR):</b> {current.prSnapshot.note}
-                    </p>
-                  )}
-                  <p>เปิดเรื่องโดย <b className="text-[#14271C] dark:text-white">{current.requester || "—"}</b>{current.requesterEmail && <span className="ml-1 text-[#9AA8A0]">({current.requesterEmail})</span>} · {fmtDateShort(current.createdAt || "")}</p>
-                  {current.acceptedBy && <p className="mt-0.5">รับเรื่องโดย <b className="text-[#14271C] dark:text-white">{current.acceptedBy}</b> · {fmtDateShort(current.acceptedAt)}</p>}
-                  {current.prSyncedAt && <p className="mt-0.5">sync ล่าสุด {new Date(current.prSyncedAt).toLocaleString("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>}
+                <div className="space-y-3 rounded-2xl bg-[#F6FAF7] dark:bg-white/[0.03] p-3.5">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-[#9AA8A0]">🔄 การติดตาม (ข้อมูลจากระบบ — อ่านอย่างเดียว)</p>
 
-                  {/* Timeline log — ใครทำอะไรเมื่อไร (ชื่อ + email) */}
+                  {/* การ์ด PR เดียวจบ */}
+                  {(() => {
+                    const snap = prPreview && prPreview !== "notfound" ? prPreview.snapshot : current.prSnapshot
+                    return snap ? <PrCard snap={snap} syncedAt={current.prSyncedAt} /> : (
+                      <p className="text-[11.5px] text-[#9AA8A0]">ยังไม่ได้ผูกเลข PR — สถานะเดินด้วยมือ (แจ้งเรื่อง → รับเรื่อง → ปิดงาน)</p>
+                    )
+                  })()}
+
+                  <div className="text-[11.5px] text-[#5B7568] dark:text-gray-400">
+                    <p>✍️ เปิดเรื่องโดย <b className="text-[#14271C] dark:text-white">{current.requester || "—"}</b>{current.requesterEmail && <span className="ml-1 text-[#9AA8A0]">({current.requesterEmail})</span>} · {fmtDateShort(current.createdAt || "")}</p>
+                    {current.acceptedBy && <p className="mt-0.5">👤 รับเรื่องโดย <b className="text-[#14271C] dark:text-white">{current.acceptedBy}</b> · {fmtDateShort(current.acceptedAt)}</p>}
+                  </div>
+
+                  {/* ประวัติ — ย่อไว้ กดดูเมื่ออยากรู้ */}
                   {(current.log?.length ?? 0) > 0 && (
-                    <div className="mt-2.5 border-t border-[#EEF2F0] dark:border-white/8 pt-2.5">
-                      <p className="mb-1.5 flex items-center gap-1 font-semibold text-[#14271C] dark:text-white"><History size={12} /> ประวัติเรื่องนี้</p>
-                      <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
-                        {[...(current.log ?? [])].reverse().map((e, i) => {
-                          const m = LOG_META[e.action] ?? { label: e.action, color: "#9ca3af" }
-                          return (
-                            <div key={i} className="flex items-start gap-2">
-                              <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: m.color }} />
-                              <span className="min-w-0">
-                                <b className="text-[#14271C] dark:text-white">{m.label}</b> โดย {e.by || "—"}
-                                {e.byEmail && <span className="ml-1 text-[#9AA8A0]">({e.byEmail})</span>}
-                                <span className="ml-1 text-[#9AA8A0]">· {fmtDateTime(e.at)}</span>
-                                {e.note && <span className="block text-[10.5px] text-[#9AA8A0]">{e.note}</span>}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
+                    <div>
+                      <button type="button" onClick={() => setShowLog((v) => !v)} className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[#1B8C4B] hover:underline">
+                        <History size={12} /> {showLog ? "ซ่อนประวัติ" : `ดูประวัติ (${current.log!.length})`}
+                      </button>
+                      {showLog && (
+                        <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto pr-1 text-[11.5px] text-[#5B7568] dark:text-gray-400">
+                          {[...(current.log ?? [])].reverse().map((e, i) => {
+                            const m = LOG_META[e.action] ?? { label: e.action, color: "#9ca3af" }
+                            return (
+                              <div key={i} className="flex items-start gap-2">
+                                <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: m.color }} />
+                                <span className="min-w-0">
+                                  <b className="text-[#14271C] dark:text-white">{m.label}</b> โดย {e.by || "—"}
+                                  {e.byEmail && <span className="ml-1 text-[#9AA8A0]">({e.byEmail})</span>}
+                                  <span className="ml-1 text-[#9AA8A0]">· {fmtDateTime(e.at)}</span>
+                                  {e.note && <span className="block text-[10.5px] text-[#9AA8A0]">{e.note}</span>}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -616,33 +636,121 @@ export function OrderTrackingPage() {
               )}
             </div>
 
-            {/* footer */}
+            {/* footer — ปุ่มหลักเปลี่ยนตามสถานะเรื่อง */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2">
-                {current && !current.acceptedBy && current.status !== OT_DONE_STATUS && (
-                  <button
-                    onClick={() => accept(current)}
-                    title={`กดแล้วระบบบันทึกชื่อคุณ (${session?.user?.name || session?.user?.email || ""}) เป็นผู้รับผิดชอบ`}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#eab308] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#ca9a04]"
-                  >
-                    <UserCheck size={15} /> รับเรื่อง (จัดซื้อ)
-                  </button>
-                )}
-                {current && current.status !== OT_DONE_STATUS && (
+                {current && !isClosed && (
                   <button onClick={() => closeJob(current)} className="inline-flex items-center gap-1.5 rounded-lg border border-[#1B8C4B]/40 px-3.5 py-2 text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/5">
                     <PackageCheck size={15} /> ปิดงาน
                   </button>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
-                <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60">
-                  <Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "เปิดเรื่อง"}
+                <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
+                  {isClosed ? "ปิดหน้าต่าง" : "ยกเลิก"}
                 </button>
+                {/* ยังไม่มีผู้รับ → ปุ่มหลักคือรับเรื่อง · มีผู้รับแล้ว → ปุ่มหลักคือบันทึก */}
+                {current && !current.acceptedBy && !isClosed ? (
+                  <>
+                    <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border border-[#1B8C4B]/40 px-4 py-2 text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/5 disabled:opacity-60">
+                      <Check size={15} /> {saving ? "กำลังบันทึก..." : "บันทึก"}
+                    </button>
+                    <button
+                      onClick={() => accept(current)}
+                      title={`กดแล้วระบบบันทึกชื่อคุณ (${session?.user?.name || session?.user?.email || ""}) เป็นผู้รับผิดชอบ`}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#eab308] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#ca9a04]"
+                    >
+                      <UserCheck size={16} /> รับเรื่อง (จัดซื้อ)
+                    </button>
+                  </>
+                ) : !isClosed ? (
+                  <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60">
+                    <Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "เปิดเรื่อง"}
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// Stepper 5 ขั้น — เห็นทั้ง flow: ผ่านอะไรมา อยู่ไหน เหลืออะไร ขั้นไหน sync อัตโนมัติ
+function OtStepper({ status, acceptedBy }: { status: string; acceptedBy?: string }) {
+  const idx = OT_STATUSES.findIndex((s) => s.value === status)
+  return (
+    <div className="border-b border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] px-4 pb-3 pt-4">
+      <div className="flex">
+        {OT_STATUSES.map((s, i) => {
+          const passed = i < idx
+          const curr   = i === idx
+          // ป้ายช่วยใต้ขั้น: ขั้นรับเรื่อง = ชื่อผู้รับ · ขั้น PR/PO/ปิดงาน = sync อัตโนมัติ
+          const sub =
+            i === 1 ? (acceptedBy ? `👤 ${acceptedBy}` : (passed ? "ข้ามขั้น" : "")) :
+            i >= 2  ? "🔄 อัตโนมัติ" : ""
+          return (
+            <div key={s.value} className="relative flex flex-1 flex-col items-center">
+              {/* เส้นเชื่อมจากขั้นก่อนหน้า */}
+              {i > 0 && (
+                <span className="absolute right-1/2 top-[11px] -z-0 h-0.5 w-full" style={{ background: i <= idx ? "#1B8C4B" : "#E5E7EB" }} />
+              )}
+              <span
+                className={`z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full text-[10px] font-bold ${passed ? "bg-[#1B8C4B] text-white" : curr ? "text-white ring-4" : "bg-[#E5E7EB] dark:bg-white/10 text-[#9AA8A0]"}`}
+                style={curr ? { background: s.color, boxShadow: `0 0 0 4px ${s.color}33` } : undefined}
+              >
+                {passed ? <Check size={12} /> : s.emoji}
+              </span>
+              <span className={`mt-1.5 max-w-full truncate px-0.5 text-center text-[10px] leading-tight ${curr ? "font-bold text-[#14271C] dark:text-white" : passed ? "font-medium text-[#1B8C4B]" : "text-[#9AA8A0]"}`}>
+                {s.value}
+              </span>
+              {sub && <span className="mt-0.5 max-w-full truncate px-0.5 text-center text-[9px] text-[#9AA8A0]" title={sub}>{sub}</span>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// การ์ดข้อมูล PR ใบเดียวจบ — code/PO/ยอด/คาดรับ/เหตุผลในการขอ (ย่อ-ขยายได้)
+function PrCard({ snap, autoStatus, syncedAt }: { snap: PrSnapshot; autoStatus?: string; syncedAt?: string }) {
+  const [full, setFull] = useState(false)
+  const noteLong = (snap.note || "").length > 90
+  return (
+    <div className="mt-1.5 rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-white dark:bg-[#0f1117] px-3.5 py-3 text-[11.5px]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 font-semibold text-[#0F6A3C] dark:text-[#4ade80]"><RefreshCw size={12} /> ข้อมูลจากระบบ PR</p>
+        {syncedAt && <span className="text-[10px] text-[#9AA8A0]">sync {new Date(syncedAt).toLocaleString("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>}
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[#4B5F54] dark:text-gray-300">
+        <span>🏭 {snap.warehouse || "—"}</span>
+        <span>🏢 {snap.dept || "—"}</span>
+        <span>👤 {snap.requester || "—"}</span>
+        <span className="font-semibold text-[#1B8C4B]">฿ {fmtNum(snap.total)}</span>
+        {snap.expectedDelivery && !snap.hasDD && <span>📅 คาดรับ {fmtDateShort(snap.expectedDelivery)}</span>}
+      </div>
+      {snap.poCodes.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {snap.poCodes.map((po) => (
+            <span key={po} className="rounded bg-[#EEF2FF] px-1.5 py-0.5 font-mono text-[10.5px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">PO {po}</span>
+          ))}
+          {snap.hasDD && <span className="rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#1B8C4B]">📦 รับของแล้ว</span>}
+        </div>
+      )}
+      {snap.note && (
+        <p className={`mt-1.5 text-[#B07D12] dark:text-amber-300 ${full ? "" : "line-clamp-2"}`}>
+          💬 <b>เหตุผลในการขอ:</b> {snap.note}
+          {noteLong && (
+            <button type="button" onClick={() => setFull((v) => !v)} className="ml-1 font-medium text-[#1B8C4B] hover:underline">{full ? "ย่อ" : "ดูเพิ่ม"}</button>
+          )}
+        </p>
+      )}
+      {autoStatus && (
+        <p className="mt-1.5 border-t border-[#EEF2F0] dark:border-white/8 pt-1.5 text-[#0F6A3C] dark:text-[#4ade80]">
+          สถานะที่จะตั้งให้: <b>{otStatusMeta(autoStatus).emoji} {autoStatus}</b>{snap.hasDD && " (รับของครบแล้ว — ปิดจบอัตโนมัติ)"}
+        </p>
       )}
     </div>
   )
