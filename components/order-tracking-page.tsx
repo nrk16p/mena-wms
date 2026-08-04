@@ -379,7 +379,7 @@ export function OrderTrackingPage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
+      <div className="hidden overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] md:block">
         <div className="min-w-[960px]">
           <div className="sticky top-0 z-10 grid gap-3 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]" style={{ gridTemplateColumns: TABLE_GRID }}>
             <div>อายุเรื่อง</div><div>เรื่องที่ขอ</div><div>ผู้ขอ</div><div>PR / PO</div><div>จัดซื้อ</div><div>สถานะ</div><div className="text-center">จัดการ</div>
@@ -537,6 +537,67 @@ export function OrderTrackingPage() {
         </div>
       </div>
 
+      {/* ── Mobile: การ์ดแนวตั้ง (จอ < md) — ไม่ต้อง scroll แนวนอน ── */}
+      <div className="space-y-2.5 md:hidden">
+        {loading ? (
+          <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-12 text-center text-sm text-gray-400">กำลังโหลด...</div>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-14 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F0FDF4] dark:bg-[#1B8C4B]/10 text-[#1B8C4B]"><ClipboardList size={22} /></div>
+            <p className="text-sm font-semibold text-[#14271C] dark:text-white">{q || fStatus || fDept ? "ไม่พบเรื่องตามตัวกรอง" : "ยังไม่มีเรื่องติดตาม"}</p>
+            <button onClick={openAdd} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-sm font-semibold text-white"><Plus size={15} /> เปิดเรื่องใหม่</button>
+          </div>
+        ) : rows.map((r) => {
+          const sm   = otStatusMeta(r.status)
+          const days = ageDays(r.createdAt)
+          const snap = r.prSnapshot
+          const idx  = OT_STATUSES.findIndex((s) => s.value === r.status)
+          return (
+            <div
+              key={r._id}
+              onClick={() => openEdit(r)}
+              className="cursor-pointer rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-3.5"
+              style={{ borderLeft: `4px solid ${sm.color}` }}
+            >
+              {/* สถานะ + อายุ */}
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
+                <span className="shrink-0 text-[11px] text-[#9AA8A0]">⏱ {days ?? "—"} วัน</span>
+              </div>
+              {/* เรื่องที่ขอ */}
+              <p className="line-clamp-2 text-[13.5px] font-semibold leading-relaxed text-[#14271C] dark:text-white">{r.title}</p>
+              {/* mini progress */}
+              <div className="mt-2 flex gap-0.5">
+                {OT_STATUSES.map((_, i) => (
+                  <span key={i} className="h-1 flex-1 rounded-full" style={{ background: i <= idx ? sm.color : "#E5E7EB" }} />
+                ))}
+              </div>
+              {/* meta */}
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#5B7568] dark:text-gray-400">
+                <span className="max-w-[180px] truncate">👤 {r.requester || "—"}</span>
+                {r.prCode
+                  ? <span className="font-mono font-medium text-[#14271C] dark:text-white">{r.prCode}</span>
+                  : <span className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PR</span>}
+                {snap && snap.poCodes.length > 0 && <span className="font-mono text-[10.5px]">PO {snap.poCodes.length} ใบ</span>}
+                {snap && snap.total > 0 && <span className="font-medium text-[#1B8C4B]">฿ {fmtNum(snap.total)}</span>}
+                {(r.images?.length ?? 0) > 0 && <span>📎 {r.images!.length}</span>}
+              </div>
+              {/* ผู้รับ / ปุ่มรับเรื่อง */}
+              <div className="mt-2 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                {r.acceptedBy ? (
+                  <span className="min-w-0 truncate text-[11px] text-[#5B7568] dark:text-gray-400">🛒 {r.acceptedBy}{r.estimatedDone ? ` · 🎯 ${fmtDateShort(r.estimatedDone)}` : ""}</span>
+                ) : r.status !== OT_DONE_STATUS ? (
+                  <button onClick={() => accept(r)} className="inline-flex items-center gap-1 rounded-lg bg-[#eab308] px-3 py-2 text-[12px] font-semibold text-white">
+                    <UserCheck size={13} /> รับเรื่อง
+                  </button>
+                ) : <span />}
+                <button onClick={() => openEdit(r)} className="shrink-0 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-3 py-2 text-[12px] font-medium text-[#1B8C4B]">ดู / แก้ไข</button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
       {/* Modal — เปิด/ปิดแบบ animate (backdrop fade + dialog scale-slide) */}
       <AnimatePresence>
       {open && (
@@ -545,14 +606,14 @@ export function OrderTrackingPage() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-2 backdrop-blur-sm sm:p-4"
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="my-8 w-full max-w-2xl rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl"
+            className="my-2 w-full max-w-2xl rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl sm:my-8"
           >
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
@@ -564,7 +625,7 @@ export function OrderTrackingPage() {
             {/* Stepper — เห็น flow ทั้งเส้น: อยู่ขั้นไหน ใครรับ ขั้นไหนระบบเดินให้เอง */}
             {current && <OtStepper status={current.status} acceptedBy={current.acceptedBy} />}
 
-            <div className="space-y-4 px-5 py-5">
+            <div className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
               {/* ── โซนกรอกข้อมูล ── */}
               <p className="text-[11px] font-bold uppercase tracking-wide text-[#9AA8A0]">✏️ ข้อมูลเรื่อง {isClosed && <span className="ml-1 normal-case">🔒 ปิดงานแล้ว — แก้ไขไม่ได้</span>}</p>
               {/* PR autocomplete */}
@@ -775,7 +836,7 @@ export function OrderTrackingPage() {
             </div>
 
             {/* footer — ปุ่มหลักเปลี่ยนตามสถานะเรื่อง */}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-4 py-3.5 sm:px-5 sm:py-4">
               <div className="flex items-center gap-2">
                 {current && !isClosed && (
                   <button onClick={() => closeJob(current)} className="inline-flex items-center gap-1.5 rounded-lg border border-[#1B8C4B]/40 px-3.5 py-2 text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/5">
