@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
-import { statusFromSnapshot } from "@/lib/order-tracking"
+import { statusFromSnapshot, DEPT_MASTER } from "@/lib/order-tracking"
 
 export const dynamic = "force-dynamic"
 
@@ -21,8 +21,10 @@ export async function GET(req: NextRequest) {
   const client = await clientPromise
 
   if (depts) {
+    // master list (ครบทุกแผนกจาก ATMS) + แผนกใหม่ที่โผล่ใน PR ภายหลัง
     const list = await client.db("atms").collection("purchase_requests").distinct("แผนก") as unknown[]
-    return NextResponse.json({ depts: list.map(s).filter(Boolean).sort((a, b) => a.localeCompare(b, "th")) })
+    const all = [...new Set([...DEPT_MASTER, ...list.map(s).filter(Boolean)])]
+    return NextResponse.json({ depts: all.sort((a, b) => a.localeCompare(b, "th")) })
   }
 
   if (code) {
