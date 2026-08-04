@@ -53,8 +53,11 @@ export function thumbnailUrl(batchId: string, mediaId: number | string, filename
   return `${MEDIA_CDN_BASE}/media/${batchId}/${mediaId}/thumbnail/${encodeURIComponent(stripExt(filename))}-thumbnail.webp`
 }
 
-// max upload size enforced by the presign-api (25MB default)
+// max upload size enforced by the presign-api (25MB — ยืนยันจาก service 2026-08-04)
 export const MEDIA_MAX_BYTES = 25 * 1024 * 1024
+
+// เพดานที่ UI รับ — ไฟล์ 25–50MB จะถูกย่อในเบราว์เซอร์ให้ต่ำกว่า 25MB ก่อนอัปโหลด
+export const MEDIA_UI_MAX_BYTES = 50 * 1024 * 1024
 
 // ทำ image refs ให้ canonical ก่อนบันทึกลง DB — sanitize ชื่อ + rebuild URL จาก batch/id/ชื่อ
 // กัน client เก่า (bundle ค้างแคช) ส่ง URL ดิบที่มี # / ช่องว่าง มาบันทึก
