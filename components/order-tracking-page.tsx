@@ -126,12 +126,16 @@ export function OrderTrackingPage() {
   }, [open, form.prCode])
 
   // ดึง snapshot preview เมื่อเลือก/พิมพ์เลขเต็ม
-  async function previewPr(code: string) {
+  // fillTitle: เติม "เรื่องที่ขอ" จากเหตุผลในการขอของ PR (ใช้ตอนเลือกจาก dropdown)
+  async function previewPr(code: string, fillTitle = false) {
     if (!code.trim()) { setPrPreview(null); return }
     try {
       const res = await fetch(`/api/order-tracking/pr-lookup?code=${encodeURIComponent(code.trim())}`)
       const d   = await res.json()
       setPrPreview(d?.found ? { snapshot: d.snapshot, autoStatus: d.autoStatus } : "notfound")
+      if (fillTitle && d?.found && d.snapshot?.note) {
+        setForm((f) => ({ ...f, title: d.snapshot.note }))
+      }
     } catch { setPrPreview(null) }
   }
 
@@ -436,9 +440,10 @@ export function OrderTrackingPage() {
                         key={h.code}
                         type="button"
                         onClick={() => {
-                          setForm((f) => ({ ...f, prCode: h.code, dept: f.dept || h.dept, title: f.title || `สั่งซื้อ ${h.warehouse || ""} · ${h.requester || ""}`.trim() }))
+                          setForm((f) => ({ ...f, prCode: h.code, dept: f.dept || h.dept }))
                           setPrOpen(false); setPrHits([])
-                          previewPr(h.code)
+                          // เรื่องที่ขอ = เหตุผลในการขอจาก PR (เติมอัตโนมัติ)
+                          previewPr(h.code, true)
                         }}
                         className="flex w-full items-center justify-between gap-2 border-b border-[#F1F5F2] dark:border-white/5 px-3 py-2 text-left hover:bg-[#F6FAF7] dark:hover:bg-white/5"
                       >
@@ -469,7 +474,7 @@ export function OrderTrackingPage() {
               </div>
 
               <div>
-                <label className={labelCls}>เรื่องที่ขอ <span className="text-red-500">*</span></label>
+                <label className={labelCls}>เรื่องที่ขอ <span className="text-red-500">*</span> <span className="text-[10px] font-normal text-gray-400">(เลือก PR แล้วเติมจากเหตุผลในการขอให้อัตโนมัติ)</span></label>
                 <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={inputCls} placeholder="เช่น ขอซื้อยางอะไหล่ 10 เส้น" />
               </div>
 
