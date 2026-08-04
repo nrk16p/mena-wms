@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ImagePlus, Eye, Trash2, Loader2, AlertCircle, X } from "lucide-react"
-import { webpUrl, thumbnailUrl, MEDIA_MAX_BYTES, type SkuImage } from "@/lib/media"
-import { swalDeleteConfirm } from "@/lib/swal"
+import { webpUrl, thumbnailUrl, sanitizeMediaFilename, MEDIA_MAX_BYTES, type SkuImage } from "@/lib/media"
+import { swalDeleteConfirm, swalToast } from "@/lib/swal"
 
 type UploadItem = {
   localId:       string
@@ -70,17 +70,17 @@ export function ImageUpload({
   // revoke blob URLs on unmount
   useEffect(() => () => { items.forEach((i) => URL.revokeObjectURL(i.previewUrl)) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function uploadOne(file: File, localId: string) {
+  async function uploadOne(file: File, localId: string, safeName: string) {
     const fail = (msg: string) =>
       setItems((prev) => prev.map((it) => (it.localId === localId ? { ...it, status: "error", error: msg } : it)))
 
     try {
-      // 1. presign (reuse one batch for the whole set)
+      // 1. presign (reuse one batch for the whole set) — ใช้ชื่อไฟล์ที่ sanitize แล้วเป็น key
       const presignRes = await fetch("/api/media/presign", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename:     file.name,
+          filename:     safeName,
           content_type: file.type,
           file_size:    file.size,
           source_type:  "sku",
@@ -112,8 +112,8 @@ export function ImageUpload({
                 status:       "done",
                 mediaId:      media_id,
                 batchId:      batch_id,
-                webpUrl:      webpUrl(batch_id, media_id, file.name),
-                thumbnailUrl: thumbnailUrl(batch_id, media_id, file.name),
+                webpUrl:      webpUrl(batch_id, media_id, safeName),
+                thumbnailUrl: thumbnailUrl(batch_id, media_id, safeName),
               }
             : it
         )
@@ -125,14 +125,22 @@ export function ImageUpload({
 
   function addFiles(fileList: FileList | null) {
     if (!fileList || disabled) return
+    const all = Array.from(fileList)
+    // บล็อกไฟล์ที่ไม่ใช่รูปภาพ — แจ้งให้รู้ (เดิมทิ้งเงียบ ๆ ผู้ใช้ไม่รู้ว่าไฟล์หาย)
+    const blocked = all.filter((f) => !f.type.startsWith("image/"))
+    if (blocked.length) {
+      swalToast("error", `อัปโหลดได้เฉพาะรูปภาพ — บล็อก ${blocked.length} ไฟล์: ${blocked.map((f) => f.name).slice(0, 3).join(", ")}${blocked.length > 3 ? " ..." : ""}`)
+    }
     const remaining = max - items.length
-    const picked = Array.from(fileList)
+    const picked = all
       .filter((f) => f.type.startsWith("image/"))
       .slice(0, Math.max(0, remaining))
 
-    const fresh: UploadItem[] = picked.map((f) => ({
+    // sanitize ชื่อไฟล์ก่อนอัปโหลด — อักขระอย่าง # ทำ URL รูปพัง (กลายเป็น fragment)
+    const safeNames = picked.map((f) => sanitizeMediaFilename(f.name))
+    const fresh: UploadItem[] = picked.map((f, i) => ({
       localId:    uid(),
-      filename:   f.name,
+      filename:   safeNames[i],
       previewUrl: URL.createObjectURL(f),
       status:     f.size > MEDIA_MAX_BYTES ? "error" : "uploading",
       error:      f.size > MEDIA_MAX_BYTES ? "ไฟล์ใหญ่เกิน 25MB" : undefined,
@@ -140,7 +148,7 @@ export function ImageUpload({
 
     setItems((prev) => [...prev, ...fresh])
     picked.forEach((f, i) => {
-      if (fresh[i].status === "uploading") uploadOne(f, fresh[i].localId)
+      if (fresh[i].status === "uploading") uploadOne(f, fresh[i].localId, safeNames[i])
     })
   }
 
