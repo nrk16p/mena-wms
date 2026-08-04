@@ -24,7 +24,7 @@ export async function fetchPrSnapshots(client: MongoClient, prCodes: string[]): 
   const atms = client.db("atms")
   const [prs, pos] = await Promise.all([
     atms.collection("purchase_requests").find({ [PR_KEY]: { $in: codes } })
-      .project({ [PR_KEY]: 1, "วันที่": 1, "คลังสินค้า": 1, "แผนก": 1, "ผู้ขอซื้อ": 1, "รวม": 1, _id: 0 }).toArray() as Promise<Doc[]>,
+      .project({ [PR_KEY]: 1, "วันที่": 1, "คลังสินค้า": 1, "แผนก": 1, "ผู้ขอซื้อ": 1, "หมายเหตุ": 1, "รวม": 1, _id: 0 }).toArray() as Promise<Doc[]>,
     atms.collection("purchase_orders").find({ [PR_KEY]: { $in: codes } })
       .project({ [PR_KEY]: 1, [PO_KEY]: 1, "รวม": 1, "ซัพพลายเออร์": 1, "กำหนดส่งสินค้า": 1, _id: 0 }).toArray() as Promise<Doc[]>,
   ])
@@ -57,6 +57,7 @@ export async function fetchPrSnapshots(client: MongoClient, prCodes: string[]): 
       warehouse: s(p["คลังสินค้า"]),
       dept:      s(p["แผนก"]),
       requester: s(p["ผู้ขอซื้อ"]),
+      note:      s(p["หมายเหตุ"]),
       total:     Number(p["รวม"]) || 0,
       poCodes:   myPos.map((po) => s(po[PO_KEY])).filter(Boolean),
       poTotal:   Math.round(myPos.reduce((a, po) => a + (Number(po["รวม"]) || 0), 0) * 100) / 100,

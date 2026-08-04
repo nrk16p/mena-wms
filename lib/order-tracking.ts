@@ -30,6 +30,7 @@ export type PrSnapshot = {
   warehouse:  string
   dept:       string
   requester:  string    // ผู้ขอซื้อใน PR
+  note:       string    // หมายเหตุจาก PR (sync มาแสดง)
   total:      number
   poCodes:    string[]
   poTotal:    number

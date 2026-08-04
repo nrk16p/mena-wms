@@ -361,6 +361,7 @@ export function OrderTrackingPage() {
                       )}
                       {snap && snap.total > 0 && <div className="mt-0.5 text-[10.5px] font-medium text-[#1B8C4B]">฿ {fmtNum(snap.total)}</div>}
                       {snap?.expectedDelivery && !snap.hasDD && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">📅 คาดรับ {fmtDateShort(snap.expectedDelivery)}</div>}
+                      {snap?.note && <div className="mt-0.5 line-clamp-2 text-[10.5px] text-[#B07D12]" title={snap.note}>💬 {snap.note}</div>}
                     </>
                   ) : (
                     <span className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">ยังไม่มี PR</span>
@@ -461,6 +462,7 @@ export function OrderTrackingPage() {
                       {prPreview.snapshot.warehouse} · {prPreview.snapshot.dept} · ผู้ขอซื้อ {prPreview.snapshot.requester} · ฿ {fmtNum(prPreview.snapshot.total)}
                       {prPreview.snapshot.poCodes.length > 0 && <> · PO {prPreview.snapshot.poCodes.join(", ")}</>}
                     </p>
+                    {prPreview.snapshot.note && <p className="mt-1">💬 หมายเหตุจาก PR: <b>{prPreview.snapshot.note}</b></p>}
                     <p className="mt-1">สถานะที่จะตั้งให้: <b>{otStatusMeta(prPreview.autoStatus).emoji} {prPreview.autoStatus}</b>{prPreview.snapshot.hasDD && " (รับของครบแล้ว — ปิดจบอัตโนมัติ)"}</p>
                   </div>
                 )}
