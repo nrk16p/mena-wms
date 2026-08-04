@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react"
 import { motion, AnimatePresence } from "motion/react"
 import { Search, Plus, Pencil, Trash2, X, Check, ClipboardList, UserCheck, RefreshCw, PackageCheck, History, MessageSquare, Send, CornerDownRight, ChevronDown } from "lucide-react"
 import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
+import { ImageUpload } from "@/components/image-upload"
+import type { SkuImage } from "@/lib/media"
 import {
   OT_STATUSES,
   OT_DONE_STATUS,
@@ -66,6 +68,7 @@ export function OrderTrackingPage() {
   const [form, setForm]     = useState<typeof EMPTY>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [current, setCurrent] = useState<OrderTracking | null>(null)  // เรื่องที่กำลังแก้ (สถานะ/ผู้รับ)
+  const [formImages, setFormImages] = useState<SkuImage[]>([])        // ไฟล์แนบ
 
   // PR autocomplete + preview
   const [prHits, setPrHits]   = useState<PrHit[]>([])
@@ -195,7 +198,7 @@ export function OrderTrackingPage() {
 
   function openAdd() {
     setEditId(null); setCurrent(null)
-    setForm(EMPTY)
+    setForm(EMPTY); setFormImages([])
     setPrHits([]); setPrPreview(null)
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
     setOpen(true)
@@ -203,6 +206,7 @@ export function OrderTrackingPage() {
   function openEdit(r: OrderTracking) {
     setEditId(r._id); setCurrent(r)
     setForm({ prCode: r.prCode || "", title: r.title || "", detail: r.detail || "", note: r.note || "", dept: r.dept || "", estimatedDone: r.estimatedDone || "" })
+    setFormImages(r.images ?? [])
     setPrHits([]); setPrPreview(null); setShowLog(false)
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
     loadComments(r._id)
@@ -216,7 +220,7 @@ export function OrderTrackingPage() {
     try {
       const url    = editId ? `/api/order-tracking/${editId}` : "/api/order-tracking"
       const method = editId ? "PUT" : "POST"
-      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) })
+      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, images: formImages }) })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "บันทึกไม่สำเร็จ") }
       setOpen(false)
       swalToast("success", editId ? "แก้ไขแล้ว" : "เปิดเรื่องแล้ว")
@@ -411,6 +415,7 @@ export function OrderTrackingPage() {
                   <div className="line-clamp-2 text-[13.5px] font-semibold text-[#14271C] dark:text-white" title={r.title}>{r.title}</div>
                   {r.detail && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-[#5B7568] dark:text-gray-400" title={r.detail}>{r.detail}</div>}
                   {r.note && <div className="mt-0.5 truncate text-[10.5px] text-[#9AA8A0]" title={r.note}>📝 {r.note}</div>}
+                  {(r.images?.length ?? 0) > 0 && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">📎 {r.images!.length} ไฟล์แนบ</div>}
                   {/* กางอ่านรายละเอียดเต็มแบบ accordion (animate-ui style) */}
                   <button
                     onClick={(e) => { e.stopPropagation(); toggleExpand(r._id) }}
@@ -498,6 +503,17 @@ export function OrderTrackingPage() {
                       {reason && <p className="whitespace-pre-wrap text-[#B07D12] dark:text-amber-300">💬 <b>เหตุผลในการขอ (จาก PR):</b> {reason}</p>}
                       {r.detail && <p className="whitespace-pre-wrap">{r.detail}</p>}
                       {r.note && <p className="whitespace-pre-wrap text-[#9AA8A0]">📝 {r.note}</p>}
+                      {/* ไฟล์แนบ — คลิกเปิดรูปเต็ม */}
+                      {(r.images?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          {r.images!.map((img) => (
+                            <a key={img.mediaId} href={img.webpUrl} target="_blank" rel="noreferrer" title={img.filename}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={img.thumbnailUrl || img.webpUrl} alt={img.filename} className="h-14 w-14 rounded-lg border border-[#EEF2F0] dark:border-white/10 object-cover transition hover:opacity-80" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       {snap && (
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#EEF2F0] dark:border-white/8 pt-2 text-[11.5px]">
                           {r.prCode && <span className="font-mono font-medium text-[#14271C] dark:text-white">{r.prCode}</span>}
@@ -648,6 +664,12 @@ export function OrderTrackingPage() {
                   <label className={labelCls}>ประมาณการเสร็จ <span className="text-[10px] font-normal text-gray-400">(จัดซื้อกรอก)</span></label>
                   <input type="date" value={form.estimatedDone} onChange={(e) => setForm({ ...form, estimatedDone: e.target.value })} className={inputCls} />
                 </div>
+              </div>
+
+              {/* ไฟล์แนบ — รูป/เอกสาร (ใบเสนอราคา, รูปของที่ขอ ฯลฯ) */}
+              <div className={roCls}>
+                <label className={labelCls}>ไฟล์แนบ <span className="text-[10px] font-normal text-gray-400">(รูป / เอกสาร เช่น ใบเสนอราคา)</span></label>
+                <ImageUpload key={editId ?? "new"} initial={formImages} onChange={setFormImages} />
               </div>
 
               {/* Note — เฉพาะตอนเปิดเรื่องใหม่ (หลังจากนั้นให้ใช้ความคิดเห็นแทน — มีชื่อ+เวลา) */}

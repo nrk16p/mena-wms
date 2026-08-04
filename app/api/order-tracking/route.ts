@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
     acceptedBy: "", acceptedAt: "", estimatedDone: s(body.estimatedDone),
     prSnapshot: snap, prSyncedAt: snap ? now.toISOString() : "",
     closedAt: status === OT_DONE_STATUS ? todayBKK() : "",
+    images: Array.isArray(body.images) ? body.images : [],
     log,
     createdAt: now, updatedAt: now, updatedBy: by,
   }

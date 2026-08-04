@@ -45,6 +45,15 @@ export type PrSnapshot = {
   hasDD:      boolean       // มีใบรับของแล้ว (เกณฑ์ปิดงานเดียวกับหน้า /pr)
 }
 
+// ไฟล์แนบ (ตามรูปแบบ SkuImage ของ lib/media)
+export type OtImage = {
+  mediaId:      number
+  batchId:      string
+  filename:     string
+  webpUrl:      string
+  thumbnailUrl: string
+}
+
 // บันทึกเหตุการณ์ของเรื่อง — ใครทำอะไรเมื่อไร (อิงชื่อ + email จาก session)
 export type OtLogEntry = {
   action: "create" | "accept" | "update" | "close"
@@ -70,6 +79,7 @@ export type OrderTracking = {
   prSnapshot?: PrSnapshot | null
   prSyncedAt?: string
   closedAt:   string       // YYYY-MM-DD
+  images?:    OtImage[]    // ไฟล์แนบ (รูป/เอกสาร)
   log?:       OtLogEntry[] // เหตุการณ์: เปิดเรื่อง/รับเรื่อง/แก้ไข/ปิดงาน
   createdAt?: string
   updatedAt?: string

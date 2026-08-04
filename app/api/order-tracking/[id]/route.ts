@@ -62,6 +62,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     dept:   s(body.dept ?? existing.dept),
     estimatedDone: s(body.estimatedDone ?? existing.estimatedDone),
     prCode,
+    images: Array.isArray(body.images) ? body.images : (existing.images ?? []),
     updatedAt: now, updatedBy: by,
   }
   if (!set.title) return NextResponse.json({ error: "กรุณาระบุเรื่องที่ขอ" }, { status: 400 })
