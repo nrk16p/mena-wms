@@ -101,11 +101,14 @@ export async function GET(req: NextRequest) {
         { "คลังสินค้า":   { $regex: q, $options: "i" } },
         { "แผนก":        { $regex: q, $options: "i" } },
       ]
-      // ค้นด้วย "เบอร์รถ" — PR เก็บแค่ทะเบียน จึงแปลงเบอร์รถ → ทะเบียนผ่าน vehiclemaster ก่อน
-      const rxq = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      const plates = await db.collection("vehiclemaster")
-        .distinct("ทะเบียน", { "เลขรถ": { $regex: rxq, $options: "i" } }) as unknown[]
-      const plateList = plates.map(s).filter(Boolean).slice(0, 300)
+      // ค้นด้วย "เบอร์รถ" — PR เก็บแค่ทะเบียน จึงแปลงเบอร์รถ → ทะเบียนก่อน
+      // logic เดียวกับฟอร์มซ่อม: vehicle_daily (snapshot ล่าสุด) เป็นหลัก + vehiclemaster เผื่อรถเก่า
+      const rxq = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" }
+      const [platesDaily, platesVm] = await Promise.all([
+        db.collection("vehicle_daily").distinct("ทะเบียน", { "เบอร์รถ": rxq }) as Promise<unknown[]>,
+        db.collection("vehiclemaster").distinct("ทะเบียน", { "เลขรถ": rxq }) as Promise<unknown[]>,
+      ])
+      const plateList = [...new Set([...platesDaily, ...platesVm].map(s).filter(Boolean))].slice(0, 300)
       if (plateList.length) or.push({ "ทะเบียน": { $in: plateList } })
       prFilter["$or"] = or
     }
@@ -141,10 +144,17 @@ export async function GET(req: NextRequest) {
       : []
     const receivedPo = new Set(ddPoCodes.map(s).filter(Boolean))
 
-    // 3.4) เบอร์รถต่อทะเบียน (vehiclemaster ~1.8k คัน) — ให้ค้น/แสดงเบอร์รถได้
-    const vmDocs = await db.collection("vehiclemaster")
-      .find({}).project({ "ทะเบียน": 1, "เลขรถ": 1, _id: 0 }).toArray() as Doc[]
+    // 3.4) เบอร์รถต่อทะเบียน — logic เดียวกับฟอร์มซ่อม: vehicle_daily (snapshot ล่าสุด 1 แถว/คัน)
+    // เป็นหลัก · vehiclemaster เป็น fallback สำหรับรถที่ไม่อยู่ใน daily
+    const [vmDocs, vdDocs] = await Promise.all([
+      db.collection("vehiclemaster").find({}).project({ "ทะเบียน": 1, "เลขรถ": 1, _id: 0 }).toArray() as Promise<Doc[]>,
+      db.collection("vehicle_daily").find({}).project({ "ทะเบียน": 1, "เบอร์รถ": 1, _id: 0 }).toArray() as Promise<Doc[]>,
+    ])
     const fleetByPlate = new Map(vmDocs.map((v) => [s(v["ทะเบียน"]), s(v["เลขรถ"])]))
+    for (const v of vdDocs) {
+      const p = s(v["ทะเบียน"]), f = s(v["เบอร์รถ"])
+      if (p && f) fleetByPlate.set(p, f)   // daily สดกว่า — ทับค่า master
+    }
 
     // 3.5) ข้อมูลติดตาม (master_data.pr_tracking) — วันกำหนดส่งที่ผู้ใช้กรอก
     const trackDocs = prCodes.length
