@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { MEDIA_API_URL } from "@/lib/media"
+import { MEDIA_API_URL, sanitizeMediaFilename } from "@/lib/media"
 
 // POST /api/media/presign → proxies to presign-api with the caller's X-User-Id
 export async function POST(req: NextRequest) {
@@ -10,6 +10,9 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
+  // บังคับ sanitize ชื่อไฟล์ที่ server เสมอ — อักขระอย่าง # ทำ URL รูปพัง
+  // (กัน client เก่า/แคช bundle ก่อนแก้ ที่ยังส่งชื่อดิบมา)
+  if (typeof body.filename === "string") body.filename = sanitizeMediaFilename(body.filename)
 
   try {
     const res = await fetch(`${MEDIA_API_URL}/media/presign`, {

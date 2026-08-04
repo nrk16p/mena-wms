@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
 import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus } from "@/lib/repair-external"
+import { normalizeImages } from "@/lib/media"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -35,8 +36,8 @@ export function buildDoc(body: Record<string, unknown>) {
     offerPrice:      Number(body.offerPrice) || 0,
     negotiatedPrice: Number(body.negotiatedPrice) || 0,
     offerWarranty:   s(body.offerWarranty),
-    negotiationImages: Array.isArray(body.negotiationImages) ? body.negotiationImages : [],
-    images:       Array.isArray(body.images) ? body.images : [],
+    negotiationImages: normalizeImages(body.negotiationImages),
+    images:       normalizeImages(body.images),
   }
 }
 

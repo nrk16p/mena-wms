@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
+import { normalizeImages } from "@/lib/media"
 import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus } from "@/lib/order-tracking"
 
 export const dynamic = "force-dynamic"
@@ -62,7 +63,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     dept:   s(body.dept ?? existing.dept),
     estimatedDone: s(body.estimatedDone ?? existing.estimatedDone),
     prCode,
-    images: Array.isArray(body.images) ? body.images : (existing.images ?? []),
+    images: Array.isArray(body.images) ? normalizeImages(body.images) : (existing.images ?? []),
     updatedAt: now, updatedBy: by,
   }
   if (!set.title) return NextResponse.json({ error: "กรุณาระบุเรื่องที่ขอ" }, { status: 400 })
