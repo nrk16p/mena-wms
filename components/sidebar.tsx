@@ -83,8 +83,9 @@ const NAV_GROUPS: NavGroup[] = [
     collapsible: true,
     items: [
       { href: "/pr", label: "ติดตาม PR / รับสินค้า", icon: FileText, exact: true },
-      { href: "/order-tracking", label: "ติดตามคำสั่งซื้อ", icon: ClipboardCheck },
-      { href: "/pr/guide", label: "คู่มือการใช้งาน", icon: BookOpen },
+      { href: "/order-tracking", label: "ติดตามคำสั่งซื้อ", icon: ClipboardCheck, exact: true },
+      { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen },
+      { href: "/order-tracking/guide", label: "คู่มือติดตามคำสั่งซื้อ", icon: BookOpen },
     ],
   },
   {
