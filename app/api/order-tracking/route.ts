@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
-import { OT_DONE_STATUS, statusFromSnapshot } from "@/lib/order-tracking"
+import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus } from "@/lib/order-tracking"
 
 export const dynamic = "force-dynamic"
 
@@ -28,14 +28,21 @@ export async function GET(req: NextRequest) {
 
   // ── sync: เรื่องที่ยังไม่ปิด + มี PR → อัปเดต snapshot/สถานะจากข้อมูลจริง ──
   const open = await col.find({ status: { $ne: OT_DONE_STATUS }, prCode: { $ne: "" } })
-    .project({ prCode: 1, status: 1 }).limit(500).toArray()
+    .project({ prCode: 1, status: 1, acceptedBy: 1 }).limit(500).toArray()
   if (open.length) {
     const snaps = await fetchPrSnapshots(client, open.map((o) => s(o.prCode)))
     const now = new Date()
     const ops = open.flatMap((o) => {
       const snap = snaps.get(s(o.prCode))
-      if (!snap) return []
-      const newStatus = statusFromSnapshot(snap, s(o.status))
+      // normalize สถานะเก่า "เปิด PR แล้ว" (flow เดิม) เข้าขั้นปัจจุบันก่อนคำนวณ
+      const base = normalizeOtStatus(s(o.status), s(o.acceptedBy))
+      if (!snap) {
+        // ไม่พบ PR ในระบบ — แค่ normalize สถานะเก่าถ้าจำเป็น
+        return base !== s(o.status)
+          ? [{ updateOne: { filter: { _id: o._id }, update: { $set: { status: base, updatedAt: now } } } }]
+          : []
+      }
+      const newStatus = statusFromSnapshot(snap, base)
       const autoClosed = newStatus === OT_DONE_STATUS && s(o.status) !== OT_DONE_STATUS
       return [{
         updateOne: {

@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
-import { OT_DONE_STATUS, statusFromSnapshot } from "@/lib/order-tracking"
+import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus } from "@/lib/order-tracking"
 
 export const dynamic = "force-dynamic"
 
@@ -73,7 +73,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   }
 
   // sync สถานะจาก PR (ถ้ามีเลข) — ไม่มีเลขให้คงสถานะ manual (แจ้งเรื่อง/รับเรื่องแล้ว หรือปิดงาน manual)
-  let status = s(body.status ?? existing.status)
+  let status = normalizeOtStatus(s(body.status ?? existing.status), s(existing.acceptedBy))
   if (prCode) {
     const snaps = await fetchPrSnapshots(client, [prCode])
     const snap  = snaps.get(prCode) ?? null

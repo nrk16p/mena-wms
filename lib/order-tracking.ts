@@ -8,13 +8,19 @@ export type OtStatus = {
   color: string  // สีทึบ (chips/บาร์)
 }
 
+// flow 4 ขั้น — แจ้งเรื่อง (มีหรือไม่มี PR = ขั้นเดียวกัน) → รับเรื่อง → PO → ปิดงาน
 export const OT_STATUSES: OtStatus[] = [
   { value: "แจ้งเรื่อง",     emoji: "🆕", cls: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300",           color: "#9ca3af" },
   { value: "รับเรื่องแล้ว",   emoji: "🔄", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300", color: "#eab308" },
-  { value: "เปิด PR แล้ว",   emoji: "📋", cls: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",         color: "#06b6d4" },
   { value: "เปิด PO-รอของ", emoji: "📦", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",         color: "#3b82f6" },
   { value: "ปิดงาน",         emoji: "✅", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",     color: "#22c55e" },
 ]
+
+// สถานะเก่า "เปิด PR แล้ว" ถูกยุบรวมกับแจ้งเรื่อง (2026-08-04) — map เอกสารเดิมให้เข้าขั้นที่ถูกต้อง
+export function normalizeOtStatus(status: string, acceptedBy?: string): string {
+  if (status === "เปิด PR แล้ว") return acceptedBy ? "รับเรื่องแล้ว" : "แจ้งเรื่อง"
+  return status
+}
 
 export const OT_DONE_STATUS = "ปิดงาน"
 export const OT_ACTIVE_STATUSES = OT_STATUSES.filter((s) => s.value !== OT_DONE_STATUS)
@@ -71,10 +77,10 @@ export type OrderTracking = {
 }
 
 // คำนวณสถานะจากข้อมูล PR จริง (ใช้ทั้งตอนสร้าง/แก้ไข/sync)
-//  มี DD → ปิดงาน · มี PO → เปิด PO-รอของ · มีแค่ PR → เปิด PR แล้ว
+//  มี DD → ปิดงาน · มี PO → เปิด PO-รอของ · มีแค่ PR → คงขั้น manual เดิม (แจ้งเรื่อง/รับเรื่องแล้ว)
 export function statusFromSnapshot(snap: PrSnapshot | null | undefined, fallback: string): string {
   if (!snap) return fallback
   if (snap.hasDD) return OT_DONE_STATUS
   if (snap.poCodes.length > 0) return "เปิด PO-รอของ"
-  return "เปิด PR แล้ว"
+  return fallback
 }
