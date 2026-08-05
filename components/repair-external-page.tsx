@@ -51,7 +51,8 @@ const BAR_COLORS: Record<string, string> = {
 const barColor = (s: string) => BAR_COLORS[s] ?? "#9ca3af"
 
 // คอลัมน์ตารางโปร่ง (1a): อายุงาน / รถ / อาการ / อู่ / สถานะ·เอกสาร / จัดการ
-const TABLE_GRID = "116px 1.5fr 2.4fr 1fr 1.7fr 96px"
+// 5 คอลัมน์ (ไม่มี "จัดการ" — คลิกแถวเพื่อแก้ไข/ลบจากในฟอร์ม): อายุ | รถ | อาการ+อู่ | สถานะ·เอกสาร | กำหนด
+const TABLE_GRID = "110px 1.7fr 2.9fr 2fr 130px"
 
 // จานสีสำหรับสัดส่วนตามฟลีท
 const FLEET_PALETTE = ["#1B8C4B", "#3b82f6", "#eab308", "#f97316", "#14b8a6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16", "#ef4444", "#8b5cf6", "#64748b"]
@@ -179,14 +180,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm]     = useState<Omit<RepairExternal, "_id">>(EMPTY)
   const [saving, setSaving] = useState(false)
-  const [step, setStep]     = useState(1)  // 1..3 (guided form)
   const [origStatus, setOrigStatus] = useState("")  // สถานะเดิมของรายการ (ล็อกถ้ารถเสร็จ)
+  const [editRow, setEditRow] = useState<RepairExternal | null>(null)  // record ที่กำลังแก้ (ใช้กับปุ่มประวัติ/ลบในฟอร์ม)
   const [formImages, setFormImages] = useState<SkuImage[]>([])
   const [formNegImages, setFormNegImages] = useState<SkuImage[]>([])  // หลักฐานการต่อรอง
   const [vdRef, setVdRef] = useState("")  // วันที่ข้อมูล fleet/plant (จาก vehicle_daily)
 
   // comments (drawer)
-  const [commentFor, setCommentFor] = useState<RepairExternal | null>(null)
   const [comments, setComments]   = useState<Comment[]>([])
   const [cmtLoading, setCmtLoading] = useState(false)
   const [cmtText, setCmtText]     = useState("")
@@ -198,6 +198,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [logFor, setLogFor]         = useState<RepairExternal | null>(null)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [logLoading, setLogLoading] = useState(false)
+  const [showFieldLog, setShowFieldLog] = useState(false)  // การแก้ field อื่น — พับไว้ (โฟกัสที่สถานะ)
 
   // view + สรุปสถานะ
   const [view, setView]   = useState<"table" | "board">("table")
@@ -293,13 +294,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       setComments(Array.isArray(data) ? data : [])
     } catch { setComments([]) } finally { setCmtLoading(false) }
   }
-  function openComments(r: RepairExternal) {
-    setCommentFor(r)
-    setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
-    loadComments(r._id)
-  }
   async function postComment(text: string, parentId: string | null) {
-    const targetId = commentFor?._id ?? editId   // ใช้ได้ทั้ง drawer และโมดัลแก้ไข
+    const targetId = editId   // ความคิดเห็นอยู่ในฟอร์มแก้ไขเท่านั้น (drawer แยกถูกถอดออกแล้ว)
     if (!targetId || !text.trim()) return
     setPosting(true)
     try {
@@ -320,7 +316,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   function openAdd() {
     setEditId(null)
-    setStep(1)
+    setEditRow(null)
     setFormImages([]); setFormNegImages([]); setVdRef(""); setOrigStatus("")
     // ประเภทเริ่มต้นตาม tab ที่กรองอยู่ (เปลี่ยนได้ใน step 1)
     const jt = fType === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE
@@ -339,7 +335,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   }
   function openEdit(r: RepairExternal) {
     setEditId(r._id)
-    setStep(1)
+    setEditRow(r)
     setFormImages(r.images ?? []); setFormNegImages(r.negotiationImages ?? []); setVdRef(""); setOrigStatus(r.status)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id, ...rest } = r
@@ -495,8 +491,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       ? requiredFieldsFor(newStatus, jobTypeOf(r)).filter((f) => !String(r[f.field] ?? "").trim())
       : []
     if (missing.length) {
+      // เปิดฟอร์ม (หน้าเดียว) ให้กรอกฟิลด์ที่ขาดก่อนปิดงาน
       setEditId(r._id)
-      setStep(3)  // ไปหน้าสถานะ·เอกสาร ที่มีฟิลด์ที่ต้องกรอก
+      setEditRow(r)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _id, ...rest } = r
       setForm({ ...EMPTY, ...rest, status: newStatus })
@@ -549,6 +546,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const res = await fetch(`/api/repair-external/${r._id}`, { method: "DELETE" })
       if (!res.ok) throw new Error()
       swalToast("success", "ลบแล้ว")
+      setOpen(false)   // ลบได้จากในฟอร์มเท่านั้น — ปิดฟอร์มหลังลบ
       load(); loadStats()
     } catch {
       swalError("ลบไม่สำเร็จ")
@@ -558,7 +556,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   async function openLog(r: RepairExternal) {
     setLogFor(r)
     setLogLoading(true)
-    setLogEntries([])
+    setLogEntries([]); setShowFieldLog(false)
     try {
       const res  = await fetch(`/api/repair-external/${r._id}/log`)
       const data = await res.json()
@@ -884,7 +882,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           <div className="min-w-[920px]">
             {/* header */}
             <div className="sticky top-0 z-10 grid gap-3 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]" style={{ gridTemplateColumns: TABLE_GRID }}>
-              <div>อายุงาน</div><div>รถ</div><div>อาการ / รายการอะไหล่</div><div>อู่ / ร้านค้า</div><div>สถานะ · เอกสาร</div><div className="text-center">จัดการ</div>
+              <div>อายุงาน</div><div>รถ</div><div>อาการ / รายการอะไหล่ · อู่</div><div>สถานะ · เอกสาร</div><div>📅 กำหนด</div>
             </div>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -892,9 +890,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="h-6 w-10 animate-pulse rounded bg-gray-100 dark:bg-white/5" />
                   <div className="space-y-1.5"><div className="h-3.5 w-20 animate-pulse rounded bg-gray-100 dark:bg-white/5" /><div className="h-2.5 w-14 animate-pulse rounded bg-gray-100 dark:bg-white/5" /></div>
                   <div className="space-y-1.5"><div className="h-3 w-full animate-pulse rounded bg-gray-100 dark:bg-white/5" /><div className="h-3 w-2/3 animate-pulse rounded bg-gray-100 dark:bg-white/5" /></div>
-                  <div className="h-3 w-16 animate-pulse rounded bg-gray-100 dark:bg-white/5" />
                   <div className="h-5 w-24 animate-pulse rounded-md bg-gray-100 dark:bg-white/5" />
-                  <div className="h-6 w-full animate-pulse rounded bg-gray-100 dark:bg-white/5" />
+                  <div className="h-3 w-16 animate-pulse rounded bg-gray-100 dark:bg-white/5" />
                 </div>
               ))
             ) : displayRows.length === 0 ? (
@@ -923,56 +920,62 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <div
                   key={r._id}
                   onClick={() => openEdit(r)}
-                  className="group grid cursor-pointer items-start gap-3 border-b border-[#F1F5F2] dark:border-white/5 px-4 py-3 transition-colors hover:bg-[#F6FAF7] dark:hover:bg-white/[0.03]"
+                  className="group grid cursor-pointer items-start gap-3 border-b border-[#F1F5F2] dark:border-white/5 px-4 py-4 transition-colors hover:bg-[#F6FAF7] dark:hover:bg-white/[0.03]"
                   style={{ gridTemplateColumns: TABLE_GRID, background: urgent ? "#FFFBFB" : undefined }}
                 >
-                  {/* อายุงาน */}
-                  <div className="flex gap-2">
-                    <div className="w-1 shrink-0 self-stretch rounded-full" style={{ background: bkt?.text ?? "#9ca3af" }} />
+                  {/* อายุงาน — ตัวเลขใหญ่ สีตามความช้า */}
+                  <div className="flex gap-2.5">
+                    <div className="w-1.5 shrink-0 self-stretch rounded-full" style={{ background: bkt?.text ?? "#9ca3af" }} />
                     <div>
-                      <div className="text-[20px] font-semibold leading-none" style={{ fontFamily: "'Mitr', sans-serif", color: bkt?.text ?? "#9ca3af" }}>{days ?? "—"}</div>
-                      <div className="mt-1 text-[10px] text-[#9AA8A0]">วัน</div>
+                      <div className="text-[26px] font-semibold leading-none" style={{ fontFamily: "'Mitr', sans-serif", color: bkt?.text ?? "#9ca3af" }}>{days ?? "—"}</div>
+                      <div className="mt-1 text-[11px] text-[#9AA8A0]">วัน</div>
                     </div>
                   </div>
                   {/* รถ */}
                   <div className="min-w-0">
-                    <div className="truncate text-[14px] font-semibold text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</div>
-                    {jobTypeOf(r) === JOB_TYPE_PARTS && <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[10px] font-bold text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🔩 อะไหล่ลงคัน</div>}
-                    {isDup(r) && <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
-                    {r.fleetNo && <div className="text-[11px] text-[#5B7568]">เบอร์ {r.fleetNo}</div>}
+                    <div className="truncate text-[17px] font-bold text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</div>
+                    {r.fleetNo && <div className="text-[13px] font-medium text-[#5B7568]">เบอร์ {r.fleetNo}</div>}
+                    {jobTypeOf(r) === JOB_TYPE_PARTS && <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[11px] font-bold text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🔩 อะไหล่ลงคัน</div>}
+                    {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
                     {(r.fleet || r.plant) && (
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {r.fleet && <span className="rounded bg-[#EAF6EE] px-1.5 py-0.5 text-[10px] font-medium text-[#0F6A3C] dark:bg-[#1B8C4B]/15 dark:text-[#4ade80]" title={`ฟลีท: ${r.fleet}`}>🚚 {r.fleet}</span>}
-                        {r.plant && <span className="rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[10px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300" title={`แพล้นท์: ${r.plant}`}>🏭 {r.plant}</span>}
+                        {r.fleet && <span className="rounded bg-[#EAF6EE] px-1.5 py-0.5 text-[11px] font-medium text-[#0F6A3C] dark:bg-[#1B8C4B]/15 dark:text-[#4ade80]" title={`ฟลีท: ${r.fleet}`}>🚚 {r.fleet}</span>}
+                        {r.plant && <span className="rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[11px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300" title={`แพล้นท์: ${r.plant}`}>🏭 {r.plant}</span>}
                       </div>
                     )}
-                    {r.mrNo && <div className="mt-0.5 font-mono text-[10.5px] text-[#9AA8A0]"><CopyText value={r.mrNo} /></div>}
+                    {r.mrNo && <div className="mt-1 font-mono text-[11.5px] text-[#9AA8A0]"><CopyText value={r.mrNo} /></div>}
                   </div>
-                  {/* อาการ */}
+                  {/* อาการ + อู่ (รวมช่องเดียว — พื้นที่กว้าง อ่านสบาย) */}
                   <div className="min-w-0">
-                    <div className="line-clamp-3 text-[12.5px] leading-[1.45] text-[#4B5F54] dark:text-gray-300" title={r.symptom}>{r.symptom || "—"}</div>
-                    {(r.repairPrice > 0 || r.warranty) && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {r.repairPrice > 0 && <span className="rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[10px] font-medium text-[#1B8C4B]">฿ {fmtNum(r.repairPrice)}</span>}
-                        {r.warranty && <span className="rounded bg-[#F1F5F2] px-1.5 py-0.5 text-[10px] font-medium text-[#5B7568]">🛡 {r.warranty}</span>}
-                      </div>
-                    )}
-                  </div>
-                  {/* อู่ */}
-                  <div className="min-w-0 truncate text-[12.5px] text-[#4B5F54] dark:text-gray-300" title={r.garage}>{r.garage || "—"}</div>
-                  {/* สถานะ · เอกสาร */}
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-1">
-                      <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
-                      {sla?.over && <span className="rounded bg-[#FEECEC] px-1.5 py-0.5 text-[10px] font-semibold text-[#DC2626]">⏱️ ค้าง {sla.days}/{sla.limit} วัน</span>}
+                    <div className="line-clamp-3 text-[14px] leading-[1.55] text-[#37473E] dark:text-gray-200" title={r.symptom}>{r.symptom || "—"}</div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[13px] font-medium text-[#5B7568] dark:text-gray-400">🏭 {r.garage || "ยังไม่ระบุอู่"}</span>
+                      {r.repairPrice > 0 && <span className="rounded bg-[#ECFDF3] px-2 py-0.5 text-[12px] font-semibold text-[#1B8C4B]">฿ {fmtNum(r.repairPrice)}</span>}
+                      {r.warranty && <span className="rounded bg-[#F1F5F2] px-2 py-0.5 text-[11px] font-medium text-[#5B7568]">🛡 {r.warranty}</span>}
                     </div>
-                    {r.dueDate && <div className={`mt-1 text-[10.5px] ${dueOverdue ? "font-semibold text-[#DC2626]" : "text-[#9AA8A0]"}`}>📅 กำหนด {fmtDateShort(r.dueDate)}</div>}
-                    {isDone && r.completedDate && <div className="mt-1 text-[10.5px] font-medium text-[#1B8C4B]">🏁 เสร็จ {fmtDateShort(r.completedDate)}</div>}
+                  </div>
+                  {/* สถานะ · เอกสาร — chip ใหญ่ + progress ตามขั้น workflow */}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12.5px] font-semibold ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
+                      {sla?.over && <span className="rounded bg-[#FEECEC] px-1.5 py-0.5 text-[11px] font-semibold text-[#DC2626]">⏱️ ค้าง {sla.days}/{sla.limit} วัน</span>}
+                    </div>
+                    {(() => {
+                      const flow = statusesFor(jobTypeOf(r))
+                      const idx  = flow.findIndex((x) => x.value === r.status)
+                      return (
+                        <div className="mt-1.5 flex max-w-[220px] gap-0.5" title={`ขั้นที่ ${idx + 1} จาก ${flow.length}`}>
+                          {flow.map((_, i) => (
+                            <span key={i} className="h-1.5 flex-1 rounded-full" style={{ background: i <= idx ? barColor(r.status) : "#E5E7EB" }} />
+                          ))}
+                        </div>
+                      )
+                    })()}
                     {!r.prCode?.trim() && (
-                      <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
+                      <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[11px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
                     )}
                     {(r.prCode || r.poCode) && (
-                      <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10.5px] text-[#5B7568]">
+                      <div className="mt-1.5 flex flex-wrap gap-1 font-mono text-[11.5px] text-[#5B7568]">
                         {r.prCode && <span className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PR <CopyText value={r.prCode} /></span>}
                         {r.poCode && r.poCode.split(",").map((po) => po.trim()).filter(Boolean).map((po, i) => (
                           <span key={i} className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PO <CopyText value={po} /></span>
@@ -980,12 +983,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </div>
                     )}
                   </div>
-                  {/* จัดการ — 2 icon ต่อแถว */}
-                  <div className="grid grid-cols-2 justify-items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => openComments(r)} title="ความคิดเห็น" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8C4B]"><MessageSquare size={14} /></button>
-                    <button onClick={() => openLog(r)} title="ประวัติ" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8C4B]"><History size={14} /></button>
-                    <button onClick={() => openEdit(r)} title="แก้ไข" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8C4B]"><Pencil size={14} /></button>
-                    <button onClick={() => remove(r)} title="ลบ" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-[#F6FAF7] dark:bg-white/5 text-gray-500 transition hover:bg-[#DC2626]/10 hover:text-[#DC2626] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#DC2626]"><Trash2 size={14} /></button>
+                  {/* กำหนด */}
+                  <div className="min-w-0 text-[12.5px]">
+                    {r.dueDate
+                      ? <div className={dueOverdue ? "font-bold text-[#DC2626]" : "font-medium text-[#37473E] dark:text-gray-300"}>📅 {fmtDateShort(r.dueDate)}{dueOverdue && <div className="text-[11px] font-semibold">เลยกำหนด!</div>}</div>
+                      : <span className="text-[#C6D0CA]">—</span>}
+                    {isDone && r.completedDate && <div className="mt-1 text-[12px] font-semibold text-[#1B8C4B]">🏁 {fmtDateShort(r.completedDate)}</div>}
                   </div>
                 </div>
               )
@@ -1111,10 +1114,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         )
       })}
 
-      {/* Modal */}
+      {/* Modal — ฟอร์มหน้าเดียว (บนลงล่าง) header/footer ตรึง เนื้อหาเลื่อน */}
       {open && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm">
-          <div className="my-8 w-full max-w-2xl rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 backdrop-blur-sm sm:p-4">
+          <div className="my-2 flex max-h-[94vh] w-full max-w-3xl flex-col rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl sm:my-6">
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
@@ -1135,6 +1138,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </div>
               <div className="flex items-center gap-1.5">
                 {editId && (
+                  <button onClick={() => editRow && openLog(editRow)} title="ประวัติการแก้ไข" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
+                    <History size={14} /> ประวัติ
+                  </button>
+                )}
+                {editId && (
                   <button onClick={copyShareLink} title="คัดลอกลิงก์แชร์รายการนี้" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
                     <Link2 size={14} /> คัดลอกลิงก์
                   </button>
@@ -1145,30 +1153,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </div>
             </div>
 
-            {/* step nav */}
-            <div className="flex border-b border-[#EEF2F0] dark:border-white/8">
-              {[{ n: 1, label: "ข้อมูลรถ" }, { n: 2, label: isParts ? "อะไหล่" : "งานซ่อม" }, { n: 3, label: "สถานะ · เอกสาร" }].map((s) => {
-                const active = step === s.n
-                const done   = editId && step > s.n
-                return (
-                  <button
-                    key={s.n}
-                    onClick={() => setStep(s.n)}
-                    className="relative flex flex-1 items-center justify-center gap-2 px-4 py-3"
-                  >
-                    <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${active ? "bg-[#1B8C4B] text-white" : done ? "bg-[#1B8C4B]/15 text-[#1B8C4B]" : "bg-[#F1F5F2] dark:bg-white/10 text-[#9AA8A0]"}`}>
-                      {done ? <Check size={12} /> : s.n}
-                    </span>
-                    <span className={`text-[13px] ${active ? "font-semibold text-[#14271C] dark:text-white" : "text-[#9AA8A0]"}`}>{s.label}</span>
-                    {active && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#1B8C4B]" />}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* body */}
-            <div className="px-5 py-5">
-              {step === 1 && (
+            {/* body — ทุก section เรียงบนลงล่างในหน้าเดียว เลื่อนดูได้ */}
+            <div className="flex-1 overflow-y-auto px-5 py-5">
+              <p className="mb-3 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 pb-2 text-[14px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ</p>
+              {(
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   {/* ประเภทงาน — เลือกได้เฉพาะตอนสร้างใหม่ (แก้ไขเปลี่ยนประเภทไม่ได้ เพราะ workflow คนละชุด) */}
                   {!editId && (
@@ -1236,7 +1224,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </div>
               )}
 
-              {step === 2 && (
+              <p className="mb-3 mt-6 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 pb-2 text-[14px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}</p>
+              {(
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>{isParts ? "รายการอะไหล่ที่สั่ง" : "รายละเอียดอาการ"}</label>
@@ -1259,7 +1248,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </div>
               )}
 
-              {step === 3 && (
+              <p className="mb-3 mt-6 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 pb-2 text-[14px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร</p>
+              {(
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
@@ -1405,25 +1395,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               )}
             </div>
 
-            {/* footer */}
-            <div className="flex items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-4">
-              <span className="text-xs text-[#9AA8A0]">ขั้น {step} จาก 3</span>
+            {/* footer ตรึงล่าง — ลบได้จากที่นี่ที่เดียว (ตารางไม่มีปุ่มลบแล้ว) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-3.5">
+              <div>
+                {editId && editRow && (
+                  <button onClick={() => remove(editRow)} className="inline-flex items-center gap-1.5 rounded-lg border border-[#F3C1C1] dark:border-red-900/40 px-3.5 py-2 text-sm font-medium text-[#DC2626] hover:bg-[#FEECEC] dark:hover:bg-red-950/20">
+                    <Trash2 size={15} /> ลบรายการ
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-2">
-                {step > 1 && (
-                  <button onClick={() => setStep(step - 1)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">← ย้อนกลับ</button>
-                )}
                 <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
-                {step < 3 && (
-                  editId ? (
-                    <button onClick={() => setStep(step + 1)} className="rounded-lg border border-[#1B8C4B]/40 px-4 py-2 text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/5">ถัดไป →</button>
-                  ) : (
-                    <button onClick={() => setStep(step + 1)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]">ถัดไป →</button>
-                  )
-                )}
-                {/* แก้ไข: บันทึกได้ทุกหน้า · สร้างใหม่: บันทึกที่หน้าสุดท้าย */}
-                {(editId || step === 3) && (
-                  <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
-                )}
+                <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
               </div>
             </div>
           </div>
@@ -1481,127 +1464,87 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <p className="py-8 text-center text-sm text-gray-400">
                   ยังไม่มีประวัติ — รายการที่นำเข้าจากไฟล์จะเริ่มบันทึกประวัติเมื่อมีการแก้ไขครั้งถัดไป
                 </p>
-              ) : (
-                <ol className="relative space-y-4 border-l border-[#EEF2F0] dark:border-white/10 pl-5">
-                  {logEntries.map((e) => {
-                    const dot =
-                      e.action === "create" ? "bg-[#1B8C4B]" :
-                      e.action === "delete" ? "bg-red-500" :
-                      e.statusChange ? "bg-amber-500" : "bg-blue-500"
-                    const label =
-                      e.action === "create" ? "สร้างรายการ" :
-                      e.action === "delete" ? "ลบรายการ" : "แก้ไข"
-                    return (
-                      <li key={e._id} className="relative">
-                        <span className={`absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-[#151a10] ${dot}`} />
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{label}</span>
-                          <span className="shrink-0 text-[11px] text-gray-400">{fmtDateTime(e.at)}</span>
-                        </div>
-                        <p className="text-[11px] text-gray-400">{e.by || e.byEmail || "ไม่ระบุผู้ใช้"}</p>
+              ) : (() => {
+                // ── Timeline สถานะ (โฟกัสหลัก): เรียงเก่า→ใหม่ + คำนวณ "อยู่ขั้นนี้กี่วัน" ──
+                const chrono = [...logEntries].reverse()
+                const scs = chrono.filter((e) => e.statusChange)
+                const fieldEntries = logEntries.filter((e) => (e.changes ?? []).some((c) => c.field !== "status"))
+                const dayMs = 86400000
+                return (
+                  <>
+                    <p className="mb-3 text-[12px] font-bold uppercase tracking-wide text-[#9AA8A0]">🔄 เส้นทางสถานะ</p>
+                    {scs.length === 0 ? (
+                      <p className="pb-4 text-sm text-gray-400">ยังไม่มีการเปลี่ยนสถานะที่บันทึกไว้</p>
+                    ) : (
+                      <ol className="relative space-y-5 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-5">
+                        {scs.map((e, i) => {
+                          const to   = e.statusChange!.to
+                          const next = scs[i + 1]
+                          // ระยะเวลาที่อยู่ในสถานะนี้ (ถึงการเปลี่ยนถัดไป หรือถึงวันนี้ถ้าเป็นขั้นปัจจุบัน)
+                          const endMs   = next ? Date.parse(next.at) : Date.now()
+                          const stayDay = Math.max(0, Math.round((endMs - Date.parse(e.at)) / dayMs))
+                          const isCurrent = !next
+                          const stayColor = stayDay > 5 ? "#DC2626" : stayDay > 2 ? "#B07D12" : "#1B8C4B"
+                          return (
+                            <li key={e._id} className="relative">
+                              <span className="absolute -left-[27px] top-0.5 h-4 w-4 rounded-full ring-4 ring-white dark:ring-[#151a10]" style={{ background: barColor(to) }} />
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[13px] font-semibold ${statusMeta(to).cls}`}>
+                                  {statusMeta(to).emoji} {showVal(to)}
+                                </span>
+                                {isCurrent && !isDoneStatus(to) && <span className="rounded-full bg-[#14271C] px-2 py-0.5 text-[10px] font-bold text-white dark:bg-white dark:text-[#14271C]">ปัจจุบัน</span>}
+                                <span
+                                  className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                  style={{ color: stayColor, background: stayColor + "1A" }}
+                                  title={isCurrent ? "อยู่ขั้นนี้มาแล้ว" : "ใช้เวลาในขั้นนี้"}
+                                >
+                                  ⏱ {stayDay} วัน{isCurrent && !isDoneStatus(to) ? " (กำลังดำเนินอยู่)" : ""}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[11.5px] text-gray-400">
+                                {e.action === "create" ? "เปิดรายการ" : <>จาก {showVal(e.statusChange!.from)}</>} · {e.by || e.byEmail || "ไม่ระบุผู้ใช้"} · {fmtDateTime(e.at)}
+                              </p>
+                            </li>
+                          )
+                        })}
+                      </ol>
+                    )}
 
-                        {/* สถานะเปลี่ยน */}
-                        {e.statusChange && e.action !== "create" && (
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-                            <span className="text-gray-400">สถานะ:</span>
-                            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${statusMeta(e.statusChange.from).cls}`}>
-                              {statusMeta(e.statusChange.from).emoji} {showVal(e.statusChange.from)}
-                            </span>
-                            <ArrowRight size={12} className="text-gray-400" />
-                            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${statusMeta(e.statusChange.to).cls}`}>
-                              {statusMeta(e.statusChange.to).emoji} {showVal(e.statusChange.to)}
-                            </span>
-                          </div>
-                        )}
-                        {e.action === "create" && e.statusChange && (
-                          <div className="mt-1.5 flex items-center gap-1.5 text-xs">
-                            <span className="text-gray-400">สถานะเริ่มต้น:</span>
-                            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${statusMeta(e.statusChange.to).cls}`}>
-                              {statusMeta(e.statusChange.to).emoji} {showVal(e.statusChange.to)}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* ฟิลด์อื่นที่เปลี่ยน (ไม่รวมสถานะ ซึ่งแสดงด้านบนแล้ว) */}
-                        {e.changes && e.changes.filter((c) => c.field !== "status").length > 0 && (
-                          <ul className="mt-1.5 space-y-1">
-                            {e.changes.filter((c) => c.field !== "status").map((c) => (
-                              <li key={c.field} className="rounded-md bg-gray-50 dark:bg-white/5 px-2 py-1 text-[11px]">
-                                <span className="font-medium text-gray-600 dark:text-gray-300">{c.label}: </span>
-                                <span className="text-gray-400 line-through">{showVal(c.from)}</span>
-                                <ArrowRight size={10} className="mx-1 inline text-gray-400" />
-                                <span className="text-gray-700 dark:text-gray-200">{showVal(c.to)}</span>
+                    {/* ── การแก้ field อื่น — พับไว้ ── */}
+                    {fieldEntries.length > 0 && (
+                      <div className="mt-5 border-t border-[#EEF2F0] dark:border-white/8 pt-3">
+                        <button onClick={() => setShowFieldLog((v) => !v)} className="inline-flex items-center gap-1 text-[12px] font-medium text-[#1B8C4B] hover:underline">
+                          <History size={13} /> {showFieldLog ? "ซ่อนการแก้ไขอื่น" : `ดูการแก้ไขอื่น (${fieldEntries.length})`}
+                        </button>
+                        {showFieldLog && (
+                          <ol className="mt-3 space-y-3">
+                            {fieldEntries.map((e) => (
+                              <li key={e._id} className="rounded-lg bg-gray-50 dark:bg-white/5 px-3 py-2">
+                                <p className="text-[11px] text-gray-400">{e.by || e.byEmail || "ไม่ระบุผู้ใช้"} · {fmtDateTime(e.at)}</p>
+                                <ul className="mt-1 space-y-1">
+                                  {(e.changes ?? []).filter((c) => c.field !== "status").map((c) => (
+                                    <li key={c.field} className="text-[11.5px]">
+                                      <span className="font-medium text-gray-600 dark:text-gray-300">{c.label}: </span>
+                                      <span className="text-gray-400 line-through">{showVal(c.from)}</span>
+                                      <ArrowRight size={10} className="mx-1 inline text-gray-400" />
+                                      <span className="text-gray-700 dark:text-gray-200">{showVal(c.to)}</span>
+                                    </li>
+                                  ))}
+                                </ul>
                               </li>
                             ))}
-                          </ul>
+                          </ol>
                         )}
-                      </li>
-                    )
-                  })}
-                </ol>
-              )}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           </div>
         </div>
       )}
 
-      {/* Comments drawer (1e) */}
-      {commentFor && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={() => setCommentFor(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="flex h-full w-full max-w-md flex-col border-l border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl">
-            <div className="flex items-start justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#1B8C4B]/10 text-[#1B8C4B]"><MessageSquare size={18} /></div>
-                <div>
-                  <h2 className="flex items-center gap-1.5 text-base font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-                    ความคิดเห็น / โน้ต
-                    <span className="rounded-full bg-[#F1F5F2] dark:bg-white/10 px-1.5 text-xs font-medium text-[#5B7568] dark:text-gray-300">{comments.length}</span>
-                  </h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{commentFor.plate || "—"}{commentFor.fleetNo ? ` · เบอร์ ${commentFor.fleetNo}` : ""}</p>
-                </div>
-              </div>
-              <button onClick={() => setCommentFor(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"><X size={18} /></button>
-            </div>
-
-            <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
-              {cmtLoading ? (
-                <p className="py-8 text-center text-sm text-gray-400">กำลังโหลด...</p>
-              ) : comments.filter((c) => !c.parentId).length === 0 ? (
-                <p className="py-8 text-center text-sm text-gray-400">ยังไม่มีความคิดเห็น — เริ่มเขียนได้เลย</p>
-              ) : (
-                comments.filter((c) => !c.parentId).map((c) => (
-                  <div key={c._id}>
-                    <CommentRow c={c} />
-                    {comments.filter((r) => r.parentId === c._id).length > 0 && (
-                      <div className="ml-4 mt-2 space-y-2 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-3">
-                        {comments.filter((r) => r.parentId === c._id).map((rc) => <CommentRow key={rc._id} c={rc} reply />)}
-                      </div>
-                    )}
-                    {replyTo === c._id ? (
-                      <div className="ml-4 mt-2 flex items-center gap-2 pl-3">
-                        <input autoFocus value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(replyText, c._id) } }} placeholder="ตอบกลับ..." className="flex-1 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none" />
-                        <button type="button" onClick={() => postComment(replyText, c._id)} disabled={posting || !replyText.trim()} className="rounded-lg bg-[#1B8C4B] p-1.5 text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={14} /></button>
-                        <button type="button" onClick={() => { setReplyTo(null); setReplyText("") }} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"><X size={14} /></button>
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => { setReplyTo(c._id); setReplyText("") }} className="ml-4 mt-1 inline-flex items-center gap-1 pl-3 text-[11px] font-medium text-[#1B8C4B] hover:underline">
-                        <CornerDownRight size={11} /> ตอบกลับ
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="border-t border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] px-4 py-3">
-              <div className="flex items-center gap-2">
-                <input value={cmtText} onChange={(e) => setCmtText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(cmtText, null) } }} placeholder="เขียนความคิดเห็น / โน้ตล่าสุด..." className={inputCls} />
-                <button type="button" onClick={() => postComment(cmtText, null)} disabled={posting || !cmtText.trim()} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#1B8C4B] px-3 py-2 text-sm font-medium text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={15} /> ส่ง</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
