@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS } from "@/lib/repair-external"
+import { REPAIR_LOG_COLL } from "@/lib/repair-log"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -59,5 +60,28 @@ export async function GET(req: NextRequest) {
     items = [...active, ...latestDone]
   }
 
-  return NextResponse.json({ ok: true, vehicle, scope: scope || "default", type: type || "all", count: items.length, items })
+  // ── ประวัติการแก้ไข (repair_external_log) แนบต่อรายการ — เรียงเก่า→ใหม่ ──
+  // ปิดได้ด้วย ?history=0 ถ้าต้องการ payload เบา
+  const withHistory = searchParams.get("history") !== "0"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let out: any[] = items
+  if (withHistory && items.length) {
+    const ids  = items.map((i) => String(i._id))
+    const logs = await client.db(DB).collection(REPAIR_LOG_COLL)
+      .find({ repairId: { $in: ids } })
+      .project({ _id: 0, repairId: 1, action: 1, by: 1, at: 1, statusChange: 1, changes: 1 })
+      .sort({ at: 1 })
+      .toArray()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const byId = new Map<string, any[]>()
+    for (const l of logs) {
+      const k = String(l.repairId)
+      if (!byId.has(k)) byId.set(k, [])
+      const { repairId: _r, ...rest } = l
+      byId.get(k)!.push(rest)
+    }
+    out = items.map((i) => ({ ...i, history: byId.get(String(i._id)) ?? [] }))
+  }
+
+  return NextResponse.json({ ok: true, vehicle, scope: scope || "default", type: type || "all", count: out.length, items: out })
 }

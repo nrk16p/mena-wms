@@ -77,6 +77,9 @@ export default function Page() {
             <Param name="limit">
               จำนวนรายการสูงสุด (ค่าเริ่มต้น 100, สูงสุด 500) เรียงจากวันที่รับแจ้งล่าสุดก่อน
             </Param>
+            <Param name="history">
+              ประวัติการแก้ไขต่อรายการ — ค่าเริ่มต้น<b>แนบมาให้เสมอ</b> (field <code>history</code>) · ส่ง <code>history=0</code> ถ้าต้องการ payload เบา
+            </Param>
           </ul>
         </Section>
 
@@ -120,7 +123,22 @@ console.log(data.count, data.items)`}</CodeBlock>
       "warranty": "3 เดือน",
       "prCode": "PR-001",
       "poCode": "",
-      "note": ""
+      "note": "",
+      "history": [               // ประวัติการแก้ไข (เก่า → ใหม่) · ปิดด้วย ?history=0
+        {
+          "action": "create",    // create | update | delete
+          "by": "Nopparut",
+          "at": "2026-07-18T03:12:45.000Z",
+          "statusChange": { "from": "", "to": "รอรถเข้า" }
+        },
+        {
+          "action": "update",
+          "by": "Plug",
+          "at": "2026-07-19T08:30:02.000Z",
+          "statusChange": { "from": "รอรถเข้า", "to": "รถเข้าอู่ซ่อม" },
+          "changes": [ { "field": "garageInDate", "label": "วันที่รถเข้าอู่ซ่อม", "from": "", "to": "2026-07-19" } ]
+        }
+      ]
     }
   ]
 }`}</CodeBlock>
