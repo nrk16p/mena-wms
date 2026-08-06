@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
-import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS } from "@/lib/repair-external"
-import { REPAIR_LOG_COLL } from "@/lib/repair-log"
+import { DONE_STATUSES, isDoneStatus, JOB_TYPE_GARAGE, JOB_TYPE_PARTS } from "@/lib/repair-external"
+import { REPAIR_LOG_COLL, diffRepair, writeRepairLog } from "@/lib/repair-log"
+import { buildDoc } from "../route"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -85,3 +87,105 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ ok: true, vehicle, scope: scope || "default", type: type || "all", count: out.length, items: out })
 }
+
+// ── Write API สำหรับทีมภายนอก — ต้องส่ง header x-api-key (middleware บังคับ) ──
+// ผู้ทำรายการ: ส่ง header "x-user: ชื่อ" เพื่อบันทึกใน log (ไม่ส่ง = "API ภายนอก")
+// HTTP header ถูกตีความเป็น latin-1 — ชื่อไทยต้อง decode กลับเป็น UTF-8
+function apiUser(req: NextRequest): string {
+  const raw = req.headers.get("x-user")?.trim() || ""
+  if (!raw) return "API ภายนอก"
+  if (/[-ÿ]/.test(raw)) {
+    try { return Buffer.from(raw, "latin1").toString("utf8") } catch { /* ใช้ค่าดิบ */ }
+  }
+  return raw
+}
+const todayStr = () => new Date().toISOString().slice(0, 10)
+
+// POST /api/repair-external/sync — เปิดรายการใหม่ (กติกาเดียวกับหน้าเว็บ)
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const doc  = buildDoc(body)
+  if (!doc.plate)  return NextResponse.json({ ok: false, error: "กรุณาระบุ plate (ทะเบียนรถ)" }, { status: 400 })
+  if (!doc.status) return NextResponse.json({ ok: false, error: "กรุณาระบุ status" }, { status: 400 })
+
+  const by     = apiUser(req)
+  const client = await clientPromise
+  const db     = client.db(DB)
+  const col    = db.collection(COLL)
+
+  // กันซ้ำ: รถ 1 คัน (ทะเบียนหรือเบอร์รถตรงกัน) มีรายการไม่เสร็จได้ 1 รายการ
+  if (!isDoneStatus(doc.status)) {
+    const or: Record<string, string>[] = [{ plate: doc.plate }]
+    if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
+    const dup = await col.findOne({ status: { $nin: DONE_STATUSES }, $or: or })
+    if (dup) {
+      return NextResponse.json({ ok: false, error: `รถคันนี้มีรายการ (${dup.jobType || "อู่นอก"}) ที่ยังไม่เสร็จอยู่แล้ว`, existingId: String(dup._id) }, { status: 409 })
+    }
+  }
+
+  const now = new Date()
+  const result = await col.insertOne({ ...doc, statusSince: todayStr(), createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
+  await writeRepairLog(db, {
+    repairId: result.insertedId.toString(),
+    plate: doc.plate, fleetNo: doc.fleetNo,
+    action: "create", by, byEmail: "", at: now,
+    statusChange: { from: "", to: doc.status },
+  })
+  return NextResponse.json({ ok: true, id: String(result.insertedId), ...doc }, { status: 201 })
+}
+
+// อัปเดตรายการ (ใช้ร่วม PUT = ส่งครบทุก field / PATCH = ส่งเฉพาะ field ที่แก้)
+async function updateRecord(req: NextRequest, partial: boolean) {
+  const body = await req.json().catch(() => ({}))
+  const id   = String(body.id ?? "").trim()
+  if (!ObjectId.isValid(id)) return NextResponse.json({ ok: false, error: "กรุณาระบุ id (จาก GET /sync)" }, { status: 400 })
+
+  const by     = apiUser(req)
+  const client = await clientPromise
+  const db     = client.db(DB)
+  const col    = db.collection(COLL)
+  const _id    = new ObjectId(id)
+
+  const existing = await col.findOne({ _id })
+  if (!existing) return NextResponse.json({ ok: false, error: "ไม่พบรายการ" }, { status: 404 })
+
+  // PATCH: field ที่ไม่ส่งมา ใช้ค่าเดิม · PUT: ใช้ body ทั้งชุด
+  const doc = buildDoc(partial ? { ...existing, ...body } : body)
+
+  // ล็อกสถานะปิดงาน — เปลี่ยน/ย้อนไม่ได้
+  const existingStatus = String(existing.status ?? "")
+  if (isDoneStatus(existingStatus) && doc.status !== existingStatus) {
+    return NextResponse.json({ ok: false, error: "รายการที่ปิดงานแล้ว ย้อนสถานะกลับไม่ได้" }, { status: 409 })
+  }
+
+  // กันซ้ำเหมือนหน้าเว็บ
+  if (!isDoneStatus(doc.status)) {
+    const or: Record<string, string>[] = [{ plate: doc.plate }]
+    if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
+    const dup = await col.findOne({ _id: { $ne: _id }, status: { $nin: DONE_STATUSES }, $or: or })
+    if (dup) return NextResponse.json({ ok: false, error: "รถคันนี้มีรายการอื่นที่ยังไม่เสร็จอยู่แล้ว", existingId: String(dup._id) }, { status: 409 })
+  }
+
+  const changes = diffRepair(existing, doc)
+  const now = new Date()
+  const statusChanged = existingStatus !== doc.status
+  const statusSince = statusChanged ? todayStr() : (existing.statusSince ?? "")
+  await col.updateOne({ _id }, { $set: { ...doc, statusSince, editedBy: by, updatedAt: now } })
+
+  if (changes.length > 0) {
+    const sc = changes.find((c) => c.field === "status")
+    await writeRepairLog(db, {
+      repairId: id, plate: doc.plate, fleetNo: doc.fleetNo,
+      action: "update", by, byEmail: "", at: now,
+      statusChange: sc ? { from: sc.from, to: sc.to } : undefined,
+      changes,
+    })
+  }
+  return NextResponse.json({ ok: true, id, changed: changes.length, status: doc.status })
+}
+
+// PUT /api/repair-external/sync — อัปเดตทั้งรายการ (ต้องส่ง field ครบ)
+export async function PUT(req: NextRequest) { return updateRecord(req, false) }
+
+// PATCH /api/repair-external/sync — อัปเดตบางส่วน (ส่งเฉพาะ id + field ที่แก้ เช่น status)
+export async function PATCH(req: NextRequest) { return updateRecord(req, true) }

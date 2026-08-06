@@ -1,4 +1,4 @@
-import { Code2, Link2, Search, Filter, ListOrdered, FileJson, ShieldCheck } from "lucide-react"
+import { Code2, Link2, Search, Filter, ListOrdered, FileJson, ShieldCheck, PencilLine } from "lucide-react"
 
 const BASE = "https://mena-wms.vercel.app"
 
@@ -57,7 +57,7 @@ export default function Page() {
           <CodeBlock>{`GET ${BASE}/api/repair-external/sync?vehicle=<ทะเบียนหรือเบอร์รถ>`}</CodeBlock>
           <p className="flex items-center gap-1.5">
             <ShieldCheck size={14} className="shrink-0 text-[#1B8C4B]" />
-            เรียกได้ทันที <b>ไม่ต้อง login และไม่ต้องใช้ API key</b> · อ่านข้อมูลอย่างเดียว (GET เท่านั้น) · รองรับ CORS เรียกจากเว็บอื่นได้
+            <b>GET (อ่าน)</b> เรียกได้ทันที ไม่ต้อง login/API key · <b>POST / PUT / PATCH (เขียน)</b> ต้องส่ง header <code>x-api-key</code> — ดูหัวข้อ "การเขียนข้อมูล" ด้านล่าง · รองรับ CORS
           </p>
         </Section>
 
@@ -143,6 +143,50 @@ console.log(data.count, data.items)`}</CodeBlock>
   ]
 }`}</CodeBlock>
           <p className="text-[#9AA8A0]">หมายเหตุ: ไม่รวมรูปภาพ (images) เพื่อให้ payload เล็กและเร็ว · ถ้าไม่ส่ง <code>vehicle</code> จะได้ <code>400</code> พร้อมข้อความอธิบาย</p>
+        </Section>
+
+        <Section icon={PencilLine} title="การเขียนข้อมูล — POST / PUT / PATCH">
+          <p className="flex items-center gap-1.5">
+            <ShieldCheck size={14} className="shrink-0 text-[#B07D12]" />
+            การเขียนต้องส่ง header <code>x-api-key</code> (ขอ key จากทีมระบบ) · แนะนำส่ง <code>x-user: ชื่อผู้ทำรายการ</code> ด้วย เพื่อบันทึกในประวัติ (ไม่ส่ง = "API ภายนอก")
+          </p>
+
+          <p className="pt-1 font-semibold text-[#14271C] dark:text-white">➕ POST — เปิดรายการใหม่</p>
+          <CodeBlock>{`curl -X POST "${BASE}/api/repair-external/sync" \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: <API_KEY>" \\
+  -H "x-user: สมชาย (ทีมจัดซื้อ)" \\
+  -d '{
+    "plate": "สบ.70-1234",         // จำเป็น
+    "fleetNo": "M123",
+    "jobType": "อู่นอก",            // อู่นอก | อะไหล่ลงคัน (ไม่ส่ง = อู่นอก)
+    "status": "รอรถเข้า",           // จำเป็น — ตาม workflow ของประเภทงาน
+    "receivedDate": "2026-08-06",
+    "symptom": "เบรกไม่อยู่",
+    "garage": "อู่ ก.การช่าง",
+    "mrNo": "MR-2026-001"
+  }'`}</CodeBlock>
+          <p className="text-[#9AA8A0]">ตอบกลับ <code>201</code> พร้อม <code>id</code> ของรายการ · กันซ้ำเหมือนหน้าเว็บ: รถคันเดียวกันมีรายการไม่เสร็จได้ 1 รายการ (ซ้ำ = <code>409</code> พร้อม <code>existingId</code>)</p>
+
+          <p className="pt-2 font-semibold text-[#14271C] dark:text-white">✏️ PATCH — แก้บางฟิลด์ (แนะนำ เช่น อัพเดทสถานะ)</p>
+          <CodeBlock>{`curl -X PATCH "${BASE}/api/repair-external/sync" \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: <API_KEY>" \\
+  -H "x-user: สมชาย (ทีมจัดซื้อ)" \\
+  -d '{
+    "id": "665f1c...",             // จาก GET /sync (field _id)
+    "status": "รถเข้าอู่ซ่อม",
+    "garageInDate": "2026-08-06"
+  }'`}</CodeBlock>
+          <p className="text-[#9AA8A0]">ฟิลด์ที่ไม่ส่งมา = คงค่าเดิม · การเปลี่ยนสถานะถูกบันทึกลง history อัตโนมัติ</p>
+
+          <p className="pt-2 font-semibold text-[#14271C] dark:text-white">🔁 PUT — แทนที่ทั้งรายการ (ต้องส่งฟิลด์ครบทุกตัว)</p>
+          <CodeBlock>{`curl -X PUT "${BASE}/api/repair-external/sync" \\
+  -H "Content-Type: application/json" -H "x-api-key: <API_KEY>" \\
+  -d '{ "id": "665f1c...", "plate": "สบ.70-1234", "status": "...", ...ฟิลด์อื่นทั้งหมด }'`}</CodeBlock>
+          <p className="text-[#9AA8A0]">⚠ PUT ฟิลด์ที่ไม่ส่ง = ถูกล้างเป็นค่าว่าง — ถ้าจะแก้บางฟิลด์ใช้ PATCH เสมอ</p>
+
+          <p className="pt-2">กติกาที่ระบบบังคับทุก method: รายการที่ปิดงานแล้ว (รถเสร็จ/ลงคันเสร็จ) <b>ย้อนสถานะไม่ได้</b> (<code>409</code>) · ทุกการเขียนลงประวัติ (history) พร้อมชื่อจาก <code>x-user</code></p>
         </Section>
 
         <Section icon={ListOrdered} title="สถานะที่เป็นไปได้ (status)">

@@ -8,6 +8,8 @@ const MOBILE_API_PREFIXES = [
   "/api/tire-change",
   "/api/tire-stock",
   "/api/vehicles",
+  // sync API: GET เปิด public (bypass ด้านล่าง) · POST/PUT/PATCH ต้องมี x-api-key
+  "/api/repair-external/sync",
 ]
 
 function withCors(res: NextResponse, origin: string | null): NextResponse {
@@ -45,7 +47,8 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/repair-external/api-guide") {
     return NextResponse.next()
   }
-  if (pathname === "/api/repair-external/sync" && READ_METHODS.has(request.method)) {
+  // GET/HEAD เปิด public · OPTIONS (CORS preflight) + write methods ตกไปที่ mobile-api check ด้านล่าง
+  if (pathname === "/api/repair-external/sync" && (request.method === "GET" || request.method === "HEAD")) {
     return withCors(NextResponse.next(), request.headers.get("origin"))
   }
 
