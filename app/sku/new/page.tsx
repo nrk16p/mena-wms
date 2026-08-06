@@ -77,11 +77,11 @@ export default function NewSkuPage() {
   const L1_FILTER: Record<string, string[]> = {
     PRT: ["ENG","COL","FUL","TRN","SUS","BRK","STR","ELC","EXH","TYR","LUB","MXS","REF","PTO","TRL","BOD","SAF","CSM","ACS"],
     PM:  ["ENG","COL","FUL","TRN","SUS","BRK","STR","ELC","TYR","LUB","MXS","PTO","ACS"],
-    LAB: ["ENG","TRN","BRK","SUS","STR","ELC","MXS","TRL","BOD","TYR","PTO","ACS"],
+    LAB: ["ENG","TRN","BRK","SUS","STR","ELC","MXS","TRL","BOD","TYR","PTO","ACS","ACC"],
     SVC: ["SVC"],
     CLN: ["CLN"],
     TRP: ["TRP"],
-    ACC: ["BOD","ENG","TRN","BRK","SUS"],
+    ACC: ["BOD","ENG","TRN","BRK","SUS","ACC"],
   }
 
   // All L1 options fetched from DB, filtered by expense type in the component

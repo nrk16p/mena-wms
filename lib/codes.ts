@@ -42,6 +42,7 @@ export const SYSTEM_L1: Record<string, { th: string; en: string }> = {
   SVC: { th: "บริการภายนอก", en: "External Service" },
   CLN: { th: "ทำความสะอาด", en: "Cleaning" },
   TRP: { th: "ขนส่ง/ลากจูง", en: "Transport / Towing" },
+  ACC: { th: "อุปกรณ์เสริม", en: "Accessories" },
 }
 
 export const SUB_ASSEMBLY_L2: Record<string, Record<string, { th: string; en: string }>> = {
@@ -214,6 +215,9 @@ export const SUB_ASSEMBLY_L2: Record<string, Record<string, { th: string; en: st
     REF: { th: "น้ำยาแอร์ R134a/R1234yf", en: "Refrigerant" },
     SNS: { th: "เซ็นเซอร์แอร์", en: "AC Sensor" },
     CTR: { th: "แผงควบคุมแอร์", en: "AC Control Panel" },
+  },
+  ACC: {
+    KEY: { th: "กุญแจ", en: "Key" },
   },
 }
 

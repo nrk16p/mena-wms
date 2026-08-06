@@ -57,7 +57,7 @@ export default function Page() {
           <CodeBlock>{`GET ${BASE}/api/repair-external/sync?vehicle=<ทะเบียนหรือเบอร์รถ>`}</CodeBlock>
           <p className="flex items-center gap-1.5">
             <ShieldCheck size={14} className="shrink-0 text-[#1B8C4B]" />
-            <b>GET (อ่าน)</b> เรียกได้ทันที ไม่ต้อง login/API key · <b>POST / PUT / PATCH (เขียน)</b> ต้องส่ง header <code>x-api-key</code> — ดูหัวข้อ "การเขียนข้อมูล" ด้านล่าง · รองรับ CORS
+            เรียกได้ทันที <b>ไม่ต้อง login และไม่ต้องใช้ API key</b> (ทั้งอ่านและเขียน) · รองรับ CORS เรียกจากเว็บอื่นได้
           </p>
         </Section>
 
@@ -148,7 +148,7 @@ console.log(data.count, data.items)`}</CodeBlock>
         <Section icon={PencilLine} title="การเขียนข้อมูล — POST / PUT / PATCH">
           <p className="flex items-center gap-1.5">
             <ShieldCheck size={14} className="shrink-0 text-[#B07D12]" />
-            การเขียนต้องส่ง header <code>x-api-key</code> (ขอ key จากทีมระบบ) · แนะนำส่ง <code>x-user: ชื่อผู้ทำรายการ</code> ด้วย เพื่อบันทึกในประวัติ (ไม่ส่ง = "API ภายนอก")
+            ตอนนี้เขียนได้<b>โดยไม่ต้องใช้ API key</b> · กรุณาส่ง <code>x-user: ชื่อผู้ทำรายการ</code> ทุกครั้ง เพื่อบันทึกในประวัติ (ไม่ส่ง = "API ภายนอก")
           </p>
 
           <p className="pt-1 font-semibold text-[#14271C] dark:text-white">➕ POST — เปิดรายการใหม่</p>
