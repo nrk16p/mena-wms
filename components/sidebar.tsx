@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useSession, signOut } from "next-auth/react"
+import { UserAvatar } from "./user-avatar"
 import {
   PanelLeftClose,
   LayoutDashboard,
@@ -31,7 +32,6 @@ import {
   X,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
-import { ManualBook } from "./manual-book"
 
 type NavItem  = {
   href: string
@@ -136,7 +136,6 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     )
   }
 
-  const userInitial = session?.user?.name?.[0]?.toUpperCase() ?? "U"
 
   return (
     <aside className={[
@@ -347,28 +346,12 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         collapsed ? "px-1.5" : "px-3",
       ].join(" ")}>
         <ThemeToggle collapsed={collapsed} />
-        <ManualBook collapsed={collapsed} />
-
         {session?.user && (
           <div className={[
             "mt-1 flex items-center gap-2.5 rounded-[12px] py-2 px-2.5 bg-[#F6FAF7] dark:bg-white/5",
             collapsed ? "justify-center px-1" : "",
           ].join(" ")}>
-            {session.user.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={session.user.image}
-                alt=""
-                className="h-[30px] w-[30px] shrink-0 rounded-full object-cover"
-              />
-            ) : (
-              <div
-                className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-[#1B8C4B] text-[13px] font-bold text-white"
-                style={{ fontFamily: "'Mitr', sans-serif" }}
-              >
-                {userInitial}
-              </div>
-            )}
+            <UserAvatar src={session.user.image} name={session.user.name} size={30} />
             {!collapsed && (
               <>
                 <div className="min-w-0 flex-1">
@@ -376,7 +359,9 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
                     {session.user.name}
                   </p>
                   <p className="truncate text-[10px] leading-none text-[#9AA8A0]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
-                    {session.user.email}
+                    {/* มีข้อมูลพนักงาน → โชว์ตำแหน่ง·แผนก ให้รู้ทันทีว่า login ด้วยสิทธิ์ไหน */}
+                    {[session.user.employee?.position, session.user.employee?.department].filter(Boolean).join(" · ")
+                      || session.user.email}
                   </p>
                 </div>
                 <button

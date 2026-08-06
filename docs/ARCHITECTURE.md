@@ -80,6 +80,8 @@ vercel.json              ← ตั้งเวลา cron
 - **Role:** `lib/roles.ts` เก็บอีเมล admin แบบ hardcoded → `session.user.role = "admin" | "user"`
 - **ฝั่ง server (API):** `getServerSession(authOptions)` เพื่อรู้ว่าใครทำ (เก็บ `createdBy`/`editedBy`, log)
 - **ฝั่ง client:** `useSession()` (จาก `components/providers.tsx`)
+- **โปรไฟล์พนักงาน:** ตอน sign-in จะแลก Google `id_token` กับ Mena API (`lib/mena-api.ts`) แล้วฝังลง JWT → `session.user.employee` (fail-soft, อาจ undefined)
+- 📄 รายละเอียดการเรียกใช้ + ข้อควรระวัง: [`docs/user-profile.md`](./user-profile.md)
 
 ---
 

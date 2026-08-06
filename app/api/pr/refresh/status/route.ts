@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server"
+import { MENA_API_BASE } from "@/lib/mena-api"
 
 export const dynamic = "force-dynamic"
 
-const NCAC = "https://api-ncac.onrender.com"
-
-// GET /api/pr/refresh/status — สถานะ light run (running + last_run) จาก NCAC
+// GET /api/pr/refresh/status — สถานะ light run (running + last_run) จาก Mena API
 export async function GET() {
   try {
-    const res = await fetch(`${NCAC}/pipeline/status/atms_procurement_light`, { cache: "no-store" })
+    const res = await fetch(`${MENA_API_BASE}/pipeline/status/atms_procurement_light`, { cache: "no-store" })
     const data = await res.json()
     return NextResponse.json(data)
   } catch (e) {

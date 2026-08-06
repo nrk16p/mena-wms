@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
+import { MENA_API_BASE } from "@/lib/mena-api"
 
 export const dynamic = "force-dynamic"
 
 // server-side เท่านั้น (Next.js API route) — ไม่หลุดถึง browser
-const NCAC = "https://api-ncac.onrender.com"
-const KEY  = "mena-pipeline-2026"
+const KEY = process.env.MENA_API_KEY ?? ""
 const RATE_LIMIT_MIN = 60      // รีเฟรชได้ 1 ครั้ง/ชม.
 const ETA_SEC = 720            // light run (30 วัน) ~11-12 นาที
 
@@ -27,7 +27,7 @@ export async function POST() {
   }
 
   try {
-    const res = await fetch(`${NCAC}/pipeline/run/atms_procurement_light`, {
+    const res = await fetch(`${MENA_API_BASE}/pipeline/run/atms_procurement_light`, {
       method: "POST",
       headers: { "x-api-key": KEY },
       cache: "no-store",
