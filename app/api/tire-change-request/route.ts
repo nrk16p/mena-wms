@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 
-const DB   = process.env.MONGO_DB ?? "master_data"
+const DB = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
 
 // GET /api/tire-change-request?branch=&status=&q=&page=1&limit=50&stats=1 — list requests (admin)
@@ -11,14 +11,14 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const branch = searchParams.get("branch")?.trim() ?? ""
   const status = searchParams.get("status")?.trim() ?? ""
-  const plate  = searchParams.get("plate")?.trim()  ?? ""
-  const q      = searchParams.get("q")?.trim()      ?? ""
-  const page   = Math.max(parseInt(searchParams.get("page") ?? "1"), 1)
-  const limit  = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50"), 1), 200)
+  const plate = searchParams.get("plate")?.trim() ?? ""
+  const q = searchParams.get("q")?.trim() ?? ""
+  const page = Math.max(parseInt(searchParams.get("page") ?? "1"), 1)
+  const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50"), 1), 200)
   const wantStats = searchParams.get("stats") === "1"
 
   const client = await clientPromise
-  const col    = client.db(DB).collection(COLL)
+  const col = client.db(DB).collection(COLL)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const base: Record<string, any> = {
@@ -26,12 +26,12 @@ export async function GET(req: NextRequest) {
     "items.0": { $exists: true },
   }
   if (branch) base.branch = branch
-  if (plate)  base.plate = plate
+  if (plate) base.plate = plate
   if (q) {
     base.$or = [
-      { plate:         { $regex: q, $options: "i" } },
-      { driverName:    { $regex: q, $options: "i" } },
-      { truckNumber:   { $regex: q, $options: "i" } },
+      { plate: { $regex: q, $options: "i" } },
+      { driverName: { $regex: q, $options: "i" } },
+      { truckNumber: { $regex: q, $options: "i" } },
       { "items.jobNo": { $regex: q, $options: "i" } },
     ]
   }
@@ -47,9 +47,9 @@ export async function GET(req: NextRequest) {
     col.countDocuments(filter),
     wantStats
       ? col.aggregate<{ _id: string; n: number }>([
-          { $match: base },
-          { $group: { _id: { $ifNull: ["$status", "pending"] }, n: { $sum: 1 } } },
-        ]).toArray()
+        { $match: base },
+        { $group: { _id: { $ifNull: ["$status", "pending"] }, n: { $sum: 1 } } },
+      ]).toArray()
       : Promise.resolve([]),
   ])
 
@@ -79,12 +79,12 @@ export async function GET(req: NextRequest) {
     for (const s of stockRows) {
       stockMap.set(String(s.serialNo).trim(), {
         unitPrice: Number(s.unitPrice) || 0,
-        distance:  Number(s.distance)  || 0,
+        distance: Number(s.distance) || 0,
       })
     }
     for (const c of changeRows) {
       changeMap.set(String(c.serialNo).trim(), {
-        lastPR:       String(c.maintenanceRequest ?? ""),
+        lastPR: String(c.maintenanceRequest ?? ""),
         lastChangeIn: c.changeIn ? new Date(c.changeIn) : null,
       })
     }
@@ -93,12 +93,12 @@ export async function GET(req: NextRequest) {
   const enriched = items.map((r) => ({
     ...r,
     items: (r.items ?? []).map((it: Record<string, unknown>) => {
-      const sn          = String(it.serialNo ?? "").trim()
-      const stock       = stockMap.get(sn)
-      const change      = changeMap.get(sn)
-      const usedDist    = Number(it.usedDistance) || 0
-      const unitPrice   = stock?.unitPrice ?? null
-      const stockDist   = stock?.distance  ?? null
+      const sn = String(it.serialNo ?? "").trim()
+      const stock = stockMap.get(sn)
+      const change = changeMap.get(sn)
+      const usedDist = Number(it.usedDistance) || 0
+      const unitPrice = stock?.unitPrice ?? null
+      const stockDist = stock?.distance ?? null
       const remainingPct =
         stockDist && stockDist > 0 && usedDist > 0
           ? Math.round((1 - usedDist / stockDist) * 100)
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
         ...it,
         unitPrice, stockDistance: stockDist,
         remainingPct, bahtPerKm, bahtPerKmStock,
-        lastPR:       change?.lastPR       ?? null,
+        lastPR: change?.lastPR ?? null,
         lastChangeIn: change?.lastChangeIn ?? null,
       }
     }),
@@ -127,16 +127,15 @@ export async function GET(req: NextRequest) {
 // POST /api/tire-change-request — save a tire change request
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const branch          = String(body.branch ?? "").trim()
-  const driverName      = String(body.driverName ?? "").trim()
-  const plate           = String(body.plate ?? "").trim()
-  const truckNumber     = String(body.truckNumber ?? "").trim()
+  const branch = String(body.branch ?? "").trim()
+  const driverName = String(body.driverName ?? "").trim()
+  const plate = String(body.plate ?? "").trim()
+  const truckNumber = String(body.truckNumber ?? "").trim()
   const currentOdometer = Number(String(body.currentOdometer ?? "").replace(/,/g, ""))
 
-  if (!branch)      return NextResponse.json({ error: "branch is required" }, { status: 400 })
-  if (!driverName)  return NextResponse.json({ error: "กรุณาระบุชื่อคนขับ" }, { status: 400 })
-  if (!plate)       return NextResponse.json({ error: "กรุณาระบุทะเบียนรถ" }, { status: 400 })
-  if (!truckNumber) return NextResponse.json({ error: "กรุณาระบุเบอร์รถ" }, { status: 400 })
+  if (!branch) return NextResponse.json({ error: "branch is required" }, { status: 400 })
+  if (!driverName) return NextResponse.json({ error: "กรุณาระบุชื่อคนขับ" }, { status: 400 })
+  if (!plate) return NextResponse.json({ error: "กรุณาระบุทะเบียนรถ" }, { status: 400 })
   if (!Number.isFinite(currentOdometer) || currentOdometer <= 0) {
     return NextResponse.json({ error: "กรุณาระบุเลขไมล์ปัจจุบันให้ถูกต้อง" }, { status: 400 })
   }
@@ -161,10 +160,10 @@ export async function POST(req: NextRequest) {
       truckNumber,
       currentOdometer,
       odometerPhoto: String(body.odometerPhoto ?? existing.odometerPhoto ?? ""),
-      fleet:         String(body.fleet ?? existing.fleet ?? ""),
-      plant:         String(body.plant ?? existing.plant ?? ""),
-      vehicleType:   String(body.vehicleType ?? existing.vehicleType ?? ""),
-      updatedAt:     new Date(),
+      fleet: String(body.fleet ?? existing.fleet ?? ""),
+      plant: String(body.plant ?? existing.plant ?? ""),
+      vehicleType: String(body.vehicleType ?? existing.vehicleType ?? ""),
+      updatedAt: new Date(),
     }
     await col.updateOne({ _id: existing._id }, { $set: refresh })
     return NextResponse.json({ ...existing, ...refresh, _id: existing._id })
@@ -178,15 +177,15 @@ export async function POST(req: NextRequest) {
     currentOdometer,
     odometerPhoto: String(body.odometerPhoto ?? ""),
     // vehicle master snapshot at request time
-    fleet:       String(body.fleet ?? ""),
-    plant:       String(body.plant ?? ""),
+    fleet: String(body.fleet ?? ""),
+    plant: String(body.plant ?? ""),
     vehicleType: String(body.vehicleType ?? ""),
     // session for web; body fields for mobile (x-api-key) callers
-    requestedBy:      session?.user?.name  || String(body.requestedBy ?? ""),
+    requestedBy: session?.user?.name || String(body.requestedBy ?? ""),
     requestedByEmail: session?.user?.email || String(body.requestedByEmail ?? ""),
-    source:           session ? "web" : "mobile",
-    status:           "pending",
-    createdAt:        new Date(),
+    source: session ? "web" : "mobile",
+    status: "pending",
+    createdAt: new Date(),
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
