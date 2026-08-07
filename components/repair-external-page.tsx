@@ -117,6 +117,15 @@ const ageDays = (s: string): number | null => {
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000))
 }
 
+// พิกัดที่รถเสีย → ลิงก์แผนที่ (รับทั้งลิงก์เต็มและ lat,long)
+const mapUrl = (v: string): string | null => {
+  const t = (v ?? "").trim()
+  if (!t) return null
+  if (/^https?:\/\//i.test(t)) return t
+  if (/^-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+$/.test(t)) return `https://www.google.com/maps?q=${encodeURIComponent(t)}`
+  return null
+}
+
 // สีตามช่วงอายุงาน (bucket) สำหรับ pill/ตัวเลข
 const agingBucket = (days: number): { text: string; bg: string } =>
   days >= 15 ? { text: "#DC2626", bg: "#FEECEC" } :
@@ -138,6 +147,7 @@ type Garage = { _id: string; name: string }
 const EMPTY: Omit<RepairExternal, "_id"> = {
   jobType: JOB_TYPE_GARAGE,
   receivedDate: "", garageInDate: "", dueDate: "", completedDate: "", mrNo: "", symptom: "", plate: "", fleetNo: "",
+  driverName: "", driverPhone: "", breakdownLocation: "",
   fleet: "", plant: "",
   garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
   note: "", repairPrice: 0, warranty: "",
@@ -946,6 +956,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         {r.plant && <span className="rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[11px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300" title={`แพล้นท์: ${r.plant}`}>🏭 {r.plant}</span>}
                       </div>
                     )}
+                    {(r.driverName || r.driverPhone) && (
+                      <div className="mt-1 text-[12px] text-[#5B7568] dark:text-gray-400">
+                        👤 {r.driverName || "—"}
+                        {r.driverPhone && <a href={`tel:${r.driverPhone.replace(/[^0-9+]/g, "")}`} onClick={(e) => e.stopPropagation()} className="ml-1.5 font-medium text-[#1B8C4B] hover:underline">📞 {r.driverPhone}</a>}
+                      </div>
+                    )}
                     {r.mrNo && <div className="mt-1 font-mono text-[11.5px] text-[#9AA8A0]"><CopyText value={r.mrNo} /></div>}
                   </div>
                   {/* อาการ + อู่ (รวมช่องเดียว — พื้นที่กว้าง อ่านสบาย) */}
@@ -953,6 +969,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <div className="line-clamp-3 text-[14px] leading-[1.55] text-[#37473E] dark:text-gray-200" title={r.symptom}>{r.symptom || "—"}</div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <span className="text-[13px] font-medium text-[#5B7568] dark:text-gray-400">🏭 {r.garage || "ยังไม่ระบุอู่"}</span>
+                      {r.breakdownLocation && (mapUrl(r.breakdownLocation)
+                        ? <a href={mapUrl(r.breakdownLocation)!} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="rounded bg-[#FEECEC] px-2 py-0.5 text-[11px] font-semibold text-[#DC2626] hover:underline">📍 จุดรถเสีย</a>
+                        : <span className="rounded bg-[#FEECEC] px-2 py-0.5 text-[11px] font-medium text-[#DC2626]" title={r.breakdownLocation}>📍 {r.breakdownLocation.slice(0, 30)}{r.breakdownLocation.length > 30 ? "…" : ""}</span>)}
                       {r.repairPrice > 0 && <span className="rounded bg-[#ECFDF3] px-2 py-0.5 text-[12px] font-semibold text-[#1B8C4B]">฿ {fmtNum(r.repairPrice)}</span>}
                       {r.warranty && <span className="rounded bg-[#F1F5F2] px-2 py-0.5 text-[11px] font-medium text-[#5B7568]">🛡 {r.warranty}</span>}
                     </div>
@@ -1215,6 +1234,23 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       ⓘ ฟลีท/แพล้นท์ อ้างอิงข้อมูลรถ ณ วันที่ <b className="text-[#5B7568] dark:text-gray-400">{vdRef}</b> (atms.vehicle_daily)
                     </p>
                   )}
+                  <div>
+                    <label className={labelCls}>👤 ชื่อคนขับ</label>
+                    <input value={form.driverName} onChange={(e) => setForm({ ...form, driverName: e.target.value })} className={inputCls} placeholder="ชื่อ-นามสกุล คนขับ" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>📞 เบอร์โทรคนขับ</label>
+                    <input type="tel" value={form.driverPhone} onChange={(e) => setForm({ ...form, driverPhone: e.target.value })} className={inputCls} placeholder="เช่น 081-234-5678" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={labelCls}>📍 พิกัดที่รถเสีย <span className="text-[10px] font-normal text-gray-400">(วางลิงก์ Google Maps / lat,long / หรือพิมพ์อธิบาย)</span></label>
+                    <input value={form.breakdownLocation} onChange={(e) => setForm({ ...form, breakdownLocation: e.target.value })} className={inputCls} placeholder="เช่น https://maps.app.goo.gl/... หรือ 13.7563,100.5018 หรือ ถ.บางนา-ตราด กม.18" />
+                    {mapUrl(form.breakdownLocation) && (
+                      <a href={mapUrl(form.breakdownLocation)!} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[12px] font-medium text-[#1B8C4B] hover:underline">
+                        📍 เปิดแผนที่
+                      </a>
+                    )}
+                  </div>
                   <div className="sm:col-span-2">
                     <label className={labelCls}>ไฟล์แนบ <span className="text-[10px] font-normal text-gray-400">(รูป / เอกสาร)</span></label>
                     <ImageUpload initial={formImages} onChange={setFormImages} />
