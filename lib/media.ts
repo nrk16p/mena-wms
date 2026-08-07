@@ -68,6 +68,8 @@ export function normalizeImages(arr: unknown): any[] {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const i = img as any
     if (!i || i.mediaId == null || !i.batchId || !i.filename) return i
+    // เอกสาร PDF (batchId "doc") — URL ชี้ไฟล์ต้นฉบับใน Spaces ตรง ๆ ห้าม rebuild เป็นรูปแบบ webp
+    if (i.batchId === "doc") return i
     const safe = sanitizeMediaFilename(String(i.filename))
     return {
       ...i,

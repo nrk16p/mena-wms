@@ -505,9 +505,13 @@ export function OrderTrackingPage() {
                       {r.note && <p className="whitespace-pre-wrap text-[#9AA8A0]">📝 {r.note}</p>}
                       {/* ไฟล์แนบ — คลิกเปิดรูปเต็ม */}
                       {(r.images?.length ?? 0) > 0 && (
-                        <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
-                          {r.images!.map((img) => (
-                            <a key={img.mediaId} href={img.webpUrl} target="_blank" rel="noreferrer" title={img.filename}>
+                        <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          {r.images!.map((img, ii) => /\.pdf$/i.test(img.filename || "") ? (
+                            <a key={ii} href={img.webpUrl} target="_blank" rel="noreferrer" title={img.filename} className="inline-flex items-center gap-1 rounded-lg border border-[#F3C1C1] dark:border-red-900/40 bg-[#FEF3F2] dark:bg-red-950/20 px-2 py-1.5 text-[11px] font-medium text-[#DC2626] hover:underline">
+                              📄 {img.filename.length > 24 ? img.filename.slice(0, 24) + "…" : img.filename}
+                            </a>
+                          ) : (
+                            <a key={ii} href={img.webpUrl} target="_blank" rel="noreferrer" title={img.filename}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={img.thumbnailUrl || img.webpUrl} alt={img.filename} className="h-14 w-14 rounded-lg border border-[#EEF2F0] dark:border-white/10 object-cover transition hover:opacity-80" />
                             </a>

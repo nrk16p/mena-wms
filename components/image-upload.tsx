@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { ImagePlus, Eye, Trash2, Loader2, AlertCircle, X, Download } from "lucide-react"
+import { ImagePlus, Eye, Trash2, Loader2, AlertCircle, X, Download, FileText } from "lucide-react"
 import { webpUrl, thumbnailUrl, sanitizeMediaFilename, MEDIA_MAX_BYTES, MEDIA_UI_MAX_BYTES, type SkuImage } from "@/lib/media"
 import { swalDeleteConfirm, swalToast } from "@/lib/swal"
 
@@ -22,6 +22,10 @@ function uid(): string {
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2)
 }
+
+// PDF ใช้เส้นทางอัปโหลดของเราเอง (Spaces ตรง) — batchId sentinel "doc"
+const isPdfFile = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name)
+const isPdfName = (name: string) => /\.pdf$/i.test(name)
 
 export function ImageUpload({
   onChange,
@@ -75,6 +79,22 @@ export function ImageUpload({
       setItems((prev) => prev.map((it) => (it.localId === localId ? { ...it, status: "error", error: msg } : it)))
 
     try {
+      // ── PDF: อัปโหลดตรงเข้า Spaces (presign-api ภายนอกรับเฉพาะรูป) ──
+      if (isPdfFile(file)) {
+        const pres = await fetch("/api/media/doc-presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: safeName, file_size: file.size }),
+        })
+        if (!pres.ok) { const e = await pres.json().catch(() => ({})); return fail(e.error || "ขอ upload url ไม่สำเร็จ") }
+        const { upload_url, public_url } = await pres.json()
+        const put = await fetch(upload_url, { method: "PUT", headers: { "Content-Type": "application/pdf", "x-amz-acl": "public-read" }, body: file })
+        if (put.status !== 200 && put.status !== 204) return fail("อัปโหลดไฟล์ไม่สำเร็จ")
+        setItems((prev) => prev.map((it) => it.localId === localId
+          ? { ...it, status: "done", mediaId: 0, batchId: "doc", webpUrl: public_url, thumbnailUrl: "" }
+          : it))
+        return
+      }
       // 1. presign (reuse one batch for the whole set) — ใช้ชื่อไฟล์ที่ sanitize แล้วเป็น key
       const presignRes = await fetch("/api/media/presign", {
         method:  "POST",
@@ -147,29 +167,35 @@ export function ImageUpload({
   function addFiles(fileList: FileList | null) {
     if (!fileList || disabled) return
     const all = Array.from(fileList)
-    // บล็อกไฟล์ที่ไม่ใช่รูปภาพ — แจ้งให้รู้ (เดิมทิ้งเงียบ ๆ ผู้ใช้ไม่รู้ว่าไฟล์หาย)
-    const blocked = all.filter((f) => !f.type.startsWith("image/"))
+    // รับรูปภาพ + PDF — อื่น ๆ บล็อกพร้อมแจ้ง
+    const accepted = all.filter((f) => f.type.startsWith("image/") || isPdfFile(f))
+    const blocked  = all.filter((f) => !f.type.startsWith("image/") && !isPdfFile(f))
     if (blocked.length) {
-      swalToast("error", `อัปโหลดได้เฉพาะรูปภาพ — บล็อก ${blocked.length} ไฟล์: ${blocked.map((f) => f.name).slice(0, 3).join(", ")}${blocked.length > 3 ? " ..." : ""}`)
+      swalToast("error", `อัปโหลดได้เฉพาะรูปภาพและ PDF — บล็อก ${blocked.length} ไฟล์: ${blocked.map((f) => f.name).slice(0, 3).join(", ")}${blocked.length > 3 ? " ..." : ""}`)
     }
-    const images = all.filter((f) => f.type.startsWith("image/"))
-    // แจ้งเตือนไฟล์ใหญ่เกินเพดาน UI (50MB) — ไม่รับ
-    const tooBig = images.filter((f) => f.size > MEDIA_UI_MAX_BYTES)
+    // PDF เกิน 25MB ย่อไม่ได้ — บล็อกพร้อมแจ้ง · รูปเกิน 50MB ไม่รับ
+    const pdfTooBig = accepted.filter((f) => isPdfFile(f) && f.size > MEDIA_MAX_BYTES)
+    if (pdfTooBig.length) {
+      swalToast("error", `PDF ใหญ่เกิน 25MB — อัปโหลดไม่ได้: ${pdfTooBig.map((f) => f.name).slice(0, 3).join(", ")}`)
+    }
+    const tooBig = accepted.filter((f) => !isPdfFile(f) && f.size > MEDIA_UI_MAX_BYTES)
     if (tooBig.length) {
       swalToast("error", `ไฟล์ใหญ่เกิน 50MB — อัปโหลดไม่ได้ ${tooBig.length} ไฟล์: ${tooBig.map((f) => f.name).slice(0, 3).join(", ")}`)
     }
-    // 25–50MB → รับไว้แล้วย่ออัตโนมัติ (แจ้งให้รู้)
-    const needShrink = images.filter((f) => f.size <= MEDIA_UI_MAX_BYTES && f.size > MEDIA_MAX_BYTES)
+    // รูป 25–50MB → รับไว้แล้วย่ออัตโนมัติ (แจ้งให้รู้)
+    const needShrink = accepted.filter((f) => !isPdfFile(f) && f.size <= MEDIA_UI_MAX_BYTES && f.size > MEDIA_MAX_BYTES)
     if (needShrink.length) {
       swalToast("info", `รูปใหญ่เกิน 25MB จำนวน ${needShrink.length} ไฟล์ — ระบบกำลังย่อให้อัตโนมัติ`)
     }
 
     const remaining = max - items.length
-    const picked = images.filter((f) => f.size <= MEDIA_UI_MAX_BYTES).slice(0, Math.max(0, remaining))
+    const picked = accepted
+      .filter((f) => (isPdfFile(f) ? f.size <= MEDIA_MAX_BYTES : f.size <= MEDIA_UI_MAX_BYTES))
+      .slice(0, Math.max(0, remaining))
 
     // sanitize ชื่อไฟล์ก่อนอัปโหลด — อักขระอย่าง # ทำ URL รูปพัง (กลายเป็น fragment)
     const safeNames = picked.map((f) =>
-      f.size > MEDIA_MAX_BYTES
+      !isPdfFile(f) && f.size > MEDIA_MAX_BYTES
         ? sanitizeMediaFilename(f.name.replace(/\.[^.]+$/, "") + ".jpg")  // ย่อแล้วกลายเป็น jpeg
         : sanitizeMediaFilename(f.name)
     )
@@ -183,7 +209,7 @@ export function ImageUpload({
     setItems((prev) => [...prev, ...fresh])
     picked.forEach(async (f, i) => {
       let toSend: File | null = f
-      if (f.size > MEDIA_MAX_BYTES) {
+      if (!isPdfFile(f) && f.size > MEDIA_MAX_BYTES) {
         toSend = await shrinkImage(f)
         if (!toSend) {
           setItems((prev) => prev.map((it) => (it.localId === fresh[i].localId ? { ...it, status: "error", error: "ย่อรูปไม่สำเร็จ — ไฟล์ใหญ่เกิน 25MB" } : it)))
@@ -204,7 +230,8 @@ export function ImageUpload({
       const blob = await res.blob()
       const a    = document.createElement("a")
       a.href     = URL.createObjectURL(blob)
-      a.download = item.filename.replace(/\.[^.]+$/, "") + ".webp"
+      // PDF เก็บไฟล์ต้นฉบับ — ชื่อเดิม · รูปถูกแปลงเป็น webp
+      a.download = item.batchId === "doc" ? item.filename : item.filename.replace(/\.[^.]+$/, "") + ".webp"
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -216,14 +243,18 @@ export function ImageUpload({
   }
 
   async function removeItem(item: UploadItem) {
-    // รูปที่อัปโหลดสำเร็จแล้ว → ถามยืนยันก่อนลบ (tile ที่ error/กำลังอัปโหลด ลบได้เลย)
+    // ไฟล์ที่อัปโหลดสำเร็จแล้ว → ถามยืนยันก่อนลบ (tile ที่ error/กำลังอัปโหลด ลบได้เลย)
     if (item.status === "done") {
-      const ok = await swalDeleteConfirm(`ลบรูป ${item.filename}?`)
+      const ok = await swalDeleteConfirm(`ลบไฟล์ ${item.filename}?`)
       if (!ok.isConfirmed) return
     }
     setItems((prev) => prev.filter((i) => i.localId !== item.localId))
     URL.revokeObjectURL(item.previewUrl)
-    if (item.mediaId != null) {
+    if (item.batchId === "doc" && item.webpUrl) {
+      // เอกสาร PDF — ลบผ่านเส้นทางของเรา (key = path หลังโดเมน)
+      const key = decodeURIComponent(new URL(item.webpUrl).pathname.replace(/^\//, ""))
+      fetch(`/api/media/doc?key=${encodeURIComponent(key)}`, { method: "DELETE" }).catch(() => {})
+    } else if (item.mediaId != null && item.mediaId !== 0) {
       fetch(`/api/media/${item.mediaId}`, { method: "DELETE" }).catch(() => {})
     }
   }
@@ -255,14 +286,14 @@ export function ImageUpload({
           {atLimit ? `ครบ ${max} รูปแล้ว` : "ลากรูปมาวาง หรือคลิกเพื่อเลือก"}
         </span>
         <span className="text-[11px] text-gray-400 dark:text-gray-500">
-          แนบได้หลายรูป · JPG / PNG / WebP · ไม่เกิน 50MB ต่อรูป (เกิน 25MB ระบบย่อให้อัตโนมัติ)
+          แนบได้หลายไฟล์ · JPG / PNG / WebP / PDF · รูปไม่เกิน 50MB (เกิน 25MB ย่อให้อัตโนมัติ) · PDF ไม่เกิน 25MB
         </span>
       </button>
 
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"
         multiple
         hidden
         onChange={(e) => { addFiles(e.target.files); e.target.value = "" }}
@@ -276,12 +307,19 @@ export function ImageUpload({
               key={item.localId}
               className="group relative aspect-square overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-white/10 dark:bg-white/5"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.previewUrl}
-                alt={item.filename}
-                className={`h-full w-full object-cover transition-opacity ${item.status === "uploading" ? "opacity-40" : ""}`}
-              />
+              {isPdfName(item.filename) ? (
+                <div className={`flex h-full w-full flex-col items-center justify-center gap-1 bg-[#FEF3F2] dark:bg-red-950/20 px-1.5 text-center ${item.status === "uploading" ? "opacity-40" : ""}`}>
+                  <FileText size={24} className="text-[#DC2626]" />
+                  <span className="line-clamp-2 break-all text-[9px] font-medium leading-tight text-[#7A2E2E] dark:text-red-300">{item.filename}</span>
+                </div>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={item.previewUrl}
+                  alt={item.filename}
+                  className={`h-full w-full object-cover transition-opacity ${item.status === "uploading" ? "opacity-40" : ""}`}
+                />
+              )}
 
               {/* uploading overlay */}
               {item.status === "uploading" && (
@@ -303,8 +341,10 @@ export function ImageUpload({
                 {item.status !== "error" && (
                   <button
                     type="button"
-                    onClick={() => setLightbox(item.webpUrl || item.previewUrl)}
-                    title="ดูรูป"
+                    onClick={() => isPdfName(item.filename)
+                      ? window.open(item.webpUrl || item.previewUrl, "_blank")
+                      : setLightbox(item.webpUrl || item.previewUrl)}
+                    title={isPdfName(item.filename) ? "เปิดไฟล์" : "ดูรูป"}
                     className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-gray-800 shadow hover:bg-white"
                   >
                     <Eye size={15} />

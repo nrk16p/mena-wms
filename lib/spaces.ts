@@ -1,4 +1,5 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import crypto from "crypto"
 
 let client: S3Client | null = null
@@ -44,4 +45,30 @@ export async function uploadImage(dataUrl: string, folder: string): Promise<stri
   )
 
   return `https://${bucket}.${region}.digitaloceanspaces.com/${key}`
+}
+
+// ── เอกสาร (PDF) — อัปโหลดตรงเข้า Spaces ไม่ผ่าน presign-api ภายนอก (service นั้นรับเฉพาะรูป) ──
+const DOC_PREFIX = "media-docs"
+
+// สร้าง presigned PUT URL ให้ browser อัปโหลด PDF ตรง + คืน public URL
+export async function presignDocUpload(safeFilename: string): Promise<{ uploadUrl: string; publicUrl: string; key: string }> {
+  const bucket = process.env.DO_SPACES_BUCKET
+  if (!bucket) throw new Error("Missing DO_SPACES_BUCKET")
+  const region = process.env.DO_SPACES_REGION || "sgp1"
+  const key = `${DOC_PREFIX}/${crypto.randomUUID()}/${safeFilename}`
+  const uploadUrl = await getSignedUrl(
+    s3(),
+    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: "application/pdf", ACL: "public-read" }),
+    { expiresIn: 600 }
+  )
+  const publicUrl = `https://${bucket}.${region}.digitaloceanspaces.com/${key.split("/").map(encodeURIComponent).join("/")}`
+  return { uploadUrl, publicUrl, key }
+}
+
+// ลบเอกสาร — จำกัดเฉพาะ key ใต้ media-docs/ เท่านั้น
+export async function deleteDoc(key: string): Promise<void> {
+  const bucket = process.env.DO_SPACES_BUCKET
+  if (!bucket) throw new Error("Missing DO_SPACES_BUCKET")
+  if (!key.startsWith(DOC_PREFIX + "/")) throw new Error("key นอกขอบเขต media-docs")
+  await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
 }
