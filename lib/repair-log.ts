@@ -15,6 +15,7 @@ export const REPAIR_FIELD_LABELS: Record<string, string> = {
   driverName:    "ชื่อคนขับ",
   driverPhone:   "เบอร์โทรคนขับ",
   breakdownLocation: "พิกัดที่รถเสีย",
+  cementStatus:  "ปูนในโม่",
   garage:        "อู่",
   status:        "สถานะ",
   prCode:        "รหัส PR",

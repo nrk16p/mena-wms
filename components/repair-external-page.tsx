@@ -147,7 +147,7 @@ type Garage = { _id: string; name: string }
 const EMPTY: Omit<RepairExternal, "_id"> = {
   jobType: JOB_TYPE_GARAGE,
   receivedDate: "", garageInDate: "", dueDate: "", completedDate: "", mrNo: "", symptom: "", plate: "", fleetNo: "",
-  driverName: "", driverPhone: "", breakdownLocation: "",
+  driverName: "", driverPhone: "", breakdownLocation: "", cementStatus: "",
   fleet: "", plant: "",
   garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
   note: "", repairPrice: 0, warranty: "",
@@ -969,6 +969,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <div className="line-clamp-3 text-[14px] leading-[1.55] text-[#37473E] dark:text-gray-200" title={r.symptom}>{r.symptom || "—"}</div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <span className="text-[13px] font-medium text-[#5B7568] dark:text-gray-400">🏭 {r.garage || "ยังไม่ระบุอู่"}</span>
+                      {r.cementStatus === "มีปูน" && <span className="rounded bg-[#DC2626] px-2 py-0.5 text-[11px] font-bold text-white">⚠ มีปูน</span>}
+                      {r.cementStatus === "ไม่มีปูน" && <span className="rounded bg-[#ECFDF3] px-2 py-0.5 text-[11px] font-medium text-[#1B8C4B]">✓ ไม่มีปูน</span>}
                       {r.breakdownLocation && (mapUrl(r.breakdownLocation)
                         ? <a href={mapUrl(r.breakdownLocation)!} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="rounded bg-[#FEECEC] px-2 py-0.5 text-[11px] font-semibold text-[#DC2626] hover:underline">📍 จุดรถเสีย</a>
                         : <span className="rounded bg-[#FEECEC] px-2 py-0.5 text-[11px] font-medium text-[#DC2626]" title={r.breakdownLocation}>📍 {r.breakdownLocation.slice(0, 30)}{r.breakdownLocation.length > 30 ? "…" : ""}</span>)}
@@ -1172,9 +1174,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
             {/* body — ทุก section เรียงบนลงล่างในหน้าเดียว เลื่อนดูได้ */}
             <div className="flex-1 overflow-y-auto px-5 py-5">
-              <p className="mb-3 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 pb-2 text-[14px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ</p>
+              {/* ── หมวด 1: ข้อมูลรถ (เขียว) ── */}
+              <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
+              <p className="flex items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-4 py-2.5 text-[15px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ</p>
               {(
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   {/* ประเภทงาน — เลือกได้เฉพาะตอนสร้างใหม่ (แก้ไขเปลี่ยนประเภทไม่ได้ เพราะ workflow คนละชุด) */}
                   {!editId && (
                     <div className="sm:col-span-2">
@@ -1242,6 +1246,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <label className={labelCls}>📞 เบอร์โทรคนขับ</label>
                     <input type="tel" value={form.driverPhone} onChange={(e) => setForm({ ...form, driverPhone: e.target.value })} className={inputCls} placeholder="เช่น 081-234-5678" />
                   </div>
+                  <div>
+                    <label className={labelCls}>🥣 ปูนในโม่</label>
+                    <div className="inline-flex w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 p-0.5">
+                      {["มีปูน", "ไม่มีปูน"].map((cs) => {
+                        const active = form.cementStatus === cs
+                        return (
+                          <button
+                            key={cs}
+                            type="button"
+                            onClick={() => setForm({ ...form, cementStatus: active ? "" : cs })}
+                            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold transition ${active ? (cs === "มีปูน" ? "bg-[#DC2626] text-white" : "bg-[#1B8C4B] text-white") : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                          >
+                            {cs === "มีปูน" ? "⚠ มีปูน" : "✓ ไม่มีปูน"}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
                   <div className="sm:col-span-2">
                     <label className={labelCls}>📍 พิกัดที่รถเสีย <span className="text-[10px] font-normal text-gray-400">(วางลิงก์ Google Maps / lat,long / หรือพิมพ์อธิบาย)</span></label>
                     <input value={form.breakdownLocation} onChange={(e) => setForm({ ...form, breakdownLocation: e.target.value })} className={inputCls} placeholder="เช่น https://maps.app.goo.gl/... หรือ 13.7563,100.5018 หรือ ถ.บางนา-ตราด กม.18" />
@@ -1258,9 +1280,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </div>
               )}
 
-              <p className="mb-3 mt-6 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 pb-2 text-[14px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}</p>
+              </section>
+
+              {/* ── หมวด 2: งานซ่อม (ส้ม) / อะไหล่ (น้ำเงิน) ── */}
+              <section className={`mt-5 overflow-hidden rounded-xl border ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}`}>
+              <p className={`flex items-center gap-2 border-b px-4 py-2.5 text-[15px] font-bold ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30 bg-[#EEF2FF] dark:bg-blue-500/15 text-[#3b5bdb] dark:text-blue-300" : "border-[#F8D8C2] dark:border-orange-500/30 bg-[#FFF3E8] dark:bg-orange-500/15 text-[#C2410C] dark:text-orange-300"}`} style={{ fontFamily: "'Mitr', sans-serif" }}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}</p>
               {(
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>{isParts ? "รายการอะไหล่ที่สั่ง" : "รายละเอียดอาการ"}</label>
                     <textarea value={form.symptom} onChange={(e) => setForm({ ...form, symptom: e.target.value })} rows={3} className={inputCls} placeholder={isParts ? "อะไหล่ที่สั่งซื้อ / จำนวน / สเปก" : "อาการที่พบ / สิ่งที่ต้องซ่อม"} />
@@ -1282,9 +1308,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </div>
               )}
 
-              <p className="mb-3 mt-6 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 pb-2 text-[14px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร</p>
+              </section>
+
+              {/* ── หมวด 3: สถานะ · เอกสาร (ม่วง) ── */}
+              <section className="mt-5 overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30">
+              <p className="flex items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-4 py-2.5 text-[15px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร</p>
               {(
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
                     <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
@@ -1382,10 +1412,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </div>
               )}
 
-              {/* ── ประวัติการแก้ไข — โชว์ในหน้าเลย โฟกัสเส้นทางสถานะ ── */}
+              </section>
+
+              {/* ── หมวด 4: ประวัติ (เทา) — โชว์ในหน้าเลย โฟกัสเส้นทางสถานะ ── */}
               {editId && (
-                <div className="mt-6">
-                  <p className="mb-3 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 pb-2 text-[14px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>🔄 เส้นทางสถานะ · ประวัติการแก้ไข</p>
+                <section className="mt-5 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10">
+                  <p className="flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5 text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>🔄 เส้นทางสถานะ · ประวัติการแก้ไข</p>
+                  <div className="p-4">
 
                   {/* ย้อนสถานะกลับ (ปิดงานแล้วย้อนไม่ได้) */}
                   {editRow && !isDoneStatus(editRow.status) && (() => {
@@ -1479,6 +1512,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )
                   })()}
                 </div>
+                </section>
               )}
 
               {/* ── ความคิดเห็น / โน้ต (ฝังในหน้าแก้ไข) ── */}

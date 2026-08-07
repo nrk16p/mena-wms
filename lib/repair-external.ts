@@ -92,6 +92,7 @@ export type RepairExternal = {
   driverName:   string  // ชื่อคนขับ
   driverPhone:  string  // เบอร์โทรคนขับ
   breakdownLocation: string  // พิกัดที่รถเสีย (ลิงก์แผนที่ / lat,long / คำอธิบาย)
+  cementStatus: string  // สถานะปูนในโม่: "" | "มีปูน" | "ไม่มีปูน"
   fleet:        string  // ฟลีท (auto จาก atms.vehicle_daily)
   plant:        string  // แพล้นท์ (auto จาก atms.vehicle_daily)
   garage:       string  // อู่
