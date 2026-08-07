@@ -147,7 +147,7 @@ type Garage = { _id: string; name: string }
 const EMPTY: Omit<RepairExternal, "_id"> = {
   jobType: JOB_TYPE_GARAGE,
   receivedDate: "", garageInDate: "", dueDate: "", completedDate: "", mrNo: "", symptom: "", plate: "", fleetNo: "",
-  driverName: "", driverPhone: "", breakdownLocation: "", cementStatus: "",
+  driverName: "", driverPhone: "", breakdownLocation: "", cementStatus: "", drivableStatus: "",
   fleet: "", plant: "",
   garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
   note: "", repairPrice: 0, warranty: "",
@@ -969,6 +969,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <div className="line-clamp-3 text-[14px] leading-[1.55] text-[#37473E] dark:text-gray-200" title={r.symptom}>{r.symptom || "—"}</div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       <span className="text-[13px] font-medium text-[#5B7568] dark:text-gray-400">🏭 {r.garage || "ยังไม่ระบุอู่"}</span>
+                      {r.drivableStatus === "วิ่งไม่ได้" && <span className="rounded bg-[#DC2626] px-2 py-0.5 text-[11px] font-bold text-white">🛑 วิ่งไม่ได้</span>}
+                      {r.drivableStatus === "วิ่งได้" && <span className="rounded bg-[#ECFDF3] px-2 py-0.5 text-[11px] font-medium text-[#1B8C4B]">✓ วิ่งได้</span>}
                       {r.cementStatus === "มีปูน" && <span className="rounded bg-[#DC2626] px-2 py-0.5 text-[11px] font-bold text-white">⚠ มีปูน</span>}
                       {r.cementStatus === "ไม่มีปูน" && <span className="rounded bg-[#ECFDF3] px-2 py-0.5 text-[11px] font-medium text-[#1B8C4B]">✓ ไม่มีปูน</span>}
                       {r.breakdownLocation && (mapUrl(r.breakdownLocation)
@@ -1245,6 +1247,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div>
                     <label className={labelCls}>📞 เบอร์โทรคนขับ</label>
                     <input type="tel" value={form.driverPhone} onChange={(e) => setForm({ ...form, driverPhone: e.target.value })} className={inputCls} placeholder="เช่น 081-234-5678" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>🚦 สภาพรถ</label>
+                    <div className="inline-flex w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 p-0.5">
+                      {["วิ่งได้", "วิ่งไม่ได้"].map((ds) => {
+                        const active = form.drivableStatus === ds
+                        return (
+                          <button
+                            key={ds}
+                            type="button"
+                            onClick={() => setForm({ ...form, drivableStatus: active ? "" : ds })}
+                            className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold transition ${active ? (ds === "วิ่งไม่ได้" ? "bg-[#DC2626] text-white" : "bg-[#1B8C4B] text-white") : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                          >
+                            {ds === "วิ่งไม่ได้" ? "🛑 วิ่งไม่ได้" : "✓ วิ่งได้"}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
                   <div>
                     <label className={labelCls}>🥣 ปูนในโม่</label>

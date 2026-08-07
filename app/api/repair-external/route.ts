@@ -26,6 +26,7 @@ export function buildDoc(body: Record<string, unknown>) {
     driverPhone:  s(body.driverPhone),
     breakdownLocation: s(body.breakdownLocation),
     cementStatus: s(body.cementStatus),
+    drivableStatus: s(body.drivableStatus),
     fleet:        s(body.fleet),
     plant:        s(body.plant),
     garage:       s(body.garage),
