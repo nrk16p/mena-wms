@@ -234,7 +234,11 @@ export function OrderTrackingPage() {
 
   // จัดซื้อกดรับเรื่อง — ระบบจดชื่อผู้กดจาก session
   async function accept(r: OrderTracking) {
-    const ok = await swalConfirm("รับเรื่องนี้?", `"${r.title}" — ระบบจะบันทึกชื่อคุณเป็นผู้รับผิดชอบ`)
+    // ยืนยันตัวตนก่อนรับเรื่อง — ปุ่มนี้สำหรับทีมจัดซื้อเท่านั้น
+    const ok = await swalConfirm(
+      "คุณเป็นแผนกจัดซื้อใช่หรือไม่?",
+      `การรับเรื่อง "${r.title}" สำหรับทีมจัดซื้อเท่านั้น — กดยืนยันแล้วระบบจะบันทึกชื่อคุณ (${session?.user?.name || session?.user?.email || ""}) เป็นผู้รับผิดชอบ`
+    )
     if (!ok.isConfirmed) return
     try {
       const res = await fetch(`/api/order-tracking/${r._id}`, {
