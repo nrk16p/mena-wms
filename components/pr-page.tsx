@@ -86,7 +86,16 @@ type ItemRow = {
   received: number | null; outstanding: number | null
   status: ItemStatus
 }
-type ItemsResp = { pr: string; has_pr_items: boolean; has_po_items: boolean; pr_item_count: number; po_item_count: number; rows: ItemRow[]; summary: Record<ItemStatus, number> }
+// ราคากลางต่อ SKU (โหมดเปิด PR — ยังไม่มี PO ให้เทียบ)
+type BenchRow = {
+  sku: string; name: string; pr_qty: number | null; pr_total: number | null; pr_unit: number; found: boolean
+  mid_price?: number; min_price?: number | null; max_price?: number | null
+  cheapest_price?: number; cheapest_supplier?: string; supplier_count?: number; record_count?: number
+  diff_pct?: number | null
+}
+type ItemsResp = { pr: string; has_pr_items: boolean; has_po_items: boolean; pr_item_count: number; po_item_count: number; rows: ItemRow[]; summary: Record<ItemStatus, number>; benchmark?: BenchRow[] | null; benchmark_month?: string }
+
+const BENCHMARK_URL = "https://mena-intelligence.vercel.app/price-benchmark"
 const ITEM_META: Record<ItemStatus, { label: string; cls: string }> = {
   ok:         { label: "ตรง",       cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300" },
   qty:        { label: "จำนวนต่าง", cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300" },
@@ -691,11 +700,17 @@ export function PrPage() {
                 </div>
               </div>
 
-              {/* เทียบรายการสินค้า (line item) */}
+              {/* เทียบรายการสินค้า (line item) — มี PO เทียบ PR↔PO · ยังไม่มี PO เทียบราคากลาง */}
               <div className="rounded-[12px] border border-[#EEF2F0] dark:border-white/10 p-3.5">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[12px] font-semibold text-[#14271C] dark:text-white">เทียบรายการสินค้า (ราย SKU)</span>
-                  {items && (items.has_pr_items || items.has_po_items) && (
+                  <span className="text-[12px] font-semibold text-[#14271C] dark:text-white">
+                    {items?.benchmark ? "⚖️ เทียบกับราคากลาง (ราย SKU)" : "เทียบรายการสินค้า (ราย SKU)"}
+                  </span>
+                  {items?.benchmark ? (
+                    <a href={BENCHMARK_URL} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-[#1B8C4B] hover:underline">
+                      Price Benchmark {items.benchmark_month ? `(${items.benchmark_month})` : ""} ↗
+                    </a>
+                  ) : items && (items.has_pr_items || items.has_po_items) && (
                     <div className="flex flex-wrap gap-1">
                       {ITEM_ORDER.filter((k) => items.summary[k] > 0).map((k) => (
                         <span key={k} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ITEM_META[k].cls}`}>{ITEM_META[k].label} {items.summary[k]}</span>
@@ -705,7 +720,71 @@ export function PrPage() {
                 </div>
                 {itemsLoading ? (
                   <div className="py-3 text-center text-[12px] text-[#9AA8A0]">กำลังโหลดรายการ…</div>
-                ) : !items || (!items.has_pr_items && !items.has_po_items) ? (
+                ) : items?.benchmark ? (() => {
+                  const bm = items.benchmark
+                  const withData = bm.filter((b) => b.found && b.diff_pct != null)
+                  const over = withData.filter((b) => (b.diff_pct ?? 0) > 0)
+                  const savings = over.reduce((a, b) => a + Math.max(0, (b.pr_unit - (b.mid_price ?? 0)) * (b.pr_qty ?? 1)), 0)
+                  const badge = (pct: number) =>
+                    pct <= 0  ? { cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300", label: `🟢 ต่ำกว่า/เท่าราคากลาง ${pct === 0 ? "" : `${pct}%`}` } :
+                    pct <= 10 ? { cls: "bg-[#FEF9C3] text-[#A16207] dark:bg-amber-500/15 dark:text-amber-300", label: `🟡 แพงกว่าราคากลาง +${pct}%` } :
+                                { cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300",   label: `🔴 แพงกว่าราคากลาง +${pct}%` }
+                  return (
+                    <div className="space-y-2.5">
+                      {/* แถบสรุป */}
+                      {withData.length > 0 && (
+                        <div className={`rounded-[10px] px-3 py-2 text-[12px] font-medium ${over.length ? "bg-[#FEF7E6] text-[#B07D12] dark:bg-amber-900/20 dark:text-amber-300" : "bg-[#ECFDF3] text-[#15803D] dark:bg-green-900/20 dark:text-green-300"}`}>
+                          {over.length
+                            ? <>⚖️ {over.length}/{withData.length} รายการแพงกว่าราคากลาง · ถ้าซื้อตามราคากลางประหยัดได้ ~{baht(savings)}</>
+                            : <>✅ ทุกรายการราคาไม่เกินราคากลาง ({withData.length} รายการ)</>}
+                        </div>
+                      )}
+                      {/* การ์ดต่อ SKU */}
+                      {bm.map((b) => {
+                        if (!b.found) return (
+                          <div key={b.sku} className="rounded-[10px] border border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-3 py-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-1">
+                              <span className="text-[12px] font-medium text-[#14271C] dark:text-gray-200">{b.sku} <span className="ml-1 text-[10.5px] font-normal text-[#9AA8A0]">{b.name}</span></span>
+                              <span className="text-[11px] text-[#9AA8A0]">ราคา PR {bahtShort(b.pr_unit)}/หน่วย</span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-[#9AA8A0]">— ไม่มีข้อมูลราคากลางของ SKU นี้ —</p>
+                          </div>
+                        )
+                        const lo = b.min_price ?? b.mid_price!, hi = Math.max(b.max_price ?? b.mid_price!, b.pr_unit)
+                        const span = Math.max(hi - lo, 1)
+                        const pos = (v: number) => Math.min(100, Math.max(0, ((v - lo) / span) * 100))
+                        const bd = badge(b.diff_pct ?? 0)
+                        return (
+                          <div key={b.sku} className="rounded-[10px] border border-[#EEF2F0] dark:border-white/10 px-3 py-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-1">
+                              <span className="min-w-0 text-[12px] font-medium text-[#14271C] dark:text-gray-200">{b.sku} <span className="ml-1 text-[10.5px] font-normal text-[#9AA8A0]">{b.name}</span></span>
+                              <span className="shrink-0 text-[11.5px] text-[#4B5F54] dark:text-gray-300">PR {bahtShort(b.pr_unit)}/หน่วย × {qty(b.pr_qty)}</span>
+                            </div>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[12px] font-semibold text-[#14271C] dark:text-white">ราคากลาง {bahtShort(b.mid_price!)}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${bd.cls}`}>{bd.label}</span>
+                            </div>
+                            {/* range bar: min — ●กลาง — ▲PR — max */}
+                            <div className="mt-2.5 px-1">
+                              <div className="relative h-1.5 rounded-full bg-[#F0F4F1] dark:bg-white/10">
+                                <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#1B8C4B] shadow dark:border-[#151a10]" style={{ left: `${pos(b.mid_price!)}%` }} title={`ราคากลาง ${bahtShort(b.mid_price!)}`} />
+                                <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[11px] leading-none" style={{ left: `${pos(b.pr_unit)}%` }} title={`ราคา PR ${bahtShort(b.pr_unit)}`}>🔺</span>
+                              </div>
+                              <div className="mt-1 flex justify-between text-[10px] text-[#9AA8A0]">
+                                <span>ต่ำสุด {bahtShort(lo)}</span>
+                                <span>สูงสุด {bahtShort(b.max_price ?? hi)}</span>
+                              </div>
+                            </div>
+                            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[10.5px] text-[#9AA8A0]">
+                              <span>💰 ถูกสุด: <b className="text-[#15803D] dark:text-green-400">{b.cheapest_supplier}</b> {bahtShort(b.cheapest_price!)} · {b.supplier_count} ร้าน · {b.record_count} ครั้งซื้อ (12 เดือน)</span>
+                              <a href={`${BENCHMARK_URL}?q=${encodeURIComponent(b.sku)}`} target="_blank" rel="noreferrer" className="font-medium text-[#1B8C4B] hover:underline">ดูใน Price Benchmark ↗</a>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })() : !items || (!items.has_pr_items && !items.has_po_items) ? (
                   <div className="rounded-[10px] bg-[#F6FAF7] dark:bg-white/5 px-3 py-2 text-[11.5px] text-[#9AA8A0]">ยังไม่มีข้อมูลรายการสินค้าของ PR/PO นี้ (ยังไม่ได้ดึงหน้า detail)</div>
                 ) : (
                   <div className="overflow-x-auto rounded-[10px] border border-[#EEF2F0] dark:border-white/10">
