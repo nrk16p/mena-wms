@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
   const now   = new Date()
   const today = now.toISOString().slice(0, 10)
   const by    = session?.user?.name || session?.user?.email || ""
-  const result = await col.insertOne({ ...doc, statusSince: today, createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
+  const result = await col.insertOne({ ...doc, statusSince: today, statusSinceAt: now.toISOString(), createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
   await writeRepairLog(db, {
     repairId: result.insertedId.toString(),
     plate: doc.plate, fleetNo: doc.fleetNo,

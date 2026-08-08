@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date()
-  const result = await col.insertOne({ ...doc, statusSince: todayStr(), createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
+  const result = await col.insertOne({ ...doc, statusSince: todayStr(), statusSinceAt: now.toISOString(), createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
   await writeRepairLog(db, {
     repairId: result.insertedId.toString(),
     plate: doc.plate, fleetNo: doc.fleetNo,
@@ -170,7 +170,8 @@ async function updateRecord(req: NextRequest, partial: boolean) {
   const now = new Date()
   const statusChanged = existingStatus !== doc.status
   const statusSince = statusChanged ? todayStr() : (existing.statusSince ?? "")
-  await col.updateOne({ _id }, { $set: { ...doc, statusSince, editedBy: by, updatedAt: now } })
+  const statusSinceAt = statusChanged ? now.toISOString() : (existing.statusSinceAt ?? "")
+  await col.updateOne({ _id }, { $set: { ...doc, statusSince, statusSinceAt, editedBy: by, updatedAt: now } })
 
   if (changes.length > 0) {
     const sc = changes.find((c) => c.field === "status")

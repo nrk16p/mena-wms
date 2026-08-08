@@ -58,8 +58,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   // อัปเดตวันเข้าสถานะเมื่อสถานะเปลี่ยนเท่านั้น (ไว้คำนวณ "ค้างในสถานะกี่วัน")
   const statusChanged = String(existing.status ?? "") !== doc.status
   const statusSince = statusChanged ? now.toISOString().slice(0, 10) : (existing.statusSince ?? "")
+  const statusSinceAt = statusChanged ? now.toISOString() : (existing.statusSinceAt ?? "")
   const editedBy = session?.user?.name || session?.user?.email || existing.editedBy || ""
-  await col.updateOne({ _id: new ObjectId(id) }, { $set: { ...doc, statusSince, editedBy, updatedAt: now } })
+  await col.updateOne({ _id: new ObjectId(id) }, { $set: { ...doc, statusSince, statusSinceAt, editedBy, updatedAt: now } })
 
   // บันทึก log เฉพาะเมื่อมีการเปลี่ยนแปลงจริง
   if (changes.length > 0) {

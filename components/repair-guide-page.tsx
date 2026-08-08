@@ -7,7 +7,6 @@ import {
   REPAIR_STATUSES,
   REPAIR_STATUS_REQUIRED_FIELD,
   REPAIR_STATUS_SLA_DAYS,
-  REPAIR_SLA_FROM_DUE,
 } from "@/lib/repair-external"
 
 const COLORS: Record<string, string> = {
@@ -84,7 +83,7 @@ export function RepairGuidePage() {
                       </td>
                       <td className="py-2 pr-3 text-[#5B7568] dark:text-gray-400">{req ? req.label : "—"}</td>
                       <td className="py-2 text-[#5B7568] dark:text-gray-400">
-                        {sla ? <>2 วัน{REPAIR_SLA_FROM_DUE.has(s.value) ? " (นับจากวันกำหนดเสร็จ)" : ""}</> : "ไม่จำกัด"}
+                        {sla ? "ไม่เกิน 24 ชม. (นับจากเวลาเข้าสถานะ)" : "ไม่จำกัด"}
                       </td>
                     </tr>
                   )
@@ -92,11 +91,11 @@ export function RepairGuidePage() {
               </tbody>
             </table>
           </div>
-          <p className="pt-1 text-[12px] text-[#9AA8A0]">* สถานะปกติวัดค้างจาก <b>วันที่เข้าสถานะ</b> · "ซ่อมมีกำหนดเสร็จ" วัดจาก <b>วันกำหนดเสร็จ</b></p>
+          <p className="pt-1 text-[12px] text-[#9AA8A0]">* SLA มีเฉพาะสถานะ "รอ PR" (24 ชม.) · รายการที่เลย<b>วันกำหนดเสร็จ</b>จะขึ้นป้ายแดง "เลยกำหนด" ในตาราง</p>
           <div className="rounded-lg bg-[#EEF2FF] dark:bg-blue-900/15 px-3 py-2.5 text-[12.5px] text-[#3b5bdb] dark:text-blue-300">
             <p className="font-semibold">🔩 งานประเภท "อะไหล่ลงคัน" ใช้ workflow ของตัวเอง 6 ขั้น:</p>
             <p className="mt-1">⏳ รอดำเนินการ → 🔍 รอใบเสนอราคา → ⏰ รอ PR → 📦 สั่งซื้อแล้ว-รอของ → 🔩 ของถึง-รอลงคัน → 🏁 <b>ลงคันเสร็จ</b> (ปิดงาน)</p>
-            <p className="mt-1">SLA ต่อขั้น 2 วันเหมือนอู่นอก · "สั่งซื้อแล้ว-รอของ" วัดจาก<b>กำหนดของถึง</b> · ปิดเป็น "ลงคันเสร็จ" ต้องกรอก<b>กำหนดของถึง + วันที่ลงคันเสร็จ</b> · เลือกประเภทงานได้ตอน<b>เพิ่มรายการ (ขั้นตอนที่ 1)</b></p>
+            <p className="mt-1">SLA "รอ PR" 24 ชม. เหมือนอู่นอก · ปิดเป็น "ลงคันเสร็จ" ต้องกรอก<b>กำหนดของถึง + วันที่ลงคันเสร็จ</b> · เลือกประเภทงานได้ตอน<b>เพิ่มรายการ</b></p>
           </div>
           <ul className="mt-1 ml-1 space-y-1">
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↔️</span><span><b>ข้ามสถานะได้อิสระ</b> — สถานะกลางเปลี่ยนได้แม้ยัง<b>ไม่มี PR / PO</b> · <b>รถเสร็จ(ไม่มี PR)</b> = ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ยังไม่ปิดงาน) · ระบบจะ<b>บังคับข้อมูลให้ครบก็ต่อเมื่อปิดเป็น "รถเสร็จ"</b> (ตอนนั้นต้องมีครบทั้ง วันที่รถเข้าซ่อม / PO / วันกำหนดเสร็จ / วันที่ซ่อมเสร็จ / <b>รหัส PR</b>)</span></li>

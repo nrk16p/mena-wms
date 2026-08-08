@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS, REPAIR_SLA_FROM_DUE } from "@/lib/repair-external"
+import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
 
 // วันที่ = today ลบ n วัน → "YYYY-MM-DD"
 function daysAgo(n: number): string {
@@ -59,10 +59,19 @@ export async function GET(req: NextRequest) {
     status:  { $nin: DONE_STATUSES },
   })
 
-  // ค้างเกิน SLA: อยู่ในสถานะที่มีลิมิต และเกิน N วัน (จาก statusSince หรือ dueDate)
-  const slaConds = Object.entries(REPAIR_STATUS_SLA_DAYS).map(([status, limit]) => {
-    const field = REPAIR_SLA_FROM_DUE.has(status) ? "dueDate" : "statusSince"
-    return { status, [field]: { $ne: "", $lt: daysAgo(limit) } }
+  // ค้างเกิน SLA — กฎเดียว: สถานะในลิสต์ (รอ PR) ค้างเกิน N×24 ชม. นับจากเวลาเข้าสถานะ
+  // รายการใหม่เทียบ statusSinceAt (ISO เวลาเต็ม) · รายการเก่าไม่มีเวลา → เทียบวันที่ statusSince
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const slaConds: Record<string, any>[] = Object.entries(REPAIR_STATUS_SLA_DAYS).map(([status, limitDays]) => {
+    const cutoffIso  = new Date(Date.now() - limitDays * 86400000).toISOString()
+    const cutoffDate = daysAgo(limitDays)
+    return {
+      status,
+      $or: [
+        { statusSinceAt: { $ne: "", $lt: cutoffIso, $exists: true } },
+        { $and: [ { $or: [{ statusSinceAt: { $exists: false } }, { statusSinceAt: "" }] }, { statusSince: { $ne: "", $lt: cutoffDate } } ] },
+      ],
+    }
   })
   const slaBreached = slaConds.length ? await col.countDocuments({ ...typeMatch, $or: slaConds }) : 0
 

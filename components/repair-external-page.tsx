@@ -19,7 +19,6 @@ import {
   doneStatusFor,
   requiredFieldsFor,
   REPAIR_STATUS_SLA_DAYS,
-  REPAIR_SLA_FROM_DUE,
   REPAIR_SLA_NOTE,
   WARRANTY_OPTIONS,
   statusMeta,
@@ -133,14 +132,21 @@ const agingBucket = (days: number): { text: string; bg: string } =>
   days >= 8  ? { text: "#B07D12", bg: "#FEF7E6" } :
                { text: "#1B8C4B", bg: "#ECFDF3" }
 
-// SLA: ค้างกี่วัน + เกินลิมิตไหม — ปกติวัดจาก statusSince, ยกเว้น ซ่อมมีกำหนดเสร็จ วัดจาก dueDate
-const slaInfo = (r: RepairExternal): { days: number; limit: number; over: boolean; fromDue: boolean } | null => {
-  const limit = REPAIR_STATUS_SLA_DAYS[r.status]
-  if (!limit) return null
-  const fromDue = REPAIR_SLA_FROM_DUE.has(r.status)
-  const days = ageDays(fromDue ? r.dueDate : (r.statusSince || r.receivedDate))
-  if (days === null) return null
-  return { days, limit, over: days > limit, fromDue }
+// SLA: เหลือกฎเดียว — "รอ PR" ค้างได้ไม่เกิน 24 ชม. นับจากเวลาที่เข้าสถานะ
+// รายการใหม่มี statusSinceAt (เวลาเต็ม) → นับชั่วโมงจริง · รายการเก่ามีแต่วันที่ → ประมาณเป็นวัน×24
+const slaInfo = (r: RepairExternal): { hours: number; limitH: number; over: boolean } | null => {
+  const limitDays = REPAIR_STATUS_SLA_DAYS[r.status]
+  if (!limitDays) return null
+  let hours: number
+  if (r.statusSinceAt) {
+    hours = Math.max(0, Math.floor((Date.now() - Date.parse(r.statusSinceAt)) / 3600000))
+  } else {
+    const d = ageDays(r.statusSince || r.receivedDate)
+    if (d === null) return null
+    hours = d * 24
+  }
+  const limitH = limitDays * 24
+  return { hours, limitH, over: hours > limitH }
 }
 
 type Garage = { _id: string; name: string }
@@ -409,7 +415,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (r.garage) meta.push(`🏭 ${r.garage}`)
       if (age !== null) meta.push(`🕐 ${age} วัน`)
       if (r.dueDate) meta.push(`📅 ${fmtDateShort(r.dueDate)}`)
-      if (sla?.over) meta.push(`⏱️ ค้าง ${sla.days} วัน`)
+      if (sla?.over) meta.push(`⏱️ รอ PR ค้าง ${sla.hours} ชม. (เกิน 24 ชม.)`)
       if (meta.length) lines.push(`   ${meta.join("  ")}`)
       const doc: string[] = []
       if (r.prCode) doc.push(`PR ${r.prCode}`)
@@ -1009,7 +1015,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12.5px] font-semibold ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
-                      {sla?.over && <span className="rounded bg-[#FEECEC] px-1.5 py-0.5 text-[11px] font-semibold text-[#DC2626]">⏱️ ค้าง {sla.days}/{sla.limit} วัน</span>}
+                      {sla?.over && <span className="rounded bg-[#FEECEC] px-1.5 py-0.5 text-[11px] font-semibold text-[#DC2626]">⏱️ ค้าง {sla.hours} ชม. (เกิน 24 ชม.)</span>}
                     </div>
                     {(() => {
                       const flow = statusesFor(jobTypeOf(r))
