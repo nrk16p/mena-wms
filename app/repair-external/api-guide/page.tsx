@@ -192,12 +192,12 @@ console.log(data.count, data.items)`}</CodeBlock>
         <Section icon={ListOrdered} title="สถานะที่เป็นไปได้ (status)">
           <p><b>🔧 อู่นอก:</b></p>
           <p>
-            <code>รอรถเข้า</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอใบเสนอราคา</code> → <code>รอ PO</code> →{" "}
+            <code>รอรถเข้า</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอใบเสนอราคา</code> → <code>รอ PR</code> →{" "}
             <code>ซ่อมไม่มีกำหนด</code> / <code>ซ่อมมีกำหนดเสร็จ</code> → <code>รถเสร็จ(ไม่มี PR)</code> → <code>รถเสร็จ</code>
           </p>
           <p className="pt-1"><b>🔩 อะไหล่ลงคัน:</b></p>
           <p>
-            <code>รอดำเนินการ</code> → <code>รอใบเสนอราคา</code> → <code>รอ PO</code> →{" "}
+            <code>รอดำเนินการ</code> → <code>รอใบเสนอราคา</code> → <code>รอ PR</code> →{" "}
             <code>สั่งซื้อแล้ว-รอของ</code> → <code>ของถึง-รอลงคัน</code> → <code>ลงคันเสร็จ</code>
           </p>
           <p>งานถือว่า "ปิดแล้ว" เมื่อสถานะเป็น <code>รถเสร็จ</code> (อู่นอก) หรือ <code>ลงคันเสร็จ</code> (อะไหล่ลงคัน) — ตรงกับ <code>scope=done</code></p>
