@@ -9,7 +9,7 @@ export const REPAIR_STATUSES: RepairStatus[] = [
   { value: "รอรถเข้า",         emoji: "⏳", cls: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300" },
   { value: "รถเข้าอู่ซ่อม",     emoji: "🔧", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
   { value: "รอใบเสนอราคา",     emoji: "🔍", cls: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300" },
-  { value: "รออนุมัติ",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
+  { value: "รอ PO",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
   { value: "ซ่อมไม่มีกำหนด",    emoji: "🛠️", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
   { value: "ซ่อมมีกำหนดเสร็จ",  emoji: "✅", cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" },
   { value: "รถเสร็จ(ไม่มี PR)", emoji: "🏁", cls: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300" },
@@ -30,11 +30,11 @@ export const JOB_TYPES = [JOB_TYPE_GARAGE, JOB_TYPE_PARTS]
 export const jobTypeOf = (r: { jobType?: string }) =>
   r.jobType === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE
 
-// workflow อะไหล่ลงคัน 6 ขั้น — "รอใบเสนอราคา"/"รออนุมัติ" ใช้ชื่อร่วมกับอู่นอก
+// workflow อะไหล่ลงคัน 6 ขั้น — "รอใบเสนอราคา"/"รอ PO" ใช้ชื่อร่วมกับอู่นอก
 export const PARTS_STATUSES: RepairStatus[] = [
   { value: "รอดำเนินการ",      emoji: "⏳", cls: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300" },
   { value: "รอใบเสนอราคา",     emoji: "🔍", cls: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300" },
-  { value: "รออนุมัติ",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
+  { value: "รอ PO",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
   { value: "สั่งซื้อแล้ว-รอของ", emoji: "📦", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
   { value: "ของถึง-รอลงคัน",   emoji: "🔩", cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" },
   { value: "ลงคันเสร็จ",       emoji: "🏁", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" },
@@ -132,11 +132,11 @@ export const REPAIR_STATUS_SLA_DAYS: Record<string, number> = {
   "รอรถเข้า":       2,
   "รถเข้าอู่ซ่อม":   2,
   "รอใบเสนอราคา":   2,
-  "รออนุมัติ":      2,
+  "รอ PO":      2,
   "ซ่อมไม่มีกำหนด":  2,
   "ซ่อมมีกำหนดเสร็จ": 2,
   "รถเสร็จ(ไม่มี PR)": 2,
-  // อะไหล่ลงคัน (ชื่อร่วม "รอใบเสนอราคา"/"รออนุมัติ" ใช้ค่าด้านบน)
+  // อะไหล่ลงคัน (ชื่อร่วม "รอใบเสนอราคา"/"รอ PO" ใช้ค่าด้านบน)
   "รอดำเนินการ":      2,
   "สั่งซื้อแล้ว-รอของ": 2,
   "ของถึง-รอลงคัน":   2,
@@ -155,7 +155,7 @@ export type RepairField = keyof Omit<RepairExternal, "_id">
 export const REPAIR_STATUS_REQUIRED_FIELD: Record<string, { field: RepairField; label: string }> = {
   "รถเข้าอู่ซ่อม":    { field: "garageInDate",  label: "วันที่รถเข้าซ่อม" },
   // รอใบเสนอราคา: PR ไม่บังคับ (ยังไม่มี PR ก็ได้)
-  "รออนุมัติ":        { field: "poCode",        label: "รหัส PO" },
+  "รอ PO":        { field: "poCode",        label: "รหัส PO" },
   "ซ่อมมีกำหนดเสร็จ": { field: "dueDate",       label: "วันกำหนดเสร็จ" },
   "รถเสร็จ(ไม่มี PR)": { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
   "รถเสร็จ":          { field: "prCode",        label: "รหัส PR" },  // ปิดงานสมบูรณ์ต้องมี PR (completedDate สะสมมาจากขั้นก่อน)

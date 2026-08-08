@@ -37,7 +37,7 @@ const BAR_COLORS: Record<string, string> = {
   "รอรถเข้า":         "#9ca3af",
   "รถเข้าอู่ซ่อม":     "#3b82f6",
   "รอใบเสนอราคา":     "#06b6d4",
-  "รออนุมัติ":        "#eab308",
+  "รอ PO":            "#eab308",
   "ซ่อมไม่มีกำหนด":    "#f97316",
   "ซ่อมมีกำหนดเสร็จ":  "#14b8a6",
   "รถเสร็จ(ไม่มี PR)": "#84cc16",
@@ -79,6 +79,7 @@ type LogEntry = {
 
 type Stats = {
   counts: Record<string, number>
+  countsByType?: Record<string, Record<string, number>>
   total: number
   overdue: number
   slaBreached: number
@@ -816,57 +817,80 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       )}
 
-      {/* Status filter chips (1a) — โชว์ชื่อ+จำนวนเสมอ, ตกบรรทัดในกรอบ (ไม่เกินตาราง) */}
-      {!isDone && (
-        <div className="mb-4 flex w-full flex-wrap items-center gap-1.5">
-          <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">สถานะ:</span>
-          <button
-            onClick={copySummary}
-            title="คัดลอกสรุปสถานะงาน (ส่งไลน์)"
-            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
-          >
-            <Copy size={12} /> คัดลอกสรุป
-          </button>
-          <button
-            onClick={() => setFStatus("")}
-            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${!fStatus ? "bg-[#14271C] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-          >
-            ทั้งหมด <span className="opacity-70">{stats.total} คัน</span>
-          </button>
-          {chipStatuses.map((s) => {
-            const active = fStatus === s.value
-            const color  = barColor(s.value)
-            return (
+      {/* Status filter chips — แยกกลุ่มตามประเภทงาน (อู่นอก / อะไหล่ลงคัน) นับแยกประเภทจริง */}
+      {!isDone && (() => {
+        const cbt = stats.countsByType
+        const cnt = (jt: string, status: string) => cbt?.[jt]?.[status] ?? 0
+        // แถว chips ของประเภทหนึ่ง — คลิก chip = กรองทั้งประเภท+สถานะ
+        const chipRow = (jt: string, emoji: string, list: typeof ACTIVE_STATUSES) => (
+          <div className="flex w-full flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => { setFType(fType === jt && !fStatus ? "" : jt); setFStatus("") }}
+              className={`inline-flex w-[120px] items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold transition ${fType === jt && !fStatus ? "bg-[#14271C] text-white" : "text-[#5B7568] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              title={`ดูเฉพาะ${jt}ทั้งหมด`}
+            >
+              {emoji} {jt}:
+            </button>
+            {list.map((s) => {
+              const active = fStatus === s.value && fType === jt
+              const color  = barColor(s.value)
+              return (
+                <button
+                  key={jt + s.value}
+                  onClick={() => {
+                    if (active) { setFStatus(""); setFType("") }
+                    else { setFStatus(s.value); setFType(jt) }
+                  }}
+                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${active ? "text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                  style={active ? { background: color } : undefined}
+                >
+                  {!active && <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />}
+                  <span>{s.emoji}</span>{s.value}
+                  <span className="opacity-70">{cnt(jt, s.value)} คัน</span>
+                </button>
+              )
+            })}
+          </div>
+        )
+        return (
+          <div className="mb-4 space-y-2">
+            {/* แถวบน: สรุป + ตัวกรองพิเศษ */}
+            <div className="flex w-full flex-wrap items-center gap-1.5">
+              <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">สถานะ:</span>
               <button
-                key={s.value}
-                onClick={() => setFStatus(active ? "" : s.value)}
-                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${active ? "text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-                style={active ? { background: color } : undefined}
+                onClick={copySummary}
+                title="คัดลอกสรุปสถานะงาน (ส่งไลน์)"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
               >
-                {!active && <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />}
-                <span>{s.emoji}</span>{s.value}
-                <span className="opacity-70">{stats.counts[s.value] || 0} คัน</span>
+                <Copy size={12} /> คัดลอกสรุป
               </button>
-            )
-          })}
-          {/* ค้างเกิน SLA (client-side filter) */}
-          <button
-            onClick={() => setSlaOnly((v) => !v)}
-            title={REPAIR_SLA_NOTE}
-            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${slaOnly ? "bg-[#DC2626] text-white" : "border border-[#F7CFCF] text-[#DC2626] hover:bg-[#FEECEC] dark:border-red-900/40 dark:hover:bg-red-950/20"}`}
-          >
-            ⏱️ ค้างเกินกำหนด <span className="opacity-80">{stats.slaBreached} คัน</span>
-          </button>
-          {/* รอใบเสนอราคา ไม่มี PR */}
-          <button
-            onClick={() => setNoPrOnly((v) => !v)}
-            title="รายการที่ยังไม่มี PR (ทุกสถานะ)"
-            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${noPrOnly ? "bg-[#B07D12] text-white" : "border border-[#FDE9BE] text-[#B07D12] hover:bg-[#FDF3DD] dark:border-amber-900/40 dark:hover:bg-amber-950/20"}`}
-          >
-            🔍 ไม่มี PR <span className="opacity-80">{stats.noPr} คัน</span>
-          </button>
-        </div>
-      )}
+              <button
+                onClick={() => { setFStatus(""); setFType("") }}
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${!fStatus && !fType ? "bg-[#14271C] text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              >
+                ทั้งหมด <span className="opacity-70">{stats.total} คัน</span>
+              </button>
+              <button
+                onClick={() => setSlaOnly((v) => !v)}
+                title={REPAIR_SLA_NOTE}
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${slaOnly ? "bg-[#DC2626] text-white" : "border border-[#F7CFCF] text-[#DC2626] hover:bg-[#FEECEC] dark:border-red-900/40 dark:hover:bg-red-950/20"}`}
+              >
+                ⏱️ ค้างเกินกำหนด <span className="opacity-80">{stats.slaBreached} คัน</span>
+              </button>
+              <button
+                onClick={() => setNoPrOnly((v) => !v)}
+                title="รายการที่ยังไม่มี PR (ทุกสถานะ)"
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${noPrOnly ? "bg-[#B07D12] text-white" : "border border-[#FDE9BE] text-[#B07D12] hover:bg-[#FDF3DD] dark:border-amber-900/40 dark:hover:bg-amber-950/20"}`}
+              >
+                🔍 ไม่มี PR <span className="opacity-80">{stats.noPr} คัน</span>
+              </button>
+            </div>
+            {/* แถวอู่นอก + แถวอะไหล่ลงคัน (ซ่อนแถวที่ไม่เกี่ยวเมื่อกรองประเภทอยู่) */}
+            {(fType === "" || fType === JOB_TYPE_GARAGE) && chipRow(JOB_TYPE_GARAGE, "🔧", ACTIVE_STATUSES)}
+            {(fType === "" || fType === JOB_TYPE_PARTS)  && chipRow(JOB_TYPE_PARTS, "🔩", PARTS_ACTIVE_STATUSES)}
+          </div>
+        )
+      })()}
 
       {/* คำอธิบาย SLA */}
       {!isDone && (

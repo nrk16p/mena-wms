@@ -29,14 +29,24 @@ export async function GET(req: NextRequest) {
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
 
+  // นับแยก สถานะ × ประเภทงาน (เอกสารเก่าไม่มี jobType = อู่นอก) — ให้ UI แยก chips ต่อประเภทได้
   const agg = await col.aggregate([
     { $match: match },
-    { $group: { _id: "$status", n: { $sum: 1 } } },
+    { $group: { _id: { s: "$status", t: { $ifNull: ["$jobType", JOB_TYPE_GARAGE] } }, n: { $sum: 1 } } },
   ]).toArray()
 
   const counts: Record<string, number> = {}
+  const countsByType: Record<string, Record<string, number>> = { [JOB_TYPE_GARAGE]: {}, [JOB_TYPE_PARTS]: {} }
   let total = 0
-  for (const g of agg) { counts[(g._id as string) || ""] = g.n as number; total += g.n as number }
+  for (const g of agg) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const id = g._id as any
+    const st = (id?.s as string) || ""
+    const jt = (id?.t as string) === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE
+    counts[st] = (counts[st] || 0) + (g.n as number)
+    countsByType[jt][st] = (countsByType[jt][st] || 0) + (g.n as number)
+    total += g.n as number
+  }
 
   // เงื่อนไขประเภทอย่างเดียว (ไม่มี status) — ใช้กับ query ที่กำหนด status เอง
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,5 +99,5 @@ export async function GET(req: NextRequest) {
   ]).toArray()
   const fleetDist = fleetAgg.map((f) => ({ fleet: (f._id as string) || "—", count: f.n as number }))
 
-  return NextResponse.json({ counts, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist })
+  return NextResponse.json({ counts, countsByType, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist })
 }
