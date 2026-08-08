@@ -102,7 +102,19 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
-  const [collapsed, setCollapsed]       = useState(false)
+  // Sidebar auto-hide (desktop): ปกติย่อเป็นแถบเล็ก เอาเมาส์ไปชิดซ้าย/ชี้ที่แถบ → กางออกอัตโนมัติ
+  // กดปุ่มหมุด (logo/ย่อ) เพื่อ "ปักหมุดกางค้าง" ได้ — จำค่าไว้ใน localStorage
+  const [pinned, setPinned]     = useState(false)
+  const [hovering, setHovering] = useState(false)
+  useEffect(() => {
+    try { if (localStorage.getItem("sidebarPinned") === "1") setPinned(true) } catch { /* ignore */ }
+  }, [])
+  const setPin = (v: boolean) => {
+    setPinned(v)
+    try { localStorage.setItem("sidebarPinned", v ? "1" : "0") } catch { /* ignore */ }
+  }
+  // มือถือ (drawer เปิด) แสดงเต็มเสมอ · เดสก์ท็อปกางเมื่อ ปักหมุด หรือ เมาส์ชี้อยู่
+  const collapsed = !open && !pinned && !hovering
   const [pendingCount, setPendingCount] = useState(0)
   const [groupOpen, setGroupOpen]       = useState<Record<string, boolean>>({})
   const pathname  = usePathname()
@@ -110,8 +122,6 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const isAdmin = session?.user?.role === "admin"
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
-  // เปิด drawer บนมือถือ → บังคับแสดงเต็ม (ไม่ย่อ)
-  useEffect(() => { if (open) setCollapsed(false) }, [open])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -138,7 +148,10 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
 
 
   return (
-    <aside className={[
+    <aside
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+      className={[
       // มือถือ: drawer เลื่อนจากซ้าย (fixed) · เดสก์ท็อป: flex ในแนวเดิม
       "fixed inset-y-0 left-0 z-50 duration-200 ease-out",
       open ? "translate-x-0" : "-translate-x-full",
@@ -158,8 +171,8 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
       ].join(" ")}>
         {collapsed ? (
           <button
-            onClick={() => setCollapsed(false)}
-            title="ขยาย Sidebar"
+            onClick={() => setPin(true)}
+            title="ปักหมุดกาง Sidebar ค้างไว้"
             className="flex h-9 w-9 items-center justify-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 hover:bg-[#F0FDF4] dark:hover:bg-white/5 transition-colors duration-100"
           >
             <svg width="26" height="26" viewBox="0 0 120 120" fill="none">
@@ -196,8 +209,8 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
               </div>
             </Link>
             <button
-              onClick={() => setCollapsed(true)}
-              title="ย่อ Sidebar"
+              onClick={() => setPin(!pinned)}
+              title={pinned ? "เลิกปักหมุด — ให้ย่ออัตโนมัติ (กางเมื่อชี้เมาส์)" : "ปักหมุดกางค้างไว้"}
               className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[#9AA8A0] transition-colors hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5 dark:hover:text-white lg:flex"
             >
               <PanelLeftClose size={13} />
