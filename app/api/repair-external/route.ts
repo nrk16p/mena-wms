@@ -42,6 +42,8 @@ export function buildDoc(body: Record<string, unknown>) {
     negotiatedPrice: Number(body.negotiatedPrice) || 0,
     offerWarranty:   s(body.offerWarranty),
     negotiationImages: normalizeImages(body.negotiationImages),
+    quotationDetail:   s(body.quotationDetail),
+    quotationImages:   normalizeImages(body.quotationImages),
     images:       normalizeImages(body.images),
   }
 }

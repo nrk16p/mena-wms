@@ -150,7 +150,7 @@ const EMPTY: Omit<RepairExternal, "_id"> = {
   driverName: "", driverPhone: "", breakdownLocation: "", cementStatus: "", drivableStatus: "",
   fleet: "", plant: "",
   garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
-  note: "", repairPrice: 0, warranty: "",
+  note: "", repairPrice: 0, warranty: "", quotationDetail: "",
   negotiationScope: "ทั้งหมด", negotiationItem: "",
   offerPrice: 0, negotiatedPrice: 0, offerWarranty: "",
   statusSince: "",
@@ -194,6 +194,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [editRow, setEditRow] = useState<RepairExternal | null>(null)  // record ที่กำลังแก้ (ใช้กับปุ่มประวัติ/ลบในฟอร์ม)
   const [formImages, setFormImages] = useState<SkuImage[]>([])
   const [formNegImages, setFormNegImages] = useState<SkuImage[]>([])  // หลักฐานการต่อรอง
+  const [formQuotImages, setFormQuotImages] = useState<SkuImage[]>([])  // ใบเสนอราคา (PDF/รูป)
   const [vdRef, setVdRef] = useState("")  // วันที่ข้อมูล fleet/plant (จาก vehicle_daily)
 
   // comments (drawer)
@@ -326,7 +327,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openAdd() {
     setEditId(null)
     setEditRow(null)
-    setFormImages([]); setFormNegImages([]); setVdRef(""); setOrigStatus("")
+    setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
     // ประเภทเริ่มต้นตาม tab ที่กรองอยู่ (เปลี่ยนได้ใน step 1)
     const jt = fType === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE
     setForm({
@@ -345,7 +346,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEdit(r: RepairExternal) {
     setEditId(r._id)
     setEditRow(r)
-    setFormImages(r.images ?? []); setFormNegImages(r.negotiationImages ?? []); setVdRef(""); setOrigStatus(r.status)
+    setFormImages(r.images ?? []); setFormNegImages(r.negotiationImages ?? []); setFormQuotImages(r.quotationImages ?? []); setVdRef(""); setOrigStatus(r.status)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id, ...rest } = r
     setForm({ ...EMPTY, ...rest })
@@ -477,7 +478,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const res    = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, images: formImages, negotiationImages: formNegImages }),
+        body: JSON.stringify({ ...form, images: formImages, negotiationImages: formNegImages, quotationImages: formQuotImages }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -1000,6 +1001,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     {!r.prCode?.trim() && (
                       <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[11px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
                     )}
+                    {(r.quotationDetail?.trim() || (r.quotationImages?.length ?? 0) > 0) && (
+                      <div className="mt-1.5 ml-1 inline-flex items-center gap-1 rounded bg-[#E6F7FB] px-1.5 py-0.5 text-[11px] font-semibold text-[#0E7490] dark:bg-cyan-900/25 dark:text-cyan-300">🧾 มีใบเสนอราคา{(r.quotationImages?.length ?? 0) > 0 ? ` (${r.quotationImages!.length} ไฟล์)` : ""}</div>
+                    )}
                     {(r.prCode || r.poCode) && (
                       <div className="mt-1.5 flex flex-wrap gap-1 font-mono text-[11.5px] text-[#5B7568]">
                         {r.prCode && <span className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PR <CopyText value={r.prCode} /></span>}
@@ -1328,6 +1332,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </div>
               )}
 
+              </section>
+
+              {/* ── หมวด 2.5: ใบเสนอราคา (ฟ้า) — รายละเอียด + แนบ PDF/รูป ── */}
+              <section className="mt-5 overflow-hidden rounded-xl border border-[#BEE7F2] dark:border-cyan-500/30">
+                <p className="flex items-center gap-2 border-b border-[#BEE7F2] dark:border-cyan-500/30 bg-[#E6F7FB] dark:bg-cyan-500/15 px-4 py-2.5 text-[15px] font-bold text-[#0E7490] dark:text-cyan-300" style={{ fontFamily: "'Mitr', sans-serif" }}>🧾 ใบเสนอราคา</p>
+                <div className="space-y-4 p-4">
+                  <div>
+                    <label className={labelCls}>รายละเอียดใบเสนอราคา</label>
+                    <textarea value={form.quotationDetail} onChange={(e) => setForm({ ...form, quotationDetail: e.target.value })} rows={3} className={inputCls} placeholder="เช่น รายการที่เสนอ / ราคา / เงื่อนไข / หมายเหตุจากอู่" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>แนบใบเสนอราคา <span className="text-[10px] font-normal text-gray-400">(PDF หรือรูปภาพ)</span></label>
+                    <ImageUpload key={(editId ?? "new") + "-quot"} initial={formQuotImages} onChange={setFormQuotImages} />
+                  </div>
+                </div>
               </section>
 
               {/* ── หมวด 3: สถานะ · เอกสาร (ม่วง) ── */}

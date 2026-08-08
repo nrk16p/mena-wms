@@ -109,6 +109,8 @@ export type RepairExternal = {
   negotiatedPrice: number       // ราคาต่อรอง (หลังต่อรอง)
   offerWarranty:   string       // ประกันเสนอครั้งแรก
   negotiationImages?: RepairImage[] // ไฟล์หลักฐานการต่อรอง
+  quotationDetail: string           // รายละเอียดใบเสนอราคา (free text)
+  quotationImages?: RepairImage[]   // ไฟล์ใบเสนอราคา (PDF/รูป)
   statusSince:  string  // YYYY-MM-DD วันที่เข้าสู่สถานะปัจจุบัน (ระบบตั้งเมื่อเปลี่ยนสถานะ)
   createdBy?:   string  // ผู้สร้าง (ระบบตั้งจาก session)
   editedBy?:    string  // ผู้แก้ไขล่าสุด (ระบบตั้งจาก session)
