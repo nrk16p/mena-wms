@@ -192,7 +192,7 @@ console.log(data.count, data.items)`}</CodeBlock>
         <Section icon={ListOrdered} title="สถานะที่เป็นไปได้ (status)">
           <p><b>🔧 อู่นอก:</b></p>
           <p>
-            <code>รอรถเข้า</code> → <code>รอใบเสนอราคา</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รออนุมัติ</code> →{" "}
+            <code>รอรถเข้า</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอใบเสนอราคา</code> → <code>รออนุมัติ</code> →{" "}
             <code>ซ่อมไม่มีกำหนด</code> / <code>ซ่อมมีกำหนดเสร็จ</code> → <code>รถเสร็จ(ไม่มี PR)</code> → <code>รถเสร็จ</code>
           </p>
           <p className="pt-1"><b>🔩 อะไหล่ลงคัน:</b></p>
