@@ -1,7 +1,10 @@
 // ระบบ AI ช่วยจัดการงานซ่อมรถโม่ (ทดสอบระบบ) — prompt + schema ต่อขั้นตอน
 // ใช้ฝั่ง server เท่านั้น (API route + server component guard)
 
-export const AI_MIXER_ALLOWED_EMAILS = ["narongkorn.a@menatransport.co.th"]
+export const AI_MIXER_ALLOWED_EMAILS = [
+  "narongkorn.a@menatransport.co.th",
+  "kittaboon.l@menatransport.co.th",
+]
 
 export const AI_MIXER_MODEL = "claude-opus-5"
 

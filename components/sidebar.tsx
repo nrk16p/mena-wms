@@ -104,7 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "ทดสอบระบบ ระบบ AI ช่วยจัดการงานซ่อมรถโม่ (Fleet Mixer Truck Maintenance)",
     collapsible: true,
-    visibleToEmails: ["narongkorn.a@menatransport.co.th"],
+    visibleToEmails: ["narongkorn.a@menatransport.co.th", "kittaboon.l@menatransport.co.th"],
     items: [
       { href: "/ai-mixer-maintenance", label: "AI จัดการงานซ่อมรถโม่", icon: Bot, exact: true },
     ],
