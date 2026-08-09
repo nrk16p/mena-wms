@@ -29,6 +29,7 @@ import {
   Factory,
   FileText,
   Code2,
+  Bot,
   X,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
@@ -42,7 +43,8 @@ type NavItem  = {
   indent?: boolean
   adminOnly?: boolean
 }
-type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean }
+// visibleToEmails: จำกัดกลุ่มให้เห็นเฉพาะ email ที่ระบุ (ไม่ระบุ = เห็นทุกคน)
+type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean; visibleToEmails?: string[] }
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -99,6 +101,14 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/repair-external/api-guide",  label: "คู่มือ API Sync", icon: Code2 },
     ],
   },
+  {
+    label: "ทดสอบระบบ ระบบ AI ช่วยจัดการงานซ่อมรถโม่ (Fleet Mixer Truck Maintenance)",
+    collapsible: true,
+    visibleToEmails: ["narongkorn.a@menatransport.co.th"],
+    items: [
+      { href: "/ai-mixer-maintenance", label: "AI จัดการงานซ่อมรถโม่", icon: Bot, exact: true },
+    ],
+  },
 ]
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -120,6 +130,10 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const pathname  = usePathname()
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
+  const userEmail = session?.user?.email ?? ""
+  const visibleGroups = NAV_GROUPS.filter(
+    (g) => !g.visibleToEmails || g.visibleToEmails.includes(userEmail),
+  )
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
 
@@ -229,7 +243,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
 
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-3 py-3">
-        {NAV_GROUPS.map((group, gi) => {
+        {visibleGroups.map((group, gi) => {
           const open = isGroupOpen(group)
           return (
             <div key={group.label} className={gi > 0 ? "mt-1" : ""}>
