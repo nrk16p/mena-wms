@@ -62,6 +62,22 @@ export async function kbHealth(kb: KbConfig): Promise<unknown> {
   return kbFetch(kb, "/health")
 }
 
+// แคตาล็อกอาการทั้งหมด (~47 รายการ) — ใช้ทำ autocomplete ตอนแจ้งซ่อม
+export async function kbListSymptoms(kb: KbConfig) {
+  const data = await kbFetch(kb, "/symptoms")
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const arr: any[] = Array.isArray(data) ? data : []
+  return arr.map((s) => ({
+    symptom_code: s.symptom_code,
+    name_th: s.name_th,
+    system_code: s.system_code,
+    severity_default: s.severity_default,
+    safety_critical: Boolean(s.safety_critical),
+    wo_case_count: s.wo_case_count ?? 0,
+    downtime_median_h: s.downtime_median_h ?? null,
+  }))
+}
+
 // ตัด response /diagnose ให้เหลือเฉพาะ field ที่มีประโยชน์กับ prompt (top 3 matches)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function trimDiagnose(d: any) {
@@ -133,12 +149,28 @@ async function kbDiagnoseRaw(kb: KbConfig, q: string, plate?: string): Promise<a
 }
 
 // ขั้น 1 (KB): /diagnose → รายการอาการ + ความรุนแรง + note จากสถิติเคสจริง
+// รองรับหลายอาการ (1 อาการต่อบรรทัด) — หลายบรรทัดจะ diagnose แยกทีละอาการแล้วรวม
 export async function kbOnlyStep1(kb: KbConfig, notifyText: string, plate?: string) {
-  const d = await kbDiagnoseRaw(kb, notifyText, plate)
+  const lines = notifyText.split("\n").map((t) => t.trim()).filter(Boolean).slice(0, 5)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const all: any[] = Array.isArray(d?.matches) ? d.matches : []
-  const strong = all.filter((m) => (m.similarity ?? 0) >= 0.45).slice(0, 3)
-  const matches = strong.length ? strong : all.slice(0, 1)
+  let matches: any[] = []
+  if (lines.length > 1) {
+    // หลายอาการ: เอา match อันดับ 1 ของแต่ละบรรทัด (dedupe ด้วย symptom_code)
+    const seen = new Set<string>()
+    const results = await Promise.allSettled(lines.map((q) => kbDiagnoseRaw(kb, q, plate)))
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const m = (Array.isArray((r.value as any)?.matches) ? (r.value as any).matches : [])[0]
+      if (m && !seen.has(m.symptom_code)) { seen.add(m.symptom_code); matches.push(m) }
+    }
+  } else {
+    const d = await kbDiagnoseRaw(kb, notifyText, plate)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const all: any[] = Array.isArray(d?.matches) ? d.matches : []
+    const strong = all.filter((m) => (m.similarity ?? 0) >= 0.45).slice(0, 3)
+    matches = strong.length ? strong : all.slice(0, 1)
+  }
 
   const symptoms = matches.map((m) => ({
     symptom: m.name_th,

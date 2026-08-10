@@ -24,6 +24,17 @@ type AnalysisItem = {
 }
 type Step3Result = { analysis: AnalysisItem[]; total_est_downtime: string; supervisor_notes: string }
 type CheckResult = { result: "" | "ปกติ" | "พบปัญหา" | "ไม่ได้ตรวจ"; note: string }
+type KbSymptom = {
+  symptom_code: string; name_th: string; system_code: string
+  severity_default: string; safety_critical: boolean; wo_case_count: number; downtime_median_h: number | null
+}
+
+function kbSeverityLabel(s: string): string {
+  if (s?.startsWith("S1")) return "วิกฤต"
+  if (s?.startsWith("S2")) return "เร่งด่วน"
+  if (s?.startsWith("S4")) return "เฝ้าระวัง"
+  return "ปกติ"
+}
 
 const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
@@ -86,6 +97,40 @@ export function AiMixerMaintenancePage() {
   function saveEngine(v: "claude" | "kb") {
     setEngine(v)
     try { localStorage.setItem("aiMixerKb", JSON.stringify({ url: kbUrl, key: kbKey, engine: v })) } catch { /* ignore */ }
+  }
+
+  // แคตาล็อกอาการจาก KB (~47 รายการ) สำหรับ autocomplete ช่องแจ้งซ่อม — โหลดครั้งเดียวเมื่อตั้งค่า KB แล้ว
+  const [catalog, setCatalog] = useState<KbSymptom[]>([])
+  const [showSug, setShowSug] = useState(false)
+  useEffect(() => {
+    if (!kbUrl.trim() || !kbKey.trim() || catalog.length) return
+    const t = setTimeout(() => {
+      fetch("/api/ai-mixer-maintenance/symptoms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kb: { url: kbUrl.trim(), key: kbKey.trim() } }),
+      })
+        .then((r) => r.json())
+        .then((d) => { if (Array.isArray(d.symptoms)) setCatalog(d.symptoms) })
+        .catch(() => {})
+    }, 600) // หน่วงกัน fetch ถี่ตอนกำลังพิมพ์ URL/key
+    return () => clearTimeout(t)
+  }, [kbUrl, kbKey, catalog.length])
+
+  // คำค้น = ข้อความบรรทัดสุดท้ายที่กำลังพิมพ์
+  const lastLine = notifyText.split("\n").pop()?.trim() ?? ""
+  const suggestions = lastLine.length >= 1
+    ? catalog
+        .filter((s) => s.name_th.includes(lastLine) && s.name_th !== lastLine)
+        .sort((a, b) => b.wo_case_count - a.wo_case_count)
+        .slice(0, 8)
+    : []
+
+  function pickSuggestion(s: KbSymptom) {
+    const lines = notifyText.split("\n")
+    lines[lines.length - 1] = s.name_th
+    setNotifyText(lines.join("\n"))
+    setShowSug(false)
   }
   function saveKb(url: string, key: string) {
     setKbUrl(url); setKbKey(key); setKbStatus("")
@@ -359,10 +404,31 @@ export function AiMixerMaintenancePage() {
             <h2 className="mb-3 flex items-center gap-2 text-[14px] font-bold text-[#14271C] dark:text-white">
               <Truck size={15} className="text-[#1B8C4B]" /> ข้อมูลแจ้งซ่อม
             </h2>
-            <div className="mb-3">
-              <label className={labelCls}>อาการเสียที่แจ้ง *</label>
+            <div className="relative mb-3">
+              <label className={labelCls}>
+                อาการเสียที่แจ้ง * {catalog.length > 0 && <span className="font-normal text-[#9AA8A0]">(พิมพ์แล้วเลือกอาการมาตรฐานจากฐานความรู้ได้ · 1 อาการต่อบรรทัด)</span>}
+              </label>
               <textarea rows={3} className={inputCls} placeholder="เช่น ลูกปืนล้อหน้าข้างซ้ายแตกและฝาครอบหลุดหาย"
-                value={notifyText} onChange={(e) => setNotifyText(e.target.value)} />
+                value={notifyText}
+                onChange={(e) => { setNotifyText(e.target.value); setShowSug(true) }}
+                onFocus={() => setShowSug(true)}
+                onBlur={() => setTimeout(() => setShowSug(false), 150)} />
+              {showSug && suggestions.length > 0 && (
+                <div className="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-y-auto rounded-[11px] border border-[#E2E8E4] bg-white shadow-lg dark:border-white/10 dark:bg-[#0f1117]">
+                  {suggestions.map((s) => (
+                    <button key={s.symptom_code} type="button"
+                      onMouseDown={(e) => { e.preventDefault(); pickSuggestion(s) }}
+                      className="flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left hover:bg-[#F0FDF4] dark:hover:bg-white/5">
+                      <span className="text-[13px] text-[#14271C] dark:text-white">{s.name_th}</span>
+                      <span className="flex shrink-0 items-center gap-1.5 text-[10.5px]">
+                        {s.safety_critical && <ShieldAlert size={11} className="text-red-500" />}
+                        <span className={`rounded-md px-1.5 py-0.5 font-bold ${severityCls(kbSeverityLabel(s.severity_default))}`}>{kbSeverityLabel(s.severity_default)}</span>
+                        <span className="text-[#9AA8A0]">{s.wo_case_count.toLocaleString()} เคส</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <div className="col-span-2 lg:col-span-1">

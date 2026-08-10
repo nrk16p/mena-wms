@@ -90,7 +90,8 @@ export async function POST(req: NextRequest) {
     const notifyText = String(body?.notifyText ?? "").trim()
     if (!notifyText) return NextResponse.json({ error: "กรุณาระบุข้อความแจ้งซ่อม" }, { status: 400 })
     if (kb) {
-      try { kbJson = await kbDiagnoseMany(kb, [notifyText], vehicle.plate) }
+      // แยกบรรทัดละอาการ — kbDiagnoseMany dedupe + จำกัด 5 คำค้นให้เอง
+      try { kbJson = await kbDiagnoseMany(kb, notifyText.split("\n"), vehicle.plate) }
       catch (e) { kbError = e instanceof Error ? e.message : "KB API error" }
     }
     userPrompt = step1Prompt(notifyText, vehicle, kbJson ?? undefined)
