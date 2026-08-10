@@ -178,11 +178,32 @@ const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
 
+// สถานะรายวันล่าสุดของรถ (A/B/BA/...) จาก mena-intelligence performance_vehicle_daily
+type DailyStatus = { status: string; label: string; group: string; date: string }
+const DAILY_GROUP_CLS: Record<string, string> = {
+  working: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  repair:  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  idle:    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  unknown: "bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400",
+}
+
 export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const isDone = mode === "done"
   const [rows, setRows]       = useState<RepairExternal[]>([])
+  // สถานะรายวันต่อทะเบียน — โหลด batch หลังได้รายการงาน
+  const [dailyStatus, setDailyStatus] = useState<Record<string, DailyStatus>>({})
   const [garages, setGarages] = useState<Garage[]>([])
   const [loading, setLoading] = useState(true)
+
+  // ดึงสถานะรายวันของทุกทะเบียนในหน้า (ผ่าน proxy → mena-intelligence, cache 5 นาที) — fail-soft
+  useEffect(() => {
+    const plates = [...new Set(rows.map((r) => r.plate).filter(Boolean))].slice(0, 100)
+    if (!plates.length) { setDailyStatus({}); return }
+    fetch(`/api/repair-external/daily-status?plates=${encodeURIComponent(plates.join(","))}`)
+      .then((res) => res.json())
+      .then((d) => setDailyStatus(d.statuses ?? {}))
+      .catch(() => {})
+  }, [rows])
 
   // filters
   const [q, setQ]               = useState("")
@@ -976,6 +997,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="min-w-0">
                     <div className="truncate text-[17px] font-bold text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</div>
                     {r.fleetNo && <div className="text-[13px] font-medium text-[#5B7568]">เบอร์ {r.fleetNo}</div>}
+                    {/* สถานะรายวันล่าสุดของรถ (จาก mena-intelligence) */}
+                    {dailyStatus[r.plate] && (
+                      <div
+                        className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
+                        title={`สถานะรถรายวันล่าสุด ${dailyStatus[r.plate].date} (จากระบบ utilization)`}
+                      >
+                        📊 {dailyStatus[r.plate].status}
+                        {dailyStatus[r.plate].label && <span className="font-medium">{dailyStatus[r.plate].label}</span>}
+                        <span className="font-normal opacity-70">· {dailyStatus[r.plate].date.slice(5)}</span>
+                      </div>
+                    )}
     {/* ป้ายประเภทงาน — ระบุชัดทั้งสองแบบ */}
                     {jobTypeOf(r) === JOB_TYPE_PARTS
                       ? <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[11px] font-bold text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🔩 อะไหล่ลงคัน</div>
@@ -1133,6 +1165,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           )}
                         </div>
                         {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[9.5px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
+                        {dailyStatus[r.plate] && (
+                          <div className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
+                            title={`${dailyStatus[r.plate].label} · ${dailyStatus[r.plate].date}`}>
+                            📊 {dailyStatus[r.plate].status}
+                          </div>
+                        )}
                         <div className="mt-1 line-clamp-2 text-[10.5px] text-[#5B7568] dark:text-gray-400" title={r.symptom}>{r.symptom || "—"}</div>
                         {/* workflow progress */}
                         <div className="mt-2 flex gap-0.5">
