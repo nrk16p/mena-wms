@@ -179,7 +179,9 @@ const inputCls =
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
 
 // สถานะรายวันล่าสุดของรถ (A/B/BA/...) จาก mena-intelligence performance_vehicle_daily
-type DailyStatus = { status: string; label: string; group: string; date: string; streak_days?: number; streak_capped?: boolean }
+type DailyStatus = { status: string; label: string; group: string; date: string; streak_days?: number; streak_capped?: boolean; last_bba_date?: string | null }
+// ผลวิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง
+type JobAlert = { kind: "update_needed" | "waiting_real"; text: string; title: string }
 const DAILY_GROUP_CLS: Record<string, string> = {
   working: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   repair:  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
@@ -618,19 +620,62 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setDateFrom(""); setDateTo("")
   }
 
-  // ขัดแย้ง: งานอู่นอกบอกว่ารถอยู่อู่ แต่สถานะรายวันล่าสุดเป็นกลุ่ม "ทำงาน" (A/AX/...)
-  // = งานซ่อมอาจไม่ถูกปิด หรือฝ่ายจัดรถลงสถานะรายวันผิด
-  const isConflict = (r: RepairExternal) =>
-    jobTypeOf(r) !== JOB_TYPE_PARTS &&
-    IN_GARAGE_STATUSES.has(r.status) &&
-    dailyStatus[r.plate]?.group === "working"
-  const conflictRows = rows.filter(isConflict)
+  // วิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง (เฉพาะงานอู่นอกที่ยังไม่ปิด)
+  // กติกา:
+  //  • "รอรถเข้า" + รถเป็น A ตลอด ไม่เคย B/BA ตั้งแต่รับแจ้ง → รอเข้าซ่อมจริง (info)
+  //  • "รอรถเข้า" + รถเป็น B/BA อยู่ → เข้าอู่แล้ว ควรอัพเดทเป็น "รถเข้าอู่ซ่อม"
+  //  • งานที่รถควรอยู่อู่ + รถกลับมาวิ่ง (เคย B/BA แล้วเปลี่ยนเป็น A) → ซ่อมเสร็จแล้วยังไม่อัพเดทงาน
+  const jobAlertOf = (r: RepairExternal): JobAlert | null => {
+    const ds = dailyStatus[r.plate]
+    if (!ds || jobTypeOf(r) === JOB_TYPE_PARTS || isDoneStatus(r.status)) return null
+    const age = ageDays(r.receivedDate)
+    // เคยเป็น B/BA หลังวันรับแจ้งไหม (YYYY-MM-DD เทียบ string ตรงๆ ได้)
+    const everBbaSinceJob = !!ds.last_bba_date && !!r.receivedDate && ds.last_bba_date >= r.receivedDate
+
+    if (r.status === "รอรถเข้า") {
+      if (ds.group === "working" && everBbaSinceJob)
+        return {
+          kind: "update_needed",
+          text: "เคยเข้าอู่แล้วกลับมาวิ่งงาน — อัพเดทสถานะงาน?",
+          title: `รถเป็น B/BA ล่าสุด ${ds.last_bba_date} (หลังรับแจ้ง) แล้วกลับมาสถานะ ${ds.status} — งานอาจซ่อมเสร็จแล้ว กรุณาตรวจสอบ/ปิดงาน`,
+        }
+      if ((ds.streak_days ?? 0) > 0)
+        return {
+          kind: "update_needed",
+          text: `รถเข้าอู่แล้ว (${ds.status} ${ds.streak_days} วัน) — อัพเดทเป็น "รถเข้าอู่ซ่อม"?`,
+          title: `สถานะรายวันเป็น ${ds.status} ต่อเนื่อง ${ds.streak_days} วัน แต่งานยังสถานะ "รอรถเข้า"`,
+        }
+      if (ds.group === "working")
+        return {
+          kind: "waiting_real",
+          text: `รอเข้าซ่อมจริง — รอมา ${age ?? "-"} วัน (รถยังวิ่งงาน)`,
+          title: `ตั้งแต่รับแจ้ง ${r.receivedDate || "-"} รถไม่เคยเป็น B/BA — ยังรอคิวเข้าอู่จริง`,
+        }
+      return null
+    }
+
+    if (IN_GARAGE_STATUSES.has(r.status) && ds.group === "working") {
+      if (everBbaSinceJob)
+        return {
+          kind: "update_needed",
+          text: `ซ่อมเสร็จแล้ว? รถกลับมาวิ่งงาน (B/BA ล่าสุด ${ds.last_bba_date})`,
+          title: `รถเปลี่ยนจาก B/BA เป็น ${ds.status} ${ds.label} แล้ว แต่งานยังสถานะ "${r.status}" — ถ้าซ่อมเสร็จแล้วกรุณาปิดงาน/อัพเดทสถานะ`,
+        }
+      return {
+        kind: "update_needed",
+        text: "รถวิ่งงานตลอด ไม่เคยเข้าอู่ — ตรวจสอบสถานะงาน",
+        title: `งานสถานะ "${r.status}" (รถควรอยู่อู่) แต่รถไม่เคยเป็น B/BA ตั้งแต่รับแจ้ง — สถานะงานหรือสถานะรายวันอาจลงผิด`,
+      }
+    }
+    return null
+  }
+  const alertRows = rows.filter((r) => jobAlertOf(r)?.kind === "update_needed")
 
   // กรองฝั่ง client — ค้างเกิน SLA และ/หรือ รอใบเสนอราคาที่ไม่มี PR
   let displayRows = rows
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
-  if (conflictOnly) displayRows = displayRows.filter(isConflict)
+  if (conflictOnly) displayRows = displayRows.filter((r) => jobAlertOf(r)?.kind === "update_needed")
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
   const { isDup, dupList } = (() => {
@@ -953,14 +998,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       )}
 
-      {/* สถานะขัดแย้ง — งานอู่นอกยังไม่ปิด (รถควรอยู่อู่) แต่สถานะรายวัน = ทำงาน (A/AX/...) */}
-      {!isDone && conflictRows.length > 0 && (
+      {/* งานที่สถานะไม่ตรงกับสถานะรถจริง — แจ้งให้อัพเดท */}
+      {!isDone && alertRows.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[12px] border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-300">
           <span className="shrink-0">⚠</span>
           <span className="flex-1">
-            <b>พบ {conflictRows.length} คัน สถานะขัดแย้ง</b> — งานซ่อมระบุว่ารถอยู่อู่ แต่สถานะรายวันเป็น &quot;ทำงาน&quot;
-            → งานอาจยังไม่ถูกปิด หรือลงสถานะรายวันผิด
-            <span className="ml-1 opacity-80">({[...new Set(conflictRows.map((r) => r.plate))].join(", ")})</span>
+            <b>พบ {alertRows.length} งานที่สถานะอาจไม่ตรงกับรถจริง</b> — เช่น รถกลับมาวิ่งแล้วแต่ยังไม่ปิดงาน
+            หรือรถเข้าอู่แล้วแต่งานยัง &quot;รอรถเข้า&quot; → กรุณาตรวจสอบ/อัพเดทสถานะ
+            <span className="ml-1 opacity-80">({[...new Set(alertRows.map((r) => r.plate))].join(", ")})</span>
           </span>
           <button
             onClick={() => setConflictOnly((v) => !v)}
@@ -1034,22 +1079,29 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     {dailyStatus[r.plate] && (
                       <div
                         className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
-                        title={`สถานะรถรายวันล่าสุด ${dailyStatus[r.plate].date} (จากระบบ utilization)`}
+                        title={`สถานะรถรายวันล่าสุด ${dailyStatus[r.plate].date} · ค้างซ่อม (B/BA ต่อเนื่อง) ${dailyStatus[r.plate].streak_days ?? 0} วัน · อายุงาน ${days ?? "-"} วัน`}
                       >
                         📊 {dailyStatus[r.plate].status}
                         {dailyStatus[r.plate].label && <span className="font-medium">{dailyStatus[r.plate].label}</span>}
                         {(dailyStatus[r.plate].streak_days ?? 0) > 0 && (
-                          <span className="font-semibold">· ค้าง {dailyStatus[r.plate].streak_days}{dailyStatus[r.plate].streak_capped ? "+" : ""} วัน</span>
+                          <span className="font-semibold">· ค้างซ่อม {dailyStatus[r.plate].streak_days}{dailyStatus[r.plate].streak_capped ? "+" : ""} วัน</span>
                         )}
                         <span className="font-normal opacity-70">· ถึง {dailyStatus[r.plate].date.slice(5)}</span>
                       </div>
                     )}
-                    {isConflict(r) && (
-                      <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800 ring-1 ring-amber-400 dark:bg-amber-900/30 dark:text-amber-300"
-                        title={`งานสถานะ "${r.status}" รถควรอยู่อู่ แต่สถานะรายวัน (${dailyStatus[r.plate]?.date}) = ${dailyStatus[r.plate]?.status} ${dailyStatus[r.plate]?.label} — ตรวจสอบว่างานควรปิดหรือสถานะรายวันผิด`}>
-                        ⚠ ขัดแย้ง — รถวิ่งงานทั้งที่งานซ่อมไม่ปิด
-                      </div>
-                    )}
+                    {(() => {
+                      const al = jobAlertOf(r)
+                      if (!al) return null
+                      return al.kind === "update_needed" ? (
+                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800 ring-1 ring-amber-400 dark:bg-amber-900/30 dark:text-amber-300" title={al.title}>
+                          ⚠ {al.text}
+                        </div>
+                      ) : (
+                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-900/30 dark:text-sky-300" title={al.title}>
+                          ℹ️ {al.text}
+                        </div>
+                      )
+                    })()}
     {/* ป้ายประเภทงาน — ระบุชัดทั้งสองแบบ */}
                     {jobTypeOf(r) === JOB_TYPE_PARTS
                       ? <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[11px] font-bold text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🔩 อะไหล่ลงคัน</div>
@@ -1209,9 +1261,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[9.5px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
                         {dailyStatus[r.plate] && (
                           <div className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
-                            title={`${dailyStatus[r.plate].label} · ค้าง ${dailyStatus[r.plate].streak_days ?? "-"} วัน · ถึง ${dailyStatus[r.plate].date}`}>
+                            title={`${dailyStatus[r.plate].label} · ค้างซ่อม (B/BA) ${dailyStatus[r.plate].streak_days ?? 0} วัน · ถึง ${dailyStatus[r.plate].date}`}>
                             📊 {dailyStatus[r.plate].status}
-                            {(dailyStatus[r.plate].streak_days ?? 0) > 1 && <span>· {dailyStatus[r.plate].streak_days}{dailyStatus[r.plate].streak_capped ? "+" : ""}ว</span>}
+                            {(dailyStatus[r.plate].streak_days ?? 0) > 0 && <span>· {dailyStatus[r.plate].streak_days}{dailyStatus[r.plate].streak_capped ? "+" : ""}ว</span>}
                           </div>
                         )}
                         <div className="mt-1 line-clamp-2 text-[10.5px] text-[#5B7568] dark:text-gray-400" title={r.symptom}>{r.symptom || "—"}</div>
