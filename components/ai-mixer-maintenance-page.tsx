@@ -71,17 +71,24 @@ export function AiMixerMaintenancePage() {
   const [kbKey, setKbKey] = useState("")
   const [kbStatus, setKbStatus] = useState<"" | "testing" | "ok" | "fail">("")
   const [kbUsed, setKbUsed] = useState(false)
+  // engine: "claude" = Claude AI (+KB ประกอบ) · "kb" = ฐานความรู้อย่างเดียว ไม่ใช้ LLM (ฟรี)
+  const [engine, setEngine] = useState<"claude" | "kb">("claude")
 
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("aiMixerKb") ?? "{}")
       if (saved.url) setKbUrl(saved.url)
       if (saved.key) setKbKey(saved.key)
+      if (saved.engine === "kb" || saved.engine === "claude") setEngine(saved.engine)
     } catch { /* ignore */ }
   }, [])
+  function saveEngine(v: "claude" | "kb") {
+    setEngine(v)
+    try { localStorage.setItem("aiMixerKb", JSON.stringify({ url: kbUrl, key: kbKey, engine: v })) } catch { /* ignore */ }
+  }
   function saveKb(url: string, key: string) {
     setKbUrl(url); setKbKey(key); setKbStatus("")
-    try { localStorage.setItem("aiMixerKb", JSON.stringify({ url, key })) } catch { /* ignore */ }
+    try { localStorage.setItem("aiMixerKb", JSON.stringify({ url, key, engine })) } catch { /* ignore */ }
   }
   async function testKb() {
     setKbStatus("testing")
@@ -140,7 +147,7 @@ export function AiMixerMaintenancePage() {
       const res = await fetch("/api/ai-mixer-maintenance/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, vehicle, kb: kbUrl.trim() ? { url: kbUrl.trim(), key: kbKey.trim() } : undefined }),
+        body: JSON.stringify({ ...payload, vehicle, engine, kb: kbUrl.trim() ? { url: kbUrl.trim(), key: kbKey.trim() } : undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "วิเคราะห์ไม่สำเร็จ")
@@ -158,7 +165,7 @@ export function AiMixerMaintenancePage() {
   async function runStep1() {
     if (!notifyText.trim()) { swalError("กรุณากรอกข้อความแจ้งซ่อม"); return }
     if (!vehicle.plate.trim()) { swalError("กรุณากรอกทะเบียนรถ"); return }
-    const result = await analyze({ step: 1, notifyText }, "AI กำลังวิเคราะห์การแจ้งซ่อม...")
+    const result = await analyze({ step: 1, notifyText }, engine === "kb" ? "กำลังค้นฐานความรู้ประวัติซ่อม..." : "AI กำลังวิเคราะห์การแจ้งซ่อม...")
     if (result) setStep1(result)
   }
 
@@ -166,7 +173,7 @@ export function AiMixerMaintenancePage() {
     if (!step1) return
     const result = await analyze(
       { step: 2, confirmedTicket: { notifyText, symptoms: step1.symptoms, overall_urgency: step1.overall_urgency } },
-      "AI กำลังสร้าง Checklist สำหรับ QC...",
+      engine === "kb" ? "กำลังดึง Checklist จากฐานความรู้..." : "AI กำลังสร้าง Checklist สำหรับ QC...",
     )
     if (!result) return
     setStep2(result)
@@ -184,7 +191,7 @@ export function AiMixerMaintenancePage() {
       extra_findings: extraFindings.trim() || "-",
       expected_parts: step2.expected_parts,
     }
-    const result = await analyze({ step: 3, qcResult }, "AI กำลังวิเคราะห์อาการ จัดลำดับงาน และสรุปอะไหล่...")
+    const result = await analyze({ step: 3, qcResult }, engine === "kb" ? "กำลังสรุปแผนซ่อมจากสถิติประวัติจริง..." : "AI กำลังวิเคราะห์อาการ จัดลำดับงาน และสรุปอะไหล่...")
     if (!result) return
     ;(result.analysis as AnalysisItem[]).sort((a, b) => a.priority - b.priority)
     setStep3(result)
@@ -266,6 +273,28 @@ export function AiMixerMaintenancePage() {
         </button>
         {kbOpen && (
           <div className="border-t border-[#EEF2F0] px-4 py-3 dark:border-white/[0.07]">
+            {/* โหมดวิเคราะห์ */}
+            <div className="mb-3">
+              <label className={labelCls}>โหมดวิเคราะห์</label>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => saveEngine("claude")}
+                  className={[
+                    "rounded-[11px] border px-3.5 py-2 text-left text-[12px] transition-colors",
+                    engine === "claude" ? "border-[#1B8C4B] bg-[#F0FDF4] dark:bg-[#1B8C4B]/10" : "border-[#E2E8E4] dark:border-white/10 opacity-70",
+                  ].join(" ")}>
+                  <span className="font-bold text-[#14271C] dark:text-white">🤖 Claude AI + ฐานความรู้</span>
+                  <span className="block text-[11px] text-[#9AA8A0]">คุณภาพสูงสุด · ต้องมี ANTHROPIC_API_KEY · มีค่าใช้จ่าย</span>
+                </button>
+                <button onClick={() => saveEngine("kb")}
+                  className={[
+                    "rounded-[11px] border px-3.5 py-2 text-left text-[12px] transition-colors",
+                    engine === "kb" ? "border-[#1B8C4B] bg-[#F0FDF4] dark:bg-[#1B8C4B]/10" : "border-[#E2E8E4] dark:border-white/10 opacity-70",
+                  ].join(" ")}>
+                  <span className="font-bold text-[#14271C] dark:text-white">📚 ฐานความรู้อย่างเดียว</span>
+                  <span className="block text-[11px] text-[#9AA8A0]">ฟรี 100% ไม่ใช้ LLM · สรุปจากสถิติประวัติซ่อมจริงตรงๆ</span>
+                </button>
+              </div>
+            </div>
             <p className="mb-2 text-[11.5px] text-[#9AA8A0]">
               เมื่อตั้งค่าแล้ว AI จะดึงข้อมูลจากประวัติซ่อมจริง (/diagnose) มาประกอบการวิเคราะห์ขั้น 1 และ 3 · ค่าเก็บในเครื่องนี้เท่านั้น (localStorage) — URL ngrok เปลี่ยนเมื่อไหร่มาแก้ตรงนี้ได้เลย
             </p>

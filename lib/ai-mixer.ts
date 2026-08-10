@@ -96,6 +96,224 @@ export async function kbDiagnoseMany(kb: KbConfig, queries: string[], plate?: st
   return JSON.stringify(ok, null, 1)
 }
 
+// ═══════════════════════════════════════════════════════════════
+// โหมด "KB อย่างเดียว" (engine=kb) — ไม่เรียก LLM เลย ฟรี 100%
+// ประกอบผลลัพธ์ตาม schema เดียวกับโหมด AI จากข้อมูล KB ตรงๆ
+// ═══════════════════════════════════════════════════════════════
+
+const SEVERITY_RANK: Record<string, number> = { "วิกฤต-ห้ามใช้รถ": 0, "เร่งด่วน": 1, "ปกติ": 2, "เฝ้าระวัง": 3 }
+
+function mapSeverity(sev?: string, stopVehicle?: boolean): string {
+  const s = String(sev ?? "")
+  if (s.startsWith("S1")) return stopVehicle ? "วิกฤต-ห้ามใช้รถ" : "เร่งด่วน"
+  if (s.startsWith("S2")) return "เร่งด่วน"
+  if (s.startsWith("S4")) return "เฝ้าระวัง"
+  return "ปกติ"
+}
+
+// เดาหมวดระบบจากชื่ออาการ (KB ใช้รหัส S1-S15 ที่ไม่ตรงกับ enum ของเรา)
+function mapSystemGroup(nameTh: string): string {
+  const n = nameTh
+  if (/โม่|รางเท|กรวย|ปูน/.test(n)) return "โม่ผสมปูน" // เช็คก่อนช่วงล่าง — "ลูกปืนลูกกลิ้งโม่" ต้องเข้าหมวดโม่
+  if (/เบรก|ลมรั่ว|ผ้าเบรก|หม้อลม/.test(n)) return "ระบบเบรก/ลม"
+  if (/ยาง|ล้อ|ลูกปืน|โช้ค|แหนบ|คันชัก|คันส่ง|ศูนย์|ช่วงล่าง/.test(n)) return "ช่วงล่าง/ล้อ/ยาง"
+  if (/ไฟ|แบตเตอรี่|ไดชาร์จ|ไดสตาร์ท|แอร์|สาย/.test(n)) return "ระบบไฟฟ้า"
+  if (/ไฮดรอลิก|กระบอก|ปั๊ม/.test(n)) return "ไฮดรอลิก"
+  if (/เกียร์|คลัตช์|เพลา|ยอย/.test(n)) return "ระบบส่งกำลัง"
+  if (/เครื่อง|น้ำมันเครื่อง|หม้อน้ำ|ความร้อน|สตาร์ท|ควัน/.test(n)) return "เครื่องยนต์"
+  if (/ตัวถัง|แชสซี|ประตู|กระจก|สี/.test(n)) return "ตัวถัง/แชสซี"
+  return "อื่นๆ"
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function kbDiagnoseRaw(kb: KbConfig, q: string, plate?: string): Promise<any> {
+  const p = new URLSearchParams({ q })
+  if (plate) p.set("plate", plate)
+  return kbFetch(kb, `/diagnose?${p.toString()}`)
+}
+
+// ขั้น 1 (KB): /diagnose → รายการอาการ + ความรุนแรง + note จากสถิติเคสจริง
+export async function kbOnlyStep1(kb: KbConfig, notifyText: string, plate?: string) {
+  const d = await kbDiagnoseRaw(kb, notifyText, plate)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all: any[] = Array.isArray(d?.matches) ? d.matches : []
+  const strong = all.filter((m) => (m.similarity ?? 0) >= 0.45).slice(0, 3)
+  const matches = strong.length ? strong : all.slice(0, 1)
+
+  const symptoms = matches.map((m) => ({
+    symptom: m.name_th,
+    system_group: mapSystemGroup(String(m.name_th ?? "")),
+    severity: mapSeverity(m.severity, m.stop_vehicle),
+    safety_risk: Boolean(m.safety_critical),
+    initial_note: [
+      `ตรงกับฐานความรู้ ${Math.round((m.similarity ?? 0) * 100)}%`,
+      m.cases_in_history ? `เคยเกิด ${m.cases_in_history} เคส` : "",
+      Array.isArray(m.typical_causes) && m.typical_causes.length ? `สาเหตุที่พบบ่อย: ${m.typical_causes.slice(0, 3).join(", ")}` : "",
+      m.stop_vehicle ? "⚠ ประวัติระบุควรหยุดใช้รถ" : "",
+    ].filter(Boolean).join(" · "),
+    kb_code: m.symptom_code, // ใช้ต่อในขั้น 2/3 (นอก schema AI — โหมด KB เท่านั้น)
+  }))
+
+  const worst = symptoms.reduce((acc, s) => Math.min(acc, SEVERITY_RANK[s.severity] ?? 2), 2)
+  const overall = worst === 0 ? "วิกฤต-ห้ามใช้รถ" : worst === 1 ? "เร่งด่วน" : "ปกติ"
+  const topSim = matches[0]?.similarity ?? 0
+
+  return {
+    symptoms,
+    overall_urgency: overall,
+    questions_to_reporter: topSim < 0.55
+      ? ["อาการที่แจ้งตรงกับฐานความรู้ไม่ชัดเจน โปรดยืนยันอาการ/ตำแหน่งที่เสียให้ละเอียดขึ้น"]
+      : [],
+    summary_for_confirm: symptoms.length
+      ? `พบอาการที่ตรงกับฐานความรู้ ${symptoms.length} รายการ (จากประวัติซ่อมจริง) ความเร่งด่วนรวม: ${overall} — โปรดตรวจสอบและยืนยัน`
+      : "ไม่พบอาการที่ตรงในฐานความรู้ โปรดระบุอาการให้ละเอียดขึ้น",
+  }
+}
+
+// ขั้น 2 (KB): symptom → /symptoms/{code} → checklist_refs → /checklists/{id} → รายการตรวจ + อะไหล่จากเคสจริง
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function kbOnlyStep2(kb: KbConfig, symptoms: any[], plate?: string) {
+  const list = symptoms.slice(0, 5)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const checklistCache = new Map<string, any>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const checklist: any[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const expected_parts: any[] = []
+  const seenItems = new Set<string>()
+  const seenParts = new Set<string>()
+  let anyStop = false
+  let anySafety = false
+
+  for (const s of list) {
+    const name = String(s?.symptom ?? "").trim()
+    if (!name) continue
+    try {
+      const d = await kbDiagnoseRaw(kb, name, plate)
+      const m = (Array.isArray(d?.matches) ? d.matches : [])[0]
+      if (!m) continue
+      if (m.stop_vehicle) anyStop = true
+      if (m.safety_critical) anySafety = true
+
+      // อะไหล่จาก % เคสจริง
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const p of (Array.isArray(m.parts_likely) ? m.parts_likely : []).slice(0, 8) as any[]) {
+        if (seenParts.has(p.part)) continue
+        seenParts.add(p.part)
+        expected_parts.push({
+          part_name: p.part,
+          qty: "-",
+          condition: `ใช้ใน ${p.pct_of_cases}% ของเคส "${m.name_th}" — รอผลตรวจยืนยัน`,
+        })
+      }
+
+      // checklist จาก refs ของ symptom นี้
+      const code = s?.kb_code || m.symptom_code
+      if (!code) continue
+      const sym = await kbFetch(kb, `/symptoms/${encodeURIComponent(String(code))}`)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const refs: any[] = Array.isArray((sym as any)?.checklist_refs) ? (sym as any).checklist_refs : []
+      for (const ref of refs.slice(0, 4)) {
+        const key = `${ref.checklist_id}:${ref.item_code}`
+        if (seenItems.has(key)) continue
+        seenItems.add(key)
+        if (!checklistCache.has(ref.checklist_id)) {
+          try { checklistCache.set(ref.checklist_id, await kbFetch(kb, `/checklists/${encodeURIComponent(ref.checklist_id)}`)) }
+          catch { checklistCache.set(ref.checklist_id, null) }
+        }
+        const cl = checklistCache.get(ref.checklist_id)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const item = (Array.isArray(cl?.items) ? cl.items : []).find((it: any) => it.code === ref.item_code)
+        if (!item) continue
+        checklist.push({
+          item: `[${cl.title_th}] ${item.symptom}`,
+          method: item.inspection || "ตรวจด้วยสายตา/เครื่องมือตามมาตรฐาน",
+          expected: Array.isArray(item.failure_modes) && item.failure_modes.length
+            ? `ต้องไม่พบ: ${item.failure_modes.join(", ")}` : "สภาพปกติ ไม่พบความผิดปกติ",
+          related_symptom: name,
+        })
+      }
+    } catch { /* fail-soft ต่ออาการ */ }
+  }
+
+  if (!checklist.length) {
+    checklist.push({
+      item: "ตรวจสภาพทั่วไปตามอาการที่แจ้ง",
+      method: "ตรวจด้วยสายตาและทดสอบการทำงานจริง",
+      expected: "สภาพปกติ ไม่พบความผิดปกติ",
+      related_symptom: list[0]?.symptom ?? "-",
+    })
+  }
+
+  const safety_precautions = [
+    ...(anyStop ? ["ห้ามนำรถไปใช้งานจนกว่าจะตรวจ/ซ่อมเสร็จ (ประวัติระบุอาการนี้ต้องหยุดรถ)"] : []),
+    ...(anySafety ? ["อาการเกี่ยวข้องกับความปลอดภัย — ตรวจโดยช่างที่ได้รับมอบหมายเท่านั้น"] : []),
+    "หนุนล้อ/ใช้ขาตั้งรองรับทุกครั้งที่ขึ้นแม่แรง และดับเครื่อง-ดึงเบรกมือก่อนตรวจ",
+  ]
+
+  return { checklist, expected_parts, safety_precautions }
+}
+
+// ขั้น 3 (KB): อาการที่ QC ยืนยัน → /diagnose → สาเหตุ/อะไหล่/เวลา จากสถิติจริง + จัดลำดับตามความรุนแรง
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function kbOnlyStep3(kb: KbConfig, qcResult: any, vehicle: VehicleInfo) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const confirmed: any[] = (Array.isArray(qcResult?.confirmed_symptoms) ? qcResult.confirmed_symptoms : [])
+    .filter((s: { qc_confirmed?: string }) => s?.qc_confirmed !== "ไม่พบ")
+    .slice(0, 5)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = []
+  for (const s of confirmed) {
+    const name = String(s?.symptom ?? "").trim()
+    if (!name) continue
+    try {
+      const d = await kbDiagnoseRaw(kb, name, vehicle.plate)
+      const m = (Array.isArray(d?.matches) ? d.matches : [])[0]
+      const sev = mapSeverity(m?.severity, m?.stop_vehicle)
+      const downtime = typeof m?.downtime_median_h === "number" ? m.downtime_median_h : null
+      rows.push({
+        symptom: name,
+        probable_causes: Array.isArray(m?.typical_causes) && m.typical_causes.length ? m.typical_causes : ["ไม่มีข้อมูลสาเหตุในฐานความรู้ — ให้ช่างวินิจฉัยหน้างาน"],
+        _sevRank: SEVERITY_RANK[sev] ?? 2,
+        _sim: m?.similarity ?? 0,
+        _downtime: downtime,
+        repair_now: !sev.startsWith("เฝ้าระวัง"),
+        reason: [
+          `ความรุนแรง: ${sev}`,
+          m?.safety_critical ? "กระทบความปลอดภัย" : "",
+          m?.cases_in_history ? `อ้างอิงประวัติ ${m.cases_in_history} เคส` : "",
+        ].filter(Boolean).join(" · "),
+        impact: [
+          m?.stop_vehicle ? "รถต้องจอด ห้ามใช้งานจนกว่าจะซ่อมเสร็จ" : "รถยังพอใช้งานได้แต่ควรรีบซ่อม",
+          vehicle.customer || vehicle.plant ? `กระทบงานส่งปูน ${vehicle.customer ?? ""} ${vehicle.plant ? `แพล้นท์ ${vehicle.plant}` : ""}`.trim() : "",
+        ].filter(Boolean).join(" · "),
+        est_repair_hours: downtime != null ? `~${downtime} ชม. (median จากเคสจริง)` : "ไม่มีข้อมูล — ให้ Supervisor ประเมิน",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        parts: (Array.isArray(m?.parts_likely) ? m.parts_likely : []).slice(0, 8).map((p: any) => ({
+          part_name: p.part,
+          spec: `ตามสเปคของเดิม/เทียบรุ่นรถ · ใช้ใน ${p.pct_of_cases}% ของเคสจริง`,
+          qty: "-",
+        })),
+      })
+    } catch { /* fail-soft */ }
+  }
+
+  rows.sort((a, b) => a._sevRank - b._sevRank || b._sim - a._sim)
+  const analysis = rows.map((r, i) => {
+    const { _sevRank, _sim, _downtime, ...rest } = r
+    void _sevRank; void _sim; void _downtime
+    return { ...rest, priority: i + 1 }
+  })
+
+  const totalH = rows.filter((r) => r.repair_now && r._downtime != null).reduce((s, r) => s + r._downtime, 0)
+  return {
+    analysis,
+    total_est_downtime: totalH > 0 ? `~${totalH} ชม. (รวม median งานที่ซ่อมรอบนี้)` : "ประเมินจากหน้างาน",
+    supervisor_notes: "ผลนี้สรุปจากฐานความรู้ประวัติซ่อมจริงโดยตรง (โหมดไม่ใช้ AI) — สาเหตุ/อะไหล่เรียงตามสถิติ โปรดใช้วิจารณญาณช่างประกอบ และตรวจอะไหล่เทียบของเดิมก่อนสั่งซื้อ",
+  }
+}
+
 // block ข้อมูลอ้างอิงจาก Mixer Repair KB API (ประวัติซ่อมจริง) — แนบต่อท้าย prompt เมื่อมีข้อมูล
 export function kbBlock(kbJson: string): string {
   return `

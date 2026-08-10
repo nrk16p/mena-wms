@@ -11,6 +11,7 @@ import {
   step2Prompt, STEP2_SCHEMA,
   step3Prompt, STEP3_SCHEMA,
   resolveKbConfig, kbDiagnoseMany,
+  kbOnlyStep1, kbOnlyStep2, kbOnlyStep3,
   type VehicleInfo,
 } from "@/lib/ai-mixer"
 
@@ -42,6 +43,39 @@ export async function POST(req: NextRequest) {
   const kb = resolveKbConfig(body?.kb)
   let kbJson: string | null = null
   let kbError: string | null = null
+
+  // engine=kb → ใช้ฐานความรู้อย่างเดียว ไม่เรียก LLM (ฟรี ไม่ต้องมี ANTHROPIC_API_KEY)
+  const engine = body?.engine === "kb" ? "kb" : "claude"
+  if (engine === "kb") {
+    if (!kb) return NextResponse.json({ error: "โหมด KB อย่างเดียวต้องตั้งค่า KB API URL + Key ก่อน" }, { status: 400 })
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let result: any
+      if (step === 1) {
+        const notifyText = String(body?.notifyText ?? "").trim()
+        if (!notifyText) return NextResponse.json({ error: "กรุณาระบุข้อความแจ้งซ่อม" }, { status: 400 })
+        result = await kbOnlyStep1(kb, notifyText, vehicle.plate)
+      } else if (step === 2) {
+        if (!body?.confirmedTicket) return NextResponse.json({ error: "ไม่มีข้อมูลใบแจ้งซ่อมที่ยืนยันแล้ว" }, { status: 400 })
+        result = await kbOnlyStep2(kb, body.confirmedTicket.symptoms ?? [], vehicle.plate)
+      } else {
+        if (!body?.qcResult) return NextResponse.json({ error: "ไม่มีผลตรวจ QC" }, { status: 400 })
+        result = await kbOnlyStep3(kb, body.qcResult, vehicle)
+      }
+      try {
+        const client = await clientPromise
+        await client.db(DB).collection(LOG_COLL).insertOne({
+          at: new Date(), email, step, model: "kb-only", vehicle,
+          input: step === 1 ? body.notifyText : step === 2 ? body.confirmedTicket : body.qcResult,
+          output: result, kbUsed: true,
+        })
+      } catch (e) { console.error("[ai-mixer] log failed", e) }
+      return NextResponse.json({ step, result, engine, kbUsed: true })
+    } catch (e) {
+      console.error("[ai-mixer] kb-only failed", e)
+      return NextResponse.json({ error: `ดึงข้อมูลจาก KB ไม่สำเร็จ (${e instanceof Error ? e.message : "error"}) — ตรวจสอบว่า ngrok/KB API ยังรันอยู่` }, { status: 502 })
+    }
+  }
 
   let userPrompt = ""
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
