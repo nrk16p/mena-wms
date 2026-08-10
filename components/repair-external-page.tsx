@@ -179,7 +179,7 @@ const inputCls =
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
 
 // สถานะรายวันล่าสุดของรถ (A/B/BA/...) จาก mena-intelligence performance_vehicle_daily
-type DailyStatus = { status: string; label: string; group: string; date: string }
+type DailyStatus = { status: string; label: string; group: string; date: string; streak_days?: number; streak_capped?: boolean }
 const DAILY_GROUP_CLS: Record<string, string> = {
   working: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   repair:  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
@@ -1038,7 +1038,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       >
                         📊 {dailyStatus[r.plate].status}
                         {dailyStatus[r.plate].label && <span className="font-medium">{dailyStatus[r.plate].label}</span>}
-                        <span className="font-normal opacity-70">· {dailyStatus[r.plate].date.slice(5)}</span>
+                        {(dailyStatus[r.plate].streak_days ?? 0) > 0 && (
+                          <span className="font-semibold">· ค้าง {dailyStatus[r.plate].streak_days}{dailyStatus[r.plate].streak_capped ? "+" : ""} วัน</span>
+                        )}
+                        <span className="font-normal opacity-70">· ถึง {dailyStatus[r.plate].date.slice(5)}</span>
                       </div>
                     )}
                     {isConflict(r) && (
@@ -1206,8 +1209,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[9.5px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
                         {dailyStatus[r.plate] && (
                           <div className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
-                            title={`${dailyStatus[r.plate].label} · ${dailyStatus[r.plate].date}`}>
+                            title={`${dailyStatus[r.plate].label} · ค้าง ${dailyStatus[r.plate].streak_days ?? "-"} วัน · ถึง ${dailyStatus[r.plate].date}`}>
                             📊 {dailyStatus[r.plate].status}
+                            {(dailyStatus[r.plate].streak_days ?? 0) > 1 && <span>· {dailyStatus[r.plate].streak_days}{dailyStatus[r.plate].streak_capped ? "+" : ""}ว</span>}
                           </div>
                         )}
                         <div className="mt-1 line-clamp-2 text-[10.5px] text-[#5B7568] dark:text-gray-400" title={r.symptom}>{r.symptom || "—"}</div>
