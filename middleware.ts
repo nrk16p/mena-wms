@@ -105,7 +105,8 @@ export async function middleware(request: NextRequest) {
       return isMobileApi ? withCors(res, origin) : res
     }
     const loginUrl = new URL("/login", request.url)
-    loginUrl.searchParams.set("callbackUrl", pathname)
+    // เก็บ query string ด้วย — deep link เช่น /repair-external?q=TH1099 จะได้ไม่หลุดหลัง login
+    loginUrl.searchParams.set("callbackUrl", pathname + request.nextUrl.search)
     return NextResponse.redirect(loginUrl)
   }
 
