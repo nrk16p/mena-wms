@@ -6,6 +6,8 @@ import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
 import { normalizeImages } from "@/lib/media"
 import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus } from "@/lib/order-tracking"
+import { deptScope, canUseDept } from "@/lib/dept-access"
+import type { Session } from "next-auth"
 
 export const dynamic = "force-dynamic"
 
@@ -15,6 +17,17 @@ type Params = { params: Promise<{ id: string }> }
 
 const s = (v: unknown) => String(v ?? "").trim()
 const todayBKK = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10)
+
+/**
+ * แตะเรื่องนี้ได้ไหม — ต้องอยู่ในแผนกของตัวเอง หรือเป็นคนเปิดเรื่องเอง
+ * (admin / ผู้บริหาร / จัดซื้อ ผ่านหมด — ดู lib/dept-access.ts)
+ */
+function canTouch(session: Session | null, doc: Record<string, unknown>): boolean {
+  const scope = deptScope(session?.user?.employee, session?.user?.role)
+  if (scope.all) return true
+  if (s(doc.requesterEmail) && s(doc.requesterEmail) === (session?.user?.email ?? "")) return true
+  return canUseDept(scope, s(doc.dept))
+}
 
 // PUT /api/order-tracking/[id]
 // body ปกติ: { title, detail, note, dept, prCode, estimatedDone, status? }
@@ -32,10 +45,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const existing = await col.findOne({ _id })
   if (!existing) return NextResponse.json({ error: "ไม่พบเรื่อง" }, { status: 404 })
+  if (!canTouch(session, existing)) {
+    return NextResponse.json({ error: "เรื่องนี้อยู่นอกแผนกของคุณ" }, { status: 403 })
+  }
   const now = new Date()
 
   // ── จัดซื้อรับเรื่อง — รับได้ทุกสถานะที่ยังไม่มีผู้รับ (เรื่องที่ผูก PR แล้วข้าม "แจ้งเรื่อง" ไปก็รับได้) ──
   if (s(body.action) === "accept") {
+    // รับเรื่อง = งานของจัดซื้อ — จำกัดที่ผู้ที่เข้าถึงได้ทุกแผนก (จัดซื้อ / ผู้บริหาร / admin)
+    if (!deptScope(session?.user?.employee, session?.user?.role).all) {
+      return NextResponse.json({ error: "เฉพาะจัดซื้อเท่านั้นที่กดรับเรื่องได้" }, { status: 403 })
+    }
     if (s(existing.acceptedBy)) {
       return NextResponse.json({ error: `เรื่องนี้ถูกรับไปแล้วโดย ${s(existing.acceptedBy)}` }, { status: 409 })
     }
@@ -107,6 +127,16 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const { id } = await params
   if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 })
   const client = await clientPromise
-  await client.db(DB).collection(COLL).deleteOne({ _id: new ObjectId(id) })
+  const col    = client.db(DB).collection(COLL)
+  const _id    = new ObjectId(id)
+
+  const existing = await col.findOne({ _id })
+  if (!existing) return NextResponse.json({ error: "ไม่พบเรื่อง" }, { status: 404 })
+  const session = await getServerSession(authOptions)
+  if (!canTouch(session, existing)) {
+    return NextResponse.json({ error: "เรื่องนี้อยู่นอกแผนกของคุณ" }, { status: 403 })
+  }
+
+  await col.deleteOne({ _id })
   return NextResponse.json({ ok: true })
 }

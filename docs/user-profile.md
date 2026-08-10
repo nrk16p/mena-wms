@@ -11,18 +11,36 @@
 ```
 ผู้ใช้กด "Sign in with Google"  (/login)
         ↓
-Google OAuth  → next-auth ได้ id_token + profile
+Google OAuth  (ส่ง hd=menatransport.co.th + prompt=select_account)  → next-auth ได้ id_token + profile
         ↓
-callback signIn()   ตรวจโดเมน @menatransport.co.th  (ไม่ผ่าน → เด้งกลับ /login?error=AccessDenied)
+callback signIn()   ① โดเมนต้องเป็น @menatransport.co.th   (ไม่ผ่าน → /login?error=AccessDenied)
+                    ② claim email_verified ต้อง = true      (ไม่ผ่าน → /login?error=EmailNotVerified)
+                    ③ claim hd (ถ้ามี) ต้องตรงองค์กร        (ไม่ผ่าน → /login?error=AccessDenied)
         ↓
 callback jwt()      POST {MENA_API_URL}/auth/login/google  { id_token }
                     ├─ สำเร็จ → เก็บ access token + โปรไฟล์พนักงานลง JWT
+                    │           (ถ้าโปรไฟล์ไม่ครบ → ดึงเต็มต่อจาก GET /users/{employee_id})
                     └─ ล้มเหลว → fail-soft: เข้าระบบได้ แต่ไม่มีข้อมูลพนักงาน
         ↓
 JWT ถูก encrypt เก็บใน cookie (HttpOnly)   next-auth.session-token / __Secure-next-auth.session-token
         ↓
 callback session()  แปลง JWT → object ที่ client อ่านได้
+        ↓
+<SessionGuard />    ตรวจฝั่ง client ทุกหน้า — session หมดอายุ / โปรไฟล์ไม่ครบ → Swal → login ใหม่
 ```
+
+### เทียบกับ MenaIT service
+
+ใช้ API ตัวเดียวกัน (`/auth/login/google`) และรูปแบบเดียวกัน ต่างกันแค่ที่เก็บ session:
+
+| | MenaIT service | Mena WMS |
+|---|---|---|
+| แลก id_token | client POST `/api/login` → API | ทำใน `jwt()` callback ฝั่ง server |
+| ที่เก็บโปรไฟล์ | JWT ของตัวเอง (`jose`) cookie `session-token` | JWT ของ next-auth (encrypted, HttpOnly) |
+| ฟิลด์โปรไฟล์ | `UserInfo` | `EmployeeProfile` — **ฟิลด์ชุดเดียวกัน** |
+| API ล่ม | login ไม่ผ่าน เข้าระบบไม่ได้ | fail-soft + [`SessionGuard`](../components/session-guard.tsx) เตือนแล้วบังคับ login ใหม่ |
+| เช็ค session | `SessionContext` → `/api/session` | `useSession()` + `SessionGuard` |
+| role | คำนวณจาก `department_id` / `employee_id` | คำนวณจากอีเมลใน [`lib/roles.ts`](../lib/roles.ts) |
 
 > **ไม่มีการใช้ `sessionStorage` / `localStorage` เก็บข้อมูลผู้ใช้** — ทุกอย่างอยู่ใน JWT cookie
 > (`localStorage` ในโปรเจกต์นี้ใช้แค่ flag UI เช่น theme, tour, welcome popup)
@@ -45,7 +63,8 @@ callback session()  แปลง JWT → object ที่ client อ่านไ
       firstname, lastname,
       department_id, department,
       site_id, site,
-      position_id, position, position_level,
+      position_id, position, position_level, position_level_id,
+      image_url,
     },
   },
   expires: "2026-09-05T01:38:32.782Z",
@@ -162,6 +181,7 @@ export async function GET(req: NextRequest) {
 | เรื่อง | รายละเอียด |
 |---|---|
 | **`employee` อาจ undefined** | Mena API อยู่บน Render (free tier) — cold start / ล่ม ได้ ระบบออกแบบให้ **fail-soft** คือ login เข้า WMS ได้เสมอ ห้ามเขียนโค้ดที่พังเมื่อไม่มี `employee` |
+| **`SessionGuard` เตือนเมื่อไม่ครบ** | [`components/session-guard.tsx`](../components/session-guard.tsx) เช็ค `username` / `department` / `position` ทุกหน้า ถ้าขาด → Swal แล้วบังคับ login ใหม่ (รอบสองให้เลือก "ใช้งานต่อ" ได้ เพื่อไม่วนลูปตอน API ล่ม) — แก้รายการฟิลด์จำเป็นที่ [`lib/session-profile.ts`](../lib/session-profile.ts) |
 | **ข้อมูลถูก freeze ตอน login** | โปรไฟล์ถูกดึงครั้งเดียวตอน sign-in แล้วฝังใน JWT — ถ้าฝั่ง API แก้ department/position ผู้ใช้ต้อง **logout แล้ว login ใหม่** ถึงจะเห็นค่าใหม่ (ยกเว้น `role` ที่คำนวณสดทุกครั้ง) |
 | **อย่าใส่ข้อมูลก้อนใหญ่ลง JWT** | JWT อยู่ใน cookie — เกิน ~4KB browser จะตัดทิ้งแล้ว session พังทั้งระบบ |
 | **อย่าส่ง token ออกไป client** | `apiToken` ต้องอยู่ใน JWT/`getApiToken()` เท่านั้น ห้าม expose ผ่าน `session()` callback |
@@ -196,6 +216,7 @@ export async function GET(req: NextRequest) {
 | `ok` แต่ `employee: null` | API ตอบ 200 แต่ field ไม่ตรงที่ parser รู้จัก | ดู `apiRaw` ใน log แล้วปรับ `looksLikeProfile()` / `pickString()` ใน [`lib/mena-api.ts`](../lib/mena-api.ts) |
 | `failed` + `Invalid Google token` | ฝั่ง API verify id_token ไม่ผ่าน | เทียบ `idToken.aud` ใน log กับ `GOOGLE_CLIENT_ID` ของฝั่ง API — ปกติคือ **คนละ OAuth client กัน** |
 | `failed` + `TimeoutError` | API cold start เกิน 12 วิ | ลอง login ใหม่ หรือปรับ `MENA_API_TIMEOUT_MS` |
+| `ok` แต่ `missingFields` ไม่ว่าง | API คืนโปรไฟล์มาไม่ครบ (ดึงเต็มจาก `/users/{id}` แล้วยังขาด) | เทียบกับ MenaIT ว่า user คนนี้มี department/position ในระบบ HR จริงไหม |
 
 log ไม่มี token ใด ๆ — ค่า token ถูก mask เป็น `«1234 chars»` โดย `redact()` ใน [`lib/mena-api.ts`](../lib/mena-api.ts)
 

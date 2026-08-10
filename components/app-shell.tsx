@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { Sidebar } from "./sidebar"
 import { Navbar } from "./navbar"
 import { TourHighlight } from "./tour-highlight"
+import { SessionGuard } from "./session-guard"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -32,6 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={() => setNavOpen(false)} aria-hidden />
       )}
       <TourHighlight />
+      <SessionGuard />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Navbar onMenuClick={() => setNavOpen(true)} />
         <main className="main-canvas flex-1 overflow-y-auto px-3 py-4 lg:px-7 lg:py-6">{children}</main>

@@ -59,6 +59,8 @@ function LoginContent() {
             <div className="mb-5 rounded-lg border border-red-400/20 bg-red-500/10 px-4 py-3 text-[11px] text-red-300 text-center leading-relaxed">
               {error === "AccessDenied"
                 ? "บัญชีนี้ไม่ได้รับอนุญาต — ใช้อีเมล @menatransport.co.th เท่านั้น"
+                : error === "EmailNotVerified"
+                ? "อีเมลนี้ยังไม่ผ่านการยืนยันกับ Google — กรุณายืนยันอีเมลก่อนเข้าใช้งาน"
                 : "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"}
             </div>
           )}

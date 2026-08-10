@@ -10,6 +10,8 @@ export const MENA_API_BASE = process.env.MENA_API_URL
 // API รันบน Render (free tier) — cold start ได้ จึงกันไม่ให้ login ค้างนานเกินไป
 const TIMEOUT_MS = Number(process.env.MENA_API_TIMEOUT_MS ?? 12_000)
 
+// ฟิลด์ชุดเดียวกับ UserInfo ของ MenaIT service (app/context/SessionContext.tsx)
+// — API ตัวเดียวกัน จึงเก็บให้ครบเหมือนกันเพื่อให้ย้ายโค้ดข้ามระบบได้
 export type EmployeeProfile = {
   id?: number
   username?: string
@@ -25,6 +27,8 @@ export type EmployeeProfile = {
   site?: string | null
   position?: string | null
   position_level?: string | null
+  position_level_id?: number | null
+  image_url?: string | null
 }
 
 export type EmployeeLogin = {

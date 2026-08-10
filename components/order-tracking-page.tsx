@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { motion, AnimatePresence } from "motion/react"
 import { Search, Plus, Pencil, Trash2, X, Check, ClipboardList, UserCheck, RefreshCw, PackageCheck, History, MessageSquare, Send, CornerDownRight, ChevronDown } from "lucide-react"
@@ -14,6 +14,7 @@ import {
   type OrderTracking,
   type PrSnapshot,
 } from "@/lib/order-tracking"
+import { deptScope } from "@/lib/dept-access"
 
 // ป้าย action ใน log
 const LOG_META: Record<string, { label: string; color: string }> = {
@@ -60,7 +61,18 @@ export function OrderTrackingPage() {
   const [loading, setLoading] = useState(true)
   const [q, setQ]             = useState("")
   const [fStatus, setFStatus] = useState("")
-  const [depts, setDepts]     = useState<string[]>([])
+  const [allDepts, setAllDepts] = useState<string[]>([])
+
+  // ขอบเขตแผนกของผู้ใช้ — ฝั่ง API บังคับซ้ำอีกชั้น (lib/dept-access.ts)
+  const scope = useMemo(
+    () => deptScope(session?.user?.employee, session?.user?.role),
+    [session?.user?.employee, session?.user?.role],
+  )
+  // รายชื่อแผนกที่เลือกได้ใน dropdown ทั้งหมดของหน้านี้
+  const depts = useMemo(
+    () => (scope.all ? allDepts : allDepts.filter((d) => scope.depts.includes(d))),
+    [allDepts, scope],
+  )
 
   // modal
   const [open, setOpen]     = useState(false)
@@ -128,7 +140,7 @@ export function OrderTrackingPage() {
   useEffect(() => {
     fetch("/api/order-tracking/pr-lookup?depts=1")
       .then((r) => r.json())
-      .then((d) => setDepts(Array.isArray(d?.depts) ? d.depts : []))
+      .then((d) => setAllDepts(Array.isArray(d?.depts) ? d.depts : []))
       .catch(() => {})
   }, [])
 
@@ -198,7 +210,9 @@ export function OrderTrackingPage() {
 
   function openAdd() {
     setEditId(null); setCurrent(null)
-    setForm(EMPTY); setFormImages([])
+    // เติมแผนกให้อัตโนมัติเมื่อผู้ใช้มีแผนกเดียว (คนที่เห็นได้ทุกแผนกยังเลือกเองเหมือนเดิม)
+    setForm({ ...EMPTY, dept: !scope.all && depts.length === 1 ? depts[0] : "" })
+    setFormImages([])
     setPrHits([]); setPrPreview(null)
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
     setOpen(true)
@@ -308,6 +322,12 @@ export function OrderTrackingPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               แจ้งความต้องการซื้อ (มี PR หรือยังไม่มีก็ได้) · จัดซื้อรับเรื่อง · sync สถานะจากระบบ PR อัตโนมัติ · {rows.length} เรื่อง
             </p>
+            {!scope.all && (
+              <p className="mt-0.5 text-[11px] text-[#1B8C4B]" title={scope.depts.join("\n") || "ไม่มีแผนกในขอบเขต"}>
+                🔒 เห็นเฉพาะแผนก{scope.hr ? ` ${scope.hr.name}` : "ของตนเอง"}
+                {scope.depts.length > 1 ? ` (${scope.depts.length} สาขา)` : ""} และเรื่องที่คุณเปิดเอง
+              </p>
+            )}
           </div>
         </div>
         <button onClick={openAdd} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] transition-colors">
@@ -326,7 +346,7 @@ export function OrderTrackingPage() {
             value={fDept}
             onChange={(e) => { setFDept(e.target.value); setFDeptOpen(true) }}
             onFocus={() => setFDeptOpen(true)}
-            placeholder="🏢 ทุกแผนก — พิมพ์เพื่อค้นหา"
+            placeholder={scope.all ? "🏢 ทุกแผนก — พิมพ์เพื่อค้นหา" : "🏢 แผนกของคุณ — พิมพ์เพื่อค้นหา"}
             className={inputCls + (fDept ? " border-[#1B8C4B]" : "")}
           />
           {fDept && (
@@ -458,8 +478,9 @@ export function OrderTrackingPage() {
                       <div className="truncate font-medium" title={r.acceptedBy}>👤 {r.acceptedBy}</div>
                       {r.estimatedDone && <div className="mt-0.5 text-[10.5px] text-[#9AA8A0]">🎯 คาดเสร็จ {fmtDateShort(r.estimatedDone)}</div>}
                     </>
-                  ) : r.status !== OT_DONE_STATUS ? (
+                  ) : r.status !== OT_DONE_STATUS && scope.all ? (
                     // กดรับเรื่องได้จากตารางเลยทุกสถานะที่ยังไม่ปิด — ระบบจดชื่อผู้กดจาก session
+                    // เฉพาะจัดซื้อ/ผู้บริหาร/admin เท่านั้น (แผนกอื่นเห็นเป็นข้อความ)
                     <button
                       onClick={() => accept(r)}
                       className="inline-flex items-center gap-1 rounded-lg bg-[#eab308] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#ca9a04]"
@@ -594,10 +615,12 @@ export function OrderTrackingPage() {
               <div className="mt-2 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
                 {r.acceptedBy ? (
                   <span className="min-w-0 truncate text-[11px] text-[#5B7568] dark:text-gray-400">🛒 {r.acceptedBy}{r.estimatedDone ? ` · 🎯 ${fmtDateShort(r.estimatedDone)}` : ""}</span>
-                ) : r.status !== OT_DONE_STATUS ? (
+                ) : r.status !== OT_DONE_STATUS && scope.all ? (
                   <button onClick={() => accept(r)} className="inline-flex items-center gap-1 rounded-lg bg-[#eab308] px-3 py-2 text-[12px] font-semibold text-white">
                     <UserCheck size={13} /> รับเรื่อง
                   </button>
+                ) : r.status !== OT_DONE_STATUS ? (
+                  <span className="min-w-0 truncate text-[11px] text-[#9AA8A0]">ยังไม่มีผู้รับเรื่อง</span>
                 ) : <span />}
                 <button onClick={() => openEdit(r)} className="shrink-0 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-3 py-2 text-[12px] font-medium text-[#1B8C4B]">ดู / แก้ไข</button>
               </div>
@@ -856,8 +879,9 @@ export function OrderTrackingPage() {
                 <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">
                   {isClosed ? "ปิดหน้าต่าง" : "ยกเลิก"}
                 </button>
-                {/* ยังไม่มีผู้รับ → ปุ่มหลักคือรับเรื่อง · มีผู้รับแล้ว → ปุ่มหลักคือบันทึก */}
-                {current && !current.acceptedBy && !isClosed ? (
+                {/* ยังไม่มีผู้รับ → ปุ่มหลักคือรับเรื่อง · มีผู้รับแล้ว → ปุ่มหลักคือบันทึก
+                    ปุ่ม "รับเรื่อง" เป็นงานของจัดซื้อ — เห็นเฉพาะผู้ที่เข้าถึงได้ทุกแผนก (จัดซื้อ/ผู้บริหาร/admin) */}
+                {current && !current.acceptedBy && !isClosed && scope.all ? (
                   <>
                     <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border border-[#1B8C4B]/40 px-4 py-2 text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/5 disabled:opacity-60">
                       <Check size={15} /> {saving ? "กำลังบันทึก..." : "บันทึก"}

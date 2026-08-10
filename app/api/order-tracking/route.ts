@@ -5,6 +5,7 @@ import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
 import { normalizeImages } from "@/lib/media"
 import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus } from "@/lib/order-tracking"
+import { deptScope, canUseDept } from "@/lib/dept-access"
 
 export const dynamic = "force-dynamic"
 
@@ -66,20 +67,37 @@ export async function GET(req: NextRequest) {
   // ── list ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const and: Record<string, any>[] = []   // เงื่อนไขที่ต้องรวมกันแบบ AND (กัน $or ทับกัน)
+
   if (status)               filter.status = status
   else if (scope === "done")   filter.status = OT_DONE_STATUS
   else if (scope === "active") filter.status = { $ne: OT_DONE_STATUS }
-  if (dept) filter.dept = dept
+
+  // ── ขอบเขตแผนก: เห็นเฉพาะแผนกตัวเอง (ยกเว้น admin / ผู้บริหาร / จัดซื้อ) ──
+  // เรื่องที่ตัวเองเปิดเห็นได้เสมอ แม้แผนกจะอยู่นอกขอบเขต
+  const session = await getServerSession(authOptions)
+  const myScope = deptScope(session?.user?.employee, session?.user?.role)
+  const myEmail = session?.user?.email ?? ""
+  if (!myScope.all) {
+    and.push({ $or: [{ dept: { $in: myScope.depts } }, { requesterEmail: myEmail }] })
+  }
+
+  // filter แผนกที่ผู้ใช้เลือกเอง — ต้องอยู่ในขอบเขตของตัวเองเท่านั้น
+  if (dept && (myScope.all || canUseDept(myScope, dept))) filter.dept = dept
+
   if (q) {
-    filter.$or = [
+    and.push({ $or: [
       { title:     { $regex: q, $options: "i" } },
       { detail:    { $regex: q, $options: "i" } },
       { note:      { $regex: q, $options: "i" } },
       { prCode:    { $regex: q, $options: "i" } },
       { requester: { $regex: q, $options: "i" } },
       { acceptedBy:{ $regex: q, $options: "i" } },
-    ]
+    ]})
   }
+  if (and.length) filter.$and = and
+
   const items = await col.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit).toArray()
   return NextResponse.json(items)
 }
@@ -94,6 +112,14 @@ export async function POST(req: NextRequest) {
 
   const session = await getServerSession(authOptions)
   const by      = session?.user?.name || session?.user?.email || ""
+
+  // เปิดเรื่องแทนแผนกอื่นไม่ได้ (ยกเว้น admin / ผู้บริหาร / จัดซื้อ) — ไม่งั้นเรื่องจะหายจากสายตาผู้เปิดเอง
+  const dept = s(body.dept)
+  const myScope = deptScope(session?.user?.employee, session?.user?.role)
+  if (dept && !canUseDept(myScope, dept)) {
+    return NextResponse.json({ error: `เลือกแผนกได้เฉพาะแผนกของตนเอง (${dept} อยู่นอกสิทธิ์)` }, { status: 403 })
+  }
+
   const client  = await clientPromise
   const col     = client.db(DB).collection(COLL)
 
@@ -118,7 +144,7 @@ export async function POST(req: NextRequest) {
     title,
     detail: s(body.detail),
     note:   s(body.note),
-    dept:   s(body.dept),
+    dept,
     // ผู้เปิดเรื่อง — อิงจากผู้ใช้ที่ล็อกอินเสมอ (ชื่อ + อีเมลจาก session, แก้ไม่ได้)
     requester: by,
     requesterEmail: byEmail,
