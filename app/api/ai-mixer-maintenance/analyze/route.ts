@@ -45,7 +45,13 @@ export async function POST(req: NextRequest) {
   let kbError: string | null = null
 
   // engine=kb → ใช้ฐานความรู้อย่างเดียว ไม่เรียก LLM (ฟรี ไม่ต้องมี ANTHROPIC_API_KEY)
-  const engine = body?.engine === "kb" ? "kb" : "claude"
+  let engine = body?.engine === "kb" ? "kb" : "claude"
+  // เลือก Claude แต่ server ไม่มี key และมี KB → สลับเป็นโหมด KB อัตโนมัติแทนการ error
+  let fallbackToKb = false
+  if (engine === "claude" && !process.env.ANTHROPIC_API_KEY && kb) {
+    engine = "kb"
+    fallbackToKb = true
+  }
   if (engine === "kb") {
     if (!kb) return NextResponse.json({ error: "โหมด KB อย่างเดียวต้องตั้งค่า KB API URL + Key ก่อน" }, { status: 400 })
     try {
@@ -70,7 +76,7 @@ export async function POST(req: NextRequest) {
           output: result, kbUsed: true,
         })
       } catch (e) { console.error("[ai-mixer] log failed", e) }
-      return NextResponse.json({ step, result, engine, kbUsed: true })
+      return NextResponse.json({ step, result, engine, kbUsed: true, fallbackToKb })
     } catch (e) {
       console.error("[ai-mixer] kb-only failed", e)
       return NextResponse.json({ error: `ดึงข้อมูลจาก KB ไม่สำเร็จ (${e instanceof Error ? e.message : "error"}) — ตรวจสอบว่า ngrok/KB API ยังรันอยู่` }, { status: 502 })

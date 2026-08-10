@@ -72,7 +72,8 @@ export function AiMixerMaintenancePage() {
   const [kbStatus, setKbStatus] = useState<"" | "testing" | "ok" | "fail">("")
   const [kbUsed, setKbUsed] = useState(false)
   // engine: "claude" = Claude AI (+KB ประกอบ) · "kb" = ฐานความรู้อย่างเดียว ไม่ใช้ LLM (ฟรี)
-  const [engine, setEngine] = useState<"claude" | "kb">("claude")
+  // default = kb เพราะใช้ได้ทันทีโดยไม่ต้องมี ANTHROPIC_API_KEY
+  const [engine, setEngine] = useState<"claude" | "kb">("kb")
 
   useEffect(() => {
     try {
@@ -153,6 +154,7 @@ export function AiMixerMaintenancePage() {
       if (!res.ok) throw new Error(data.error || "วิเคราะห์ไม่สำเร็จ")
       setKbUsed(Boolean(data.kbUsed))
       if (data.kbError) swalToast("warning", `KB API ใช้ไม่ได้ (${data.kbError}) — วิเคราะห์โดยไม่มีข้อมูลอ้างอิง`)
+      if (data.fallbackToKb) swalToast("info", "เซิร์ฟเวอร์ยังไม่มี Claude API key — ใช้โหมดฐานความรู้ให้อัตโนมัติ")
       return data.result
     } catch (e) {
       swalError(e instanceof Error ? e.message : "วิเคราะห์ไม่สำเร็จ")
