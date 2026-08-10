@@ -179,7 +179,7 @@ const inputCls =
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
 
 // สถานะรายวันล่าสุดของรถ (A/B/BA/...) จาก mena-intelligence performance_vehicle_daily
-type DailyStatus = { status: string; label: string; group: string; date: string; streak_days?: number; streak_capped?: boolean; last_bba_date?: string | null }
+type DailyStatus = { status: string; label: string; group: string; date: string; streak_days?: number; streak_capped?: boolean; last_bba_date?: string | null; back_to_work_date?: string | null }
 // ผลวิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง
 type JobAlert = { kind: "update_needed" | "waiting_real"; text: string; title: string }
 const DAILY_GROUP_CLS: Record<string, string> = {
@@ -636,8 +636,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (ds.group === "working" && everBbaSinceJob)
         return {
           kind: "update_needed",
-          text: "เคยเข้าอู่แล้วกลับมาวิ่งงาน — อัพเดทสถานะงาน?",
-          title: `รถเป็น B/BA ล่าสุด ${ds.last_bba_date} (หลังรับแจ้ง) แล้วกลับมาสถานะ ${ds.status} — งานอาจซ่อมเสร็จแล้ว กรุณาตรวจสอบ/ปิดงาน`,
+          text: `เคยเข้าอู่แล้ว ออกอู่กลับมาวิ่งตั้งแต่ ${ds.back_to_work_date ?? ds.date} — อัพเดทสถานะงาน?`,
+          title: `รถอยู่อู่ (B/BA) ถึง ${ds.last_bba_date} แล้วกลับมาวิ่งตั้งแต่ ${ds.back_to_work_date ?? "-"} — งานอาจซ่อมเสร็จแล้ว กรุณาตรวจสอบ/ปิดงาน`,
         }
       if ((ds.streak_days ?? 0) > 0)
         return {
@@ -658,13 +658,20 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (everBbaSinceJob)
         return {
           kind: "update_needed",
-          text: `ซ่อมเสร็จแล้ว? รถกลับมาวิ่งงาน (B/BA ล่าสุด ${ds.last_bba_date})`,
-          title: `รถเปลี่ยนจาก B/BA เป็น ${ds.status} ${ds.label} แล้ว แต่งานยังสถานะ "${r.status}" — ถ้าซ่อมเสร็จแล้วกรุณาปิดงาน/อัพเดทสถานะ`,
+          text: `ซ่อมเสร็จแล้ว? ออกอู่กลับมาวิ่งตั้งแต่ ${ds.back_to_work_date ?? ds.date}`,
+          title: `รถอยู่อู่ (B/BA) ถึง ${ds.last_bba_date} แล้วกลับมาวิ่งงานตั้งแต่ ${ds.back_to_work_date ?? "-"} — ถ้าซ่อมเสร็จแล้วกรุณาปิดงาน/อัพเดทสถานะ (แนะนำใส่วันเสร็จ = ${ds.back_to_work_date ?? ds.last_bba_date})`,
+        }
+      // เคย B/BA แต่ "ก่อน" วันรับแจ้ง = รอบซ่อมก่อนหน้า จบไปแล้ว — งานนี้อาจเปิดซ้ำ/เปิดช้า หรือซ่อมเสร็จไปแล้ว
+      if (ds.last_bba_date)
+        return {
+          kind: "update_needed",
+          text: `รถออกอู่ตั้งแต่ ${ds.back_to_work_date ?? ds.last_bba_date} (ก่อนวันรับแจ้ง) — งานนี้ซ่อมเสร็จแล้ว?`,
+          title: `รถอยู่อู่ (B/BA) ล่าสุดถึง ${ds.last_bba_date} และกลับมาวิ่งตั้งแต่ ${ds.back_to_work_date ?? "-"} ซึ่งก่อนวันรับแจ้ง ${r.receivedDate || "-"} — งานนี้อาจซ่อมเสร็จไปแล้วหรือเปิดงานซ้ำ กรุณาตรวจสอบ/ปิดงาน`,
         }
       return {
         kind: "update_needed",
-        text: "รถวิ่งงานตลอด ไม่เคยเข้าอู่ — ตรวจสอบสถานะงาน",
-        title: `งานสถานะ "${r.status}" (รถควรอยู่อู่) แต่รถไม่เคยเป็น B/BA ตั้งแต่รับแจ้ง — สถานะงานหรือสถานะรายวันอาจลงผิด`,
+        text: "รถวิ่งงานตลอด ไม่เคยเข้าอู่ (90 วัน) — ตรวจสอบสถานะงาน",
+        title: `งานสถานะ "${r.status}" (รถควรอยู่อู่) แต่รถไม่เคยเป็น B/BA เลยในรอบ 90 วัน — สถานะงานหรือสถานะรายวันอาจลงผิด`,
       }
     }
     return null
