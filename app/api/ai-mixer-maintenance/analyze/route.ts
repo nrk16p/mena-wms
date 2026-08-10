@@ -10,6 +10,7 @@ import {
   step1Prompt, STEP1_SCHEMA,
   step2Prompt, STEP2_SCHEMA,
   step3Prompt, STEP3_SCHEMA,
+  resolveKbConfig, kbDiagnoseMany,
   type VehicleInfo,
 } from "@/lib/ai-mixer"
 
@@ -36,13 +37,23 @@ export async function POST(req: NextRequest) {
 
   const vehicle: VehicleInfo = body?.vehicle ?? { plate: "" }
 
+  // ฐานความรู้ประวัติซ่อมจริง (Mixer Repair KB API) — config จากหน้าเว็บมาก่อน, fallback env
+  // ล่ม/ไม่ตั้งค่า = วิเคราะห์ต่อได้ตามปกติ (fail-soft)
+  const kb = resolveKbConfig(body?.kb)
+  let kbJson: string | null = null
+  let kbError: string | null = null
+
   let userPrompt = ""
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let schema: any
   if (step === 1) {
     const notifyText = String(body?.notifyText ?? "").trim()
     if (!notifyText) return NextResponse.json({ error: "กรุณาระบุข้อความแจ้งซ่อม" }, { status: 400 })
-    userPrompt = step1Prompt(notifyText, vehicle)
+    if (kb) {
+      try { kbJson = await kbDiagnoseMany(kb, [notifyText], vehicle.plate) }
+      catch (e) { kbError = e instanceof Error ? e.message : "KB API error" }
+    }
+    userPrompt = step1Prompt(notifyText, vehicle, kbJson ?? undefined)
     schema = STEP1_SCHEMA
   } else if (step === 2) {
     if (!body?.confirmedTicket) return NextResponse.json({ error: "ไม่มีข้อมูลใบแจ้งซ่อมที่ยืนยันแล้ว" }, { status: 400 })
@@ -50,7 +61,17 @@ export async function POST(req: NextRequest) {
     schema = STEP2_SCHEMA
   } else {
     if (!body?.qcResult) return NextResponse.json({ error: "ไม่มีผลตรวจ QC" }, { status: 400 })
-    userPrompt = step3Prompt(JSON.stringify({ vehicle, ...body.qcResult }, null, 2), vehicle)
+    if (kb) {
+      // ยิง /diagnose ต่ออาการที่ QC ยืนยันว่าพบจริง เพื่อ ground สาเหตุ/อะไหล่/เวลาซ่อมกับประวัติจริง
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const confirmed: any[] = Array.isArray(body.qcResult?.confirmed_symptoms) ? body.qcResult.confirmed_symptoms : []
+      const queries = confirmed
+        .filter((s) => s?.qc_confirmed !== "ไม่พบ")
+        .map((s) => String(s?.symptom ?? ""))
+      try { kbJson = await kbDiagnoseMany(kb, queries, vehicle.plate) }
+      catch (e) { kbError = e instanceof Error ? e.message : "KB API error" }
+    }
+    userPrompt = step3Prompt(JSON.stringify({ vehicle, ...body.qcResult }, null, 2), vehicle, kbJson ?? undefined)
     schema = STEP3_SCHEMA
   }
 
@@ -94,12 +115,14 @@ export async function POST(req: NextRequest) {
         input: step === 1 ? body.notifyText : step === 2 ? body.confirmedTicket : body.qcResult,
         output: result,
         usage: response.usage,
+        kbUsed: Boolean(kbJson),
+        kbError,
       })
     } catch (e) {
       console.error("[ai-mixer] log failed", e)
     }
 
-    return NextResponse.json({ step, result, usage: response.usage })
+    return NextResponse.json({ step, result, usage: response.usage, kbUsed: Boolean(kbJson), kbError })
   } catch (e) {
     console.error("[ai-mixer] analyze failed", e)
     const msg = e instanceof Anthropic.APIError ? `Claude API error (${e.status})` : "วิเคราะห์ไม่สำเร็จ"

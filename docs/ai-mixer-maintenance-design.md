@@ -38,6 +38,15 @@ AI ไม่ใช่ผู้ตัดสินใจสุดท้าย — 
 - **Structured outputs** (`output_config.format = json_schema`) ทุกขั้น → ได้ JSON ตรง schema มา render หน้า confirm ได้ทันที ไม่ต้อง parse เอง
 - Schema เต็มอยู่ใน `lib/ai-mixer.ts` (STEP1_SCHEMA / STEP2_SCHEMA / STEP3_SCHEMA)
 
+## ฐานความรู้ประวัติซ่อมจริง (Mixer Repair KB API)
+
+- API ภายนอก (FastAPI, เปิดผ่าน ngrok) auth ด้วย header `X-API-Key` — endpoint หลัก `GET /diagnose?q=อาการ&plate=`
+  คืน: อาการที่ match + severity + สาเหตุ + อะไหล่พร้อม % จากเคสจริง + downtime median + จำนวนเคสในประวัติ
+- ตั้งค่า **URL + API Key จากหน้าเว็บ** (การ์ด "ตั้งค่าฐานความรู้" เก็บใน localStorage — รองรับ ngrok URL ที่เปลี่ยนบ่อย) + ปุ่มทดสอบการเชื่อมต่อ (`/api/ai-mixer-maintenance/kb-test` เรียกผ่าน server เลี่ยง CORS)
+- fallback จาก env: `MIXER_KB_API_URL` / `MIXER_KB_API_KEY`
+- ขั้น 1: `/diagnose` ด้วยข้อความแจ้งซ่อม · ขั้น 3: `/diagnose` ต่ออาการที่ QC ยืนยันพบจริง (สูงสุด 5) → แนบใน prompt เป็นข้อมูลอ้างอิง (AI ถูกสั่งให้เชื่อผลตรวจจริงถ้าขัดแย้ง)
+- fail-soft: KB ล่ม/ไม่ตั้งค่า → วิเคราะห์ต่อได้ปกติ และ FE แสดง badge "อ้างอิงประวัติซ่อมจริง" เมื่อใช้ KB สำเร็จ
+
 ## ตัวอย่างข้อมูลทดสอบ
 
 - แจ้งซ่อม: "ลูกปืนล้อหน้าข้างซ้ายแตกและฝาครอบหลุดหาย"

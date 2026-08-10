@@ -1,9 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Bot, Truck, Search, Sparkles, ClipboardCheck, Wrench, Check, ChevronRight,
-  AlertTriangle, Loader2, RotateCcw, ShieldAlert, PackageSearch,
+  AlertTriangle, Loader2, RotateCcw, ShieldAlert, PackageSearch, Settings2, Database, ChevronDown,
 } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 
@@ -65,6 +65,41 @@ export function AiMixerMaintenancePage() {
   const [step3, setStep3] = useState<Step3Result | null>(null)
   const [savedId, setSavedId] = useState<string | null>(null)
 
+  // ตั้งค่า Mixer Repair KB API (ฐานความรู้ประวัติซ่อมจริง) — เก็บใน localStorage เพราะ URL ngrok เปลี่ยนบ่อย
+  const [kbOpen, setKbOpen] = useState(false)
+  const [kbUrl, setKbUrl] = useState("")
+  const [kbKey, setKbKey] = useState("")
+  const [kbStatus, setKbStatus] = useState<"" | "testing" | "ok" | "fail">("")
+  const [kbUsed, setKbUsed] = useState(false)
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("aiMixerKb") ?? "{}")
+      if (saved.url) setKbUrl(saved.url)
+      if (saved.key) setKbKey(saved.key)
+    } catch { /* ignore */ }
+  }, [])
+  function saveKb(url: string, key: string) {
+    setKbUrl(url); setKbKey(key); setKbStatus("")
+    try { localStorage.setItem("aiMixerKb", JSON.stringify({ url, key })) } catch { /* ignore */ }
+  }
+  async function testKb() {
+    setKbStatus("testing")
+    try {
+      const res = await fetch("/api/ai-mixer-maintenance/kb-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kb: { url: kbUrl, key: kbKey } }),
+      })
+      const data = await res.json()
+      setKbStatus(data.ok ? "ok" : "fail")
+      if (!data.ok) swalError(data.error || "เชื่อมต่อ KB ไม่สำเร็จ")
+    } catch {
+      setKbStatus("fail")
+      swalError("เชื่อมต่อ KB ไม่สำเร็จ")
+    }
+  }
+
   const setV = (k: keyof Vehicle, v: string) => setVehicle((p) => ({ ...p, [k]: v }))
 
   async function lookupVehicle() {
@@ -105,10 +140,12 @@ export function AiMixerMaintenancePage() {
       const res = await fetch("/api/ai-mixer-maintenance/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, vehicle }),
+        body: JSON.stringify({ ...payload, vehicle, kb: kbUrl.trim() ? { url: kbUrl.trim(), key: kbKey.trim() } : undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "วิเคราะห์ไม่สำเร็จ")
+      setKbUsed(Boolean(data.kbUsed))
+      if (data.kbError) swalToast("warning", `KB API ใช้ไม่ได้ (${data.kbError}) — วิเคราะห์โดยไม่มีข้อมูลอ้างอิง`)
       return data.result
     } catch (e) {
       swalError(e instanceof Error ? e.message : "วิเคราะห์ไม่สำเร็จ")
@@ -205,6 +242,56 @@ export function AiMixerMaintenancePage() {
         </div>
       </div>
 
+      {/* ตั้งค่า KB API */}
+      <div className="mb-4 rounded-[14px] border border-[#EEF2F0] dark:border-white/[0.07] bg-white dark:bg-[#151a17]">
+        <button onClick={() => setKbOpen((v) => !v)} className="flex w-full items-center gap-2 px-4 py-3">
+          <Settings2 size={14} className="text-[#1B8C4B]" />
+          <span className="flex-1 text-left text-[12.5px] font-bold text-[#14271C] dark:text-white">
+            ตั้งค่าฐานความรู้ (Mixer Repair KB API)
+          </span>
+          {kbUrl ? (
+            <span className={[
+              "flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold",
+              kbStatus === "ok" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                : kbStatus === "fail" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                : "bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400",
+            ].join(" ")}>
+              <Database size={10} />
+              {kbStatus === "ok" ? "เชื่อมต่อได้" : kbStatus === "fail" ? "เชื่อมต่อไม่ได้" : "ตั้งค่าแล้ว"}
+            </span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-400 dark:bg-white/10">ยังไม่ได้ตั้งค่า</span>
+          )}
+          <ChevronDown size={14} className={`text-[#9AA8A0] transition-transform ${kbOpen ? "rotate-180" : ""}`} />
+        </button>
+        {kbOpen && (
+          <div className="border-t border-[#EEF2F0] px-4 py-3 dark:border-white/[0.07]">
+            <p className="mb-2 text-[11.5px] text-[#9AA8A0]">
+              เมื่อตั้งค่าแล้ว AI จะดึงข้อมูลจากประวัติซ่อมจริง (/diagnose) มาประกอบการวิเคราะห์ขั้น 1 และ 3 · ค่าเก็บในเครื่องนี้เท่านั้น (localStorage) — URL ngrok เปลี่ยนเมื่อไหร่มาแก้ตรงนี้ได้เลย
+            </p>
+            <div className="grid gap-2 lg:grid-cols-[1fr_1fr_auto]">
+              <div>
+                <label className={labelCls}>KB API URL</label>
+                <input className={inputCls} placeholder="https://xxxx.ngrok-free.app" value={kbUrl}
+                  onChange={(e) => saveKb(e.target.value, kbKey)} />
+              </div>
+              <div>
+                <label className={labelCls}>API Key (X-API-Key)</label>
+                <input className={inputCls} type="password" placeholder="mxk_..." value={kbKey}
+                  onChange={(e) => saveKb(kbUrl, e.target.value)} />
+              </div>
+              <div className="flex items-end">
+                <button onClick={testKb} disabled={kbStatus === "testing" || !kbUrl.trim() || !kbKey.trim()}
+                  className="flex h-[42px] items-center gap-1.5 rounded-[11px] border border-[#1B8C4B] px-3.5 text-[12.5px] font-bold text-[#1B8C4B] hover:bg-[#F0FDF4] disabled:opacity-50 dark:hover:bg-[#1B8C4B]/10">
+                  {kbStatus === "testing" ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}
+                  ทดสอบการเชื่อมต่อ
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* stepper */}
       <div className="mb-5 flex items-center gap-2 overflow-x-auto">
         {STEPS.map((s, i) => {
@@ -276,7 +363,14 @@ export function AiMixerMaintenancePage() {
                 <h2 className="flex items-center gap-2 text-[14px] font-bold text-[#14271C] dark:text-white">
                   <Sparkles size={15} className="text-[#1B8C4B]" /> ผลวิเคราะห์ — ตรวจสอบและยืนยัน
                 </h2>
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${severityCls(step1.overall_urgency)}`}>{step1.overall_urgency}</span>
+                <div className="flex items-center gap-1.5">
+                  {kbUsed && (
+                    <span className="flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-400">
+                      <Database size={10} /> อ้างอิงประวัติซ่อมจริง
+                    </span>
+                  )}
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${severityCls(step1.overall_urgency)}`}>{step1.overall_urgency}</span>
+                </div>
               </div>
               <p className="mb-3 rounded-[11px] bg-[#F6FAF7] p-3 text-[13px] text-[#4B5F54] dark:bg-white/5 dark:text-gray-300">{step1.summary_for_confirm}</p>
               <div className="space-y-2.5">
@@ -419,7 +513,14 @@ export function AiMixerMaintenancePage() {
               <h2 className="flex items-center gap-2 text-[14px] font-bold text-[#14271C] dark:text-white">
                 <Wrench size={15} className="text-[#1B8C4B]" /> ผลวิเคราะห์สำหรับ Supervisor — เรียงตามลำดับความสำคัญ
               </h2>
-              <span className="rounded-full bg-[#1B8C4B]/10 px-2.5 py-1 text-[11px] font-bold text-[#1B8C4B]">เวลาซ่อมรวมโดยประมาณ: {step3.total_est_downtime}</span>
+              <div className="flex items-center gap-1.5">
+                {kbUsed && (
+                  <span className="flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-400">
+                    <Database size={10} /> อ้างอิงประวัติซ่อมจริง
+                  </span>
+                )}
+                <span className="rounded-full bg-[#1B8C4B]/10 px-2.5 py-1 text-[11px] font-bold text-[#1B8C4B]">เวลาซ่อมรวมโดยประมาณ: {step3.total_est_downtime}</span>
+              </div>
             </div>
             <div className="space-y-3">
               {step3.analysis.map((a, i) => (

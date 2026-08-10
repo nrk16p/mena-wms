@@ -38,8 +38,78 @@ export function vehicleBlock(v: VehicleInfo): string {
   ].join("\n")
 }
 
+// ── Mixer Repair KB API (ฐานความรู้ประวัติซ่อมจริง เช่น เปิดผ่าน ngrok) ──
+export type KbConfig = { url: string; key: string }
+
+// config จาก FE มาก่อน, ไม่มีก็ fallback env (MIXER_KB_API_URL / MIXER_KB_API_KEY)
+export function resolveKbConfig(fromBody?: { url?: string; key?: string } | null): KbConfig | null {
+  const url = String(fromBody?.url ?? process.env.MIXER_KB_API_URL ?? "").trim().replace(/\/+$/, "")
+  const key = String(fromBody?.key ?? process.env.MIXER_KB_API_KEY ?? "").trim()
+  if (!url || !key) return null
+  return { url, key }
+}
+
+async function kbFetch(kb: KbConfig, path: string): Promise<unknown> {
+  const res = await fetch(`${kb.url}${path}`, {
+    headers: { "X-API-Key": kb.key, "ngrok-skip-browser-warning": "1" },
+    signal: AbortSignal.timeout(20000),
+  })
+  if (!res.ok) throw new Error(`KB API ${res.status}`)
+  return res.json()
+}
+
+export async function kbHealth(kb: KbConfig): Promise<unknown> {
+  return kbFetch(kb, "/health")
+}
+
+// ตัด response /diagnose ให้เหลือเฉพาะ field ที่มีประโยชน์กับ prompt (top 3 matches)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function trimDiagnose(d: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawMatches: any[] = Array.isArray(d?.matches) ? d.matches : []
+  return {
+    query: d?.query,
+    matches: rawMatches.slice(0, 3).map((m) => ({
+      symptom_code: m.symptom_code, name_th: m.name_th, similarity: m.similarity,
+      severity: m.severity, safety_critical: m.safety_critical, stop_vehicle: m.stop_vehicle,
+      typical_causes: m.typical_causes,
+      parts_likely: (Array.isArray(m.parts_likely) ? m.parts_likely : []).slice(0, 8),
+      downtime_median_h: m.downtime_median_h, cases_in_history: m.cases_in_history,
+      specs: (Array.isArray(m.specs) ? m.specs : []).slice(0, 5),
+    })),
+  }
+}
+
+// ยิง /diagnose หลายคำค้นพร้อมกัน (fail-soft ต่อคำ) แล้วรวมเป็น JSON string สำหรับแนบ prompt
+export async function kbDiagnoseMany(kb: KbConfig, queries: string[], plate?: string): Promise<string | null> {
+  const qs = [...new Set(queries.map((q) => q.trim()).filter(Boolean))].slice(0, 5)
+  if (!qs.length) return null
+  const results = await Promise.allSettled(
+    qs.map((q) => {
+      const p = new URLSearchParams({ q })
+      if (plate) p.set("plate", plate)
+      return kbFetch(kb, `/diagnose?${p.toString()}`)
+    }),
+  )
+  const ok = results.filter((r): r is PromiseFulfilledResult<unknown> => r.status === "fulfilled").map((r) => trimDiagnose(r.value))
+  if (!ok.length) return null
+  return JSON.stringify(ok, null, 1)
+}
+
+// block ข้อมูลอ้างอิงจาก Mixer Repair KB API (ประวัติซ่อมจริง) — แนบต่อท้าย prompt เมื่อมีข้อมูล
+export function kbBlock(kbJson: string): string {
+  return `
+
+<ข้อมูลอ้างอิงจากฐานความรู้ประวัติซ่อมจริง>
+ข้อมูลด้านล่างมาจากระบบฐานความรู้ที่สรุปจากประวัติการซ่อมรถโม่จริงของ Fleet นี้
+(similarity = ความใกล้เคียงกับอาการที่แจ้ง, parts_likely = อะไหล่ที่ใช้จริงพร้อม % ของเคส, downtime_median_h = เวลาซ่อมกลางจากเคสจริง)
+ให้ใช้เป็นข้อมูลประกอบหลักในการวิเคราะห์ ระบุอะไหล่ และประเมินเวลา — แต่ถ้าขัดแย้งกับอาการ/ผลตรวจจริง ให้เชื่อข้อมูลจริงและระบุเหตุผล
+${kbJson}
+</ข้อมูลอ้างอิงจากฐานความรู้ประวัติซ่อมจริง>`
+}
+
 // ── ขั้น 1: รับแจ้งซ่อม — แยกอาการ + จัดหมวด + ประเมินความเร่งด่วน ──
-export function step1Prompt(notifyText: string, vehicle: VehicleInfo): string {
+export function step1Prompt(notifyText: string, vehicle: VehicleInfo, kbJson?: string): string {
   return `วิเคราะห์การแจ้งซ่อมต่อไปนี้ แยกอาการเสียเป็นรายการ จัดหมวดระบบ และประเมินความเร่งด่วนเบื้องต้น
 
 <ข้อความแจ้งซ่อม>
@@ -48,7 +118,7 @@ ${notifyText}
 
 <ข้อมูลรถ>
 ${vehicleBlock(vehicle)}
-</ข้อมูลรถ>`
+</ข้อมูลรถ>${kbJson ? kbBlock(kbJson) : ""}`
 }
 
 export const STEP1_SCHEMA = {
@@ -126,7 +196,7 @@ export const STEP2_SCHEMA = {
 } as const
 
 // ── ขั้น 3: Supervisor — วิเคราะห์สาเหตุ + จัดลำดับ + Impact + อะไหล่/Spec ──
-export function step3Prompt(qcResultJson: string, vehicle: VehicleInfo): string {
+export function step3Prompt(qcResultJson: string, vehicle: VehicleInfo, kbJson?: string): string {
   return `จากผลตรวจ QC ด้านล่าง จงวิเคราะห์สำหรับ Mechanic Supervisor:
 1. วิเคราะห์สาเหตุของแต่ละอาการ (root cause ที่เป็นไปได้ เรียงตามความน่าจะเป็น)
 2. จัดลำดับความสำคัญของงานซ่อม
@@ -136,7 +206,7 @@ export function step3Prompt(qcResultJson: string, vehicle: VehicleInfo): string 
 
 <ผลตรวจ QC>
 ${qcResultJson}
-</ผลตรวจ QC>`
+</ผลตรวจ QC>${kbJson ? kbBlock(kbJson) : ""}`
 }
 
 export const STEP3_SCHEMA = {
