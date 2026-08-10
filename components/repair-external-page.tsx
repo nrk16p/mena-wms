@@ -215,6 +215,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // filters
   const [q, setQ]               = useState("")
+  // deep link: /repair-external?q=<ทะเบียน|เบอร์รถ|MR> — ใช้แชร์ลิงก์ให้ทีมเปิดมาเจอคันนั้นทันที
+  useEffect(() => {
+    try {
+      const uq = new URLSearchParams(window.location.search).get("q")
+      if (uq) setQ(uq)
+    } catch { /* ignore */ }
+  }, [])
   const [fType, setFType]       = useState("")   // "" = ทั้งหมด | อู่นอก | อะไหล่ลงคัน
   const [fStatus, setFStatus]   = useState("")
   const [fGarage, setFGarage]   = useState("")
