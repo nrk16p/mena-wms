@@ -52,6 +52,12 @@ export async function middleware(request: NextRequest) {
     if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), syncOrigin)
     return withCors(NextResponse.next(), syncOrigin)
   }
+  // Reference data งานซ่อมสำหรับ mena-intelligence (truck_utilize_analysis) — public อ่านอย่างเดียว
+  if (pathname === "/api/repair-external/utilize-ref" && (request.method === "GET" || request.method === "OPTIONS")) {
+    const refOrigin = request.headers.get("origin")
+    if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), refOrigin)
+    return withCors(NextResponse.next(), refOrigin)
+  }
 
   // Mobile app access via API key
   const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
