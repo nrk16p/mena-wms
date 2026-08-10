@@ -132,6 +132,41 @@ export function AiMixerMaintenancePage() {
     setNotifyText(lines.join("\n"))
     setShowSug(false)
   }
+
+  // autocomplete ทะเบียนรถ — ค้นจาก vehicle_master (/api/vehicles?q=)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [plateSug, setPlateSug] = useState<any[]>([])
+  const [showPlateSug, setShowPlateSug] = useState(false)
+  useEffect(() => {
+    const q = vehicle.plate.trim()
+    if (q.length < 2) { setPlateSug([]); return }
+    const t = setTimeout(() => {
+      fetch(`/api/vehicles?q=${encodeURIComponent(q)}&limit=8`)
+        .then((r) => r.json())
+        .then((d) => setPlateSug(Array.isArray(d) ? d.slice(0, 8) : []))
+        .catch(() => setPlateSug([]))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [vehicle.plate])
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function pickPlate(v: any) {
+    let age = ""
+    const y = Number(v.year)
+    if (y > 2400) age = `${new Date().getFullYear() + 543 - y} ปี`
+    else if (y > 1900) age = `${new Date().getFullYear() - y} ปี`
+    setVehicle((p) => ({
+      ...p,
+      plate:       v.plate ?? p.plate,
+      fleetNo:     v.fleetNo ?? p.fleetNo,
+      vehicleType: v.vehicleType ?? p.vehicleType,
+      plant:       v.plant ?? p.plant,
+      customer:    v.fleet ?? p.customer,
+      vehicleAge:  age || p.vehicleAge,
+    }))
+    setShowPlateSug(false)
+    setPlateSug([])
+  }
   function saveKb(url: string, key: string) {
     setKbUrl(url); setKbKey(key); setKbStatus("")
     try { localStorage.setItem("aiMixerKb", JSON.stringify({ url, key, engine })) } catch { /* ignore */ }
@@ -431,15 +466,32 @@ export function AiMixerMaintenancePage() {
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="col-span-2 lg:col-span-1">
+              <div className="relative col-span-2 lg:col-span-1">
                 <label className={labelCls}>ทะเบียนรถ *</label>
                 <div className="flex gap-1.5">
-                  <input className={inputCls} placeholder="สบ.71-1256" value={vehicle.plate} onChange={(e) => setV("plate", e.target.value)} />
+                  <input className={inputCls} placeholder="สบ.71-1256" value={vehicle.plate}
+                    onChange={(e) => { setV("plate", e.target.value); setShowPlateSug(true) }}
+                    onFocus={() => setShowPlateSug(true)}
+                    onBlur={() => setTimeout(() => setShowPlateSug(false), 150)} />
                   <button onClick={lookupVehicle} disabled={lookingUp} title="ดึงข้อมูลจาก Vehicle Master"
                     className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[11px] bg-[#1B8C4B] text-white hover:bg-[#0F6A3C] disabled:opacity-50">
                     {lookingUp ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />}
                   </button>
                 </div>
+                {showPlateSug && plateSug.length > 0 && (
+                  <div className="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-y-auto rounded-[11px] border border-[#E2E8E4] bg-white shadow-lg dark:border-white/10 dark:bg-[#0f1117]">
+                    {plateSug.map((v) => (
+                      <button key={v.plate} type="button"
+                        onMouseDown={(e) => { e.preventDefault(); pickPlate(v) }}
+                        className="flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left hover:bg-[#F0FDF4] dark:hover:bg-white/5">
+                        <span className="text-[13px] font-semibold text-[#14271C] dark:text-white">{v.plate}</span>
+                        <span className="truncate text-[10.5px] text-[#9AA8A0]">
+                          {[v.fleetNo, v.vehicleType, v.plant].filter(Boolean).join(" · ")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div><label className={labelCls}>เลขรถ</label><input className={inputCls} value={vehicle.fleetNo} onChange={(e) => setV("fleetNo", e.target.value)} /></div>
               <div><label className={labelCls}>ลูกค้า</label><input className={inputCls} placeholder="SCCO" value={vehicle.customer} onChange={(e) => setV("customer", e.target.value)} /></div>
