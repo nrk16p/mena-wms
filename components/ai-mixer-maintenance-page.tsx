@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react"
 import {
   Bot, Truck, Search, Sparkles, ClipboardCheck, Wrench, Check, ChevronRight,
-  AlertTriangle, Loader2, RotateCcw, ShieldAlert, PackageSearch, Settings2, Database, ChevronDown,
+  AlertTriangle, Loader2, RotateCcw, ShieldAlert, PackageSearch, Settings2, Database, ChevronDown, X,
 } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
+import { ImageUpload } from "./image-upload"
+import type { SkuImage } from "@/lib/media"
 
 // ── types (mirror JSON schema ฝั่ง lib/ai-mixer.ts) ──
 type Vehicle = {
@@ -14,8 +16,8 @@ type Vehicle = {
 }
 type Symptom = { symptom: string; system_group: string; severity: string; safety_risk: boolean; initial_note: string }
 type Step1Result = { symptoms: Symptom[]; overall_urgency: string; questions_to_reporter: string[]; summary_for_confirm: string }
-type ChecklistItem = { item: string; method: string; expected: string; related_symptom: string }
-type ExpectedPart = { part_name: string; qty: string; condition: string }
+type ChecklistItem = { item: string; method: string; expected: string; related_symptom: string; custom?: boolean; _key?: string }
+type ExpectedPart = { part_name: string; qty: string; condition: string; custom?: boolean }
 type Step2Result = { checklist: ChecklistItem[]; expected_parts: ExpectedPart[]; safety_precautions: string[] }
 type Part = { part_name: string; spec: string; qty: string }
 type AnalysisItem = {
@@ -23,7 +25,7 @@ type AnalysisItem = {
   reason: string; impact: string; est_repair_hours: string; parts: Part[]
 }
 type Step3Result = { analysis: AnalysisItem[]; total_est_downtime: string; supervisor_notes: string }
-type CheckResult = { result: "" | "ปกติ" | "พบปัญหา" | "ไม่ได้ตรวจ"; note: string }
+type CheckResult = { result: "" | "ปกติ" | "พบปัญหา" | "ไม่ได้ตรวจ"; note: string; images: SkuImage[] }
 type KbSymptom = {
   symptom_code: string; name_th: string; system_code: string
   severity_default: string; safety_critical: boolean; wo_case_count: number; downtime_median_h: number | null
@@ -258,20 +260,48 @@ export function AiMixerMaintenancePage() {
       engine === "kb" ? "กำลังดึง Checklist จากฐานความรู้..." : "AI กำลังสร้าง Checklist สำหรับ QC...",
     )
     if (!result) return
-    setStep2(result)
-    setCheckResults((result.checklist as ChecklistItem[]).map(() => ({ result: "", note: "" })))
+    // แปะ key คงที่ต่อข้อ — กัน state ของ uploader เพี้ยนตอนลบข้อกลางลิสต์
+    setStep2({ ...result, checklist: (result.checklist as ChecklistItem[]).map((c) => ({ ...c, _key: crypto.randomUUID() })) })
+    setCheckResults((result.checklist as ChecklistItem[]).map(() => ({ result: "", note: "", images: [] })))
     setSymptomFound(step1.symptoms.map(() => true))
     setStep(2)
   }
 
+  // ── เพิ่ม/ลบข้อตรวจและอะไหล่ (ขั้น 2) — checklist กับ checkResults เป็น array คู่กัน ต้องแก้พร้อมกันเสมอ ──
+  function addChecklistItem() {
+    setStep2((p) => p && ({ ...p, checklist: [...p.checklist, { item: "", method: "", expected: "", related_symptom: "เพิ่มโดย QC", custom: true, _key: crypto.randomUUID() }] }))
+    setCheckResults((p) => [...p, { result: "", note: "", images: [] }])
+  }
+  function removeChecklistItem(i: number) {
+    setStep2((p) => p && ({ ...p, checklist: p.checklist.filter((_, j) => j !== i) }))
+    setCheckResults((p) => p.filter((_, j) => j !== i))
+  }
+  function updateChecklistItem(i: number, patch: Partial<ChecklistItem>) {
+    setStep2((p) => p && ({ ...p, checklist: p.checklist.map((x, j) => j === i ? { ...x, ...patch } : x) }))
+  }
+  function addPart() {
+    setStep2((p) => p && ({ ...p, expected_parts: [...p.expected_parts, { part_name: "", qty: "", condition: "เพิ่มโดย QC", custom: true }] }))
+  }
+  function removePart(i: number) {
+    setStep2((p) => p && ({ ...p, expected_parts: p.expected_parts.filter((_, j) => j !== i) }))
+  }
+  function updatePart(i: number, patch: Partial<ExpectedPart>) {
+    setStep2((p) => p && ({ ...p, expected_parts: p.expected_parts.map((x, j) => j === i ? { ...x, ...patch } : x) }))
+  }
+
   async function confirmStep2() {
     if (!step1 || !step2) return
-    if (checkResults.some((c) => !c.result)) { swalError("กรุณาบันทึกผลตรวจให้ครบทุกข้อ"); return }
+    // ข้อที่ QC เพิ่มเองแต่ไม่ได้กรอกชื่อ = ตัดทิ้ง (พร้อมผลตรวจคู่กัน)
+    const entries = step2.checklist
+      .map((c, i) => ({ c, r: checkResults[i] }))
+      .filter(({ c }) => !(c.custom && !c.item.trim()))
+    if (entries.some(({ r }) => !r?.result)) { swalError("กรุณาบันทึกผลตรวจให้ครบทุกข้อ"); return }
     const qcResult = {
       confirmed_symptoms: step1.symptoms.map((s, i) => ({ ...s, qc_confirmed: symptomFound[i] ? "พบจริง" : "ไม่พบ" })),
-      checklist_results: step2.checklist.map((c, i) => ({ ...c, result: checkResults[i].result, note: checkResults[i].note })),
+      // ไม่ส่ง images เข้า analyze (URL ยาว เปลือง prompt) — รูปถูกเก็บตอนบันทึก session แทน
+      checklist_results: entries.map(({ c, r }) => ({ ...c, result: r.result, note: r.note })),
       extra_findings: extraFindings.trim() || "-",
-      expected_parts: step2.expected_parts,
+      expected_parts: step2.expected_parts.filter((p) => !(p.custom && !p.part_name.trim())),
     }
     const result = await analyze({ step: 3, qcResult }, engine === "kb" ? "กำลังสรุปแผนซ่อมจากสถิติประวัติจริง..." : "AI กำลังวิเคราะห์อาการ จัดลำดับงาน และสรุปอะไหล่...")
     if (!result) return
@@ -566,15 +596,36 @@ export function AiMixerMaintenancePage() {
           )}
 
           <div className={cardCls}>
-            <h2 className="mb-3 flex items-center gap-2 text-[14px] font-bold text-[#14271C] dark:text-white">
-              <ClipboardCheck size={15} className="text-[#1B8C4B]" /> Checklist ตรวจสภาพก่อนซ่อม — บันทึกผลทุกข้อ
-            </h2>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-[14px] font-bold text-[#14271C] dark:text-white">
+                <ClipboardCheck size={15} className="text-[#1B8C4B]" /> Checklist ตรวจสภาพก่อนซ่อม — บันทึกผลทุกข้อ
+              </h2>
+              <button onClick={addChecklistItem}
+                className="flex shrink-0 items-center gap-1 rounded-[9px] border border-[#1B8C4B] px-2.5 py-1.5 text-[11.5px] font-bold text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-[#1B8C4B]/10">
+                + เพิ่มข้อตรวจ
+              </button>
+            </div>
             <div className="space-y-2.5">
               {step2.checklist.map((c, i) => (
-                <div key={i} className="rounded-[11px] border border-[#EEF2F0] p-3 dark:border-white/10">
-                  <p className="text-[13px] font-bold text-[#14271C] dark:text-white">{i + 1}. {c.item}</p>
-                  <p className="mt-0.5 text-[12px] text-[#4B5F54] dark:text-gray-400">วิธีตรวจ: {c.method}</p>
-                  <p className="text-[12px] text-[#9AA8A0]">เกณฑ์ปกติ: {c.expected} · โยงอาการ: {c.related_symptom}</p>
+                <div key={c._key ?? i} className="relative rounded-[11px] border border-[#EEF2F0] p-3 dark:border-white/10">
+                  <button onClick={() => removeChecklistItem(i)} title="ลบข้อนี้"
+                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-lg text-[#9AA8A0] hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20">
+                    <X size={13} />
+                  </button>
+                  {c.custom ? (
+                    <div className="mr-7 space-y-1.5">
+                      <input className={inputCls} placeholder={`${i + 1}. สิ่งที่ต้องตรวจ (กรอกเอง)`} value={c.item}
+                        onChange={(e) => updateChecklistItem(i, { item: e.target.value })} />
+                      <input className={`${inputCls} !py-1.5 text-[12px]`} placeholder="วิธีตรวจ (ถ้ามี)" value={c.method}
+                        onChange={(e) => updateChecklistItem(i, { method: e.target.value })} />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="mr-7 text-[13px] font-bold text-[#14271C] dark:text-white">{i + 1}. {c.item}</p>
+                      <p className="mt-0.5 text-[12px] text-[#4B5F54] dark:text-gray-400">วิธีตรวจ: {c.method}</p>
+                      <p className="text-[12px] text-[#9AA8A0]">เกณฑ์ปกติ: {c.expected} · โยงอาการ: {c.related_symptom}</p>
+                    </>
+                  )}
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {(["ปกติ", "พบปัญหา", "ไม่ได้ตรวจ"] as const).map((opt) => (
                       <button key={opt}
@@ -592,30 +643,60 @@ export function AiMixerMaintenancePage() {
                       value={checkResults[i]?.note ?? ""}
                       onChange={(e) => setCheckResults((p) => p.map((x, j) => j === i ? { ...x, note: e.target.value } : x))} />
                   </div>
+                  {/* แนบรูปหลักฐานการตรวจต่อข้อ */}
+                  <div className="mt-2">
+                    <ImageUpload max={5}
+                      onChange={(imgs) => setCheckResults((p) => p.map((x, j) => j === i ? { ...x, images: imgs } : x))} />
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
           <div className={cardCls}>
-            <h2 className="mb-2 flex items-center gap-2 text-[14px] font-bold text-[#14271C] dark:text-white">
-              <PackageSearch size={15} className="text-[#1B8C4B]" /> อะไหล่ที่คาดว่าต้องใช้ (เช็คสต็อกล่วงหน้า)
-            </h2>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-[14px] font-bold text-[#14271C] dark:text-white">
+                <PackageSearch size={15} className="text-[#1B8C4B]" /> อะไหล่ที่คาดว่าต้องใช้ (เช็คสต็อกล่วงหน้า)
+              </h2>
+              <button onClick={addPart}
+                className="flex shrink-0 items-center gap-1 rounded-[9px] border border-[#1B8C4B] px-2.5 py-1.5 text-[11.5px] font-bold text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-[#1B8C4B]/10">
+                + เพิ่มอะไหล่
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-[12.5px]">
                 <thead><tr className="border-b border-[#EEF2F0] text-left text-[11px] text-[#9AA8A0] dark:border-white/10">
-                  <th className="py-1.5 pr-3">อะไหล่</th><th className="py-1.5 pr-3">จำนวน</th><th className="py-1.5">เงื่อนไข</th>
+                  <th className="py-1.5 pr-3">อะไหล่</th><th className="py-1.5 pr-3">จำนวน</th><th className="py-1.5">เงื่อนไข</th><th className="w-8 py-1.5"></th>
                 </tr></thead>
                 <tbody>
                   {step2.expected_parts.map((p, i) => (
                     <tr key={i} className="border-b border-[#F6FAF7] dark:border-white/5">
-                      <td className="py-2 pr-3 font-semibold text-[#14271C] dark:text-white">{p.part_name}</td>
-                      <td className="py-2 pr-3">{p.qty}</td>
-                      <td className="py-2 text-[#4B5F54] dark:text-gray-400">{p.condition}</td>
+                      {p.custom ? (
+                        <>
+                          <td className="py-1.5 pr-3"><input className={`${inputCls} !py-1.5 text-[12px]`} placeholder="ชื่ออะไหล่ (กรอกเอง)" value={p.part_name} onChange={(e) => updatePart(i, { part_name: e.target.value })} /></td>
+                          <td className="py-1.5 pr-3"><input className={`${inputCls} !w-20 !py-1.5 text-[12px]`} placeholder="จำนวน" value={p.qty} onChange={(e) => updatePart(i, { qty: e.target.value })} /></td>
+                          <td className="py-1.5 text-[#9AA8A0]">เพิ่มโดย QC</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="py-2 pr-3 font-semibold text-[#14271C] dark:text-white">{p.part_name}</td>
+                          <td className="py-2 pr-3">{p.qty}</td>
+                          <td className="py-2 text-[#4B5F54] dark:text-gray-400">{p.condition}</td>
+                        </>
+                      )}
+                      <td className="py-1.5 text-right">
+                        <button onClick={() => removePart(i)} title="ลบอะไหล่นี้"
+                          className="flex h-6 w-6 items-center justify-center rounded-lg text-[#9AA8A0] hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/20">
+                          <X size={13} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {step2.expected_parts.length === 0 && (
+                <p className="py-3 text-center text-[12px] text-[#9AA8A0]">ไม่มีรายการ — กด "+ เพิ่มอะไหล่" เพื่อเพิ่มเอง</p>
+              )}
             </div>
           </div>
 
