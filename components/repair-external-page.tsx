@@ -187,11 +187,17 @@ const DAILY_GROUP_CLS: Record<string, string> = {
   unknown: "bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400",
 }
 
+// สถานะงานอู่นอกที่ "รถควรอยู่อู่" — ถ้าสถานะรายวันของรถเป็นกลุ่มทำงาน (A/AX/...) = ข้อมูลขัดแย้ง
+// (ไม่รวม "รอรถเข้า" เพราะรถอาจยังวิ่งงานอยู่ก่อนเข้าอู่ · ไม่รวมงานอะไหล่ลงคันเพราะรถวิ่งได้ระหว่างรอของ)
+const IN_GARAGE_STATUSES = new Set(["รถเข้าอู่ซ่อม", "รอใบเสนอราคา", "รอ PR", "ซ่อมไม่มีกำหนด", "ซ่อมมีกำหนดเสร็จ"])
+
 export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const isDone = mode === "done"
   const [rows, setRows]       = useState<RepairExternal[]>([])
   // สถานะรายวันต่อทะเบียน — โหลด batch หลังได้รายการงาน
   const [dailyStatus, setDailyStatus] = useState<Record<string, DailyStatus>>({})
+  // กรองเฉพาะรายการสถานะขัดแย้ง (งานซ่อมไม่ปิดแต่รถวิ่งงาน)
+  const [conflictOnly, setConflictOnly] = useState(false)
   const [garages, setGarages] = useState<Garage[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -607,15 +613,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || dateFrom || dateTo
+  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || conflictOnly || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setDateFrom(""); setDateTo("")
+    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setDateFrom(""); setDateTo("")
   }
+
+  // ขัดแย้ง: งานอู่นอกบอกว่ารถอยู่อู่ แต่สถานะรายวันล่าสุดเป็นกลุ่ม "ทำงาน" (A/AX/...)
+  // = งานซ่อมอาจไม่ถูกปิด หรือฝ่ายจัดรถลงสถานะรายวันผิด
+  const isConflict = (r: RepairExternal) =>
+    jobTypeOf(r) !== JOB_TYPE_PARTS &&
+    IN_GARAGE_STATUSES.has(r.status) &&
+    dailyStatus[r.plate]?.group === "working"
+  const conflictRows = rows.filter(isConflict)
 
   // กรองฝั่ง client — ค้างเกิน SLA และ/หรือ รอใบเสนอราคาที่ไม่มี PR
   let displayRows = rows
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
+  if (conflictOnly) displayRows = displayRows.filter(isConflict)
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
   const { isDup, dupList } = (() => {
@@ -938,6 +953,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       )}
 
+      {/* สถานะขัดแย้ง — งานอู่นอกยังไม่ปิด (รถควรอยู่อู่) แต่สถานะรายวัน = ทำงาน (A/AX/...) */}
+      {!isDone && conflictRows.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[12px] border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-300">
+          <span className="shrink-0">⚠</span>
+          <span className="flex-1">
+            <b>พบ {conflictRows.length} คัน สถานะขัดแย้ง</b> — งานซ่อมระบุว่ารถอยู่อู่ แต่สถานะรายวันเป็น &quot;ทำงาน&quot;
+            → งานอาจยังไม่ถูกปิด หรือลงสถานะรายวันผิด
+            <span className="ml-1 opacity-80">({[...new Set(conflictRows.map((r) => r.plate))].join(", ")})</span>
+          </span>
+          <button
+            onClick={() => setConflictOnly((v) => !v)}
+            className={`shrink-0 rounded-lg border px-3 py-1.5 text-[12px] font-bold transition ${conflictOnly ? "border-amber-500 bg-amber-500 text-white" : "border-amber-400 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"}`}
+          >
+            {conflictOnly ? "แสดงทั้งหมด" : "ดูเฉพาะรายการขัดแย้ง"}
+          </button>
+        </div>
+      )}
+
       {/* Roomy table (1a) */}
       {(view === "table" || isDone) && (
         <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]">
@@ -1006,6 +1039,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         📊 {dailyStatus[r.plate].status}
                         {dailyStatus[r.plate].label && <span className="font-medium">{dailyStatus[r.plate].label}</span>}
                         <span className="font-normal opacity-70">· {dailyStatus[r.plate].date.slice(5)}</span>
+                      </div>
+                    )}
+                    {isConflict(r) && (
+                      <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800 ring-1 ring-amber-400 dark:bg-amber-900/30 dark:text-amber-300"
+                        title={`งานสถานะ "${r.status}" รถควรอยู่อู่ แต่สถานะรายวัน (${dailyStatus[r.plate]?.date}) = ${dailyStatus[r.plate]?.status} ${dailyStatus[r.plate]?.label} — ตรวจสอบว่างานควรปิดหรือสถานะรายวันผิด`}>
+                        ⚠ ขัดแย้ง — รถวิ่งงานทั้งที่งานซ่อมไม่ปิด
                       </div>
                     )}
     {/* ป้ายประเภทงาน — ระบุชัดทั้งสองแบบ */}
