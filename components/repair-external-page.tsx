@@ -1722,6 +1722,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     🚚 {form.plate}{form.fleetNo ? ` · ${form.fleetNo}` : ""}
                   </span>
                 )}
+                {/* สถานะปัจจุบัน — อัพเดทตามที่เลือกในฟอร์มทันที */}
+                {editId && form.status && (
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${statusMeta(form.status).cls}`}>
+                    {statusMeta(form.status).emoji} {form.status}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1.5">
                 {editId && (
