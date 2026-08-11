@@ -735,7 +735,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       }
       setOpen(false)
       swalToast("success", editId ? "แก้ไขแล้ว" : "เพิ่มรายการแล้ว")
-      load(); loadStats()
+      load(); loadStats(); loadAtmsBoard()
     } catch (e) {
       swalError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
     } finally {
@@ -771,7 +771,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "เปลี่ยนสถานะไม่สำเร็จ") }
       swalToast("success", `ย้ายเป็น “${newStatus}”`)
-      load(); loadStats()
+      load(); loadStats(); loadAtmsBoard()
     } catch (e) {
       swalError(e instanceof Error ? e.message : "เปลี่ยนสถานะไม่สำเร็จ")
     }
@@ -793,7 +793,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "ย้อนไม่สำเร็จ") }
       swalToast("success", `ย้อนสถานะเป็น “${toStatus}”`)
       setOpen(false)   // ย้อนจากในฟอร์ม — ปิดฟอร์มให้โหลดข้อมูลใหม่
-      load(); loadStats()
+      load(); loadStats(); loadAtmsBoard()
     } catch (e) {
       swalError(e instanceof Error ? e.message : "ย้อนไม่สำเร็จ")
     }
@@ -807,7 +807,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (!res.ok) throw new Error()
       swalToast("success", "ลบแล้ว")
       setOpen(false)   // ลบได้จากในฟอร์มเท่านั้น — ปิดฟอร์มหลังลบ
-      load(); loadStats()
+      load(); loadStats(); loadAtmsBoard()
     } catch {
       swalError("ลบไม่สำเร็จ")
     }
