@@ -8,7 +8,7 @@ export type RepairStatus = {
 export const REPAIR_STATUSES: RepairStatus[] = [
   { value: "รอรถเข้า",         emoji: "⏳", cls: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300" },
   { value: "รถเข้าอู่ซ่อม",     emoji: "🔧", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
-  { value: "รอใบเสนอราคา",     emoji: "🔍", cls: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300" },
+  // "รอใบเสนอราคา" ถูกถอดจาก workflow อู่นอก (2026-08-11) → เป็น tickbox waitingQuote แทน (ยังเป็นสถานะของอะไหล่ลงคันอยู่)
   { value: "รอ PR",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
   { value: "ซ่อมไม่มีกำหนด",    emoji: "🛠️", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
   { value: "ซ่อมมีกำหนดเสร็จ",  emoji: "✅", cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" },
@@ -98,6 +98,7 @@ export type RepairExternal = {
   plant:        string  // แพล้นท์ (auto จาก atms.vehicle_daily)
   garage:       string  // อู่
   status:       string  // สถานะ
+  waitingQuote: string  // "" | "รอใบเสนอราคา" — tickbox แทนสถานะเดิม (เฉพาะอู่นอก) แสดง badge เมื่อติ๊ก
   prCode:       string  // รหัส PR
   poCode:       string  // รหัส PO
   note:         string  // หมายเหตุ

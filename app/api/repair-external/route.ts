@@ -31,6 +31,8 @@ export function buildDoc(body: Record<string, unknown>) {
     plant:        s(body.plant),
     garage:       s(body.garage),
     status:       s(body.status),
+    // tickbox รอใบเสนอราคา — ใช้กับงานอู่นอกเท่านั้น (อะไหล่ลงคันมีสถานะ รอใบเสนอราคา ใน workflow อยู่แล้ว)
+    waitingQuote: s(body.jobType) !== JOB_TYPE_PARTS && body.waitingQuote ? "รอใบเสนอราคา" : "",
     prCode:       s(body.prCode),
     poCode:       s(body.poCode),
     note:         s(body.note),

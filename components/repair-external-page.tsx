@@ -156,7 +156,7 @@ const EMPTY: Omit<RepairExternal, "_id"> = {
   receivedDate: "", garageInDate: "", dueDate: "", completedDate: "", mrNo: "", symptom: "", plate: "", fleetNo: "",
   driverName: "", driverPhone: "", breakdownLocation: "", cementStatus: "", drivableStatus: "",
   fleet: "", plant: "",
-  garage: "", status: REPAIR_STATUS_VALUES[0], prCode: "", poCode: "",
+  garage: "", status: REPAIR_STATUS_VALUES[0], waitingQuote: "", prCode: "", poCode: "",
   note: "", repairPrice: 0, warranty: "", quotationDetail: "",
   negotiationScope: "ทั้งหมด", negotiationItem: "",
   offerPrice: 0, negotiatedPrice: 0, offerWarranty: "",
@@ -1535,6 +1535,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12.5px] font-semibold ${sm.cls}`}><span>{sm.emoji}</span>{sm.value}</span>
+                      {!!r.waitingQuote && <span className="rounded-lg bg-cyan-100 px-2 py-1 text-[11.5px] font-semibold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">🔍 รอใบเสนอราคา</span>}
                       {sla?.over && <span className="rounded bg-[#FEECEC] px-1.5 py-0.5 text-[11px] font-semibold text-[#DC2626]">⏱️ ค้าง {sla.hours} ชม. (เกิน 24 ชม.)</span>}
                     </div>
                     {(() => {
@@ -1653,6 +1654,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           )}
                         </div>
                         {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[9.5px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
+                        {!!r.waitingQuote && <div className="mt-1 inline-flex items-center gap-1 rounded bg-cyan-100 px-1.5 py-0.5 text-[9.5px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">🔍 รอใบเสนอราคา</div>}
                         {dailyStatus[r.plate] && (
                           <div className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
                             title={`${dailyStatus[r.plate].label} · ค้างซ่อม (B/BA) ${dailyStatus[r.plate].streak_days ?? 0} วัน · ถึง ${dailyStatus[r.plate].date}`}>
@@ -1726,6 +1728,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 {editId && form.status && (
                   <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${statusMeta(form.status).cls}`}>
                     {statusMeta(form.status).emoji} {form.status}
+                  </span>
+                )}
+                {/* badge รอใบเสนอราคา — โชว์เฉพาะที่ติ๊กไว้ */}
+                {editId && !!form.waitingQuote && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-cyan-100 px-2.5 py-1 text-xs font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
+                    🔍 รอใบเสนอราคา
                   </span>
                 )}
               </div>
@@ -1922,6 +1930,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
                       {statusesFor(formJobType).map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
                     </select>
+                    {/* tickbox รอใบเสนอราคา (เฉพาะอู่นอก) — แทนสถานะเดิมที่ถูกถอดจาก workflow */}
+                    {!isParts && (
+                      <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#BEE8F1] dark:border-cyan-500/30 bg-[#F0FBFD] dark:bg-cyan-500/10 px-3 py-2 text-[13px] font-medium text-[#0E7490] dark:text-cyan-300">
+                        <input
+                          type="checkbox"
+                          checked={!!form.waitingQuote}
+                          onChange={(e) => setForm({ ...form, waitingQuote: e.target.checked ? "รอใบเสนอราคา" : "" })}
+                          className="h-4 w-4 accent-[#0891B2]"
+                        />
+                        🔍 รอใบเสนอราคา
+                      </label>
+                    )}
                     {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
                     {missingReq.length > 0 && (
                       <p className="mt-1 rounded-md bg-[#FDF3DD] px-2 py-1 text-[11px] text-[#B07D12]">
