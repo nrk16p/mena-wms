@@ -17,7 +17,7 @@ export async function GET() {
     const wms = await client.db(DB).collection(COLL)
       .find(
         { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
-        { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1 } },
+        { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, prCode: 1, poCode: 1 } },
       )
       .toArray()
 
@@ -79,6 +79,20 @@ export async function GET() {
         }
       })
 
+    // ── 🧾 WMS ไม่มี PR แต่ ATMS มี purchase_links ให้เติม (ทุกคันที่จับคู่ได้ ไม่จำกัดว่าต้องจอดอยู่)
+    const prFill = wms
+      .filter((w) => !FINISHED.includes(w.status) && !String(w.prCode ?? "").trim())
+      .map((w) => {
+        const job = jobByPlate.get(normKey(w.plate))
+        if (!job || !job.prCodes.length) return null
+        return {
+          id: String(w._id), plate: w.plate, fleetNo: w.fleetNo ?? "", status: w.status,
+          mrCode: job.mrCode, prCodes: job.prCodes, poCodes: job.poCodes,
+          poEmpty: !String(w.poCode ?? "").trim(),
+        }
+      })
+      .filter(Boolean)
+
     // ── ข้อมูลราย "คัน" สำหรับ chip ในตาราง — key ทั้งทะเบียนและเบอร์รถ
     const byKey: Record<string, { parkedDays: number | null; since: string; step: string; stepAt: string; vendor: string; mrCode: string; mrId: number }> = {}
     const put = (key: string, plate: string) => {
@@ -101,6 +115,7 @@ export async function GET() {
       missing: pending.filter((p) => !p!.wms),
       waitingButParked,
       openNotParked,
+      prFill,
       byKey,
     })
   } catch (e) {

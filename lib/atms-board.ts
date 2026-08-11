@@ -18,6 +18,8 @@ export type AtmsOpenJob = {
   severity: string      // light | medium | heavy
   prAmount: number
   expectedDone: string  // YYYY-MM-DD วันคาดว่าเสร็จ (จาก ATMS)
+  prCodes: string[]     // PR ทั้งหมดของงานนี้ (จาก purchase_links)
+  poCodes: string[]     // PO ทั้งหมด (จาก purchase_orders ใต้แต่ละ PR)
 }
 
 export type ParkedTruck = {
@@ -61,7 +63,10 @@ export async function fetchAtmsBoard(): Promise<AtmsBoardData> {
     .filter((i: any) => i.open_maintenance_job?.repair_mode_label === "อู่นอก")
     .map((i: any) => {
       const j = i.open_maintenance_job
+      const links: any[] = j.purchase_links ?? []
       return {
+        prCodes: links.map((l) => l.pr_code).filter(Boolean),
+        poCodes: links.flatMap((l) => l.purchase_orders ?? []).map((p: any) => p.po_code).filter(Boolean),
         plate: i.plate ?? "",
         mrCode: i.mr_code ?? "",
         mrId: Number(i.mr_id) || 0,

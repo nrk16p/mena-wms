@@ -208,6 +208,7 @@ type AtmsBoard = {
   missing: AtmsPending[]
   waitingButParked: { id: string; plate: string; fleetNo: string; days: number; since: string; plant: string }[]
   openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
+  prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean }[]
   byKey: Record<string, { parkedDays: number | null; since: string; step: string; stepAt: string; vendor: string; mrCode: string; mrId: number }>
 }
 // รายการจาก /maintenance-requests (ATMS) — เก็บเฉพาะ field ที่ใช้แสดง timeline
@@ -459,6 +460,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
     openEdit(r)
     setForm((f) => ({ ...f, mrNo: mrCode }))
+  }
+
+  // เปิดแก้ไขพร้อมเติม PR (และ PO ถ้ายังว่าง) จาก purchase_links ของ ATMS — คนตรวจแล้วกดบันทึกเอง
+  function openEditFillPr(p: AtmsBoard["prFill"][number]) {
+    const r = rows.find((x) => x._id === p.id)
+    if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
+    openEdit(r)
+    setForm((f) => ({
+      ...f,
+      prCode: f.prCode?.trim() ? f.prCode : p.prCodes.join(","),
+      poCode: f.poCode?.trim() ? f.poCode : p.poCodes.join(","),
+      mrNo:   f.mrNo?.trim()   ? f.mrNo   : p.mrCode,
+    }))
   }
 
   // เปลี่ยนประเภทงานในฟอร์ม (เฉพาะตอนสร้างใหม่) — รีเซ็ตสถานะเป็นขั้นแรกของ workflow ประเภทนั้น
@@ -1246,7 +1260,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       {!isDone && atms && (() => {
         const inWms = atms.pending.filter((p) => p.wms)
         const mrIssues = inWms.filter((p) => p.wms!.mrMatch !== "match" && p.mrCode)
-        const hasIssue = atms.missing.length > 0 || mrIssues.length > 0
+        const prFill = atms.prFill ?? []
+        const hasIssue = atms.missing.length > 0 || mrIssues.length > 0 || prFill.length > 0
         return (
           <div id="atms-compare" className={`mb-4 rounded-[12px] border px-4 py-3 text-[13px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -1257,6 +1272,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 ? <span className="font-bold text-rose-600 dark:text-rose-300">· ขาด {atms.missing.length} คัน</span>
                 : <span>· ครบทุกคัน ✓</span>}
               {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ว่าง/ไม่ตรง {mrIssues.length}</span>}
+              {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR (ATMS มีให้เติม) {prFill.length}</span>}
               <span className="text-[11px] opacity-60">อัพเดท {fmtDateTime(atms.fetchedAt)}</span>
               <button
                 onClick={() => setAtmsOpen((v) => !v)}
@@ -1313,7 +1329,30 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     </div>
                   </div>
                 )}
-                {!hasIssue && <p className="opacity-80">รถค้างซ่อมอู่นอกทุกคันมีรายการในระบบครบ และเลข MR ตรงกันทั้งหมด 🎉</p>}
+                {/* ไม่มี PR ในระบบ — ATMS มี purchase_links ให้เติม */}
+                {prFill.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 font-bold text-amber-700 dark:text-amber-300">🧾 ไม่มีเลข PR ในระบบ — ATMS มีให้เติม ({prFill.length} คัน)</p>
+                    <div className="space-y-1">
+                      {prFill.map((p) => (
+                        <div key={p.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5">
+                          <b className="min-w-[52px]">{p.fleetNo || "—"}</b>
+                          <span>{p.plate}</span>
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">{p.status}</span>
+                          <span className="text-[12px] opacity-80">PR: {p.prCodes.join(", ")}</span>
+                          {p.poCodes.length > 0 && <span className="text-[12px] opacity-60">PO: {p.poCodes.join(", ")}</span>}
+                          <button
+                            onClick={() => openEditFillPr(p)}
+                            className="ml-auto shrink-0 rounded-lg border border-amber-400 px-2.5 py-1 text-[12px] font-bold text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                          >
+                            เติม PR{p.poEmpty && p.poCodes.length > 0 ? "+PO" : ""}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!hasIssue && <p className="opacity-80">รถค้างซ่อมอู่นอกทุกคันมีรายการในระบบครบ และเลข MR/PR ตรงกันทั้งหมด 🎉</p>}
               </div>
             )}
           </div>
