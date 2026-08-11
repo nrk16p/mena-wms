@@ -258,6 +258,26 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const atmsOf = (r: RepairExternal) =>
     atms?.byKey[atmsKey(r.plate)] ?? (r.fleetNo ? atms?.byKey[atmsKey(r.fleetNo)] : undefined)
 
+  // ── ยืนยันตรวจเช็คประจำวัน — จดเวลา+ผู้เช็คต่อรายการ badge เขียวเมื่อเช็คแล้ววันนี้ ──
+  const checkedToday = (r: RepairExternal) => (r.lastCheckedAt ?? "").slice(0, 10) === TODAY_STR
+  const [uncheckedOnly, setUncheckedOnly] = useState(false)
+  const [checking, setChecking] = useState<string | null>(null)
+  async function confirmCheck(r: RepairExternal) {
+    setChecking(r._id)
+    try {
+      const res = await fetch(`/api/repair-external/${r._id}/check`, { method: "POST" })
+      const d = await res.json()
+      if (!res.ok || !d.ok) throw new Error(d.error || "ยืนยันไม่สำเร็จ")
+      setRows((rs) => rs.map((x) => (x._id === r._id ? { ...x, lastCheckedAt: d.lastCheckedAt, lastCheckedBy: d.lastCheckedBy } : x)))
+      setEditRow((er) => (er && er._id === r._id ? { ...er, lastCheckedAt: d.lastCheckedAt, lastCheckedBy: d.lastCheckedBy } : er))
+      swalToast("success", `✅ เช็คแล้ว — ${r.fleetNo || r.plate}`)
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "ยืนยันไม่สำเร็จ")
+    } finally {
+      setChecking(null)
+    }
+  }
+
   // filters
   const [q, setQ]               = useState("")
   // deep link: /repair-external?q=<ทะเบียน|เบอร์รถ|MR> — ใช้แชร์ลิงก์ให้ทีมเปิดมาเจอคันนั้นทันที
@@ -909,6 +929,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   let displayRows = rows
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
+  if (uncheckedOnly) displayRows = displayRows.filter((r) => !checkedToday(r))
   if (conflictOnly) displayRows = displayRows.filter((r) => jobAlertOf(r)?.kind === "update_needed")
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
@@ -1240,6 +1261,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               >
                 🔍 ไม่มี PR <span className="opacity-80">{stats.noPr} คัน</span>
               </button>
+              <button
+                onClick={() => setUncheckedOnly((v) => !v)}
+                title="รายการที่ยังไม่ได้กดยืนยันตรวจเช็คในวันนี้"
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${uncheckedOnly ? "bg-[#0E7490] text-white" : "border border-[#BEE8F1] text-[#0E7490] hover:bg-[#F0FBFD] dark:border-cyan-900/40 dark:text-cyan-300 dark:hover:bg-cyan-950/20"}`}
+              >
+                ☑️ ยังไม่เช็ควันนี้ <span className="opacity-80">{rows.filter((r) => !checkedToday(r)).length} คัน</span>
+              </button>
             </div>
             {/* แถวอู่นอก + แถวอะไหล่ลงคัน (ซ่อนแถวที่ไม่เกี่ยวเมื่อกรองประเภทอยู่) */}
             {(fType === "" || fType === JOB_TYPE_GARAGE) && chipRow(JOB_TYPE_GARAGE, "🔧", ACTIVE_STATUSES)}
@@ -1549,6 +1577,28 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         </div>
                       )
                     })()}
+                    {/* ยืนยันตรวจเช็คประจำวัน — กดได้จากตารางเลย ไม่ต้องเปิด modal */}
+                    {!isDone && (
+                      <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                        {checkedToday(r) ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[11px] font-semibold text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300"
+                            title={`ยืนยันโดย ${r.lastCheckedBy || "-"} · ${fmtDateTime(r.lastCheckedAt!)}`}
+                          >
+                            ✅ เช็คแล้ววันนี้
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => confirmCheck(r)}
+                            disabled={checking === r._id}
+                            title={r.lastCheckedAt ? `เช็คล่าสุด ${fmtDateTime(r.lastCheckedAt)} โดย ${r.lastCheckedBy || "-"}` : "ยังไม่เคยยืนยันตรวจเช็ค"}
+                            className="inline-flex items-center gap-1 rounded-lg border border-[#BEE8F1] dark:border-cyan-900/40 px-2 py-0.5 text-[11px] font-semibold text-[#0E7490] dark:text-cyan-300 transition hover:bg-[#F0FBFD] dark:hover:bg-cyan-950/20 disabled:opacity-50"
+                          >
+                            {checking === r._id ? "กำลังบันทึก..." : "☑️ ยืนยันเช็ควันนี้"}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {!r.prCode?.trim() && (
                       <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[11px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
                     )}
@@ -1655,6 +1705,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         </div>
                         {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[9.5px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
                         {!!r.waitingQuote && <div className="mt-1 inline-flex items-center gap-1 rounded bg-cyan-100 px-1.5 py-0.5 text-[9.5px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">🔍 รอใบเสนอราคา</div>}
+                        {checkedToday(r) && <div className="mt-1 ml-1 inline-flex items-center gap-1 rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[9.5px] font-bold text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300" title={`ยืนยันโดย ${r.lastCheckedBy || "-"}`}>✅ เช็คแล้ว</div>}
                         {dailyStatus[r.plate] && (
                           <div className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
                             title={`${dailyStatus[r.plate].label} · ค้างซ่อม (B/BA) ${dailyStatus[r.plate].streak_days ?? 0} วัน · ถึง ${dailyStatus[r.plate].date}`}>
@@ -1943,6 +1994,26 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </label>
                     )}
                     {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
+                    {/* ยืนยันตรวจเช็คประจำวัน (ใน modal) */}
+                    {editId && editRow && !isDoneStatus(editRow.status) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-[#F9FCFA] dark:bg-white/[0.02] px-3 py-2">
+                        <span className="text-[11.5px] text-[#9AA8A0]">
+                          ตรวจเช็คประจำวัน: {editRow.lastCheckedAt ? `ล่าสุด ${fmtDateTime(editRow.lastCheckedAt)} โดย ${editRow.lastCheckedBy || "-"}` : "ยังไม่เคยยืนยัน"}
+                        </span>
+                        {checkedToday(editRow) ? (
+                          <span className="text-[11.5px] font-bold text-[#1B8C4B]">✅ เช็คแล้ววันนี้</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => confirmCheck(editRow)}
+                            disabled={checking === editRow._id}
+                            className="rounded-lg border border-[#BEE8F1] dark:border-cyan-900/40 px-2.5 py-1 text-[11.5px] font-bold text-[#0E7490] dark:text-cyan-300 hover:bg-[#F0FBFD] dark:hover:bg-cyan-950/20 disabled:opacity-50"
+                          >
+                            {checking === editRow._id ? "กำลังบันทึก..." : "☑️ ยืนยันเช็ควันนี้"}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {missingReq.length > 0 && (
                       <p className="mt-1 rounded-md bg-[#FDF3DD] px-2 py-1 text-[11px] text-[#B07D12]">
                         ⚠ สถานะนี้ต้องกรอกให้ครบก่อนบันทึก: {missingReq.map((m) => m.label).join(", ")}

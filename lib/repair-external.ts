@@ -99,6 +99,9 @@ export type RepairExternal = {
   garage:       string  // อู่
   status:       string  // สถานะ
   waitingQuote: string  // "" | "รอใบเสนอราคา" — tickbox แทนสถานะเดิม (เฉพาะอู่นอก) แสดง badge เมื่อติ๊ก
+  lastCheckedAt?:  string  // ISO — เวลายืนยันตรวจเช็คประจำวันล่าสุด (ไม่อยู่ใน buildDoc — เขียนผ่าน /check เท่านั้น)
+  lastCheckedBy?:  string
+  lastCheckedByEmail?: string
   prCode:       string  // รหัส PR
   poCode:       string  // รหัส PO
   note:         string  // หมายเหตุ
