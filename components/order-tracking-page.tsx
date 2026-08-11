@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "motion/react"
 import { Search, Plus, Pencil, Trash2, X, Check, ClipboardList, UserCheck, RefreshCw, PackageCheck, History, MessageSquare, Send, CornerDownRight, ChevronDown } from "lucide-react"
 import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
+import { ImageGallery, type GalleryImage } from "@/components/image-gallery"
 import type { SkuImage } from "@/lib/media"
 import {
   OT_STATUSES,
@@ -114,8 +115,8 @@ export function OrderTrackingPage() {
 
   // แถวที่กางอ่านรายละเอียดเต็ม (accordion — เปิดพร้อมกันได้หลายแถว)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  // เปิดรูปเต็มในหน้า (lightbox) — แทนการเปิดแท็บใหม่/ลิงก์ว่างที่ทำหน้าเด้งขึ้นบน
-  const [lightbox, setLightbox] = useState<string | null>(null)
+  // Gallery ดูรูปเต็มจอ (ลูกศรเลื่อน + ดาวน์โหลด) — เปิดจากรูปในรายการ
+  const [gallery, setGallery] = useState<{ imgs: GalleryImage[]; start: number } | null>(null)
   const toggleExpand = (id: string) =>
     setExpandedIds((prev) => {
       const next = new Set(prev)
@@ -547,8 +548,19 @@ export function OrderTrackingPage() {
                               📄 {img.filename.length > 24 ? img.filename.slice(0, 24) + "…" : img.filename}
                             </a>
                           ) : (
-                            // เปิดรูปแบบ lightbox ในหน้าเลย — ไม่ใช้ <a> (ลิงก์ว่างทำหน้าเด้งขึ้นบนสุด)
-                            <button key={ii} type="button" onClick={() => setLightbox(img.webpUrl || img.thumbnailUrl || "")} title={img.filename}>
+                            // เปิด Gallery ดูรูปทั้งหมดของเรื่องนี้ — ไม่ใช้ <a> (ลิงก์ว่างทำหน้าเด้งขึ้นบนสุด)
+                            <button
+                              key={ii}
+                              type="button"
+                              title={img.filename}
+                              onClick={() => {
+                                const pics = r.images!.filter((x) => !/\.pdf$/i.test(x.filename || ""))
+                                setGallery({
+                                  imgs: pics.map((x) => ({ url: x.webpUrl || x.thumbnailUrl || "", thumb: x.thumbnailUrl || x.webpUrl || "", filename: x.filename })),
+                                  start: Math.max(0, pics.indexOf(img)),
+                                })
+                              }}
+                            >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={img.thumbnailUrl || img.webpUrl} alt={img.filename} className="h-14 w-14 cursor-zoom-in rounded-lg border border-[#EEF2F0] dark:border-white/10 object-cover transition hover:opacity-80" />
                             </button>
@@ -934,16 +946,8 @@ export function OrderTrackingPage() {
       )}
       </AnimatePresence>
 
-      {/* Lightbox ดูรูปเต็ม — คลิกพื้นหลังหรือ X เพื่อปิด */}
-      {lightbox && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-6" onClick={() => setLightbox(null)}>
-          <button type="button" onClick={() => setLightbox(null)} className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">
-            <X size={18} />
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
-        </div>
-      )}
+      {/* Gallery ดูรูปเต็มจอ — ลูกศรเลื่อนดูทุกรูปของเรื่อง + ดาวน์โหลด/เปิดแท็บใหม่ */}
+      {gallery && <ImageGallery images={gallery.imgs} start={gallery.start} onClose={() => setGallery(null)} />}
     </div>
   )
 }
