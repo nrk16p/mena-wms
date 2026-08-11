@@ -193,6 +193,36 @@ const DAILY_GROUP_CLS: Record<string, string> = {
 // (ไม่รวม "รอรถเข้า" เพราะรถอาจยังวิ่งงานอยู่ก่อนเข้าอู่ · ไม่รวมงานอะไหล่ลงคันเพราะรถวิ่งได้ระหว่างรอของ)
 const IN_GARAGE_STATUSES = new Set(["รถเข้าอู่ซ่อม", "รอใบเสนอราคา", "รอ PR", "ซ่อมไม่มีกำหนด", "ซ่อมมีกำหนดเสร็จ"])
 
+// ── ข้อมูลเทียบจาก /api/repair-external/atms-board (ATMS open-jobs × รถจอดจริง × WMS) ──
+const atmsKey = (s: string) => (s ?? "").replace(/[\s.]/g, "").trim().toUpperCase()
+type AtmsWmsRef  = { id: string; status: string; mrNo: string; mrMatch: "match" | "mismatch" | "empty" }
+type AtmsPending = {
+  plate: string; trucknum: string; days: number; since: string; subStatus: string; plant: string
+  mrCode: string; mrId: number; step: string; stepAt: string; vendor: string; severity: string
+  prAmount: number; expectedDone: string; wms: AtmsWmsRef | null
+}
+type AtmsBoard = {
+  ok: boolean
+  fetchedAt: string
+  pending: AtmsPending[]
+  missing: AtmsPending[]
+  waitingButParked: { id: string; plate: string; fleetNo: string; days: number; since: string; plant: string }[]
+  openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
+  byKey: Record<string, { parkedDays: number | null; since: string; step: string; stepAt: string; vendor: string; mrCode: string; mrId: number }>
+}
+// รายการจาก /maintenance-requests (ATMS) — เก็บเฉพาะ field ที่ใช้แสดง timeline
+type AtmsTlItem = {
+  code?: string
+  branch_name?: string
+  mechanic_name?: string
+  tasks?: { problem?: string; maintenance_type?: string }[]
+  purchase_requests?: {
+    pr_code?: string; amount?: number; is_approved?: number
+    purchase_orders?: { po_code?: string; supplier?: string; received_status?: string }[]
+  }[]
+  timeline_events?: { kind?: string; source?: string; at?: string; label?: string; action_by?: string; uid?: string }[]
+}
+
 export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const isDone = mode === "done"
   const [rows, setRows]       = useState<RepairExternal[]>([])
@@ -212,6 +242,20 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       .then((d) => setDailyStatus(d.statuses ?? {}))
       .catch(() => {})
   }, [rows])
+
+  // ── เทียบกับ ATMS + รถจอดจริง (fleet) — โหลดตอนเข้าหน้า cache ฝั่ง server 5 นาที (fail-soft) ──
+  const [atms, setAtms]         = useState<AtmsBoard | null>(null)
+  const [atmsOpen, setAtmsOpen] = useState(false)
+  const loadAtmsBoard = useCallback(() => {
+    fetch("/api/repair-external/atms-board")
+      .then((res) => res.json())
+      .then((d) => { if (d?.ok) setAtms(d) })
+      .catch(() => {})
+  }, [])
+  useEffect(() => { if (!isDone) loadAtmsBoard() }, [isDone, loadAtmsBoard])
+  // key เทียบทะเบียน/เบอร์รถ — ตัดช่องว่างและจุด (ให้ตรงกับ normKey ฝั่ง server)
+  const atmsOf = (r: RepairExternal) =>
+    atms?.byKey[atmsKey(r.plate)] ?? (r.fleetNo ? atms?.byKey[atmsKey(r.fleetNo)] : undefined)
 
   // filters
   const [q, setQ]               = useState("")
@@ -247,6 +291,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [replyTo, setReplyTo]     = useState<string | null>(null)
   const [replyText, setReplyText] = useState("")
   const [posting, setPosting]     = useState(false)
+
+  // Timeline ATMS ใน modal (โหลดเมื่อกด) — เฉพาะงานอู่นอก
+  const [atmsTl, setAtmsTl]               = useState<AtmsTlItem[] | null>(null)
+  const [atmsTlLoading, setAtmsTlLoading] = useState(false)
+  const [atmsTlErr, setAtmsTlErr]         = useState("")
 
   // log drawer
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
@@ -382,6 +431,36 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setOpen(true)
   }
 
+  // สร้างรายการใหม่จากงานอู่นอกใน ATMS ที่ยังไม่มีในระบบ — prefill จากข้อมูลจริง (คนตรวจแล้วกดบันทึกเอง)
+  function openAddFromAtms(m: AtmsPending) {
+    setEditId(null)
+    setEditRow(null)
+    setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
+    const today = new Date().toISOString().slice(0, 10)
+    setForm({
+      ...EMPTY,
+      jobType: JOB_TYPE_GARAGE,
+      plate: m.plate,
+      fleetNo: m.trucknum,
+      mrNo: m.mrCode,
+      garage: m.vendor,
+      plant: m.plant,
+      receivedDate: m.since || today,
+      garageInDate: m.since || today,   // รถจอดอยู่อู่แล้ว → เข้าอู่ตั้งแต่วันเริ่มจอด
+      dueDate: m.expectedDone || "",
+      status: "รถเข้าอู่ซ่อม",
+    })
+    setOpen(true)
+  }
+
+  // เปิดแก้ไขรายการพร้อมเติม mrNo จาก ATMS (กรณี WMS ไม่มี MR หรือ MR ไม่ตรง) — คนตรวจแล้วกดบันทึกเอง
+  function openEditFillMr(wmsId: string, mrCode: string) {
+    const r = rows.find((x) => x._id === wmsId)
+    if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
+    openEdit(r)
+    setForm((f) => ({ ...f, mrNo: mrCode }))
+  }
+
   // เปลี่ยนประเภทงานในฟอร์ม (เฉพาะตอนสร้างใหม่) — รีเซ็ตสถานะเป็นขั้นแรกของ workflow ประเภทนั้น
   function setJobType(jt: string) {
     setForm((f) => ({ ...f, jobType: jt, status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value }))
@@ -394,9 +473,29 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const { _id, ...rest } = r
     setForm({ ...EMPTY, ...rest })
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
+    setAtmsTl(null); setAtmsTlErr("")
     loadComments(r._id)
     loadLog(r)
     setOpen(true)
+  }
+
+  // โหลด timeline ATMS ของคันนี้ (ปีปัจจุบัน + mr_id ถ้ารู้)
+  async function loadAtmsTimeline() {
+    if (!form.plate.trim()) return
+    setAtmsTlLoading(true); setAtmsTlErr("")
+    try {
+      const a = editRow ? atmsOf(editRow) : undefined
+      const p = new URLSearchParams({ plate: form.plate.trim() })
+      if (a?.mrId) p.set("mr", String(a.mrId))
+      const res = await fetch(`/api/repair-external/atms-timeline?${p.toString()}`)
+      const d = await res.json()
+      if (!d?.ok) throw new Error(d?.error || "โหลดไม่สำเร็จ")
+      setAtmsTl(d.data?.items ?? [])
+    } catch (e) {
+      setAtmsTlErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAtmsTlLoading(false)
+    }
   }
 
   // เปิดรายการจากลิงก์แชร์ (?id=) — ดึงรายการเดียวแล้วเปิดหน้าแก้ไข
@@ -494,10 +593,62 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     )
   }
 
-  // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ดึงข้อมูลสด ณ ตอนกด ไม่อิงตัวกรองบนหน้าจอ (ยกเว้นประเภทงาน)
-  // 🔴 = ค้างสถานะแรกของ workflow (รอรถเข้า/รอดำเนินการ) · 🟢 = เลยกำหนดเสร็จแล้วแต่ยังไม่ปิดงาน
+  // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ใช้ข้อมูลรถจอดจริง (fleet) + ATMS ถ้าดึงได้
+  // 🔴 = รถจอดจริงแล้วแต่ WMS ยัง "รอรถเข้า" · 🟢 = WMS ว่ายังซ่อมแต่รถไม่จอดแล้ว · 🆕 = งาน ATMS ที่ยังไม่มีในระบบ
+  async function copyFollowUpReal(): Promise<boolean> {
+    if (typeof window === "undefined") return false
+    let b: AtmsBoard
+    try {
+      const res = await fetch("/api/repair-external/atms-board")
+      const d = await res.json()
+      if (!d?.ok) return false
+      b = d as AtmsBoard
+      setAtms(b)
+    } catch { return false }
+
+    const fmtThaiDay = (s: string) => {
+      const d = new Date(s)
+      return isNaN(d.getTime()) ? s : d.toLocaleDateString("th-TH", { day: "numeric", month: "short" })
+    }
+    const total = b.waitingButParked.length + b.openNotParked.length + b.missing.length
+    if (!total) { swalToast("success", "สถานะตรงกันหมด ไม่มีงานที่ต้องตามตอนนี้ 🎉"); return true }
+
+    const linkOf = (v: string) => `${window.location.origin}/repair-external?q=${encodeURIComponent(v)}`
+    const lines: string[] = [`📢 งานซ่อมอู่นอก ${total} รายการ สถานะในระบบไม่ตรงกับรถจริงครับ (เช็คกับข้อมูลรถจอดจริง ${fmtThaiDay(b.fetchedAt.slice(0, 10))})`]
+    let n = 0
+    if (b.waitingButParked.length) {
+      lines.push("", `🔴 ${b.waitingButParked.length} คันนี้ รถจอดอยู่อู่แล้ว แต่ในระบบยังเขียนว่า "รอรถเข้า"`, "→ ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
+      for (const w of [...b.waitingButParked].sort((a, x) => x.days - a.days)) {
+        lines.push(`${++n}. ${w.fleetNo || w.plate} — จอดมา ${w.days} วัน${w.days >= 45 ? "‼️" : ""}${w.plant ? ` (${w.plant})` : ""}`)
+        lines.push(linkOf(w.fleetNo || w.plate))
+      }
+    }
+    if (b.openNotParked.length) {
+      lines.push("", `🟢 ${b.openNotParked.length} คันนี้ รถออกจากอู่กลับมาวิ่งแล้ว แต่งานยังไม่ได้ปิด`, "→ ถ้าซ่อมเสร็จแล้ว ฝากปิดงานด้วยครับ (ใส่วันเสร็จ = วันที่ออกอู่)", "")
+      for (const w of b.openNotParked) {
+        const done = w.atmsStep === "รถซ่อมเสร็จสิ้น" ? " (ATMS ปิดว่าเสร็จสิ้นแล้ว)" : ""
+        lines.push(`${++n}. ${w.fleetNo || w.plate} — สถานะค้างที่ "${w.status}"${done}`)
+        lines.push(linkOf(w.fleetNo || w.plate))
+      }
+    }
+    if (b.missing.length) {
+      lines.push("", `🆕 ${b.missing.length} คันนี้ จอดซ่อมอู่นอกอยู่จริง แต่ยังไม่มีรายการในระบบเลย`, "→ ฝากเปิดรายการในระบบด้วยครับ (มีปุ่มสร้างอัตโนมัติในแถบเทียบ ATMS)", "")
+      for (const m of b.missing) {
+        lines.push(`${++n}. ${m.trucknum || m.plate} — จอดมา ${m.days} วัน${m.days >= 45 ? "‼️" : ""} ${m.mrCode}${m.vendor ? ` (${m.vendor})` : ""}`)
+      }
+    }
+    lines.push("", "📌 กดลิงก์ → เจอรถคันนั้นเลย → กดที่รายการ → แก้สถานะ → บันทึก จบ", "ขอบคุณครับ 🙏")
+    navigator.clipboard?.writeText(lines.join("\n")).then(
+      () => swalToast("success", `คัดลอกข้อความตามงาน ${total} รายการแล้ว`),
+      () => swalError("คัดลอกไม่สำเร็จ"),
+    )
+    return true
+  }
+
+  // fallback เดิม (ใช้เมื่อ API เทียบล่ม) — 🔴 = ค้างสถานะแรกของ workflow · 🟢 = เลยกำหนดเสร็จ
   async function copyFollowUp() {
     if (typeof window === "undefined") return
+    if (await copyFollowUpReal()) return
     let list: RepairExternal[] = []
     try {
       const p = new URLSearchParams({ scope: "active" })
@@ -1063,6 +1214,84 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </p>
       )}
 
+      {/* ── เทียบอัตโนมัติกับ ATMS + รถจอดจริง — โฟกัสงานอู่นอกที่ "ขาด" จากระบบ ── */}
+      {!isDone && atms && (() => {
+        const inWms = atms.pending.filter((p) => p.wms)
+        const mrIssues = inWms.filter((p) => p.wms!.mrMatch !== "match" && p.mrCode)
+        const hasIssue = atms.missing.length > 0 || mrIssues.length > 0
+        return (
+          <div className={`mb-4 rounded-[12px] border px-4 py-3 text-[13px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="font-bold">🔎 เทียบ ATMS·รถจอดจริง:</span>
+              <span>ค้างซ่อมอู่นอกจริง <b>{atms.pending.length}</b> คัน</span>
+              <span>· มีในระบบ <b>{inWms.length}</b></span>
+              {atms.missing.length > 0
+                ? <span className="font-bold text-rose-600 dark:text-rose-300">· ขาด {atms.missing.length} คัน</span>
+                : <span>· ครบทุกคัน ✓</span>}
+              {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ว่าง/ไม่ตรง {mrIssues.length}</span>}
+              <span className="text-[11px] opacity-60">อัพเดท {fmtDateTime(atms.fetchedAt)}</span>
+              <button
+                onClick={() => setAtmsOpen((v) => !v)}
+                className="ml-auto shrink-0 rounded-lg border border-current/30 px-3 py-1 text-[12px] font-bold hover:bg-white/50 dark:hover:bg-white/10"
+              >
+                {atmsOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียด"}
+              </button>
+            </div>
+
+            {atmsOpen && (
+              <div className="mt-3 space-y-3 border-t border-current/10 pt-3">
+                {/* งานที่ขาด — สร้างได้ทีละคัน (prefill ให้ครบ) */}
+                {atms.missing.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 font-bold text-rose-700 dark:text-rose-300">❌ จอดซ่อมอู่นอกจริง แต่ยังไม่มีรายการในระบบ ({atms.missing.length} คัน)</p>
+                    <div className="space-y-1">
+                      {atms.missing.map((m) => (
+                        <div key={m.mrCode + m.plate} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5">
+                          <b className="min-w-[52px]">{m.trucknum || "—"}</b>
+                          <span>{m.plate}</span>
+                          <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">จอด {m.days} วัน</span>
+                          <span className="text-[12px] opacity-80">{m.mrCode} · {m.step || "-"}</span>
+                          {m.vendor && <span className="text-[12px] opacity-60">🏭 {m.vendor}</span>}
+                          <button
+                            onClick={() => openAddFromAtms(m)}
+                            className="ml-auto shrink-0 rounded-lg bg-[#1B8C4B] px-2.5 py-1 text-[12px] font-bold text-white hover:bg-[#0F6A3C]"
+                          >
+                            <Plus size={12} className="mr-0.5 inline" /> สร้างรายการ
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* MR ว่าง/ไม่ตรง — เติมจาก ATMS ได้ */}
+                {mrIssues.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 font-bold text-amber-700 dark:text-amber-300">⚠ เลข MR ในระบบว่างหรือไม่ตรงกับ ATMS ({mrIssues.length} คัน)</p>
+                    <div className="space-y-1">
+                      {mrIssues.map((p) => (
+                        <div key={p.wms!.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5">
+                          <b className="min-w-[52px]">{p.trucknum || "—"}</b>
+                          <span>{p.plate}</span>
+                          <span className="text-[12px] opacity-80">ATMS: {p.mrCode}</span>
+                          <span className="text-[12px] opacity-60">{p.wms!.mrMatch === "empty" ? "ระบบยังไม่มี MR" : `ระบบใส่ ${p.wms!.mrNo}`}</span>
+                          <button
+                            onClick={() => openEditFillMr(p.wms!.id, p.mrCode)}
+                            className="ml-auto shrink-0 rounded-lg border border-amber-400 px-2.5 py-1 text-[12px] font-bold text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                          >
+                            เติม MR
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!hasIssue && <p className="opacity-80">รถค้างซ่อมอู่นอกทุกคันมีรายการในระบบครบ และเลข MR ตรงกันทั้งหมด 🎉</p>}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {/* เตือนทะเบียนซ้ำ — รถ 1 คันต้องมีรายการที่ยังไม่เสร็จได้แค่ 1 รายการ */}
       {!isDone && dupList.length > 0 && (
         <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-red-300 bg-red-50 px-4 py-3 text-[13px] text-red-700 dark:border-red-500/40 dark:bg-red-900/20 dark:text-red-300">
@@ -1165,6 +1394,20 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         <span className="font-normal opacity-70">· ถึง {dailyStatus[r.plate].date.slice(5)}</span>
                       </div>
                     )}
+                    {/* ข้อมูล ATMS + รถจอดจริง (real-time จาก fleet) */}
+                    {(() => {
+                      const a = atmsOf(r)
+                      if (!a || jobTypeOf(r) === JOB_TYPE_PARTS) return null
+                      return (
+                        <div
+                          className="mt-1 inline-flex flex-wrap items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-900/25 dark:text-indigo-300"
+                          title={`ATMS: ${a.mrCode || "-"}${a.vendor ? " · อู่ " + a.vendor : ""}${a.stepAt ? " · อัพเดท " + a.stepAt : ""}${a.since ? " · จอดตั้งแต่ " + a.since : ""}`}
+                        >
+                          🛠 {a.step || "ATMS"}
+                          {a.parkedDays !== null && <span className="font-semibold">· จอดจริง {a.parkedDays} วัน</span>}
+                        </div>
+                      )
+                    })()}
                     {(() => {
                       const al = jobAlertOf(r)
                       if (!al) return null
@@ -1790,6 +2033,77 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )
                   })()}
                 </div>
+                </section>
+              )}
+
+              {/* ── Timeline ATMS (เฉพาะงานอู่นอก — โหลดเมื่อกด) ── */}
+              {editId && jobTypeOf(form) !== JOB_TYPE_PARTS && (
+                <section className="mt-5 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10">
+                  <div className="flex items-center justify-between gap-2 border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5">
+                    <p className="text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>📜 Timeline ATMS (ระบบแจ้งซ่อม)</p>
+                    <button
+                      type="button"
+                      onClick={loadAtmsTimeline}
+                      disabled={atmsTlLoading || !form.plate.trim()}
+                      className="rounded-lg border border-[#E2E8E4] dark:border-white/10 px-3 py-1 text-[12px] font-bold text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5 disabled:opacity-50"
+                    >
+                      {atmsTlLoading ? "กำลังโหลด..." : atmsTl ? "รีเฟรช" : "โหลด Timeline"}
+                    </button>
+                  </div>
+                  <div className="p-4">
+                    {atmsTlErr && <p className="text-sm text-red-500">โหลดไม่สำเร็จ: {atmsTlErr}</p>}
+                    {atmsTl === null && !atmsTlErr && !atmsTlLoading && (
+                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก ATMS (ปี {new Date().getFullYear()})</p>
+                    )}
+                    {atmsTl !== null && atmsTl.length === 0 && <p className="text-sm text-gray-400">ไม่พบข้อมูลใน ATMS สำหรับทะเบียนนี้</p>}
+                    {atmsTl !== null && atmsTl.length > 0 && (
+                      <div className="space-y-4">
+                        {atmsTl.map((it, idx) => (
+                          <div key={it.code ?? idx} className="rounded-lg border border-[#EEF2F0] dark:border-white/10 p-3">
+                            <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                              <b className="text-[#14271C] dark:text-white">{it.code ?? "-"}</b>
+                              {it.branch_name && <span className="text-gray-400">· {it.branch_name}</span>}
+                              {it.mechanic_name && <span className="text-gray-400">· ช่าง {it.mechanic_name}</span>}
+                            </div>
+                            {(it.tasks ?? []).length > 0 && (
+                              <ul className="mt-1.5 space-y-0.5">
+                                {(it.tasks ?? []).map((t, i) => (
+                                  <li key={i} className="text-[12.5px] text-gray-700 dark:text-gray-300">🔧 {t.problem ?? "-"}{t.maintenance_type ? <span className="text-gray-400"> ({t.maintenance_type})</span> : null}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {(it.purchase_requests ?? []).length > 0 && (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {(it.purchase_requests ?? []).map((pr, i) => (
+                                  <span key={i} className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[11px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300" title={(pr.purchase_orders ?? []).map((po) => `${po.po_code} · ${po.supplier ?? "-"} · ${po.received_status ?? "-"}`).join("\n") || "ยังไม่มี PO"}>
+                                    {pr.pr_code}{pr.amount ? ` ฿${(pr.amount).toLocaleString("th-TH")}` : ""}{pr.is_approved ? " ✓" : " (รออนุมัติ)"}
+                                    {(pr.purchase_orders ?? []).length > 0 && ` → ${(pr.purchase_orders ?? []).map((po) => po.po_code).join(", ")}`}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {(it.timeline_events ?? []).length > 0 && (
+                              <ol className="relative ml-1 mt-3 space-y-2.5 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-4">
+                                {[...(it.timeline_events ?? [])]
+                                  .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))
+                                  .slice(0, 40)
+                                  .map((ev, i) => (
+                                    <li key={ev.uid ?? i} className="relative">
+                                      <span className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full ${ev.source === "wms" ? "bg-[#1B8C4B]" : "bg-indigo-400"}`} />
+                                      <p className="text-[12.5px] text-gray-700 dark:text-gray-300">
+                                        <span className={`mr-1 rounded px-1 py-0.5 text-[10px] font-bold ${ev.source === "wms" ? "bg-[#ECFDF3] text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300" : "bg-indigo-50 text-indigo-600 dark:bg-indigo-900/25 dark:text-indigo-300"}`}>{ev.source === "wms" ? "WMS" : "ATMS"}</span>
+                                        {ev.label ?? "-"}
+                                      </p>
+                                      <p className="text-[11px] text-gray-400">{ev.action_by ? `${ev.action_by} · ` : ""}{ev.at ? fmtDateTime(ev.at) : "-"}</p>
+                                    </li>
+                                  ))}
+                              </ol>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </section>
               )}
 
