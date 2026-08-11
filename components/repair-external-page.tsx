@@ -208,7 +208,7 @@ type AtmsBoard = {
   missing: AtmsPending[]
   waitingButParked: { id: string; plate: string; fleetNo: string; days: number; since: string; plant: string }[]
   openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
-  prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean }[]
+  prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean; mrConflict: boolean; wmsMr: string }[]
   byKey: Record<string, { parkedDays: number | null; since: string; step: string; stepAt: string; vendor: string; mrCode: string; mrId: number }>
 }
 // รายการจาก /maintenance-requests (ATMS) — เก็บเฉพาะ field ที่ใช้แสดง timeline
@@ -1341,6 +1341,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">{p.status}</span>
                           <span className="text-[12px] opacity-80">PR: {p.prCodes.join(", ")}</span>
                           {p.poCodes.length > 0 && <span className="text-[12px] opacity-60">PO: {p.poCodes.join(", ")}</span>}
+                          {p.mrConflict && (
+                            <span
+                              className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                              title={`MR ในระบบ = ${p.wmsMr} แต่ MR งานค้างปัจจุบันใน ATMS = ${p.mrCode} — อาจเป็นคนละรอบซ่อม PR นี้อาจไม่ใช่ของงานในระบบ ตรวจ Timeline ก่อนเติม`}
+                            >
+                              ⚠ MR คนละใบ ({p.wmsMr}) — ตรวจก่อนเติม
+                            </span>
+                          )}
                           <button
                             onClick={() => openEditFillPr(p)}
                             className="ml-auto shrink-0 rounded-lg border border-amber-400 px-2.5 py-1 text-[12px] font-bold text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"

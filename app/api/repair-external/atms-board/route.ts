@@ -89,6 +89,9 @@ export async function GET() {
           id: String(w._id), plate: w.plate, fleetNo: w.fleetNo ?? "", status: w.status,
           mrCode: job.mrCode, prCodes: job.prCodes, poCodes: job.poCodes,
           poEmpty: !String(w.poCode ?? "").trim(),
+          // MR ใน WMS ไม่ตรงกับ MR ปัจจุบันของ ATMS = อาจเป็นคนละรอบซ่อม — PR ที่เติมต้องตรวจก่อน
+          mrConflict: !!normKey(w.mrNo) && normKey(w.mrNo) !== normKey(job.mrCode),
+          wmsMr: w.mrNo ?? "",
         }
       })
       .filter(Boolean)
