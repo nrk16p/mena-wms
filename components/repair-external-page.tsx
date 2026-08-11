@@ -984,7 +984,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const seg = (n: number, color: string) => (n && abTotal ? <div style={{ width: `${(n / abTotal) * 100}%`, background: color }} /> : null)
         const breachedPlates = rows.filter((r) => slaInfo(r)?.over).map((r) => r.plate).filter(Boolean).slice(0, 4)
         return (
-          <div className="mb-3 grid gap-3 lg:grid-cols-[220px_210px_1fr]">
+          <div className="mb-3 grid gap-3 lg:grid-cols-[220px_210px_235px_1fr]">
             {/* รถทั้งหมด */}
             <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">รถทั้งหมด</p>
@@ -1008,6 +1008,34 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               <p className="mt-1.5 truncate text-[11px] text-[#B4534F] dark:text-red-400">
                 {breachedPlates.length ? breachedPlates.join(", ") : "ไม่มีรายการค้างเกินกำหนด"}
               </p>
+            </button>
+            {/* อู่นอก WMS เทียบ Mena-Next (รถจอดซ่อมจริง) — คลิกเพื่อดูรายการที่ขาด */}
+            <button
+              onClick={() => {
+                setAtmsOpen(true)
+                setTimeout(() => document.getElementById("atms-compare")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50)
+              }}
+              disabled={!atms}
+              title={atms ? "คลิกเพื่อดูรายการที่ขาดในแถบเทียบ ATMS" : "กำลังโหลดข้อมูล Mena-Next..."}
+              className={`rounded-2xl border p-4 text-left transition ${atms && atms.missing.length > 0 ? "border-indigo-300 bg-indigo-50/70 dark:border-indigo-500/40 dark:bg-indigo-900/15" : "border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]"} disabled:cursor-default`}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">🔧 อู่นอก WMS / Mena-Next</p>
+              <div className="mt-1.5 flex items-baseline gap-1.5">
+                {atms ? (
+                  <>
+                    <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{atms.pending.filter((p) => p.wms).length}</span>
+                    <span className="text-[20px] font-semibold leading-none text-[#9AA8A0]" style={{ fontFamily: "'Mitr', sans-serif" }}>/ {atms.pending.length}</span>
+                    <span className="text-xs text-[#9AA8A0]">คัน</span>
+                  </>
+                ) : (
+                  <span className="text-[34px] font-semibold leading-none text-gray-300 dark:text-gray-600" style={{ fontFamily: "'Mitr', sans-serif" }}>…</span>
+                )}
+              </div>
+              {atms && (
+                atms.missing.length > 0
+                  ? <p className="mt-1.5 text-[11px] font-bold text-rose-600 dark:text-rose-300">ขาดในระบบ {atms.missing.length} คัน — คลิกดูรายการ</p>
+                  : <p className="mt-1.5 text-[11px] text-[#1B8C4B]">ครบทุกคันตามรถจอดซ่อมจริง ✓</p>
+              )}
             </button>
             {/* การกระจายตามอายุงาน */}
             <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
@@ -1220,7 +1248,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const mrIssues = inWms.filter((p) => p.wms!.mrMatch !== "match" && p.mrCode)
         const hasIssue = atms.missing.length > 0 || mrIssues.length > 0
         return (
-          <div className={`mb-4 rounded-[12px] border px-4 py-3 text-[13px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
+          <div id="atms-compare" className={`mb-4 rounded-[12px] border px-4 py-3 text-[13px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <span className="font-bold">🔎 เทียบ ATMS·รถจอดจริง:</span>
               <span>ค้างซ่อมอู่นอกจริง <b>{atms.pending.length}</b> คัน</span>
