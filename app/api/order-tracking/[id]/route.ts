@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { fetchPrSnapshots } from "@/lib/pr-snapshot"
 import { normalizeImages } from "@/lib/media"
-import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus } from "@/lib/order-tracking"
+import { OT_DONE_STATUS, statusFromSnapshot, normalizeOtStatus, cleanLinks } from "@/lib/order-tracking"
 import { deptScope, canUseDept } from "@/lib/dept-access"
 import type { Session } from "next-auth"
 
@@ -84,6 +84,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     estimatedDone: s(body.estimatedDone ?? existing.estimatedDone),
     prCode,
     images: Array.isArray(body.images) ? normalizeImages(body.images) : (existing.images ?? []),
+    links:  Array.isArray(body.links) ? cleanLinks(body.links) : (existing.links ?? []),
     updatedAt: now, updatedBy: by,
   }
   if (!set.title) return NextResponse.json({ error: "กรุณาระบุเรื่องที่ขอ" }, { status: 400 })

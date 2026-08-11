@@ -122,10 +122,19 @@ export type OrderTracking = {
   prSyncedAt?: string
   closedAt:   string       // YYYY-MM-DD
   images?:    OtImage[]    // ไฟล์แนบ (รูป/เอกสาร)
+  links?:     string[]     // ลิงก์แนบ (URL)
   log?:       OtLogEntry[] // เหตุการณ์: เปิดเรื่อง/รับเรื่อง/แก้ไข/ปิดงาน
   createdAt?: string
   updatedAt?: string
   updatedBy?: string
+}
+
+// ลิงก์แนบ — รับเฉพาะ http(s), trim, ไม่เกิน 20 ลิงก์
+export function cleanLinks(v: unknown): string[] {
+  return (Array.isArray(v) ? v : [])
+    .map((x) => String(x ?? "").trim())
+    .filter((x) => /^https?:\/\//i.test(x))
+    .slice(0, 20)
 }
 
 // คำนวณสถานะจากข้อมูล PR จริง (ใช้ทั้งตอนสร้าง/แก้ไข/sync)

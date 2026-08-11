@@ -53,7 +53,13 @@ const ageDays = (iso?: string): number | null => {
   return Math.max(0, Math.floor((Date.now() - t) / 86400000))
 }
 
-const EMPTY = { prCode: "", title: "", detail: "", note: "", dept: "", estimatedDone: "" }
+const EMPTY = { prCode: "", title: "", detail: "", note: "", dept: "", estimatedDone: "", linksText: "" }
+
+// ย่อ URL ให้อ่านง่ายบน chip — ตัด protocol แล้ว truncate
+const shortUrl = (u: string) => {
+  const t = u.replace(/^https?:\/\//i, "").replace(/\/$/, "")
+  return t.length > 32 ? t.slice(0, 32) + "…" : t
+}
 
 export function OrderTrackingPage() {
   const { data: session } = useSession()
@@ -108,6 +114,8 @@ export function OrderTrackingPage() {
 
   // แถวที่กางอ่านรายละเอียดเต็ม (accordion — เปิดพร้อมกันได้หลายแถว)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  // เปิดรูปเต็มในหน้า (lightbox) — แทนการเปิดแท็บใหม่/ลิงก์ว่างที่ทำหน้าเด้งขึ้นบน
+  const [lightbox, setLightbox] = useState<string | null>(null)
   const toggleExpand = (id: string) =>
     setExpandedIds((prev) => {
       const next = new Set(prev)
@@ -219,7 +227,7 @@ export function OrderTrackingPage() {
   }
   function openEdit(r: OrderTracking) {
     setEditId(r._id); setCurrent(r)
-    setForm({ prCode: r.prCode || "", title: r.title || "", detail: r.detail || "", note: r.note || "", dept: r.dept || "", estimatedDone: r.estimatedDone || "" })
+    setForm({ prCode: r.prCode || "", title: r.title || "", detail: r.detail || "", note: r.note || "", dept: r.dept || "", estimatedDone: r.estimatedDone || "", linksText: (r.links ?? []).join("\n") })
     setFormImages(r.images ?? [])
     setPrHits([]); setPrPreview(null); setShowLog(false)
     setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
@@ -234,7 +242,10 @@ export function OrderTrackingPage() {
     try {
       const url    = editId ? `/api/order-tracking/${editId}` : "/api/order-tracking"
       const method = editId ? "PUT" : "POST"
-      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, images: formImages }) })
+      // ลิงก์แนบ — 1 บรรทัดต่อ 1 ลิงก์ เติม https:// ให้อัตโนมัติถ้าไม่ได้ใส่มา
+      const links = form.linksText.split("\n").map((x) => x.trim()).filter(Boolean)
+        .map((x) => (/^https?:\/\//i.test(x) ? x : `https://${x}`))
+      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, images: formImages, links }) })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "บันทึกไม่สำเร็จ") }
       setOpen(false)
       swalToast("success", editId ? "แก้ไขแล้ว" : "เปิดเรื่องแล้ว")
@@ -532,13 +543,24 @@ export function OrderTrackingPage() {
                       {(r.images?.length ?? 0) > 0 && (
                         <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                           {r.images!.map((img, ii) => /\.pdf$/i.test(img.filename || "") ? (
-                            <a key={ii} href={img.webpUrl} target="_blank" rel="noreferrer" title={img.filename} className="inline-flex items-center gap-1 rounded-lg border border-[#F3C1C1] dark:border-red-900/40 bg-[#FEF3F2] dark:bg-red-950/20 px-2 py-1.5 text-[11px] font-medium text-[#DC2626] hover:underline">
+                            <a key={ii} href={img.webpUrl || undefined} target="_blank" rel="noreferrer" title={img.filename} className="inline-flex items-center gap-1 rounded-lg border border-[#F3C1C1] dark:border-red-900/40 bg-[#FEF3F2] dark:bg-red-950/20 px-2 py-1.5 text-[11px] font-medium text-[#DC2626] hover:underline">
                               📄 {img.filename.length > 24 ? img.filename.slice(0, 24) + "…" : img.filename}
                             </a>
                           ) : (
-                            <a key={ii} href={img.webpUrl} target="_blank" rel="noreferrer" title={img.filename}>
+                            // เปิดรูปแบบ lightbox ในหน้าเลย — ไม่ใช้ <a> (ลิงก์ว่างทำหน้าเด้งขึ้นบนสุด)
+                            <button key={ii} type="button" onClick={() => setLightbox(img.webpUrl || img.thumbnailUrl || "")} title={img.filename}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={img.thumbnailUrl || img.webpUrl} alt={img.filename} className="h-14 w-14 rounded-lg border border-[#EEF2F0] dark:border-white/10 object-cover transition hover:opacity-80" />
+                              <img src={img.thumbnailUrl || img.webpUrl} alt={img.filename} className="h-14 w-14 cursor-zoom-in rounded-lg border border-[#EEF2F0] dark:border-white/10 object-cover transition hover:opacity-80" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {/* ลิงก์แนบ */}
+                      {(r.links?.length ?? 0) > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          {r.links!.map((u, ii) => (
+                            <a key={ii} href={u} target="_blank" rel="noreferrer" title={u} className="inline-flex max-w-full items-center gap-1 rounded-lg border border-[#D6E4F0] dark:border-blue-900/40 bg-[#F0F7FE] dark:bg-blue-950/20 px-2 py-1.5 text-[11px] font-medium text-[#1D6FB8] dark:text-blue-300 hover:underline">
+                              🔗 <span className="truncate">{shortUrl(u)}</span>
                             </a>
                           ))}
                         </div>
@@ -764,6 +786,12 @@ export function OrderTrackingPage() {
                 <ImageUpload key={editId ?? "new"} initial={formImages} onChange={setFormImages} />
               </div>
 
+              {/* ลิงก์แนบ — 1 บรรทัดต่อ 1 ลิงก์ */}
+              <div>
+                <label className={labelCls}>🔗 ลิงก์แนบ <span className="text-[10px] font-normal text-gray-400">(1 บรรทัดต่อ 1 ลิงก์ — เช่น ลิงก์สินค้า, ใบเสนอราคาออนไลน์, เอกสาร)</span></label>
+                <textarea value={form.linksText} onChange={(e) => setForm({ ...form, linksText: e.target.value })} rows={2} className={inputCls} placeholder={"https://example.com/quotation\nhttps://shopee.co.th/..."} />
+              </div>
+
               {/* Note — เฉพาะตอนเปิดเรื่องใหม่ (หลังจากนั้นให้ใช้ความคิดเห็นแทน — มีชื่อ+เวลา) */}
               {!editId && (
                 <div>
@@ -905,6 +933,17 @@ export function OrderTrackingPage() {
         </motion.div>
       )}
       </AnimatePresence>
+
+      {/* Lightbox ดูรูปเต็ม — คลิกพื้นหลังหรือ X เพื่อปิด */}
+      {lightbox && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-6" onClick={() => setLightbox(null)}>
+          <button type="button" onClick={() => setLightbox(null)} className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">
+            <X size={18} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
+        </div>
+      )}
     </div>
   )
 }
