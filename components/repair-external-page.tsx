@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, MessageSquare, Send, CornerDownRight, Copy, Link2 } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, MessageSquare, Send, CornerDownRight, Copy, Link2, Megaphone } from "lucide-react"
 import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
@@ -494,6 +494,61 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     )
   }
 
+  // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ดึงข้อมูลสด ณ ตอนกด ไม่อิงตัวกรองบนหน้าจอ (ยกเว้นประเภทงาน)
+  // 🔴 = ค้างสถานะแรกของ workflow (รอรถเข้า/รอดำเนินการ) · 🟢 = เลยกำหนดเสร็จแล้วแต่ยังไม่ปิดงาน
+  async function copyFollowUp() {
+    if (typeof window === "undefined") return
+    let list: RepairExternal[] = []
+    try {
+      const p = new URLSearchParams({ scope: "active" })
+      if (fType) p.set("type", fType)
+      const res  = await fetch(`/api/repair-external?${p.toString()}`)
+      const data = await res.json()
+      list = Array.isArray(data) ? data : []
+    } catch { swalError("โหลดข้อมูลไม่สำเร็จ"); return }
+
+    const now   = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+    const fmtThaiDay = (s: string) => {
+      const d = new Date(s)
+      return isNaN(d.getTime()) ? s : d.toLocaleDateString("th-TH", { day: "numeric", month: "short" })
+    }
+    const red = list
+      .filter((r) => r.status === statusesFor(jobTypeOf(r))[0].value)
+      .sort((a, b) => (ageDays(b.receivedDate) ?? 0) - (ageDays(a.receivedDate) ?? 0))
+    const green = list
+      .filter((r) => !red.includes(r) && r.dueDate && r.dueDate < today)
+      .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))
+    if (!red.length && !green.length) { swalToast("success", "ไม่มีงานที่ต้องตามตอนนี้ 🎉"); return }
+
+    const keyOf  = (r: RepairExternal) => r.fleetNo?.trim() || r.plate || "-"
+    const linkOf = (r: RepairExternal) => `${window.location.origin}/repair-external?q=${encodeURIComponent(keyOf(r))}`
+    const lines: string[] = [`📢 งานซ่อม ${red.length + green.length} คัน สถานะในระบบน่าจะไม่ตรงครับ (${fmtThaiDay(today)})`]
+    let n = 0
+    if (red.length) {
+      const names = [...new Set(red.map((r) => r.status))].join("/")
+      lines.push("", `🔴 ${red.length} คันนี้ ในระบบยังเขียนว่า "${names}"`, "→ ถ้ารถเข้าอู่แล้ว ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
+      red.forEach((r) => {
+        const age = ageDays(r.receivedDate) ?? 0
+        lines.push(`${++n}. ${keyOf(r)} — จอดมา ${age} วัน${age >= 45 ? "‼️" : ""}${r.symptom ? ` (${r.symptom})` : ""}${r.poCode ? " มี PO แล้ว" : ""}`)
+        lines.push(linkOf(r))
+      })
+    }
+    if (green.length) {
+      lines.push("", `🟢 ${green.length} คันนี้ เลยกำหนดเสร็จแล้ว แต่งานยังไม่ได้ปิด`, "→ ถ้าซ่อมเสร็จแล้ว ฝากปิดงานด้วยครับ (ใส่วันเสร็จ = วันที่ออกอู่)", "")
+      green.forEach((r) => {
+        const over = Math.max(1, Math.floor((Date.parse(today) - Date.parse(r.dueDate)) / 86400000))
+        lines.push(`${++n}. ${keyOf(r)} — กำหนดเสร็จ ${fmtThaiDay(r.dueDate)} เลยมา ${over} วัน${r.mrNo ? "" : " (ยังไม่มี MR — เช็คด้วยว่าซ่อมจริงไหม)"}`)
+        lines.push(linkOf(r))
+      })
+    }
+    lines.push("", "📌 กดลิงก์ → เจอรถคันนั้นเลย → กดที่รายการ → แก้สถานะ → บันทึก จบ", "ขอบคุณครับ 🙏")
+    navigator.clipboard?.writeText(lines.join("\n")).then(
+      () => swalToast("success", `คัดลอกข้อความตามงาน ${red.length + green.length} คันแล้ว`),
+      () => swalError("คัดลอกไม่สำเร็จ"),
+    )
+  }
+
   function copyShareLink() {
     if (!editId || typeof window === "undefined") return
     const url = `${window.location.origin}/repair-external?id=${editId}`
@@ -964,6 +1019,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
               >
                 <Copy size={12} /> คัดลอกสรุป
+              </button>
+              <button
+                onClick={copyFollowUp}
+                title="คัดลอกข้อความตามงาน — รถค้างสถานะรอรถเข้า + งานเลยกำหนดเสร็จ (ส่งไลน์)"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#FDF3DD] hover:text-[#B07D12] dark:hover:bg-white/5"
+              >
+                <Megaphone size={12} /> ตามงาน
               </button>
               <button
                 onClick={() => { setFStatus(""); setFType("") }}
