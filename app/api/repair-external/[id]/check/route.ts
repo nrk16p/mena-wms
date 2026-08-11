@@ -26,9 +26,17 @@ export async function POST(_req: NextRequest, { params }: Params) {
   if (!doc) return NextResponse.json({ error: "ไม่พบรายการ" }, { status: 404 })
 
   const now = new Date()
+  // วันแบบเวลาไทย (+7) — ให้ตรงกับความรู้สึก "วันนี้" ของผู้ใช้
+  const dateBKK = new Date(now.getTime() + 7 * 3600 * 1000).toISOString().slice(0, 10)
   await db.collection(COLL).updateOne(
     { _id },
     { $set: { lastCheckedAt: now.toISOString(), lastCheckedBy: by, lastCheckedByEmail: byEmail } },
+  )
+  // เก็บประวัติรายวันสำหรับปฏิทิน — วันละ 1 รายการ (กดซ้ำในวันเดิมไม่เพิ่ม)
+  await db.collection(COLL).updateOne(
+    { _id, "dailyChecks.date": { $ne: dateBKK } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { $push: { dailyChecks: { date: dateBKK, by, at: now.toISOString() } } as any },
   )
   await db.collection(REPAIR_LOG_COLL).insertOne({
     repairId: id, plate: doc.plate ?? "", fleetNo: doc.fleetNo ?? "",
@@ -38,5 +46,5 @@ export async function POST(_req: NextRequest, { params }: Params) {
       to: `ยืนยันแล้ว ${now.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
     }],
   })
-  return NextResponse.json({ ok: true, lastCheckedAt: now.toISOString(), lastCheckedBy: by })
+  return NextResponse.json({ ok: true, lastCheckedAt: now.toISOString(), lastCheckedBy: by, date: dateBKK })
 }

@@ -102,6 +102,7 @@ export type RepairExternal = {
   lastCheckedAt?:  string  // ISO — เวลายืนยันตรวจเช็คประจำวันล่าสุด (ไม่อยู่ใน buildDoc — เขียนผ่าน /check เท่านั้น)
   lastCheckedBy?:  string
   lastCheckedByEmail?: string
+  dailyChecks?: { date: string; by: string; at: string }[]  // ประวัติเช็ครายวัน (date = YYYY-MM-DD เวลาไทย) — ใช้วาดปฏิทิน
   prCode:       string  // รหัส PR
   poCode:       string  // รหัส PO
   note:         string  // หมายเหตุ

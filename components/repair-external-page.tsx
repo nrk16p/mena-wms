@@ -259,7 +259,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     atms?.byKey[atmsKey(r.plate)] ?? (r.fleetNo ? atms?.byKey[atmsKey(r.fleetNo)] : undefined)
 
   // ── ยืนยันตรวจเช็คประจำวัน — จดเวลา+ผู้เช็คต่อรายการ badge เขียวเมื่อเช็คแล้ววันนี้ ──
-  const checkedToday = (r: RepairExternal) => (r.lastCheckedAt ?? "").slice(0, 10) === TODAY_STR
+  // วันเวลาไทย (+7) ให้ตรงกับฝั่ง API — TODAY_STR เป็น UTC ใช้กับเรื่องนี้ไม่ได้ช่วงก่อน 7 โมงเช้า
+  const bkkDate = (iso?: string) => {
+    const t = iso ? Date.parse(iso) : Date.now()
+    return isNaN(t) ? "" : new Date(t + 7 * 3600 * 1000).toISOString().slice(0, 10)
+  }
+  const checkedToday = (r: RepairExternal) => !!r.lastCheckedAt && bkkDate(r.lastCheckedAt) === bkkDate()
   const [uncheckedOnly, setUncheckedOnly] = useState(false)
   const [checking, setChecking] = useState<string | null>(null)
   async function confirmCheck(r: RepairExternal) {
@@ -268,8 +273,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const res = await fetch(`/api/repair-external/${r._id}/check`, { method: "POST" })
       const d = await res.json()
       if (!res.ok || !d.ok) throw new Error(d.error || "ยืนยันไม่สำเร็จ")
-      setRows((rs) => rs.map((x) => (x._id === r._id ? { ...x, lastCheckedAt: d.lastCheckedAt, lastCheckedBy: d.lastCheckedBy } : x)))
-      setEditRow((er) => (er && er._id === r._id ? { ...er, lastCheckedAt: d.lastCheckedAt, lastCheckedBy: d.lastCheckedBy } : er))
+      const patch = (x: RepairExternal): RepairExternal => ({
+        ...x,
+        lastCheckedAt: d.lastCheckedAt,
+        lastCheckedBy: d.lastCheckedBy,
+        dailyChecks: (x.dailyChecks ?? []).some((c) => c.date === d.date)
+          ? x.dailyChecks
+          : [...(x.dailyChecks ?? []), { date: d.date, by: d.lastCheckedBy, at: d.lastCheckedAt }],
+      })
+      setRows((rs) => rs.map((x) => (x._id === r._id ? patch(x) : x)))
+      setEditRow((er) => (er && er._id === r._id ? patch(er) : er))
       swalToast("success", `✅ เช็คแล้ว — ${r.fleetNo || r.plate}`)
     } catch (e) {
       swalError(e instanceof Error ? e.message : "ยืนยันไม่สำเร็จ")
@@ -1994,26 +2007,65 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </label>
                     )}
                     {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
-                    {/* ยืนยันตรวจเช็คประจำวัน (ใน modal) */}
-                    {editId && editRow && !isDoneStatus(editRow.status) && (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-[#F9FCFA] dark:bg-white/[0.02] px-3 py-2">
-                        <span className="text-[11.5px] text-[#9AA8A0]">
-                          ตรวจเช็คประจำวัน: {editRow.lastCheckedAt ? `ล่าสุด ${fmtDateTime(editRow.lastCheckedAt)} โดย ${editRow.lastCheckedBy || "-"}` : "ยังไม่เคยยืนยัน"}
-                        </span>
-                        {checkedToday(editRow) ? (
-                          <span className="text-[11.5px] font-bold text-[#1B8C4B]">✅ เช็คแล้ววันนี้</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => confirmCheck(editRow)}
-                            disabled={checking === editRow._id}
-                            className="rounded-lg border border-[#BEE8F1] dark:border-cyan-900/40 px-2.5 py-1 text-[11.5px] font-bold text-[#0E7490] dark:text-cyan-300 hover:bg-[#F0FBFD] dark:hover:bg-cyan-950/20 disabled:opacity-50"
-                          >
-                            {checking === editRow._id ? "กำลังบันทึก..." : "☑️ ยืนยันเช็ควันนี้"}
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {/* ปฏิทินตรวจเช็คประจำวัน — ย้อนหลังตั้งแต่วันรับแจ้ง กดได้เฉพาะช่อง "วันนี้" */}
+                    {editId && editRow && !isDoneStatus(editRow.status) && (() => {
+                      const today = bkkDate()
+                      const byDate = new Map<string, { by: string; at: string }>()
+                      for (const c of editRow.dailyChecks ?? []) byDate.set(c.date, { by: c.by, at: c.at })
+                      // รายการที่เช็คก่อนมี dailyChecks — เติมจาก lastCheckedAt
+                      if (editRow.lastCheckedAt && !byDate.has(bkkDate(editRow.lastCheckedAt)))
+                        byDate.set(bkkDate(editRow.lastCheckedAt), { by: editRow.lastCheckedBy || "", at: editRow.lastCheckedAt })
+                      // ไล่วันจากวันรับแจ้ง → วันนี้ (โชว์ล่าสุดไม่เกิน 60 วัน)
+                      const startTs = Date.parse(editRow.receivedDate || today)
+                      const days: string[] = []
+                      for (let t = isNaN(startTs) ? Date.parse(today) : startTs; ; t += 86400000) {
+                        const ds = new Date(t).toISOString().slice(0, 10)
+                        if (ds > today) break
+                        days.push(ds)
+                      }
+                      const hidden = Math.max(0, days.length - 60)
+                      const shown = days.slice(-60)
+                      const doneCnt = days.filter((ds) => byDate.has(ds)).length
+                      const fmtD = (ds: string) => new Date(ds).toLocaleDateString("th-TH", { day: "numeric", month: "short" })
+                      return (
+                        <div className="mt-2 rounded-lg bg-[#F9FCFA] dark:bg-white/[0.02] px-3 py-2.5">
+                          <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="text-[11.5px] font-semibold text-[#5B7568] dark:text-gray-300">🗓 ตรวจเช็คประจำวัน</span>
+                            <span className="text-[11px] text-[#9AA8A0]">เช็คแล้ว {doneCnt}/{days.length} วัน (นับจากวันรับแจ้ง{hidden > 0 ? ` · แสดง 60 วันล่าสุด` : ""})</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {shown.map((ds) => {
+                              const c = byDate.get(ds)
+                              const isToday = ds === today
+                              const base = "flex h-7 w-7 items-center justify-center rounded-md text-[10.5px] font-semibold"
+                              if (isToday) {
+                                return c ? (
+                                  <span key={ds} title={`วันนี้ ${fmtD(ds)} — ✅ เช็คแล้ว โดย ${c.by || "-"}`} className={`${base} bg-[#1B8C4B] text-white ring-2 ring-[#1B8C4B]/40`}>✓</span>
+                                ) : (
+                                  // ช่องวันนี้ = ปุ่มเดียวที่กดได้
+                                  <button
+                                    key={ds}
+                                    type="button"
+                                    onClick={() => confirmCheck(editRow)}
+                                    disabled={checking === editRow._id}
+                                    title={`วันนี้ ${fmtD(ds)} — กดเพื่อยืนยันว่าตรวจเช็คแล้ว`}
+                                    className={`${base} animate-pulse border-2 border-[#0891B2] bg-[#F0FBFD] text-[#0E7490] hover:bg-[#0891B2] hover:text-white dark:bg-cyan-950/30 dark:text-cyan-300 disabled:opacity-50`}
+                                  >
+                                    {new Date(ds).getDate()}
+                                  </button>
+                                )
+                              }
+                              return c ? (
+                                <span key={ds} title={`${fmtD(ds)} — ✅ เช็คแล้ว โดย ${c.by || "-"}`} className={`${base} bg-[#ECFDF3] text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300`}>✓</span>
+                              ) : (
+                                <span key={ds} title={`${fmtD(ds)} — ไม่ได้เช็ค`} className={`${base} bg-gray-100 text-gray-400 dark:bg-white/5 dark:text-gray-500`}>{new Date(ds).getDate()}</span>
+                              )
+                            })}
+                          </div>
+                          <p className="mt-1.5 text-[10.5px] text-[#9AA8A0]">✓ เขียว = เช็คแล้ว · เทา = ไม่ได้เช็ค (ย้อนหลังกดไม่ได้) · กรอบฟ้ากะพริบ = วันนี้ กดยืนยันได้</p>
+                        </div>
+                      )
+                    })()}
                     {missingReq.length > 0 && (
                       <p className="mt-1 rounded-md bg-[#FDF3DD] px-2 py-1 text-[11px] text-[#B07D12]">
                         ⚠ สถานะนี้ต้องกรอกให้ครบก่อนบันทึก: {missingReq.map((m) => m.label).join(", ")}
