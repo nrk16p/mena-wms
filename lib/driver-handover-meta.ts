@@ -22,6 +22,13 @@ export type HandoverDriver = {
   fleetKey: string       // เช่น "ASIA ML" — ใช้จับคู่กับรถ
   readyDate: string | null // YYYY-MM-DD วันที่คนพร้อมรับรถ
   waitDays: number       // รอมาแล้วกี่วันนับจากพร้อม
+  /** สถานะล่าสุดของรถที่จองจาก Mena-Next (null = ยังไม่ได้จองรถ) */
+  truckStatus: null | {
+    step: string          // ขั้นตอนซ่อมปัจจุบัน หรือ "พร้อมใช้/วิ่งงาน" ถ้าไม่มีงานซ่อมและไม่จอดอู่
+    expectedDone: string  // YYYY-MM-DD ("" = ไม่มี)
+    parked: boolean       // ยังอยู่ในรายการรถจอด branch 2/5 ไหม
+    parkedDays: number
+  }
 }
 
 export type HandoverTruck = {
@@ -85,18 +92,24 @@ export function driverStatusMeta(value: string) {
   )
 }
 
-// chip ขั้นตอนซ่อมของรถ
-export function truckStepMeta(truck: Pick<HandoverTruck, "job" | "readyBucket" | "forSale">) {
-  if (truck.forSale)
-    return { label: "รถรอขาย", emoji: "🏷️", cls: "bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15 dark:text-zinc-400" }
-  const step = truck.job?.step ?? ""
-  if (!truck.job || step === "รถซ่อมเสร็จสิ้น")
+// chip จากชื่อขั้นตอนซ่อม — ใช้ได้ทั้งรถในลิสต์จอดและรถที่จองแล้ว
+export function stepMetaFromLabel(step: string) {
+  if (/รอขาย/.test(step))
+    return { label: step, emoji: "🏷️", cls: "bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15 dark:text-zinc-400" }
+  if (!step || step === "รถซ่อมเสร็จสิ้น" || step === "ไม่มีงานซ่อมเปิด" || /พร้อมใช้/.test(step))
     return { label: step || "ไม่มีงานซ่อมเปิด", emoji: "✅", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" }
   if (/รออะไหล่/.test(step))
     return { label: step, emoji: "🔩", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" }
   if (/รออนุมัติ|รอราคา|รอประเมิน/.test(step))
     return { label: step, emoji: "📋", cls: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300" }
   return { label: step, emoji: "🔧", cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300" }
+}
+
+// chip ขั้นตอนซ่อมของรถ
+export function truckStepMeta(truck: Pick<HandoverTruck, "job" | "readyBucket" | "forSale">) {
+  if (truck.forSale)
+    return { label: "รถรอขาย", emoji: "🏷️", cls: "bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15 dark:text-zinc-400" }
+  return stepMetaFromLabel(truck.job?.step ?? "")
 }
 
 /** label คอลัมน์ของ Fleet Balance matrix */

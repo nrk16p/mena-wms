@@ -113,7 +113,7 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
       truckNum: get(COL.truckNum), plate: get(COL.plate), readiness: get(COL.readiness),
       examScore: get(COL.examScore), receivedDate: get(COL.receivedDate),
       fleetKey: driverFleetKey(get(COL.customer), get(COL.position)),
-      readyDate, waitDays,
+      readyDate, waitDays, truckStatus: null,
     })
   })
   return out
@@ -121,6 +121,13 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function fetchTrucks(drivers: HandoverDriver[]): Promise<HandoverTruck[]> {
+  const { trucks } = await fetchTrucksWithJobs(drivers)
+  return trucks
+}
+
+async function fetchTrucksWithJobs(
+  drivers: HandoverDriver[]
+): Promise<{ trucks: HandoverTruck[]; jobByPlate: Map<string, any> }> {
   const [openJobsRaw, fleetRaw] = await Promise.all([
     apiGet(`${MONGODBAPI_URL}/repair-board/open-jobs`) as Promise<any>,
     apiGet(`${FLEET_API_URL}/fleet/current?status_id=2&status_id=4&status_id=5&minimal=true&branch_id=2&branch_id=5`) as Promise<any>,
@@ -187,15 +194,39 @@ export async function fetchTrucks(drivers: HandoverDriver[]): Promise<HandoverTr
                 reservedBy: reserved.get((t.trucknum ?? "").toUpperCase()) ?? "",
               })
             }
-  return out
+  return { trucks: out, jobByPlate }
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export async function fetchHandoverData(): Promise<HandoverData> {
   const drivers = await fetchDrivers()
-  const trucks = await fetchTrucks(drivers)
+  const { trucks, jobByPlate } = await fetchTrucksWithJobs(drivers)
+
+  // สถานะล่าสุดของรถที่จอง — ดูจากลิสต์รถจอดก่อน ไม่เจอค่อยหา open-job ตามทะเบียน
+  const truckByNum = new Map(trucks.map((t) => [t.trucknum.toUpperCase(), t]))
+  for (const d of drivers) {
+    if (!d.truckNum) continue
+    const t = truckByNum.get(d.truckNum.toUpperCase())
+    if (t) {
+      d.truckStatus = {
+        step: t.job?.step ?? "ไม่มีงานซ่อมเปิด",
+        expectedDone: t.job?.expectedDone ?? "",
+        parked: true, parkedDays: t.parkedDays,
+      }
+      continue
+    }
+    const j = d.plate ? jobByPlate.get(d.plate) : undefined
+    const oj = j?.open_maintenance_job
+    d.truckStatus = oj
+      ? {
+          step: oj.current_step?.step?.label_th ?? "มีงานซ่อมเปิด",
+          expectedDone: String(oj.expected_done_at ?? oj.open_expectation?.expected_at ?? "").slice(0, 10),
+          parked: false, parkedDays: 0,
+        }
+      : { step: "พร้อมใช้/วิ่งงาน", expectedDone: "", parked: false, parkedDays: 0 }
+  }
   return { drivers, trucks, fetchedAt: new Date().toISOString() }
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /* ---------- เขียนกลับชีต ---------- */
 

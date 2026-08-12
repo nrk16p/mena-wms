@@ -11,7 +11,7 @@ import {
 import { swalToast, swalError } from "@/lib/swal"
 import {
   type HandoverData, type HandoverDriver, type HandoverTruck,
-  ACTIVE_STATUSES, EDITABLE_STATUSES, driverStatusMeta, truckStepMeta, bucketLabel,
+  ACTIVE_STATUSES, EDITABLE_STATUSES, driverStatusMeta, truckStepMeta, stepMetaFromLabel, bucketLabel,
 } from "@/lib/driver-handover-meta"
 
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
@@ -31,6 +31,32 @@ function driverBucket(d: HandoverDriver): string {
 }
 
 const isActive = (st: string) => (ACTIVE_STATUSES as readonly string[]).includes(st)
+
+/* ---------- ช่วงเวลาแบบ BA: 4 ช่วงคงที่ + ติดปัญหา ---------- */
+const PERIODS = ["now", "w0", "w1", "later"] as const
+type PeriodKey = (typeof PERIODS)[number] | "stuck"
+const PERIOD_LABELS: Record<string, string> = {
+  now: "พร้อมตอนนี้", w0: "สัปดาห์นี้", w1: "สัปดาห์หน้า", later: "ถัดไป/ไม่ระบุ", stuck: "ติดปัญหา/ไม่มี ETA",
+}
+
+function bucketPeriod(bucket: string): PeriodKey {
+  if (bucket === "พร้อมแล้ว") return "now"
+  if (bucket === "เกินกำหนด" || bucket === "ไม่มี ETA") return "stuck"
+  const w0 = mondayIso(todayIso())
+  if (bucket === w0) return "w0"
+  const n = new Date(w0); n.setUTCDate(n.getUTCDate() + 7)
+  if (bucket === n.toISOString().slice(0, 10)) return "w1"
+  return "later"
+}
+/** ช่วงเวลาของ "คน" — คนไม่มีวันชัดเจนถือเป็น ถัดไป/ไม่ระบุ */
+function driverPeriod(d: HandoverDriver): PeriodKey {
+  const p = bucketPeriod(driverBucket(d))
+  return p === "stuck" ? "later" : p
+}
+
+// สีชุดเทียบ คน/รถ — ผ่าน palette validator ทั้ง light/dark, ไอคอน 👤/🚛 กำกับตัวตนเสมอ
+const C_PEOPLE = "#2563EB"
+const C_TRUCK = "#1B8C4B"
 
 function bucketOrder(b: string): number {
   if (b === "พร้อมแล้ว") return 0
@@ -77,6 +103,7 @@ export function DriverHandoverPage() {
   const [filterFleet, setFilterFleet] = useState("")
   const [filterBucket, setFilterBucket] = useState("")
   const [noTruckOnly, setNoTruckOnly] = useState(false)
+  const [showDetail, setShowDetail] = useState(false)
 
   const [pickFor, setPickFor] = useState<HandoverDriver | null>(null) // เปิด modal เลือกรถ
   const [pickAllFleet, setPickAllFleet] = useState(false)
@@ -125,6 +152,46 @@ export function DriverHandoverPage() {
     return { cols, rows: rows.filter((r) => r.totalPeople > 0 || r.totalTrucks > 0) }
   }, [drivers, trucks])
 
+  /* ---------- การ์ดรายฟลีท (มุมมองหลัก) ---------- */
+  const fleetCards = useMemo(() => {
+    const demand = drivers.filter((d) => isActive(d.status) && d.fleetKey !== "SPARE")
+    const supply = trucks.filter((t) => !t.forSale)
+    const fleets = [...new Set([...demand.map((d) => d.fleetKey), ...supply.map((t) => t.fleetKey)])]
+    const cards = fleets.map((fleet) => {
+      const dm = demand.filter((d) => d.fleetKey === fleet)
+      const sp = supply.filter((t) => t.fleetKey === fleet)
+      const rows = PERIODS.map((p) => {
+        const people = dm.filter((d) => driverPeriod(d) === p)
+        const tr = sp.filter((t) => bucketPeriod(t.readyBucket) === p)
+        return {
+          p, people: people.length,
+          noTruck: people.filter((d) => !d.truckNum).length,
+          free: tr.filter((t) => !t.reservedBy).length, total: tr.length,
+        }
+      })
+      const stuck = sp.filter((t) => bucketPeriod(t.readyBucket) === "stuck").length
+      return {
+        fleet, rows, stuck,
+        gapNow: rows[0].people - rows[0].free,
+        totalPeople: dm.length, totalTrucks: sp.length,
+      }
+    }).filter((c) => c.totalPeople > 0 || c.totalTrucks > 0)
+    cards.sort((a, b) => b.gapNow - a.gapNow || b.totalPeople - a.totalPeople)
+    return cards
+  }, [drivers, trucks])
+
+  /* ---------- KPI สรุปบนสุด ---------- */
+  const kpi = useMemo(() => {
+    const demandNow = drivers.filter((d) => isActive(d.status) && d.fleetKey !== "SPARE" && driverPeriod(d) === "now")
+    return {
+      waiting: demandNow.length,
+      noTruck: demandNow.filter((d) => !d.truckNum).length,
+      freeNow: trucks.filter((t) => !t.forSale && !t.reservedBy && bucketPeriod(t.readyBucket) === "now").length,
+      shortage: fleetCards.reduce((s, c) => s + Math.max(0, c.gapNow), 0),
+      stuck: trucks.filter((t) => !t.forSale && bucketPeriod(t.readyBucket) === "stuck").length,
+    }
+  }, [drivers, trucks, fleetCards])
+
   /* ---------- รายชื่อคนหลังกรอง ---------- */
   const shownDrivers = useMemo(() => {
     let list = drivers
@@ -132,7 +199,7 @@ export function DriverHandoverPage() {
     else if (statusTab === "ฝึกงาน") list = list.filter((d) => d.status.startsWith("ฝึกงาน"))
     else list = list.filter((d) => d.status === statusTab)
     if (filterFleet) list = list.filter((d) => d.fleetKey === filterFleet)
-    if (filterBucket) list = list.filter((d) => driverBucket(d) === filterBucket)
+    if (filterBucket) list = list.filter((d) => driverPeriod(d) === filterBucket)
     if (noTruckOnly) list = list.filter((d) => !d.truckNum)
     const term = q.trim().toLowerCase()
     if (term)
@@ -150,7 +217,7 @@ export function DriverHandoverPage() {
     else if (statusTab === "ฝึกงาน") list = list.filter((d) => d.status.startsWith("ฝึกงาน"))
     else list = list.filter((d) => d.status === statusTab)
     if (filterFleet) list = list.filter((d) => d.fleetKey === filterFleet)
-    if (filterBucket) list = list.filter((d) => driverBucket(d) === filterBucket)
+    if (filterBucket) list = list.filter((d) => driverPeriod(d) === filterBucket)
     return list.filter((d) => !d.truckNum).length
   }, [drivers, statusTab, filterFleet, filterBucket])
 
@@ -237,10 +304,107 @@ export function DriverHandoverPage() {
           </div>
         )}
 
-        {/* ---------- Fleet Balance matrix ---------- */}
+        {/* ---------- KPI สรุป ---------- */}
+        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {([
+            { label: "👤 คนพร้อมรับรถตอนนี้", value: kpi.waiting, sub: kpi.noTruck > 0 ? `ยังไม่มีรถ ${kpi.noTruck} คน` : "มีรถจองครบทุกคน", alert: kpi.noTruck > 0 },
+            { label: "🚛 รถพร้อม + ว่าง", value: kpi.freeNow, sub: "ซ่อมเสร็จ ไม่ติดจอง", alert: false },
+            { label: "⚠️ ขาดรถวันนี้", value: kpi.shortage, sub: "รวมทุกฟลีทที่คนเกินรถ", alert: kpi.shortage > 0 },
+            { label: "🛠️ รถติดปัญหา", value: kpi.stuck, sub: "เกินกำหนด / ไม่มีวันคาดเสร็จ", alert: false },
+          ]).map((t) => (
+            <div key={t.label} className="rounded-[16px] border border-[#EEF2F0] bg-white px-4 py-3 dark:border-white/[0.07] dark:bg-[#151a10]">
+              <div className="text-[11px] font-semibold text-[#9AA8A0] dark:text-white/40">{t.label}</div>
+              <div className={`text-[24px] font-bold leading-tight ${t.alert ? "text-rose-600 dark:text-rose-300" : "text-[#14271C] dark:text-white"}`}>{t.value}</div>
+              <div className={`text-[11px] ${t.alert ? "font-semibold text-rose-500 dark:text-rose-300/80" : "text-[#9AA8A0] dark:text-white/40"}`}>{t.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ---------- Fleet Balance การ์ดรายฟลีท ---------- */}
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span className="text-[13px] font-bold text-[#14271C] dark:text-white">Fleet Balance — ฟลีทไหนขาดรถ เมื่อไหร่</span>
+            <span className="ml-3 text-[11px] text-[#9AA8A0] dark:text-white/40">
+              <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: C_PEOPLE }} /> คนพร้อมรับรถ
+              <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: C_TRUCK }} /> รถว่าง (ว่าง/ทั้งหมด)
+              · คลิกแถวเพื่อกรองรายชื่อ
+            </span>
+          </div>
+          <button
+            onClick={() => setShowDetail(!showDetail)}
+            className="text-[11.5px] font-semibold text-[#1B8C4B] hover:underline dark:text-emerald-300"
+          >{showDetail ? "ซ่อนตารางรายสัปดาห์" : "ดูตารางรายสัปดาห์แบบละเอียด"}</button>
+        </div>
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {fleetCards.map((c) => {
+            const max = Math.max(1, ...c.rows.map((r) => Math.max(r.people, r.total)))
+            const fleetSelected = filterFleet === c.fleet
+            return (
+              <div key={c.fleet}
+                className={`rounded-[16px] border bg-white p-3.5 dark:bg-[#151a10] ${fleetSelected
+                  ? "border-[#1B8C4B] ring-1 ring-[#1B8C4B]/30" : "border-[#EEF2F0] dark:border-white/[0.07]"}`}>
+                {/* หัวการ์ด: ฟลีท + สถานะขาด/พอ */}
+                <div className="mb-2.5 flex items-center justify-between">
+                  <button
+                    onClick={() => { setFilterFleet(fleetSelected ? "" : c.fleet); setFilterBucket("") }}
+                    className="text-[14px] font-bold text-[#14271C] hover:underline dark:text-white"
+                  >{c.fleet}</button>
+                  {c.gapNow > 0 ? (
+                    <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">🔴 ขาด {c.gapNow} คัน</span>
+                  ) : c.totalPeople > 0 ? (
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">🟢 รถพอ</span>
+                  ) : (
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-white/5 dark:text-white/40">มีแต่รถ</span>
+                  )}
+                </div>
+                {/* 4 ช่วงเวลา: คน vs รถ */}
+                {c.rows.map((r) => {
+                  const selected = fleetSelected && filterBucket === r.p
+                  if (r.people === 0 && r.total === 0)
+                    return (
+                      <div key={r.p} className="flex items-center gap-2 py-[3px] text-[11.5px] text-[#C6CFC9] dark:text-white/20">
+                        <span className="w-[84px] shrink-0">{PERIOD_LABELS[r.p]}</span><span>—</span>
+                      </div>
+                    )
+                  return (
+                    <button key={r.p}
+                      onClick={() => {
+                        if (selected) { setFilterFleet(""); setFilterBucket("") }
+                        else { setFilterFleet(c.fleet); setFilterBucket(r.p) }
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-[8px] px-1 py-[3px] text-left text-[11.5px] transition hover:bg-[#F6FAF7] dark:hover:bg-white/5 ${selected ? "bg-[#EAF6EE] dark:bg-emerald-500/10" : ""}`}>
+                      <span className="w-[84px] shrink-0 font-semibold text-[#6B7C72] dark:text-white/50">{PERIOD_LABELS[r.p]}</span>
+                      <span className="flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-8 text-right font-bold tabular-nums text-[#14271C] dark:text-white">👤{r.people}</span>
+                          <span className="h-[6px] rounded-full" style={{ width: `${(r.people / max) * 100}%`, minWidth: r.people ? 6 : 0, background: C_PEOPLE }} />
+                          {r.noTruck > 0 && <span className="text-[10px] font-bold text-rose-500 dark:text-rose-300">ไม่มีรถ {r.noTruck}</span>}
+                        </span>
+                        <span className="mt-[2px] flex items-center gap-1.5">
+                          <span className="w-8 text-right font-bold tabular-nums text-[#14271C] dark:text-white">🚛{r.free}</span>
+                          <span className="h-[6px] rounded-full" style={{ width: `${(r.total / max) * 100}%`, minWidth: r.total ? 6 : 0, background: C_TRUCK, opacity: r.free ? 1 : 0.35 }} />
+                          {r.total > r.free && <span className="text-[10px] text-[#9AA8A0] dark:text-white/40">จองแล้ว {r.total - r.free}</span>}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+                {/* รถติดปัญหา */}
+                {c.stuck > 0 && (
+                  <div className="mt-2 rounded-[8px] bg-amber-50 px-2 py-1 text-[10.5px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                    ⚠️ รถติดปัญหา {c.stuck} คัน (เกินกำหนด/ไม่มี ETA) — ตามยานยนต์อัปเดต
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ---------- ตารางรายสัปดาห์ (ละเอียด) ---------- */}
+        {showDetail && (
         <div className="mb-6 overflow-x-auto rounded-[16px] border border-[#EEF2F0] bg-white dark:border-white/[0.07] dark:bg-[#151a10]">
           <div className="border-b border-[#F1F5F2] px-4 py-3 dark:border-white/5">
-            <div className="text-[13px] font-bold text-[#14271C] dark:text-white">Fleet Balance — คนพร้อม vs รถพร้อม</div>
+            <div className="text-[13px] font-bold text-[#14271C] dark:text-white">ตารางรายสัปดาห์ — คนพร้อม vs รถพร้อม</div>
             <div className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">
               คน = พจส.ใหม่ที่จะพร้อมรับรถช่วงนั้น · รถ = ว่าง/รวม ที่คาดว่าพร้อมช่วงนั้น · คลิกช่องเพื่อกรองรายชื่อด้านล่าง
             </div>
@@ -267,14 +431,14 @@ export function DriverHandoverPage() {
                   {r.cells.map((c) => {
                     const hasAny = c.people > 0 || c.trucks > 0
                     const short = c.people > c.free
-                    const selected = filterFleet === r.fleet && filterBucket === c.bucket
+                    const selected = filterFleet === r.fleet && filterBucket === bucketPeriod(c.bucket)
                     return (
                       <td key={c.bucket} className="px-1.5 py-1.5 text-center">
                         {hasAny && (
                           <button
                             onClick={() => {
                               if (selected) { setFilterFleet(""); setFilterBucket("") }
-                              else { setFilterFleet(r.fleet); setFilterBucket(c.bucket) }
+                              else { setFilterFleet(r.fleet); setFilterBucket(bucketPeriod(c.bucket)) }
                             }}
                             className={`w-full rounded-[8px] px-1.5 py-1 text-[11.5px] font-semibold ring-1 transition
                               ${selected ? "ring-2 ring-[#1B8C4B]" : "ring-transparent"}
@@ -300,6 +464,7 @@ export function DriverHandoverPage() {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* ---------- filter bar ---------- */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -326,7 +491,7 @@ export function DriverHandoverPage() {
               className="inline-flex items-center gap-1 rounded-full bg-[#EAF6EE] px-3 py-1.5 text-[12px] font-semibold text-[#1B8C4B] dark:bg-emerald-500/10 dark:text-emerald-300"
             >
               <Filter className="h-3 w-3" />
-              {filterFleet}{filterBucket && ` · ${bucketLabel(filterBucket)}`}
+              {filterFleet}{filterBucket && ` · ${PERIOD_LABELS[filterBucket] ?? bucketLabel(filterBucket)}`}
               <X className="h-3 w-3" />
             </button>
           )}
@@ -356,8 +521,7 @@ export function DriverHandoverPage() {
 
           {shownDrivers.map((d) => {
             const meta = driverStatusMeta(d.status)
-            const assignedTruck = trucks.find((t) => t.trucknum.toUpperCase() === d.truckNum.toUpperCase())
-            const truckMeta = assignedTruck ? truckStepMeta(assignedTruck) : null
+            const truckMeta = d.truckStatus ? stepMetaFromLabel(d.truckStatus.step) : null
             return (
               <div key={`${d.row}-${d.code}`}
                 className="grid min-w-[1080px] items-center gap-3 border-b border-[#F1F5F2] px-4 py-3 text-[12.5px] last:border-0 dark:border-white/5"
@@ -384,11 +548,17 @@ export function DriverHandoverPage() {
                 <div>
                   {d.truckNum ? (
                     <button
-                      onClick={() => assignedTruck && setTimelineFor({ plate: assignedTruck.plate, label: `${d.truckNum} · ${assignedTruck.plate}` })}
-                      className="text-left" disabled={!assignedTruck} title={assignedTruck ? "ดูประวัติซ่อม" : undefined}
+                      onClick={() => d.plate && setTimelineFor({ plate: d.plate, label: `${d.truckNum} · ${d.plate}` })}
+                      className="text-left" disabled={!d.plate} title={d.plate ? "ดูประวัติซ่อม" : undefined}
                     >
                       <div className="font-mono text-[12px] font-bold text-[#14271C] dark:text-white">{d.truckNum} <span className="font-normal text-[#9AA8A0]">{d.plate}</span></div>
-                      {truckMeta && <span className={chip(truckMeta.cls)}>{truckMeta.emoji} {truckMeta.label}{assignedTruck?.job?.expectedDone && ` · ${assignedTruck.job.expectedDone.slice(5).split("-").reverse().join("/")}`}</span>}
+                      {truckMeta && (
+                        <span className={chip(truckMeta.cls)}>
+                          {truckMeta.emoji} {truckMeta.label}
+                          {d.truckStatus?.expectedDone && ` · ${d.truckStatus.expectedDone.slice(5).split("-").reverse().join("/")}`}
+                          {d.truckStatus?.parked && d.truckStatus.parkedDays > 0 && ` · จอด ${d.truckStatus.parkedDays}วัน`}
+                        </span>
+                      )}
                     </button>
                   ) : (
                     <span className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">ยังไม่ระบุรถ</span>
