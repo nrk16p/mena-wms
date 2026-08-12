@@ -37,8 +37,12 @@ const CUSTOMER_MAP: Record<string, string> = {
   TN: "T.N. ซีเมนต์", "T.N.": "T.N. ซีเมนต์", "T.N. ซีเมนต์": "T.N. ซีเมนต์",
 }
 
+/** เทียบเบอร์รถแบบไม่สนช่องว่าง เช่น "ME 127" = "ME127" */
+export const normTruckNum = (s: string) => s.toUpperCase().replace(/\s+/g, "")
+
 /** normalize ลูกค้า+ประเภทของ "คน" ให้ตรงกับ key ฝั่งรถ เช่น (Asia MS, Mixer S) -> "ASIA MS" */
 export function driverFleetKey(customer: string, position: string): string {
+  if (!customer.trim()) return "❓ไม่ระบุ" // ลูกค้าว่างในชีต — จับคู่รถไม่ได้จนกว่าจะเติม
   let c = customer.trim().toUpperCase().replace(/\s*MS$/i, "").trim()
   c = CUSTOMER_MAP[c] ?? c
   if (/SPARE/i.test(customer) || /SPARE/i.test(position)) return "SPARE"
@@ -136,13 +140,23 @@ async function fetchTrucksWithJobs(
   const jobByPlate = new Map<string, any>()
   for (const it of openJobsRaw.items ?? []) if (it.plate) jobByPlate.set(it.plate, it)
 
-  // รถที่ถูกจองแล้ว (พจส. active มีเบอร์รถในชีต)
-  const reserved = new Map<string, string>()
-  for (const d of drivers)
-    if (d.truckNum && (ACTIVE_STATUSES as readonly string[]).includes(d.status))
-      reserved.set(d.truckNum.toUpperCase(), d.name)
-
+  // รถที่ถูกจองแล้ว: พจส. active + คนรับรถไปแล้วไม่เกิน 14 วัน (กันรถเพิ่งส่งมอบเด้งกลับมาเป็น "ว่าง")
+  // เก็บเป็น list เพื่อโชว์เคสจองซ้ำ (เช่น ME127 ถูกจอง 2 คน)
   const today = todayUtc()
+  const reserved = new Map<string, string[]>()
+  for (const d of drivers) {
+    if (!d.truckNum) continue
+    const active = (ACTIVE_STATUSES as readonly string[]).includes(d.status)
+    let recent = false
+    if (d.status === "รับรถแล้ว") {
+      const rd = parseSheetDate(d.receivedDate)
+      recent = !!rd && (today.getTime() - rd.getTime()) / 86400000 <= 14
+    }
+    if (active || recent) {
+      const k = normTruckNum(d.truckNum)
+      reserved.set(k, [...(reserved.get(k) ?? []), d.name])
+    }
+  }
   const out: HandoverTruck[] = []
   for (const st of fleetRaw.data ?? [])
     for (const b of st.branches ?? [])
@@ -171,7 +185,8 @@ async function fetchTrucksWithJobs(
               else if (!expected) readyBucket = "ไม่มี ETA"
               else {
                 const exp = new Date(expected)
-                readyBucket = exp <= today ? "เกินกำหนด" : iso(mondayOf(exp))
+                // ETA วันนี้ = ยังไม่เกินกำหนด นับเป็นสัปดาห์ปัจจุบัน
+                readyBucket = exp < today ? "เกินกำหนด" : iso(mondayOf(exp))
               }
 
               const type = vt.vehicle_type_abbr ?? ""
@@ -191,7 +206,7 @@ async function fetchTrucksWithJobs(
                   prAmount: Number(j.pr_amount_total) || 0, partsInfo,
                 } : null,
                 readyBucket,
-                reservedBy: reserved.get((t.trucknum ?? "").toUpperCase()) ?? "",
+                reservedBy: (reserved.get(normTruckNum(t.trucknum ?? "")) ?? []).join(", "),
               })
             }
   return { trucks: out, jobByPlate }
@@ -202,10 +217,10 @@ export async function fetchHandoverData(): Promise<HandoverData> {
   const { trucks, jobByPlate } = await fetchTrucksWithJobs(drivers)
 
   // สถานะล่าสุดของรถที่จอง — ดูจากลิสต์รถจอดก่อน ไม่เจอค่อยหา open-job ตามทะเบียน
-  const truckByNum = new Map(trucks.map((t) => [t.trucknum.toUpperCase(), t]))
+  const truckByNum = new Map(trucks.map((t) => [normTruckNum(t.trucknum), t]))
   for (const d of drivers) {
     if (!d.truckNum) continue
-    const t = truckByNum.get(d.truckNum.toUpperCase())
+    const t = truckByNum.get(normTruckNum(d.truckNum))
     if (t) {
       d.truckStatus = {
         step: t.job?.step ?? "ไม่มีงานซ่อมเปิด",

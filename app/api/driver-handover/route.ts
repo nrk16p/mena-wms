@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import {
-  fetchHandoverData, fetchDrivers, assignTruck, updateDriverStatus,
+  fetchHandoverData, fetchDrivers, assignTruck, updateDriverStatus, normTruckNum,
 } from "@/lib/driver-handover"
 import { ACTIVE_STATUSES } from "@/lib/driver-handover-meta"
 
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     // กันจองซ้ำ: เช็คว่าเบอร์รถนี้ยังไม่ถูกจองโดย พจส. active คนอื่น
     const drivers = await fetchDrivers()
     const dup = drivers.find(
-      (d) => d.truckNum.toUpperCase() === trucknum.toUpperCase() &&
+      (d) => d.truckNum && normTruckNum(d.truckNum) === normTruckNum(trucknum) &&
         (ACTIVE_STATUSES as readonly string[]).includes(d.status) &&
         !(d.row === row && d.name === name)
     )

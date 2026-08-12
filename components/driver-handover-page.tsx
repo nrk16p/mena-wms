@@ -24,19 +24,13 @@ function mondayIso(iso: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** bucket ของ "คน" — พร้อมแล้ว / วันจันทร์ของสัปดาห์ที่จะพร้อม / ไม่ระบุ */
-function driverBucket(d: HandoverDriver): string {
-  if (!d.readyDate) return "ไม่มี ETA"
-  return d.readyDate <= todayIso() ? "พร้อมแล้ว" : mondayIso(d.readyDate)
-}
-
 const isActive = (st: string) => (ACTIVE_STATUSES as readonly string[]).includes(st)
 
 /* ---------- ช่วงเวลาแบบ BA: 4 ช่วงคงที่ + ติดปัญหา ---------- */
 const PERIODS = ["now", "w0", "w1", "later"] as const
 type PeriodKey = (typeof PERIODS)[number] | "stuck"
 const PERIOD_LABELS: Record<string, string> = {
-  now: "พร้อมตอนนี้", w0: "สัปดาห์นี้", w1: "สัปดาห์หน้า", later: "ถัดไป/ไม่ระบุ", stuck: "ติดปัญหา/ไม่มี ETA",
+  now: "พร้อมตอนนี้ (รอรับรถ)", w0: "สัปดาห์นี้", w1: "สัปดาห์หน้า", later: "ถัดไป/ไม่ระบุ", stuck: "ติดปัญหา/ไม่มี ETA",
 }
 
 function bucketPeriod(bucket: string): PeriodKey {
@@ -48,11 +42,27 @@ function bucketPeriod(bucket: string): PeriodKey {
   if (bucket === n.toISOString().slice(0, 10)) return "w1"
   return "later"
 }
-/** ช่วงเวลาของ "คน" — คนไม่มีวันชัดเจนถือเป็น ถัดไป/ไม่ระบุ */
+/** ช่วงเวลาของ "คน" — status ชีตมาก่อน: "พร้อมตอนนี้" = สถานะรอรับรถเท่านั้น
+ *  สถานะฝึกที่เลยวันครบแล้ว (สถานะค้าง Q1) → นับสัปดาห์นี้ เพราะพอชีตอัปเดตจะกลายเป็นรอรับรถทันที */
 function driverPeriod(d: HandoverDriver): PeriodKey {
-  const p = bucketPeriod(driverBucket(d))
-  return p === "stuck" ? "later" : p
+  if (d.status === "รอรับรถ") return "now"
+  if (!d.readyDate) return "later"
+  const t = todayIso()
+  if (d.readyDate <= t) return "w0"
+  const m = mondayIso(d.readyDate)
+  const w0 = mondayIso(t)
+  if (m === w0) return "w0"
+  const n = new Date(w0); n.setUTCDate(n.getUTCDate() + 7)
+  if (m === n.toISOString().slice(0, 10)) return "w1"
+  return "later"
 }
+
+/** Q1: ครบกำหนดฝึกแล้วแต่สถานะในชีตยังค้างเป็นฝึกงาน/รอฝึกงาน */
+const isStale = (d: HandoverDriver) =>
+  isActive(d.status) && d.status !== "รอรับรถ" && !!d.readyDate && d.readyDate <= todayIso()
+
+/** ฟลีทที่จับคู่รถได้จริง (SPARE/ลูกค้าว่าง จับคู่ตามฟลีทไม่ได้) */
+const matchableFleet = (f: string) => f !== "SPARE" && f !== "❓ไม่ระบุ"
 
 function bucketOrder(b: string): number {
   if (b === "พร้อมแล้ว") return 0
@@ -120,6 +130,8 @@ export function DriverHandoverPage() {
   const [filterFleet, setFilterFleet] = useState("")
   const [filterBucket, setFilterBucket] = useState("")
   const [noTruckOnly, setNoTruckOnly] = useState(false)
+  const [staleOnly, setStaleOnly] = useState(false)       // ⏰ ครบฝึกแล้วสถานะค้าง
+  const [blankCustOnly, setBlankCustOnly] = useState(false) // ❓ ไม่ระบุลูกค้า
   const [readyTrucksView, setReadyTrucksView] = useState(false)
 
   const [pickFor, setPickFor] = useState<HandoverDriver | null>(null) // เปิด modal เลือกรถ
@@ -154,10 +166,11 @@ export function DriverHandoverPage() {
       fixing: list.filter((d) => d.truckNum && !truckDone(d)).length,
       none: list.filter((d) => !d.truckNum).length,
     })
-    const demand = drivers.filter((d) => isActive(d.status) && d.fleetKey !== "SPARE" && !d.fleetKey.startsWith(" "))
+    // รวมแถว SPARE/❓ไม่ระบุ ด้วย เพื่อให้ผลรวมคอลัมน์ "พร้อมตอนนี้" = KPI = แท็บ เสมอ
+    const demand = drivers.filter((d) => isActive(d.status))
     const supply = trucks.filter((t) => !t.forSale && !t.reservedBy)
     const fleets = [...new Set([...demand.map((d) => d.fleetKey), ...supply.map((t) => t.fleetKey)])]
-      .filter((f) => f.trim() && !f.startsWith(" "))
+      .filter((f) => f.trim())
     const rows = fleets.map((fleet) => {
       const dm = demand.filter((d) => d.fleetKey === fleet)
       const cells = PERIODS.map((p) => ({ p, ...breakdown(dm.filter((d) => driverPeriod(d) === p)) }))
@@ -186,13 +199,13 @@ export function DriverHandoverPage() {
     }
   }, [drivers, trucks])
 
-  /* ---------- KPI สรุปบนสุด: คนรอ → จับคู่แล้ว → ยังไม่มีรถ → รถว่าง → ขาด ---------- */
+  /* ---------- KPI สรุปบนสุด: นับตามสถานะชีตล้วน → เท่ากับแท็บ "รอรับรถ" เสมอ ---------- */
   const kpi = useMemo(() => {
-    const demandNow = drivers.filter((d) => isActive(d.status) && d.fleetKey !== "SPARE" && driverPeriod(d) === "now")
+    const demandNow = drivers.filter((d) => d.status === "รอรับรถ")
     const noTruckPeople = demandNow.filter((d) => !d.truckNum)
     const freeTrucks = trucks.filter((t) => !t.forSale && !t.reservedBy && bucketPeriod(t.readyBucket) === "now")
-    // ขาดรถ = จับคู่ตามฟลีทแล้ว คนที่ยังเหลือไม่มีรถ (นับต่อฟลีท)
-    const fleets = [...new Set(noTruckPeople.map((d) => d.fleetKey))]
+    // ขาดรถ = จับคู่ตามฟลีทแล้ว คนที่ยังเหลือไม่มีรถ (เฉพาะฟลีทที่จับคู่ได้จริง)
+    const fleets = [...new Set(noTruckPeople.map((d) => d.fleetKey))].filter(matchableFleet)
     const shortByFleet = fleets
       .map((f) => ({ fleet: f, short: Math.max(0, noTruckPeople.filter((d) => d.fleetKey === f).length - freeTrucks.filter((t) => t.fleetKey === f).length) }))
       .filter((x) => x.short > 0)
@@ -208,33 +221,44 @@ export function DriverHandoverPage() {
   }, [drivers, trucks])
 
   /* ---------- รายชื่อคนหลังกรอง ---------- */
-  const shownDrivers = useMemo(() => {
-    let list = drivers
+  // ใช้ตัวกรองชุดเดียวกับ chip นับจำนวน เพื่อให้เลข chip = แถวที่เห็นเสมอ
+  const applyFilters = useCallback((list: HandoverDriver[], opts?: { skipNoTruck?: boolean }) => {
     if (statusTab === "active") list = list.filter((d) => isActive(d.status))
     else if (statusTab === "ฝึกงาน") list = list.filter((d) => d.status.startsWith("ฝึกงาน"))
     else list = list.filter((d) => d.status === statusTab)
     if (filterFleet) list = list.filter((d) => d.fleetKey === filterFleet)
     if (filterBucket) list = list.filter((d) => driverPeriod(d) === filterBucket)
-    if (noTruckOnly) list = list.filter((d) => !d.truckNum)
+    if (!opts?.skipNoTruck && noTruckOnly) list = list.filter((d) => !d.truckNum)
+    if (staleOnly) list = list.filter(isStale)
+    if (blankCustOnly) list = list.filter((d) => !d.customer.trim())
     const term = q.trim().toLowerCase()
     if (term)
       list = list.filter((d) =>
         [d.name, d.code, d.site, d.customer, d.truckNum, d.plate].some((v) => v.toLowerCase().includes(term)))
-    const order: Record<string, number> = { "รอรับรถ": 0, "ฝึกงาน": 1, "ฝึกงาน 1-2 วัน": 2, "รอฝึกงาน": 3, "รับรถแล้ว": 4 }
-    return [...list].sort((a, b) =>
-      (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.waitDays - a.waitDays || (a.readyDate ?? "9") .localeCompare(b.readyDate ?? "9"))
-  }, [drivers, statusTab, filterFleet, filterBucket, q, noTruckOnly])
+    return list
+  }, [statusTab, filterFleet, filterBucket, noTruckOnly, staleOnly, blankCustOnly, q])
 
-  // จำนวนคนที่ยังไม่มีรถ ภายใต้ filter ปัจจุบัน (ไม่นับ filter ยังไม่มีรถเอง)
-  const noTruckCount = useMemo(() => {
-    let list = drivers
-    if (statusTab === "active") list = list.filter((d) => isActive(d.status))
-    else if (statusTab === "ฝึกงาน") list = list.filter((d) => d.status.startsWith("ฝึกงาน"))
-    else list = list.filter((d) => d.status === statusTab)
-    if (filterFleet) list = list.filter((d) => d.fleetKey === filterFleet)
-    if (filterBucket) list = list.filter((d) => driverPeriod(d) === filterBucket)
-    return list.filter((d) => !d.truckNum).length
-  }, [drivers, statusTab, filterFleet, filterBucket])
+  const shownDrivers = useMemo(() => {
+    const order: Record<string, number> = { "รอรับรถ": 0, "ฝึกงาน": 1, "ฝึกงาน 1-2 วัน": 2, "รอฝึกงาน": 3, "รับรถแล้ว": 4 }
+    return [...applyFilters(drivers)].sort((a, b) =>
+      (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.waitDays - a.waitDays || (a.readyDate ?? "9") .localeCompare(b.readyDate ?? "9"))
+  }, [drivers, applyFilters])
+
+  // จำนวนของ chip ต่าง ๆ ภายใต้ filter ปัจจุบัน (ไม่นับ filter ของ chip ตัวเอง)
+  const noTruckCount = useMemo(
+    () => applyFilters(drivers, { skipNoTruck: true }).filter((d) => !d.truckNum).length,
+    [drivers, applyFilters])
+  const staleCount = useMemo(() => drivers.filter(isStale).length, [drivers])
+  const blankCustCount = useMemo(
+    () => drivers.filter((d) => isActive(d.status) && !d.customer.trim()).length,
+    [drivers])
+  const tabCounts = useMemo(() => ({
+    active: drivers.filter((d) => isActive(d.status)).length,
+    "รอรับรถ": drivers.filter((d) => d.status === "รอรับรถ").length,
+    "ฝึกงาน": drivers.filter((d) => d.status.startsWith("ฝึกงาน")).length,
+    "รอฝึกงาน": drivers.filter((d) => d.status === "รอฝึกงาน").length,
+    "รับรถแล้ว": drivers.filter((d) => d.status === "รับรถแล้ว").length,
+  }), [drivers])
 
   /* ---------- รายชื่อฟลีทสำหรับ dropdown กรอง ---------- */
   const fleetOptions = useMemo(() => {
@@ -242,7 +266,7 @@ export function DriverHandoverPage() {
     for (const d of drivers) if (isActive(d.status)) count.set(d.fleetKey, (count.get(d.fleetKey) ?? 0) + 1)
     for (const t of trucks) if (!t.forSale && !count.has(t.fleetKey)) count.set(t.fleetKey, 0)
     return [...count.entries()]
-      .filter(([f]) => f.trim() && f !== "SPARE")
+      .filter(([f]) => f.trim() && f !== "SPARE" && f !== "❓ไม่ระบุ")
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
   }, [drivers, trucks])
 
@@ -255,11 +279,11 @@ export function DriverHandoverPage() {
     return [...list].sort((a, b) => b.parkedDays - a.parkedDays)
   }, [trucks, filterFleet, q])
 
-  // จำนวนคนที่รอและยังไม่มีรถ ต่อฟลีท — โชว์คู่กับรถว่างให้จับคู่ง่าย
+  // จำนวนคนสถานะรอรับรถที่ยังไม่มีรถ ต่อฟลีท — จับคู่ได้ทันทีจริง ๆ
   const waitingNoTruckByFleet = useMemo(() => {
     const m = new Map<string, number>()
     for (const d of drivers)
-      if (isActive(d.status) && !d.truckNum) m.set(d.fleetKey, (m.get(d.fleetKey) ?? 0) + 1)
+      if (d.status === "รอรับรถ" && !d.truckNum) m.set(d.fleetKey, (m.get(d.fleetKey) ?? 0) + 1)
     return m
   }, [drivers])
 
@@ -382,7 +406,7 @@ export function DriverHandoverPage() {
           </div>
         </div>
 
-        {/* ---------- ตารางรายสัปดาห์: คน/รถ = สุทธิสะสม ---------- */}
+        {/* ---------- ตารางรายสัปดาห์: คนต่อช่วงเวลา แยกตามสถานะรถ (per-period) ---------- */}
         <div className="mb-6 overflow-x-auto rounded-[16px] border border-[#EEF2F0] bg-white dark:border-white/[0.07] dark:bg-[#151a10]">
           <div className="border-b border-[#F1F5F2] px-4 py-3 dark:border-white/5">
             <div className="text-[13px] font-bold text-[#14271C] dark:text-white">แผนรายสัปดาห์ — คนพร้อมช่วงไหน รถอยู่สถานะอะไร</div>
@@ -470,7 +494,7 @@ export function DriverHandoverPage() {
               className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition ${statusTab === key
                 ? "bg-[#1B8C4B] text-white"
                 : "bg-white text-[#6B7C72] ring-1 ring-[#EEF2F0] hover:bg-[#EAF6EE] dark:bg-white/5 dark:text-white/60 dark:ring-white/10"}`}
-            >{label}</button>
+            >{label} ({tabCounts[key]})</button>
           ))}
           <button
             onClick={() => setNoTruckOnly(!noTruckOnly)}
@@ -478,6 +502,24 @@ export function DriverHandoverPage() {
               ? "bg-amber-500 text-white"
               : "bg-white text-amber-600 ring-1 ring-amber-200 hover:bg-amber-50 dark:bg-white/5 dark:text-amber-300 dark:ring-amber-500/30"}`}
           >🚨 ยังไม่มีรถ ({noTruckCount})</button>
+          {staleCount > 0 && (
+            <button
+              onClick={() => setStaleOnly(!staleOnly)}
+              title="ครบกำหนดฝึกงานแล้ว แต่สถานะในชีตยังไม่ถูกอัปเดต — กดดูรายชื่อแล้วอัปเดตสถานะได้เลย"
+              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition ${staleOnly
+                ? "bg-orange-500 text-white"
+                : "bg-white text-orange-600 ring-1 ring-orange-200 hover:bg-orange-50 dark:bg-white/5 dark:text-orange-300 dark:ring-orange-500/30"}`}
+            >⏰ ครบฝึกแต่สถานะค้าง ({staleCount})</button>
+          )}
+          {blankCustCount > 0 && (
+            <button
+              onClick={() => setBlankCustOnly(!blankCustOnly)}
+              title="ช่องลูกค้าในชีตว่าง — จับคู่รถไม่ได้จนกว่าจะเติมข้อมูล"
+              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition ${blankCustOnly
+                ? "bg-slate-500 text-white"
+                : "bg-white text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50 dark:bg-white/5 dark:text-white/50 dark:ring-white/15"}`}
+            >❓ ไม่ระบุลูกค้า ({blankCustCount})</button>
+          )}
           <button
             onClick={() => setReadyTrucksView(!readyTrucksView)}
             className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition ${readyTrucksView
@@ -544,7 +586,7 @@ export function DriverHandoverPage() {
                   <div className={`font-bold ${t.parkedDays >= 30 ? "text-rose-600 dark:text-rose-300" : "text-[#6B7C72] dark:text-white/60"}`}>{t.parkedDays} วัน</div>
                   <div>
                     {waitingHere > 0 ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">👤 รอ {waitingHere} คน — จับคู่ได้เลย</span>
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">👤 รอรับรถ {waitingHere} คน — จับคู่ได้เลย</span>
                     ) : (
                       <span className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">ไม่มีคนรอ</span>
                     )}
