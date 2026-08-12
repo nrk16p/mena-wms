@@ -673,13 +673,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     if (b.openNotParked.length) {
       lines.push("", `🟢 ${b.openNotParked.length} คันนี้ รถออกจากอู่กลับมาวิ่งแล้ว แต่งานยังไม่ได้ปิด`, "→ ถ้าซ่อมเสร็จแล้ว ฝากปิดงานด้วยครับ (ใส่วันเสร็จ = วันที่ออกอู่)", "")
       for (const w of b.openNotParked) {
-        const done = w.atmsStep === "รถซ่อมเสร็จสิ้น" ? " (ATMS ปิดว่าเสร็จสิ้นแล้ว)" : ""
+        const done = w.atmsStep === "รถซ่อมเสร็จสิ้น" ? " (Mena-Next ปิดว่าเสร็จสิ้นแล้ว)" : ""
         lines.push(`${++n}. ${w.fleetNo || w.plate} — สถานะค้างที่ "${w.status}"${done}`)
         lines.push(linkOf(w.fleetNo || w.plate))
       }
     }
     if (b.missing.length) {
-      lines.push("", `🆕 ${b.missing.length} คันนี้ จอดซ่อมอู่นอกอยู่จริง แต่ยังไม่มีรายการในระบบเลย`, "→ ฝากเปิดรายการในระบบด้วยครับ (มีปุ่มสร้างอัตโนมัติในแถบเทียบ ATMS)", "")
+      lines.push("", `🆕 ${b.missing.length} คันนี้ จอดซ่อมอู่นอกอยู่จริง แต่ยังไม่มีรายการในระบบเลย`, "→ ฝากเปิดรายการในระบบด้วยครับ (มีปุ่มสร้างอัตโนมัติในแถบเทียบ Mena-Next)", "")
       for (const m of b.missing) {
         lines.push(`${++n}. ${m.trucknum || m.plate} — จอดมา ${m.days} วัน${m.days >= 45 ? "‼️" : ""} ${m.mrCode}${m.vendor ? ` (${m.vendor})` : ""}`)
       }
@@ -1064,7 +1064,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 setTimeout(() => document.getElementById("atms-compare")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50)
               }}
               disabled={!atms}
-              title={atms ? "คลิกเพื่อดูรายการที่ขาดในแถบเทียบ ATMS" : "กำลังโหลดข้อมูล Mena-Next..."}
+              title={atms ? "คลิกเพื่อดูรายการที่ขาดในแถบเทียบ Mena-Next" : "กำลังโหลดข้อมูล Mena-Next..."}
               className={`rounded-2xl border p-4 text-left transition ${atms && atms.missing.length > 0 ? "border-indigo-300 bg-indigo-50/70 dark:border-indigo-500/40 dark:bg-indigo-900/15" : "border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]"} disabled:cursor-default`}
             >
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">🔧 อู่นอก WMS / Mena-Next</p>
@@ -1306,14 +1306,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         return (
           <div id="atms-compare" className={`mb-4 rounded-[12px] border px-4 py-3 text-[13px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <span className="font-bold">🔎 เทียบ ATMS·รถจอดจริง:</span>
+              <span className="font-bold">🔎 เทียบ Mena-Next·รถจอดจริง:</span>
               <span>ค้างซ่อมอู่นอกจริง <b>{atms.pending.length}</b> คัน</span>
               <span>· มีในระบบ <b>{inWms.length}</b></span>
               {atms.missing.length > 0
                 ? <span className="font-bold text-rose-600 dark:text-rose-300">· ขาด {atms.missing.length} คัน</span>
                 : <span>· ครบทุกคัน ✓</span>}
               {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ว่าง/ไม่ตรง {mrIssues.length}</span>}
-              {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR (ATMS มีให้เติม) {prFill.length}</span>}
+              {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR (Mena-Next มีให้เติม) {prFill.length}</span>}
               <span className="text-[11px] opacity-60">อัพเดท {fmtDateTime(atms.fetchedAt)}</span>
               <button
                 onClick={() => setAtmsOpen((v) => !v)}
@@ -1351,13 +1351,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 {/* MR ว่าง/ไม่ตรง — เติมจาก ATMS ได้ */}
                 {mrIssues.length > 0 && (
                   <div>
-                    <p className="mb-1.5 font-bold text-amber-700 dark:text-amber-300">⚠ เลข MR ในระบบว่างหรือไม่ตรงกับ ATMS ({mrIssues.length} คัน)</p>
+                    <p className="mb-1.5 font-bold text-amber-700 dark:text-amber-300">⚠ เลข MR ในระบบว่างหรือไม่ตรงกับ Mena-Next ({mrIssues.length} คัน)</p>
                     <div className="space-y-1">
                       {mrIssues.map((p) => (
                         <div key={p.wms!.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5">
                           <b className="min-w-[52px]">{p.trucknum || "—"}</b>
                           <span>{p.plate}</span>
-                          <span className="text-[12px] opacity-80">ATMS: {p.mrCode}</span>
+                          <span className="text-[12px] opacity-80">Mena-Next: {p.mrCode}</span>
                           <span className="text-[12px] opacity-60">{p.wms!.mrMatch === "empty" ? "ระบบยังไม่มี MR" : `ระบบใส่ ${p.wms!.mrNo}`}</span>
                           <button
                             onClick={() => openEditFillMr(p.wms!.id, p.mrCode)}
@@ -1373,7 +1373,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 {/* ไม่มี PR ในระบบ — ATMS มี purchase_links ให้เติม */}
                 {prFill.length > 0 && (
                   <div>
-                    <p className="mb-1.5 font-bold text-amber-700 dark:text-amber-300">🧾 ไม่มีเลข PR ในระบบ — ATMS มีให้เติม ({prFill.length} คัน)</p>
+                    <p className="mb-1.5 font-bold text-amber-700 dark:text-amber-300">🧾 ไม่มีเลข PR ในระบบ — Mena-Next มีให้เติม ({prFill.length} คัน)</p>
                     <div className="space-y-1">
                       {prFill.map((p) => (
                         <div key={p.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5">
@@ -1385,7 +1385,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           {p.mrConflict && (
                             <span
                               className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
-                              title={`MR ในระบบ = ${p.wmsMr} แต่ MR งานค้างปัจจุบันใน ATMS = ${p.mrCode} — อาจเป็นคนละรอบซ่อม PR นี้อาจไม่ใช่ของงานในระบบ ตรวจ Timeline ก่อนเติม`}
+                              title={`MR ในระบบ = ${p.wmsMr} แต่ MR งานค้างปัจจุบันใน Mena-Next = ${p.mrCode} — อาจเป็นคนละรอบซ่อม PR นี้อาจไม่ใช่ของงานในระบบ ตรวจ Timeline ก่อนเติม`}
                             >
                               ⚠ MR คนละใบ ({p.wmsMr}) — ตรวจก่อนเติม
                             </span>
@@ -1517,9 +1517,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       return (
                         <div
                           className="mt-1 inline-flex flex-wrap items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-900/25 dark:text-indigo-300"
-                          title={`ATMS: ${a.mrCode || "-"}${a.vendor ? " · อู่ " + a.vendor : ""}${a.stepAt ? " · อัพเดท " + a.stepAt : ""}${a.since ? " · จอดตั้งแต่ " + a.since : ""}`}
+                          title={`Mena-Next: ${a.mrCode || "-"}${a.vendor ? " · อู่ " + a.vendor : ""}${a.stepAt ? " · อัพเดท " + a.stepAt : ""}${a.since ? " · จอดตั้งแต่ " + a.since : ""}`}
                         >
-                          🛠 {a.step || "ATMS"}
+                          🛠 {a.step || "Mena-Next"}
                           {a.parkedDays !== null && <span className="font-semibold">· จอดจริง {a.parkedDays} วัน</span>}
                         </div>
                       )
@@ -2264,7 +2264,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               {editId && jobTypeOf(form) !== JOB_TYPE_PARTS && (
                 <section className="mt-5 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10">
                   <div className="flex items-center justify-between gap-2 border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5">
-                    <p className="text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>📜 Timeline ATMS (ระบบแจ้งซ่อม)</p>
+                    <p className="text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>📜 Timeline Mena-Next (ระบบแจ้งซ่อม)</p>
                     <button
                       type="button"
                       onClick={loadAtmsTimeline}
@@ -2277,9 +2277,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="p-4">
                     {atmsTlErr && <p className="text-sm text-red-500">โหลดไม่สำเร็จ: {atmsTlErr}</p>}
                     {atmsTl === null && !atmsTlErr && !atmsTlLoading && (
-                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก ATMS (ปี {new Date().getFullYear()})</p>
+                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก Mena-Next (ปี {new Date().getFullYear()})</p>
                     )}
-                    {atmsTl !== null && atmsTl.length === 0 && <p className="text-sm text-gray-400">ไม่พบข้อมูลใน ATMS สำหรับทะเบียนนี้</p>}
+                    {atmsTl !== null && atmsTl.length === 0 && <p className="text-sm text-gray-400">ไม่พบข้อมูลใน Mena-Next สำหรับทะเบียนนี้</p>}
                     {atmsTl !== null && atmsTl.length > 0 && (
                       <div className="space-y-4">
                         {atmsTl.map((it, idx) => (
@@ -2315,7 +2315,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                                     <li key={ev.uid ?? i} className="relative">
                                       <span className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full ${ev.source === "wms" ? "bg-[#1B8C4B]" : "bg-indigo-400"}`} />
                                       <p className="text-[12.5px] text-gray-700 dark:text-gray-300">
-                                        <span className={`mr-1 rounded px-1 py-0.5 text-[10px] font-bold ${ev.source === "wms" ? "bg-[#ECFDF3] text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300" : "bg-indigo-50 text-indigo-600 dark:bg-indigo-900/25 dark:text-indigo-300"}`}>{ev.source === "wms" ? "WMS" : "ATMS"}</span>
+                                        <span className={`mr-1 rounded px-1 py-0.5 text-[10px] font-bold ${ev.source === "wms" ? "bg-[#ECFDF3] text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300" : "bg-indigo-50 text-indigo-600 dark:bg-indigo-900/25 dark:text-indigo-300"}`}>{ev.source === "wms" ? "WMS" : "Mena-Next"}</span>
                                         {ev.label ?? "-"}
                                       </p>
                                       <p className="text-[11px] text-gray-400">{ev.action_by ? `${ev.action_by} · ` : ""}{ev.at ? fmtDateTime(ev.at) : "-"}</p>
