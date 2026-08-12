@@ -265,6 +265,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     return isNaN(t) ? "" : new Date(t + 7 * 3600 * 1000).toISOString().slice(0, 10)
   }
   const checkedToday = (r: RepairExternal) => !!r.lastCheckedAt && bkkDate(r.lastCheckedAt) === bkkDate()
+  // สถานะที่ไม่ต้องเช็คประจำวัน — งานแขวนยาว/รอปิดเอกสาร ไม่นับและไม่โชว์ปุ่ม
+  const NO_DAILY_CHECK = new Set(["ซ่อมไม่มีกำหนด", "รถเสร็จ(ไม่มี PR)"])
+  const needsDailyCheck = (r: RepairExternal) => !isDoneStatus(r.status) && !NO_DAILY_CHECK.has(r.status)
   const [uncheckedOnly, setUncheckedOnly] = useState(false)
   const [checking, setChecking] = useState<string | null>(null)
   async function confirmCheck(r: RepairExternal) {
@@ -942,7 +945,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   let displayRows = rows
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
-  if (uncheckedOnly) displayRows = displayRows.filter((r) => !checkedToday(r))
+  if (uncheckedOnly) displayRows = displayRows.filter((r) => needsDailyCheck(r) && !checkedToday(r))
   if (conflictOnly) displayRows = displayRows.filter((r) => jobAlertOf(r)?.kind === "update_needed")
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
@@ -1279,7 +1282,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 title="รายการที่ยังไม่ได้กดยืนยันตรวจเช็คในวันนี้"
                 className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${uncheckedOnly ? "bg-[#0E7490] text-white" : "border border-[#BEE8F1] text-[#0E7490] hover:bg-[#F0FBFD] dark:border-cyan-900/40 dark:text-cyan-300 dark:hover:bg-cyan-950/20"}`}
               >
-                ☑️ ยังไม่เช็ควันนี้ <span className="opacity-80">{rows.filter((r) => !checkedToday(r)).length} คัน</span>
+                ☑️ ยังไม่เช็ควันนี้ <span className="opacity-80">{rows.filter((r) => needsDailyCheck(r) && !checkedToday(r)).length} คัน</span>
               </button>
             </div>
             {/* แถวอู่นอก + แถวอะไหล่ลงคัน (ซ่อนแถวที่ไม่เกี่ยวเมื่อกรองประเภทอยู่) */}
@@ -1590,8 +1593,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         </div>
                       )
                     })()}
-                    {/* ยืนยันตรวจเช็คประจำวัน — กดได้จากตารางเลย ไม่ต้องเปิด modal */}
-                    {!isDone && (
+                    {/* ยืนยันตรวจเช็คประจำวัน — กดได้จากตารางเลย ไม่ต้องเปิด modal (ยกเว้นสถานะที่ไม่ต้องเช็ค) */}
+                    {!isDone && needsDailyCheck(r) && (
                       <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                         {checkedToday(r) ? (
                           <span
@@ -1633,6 +1636,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       ? <div className={dueOverdue ? "font-bold text-[#DC2626]" : "font-medium text-[#37473E] dark:text-gray-300"}>📅 {fmtDateShort(r.dueDate)}{dueOverdue && <div className="text-[11px] font-semibold">เลยกำหนด!</div>}</div>
                       : <span className="text-[#C6D0CA]">—</span>}
                     {isDone && r.completedDate && <div className="mt-1 text-[12px] font-semibold text-[#1B8C4B]">🏁 {fmtDateShort(r.completedDate)}</div>}
+                    {/* ตรวจเช็คประจำวันล่าสุด — เมื่อไหร่ โดยใคร */}
+                    {!isDone && r.lastCheckedAt && (
+                      <div
+                        className={`mt-1.5 text-[11px] leading-snug ${checkedToday(r) ? "text-[#1B8C4B]" : "text-[#9AA8A0]"}`}
+                        title={`ตรวจเช็คล่าสุด ${fmtDateTime(r.lastCheckedAt)} โดย ${r.lastCheckedBy || "-"}`}
+                      >
+                        ☑️ เช็คล่าสุด {fmtDateTime(r.lastCheckedAt)}
+                        <div className="truncate">โดย {r.lastCheckedBy || "-"}</div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -2008,7 +2021,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )}
                     {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
                     {/* ปฏิทินตรวจเช็คประจำวัน — ย้อนหลังตั้งแต่วันรับแจ้ง กดได้เฉพาะช่อง "วันนี้" */}
-                    {editId && editRow && !isDoneStatus(editRow.status) && (() => {
+                    {editId && editRow && needsDailyCheck(editRow) && (() => {
                       const today = bkkDate()
                       const byDate = new Map<string, { by: string; at: string }>()
                       for (const c of editRow.dailyChecks ?? []) byDate.set(c.date, { by: c.by, at: c.at })
