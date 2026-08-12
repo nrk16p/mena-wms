@@ -159,19 +159,19 @@ export function DriverHandoverPage() {
         const people = dm.filter((d) => driverPeriod(d) === p).length
         const tr = sp.filter((t) => bucketPeriod(t.readyBucket) === p).length
         cp += people; ct += tr
-        return { p, people, trucks: tr, net: ct - cp }
+        return { p, people, trucks: tr, net: tr - people } // สุทธิเฉพาะช่วงนั้น (ไม่สะสม)
       })
       const stuck = sp.filter((t) => bucketPeriod(t.readyBucket) === "stuck").length
       return { fleet, cells, stuck, totalPeople: cp, totalTrucks: ct, totalNet: ct - cp }
     }).filter((r) => r.totalPeople > 0 || r.totalTrucks > 0 || r.stuck > 0)
     rows.sort((a, b) => a.fleet.localeCompare(b.fleet, "th"))
-    const totCells = PERIODS.map((_, i) => ({
-      people: rows.reduce((s, r) => s + r.cells[i].people, 0),
-      trucks: rows.reduce((s, r) => s + r.cells[i].trucks, 0),
-      net: 0,
-    }))
-    let cp = 0, ct = 0
-    totCells.forEach((c) => { cp += c.people; ct += c.trucks; c.net = ct - cp })
+    const totCells = PERIODS.map((_, i) => {
+      const people = rows.reduce((s, r) => s + r.cells[i].people, 0)
+      const trucks = rows.reduce((s, r) => s + r.cells[i].trucks, 0)
+      return { people, trucks, net: trucks - people }
+    })
+    const cp = totCells.reduce((s, c) => s + c.people, 0)
+    const ct = totCells.reduce((s, c) => s + c.trucks, 0)
     return {
       rows, totCells,
       totalPeople: cp, totalTrucks: ct,
@@ -380,7 +380,7 @@ export function DriverHandoverPage() {
           <div className="border-b border-[#F1F5F2] px-4 py-3 dark:border-white/5">
             <div className="text-[13px] font-bold text-[#14271C] dark:text-white">ตารางรายสัปดาห์ — คนพร้อม vs รถพร้อม</div>
             <div className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">
-              ทุกช่อง 👤คน/🚛รถ = สุทธิสะสม · แดง = ขาดรถ · เขียว = รถเหลือ · รถนับเฉพาะคันว่าง · คลิกช่องเพื่อกรองรายชื่อ
+              ทุกช่อง 👤คน/🚛รถ = สุทธิของช่วงนั้น · แดง = ขาดรถ · เขียว = รถเหลือ · รถนับเฉพาะคันว่าง · คลิกช่องเพื่อกรองรายชื่อ
             </div>
           </div>
           <table className="w-full min-w-[900px] text-[12.5px]">
