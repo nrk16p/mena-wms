@@ -87,23 +87,23 @@ function Modal({ title, onClose, children, wide }: {
 const chip = (cls: string) =>
   `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${cls}`
 
-/* ช่องตารางแผนรายสัปดาห์: 👤คน/🚛รถ = สุทธิสะสม */
-function PlanCell({ people, trucks, net }: { people: number; trucks: number; net: number }) {
-  const empty = people === 0 && trucks === 0
+/* ช่องตารางแผนรายสัปดาห์: 👤คนในช่วงนั้น แยกตามสถานะรถ ✅เสร็จ 🔧กำลังซ่อม 🚫ไม่มีรถ */
+function PlanCell({ people, done, fixing, none }: { people: number; done: number; fixing: number; none: number }) {
+  if (people === 0)
+    return <span className="text-[12px] text-[#C6CFC9] dark:text-white/20">—</span>
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap tabular-nums">
-      <span className={`text-[12px] font-semibold ${empty ? "text-[#C6CFC9] dark:text-white/20" : "text-[#6B7C72] dark:text-white/60"}`}>
-        👤<span className={people > 0 ? "font-bold text-[#14271C] dark:text-white" : ""}>{people}</span>
-        /🚛<span className={trucks > 0 ? "font-bold text-[#14271C] dark:text-white" : ""}>{trucks}</span>
-      </span>
-      <span className="text-[#C6CFC9] dark:text-white/20">=</span>
-      <span className={`inline-block min-w-[36px] rounded-[8px] px-1.5 py-0.5 text-[12px] font-extrabold ${net < 0
-        ? "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300"
-        : net > 0
-          ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300"
-          : "bg-[#F4F6F5] text-[#8B9891] dark:bg-white/5 dark:text-white/40"}`}>
-        {net > 0 ? `+${net}` : net}
-      </span>
+      <span className="text-[12.5px] font-bold text-[#14271C] dark:text-white">👤{people}</span>
+      <span className="text-[#C6CFC9] dark:text-white/20">:</span>
+      {done > 0 && (
+        <span className="rounded-[7px] bg-emerald-50 px-1.5 py-0.5 text-[11.5px] font-bold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">✅{done}</span>
+      )}
+      {fixing > 0 && (
+        <span className="rounded-[7px] bg-sky-50 px-1.5 py-0.5 text-[11.5px] font-bold text-sky-600 dark:bg-sky-500/10 dark:text-sky-300">🔧{fixing}</span>
+      )}
+      {none > 0 && (
+        <span className="rounded-[7px] bg-rose-50 px-1.5 py-0.5 text-[11.5px] font-bold text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">🚫{none}</span>
+      )}
     </span>
   )
 }
@@ -144,38 +144,45 @@ export function DriverHandoverPage() {
   const drivers = data?.drivers ?? []
   const trucks = data?.trucks ?? []
 
-  /* ---------- แผนจับคู่รายสัปดาห์: ทุกช่อง คน/รถ = สุทธิสะสม ---------- */
+  /* ---------- แผนรายสัปดาห์: คนในช่วงนั้นแยกตามสถานะรถ ✅เสร็จ 🔧ซ่อมอยู่ 🚫ไม่มีรถ ---------- */
   const weeklyPlan = useMemo(() => {
-    // นับเฉพาะฟลีทที่ระบุลูกค้าได้ และรถว่างจริง (ไม่ติดจอง/ไม่รอขาย)
+    const truckDone = (d: HandoverDriver) =>
+      !!d.truckStatus && (d.truckStatus.step === "รถซ่อมเสร็จสิ้น" || d.truckStatus.step === "ไม่มีงานซ่อมเปิด" || /พร้อมใช้/.test(d.truckStatus.step))
+    const breakdown = (list: HandoverDriver[]) => ({
+      people: list.length,
+      done: list.filter((d) => d.truckNum && truckDone(d)).length,
+      fixing: list.filter((d) => d.truckNum && !truckDone(d)).length,
+      none: list.filter((d) => !d.truckNum).length,
+    })
     const demand = drivers.filter((d) => isActive(d.status) && d.fleetKey !== "SPARE" && !d.fleetKey.startsWith(" "))
     const supply = trucks.filter((t) => !t.forSale && !t.reservedBy)
     const fleets = [...new Set([...demand.map((d) => d.fleetKey), ...supply.map((t) => t.fleetKey)])]
       .filter((f) => f.trim() && !f.startsWith(" "))
     const rows = fleets.map((fleet) => {
       const dm = demand.filter((d) => d.fleetKey === fleet)
-      const sp = supply.filter((t) => t.fleetKey === fleet)
-      let cp = 0, ct = 0
-      const cells = PERIODS.map((p) => {
-        const people = dm.filter((d) => driverPeriod(d) === p).length
-        const tr = sp.filter((t) => bucketPeriod(t.readyBucket) === p).length
-        cp += people; ct += tr
-        return { p, people, trucks: tr, net: tr - people } // สุทธิเฉพาะช่วงนั้น (ไม่สะสม)
-      })
-      const stuck = sp.filter((t) => bucketPeriod(t.readyBucket) === "stuck").length
-      return { fleet, cells, stuck, totalPeople: cp, totalTrucks: ct, totalNet: ct - cp }
-    }).filter((r) => r.totalPeople > 0 || r.totalTrucks > 0 || r.stuck > 0)
+      const cells = PERIODS.map((p) => ({ p, ...breakdown(dm.filter((d) => driverPeriod(d) === p)) }))
+      const stuck = supply.filter((t) => t.fleetKey === fleet && bucketPeriod(t.readyBucket) === "stuck").length
+      const freeNow = supply.filter((t) => t.fleetKey === fleet && bucketPeriod(t.readyBucket) === "now").length
+      return { fleet, cells, stuck, freeNow, total: breakdown(dm) }
+    }).filter((r) => r.total.people > 0 || r.stuck > 0 || r.freeNow > 0)
     rows.sort((a, b) => a.fleet.localeCompare(b.fleet, "th"))
-    const totCells = PERIODS.map((_, i) => {
-      const people = rows.reduce((s, r) => s + r.cells[i].people, 0)
-      const trucks = rows.reduce((s, r) => s + r.cells[i].trucks, 0)
-      return { people, trucks, net: trucks - people }
+    const sumCells = (i: number) => ({
+      people: rows.reduce((s, r) => s + r.cells[i].people, 0),
+      done: rows.reduce((s, r) => s + r.cells[i].done, 0),
+      fixing: rows.reduce((s, r) => s + r.cells[i].fixing, 0),
+      none: rows.reduce((s, r) => s + r.cells[i].none, 0),
     })
-    const cp = totCells.reduce((s, c) => s + c.people, 0)
-    const ct = totCells.reduce((s, c) => s + c.trucks, 0)
     return {
-      rows, totCells,
-      totalPeople: cp, totalTrucks: ct,
+      rows,
+      totCells: PERIODS.map((_, i) => sumCells(i)),
+      total: {
+        people: rows.reduce((s, r) => s + r.total.people, 0),
+        done: rows.reduce((s, r) => s + r.total.done, 0),
+        fixing: rows.reduce((s, r) => s + r.total.fixing, 0),
+        none: rows.reduce((s, r) => s + r.total.none, 0),
+      },
       totalStuck: rows.reduce((s, r) => s + r.stuck, 0),
+      totalFreeNow: rows.reduce((s, r) => s + r.freeNow, 0),
     }
   }, [drivers, trucks])
 
@@ -378,12 +385,12 @@ export function DriverHandoverPage() {
         {/* ---------- ตารางรายสัปดาห์: คน/รถ = สุทธิสะสม ---------- */}
         <div className="mb-6 overflow-x-auto rounded-[16px] border border-[#EEF2F0] bg-white dark:border-white/[0.07] dark:bg-[#151a10]">
           <div className="border-b border-[#F1F5F2] px-4 py-3 dark:border-white/5">
-            <div className="text-[13px] font-bold text-[#14271C] dark:text-white">ตารางรายสัปดาห์ — คนพร้อม vs รถพร้อม</div>
+            <div className="text-[13px] font-bold text-[#14271C] dark:text-white">แผนรายสัปดาห์ — คนพร้อมช่วงไหน รถอยู่สถานะอะไร</div>
             <div className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">
-              ทุกช่อง 👤คน/🚛รถ = สุทธิของช่วงนั้น · แดง = ขาดรถ · เขียว = รถเหลือ · รถนับเฉพาะคันว่าง · คลิกช่องเพื่อกรองรายชื่อ
+              👤 คนที่พร้อมช่วงนั้น แยกเป็น <span className="font-semibold text-emerald-600 dark:text-emerald-300">✅ รถเสร็จแล้ว</span> · <span className="font-semibold text-sky-600 dark:text-sky-300">🔧 รถกำลังซ่อม (ยานยนต์ต้องเร่งให้ทัน)</span> · <span className="font-semibold text-rose-600 dark:text-rose-300">🚫 ยังไม่มีรถ (จัดส่งต้องหา)</span> · คลิกช่องเพื่อกรองรายชื่อ
             </div>
           </div>
-          <table className="w-full min-w-[900px] text-[12.5px]">
+          <table className="w-full min-w-[960px] text-[12.5px]">
             <thead>
               <tr className="text-[10.5px] font-bold uppercase text-[#9AA8A0] dark:text-white/40">
                 <th className="px-4 py-2.5 text-left">ฟลีท</th>
@@ -391,6 +398,7 @@ export function DriverHandoverPage() {
                 {PERIODS.map((p) => (
                   <th key={p} className="px-2 py-2.5 text-center">{PERIOD_LABELS[p]}</th>
                 ))}
+                <th className="px-2 py-2.5 text-center">🚛 รถว่าง<div className="text-[9px] font-medium normal-case text-[#C6CFC9] dark:text-white/25">เสร็จแล้ว ยังไม่จอง</div></th>
                 <th className="px-3 py-2.5 text-center">⚠️ รถค้างซ่อม<div className="text-[9px] font-medium normal-case text-[#C6CFC9] dark:text-white/25">เกินกำหนด/ไม่มีวันเสร็จ</div></th>
               </tr>
             </thead>
@@ -404,7 +412,7 @@ export function DriverHandoverPage() {
                     >{r.fleet}</button>
                   </td>
                   <td className="px-2 py-2 text-center">
-                    <PlanCell people={r.totalPeople} trucks={r.totalTrucks} net={r.totalNet} />
+                    <PlanCell people={r.total.people} done={r.total.done} fixing={r.total.fixing} none={r.total.none} />
                   </td>
                   {r.cells.map((c) => {
                     const selected = filterFleet === r.fleet && filterBucket === c.p
@@ -417,11 +425,16 @@ export function DriverHandoverPage() {
                           }}
                           className={`w-full rounded-[8px] px-1 py-1 transition hover:bg-[#F6FAF7] dark:hover:bg-white/5 ${selected ? "ring-2 ring-[#1B8C4B] bg-[#EAF6EE] dark:bg-emerald-500/10" : ""}`}
                         >
-                          <PlanCell people={c.people} trucks={c.trucks} net={c.net} />
+                          <PlanCell people={c.people} done={c.done} fixing={c.fixing} none={c.none} />
                         </button>
                       </td>
                     )
                   })}
+                  <td className="px-2 py-2 text-center">
+                    {r.freeNow > 0
+                      ? <span className="rounded-[7px] bg-emerald-50 px-1.5 py-0.5 text-[12px] font-bold text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">{r.freeNow} คัน</span>
+                      : <span className="text-[#C6CFC9] dark:text-white/20">—</span>}
+                  </td>
                   <td className="px-3 py-2 text-center">
                     {r.stuck > 0
                       ? <span className="text-[12px] font-bold text-amber-600 dark:text-amber-300">{r.stuck} คัน</span>
@@ -432,13 +445,14 @@ export function DriverHandoverPage() {
               <tr className="border-t-2 border-[#EEF2F0] bg-[#FAFCFA] dark:border-white/10 dark:bg-white/[0.03]">
                 <td className="px-4 py-2.5 font-bold text-[13px] text-[#14271C] dark:text-white">รวมทั้งหมด</td>
                 <td className="px-2 py-2 text-center">
-                  <PlanCell people={weeklyPlan.totalPeople} trucks={weeklyPlan.totalTrucks} net={weeklyPlan.totalTrucks - weeklyPlan.totalPeople} />
+                  <PlanCell people={weeklyPlan.total.people} done={weeklyPlan.total.done} fixing={weeklyPlan.total.fixing} none={weeklyPlan.total.none} />
                 </td>
                 {weeklyPlan.totCells.map((c, i) => (
                   <td key={i} className="px-1.5 py-2 text-center">
-                    <PlanCell people={c.people} trucks={c.trucks} net={c.net} />
+                    <PlanCell people={c.people} done={c.done} fixing={c.fixing} none={c.none} />
                   </td>
                 ))}
+                <td className="px-2 py-2 text-center text-[12px] font-bold text-emerald-600 dark:text-emerald-300">{weeklyPlan.totalFreeNow} คัน</td>
                 <td className="px-3 py-2 text-center text-[12px] font-bold text-amber-600 dark:text-amber-300">{weeklyPlan.totalStuck} คัน</td>
               </tr>
             </tbody>
