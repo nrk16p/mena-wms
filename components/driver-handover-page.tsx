@@ -181,17 +181,26 @@ export function DriverHandoverPage() {
     return cards
   }, [drivers, trucks])
 
-  /* ---------- KPI สรุปบนสุด ---------- */
+  /* ---------- KPI สรุปบนสุด: คนรอ → จับคู่แล้ว → ยังไม่มีรถ → รถว่าง → ขาด ---------- */
   const kpi = useMemo(() => {
     const demandNow = drivers.filter((d) => isActive(d.status) && d.fleetKey !== "SPARE" && driverPeriod(d) === "now")
+    const noTruckPeople = demandNow.filter((d) => !d.truckNum)
+    const freeTrucks = trucks.filter((t) => !t.forSale && !t.reservedBy && bucketPeriod(t.readyBucket) === "now")
+    // ขาดรถ = จับคู่ตามฟลีทแล้ว คนที่ยังเหลือไม่มีรถ (นับต่อฟลีท)
+    const fleets = [...new Set(noTruckPeople.map((d) => d.fleetKey))]
+    const shortByFleet = fleets
+      .map((f) => ({ fleet: f, short: Math.max(0, noTruckPeople.filter((d) => d.fleetKey === f).length - freeTrucks.filter((t) => t.fleetKey === f).length) }))
+      .filter((x) => x.short > 0)
+      .sort((a, b) => b.short - a.short)
     return {
       waiting: demandNow.length,
-      noTruck: demandNow.filter((d) => !d.truckNum).length,
-      freeNow: trucks.filter((t) => !t.forSale && !t.reservedBy && bucketPeriod(t.readyBucket) === "now").length,
-      shortage: fleetCards.reduce((s, c) => s + Math.max(0, c.gapNow), 0),
-      stuck: trucks.filter((t) => !t.forSale && bucketPeriod(t.readyBucket) === "stuck").length,
+      matched: demandNow.length - noTruckPeople.length,
+      noTruck: noTruckPeople.length,
+      freeNow: freeTrucks.length,
+      shortage: shortByFleet.reduce((s, x) => s + x.short, 0),
+      shortText: shortByFleet.slice(0, 3).map((x) => `${x.fleet} ขาด ${x.short}`).join(" · "),
     }
-  }, [drivers, trucks, fleetCards])
+  }, [drivers, trucks])
 
   /* ---------- รายชื่อคนหลังกรอง ---------- */
   const shownDrivers = useMemo(() => {
@@ -322,20 +331,40 @@ export function DriverHandoverPage() {
           </div>
         )}
 
-        {/* ---------- KPI สรุป ---------- */}
-        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {([
-            { label: "👤 คนพร้อมรับรถตอนนี้", value: kpi.waiting, sub: kpi.noTruck > 0 ? `ยังไม่มีรถ ${kpi.noTruck} คน` : "มีรถจองครบทุกคน", alert: kpi.noTruck > 0 },
-            { label: "🚛 รถพร้อม + ว่าง", value: kpi.freeNow, sub: "ซ่อมเสร็จ ไม่ติดจอง", alert: false },
-            { label: "⚠️ ขาดรถวันนี้", value: kpi.shortage, sub: "รวมทุกฟลีทที่คนเกินรถ", alert: kpi.shortage > 0 },
-            { label: "🛠️ รถติดปัญหา", value: kpi.stuck, sub: "เกินกำหนด / ไม่มีวันคาดเสร็จ", alert: false },
-          ]).map((t) => (
-            <div key={t.label} className="rounded-[16px] border border-[#EEF2F0] bg-white px-4 py-3 dark:border-white/[0.07] dark:bg-[#151a10]">
-              <div className="text-[11px] font-semibold text-[#9AA8A0] dark:text-white/40">{t.label}</div>
-              <div className={`text-[24px] font-bold leading-tight ${t.alert ? "text-rose-600 dark:text-rose-300" : "text-[#14271C] dark:text-white"}`}>{t.value}</div>
-              <div className={`text-[11px] ${t.alert ? "font-semibold text-rose-500 dark:text-rose-300/80" : "text-[#9AA8A0] dark:text-white/40"}`}>{t.sub}</div>
+        {/* ---------- KPI สรุป: อ่านซ้ายไปขวาจบในบรรทัดเดียว ---------- */}
+        <div className="mb-4 rounded-[16px] border border-[#EEF2F0] bg-white px-4 py-3.5 dark:border-white/[0.07] dark:bg-[#151a10]">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[28px] font-bold text-[#14271C] dark:text-white">👤 {kpi.waiting}</span>
+              <span className="text-[12.5px] font-semibold text-[#6B7C72] dark:text-white/50">คนรอรับรถ</span>
             </div>
-          ))}
+            <div className="text-[#C6CFC9] dark:text-white/20">=</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[28px] font-bold text-emerald-600 dark:text-emerald-300">{kpi.matched}</span>
+              <span className="text-[12.5px] font-semibold text-[#6B7C72] dark:text-white/50">จับคู่รถแล้ว</span>
+            </div>
+            <div className="text-[#C6CFC9] dark:text-white/20">+</div>
+            <div className="flex items-baseline gap-2">
+              <span className={`text-[28px] font-bold ${kpi.noTruck > 0 ? "text-rose-600 dark:text-rose-300" : "text-[#14271C] dark:text-white"}`}>{kpi.noTruck}</span>
+              <span className="text-[12.5px] font-semibold text-[#6B7C72] dark:text-white/50">ยังไม่มีรถ</span>
+            </div>
+            <div className="mx-1 hidden h-8 w-px bg-[#EEF2F0] dark:bg-white/10 sm:block" />
+            <div className="flex items-baseline gap-2">
+              <span className="text-[28px] font-bold text-[#1B8C4B] dark:text-emerald-300">🚛 {kpi.freeNow}</span>
+              <span className="text-[12.5px] font-semibold text-[#6B7C72] dark:text-white/50">รถว่างพร้อมจับคู่</span>
+            </div>
+            <div className="text-[#C6CFC9] dark:text-white/20">→</div>
+            {kpi.shortage > 0 ? (
+              <div className="flex items-baseline gap-2 rounded-[12px] bg-rose-50 px-3 py-1 dark:bg-rose-500/10">
+                <span className="text-[28px] font-bold text-rose-600 dark:text-rose-300">ขาด {kpi.shortage}</span>
+                <span className="text-[12.5px] font-semibold text-rose-500 dark:text-rose-300/80">{kpi.shortText}</span>
+              </div>
+            ) : (
+              <div className="flex items-baseline gap-2 rounded-[12px] bg-emerald-50 px-3 py-1 dark:bg-emerald-500/10">
+                <span className="text-[28px] font-bold text-emerald-600 dark:text-emerald-300">🟢 รถพอ</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ---------- Fleet Balance การ์ดรายฟลีท ---------- */}
