@@ -164,7 +164,7 @@ export function DriverHandoverPage() {
       const stuck = sp.filter((t) => bucketPeriod(t.readyBucket) === "stuck").length
       return { fleet, cells, stuck, totalPeople: cp, totalTrucks: ct, totalNet: ct - cp }
     }).filter((r) => r.totalPeople > 0 || r.totalTrucks > 0 || r.stuck > 0)
-    rows.sort((a, b) => a.cells[0].net - b.cells[0].net || b.totalPeople - a.totalPeople)
+    rows.sort((a, b) => a.fleet.localeCompare(b.fleet, "th"))
     const totCells = PERIODS.map((_, i) => ({
       people: rows.reduce((s, r) => s + r.cells[i].people, 0),
       trucks: rows.reduce((s, r) => s + r.cells[i].trucks, 0),
