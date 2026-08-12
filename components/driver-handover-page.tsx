@@ -199,6 +199,16 @@ export function DriverHandoverPage() {
     return list.filter((d) => !d.truckNum).length
   }, [drivers, statusTab, filterFleet, filterBucket])
 
+  /* ---------- รายชื่อฟลีทสำหรับ dropdown กรอง ---------- */
+  const fleetOptions = useMemo(() => {
+    const count = new Map<string, number>()
+    for (const d of drivers) if (isActive(d.status)) count.set(d.fleetKey, (count.get(d.fleetKey) ?? 0) + 1)
+    for (const t of trucks) if (!t.forSale && !count.has(t.fleetKey)) count.set(t.fleetKey, 0)
+    return [...count.entries()]
+      .filter(([f]) => f.trim() && f !== "SPARE")
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  }, [drivers, trucks])
+
   /* ---------- รถเสร็จที่ยังไม่มีคน ---------- */
   const readyFreeTrucks = useMemo(() => {
     let list = trucks.filter((t) => !t.forSale && !t.reservedBy && bucketPeriod(t.readyBucket) === "now")
@@ -433,17 +443,29 @@ export function DriverHandoverPage() {
               ? "bg-emerald-600 text-white"
               : "bg-white text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50 dark:bg-white/5 dark:text-emerald-300 dark:ring-emerald-500/30"}`}
           >🟢 รถเสร็จไม่มีคน ({readyFreeTrucks.length})</button>
-          {(filterFleet || filterBucket) && (
+          {filterBucket && (
             <button
-              onClick={() => { setFilterFleet(""); setFilterBucket("") }}
+              onClick={() => setFilterBucket("")}
               className="inline-flex items-center gap-1 rounded-full bg-[#EAF6EE] px-3 py-1.5 text-[12px] font-semibold text-[#1B8C4B] dark:bg-emerald-500/10 dark:text-emerald-300"
             >
               <Filter className="h-3 w-3" />
-              {filterFleet}{filterBucket && ` · ${PERIOD_LABELS[filterBucket] ?? bucketLabel(filterBucket)}`}
+              {PERIOD_LABELS[filterBucket] ?? bucketLabel(filterBucket)}
               <X className="h-3 w-3" />
             </button>
           )}
-          <div className="relative ml-auto">
+          <select
+            value={filterFleet}
+            onChange={(e) => setFilterFleet(e.target.value)}
+            className={`ml-auto rounded-full border py-1.5 pl-3 pr-8 text-[12.5px] font-semibold outline-none focus:border-[#1B8C4B] ${filterFleet
+              ? "border-[#1B8C4B] bg-[#EAF6EE] text-[#1B8C4B] dark:border-emerald-400/50 dark:bg-emerald-500/10 dark:text-emerald-300"
+              : "border-[#EEF2F0] bg-white text-[#6B7C72] dark:border-white/10 dark:bg-white/5 dark:text-white/60"}`}
+          >
+            <option value="">ทุกฟลีท</option>
+            {fleetOptions.map(([f, n]) => (
+              <option key={f} value={f}>{f}{n > 0 ? ` (${n} คน)` : ""}</option>
+            ))}
+          </select>
+          <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9AA8A0]" />
             <input
               value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาชื่อ / รหัส / แพล้นท์ / เบอร์รถ"
