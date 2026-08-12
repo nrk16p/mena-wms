@@ -213,9 +213,16 @@ export function DriverHandoverPage() {
       .map((f) => ({ fleet: f, short: Math.max(0, noTruckPeople.filter((d) => d.fleetKey === f).length - freeTrucks.filter((t) => t.fleetKey === f).length) }))
       .filter((x) => x.short > 0)
       .sort((a, b) => b.short - a.short)
+    const matchedPeople = demandNow.filter((d) => d.truckNum)
+    const truckDone = (d: HandoverDriver) => {
+      const s = d.truckStatus?.step ?? ""
+      return s === "รถซ่อมเสร็จสิ้น" || s === "ไม่มีงานซ่อมเปิด" || /พร้อมใช้/.test(s)
+    }
     return {
       waiting: demandNow.length,
-      matched: demandNow.length - noTruckPeople.length,
+      matched: matchedPeople.length,
+      readyNow: matchedPeople.filter(truckDone).length,   // รถเสร็จแล้ว — ส่งมอบได้เลย
+      inRepair: matchedPeople.filter((d) => !truckDone(d)).length, // รอรถซ่อมเสร็จ
       noTruck: noTruckPeople.length,
       freeNow: freeTrucks.length,
       shortage: shortByFleet.reduce((s, x) => s + x.short, 0),
@@ -393,7 +400,13 @@ export function DriverHandoverPage() {
             <div className="text-[#C6CFC9] dark:text-white/20">=</div>
             <div className="flex items-baseline gap-2">
               <span className="text-[28px] font-bold text-emerald-600 dark:text-emerald-300">{kpi.matched}</span>
-              <span className="text-[12.5px] font-semibold text-[#6B7C72] dark:text-white/50">จับคู่รถแล้ว</span>
+              <div className="leading-tight">
+                <div className="text-[12.5px] font-semibold text-[#6B7C72] dark:text-white/50">จับคู่รถแล้ว</div>
+                <div className="flex gap-1.5 text-[10.5px] font-bold">
+                  <span className="rounded-[6px] bg-emerald-50 px-1.5 py-0.5 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300" title="รถซ่อมเสร็จ/พร้อมใช้ — นัดส่งมอบได้เลย">✅ รถเสร็จ {kpi.readyNow}</span>
+                  <span className="rounded-[6px] bg-sky-50 px-1.5 py-0.5 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300" title="รถยังซ่อมอยู่ — ยานยนต์ต้องเร่ง">🔧 รอซ่อม {kpi.inRepair}</span>
+                </div>
+              </div>
             </div>
             <div className="text-[#C6CFC9] dark:text-white/20">+</div>
             <div className="flex items-baseline gap-2">
