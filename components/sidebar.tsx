@@ -30,6 +30,7 @@ import {
   FileText,
   Code2,
   Bot,
+  Truck,
   X,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
@@ -99,6 +100,13 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/garages",                    label: "จัดการอู่ / ร้านอะไหล่", icon: Factory },
       { href: "/repair-external/guide",      label: "คู่มือการใช้งาน", icon: BookOpen },
       { href: "/repair-external/api-guide",  label: "คู่มือ API Sync", icon: Code2 },
+    ],
+  },
+  {
+    label: "ส่งมอบรถ พจส.ใหม่",
+    collapsible: true,
+    items: [
+      { href: "/driver-handover", label: "จับคู่คน-รถ ส่งมอบ", icon: Truck, exact: true },
     ],
   },
   {

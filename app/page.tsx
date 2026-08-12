@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "motion/react"
 import {
   PackageSearch, PlusCircle, Database, Car, GitCompare, Inbox, Layers,
   BarChart3, TableProperties, ClipboardCheck, Disc3, FileText, BookOpen,
-  Wrench, Flag, Factory, Code2, ClipboardList, ChevronDown,
+  Wrench, Flag, Factory, Code2, ClipboardList, ChevronDown, Truck,
 } from "lucide-react"
 import { WelcomePopup } from "@/components/welcome-popup"
 import { Mascot } from "@/components/mascot"
@@ -80,6 +80,15 @@ const MODULES: Module[] = [
       { href: "/garages",                   label: "จัดการอู่ / ร้านอะไหล่", desc: "รายชื่อ master แก้แล้วอัปเดตทุกงาน", icon: Factory },
       { href: "/repair-external/guide",     label: "คู่มือการใช้งาน",        desc: "workflow สถานะ + SLA",              icon: BookOpen },
       { href: "/repair-external/api-guide", label: "คู่มือ API Sync",        desc: "API สำหรับทีมภายนอก (public)",       icon: Code2 },
+    ],
+  },
+  {
+    key: "driver-handover",
+    title: "ส่งมอบรถ พจส.ใหม่",
+    desc: "จับคู่คนขับใหม่กับรถ ให้พร้อมตรงกันรายฟลีท/รายสัปดาห์",
+    icon: Truck, color: "#0E7490", bg: "#CFFAFE",
+    links: [
+      { href: "/driver-handover", label: "จับคู่คน-รถ ส่งมอบ", desc: "Fleet Balance + เลือกรถ + อัปเดตสถานะ พจส.ใหม่ (sync ชีต Onboarding)", icon: Truck },
     ],
   },
 ]
