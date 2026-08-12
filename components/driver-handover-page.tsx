@@ -321,15 +321,7 @@ export function DriverHandoverPage() {
         </div>
 
         {/* ---------- Fleet Balance การ์ดรายฟลีท ---------- */}
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <span className="text-[13px] font-bold text-[#14271C] dark:text-white">Fleet Balance — ฟลีทไหนขาดรถ เมื่อไหร่</span>
-            <span className="ml-3 text-[11px] text-[#9AA8A0] dark:text-white/40">
-              <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: C_PEOPLE }} /> คนพร้อมรับรถ
-              <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: C_TRUCK }} /> รถว่าง (ว่าง/ทั้งหมด)
-              · คลิกแถวเพื่อกรองรายชื่อ
-            </span>
-          </div>
+        <div className="mb-2 flex justify-end">
           <button
             onClick={() => setShowDetail(!showDetail)}
             className="text-[11.5px] font-semibold text-[#1B8C4B] hover:underline dark:text-emerald-300"
