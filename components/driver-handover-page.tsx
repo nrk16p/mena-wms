@@ -76,6 +76,7 @@ export function DriverHandoverPage() {
   const [q, setQ] = useState("")
   const [filterFleet, setFilterFleet] = useState("")
   const [filterBucket, setFilterBucket] = useState("")
+  const [noTruckOnly, setNoTruckOnly] = useState(false)
 
   const [pickFor, setPickFor] = useState<HandoverDriver | null>(null) // เปิด modal เลือกรถ
   const [pickAllFleet, setPickAllFleet] = useState(false)
@@ -132,6 +133,7 @@ export function DriverHandoverPage() {
     else list = list.filter((d) => d.status === statusTab)
     if (filterFleet) list = list.filter((d) => d.fleetKey === filterFleet)
     if (filterBucket) list = list.filter((d) => driverBucket(d) === filterBucket)
+    if (noTruckOnly) list = list.filter((d) => !d.truckNum)
     const term = q.trim().toLowerCase()
     if (term)
       list = list.filter((d) =>
@@ -139,7 +141,18 @@ export function DriverHandoverPage() {
     const order: Record<string, number> = { "รอรับรถ": 0, "ฝึกงาน": 1, "ฝึกงาน 1-2 วัน": 2, "รอฝึกงาน": 3, "รับรถแล้ว": 4 }
     return [...list].sort((a, b) =>
       (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.waitDays - a.waitDays || (a.readyDate ?? "9") .localeCompare(b.readyDate ?? "9"))
-  }, [drivers, statusTab, filterFleet, filterBucket, q])
+  }, [drivers, statusTab, filterFleet, filterBucket, q, noTruckOnly])
+
+  // จำนวนคนที่ยังไม่มีรถ ภายใต้ filter ปัจจุบัน (ไม่นับ filter ยังไม่มีรถเอง)
+  const noTruckCount = useMemo(() => {
+    let list = drivers
+    if (statusTab === "active") list = list.filter((d) => isActive(d.status))
+    else if (statusTab === "ฝึกงาน") list = list.filter((d) => d.status.startsWith("ฝึกงาน"))
+    else list = list.filter((d) => d.status === statusTab)
+    if (filterFleet) list = list.filter((d) => d.fleetKey === filterFleet)
+    if (filterBucket) list = list.filter((d) => driverBucket(d) === filterBucket)
+    return list.filter((d) => !d.truckNum).length
+  }, [drivers, statusTab, filterFleet, filterBucket])
 
   /* ---------- รถใน modal เลือกรถ ---------- */
   const pickerTrucks = useMemo(() => {
@@ -301,6 +314,12 @@ export function DriverHandoverPage() {
                 : "bg-white text-[#6B7C72] ring-1 ring-[#EEF2F0] hover:bg-[#EAF6EE] dark:bg-white/5 dark:text-white/60 dark:ring-white/10"}`}
             >{label}</button>
           ))}
+          <button
+            onClick={() => setNoTruckOnly(!noTruckOnly)}
+            className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition ${noTruckOnly
+              ? "bg-amber-500 text-white"
+              : "bg-white text-amber-600 ring-1 ring-amber-200 hover:bg-amber-50 dark:bg-white/5 dark:text-amber-300 dark:ring-amber-500/30"}`}
+          >🚨 ยังไม่มีรถ ({noTruckCount})</button>
           {(filterFleet || filterBucket) && (
             <button
               onClick={() => { setFilterFleet(""); setFilterBucket("") }}
