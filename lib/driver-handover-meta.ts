@@ -19,8 +19,9 @@ export type HandoverDriver = {
   readiness: string      // ความพร้อมรับรถ
   examScore: string
   receivedDate: string
-  fleetKey: string       // เช่น "ASIA ML" — ใช้จับคู่กับรถ
+  fleetKey: string       // เช่น "ASIA ML" — ใช้จับคู่กับรถ · "❓ ไม่ระบุ" = ลูกค้าว่างในชีต (data quality)
   readyDate: string | null // YYYY-MM-DD วันที่คนพร้อมรับรถ
+  readyEstimated: boolean // true = readyDate ประมาณจากวันเริ่มฝึก+10 (ชีตไม่มีวันครบกำหนดจริง)
   waitDays: number       // รอมาแล้วกี่วันนับจากพร้อม
   /** สถานะล่าสุดของรถที่จองจาก Mena-Next (null = ยังไม่ได้จองรถ) */
   truckStatus: null | {
@@ -57,7 +58,8 @@ export type HandoverTruck = {
     partsInfo: string     // สรุปสถานะ PR/PO
   }
   readyBucket: string    // "พร้อมแล้ว" | ISO วันจันทร์ของสัปดาห์ | "เกินกำหนด" | "ไม่มี ETA"
-  reservedBy: string     // ชื่อ พจส.ที่จองรถคันนี้ไว้แล้ว ("" = ว่าง)
+  reservedBy: string     // ชื่อ พจส.ที่จองรถคันนี้ ("ชื่อ +1" ถ้าจองซ้ำ, "" = ว่าง)
+  reservedDup: boolean   // true = มีคนจองเบอร์รถนี้มากกว่า 1 คนในชีต (data quality)
 }
 
 export type HandoverData = {

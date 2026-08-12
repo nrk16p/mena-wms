@@ -62,7 +62,8 @@ export function parseSheetDate(s: string): Date | null {
 }
 
 const iso = (d: Date) => d.toISOString().slice(0, 10)
-const todayUtc = () => new Date(new Date().toISOString().slice(0, 10))
+/** วันนี้ตามเวลาไทย (UTC+7) เป็น Date เที่ยงคืน UTC — ให้ตรงกับ todayIso() ฝั่ง client */
+const todayTh = () => new Date(new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10))
 
 function mondayOf(d: Date): Date {
   const r = new Date(d)
@@ -80,7 +81,7 @@ async function apiGet(url: string): Promise<unknown> {
 
 export async function fetchDrivers(): Promise<HandoverDriver[]> {
   const rows = await readRange(SHEET_ID, `'${DRIVER_TAB}'!A${DATA_START_ROW}:${LAST_COL}`)
-  const today = todayUtc()
+  const today = todayTh()
   const out: HandoverDriver[] = []
   rows.forEach((r, i) => {
     const get = (c: number) => (r[c] ?? "").trim()
@@ -92,18 +93,22 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
 
     const due = parseSheetDate(get(COL.trainDue))
     let readyDate: string | null = null
+    let readyEstimated = false // true = ประมาณจากวันเริ่มฝึก+10 (ชีตไม่มีวันครบกำหนดจริง)
+    const estimateFromStart = () => {
+      const st = parseSheetDate(get(COL.trainStart))
+      if (!st) return
+      st.setUTCDate(st.getUTCDate() + 10)
+      readyDate = iso(st)
+      readyEstimated = true
+    }
     if (status === "รอรับรถ") {
       // พร้อมตั้งแต่วันครบฝึก (ถ้ามี) ไม่งั้นถือว่าพร้อมแล้ววันนี้
       readyDate = due && due < today ? iso(due) : iso(today)
     } else if (status === "ฝึกงาน" || status === "ฝึกงาน 1-2 วัน") {
       if (due) readyDate = iso(due)
-      else {
-        const st = parseSheetDate(get(COL.trainStart))
-        if (st) { st.setUTCDate(st.getUTCDate() + 10); readyDate = iso(st) }
-      }
+      else estimateFromStart()
     } else if (status === "รอฝึกงาน") {
-      const st = parseSheetDate(get(COL.trainStart))
-      if (st) { st.setUTCDate(st.getUTCDate() + 10); readyDate = iso(st) }
+      estimateFromStart()
     }
     const waitDays = status === "รอรับรถ" && readyDate
       ? Math.max(0, Math.round((today.getTime() - new Date(readyDate).getTime()) / 86400000))
@@ -117,7 +122,7 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
       truckNum: get(COL.truckNum), plate: get(COL.plate), readiness: get(COL.readiness),
       examScore: get(COL.examScore), receivedDate: get(COL.receivedDate),
       fleetKey: driverFleetKey(get(COL.customer), get(COL.position)),
-      readyDate, waitDays, truckStatus: null,
+      readyDate, readyEstimated, waitDays, truckStatus: null,
     })
   })
   return out
@@ -142,7 +147,7 @@ async function fetchTrucksWithJobs(
 
   // รถที่ถูกจองแล้ว: พจส. active + คนรับรถไปแล้วไม่เกิน 14 วัน (กันรถเพิ่งส่งมอบเด้งกลับมาเป็น "ว่าง")
   // เก็บเป็น list เพื่อโชว์เคสจองซ้ำ (เช่น ME127 ถูกจอง 2 คน)
-  const today = todayUtc()
+  const today = todayTh()
   const reserved = new Map<string, string[]>()
   for (const d of drivers) {
     if (!d.truckNum) continue
@@ -191,6 +196,7 @@ async function fetchTrucksWithJobs(
 
               const type = vt.vehicle_type_abbr ?? ""
               const customer = c.customer_name ?? ""
+              const holders = reserved.get(normTruckNum(t.trucknum ?? "")) ?? []
               out.push({
                 trucknum: t.trucknum ?? "", plate: t.truckplate ?? "",
                 customer, type, fleetKey: `${customer} ${type}`,
@@ -206,7 +212,8 @@ async function fetchTrucksWithJobs(
                   prAmount: Number(j.pr_amount_total) || 0, partsInfo,
                 } : null,
                 readyBucket,
-                reservedBy: (reserved.get(normTruckNum(t.trucknum ?? "")) ?? []).join(", "),
+                reservedBy: holders.join(", "),
+                reservedDup: holders.length > 1,
               })
             }
   return { trucks: out, jobByPlate }
@@ -292,7 +299,7 @@ export async function updateDriverStatus(input: {
   if (!(EDITABLE_STATUSES as readonly string[]).includes(input.toStatus))
     throw new Error(`สถานะ "${input.toStatus}" ไม่อยู่ในรายการที่แก้ได้`)
   const row = await resolveRow(input.row, input.code, input.name)
-  const today = thDate(todayUtc())
+  const today = thDate(todayTh())
   const data: { range: string; values: string[][] }[] = [
     { range: `'${DRIVER_TAB}'!${colLetter(COL.status)}${row}`, values: [[input.toStatus]] },
   ]

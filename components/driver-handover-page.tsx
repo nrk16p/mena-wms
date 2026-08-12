@@ -64,6 +64,9 @@ const isStale = (d: HandoverDriver) =>
 /** ฟลีทที่จับคู่รถได้จริง (SPARE/ลูกค้าว่าง จับคู่ตามฟลีทไม่ได้) */
 const matchableFleet = (f: string) => f !== "SPARE" && f !== "❓ไม่ระบุ"
 
+/** เทียบเบอร์รถแบบไม่สนช่องว่าง — ให้ตรงกับ normTruckNum ฝั่ง server */
+const normNum = (s: string) => s.toUpperCase().replace(/\s+/g, "")
+
 function bucketOrder(b: string): number {
   if (b === "พร้อมแล้ว") return 0
   if (b === "เกินกำหนด") return 90
@@ -249,6 +252,16 @@ export function DriverHandoverPage() {
     () => applyFilters(drivers, { skipNoTruck: true }).filter((d) => !d.truckNum).length,
     [drivers, applyFilters])
   const staleCount = useMemo(() => drivers.filter(isStale).length, [drivers])
+  // เบอร์รถที่ถูกจองซ้ำ (คน active มากกว่า 1 คนจองเบอร์เดียวกัน) → เบอร์รถ -> รายชื่อ
+  const dupTruckHolders = useMemo(() => {
+    const by = new Map<string, string[]>()
+    for (const d of drivers)
+      if (d.truckNum && isActive(d.status)) {
+        const k = normNum(d.truckNum)
+        by.set(k, [...(by.get(k) ?? []), d.name])
+      }
+    return new Map([...by].filter(([, v]) => v.length > 1).map(([k, v]) => [k, v.join(", ")]))
+  }, [drivers])
   const blankCustCount = useMemo(
     () => drivers.filter((d) => isActive(d.status) && !d.customer.trim()).length,
     [drivers])
@@ -621,6 +634,7 @@ export function DriverHandoverPage() {
           {shownDrivers.map((d) => {
             const meta = driverStatusMeta(d.status)
             const truckMeta = d.truckStatus ? stepMetaFromLabel(d.truckStatus.step) : null
+            const dupBooking = d.truckNum ? dupTruckHolders.get(normNum(d.truckNum)) ?? "" : ""
             return (
               <div key={`${d.row}-${d.code}`}
                 className="grid min-w-[1160px] items-center gap-3 border-b border-[#F1F5F2] px-4 py-3 text-[12.5px] last:border-0 dark:border-white/5"
@@ -635,7 +649,15 @@ export function DriverHandoverPage() {
                 <div><span className={chip(meta.cls)}>{meta.emoji} {d.status}</span></div>
                 <div className="text-[11.5px]">
                   <div className="text-[#9AA8A0] dark:text-white/40">เริ่ม {d.trainStart || "—"}</div>
-                  <div className="font-semibold text-[#14271C] dark:text-white">ครบ {d.trainDue || (d.readyDate && d.status !== "รอรับรถ" ? `~${d.readyDate.slice(5).split("-").reverse().join("/")}` : "—")}</div>
+                  <div className="font-semibold text-[#14271C] dark:text-white">
+                    ครบ {d.trainDue || (d.readyDate && d.readyEstimated ? `~${d.readyDate.slice(5).split("-").reverse().join("/")}` : "—")}
+                    {d.readyEstimated && !d.trainDue && (
+                      <span className="ml-1 text-[10px] font-normal text-[#9AA8A0] dark:text-white/35" title="ชีตไม่ได้กรอกวันครบกำหนดฝึก — ประมาณจากวันเริ่มฝึก + 10 วัน">ประมาณ</span>
+                    )}
+                  </div>
+                  {isStale(d) && (
+                    <div className="text-[10px] font-bold text-orange-600 dark:text-orange-300" title="ครบกำหนดฝึกแล้ว แต่สถานะยังไม่ถูกอัปเดตในชีต">⏰ สถานะค้าง</div>
+                  )}
                 </div>
                 <div>
                   {d.status === "รอรับรถ" ? (
@@ -659,7 +681,12 @@ export function DriverHandoverPage() {
                       onClick={() => d.plate && setTimelineFor({ plate: d.plate, label: `${d.truckNum} · ${d.plate}` })}
                       className="text-left" disabled={!d.plate} title={d.plate ? "ดูประวัติซ่อม" : undefined}
                     >
-                      <div className="font-mono text-[12px] font-bold text-[#14271C] dark:text-white">{d.truckNum} <span className="font-normal text-[#9AA8A0]">{d.plate}</span></div>
+                      <div className="font-mono text-[12px] font-bold text-[#14271C] dark:text-white">
+                        {d.truckNum} <span className="font-normal text-[#9AA8A0]">{d.plate}</span>
+                        {dupBooking && (
+                          <span className="ml-1 rounded bg-rose-100 px-1 py-0.5 font-sans text-[9.5px] font-bold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" title={`เบอร์รถนี้ถูกจองซ้ำ: ${dupBooking}`}>🔁 จองซ้ำ</span>
+                        )}
+                      </div>
                       {truckMeta && (
                         <span className={chip(truckMeta.cls)}>
                           {truckMeta.emoji} {truckMeta.label}
