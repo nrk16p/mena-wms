@@ -103,6 +103,7 @@ export function DriverHandoverPage() {
   const [filterFleet, setFilterFleet] = useState("")
   const [filterBucket, setFilterBucket] = useState("")
   const [noTruckOnly, setNoTruckOnly] = useState(false)
+  const [readyTrucksView, setReadyTrucksView] = useState(false)
   const [showDetail, setShowDetail] = useState(false)
 
   const [pickFor, setPickFor] = useState<HandoverDriver | null>(null) // เปิด modal เลือกรถ
@@ -220,6 +221,23 @@ export function DriverHandoverPage() {
     if (filterBucket) list = list.filter((d) => driverPeriod(d) === filterBucket)
     return list.filter((d) => !d.truckNum).length
   }, [drivers, statusTab, filterFleet, filterBucket])
+
+  /* ---------- รถเสร็จที่ยังไม่มีคน ---------- */
+  const readyFreeTrucks = useMemo(() => {
+    let list = trucks.filter((t) => !t.forSale && !t.reservedBy && bucketPeriod(t.readyBucket) === "now")
+    if (filterFleet) list = list.filter((t) => t.fleetKey === filterFleet)
+    const term = q.trim().toLowerCase()
+    if (term) list = list.filter((t) => [t.trucknum, t.plate, t.plant, t.fleetKey].some((v) => v.toLowerCase().includes(term)))
+    return [...list].sort((a, b) => b.parkedDays - a.parkedDays)
+  }, [trucks, filterFleet, q])
+
+  // จำนวนคนที่รอและยังไม่มีรถ ต่อฟลีท — โชว์คู่กับรถว่างให้จับคู่ง่าย
+  const waitingNoTruckByFleet = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const d of drivers)
+      if (isActive(d.status) && !d.truckNum) m.set(d.fleetKey, (m.get(d.fleetKey) ?? 0) + 1)
+    return m
+  }, [drivers])
 
   /* ---------- รถใน modal เลือกรถ ---------- */
   const pickerTrucks = useMemo(() => {
@@ -477,6 +495,12 @@ export function DriverHandoverPage() {
               ? "bg-amber-500 text-white"
               : "bg-white text-amber-600 ring-1 ring-amber-200 hover:bg-amber-50 dark:bg-white/5 dark:text-amber-300 dark:ring-amber-500/30"}`}
           >🚨 ยังไม่มีรถ ({noTruckCount})</button>
+          <button
+            onClick={() => setReadyTrucksView(!readyTrucksView)}
+            className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition ${readyTrucksView
+              ? "bg-emerald-600 text-white"
+              : "bg-white text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50 dark:bg-white/5 dark:text-emerald-300 dark:ring-emerald-500/30"}`}
+          >🟢 รถเสร็จไม่มีคน ({readyFreeTrucks.length})</button>
           {(filterFleet || filterBucket) && (
             <button
               onClick={() => { setFilterFleet(""); setFilterBucket("") }}
@@ -495,6 +519,52 @@ export function DriverHandoverPage() {
             />
           </div>
         </div>
+
+        {/* ---------- ตารางรถเสร็จที่ยังไม่มีคน ---------- */}
+        {readyTrucksView && (
+          <div className="mb-4 overflow-x-auto rounded-[16px] border border-emerald-200 bg-white dark:border-emerald-500/25 dark:bg-[#151a10]">
+            <div className="border-b border-[#F1F5F2] px-4 py-2.5 text-[12.5px] font-bold text-emerald-700 dark:border-white/5 dark:text-emerald-300">
+              🟢 รถซ่อมเสร็จ/พร้อมใช้ ที่ยังไม่มีคนจอง — {readyFreeTrucks.length} คัน
+            </div>
+            <div className="grid min-w-[860px] gap-3 border-b border-[#EEF2F0] px-4 py-2.5 text-[10.5px] font-bold uppercase text-[#9AA8A0] dark:border-white/5 dark:text-white/40"
+              style={{ gridTemplateColumns: "90px 120px 0.8fr 1fr 1.1fr 0.8fr 1fr 110px" }}>
+              <div>เบอร์รถ</div><div>ทะเบียน</div><div>ฟลีท</div><div>จุดจอด</div>
+              <div>สถานะ</div><div>จอดมาแล้ว</div><div>คนรอในฟลีทนี้</div><div className="text-right">ประวัติ</div>
+            </div>
+            {readyFreeTrucks.length === 0 && (
+              <div className="px-4 py-8 text-center text-[13px] text-[#9AA8A0]">ไม่มีรถเสร็จที่ว่างตามเงื่อนไข</div>
+            )}
+            {readyFreeTrucks.map((t) => {
+              const m = truckStepMeta(t)
+              const waitingHere = waitingNoTruckByFleet.get(t.fleetKey) ?? 0
+              return (
+                <div key={t.plate}
+                  className="grid min-w-[860px] items-center gap-3 border-b border-[#F1F5F2] px-4 py-3 text-[12.5px] last:border-0 dark:border-white/5"
+                  style={{ gridTemplateColumns: "90px 120px 0.8fr 1fr 1.1fr 0.8fr 1fr 110px" }}>
+                  <div className="font-mono text-[13px] font-bold text-[#14271C] dark:text-white">{t.trucknum}</div>
+                  <div className="font-mono text-[11.5px] text-[#6B7C72] dark:text-white/50">{t.plate}</div>
+                  <div className="font-semibold text-[#14271C] dark:text-white">{t.fleetKey}</div>
+                  <div className="text-[#6B7C72] dark:text-white/60">{t.plant || "—"}</div>
+                  <div><span className={chip(m.cls)}>{m.emoji} {m.label}</span></div>
+                  <div className={`font-bold ${t.parkedDays >= 30 ? "text-rose-600 dark:text-rose-300" : "text-[#6B7C72] dark:text-white/60"}`}>{t.parkedDays} วัน</div>
+                  <div>
+                    {waitingHere > 0 ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">👤 รอ {waitingHere} คน — จับคู่ได้เลย</span>
+                    ) : (
+                      <span className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">ไม่มีคนรอ</span>
+                    )}
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => setTimelineFor({ plate: t.plate, label: `${t.trucknum} · ${t.plate}` })}
+                      className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11.5px] font-semibold text-[#6B7C72] ring-1 ring-[#EEF2F0] hover:bg-[#EAF6EE] dark:bg-white/5 dark:text-white/60 dark:ring-white/10"
+                    ><History className="h-3 w-3" /> ดูประวัติ</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {/* ---------- driver table ---------- */}
         <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] bg-white dark:border-white/[0.07] dark:bg-[#151a10]">
