@@ -597,10 +597,10 @@ export function DriverHandoverPage() {
 
         {/* ---------- driver table ---------- */}
         <div className="overflow-x-auto rounded-[16px] border border-[#EEF2F0] bg-white dark:border-white/[0.07] dark:bg-[#151a10]">
-          <div className="grid min-w-[1080px] gap-3 border-b border-[#EEF2F0] px-4 py-2.5 text-[10.5px] font-bold uppercase text-[#9AA8A0] dark:border-white/5 dark:text-white/40"
-            style={{ gridTemplateColumns: "70px 1.6fr 0.9fr 1.1fr 0.95fr 0.85fr 1.15fr 190px" }}>
+          <div className="grid min-w-[1160px] gap-3 border-b border-[#EEF2F0] px-4 py-2.5 text-[10.5px] font-bold uppercase text-[#9AA8A0] dark:border-white/5 dark:text-white/40"
+            style={{ gridTemplateColumns: "70px 1.5fr 0.85fr 1fr 0.9fr 0.95fr 0.8fr 1.1fr 190px" }}>
             <div>รหัส</div><div>ชื่อ พจส.ใหม่</div><div>ฟลีท</div><div>แพล้นท์/สถานที่</div>
-            <div>สถานะ</div><div>พร้อมรับรถ</div><div>รถที่จอง</div><div className="text-right">จัดการ</div>
+            <div>สถานะ</div><div>ฝึกงาน เริ่ม→ครบ</div><div>พร้อมรับรถ</div><div>รถที่จอง</div><div className="text-right">จัดการ</div>
           </div>
 
           {loading && !data && (
@@ -615,8 +615,8 @@ export function DriverHandoverPage() {
             const truckMeta = d.truckStatus ? stepMetaFromLabel(d.truckStatus.step) : null
             return (
               <div key={`${d.row}-${d.code}`}
-                className="grid min-w-[1080px] items-center gap-3 border-b border-[#F1F5F2] px-4 py-3 text-[12.5px] last:border-0 dark:border-white/5"
-                style={{ gridTemplateColumns: "70px 1.6fr 0.9fr 1.1fr 0.95fr 0.85fr 1.15fr 190px" }}>
+                className="grid min-w-[1160px] items-center gap-3 border-b border-[#F1F5F2] px-4 py-3 text-[12.5px] last:border-0 dark:border-white/5"
+                style={{ gridTemplateColumns: "70px 1.5fr 0.85fr 1fr 0.9fr 0.95fr 0.8fr 1.1fr 190px" }}>
                 <div className="font-mono text-[11.5px] text-[#6B7C72] dark:text-white/50">{d.code || "—"}</div>
                 <div>
                   <div className="font-semibold text-[#14271C] dark:text-white">{d.name}</div>
@@ -625,6 +625,10 @@ export function DriverHandoverPage() {
                 <div className="font-semibold text-[#14271C] dark:text-white">{d.fleetKey}</div>
                 <div className="text-[#6B7C72] dark:text-white/60">{d.site || "—"}</div>
                 <div><span className={chip(meta.cls)}>{meta.emoji} {d.status}</span></div>
+                <div className="text-[11.5px]">
+                  <div className="text-[#9AA8A0] dark:text-white/40">เริ่ม {d.trainStart || "—"}</div>
+                  <div className="font-semibold text-[#14271C] dark:text-white">ครบ {d.trainDue || (d.readyDate && d.status !== "รอรับรถ" ? `~${d.readyDate.slice(5).split("-").reverse().join("/")}` : "—")}</div>
+                </div>
                 <div>
                   {d.status === "รอรับรถ" ? (
                     <span className={`text-[12px] font-bold ${d.waitDays >= 5 ? "text-rose-600 dark:text-rose-300" : "text-amber-600 dark:text-amber-300"}`}>
@@ -632,8 +636,13 @@ export function DriverHandoverPage() {
                     </span>
                   ) : d.status === "รับรถแล้ว" ? (
                     <span className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">{d.receivedDate || "—"}</span>
+                  ) : d.readyDate ? (
+                    (() => {
+                      const days = Math.ceil((new Date(d.readyDate).getTime() - new Date(todayIso()).getTime()) / 86400000)
+                      return <span className={`text-[11.5px] font-semibold ${days <= 2 ? "text-amber-600 dark:text-amber-300" : "text-[#6B7C72] dark:text-white/60"}`}>{days <= 0 ? "พร้อมแล้ว" : `อีก ${days} วัน`}</span>
+                    })()
                   ) : (
-                    <span className="text-[11.5px] text-[#6B7C72] dark:text-white/60">{d.trainDue ? `ครบฝึก ${d.trainDue}` : d.readyDate ? `~${d.readyDate.slice(5).split("-").reverse().join("/")}` : "—"}</span>
+                    <span className="text-[11.5px] text-[#9AA8A0] dark:text-white/40">—</span>
                   )}
                 </div>
                 <div>
