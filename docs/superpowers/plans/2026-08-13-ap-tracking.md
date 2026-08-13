@@ -1605,4 +1605,18 @@ git commit -m "docs(ap-tracking): สรุปผลตรวจและกา�
 
 ## Notes / ผลการตรวจ
 
-<!-- Task 1 จดผล probe ที่นี่: received_at="..." created_at="..." amount="..." deposit_header count=N indexes=[...] -->
+### ผล probe ข้อมูลจริง (2026-08-13, read-only)
+
+```
+deposit_header: 15,716 docs · deposit_items: 28,213 docs · indexes: deposit_id_1, _id_ เท่านั้น
+received_at / created_at = "18/06/2026 16:56"  ← มี "เวลา" ต่อท้าย! (15,716/15,716 = 100% มีเวลา, 0 เป็นวันที่ล้วน)
+amount = "7,631.24" (string มี comma) ✓ ตรงตามที่ parseAmount รองรับ
+supplier ว่าง + purchase_order ว่าง = 3,057 docs (19.5%) → เป็นการคืนของเข้าสต็อก (มี withdraw_ref, supplier_ref_no="ไม่มีเลขที่บิล") ไม่ใช่เจ้าหนี้
+ก.ค. 2026 = 2,295 ใบ · scan ทั้งเดือน 1,102 ms
+```
+
+**ผลที่ตามมา:**
+1. **regex กรองเดือนเดิมใช้ไม่ได้เลย** — `^\d{1,2}/MM/YYYY$` ปิดท้ายด้วย `$` จึงไม่แมตช์ค่าที่มี ` 16:56` ต่อท้าย → หน้าเว็บจะว่างเปล่าทุกเดือน (แก้ใน Task 4 fix round 2)
+2. `parseDmy` รองรับเวลาต่อท้ายอยู่แล้ว (ตัดที่ช่องว่าง) ✓ ไม่ต้องแก้
+3. แถวคืนของเข้าสต็อก 3,057 ใบ ต้องกันออกจากหน้าเจ้าหนี้ (แก้ใน Task 4 fix round 2, เปิดดูได้ด้วย `includeInternal=1`)
+4. **Task 10 step 3: ไม่ต้องสร้าง index บน `atms.deposit_header`** — scan ทั้งเดือน 1.1 วิ < เกณฑ์ 2 วิ และ collection มีแค่ 15.7k docs
