@@ -40,7 +40,8 @@ export type HandoverTruck = {
   fleetKey: string       // "ASIA ML"
   plant: string
   statusName: string     // รถซ่อม / รถจอดอุบัติเหตุ
-  subStatus: string
+  subStatus: string      // รหัส ATMS: B (ไม่มีพจส.ประจำ) / BA (มีพจส.ประจำ) / อ / BY
+  subStatusLabel: string // คำอธิบายรหัส เช่น "รถซ่อมไม่มีพจส.ประจำ"
   parkedDays: number
   since: string
   forSale: boolean       // รถรอขาย — ไม่ควรเลือกส่งมอบ
@@ -112,6 +113,27 @@ export function truckStepMeta(truck: Pick<HandoverTruck, "job" | "readyBucket" |
   if (truck.forSale)
     return { label: "รถรอขาย", emoji: "🏷️", cls: "bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15 dark:text-zinc-400" }
   return stepMetaFromLabel(truck.job?.step ?? "")
+}
+
+/** chip รหัสสถานะรถใน ATMS (B/BA/อ/BY) — B = ไม่มีพจส.ประจำ เอาไปส่งมอบคนใหม่ได้เลย */
+export function subStatusMeta(code: string, label: string) {
+  const c = code.trim().toUpperCase()
+  if (c === "B")
+    return { code: code.trim(), label: label || "รถซ่อมไม่มีพจส.ประจำ", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" }
+  if (c === "BA")
+    return { code: code.trim(), label: label || "รถซ่อมมีพจส.ประจำ", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" }
+  if (c === "อ" || /อุบัติเหตุ/.test(label))
+    return { code: code.trim() || "อ", label: label || "รถจอดอุบัติเหตุ", cls: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" }
+  return { code: code.trim(), label, cls: "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-white/50" }
+}
+
+/** ลำดับความเหมาะสมของรถสำหรับ พจส.ใหม่ — B (ไม่มีคนประจำ) มาก่อน BA (มีคนประจำแล้ว) */
+export function subStatusRank(code: string): number {
+  const c = code.trim().toUpperCase()
+  if (c === "B") return 0
+  if (c === "BY") return 1
+  if (c === "BA") return 2
+  return 3 // อ / อื่น ๆ
 }
 
 /** label คอลัมน์ของ Fleet Balance matrix */

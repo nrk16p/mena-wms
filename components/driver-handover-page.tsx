@@ -12,6 +12,7 @@ import { swalToast, swalError } from "@/lib/swal"
 import {
   type HandoverData, type HandoverDriver, type HandoverTruck,
   ACTIVE_STATUSES, EDITABLE_STATUSES, driverStatusMeta, truckStepMeta, stepMetaFromLabel, bucketLabel,
+  subStatusMeta, subStatusRank,
 } from "@/lib/driver-handover-meta"
 
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
@@ -315,6 +316,9 @@ export function DriverHandoverPage() {
     return [...list].sort((a, b) => {
       const free = Number(!!a.reservedBy) - Number(!!b.reservedBy)
       if (free !== 0) return free
+      // B (ไม่มีพจส.ประจำ) มาก่อน BA (มีคนขับประจำอยู่แล้ว)
+      const sub = subStatusRank(a.subStatus) - subStatusRank(b.subStatus)
+      if (sub !== 0) return sub
       const ord = bucketOrder(a.readyBucket) - bucketOrder(b.readyBucket)
       if (ord !== 0) return ord
       if (a.readyBucket !== b.readyBucket) return a.readyBucket.localeCompare(b.readyBucket)
@@ -590,8 +594,8 @@ export function DriverHandoverPage() {
               🟢 รถซ่อมเสร็จ/พร้อมใช้ ที่ยังไม่มีคนจอง — {readyFreeTrucks.length} คัน
             </div>
             <div className="grid min-w-[860px] gap-3 border-b border-[#EEF2F0] px-4 py-2.5 text-[10.5px] font-bold uppercase text-[#9AA8A0] dark:border-white/5 dark:text-white/40"
-              style={{ gridTemplateColumns: "90px 120px 0.8fr 1fr 1.1fr 0.8fr 1fr 110px" }}>
-              <div>เบอร์รถ</div><div>ทะเบียน</div><div>ฟลีท</div><div>จุดจอด</div>
+              style={{ gridTemplateColumns: "90px 120px 0.8fr 0.6fr 1fr 1.1fr 0.8fr 1fr 110px" }}>
+              <div>เบอร์รถ</div><div>ทะเบียน</div><div>ฟลีท</div><div>B/BA</div><div>จุดจอด</div>
               <div>สถานะ</div><div>จอดมาแล้ว</div><div>คนรอในฟลีทนี้</div><div className="text-right">ประวัติ</div>
             </div>
             {readyFreeTrucks.length === 0 && (
@@ -599,14 +603,20 @@ export function DriverHandoverPage() {
             )}
             {readyFreeTrucks.map((t) => {
               const m = truckStepMeta(t)
+              const ss = subStatusMeta(t.subStatus, t.subStatusLabel)
               const waitingHere = waitingNoTruckByFleet.get(t.fleetKey) ?? 0
               return (
                 <div key={t.plate}
                   className="grid min-w-[860px] items-center gap-3 border-b border-[#F1F5F2] px-4 py-3 text-[12.5px] last:border-0 dark:border-white/5"
-                  style={{ gridTemplateColumns: "90px 120px 0.8fr 1fr 1.1fr 0.8fr 1fr 110px" }}>
+                  style={{ gridTemplateColumns: "90px 120px 0.8fr 0.6fr 1fr 1.1fr 0.8fr 1fr 110px" }}>
                   <div className="font-mono text-[13px] font-bold text-[#14271C] dark:text-white">{t.trucknum}</div>
                   <div className="font-mono text-[11.5px] text-[#6B7C72] dark:text-white/50">{t.plate}</div>
                   <div className="font-semibold text-[#14271C] dark:text-white">{t.fleetKey}</div>
+                  <div>
+                    {ss.code
+                      ? <span className={chip(ss.cls)} title={ss.label}>{ss.code}</span>
+                      : <span className="text-[#C6CFC9] dark:text-white/20">—</span>}
+                  </div>
                   <div className="text-[#6B7C72] dark:text-white/60">{t.plant || "—"}</div>
                   <div><span className={chip(m.cls)}>{m.emoji} {m.label}</span></div>
                   <div className={`font-bold ${t.parkedDays >= 30 ? "text-rose-600 dark:text-rose-300" : "text-[#6B7C72] dark:text-white/60"}`}>{t.parkedDays} วัน</div>
@@ -752,6 +762,7 @@ export function DriverHandoverPage() {
           <div className="space-y-2">
             {pickerTrucks.map((t) => {
               const m = truckStepMeta(t)
+              const ss = subStatusMeta(t.subStatus, t.subStatusLabel)
               return (
                 <div key={t.plate}
                   className={`rounded-[12px] border px-3.5 py-2.5 ${t.reservedBy
@@ -762,9 +773,15 @@ export function DriverHandoverPage() {
                       <div>
                         <div className="font-mono text-[13.5px] font-bold text-[#14271C] dark:text-white">
                           {t.trucknum} <span className="font-normal text-[#9AA8A0]">{t.plate}</span>
+                          {ss.code && (
+                            <span className={`ml-1.5 rounded px-1.5 py-0.5 font-sans text-[10px] font-bold ${ss.cls}`} title={ss.label}>
+                              {ss.code}
+                            </span>
+                          )}
                           {t.fleetKey !== pickFor.fleetKey && <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{t.fleetKey}</span>}
                         </div>
                         <div className="text-[11px] text-[#9AA8A0] dark:text-white/40">
+                          {ss.label && <span className={ss.code.toUpperCase() === "BA" ? "font-semibold text-amber-600 dark:text-amber-300" : ""}>{ss.label} · </span>}
                           {t.plant || "—"} · จอดมา {t.parkedDays} วัน{t.job?.repairMode && ` · ${t.job.repairMode}`}{t.job?.vendor && ` · ${t.job.vendor}`}
                         </div>
                       </div>

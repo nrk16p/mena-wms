@@ -201,7 +201,8 @@ async function fetchTrucksWithJobs(
                 trucknum: t.trucknum ?? "", plate: t.truckplate ?? "",
                 customer, type, fleetKey: `${customer} ${type}`,
                 plant: t.plant_name ?? "", statusName: st.status_name ?? "",
-                subStatus: t.sub_status_name ?? "", parkedDays: Number(t.duration_days) || 0,
+                subStatus: t.sub_status_name ?? "", subStatusLabel: t.sub_status_nickname ?? "",
+                parkedDays: Number(t.duration_days) || 0,
                 since: (t.status_since ?? "").slice(0, 10), forSale,
                 job: j ? {
                   mrCode: raw.mr_code ?? "", mrId: Number(raw.mr_id) || 0,
