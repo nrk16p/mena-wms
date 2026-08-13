@@ -12,10 +12,14 @@ const MD = process.env.MONGO_DB ?? "master_data"
 type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 
-// regex จับ received_at รูป "DD/MM/YYYY" ของเดือนที่ต้องการ (ฟิลด์เป็น string ใน ATMS)
+// regex จับ received_at รูป "DD/MM/YYYY" หรือ "DD/MM/YYYY HH:mm" ของเดือนที่ต้องการ
+// (ฟิลด์เป็น string ใน ATMS และแทบทุกแถวมีเวลาต่อท้ายวันที่ — ต้องยอมรับ suffix เวลาแบบมีขอบเขต
+// ไม่ใช่เปิดโล่งท้าย pattern และต้องรองรับเดือน/วันแบบไม่เติมศูนย์ เช่น "1/6/2026 9:05")
+// month มาจาก `month` ที่ผ่านการ validate เป็น ^\d{4}-(0[1-9]|1[0-2])$ แล้วเสมอ จึงไม่มีความเสี่ยง injection
 const monthRe = (ym: string) => {
   const [y, m] = ym.split("-")
-  return new RegExp(`^\\d{1,2}/${m}/${y}$`)
+  const mm = String(Number(m)) // "06" -> "6" เพื่อจับได้ทั้งแบบเติมศูนย์และไม่เติมศูนย์
+  return new RegExp(`^\\d{1,2}/0?${mm}/${y}(?:\\s.*)?$`)
 }
 const prevMonths = (ym: string, n: number) => {
   const [y, m] = ym.split("-").map(Number)
@@ -25,7 +29,7 @@ const prevMonths = (ym: string, n: number) => {
   })
 }
 
-// GET /api/ap-tracking?month=YYYY-MM&carryover=1&warehouse=&supplier=&status=&q=&limit=
+// GET /api/ap-tracking?month=YYYY-MM&carryover=1&warehouse=&supplier=&status=&q=&limit=&includeInternal=
 export async function GET(req: NextRequest) {
   try {
     const sp        = req.nextUrl.searchParams
@@ -37,6 +41,7 @@ export async function GET(req: NextRequest) {
     const supplier  = sp.get("supplier")?.trim()  ?? ""
     const status    = sp.get("status")?.trim()    ?? ""
     const q         = sp.get("q")?.trim()         ?? ""
+    const includeInternal = sp.get("includeInternal") === "1"
     const limitRaw  = parseInt(sp.get("limit") || "", 10)
     const limit     = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 8000) : 4000
 
@@ -49,6 +54,9 @@ export async function GET(req: NextRequest) {
     const match: Record<string, unknown> = { $or: months.map((m) => ({ received_at: { $regex: monthRe(m) } })) }
     if (warehouse) match.warehouse = warehouse
     if (supplier)  match.supplier  = supplier
+    // แถวคืนสต๊อกภายใน (supplier ว่างและ purchase_order ว่างทั้งคู่ ใช้ withdraw_ref แทน) ไม่ใช่ใบเจ้าหนี้ค้างจ่าย
+    // — ตัดออกจากผลลัพธ์เริ่มต้นตั้งแต่ชั้น query กัน flood หน้าติดตามเจ้าหนี้ ขอดูได้ด้วย includeInternal=1
+    if (!includeInternal) match.$nor = [{ supplier: "", purchase_order: "" }]
 
     const heads = await atms.collection("deposit_header")
       .find(match, { projection: {
