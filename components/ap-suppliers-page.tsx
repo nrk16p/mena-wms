@@ -8,6 +8,9 @@ import { CREDIT_TERMS } from "@/lib/ap-tracking"
 const mitr = { fontFamily: "var(--font-mitr), sans-serif" }
 type Supplier = { name: string; creditTerm: string; updatedBy?: string }
 
+// trim + collapse internal whitespace + lowercase, for duplicate-name comparison
+const normName = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase()
+
 export function ApSuppliersPage() {
   const [items, setItems] = useState<Supplier[]>([])
   const [q, setQ]         = useState("")
@@ -24,7 +27,10 @@ export function ApSuppliersPage() {
   useEffect(() => { load() }, [load])
 
   const save = async (name: string, creditTerm: string) => {
-    setItems((xs) => xs.some((x) => x.name === name)
+    // capture pre-existing state so a failed PUT can be reverted locally —
+    // correctness must not depend on the follow-up load() succeeding
+    const existing = items.find((x) => x.name === name)
+    setItems((xs) => existing
       ? xs.map((x) => (x.name === name ? { ...x, creditTerm } : x))
       : [...xs, { name, creditTerm }].sort((a, b) => a.name.localeCompare(b.name)))
     try {
@@ -37,6 +43,11 @@ export function ApSuppliersPage() {
       swalToast("success", `บันทึก ${name} · ${creditTerm || "ไม่ระบุ"}`)
     } catch (e) {
       swalError(`บันทึกไม่สำเร็จ${e instanceof Error && e.message ? ` · ${e.message}` : ""}`)
+      // roll back to last known-good state: restore the row's prior term,
+      // or drop it entirely if it was a brand-new row that never persisted
+      setItems((xs) => existing
+        ? xs.map((x) => (x.name === name ? { ...x, creditTerm: existing.creditTerm } : x))
+        : xs.filter((x) => x.name !== name))
       load()
     }
   }
@@ -63,7 +74,18 @@ export function ApSuppliersPage() {
         </div>
         <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="เพิ่มซัพพลายเออร์ใหม่"
           className="rounded-lg border px-3 py-1.5 text-sm w-72 bg-white dark:bg-white/5" />
-        <button onClick={() => { const n = newName.trim(); if (n) { save(n, "30D"); setNewName("") } }}
+        <button onClick={() => {
+          const n = newName.trim()
+          if (!n) return
+          const dup = items.find((x) => normName(x.name) === normName(n))
+          if (dup) {
+            swalToast("info", `มีซัพพลายเออร์ "${dup.name}" อยู่แล้ว — แก้ไขเครดิตเทอมที่แถวนั้นแทน`)
+            setNewName("")
+            return
+          }
+          save(n, "30D")
+          setNewName("")
+        }}
           className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-white/5">เพิ่ม (30D)</button>
       </div>
 
