@@ -307,6 +307,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // modal
   const [open, setOpen]     = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
+  // เปิดรายการเดิม = ดูรายละเอียดก่อน (อ่านอย่างเดียว) ต้องกด "แก้ไขข้อมูล" ถึงเข้าฟอร์ม
+  const [viewOnly, setViewOnly] = useState(false)
   const [form, setForm]     = useState<Omit<RepairExternal, "_id">>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [origStatus, setOrigStatus] = useState("")  // สถานะเดิมของรายการ (ล็อกถ้ารถเสร็จ)
@@ -450,6 +452,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   function openAdd() {
     setEditId(null)
+    setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
     // ประเภทเริ่มต้นตาม tab ที่กรองอยู่ (เปลี่ยนได้ใน step 1)
@@ -466,6 +469,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // สร้างรายการใหม่จากงานอู่นอกใน ATMS ที่ยังไม่มีในระบบ — prefill จากข้อมูลจริง (คนตรวจแล้วกดบันทึกเอง)
   function openAddFromAtms(m: AtmsPending) {
     setEditId(null)
+    setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
     const today = bkkToday()
@@ -489,7 +493,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEditFillMr(wmsId: string, mrCode: string) {
     const r = rows.find((x) => x._id === wmsId)
     if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
-    openEdit(r)
+    openEdit(r, true)
     setForm((f) => ({ ...f, mrNo: mrCode }))
   }
 
@@ -497,7 +501,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEditFillPr(p: AtmsBoard["prFill"][number]) {
     const r = rows.find((x) => x._id === p.id)
     if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
-    openEdit(r)
+    openEdit(r, true)
     setForm((f) => ({
       ...f,
       prCode: f.prCode?.trim() ? f.prCode : p.prCodes.join(","),
@@ -510,8 +514,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function setJobType(jt: string) {
     setForm((f) => ({ ...f, jobType: jt, status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value }))
   }
-  function openEdit(r: RepairExternal) {
+  function openEdit(r: RepairExternal, startEditing = false) {
     setEditId(r._id)
+    setViewOnly(!startEditing)
     setEditRow(r)
     setFormImages(r.images ?? []); setFormNegImages(r.negotiationImages ?? []); setFormQuotImages(r.quotationImages ?? []); setVdRef(""); setOrigStatus(r.status)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -522,6 +527,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     loadComments(r._id)
     loadLog(r)
     setOpen(true)
+  }
+
+  // ยกเลิกการแก้ไข: รายการเดิม → ทิ้งที่แก้ค้างไว้ กลับไปหน้ารายละเอียด · รายการใหม่ → ปิด modal
+  function cancelEdit() {
+    if (!editId || !editRow) { setOpen(false); return }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { _id, ...rest } = editRow
+    setForm({ ...EMPTY, ...rest })
+    setFormImages(editRow.images ?? []); setFormNegImages(editRow.negotiationImages ?? []); setFormQuotImages(editRow.quotationImages ?? [])
+    setViewOnly(true)
   }
 
   // โหลด timeline ATMS ของคันนี้ (ปีปัจจุบัน + mr_id ถ้ารู้)
@@ -798,6 +813,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     if (missing.length) {
       // เปิดฟอร์ม (หน้าเดียว) ให้กรอกฟิลด์ที่ขาดก่อนปิดงาน
       setEditId(r._id)
+      setViewOnly(false)
       setEditRow(r)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _id, ...rest } = r
@@ -1798,9 +1814,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-                  {isParts
-                    ? (editId ? "แก้ไขรายการอะไหล่ลงคัน" : "รายการอะไหล่ลงคัน")
-                    : (editId ? "แก้ไขรายการแจ้งซ่อม" : "รายการแจ้งซ่อม")}
+                  {!editId
+                    ? (isParts ? "รายการอะไหล่ลงคัน" : "รายการแจ้งซ่อม")
+                    : viewOnly
+                      ? (isParts ? "รายละเอียดอะไหล่ลงคัน" : "รายละเอียดรายการแจ้งซ่อม")
+                      : (isParts ? "แก้ไขรายการอะไหล่ลงคัน" : "แก้ไขรายการแจ้งซ่อม")}
                 </h2>
                 {editId && (
                   <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${isParts ? "bg-[#EEF2FF] text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300" : "bg-[#F1F5F2] dark:bg-white/10 text-[#5B7568] dark:text-gray-300"}`}>
@@ -1826,6 +1844,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 )}
               </div>
               <div className="flex items-center gap-1.5">
+                {editId && viewOnly && (
+                  <button onClick={() => setViewOnly(false)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0F6A3C]">
+                    <Pencil size={14} /> แก้ไขข้อมูล
+                  </button>
+                )}
                 {editId && (
                   <button onClick={copyShareLink} title="คัดลอกลิงก์แชร์รายการนี้" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
                     <Link2 size={14} /> คัดลอกลิงก์
@@ -1839,6 +1862,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
             {/* body — ทุก section เรียงบนลงล่างในหน้าเดียว เลื่อนดูได้ */}
             <div className="flex-1 overflow-y-auto px-5 py-5">
+              {viewOnly && editId ? (
+                <RepairDetailCard r={form} isParts={isParts} images={formImages} quotImages={formQuotImages} negImages={formNegImages} />
+              ) : (<>
               {/* ── หมวด 1: ข้อมูลรถ (เขียว) ── */}
               <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
               <p className="flex items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-4 py-2.5 text-[15px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ</p>
@@ -2185,6 +2211,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
               </section>
 
+              </>)}
+
               {/* ── หมวด 4: ประวัติ (เทา) — โชว์ในหน้าเลย โฟกัสเส้นทางสถานะ ── */}
               {editId && (
                 <section className="mt-5 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10">
@@ -2407,15 +2435,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             {/* footer ตรึงล่าง — ลบได้จากที่นี่ที่เดียว (ตารางไม่มีปุ่มลบแล้ว) */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-3.5">
               <div>
-                {editId && editRow && (
+                {editId && editRow && !viewOnly && (
                   <button onClick={() => remove(editRow)} className="inline-flex items-center gap-1.5 rounded-lg border border-[#F3C1C1] dark:border-red-900/40 px-3.5 py-2 text-sm font-medium text-[#DC2626] hover:bg-[#FEECEC] dark:hover:bg-red-950/20">
                     <Trash2 size={15} /> ลบรายการ
                   </button>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
-                <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
+                {viewOnly && editId ? (
+                  <>
+                    <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ปิด</button>
+                    <button onClick={() => setViewOnly(false)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><Pencil size={15} /> แก้ไขข้อมูล</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={cancelEdit} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
+                    <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -2593,6 +2630,104 @@ function CopyText({ value }: { value: string }) {
       <span className="truncate">{v}</span>
       <Copy size={11} className="shrink-0 opacity-0 transition group-hover:opacity-60" />
     </button>
+  )
+}
+
+/* ── มุมมองอ่านอย่างเดียว: การ์ดสรุปรายละเอียดงานซ่อม (กด "แก้ไขข้อมูล" เพื่อเข้าฟอร์ม) ── */
+function DetailField({ label, value, wide, mono }: { label: string; value?: React.ReactNode; wide?: boolean; mono?: boolean }) {
+  const empty = value === undefined || value === null || value === "" || value === 0
+  return (
+    <div className={wide ? "sm:col-span-2" : ""}>
+      <p className="text-[11px] font-medium text-[#9AA8A0] dark:text-white/40">{label}</p>
+      <p className={`mt-0.5 text-[13.5px] ${empty ? "text-[#C6CFC9] dark:text-white/25" : "font-medium text-[#14271C] dark:text-white"} ${mono ? "font-mono" : ""} whitespace-pre-wrap break-words`}>
+        {empty ? "—" : value}
+      </p>
+    </div>
+  )
+}
+
+function DetailSection({ title, tone, children }: { title: string; tone: string; children: React.ReactNode }) {
+  return (
+    <section className={`mt-4 overflow-hidden rounded-xl border first:mt-0 ${tone}`}>
+      <p className="border-b border-inherit bg-black/[0.02] px-4 py-2 text-[13.5px] font-bold text-[#37473E] dark:bg-white/5 dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>{title}</p>
+      <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-4 sm:grid-cols-2">{children}</div>
+    </section>
+  )
+}
+
+function DetailImages({ label, items }: { label: string; items: SkuImage[] }) {
+  if (!items.length) return null
+  return (
+    <div className="sm:col-span-2">
+      <p className="text-[11px] font-medium text-[#9AA8A0] dark:text-white/40">{label} ({items.length})</p>
+      <div className="mt-1.5 flex flex-wrap gap-2">
+        {items.map((im) => (
+          <a key={im.mediaId} href={im.webpUrl} target="_blank" rel="noopener noreferrer" title={im.filename}
+            className="block h-16 w-16 overflow-hidden rounded-lg border border-[#EEF2F0] dark:border-white/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={im.thumbnailUrl || im.webpUrl} alt={im.filename} className="h-full w-full object-cover" />
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
+  r: Omit<RepairExternal, "_id">; isParts: boolean
+  images: SkuImage[]; quotImages: SkuImage[]; negImages: SkuImage[]
+}) {
+  const money = (n: number) => (n ? `${fmtNum(n)} บาท` : "")
+  const date = (s: string) => (s ? fmtDateShort(s) : "")
+  return (
+    <div>
+      <DetailSection title="🚚 ข้อมูลรถ" tone="border-[#D6EFDF] dark:border-[#1B8C4B]/30">
+        <DetailField label="เบอร์รถ" value={r.fleetNo} mono />
+        <DetailField label="ทะเบียน" value={r.plate} mono />
+        <DetailField label="ฟลีท" value={r.fleet} />
+        <DetailField label="แพล้นท์" value={r.plant} />
+        <DetailField label="คนขับ" value={r.driverName} />
+        <DetailField label="เบอร์โทรคนขับ" value={r.driverPhone} />
+        <DetailField label="สถานะปูนในโม่" value={r.cementStatus} />
+        <DetailField label="สภาพรถ" value={r.drivableStatus} />
+        <DetailField label="จุดที่รถเสีย" value={r.breakdownLocation} wide />
+      </DetailSection>
+
+      <DetailSection title={isParts ? "🔩 อะไหล่ลงคัน" : "🔧 งานซ่อม"} tone={isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}>
+        <DetailField label="เลข MR" value={r.mrNo} mono />
+        <DetailField label={isParts ? "ร้านอะไหล่" : "อู่ซ่อม"} value={r.garage} />
+        <DetailField label="อาการ / รายละเอียด" value={r.symptom} wide />
+        <DetailField label="วันที่รับแจ้ง" value={date(r.receivedDate)} />
+        <DetailField label={isParts ? "วันที่สั่งของ" : "วันที่รถเข้าอู่"} value={date(r.garageInDate)} />
+        <DetailField label="กำหนดเสร็จ" value={date(r.dueDate)} />
+        <DetailField label="วันที่เสร็จจริง" value={date(r.completedDate)} />
+        <DetailImages label="ไฟล์แนบ" items={images} />
+      </DetailSection>
+
+      <DetailSection title="💰 ราคา · ใบเสนอราคา" tone="border-[#BEE7F2] dark:border-cyan-500/30">
+        <DetailField label="ราคาเสนอครั้งแรก" value={money(r.offerPrice)} />
+        <DetailField label="ประกันที่เสนอ" value={r.offerWarranty} />
+        <DetailField label="ราคาหลังต่อรอง" value={money(r.negotiatedPrice)} />
+        <DetailField label="ขอบเขตต่อรอง" value={r.negotiationScope === "ระบุสินค้า/บริการ" ? `${r.negotiationScope}: ${r.negotiationItem || "—"}` : r.negotiationScope} />
+        <DetailField label="ราคาซ่อมที่ตกลง" value={money(r.repairPrice)} />
+        <DetailField label="รับประกัน" value={r.warranty} />
+        <DetailField label="รายละเอียดใบเสนอราคา" value={r.quotationDetail} wide />
+        <DetailImages label="ไฟล์ใบเสนอราคา" items={quotImages} />
+        <DetailImages label="หลักฐานการต่อรอง" items={negImages} />
+      </DetailSection>
+
+      <DetailSection title="📄 สถานะ · เอกสาร" tone="border-[#E4D5FB] dark:border-violet-500/30">
+        <DetailField label="สถานะปัจจุบัน" value={
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold ${statusMeta(r.status).cls}`}>
+            {statusMeta(r.status).emoji} {r.status}
+          </span>} />
+        <DetailField label="อยู่สถานะนี้ตั้งแต่" value={date(r.statusSince)} />
+        <DetailField label="เลข PR" value={r.prCode} mono />
+        <DetailField label="เลข PO" value={r.poCode} mono />
+        {!isParts && <DetailField label="รอใบเสนอราคา" value={r.waitingQuote ? "🔍 ใช่" : ""} />}
+        <DetailField label="หมายเหตุ" value={r.note} wide />
+      </DetailSection>
+    </div>
   )
 }
 
