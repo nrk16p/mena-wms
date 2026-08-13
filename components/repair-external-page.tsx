@@ -1491,8 +1491,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   {/* รถ */}
                   <div className="min-w-0">
-                    <div className="truncate text-[17px] font-bold text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</div>
-                    {r.fleetNo && <div className="text-[13px] font-medium text-[#5B7568]">เบอร์ {r.fleetNo}</div>}
+                    <div className="truncate text-[17px] font-bold text-[#14271C] dark:text-white" title={r.fleetNo || r.plate}>{r.fleetNo || r.plate || "—"}</div>
+                    {r.fleetNo && r.plate && <div className="text-[13px] font-medium text-[#5B7568]">{r.plate}</div>}
                     {/* สถานะรายวันล่าสุดของรถ (จาก mena-intelligence) */}
                     {dailyStatus[r.plate] && (
                       <div
