@@ -46,6 +46,19 @@ export const PARTS_DONE_STATUS = "ลงคันเสร็จ"
 export const DONE_STATUSES = [REPAIR_DONE_STATUS, PARTS_DONE_STATUS]
 export const isDoneStatus = (s: string) => DONE_STATUSES.includes(s)
 
+/**
+ * วันเริ่มนับอายุงาน = วันที่เร็วที่สุดระหว่าง "วันรับแจ้ง" กับ "วันรถเข้าอู่"
+ * รายการที่คีย์ย้อนหลัง (นำงานเก่าเข้าระบบ) จะมี receivedDate = วันที่คีย์ ซึ่งช้ากว่าวันรถเข้าอู่จริง
+ * ถ้านับจาก receivedDate อย่างเดียว อายุงานจะต่ำกว่าความจริงมาก (เคยเจอโชว์ 6 วัน ทั้งที่จอดจริง 111 วัน)
+ */
+export const jobStartDate = (r: { receivedDate?: string; garageInDate?: string }): string => {
+  const rc = (r.receivedDate ?? "").trim()
+  const gi = (r.garageInDate ?? "").trim()
+  if (!rc) return gi
+  if (!gi) return rc
+  return gi < rc ? gi : rc
+}
+
 export const statusesFor   = (jobType: string) => (jobType === JOB_TYPE_PARTS ? PARTS_STATUSES : REPAIR_STATUSES)
 export const doneStatusFor = (jobType: string) => (jobType === JOB_TYPE_PARTS ? PARTS_DONE_STATUS : REPAIR_DONE_STATUS)
 

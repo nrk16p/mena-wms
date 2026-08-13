@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
 import { bkkToday, bkkDaysAgo, daysSince } from "@/lib/bkk-time"
+import { jobStartDate } from "@/lib/repair-external"
 
 // วันที่ = วันนี้ (เวลาไทย) ลบ n วัน → "YYYY-MM-DD"
 const daysAgo = (n: number): string => bkkDaysAgo(n)
@@ -76,13 +77,13 @@ export async function GET(req: NextRequest) {
   const noPr = await col.countDocuments({ ...match, $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
 
   // ค่าเฉลี่ยวันซ่อม (today − receivedDate) + การกระจายตามอายุงาน + เฉลี่ยต่อสถานะ
-  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, status: 1, _id: 0 }).toArray()
+  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, garageInDate: 1, status: 1, _id: 0 }).toArray()
   const nowMs = Date.now()
   let sum = 0, n = 0
   const agingBuckets = { lt8: 0, d8_14: 0, gte15: 0 }
   const stSum: Record<string, number> = {}, stN: Record<string, number> = {}
   for (const d of dated) {
-    const days = daysSince(d.receivedDate as string)
+    const days = daysSince(jobStartDate(d as { receivedDate?: string; garageInDate?: string }))
     if (days === null) continue
     sum += days; n++
     if (days >= 15) agingBuckets.gte15++

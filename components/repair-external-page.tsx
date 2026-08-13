@@ -15,6 +15,7 @@ import {
   JOB_TYPE_PARTS,
   jobTypeOf,
   isDoneStatus,
+  jobStartDate,
   statusesFor,
   doneStatusFor,
   requiredFieldsFor,
@@ -138,7 +139,7 @@ const slaInfo = (r: RepairExternal): { hours: number; limitH: number; over: bool
   if (r.statusSinceAt) {
     hours = Math.max(0, Math.floor((Date.now() - Date.parse(r.statusSinceAt)) / 3600000))
   } else {
-    const d = ageDays(r.statusSince || r.receivedDate)
+    const d = ageDays(r.statusSince || jobStartDate(r))
     if (d === null) return null
     hours = d * 24
   }
@@ -587,7 +588,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     lines.push("━━━━━━━━━━━━━━")
     colRows.forEach((r, i) => {
       const sla = slaInfo(r)
-      const age = ageDays(r.receivedDate)
+      const age = ageDays(jobStartDate(r))
       lines.push(`${i + 1}. 🚚 ${r.plate || "-"}${r.fleetNo ? ` (${r.fleetNo})` : ""}${r.fleet ? ` · ${r.fleet}` : ""}`)
       if (r.symptom) lines.push(`   🔧 ${r.symptom}`)
       const meta: string[] = []
@@ -710,7 +711,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
     const red = list
       .filter((r) => r.status === statusesFor(jobTypeOf(r))[0].value)
-      .sort((a, b) => (ageDays(b.receivedDate) ?? 0) - (ageDays(a.receivedDate) ?? 0))
+      .sort((a, b) => (ageDays(jobStartDate(b)) ?? 0) - (ageDays(jobStartDate(a)) ?? 0))
     const green = list
       .filter((r) => !red.includes(r) && r.dueDate && r.dueDate < today)
       .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))
@@ -724,7 +725,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const names = [...new Set(red.map((r) => r.status))].join("/")
       lines.push("", `🔴 ${red.length} คันนี้ ในระบบยังเขียนว่า "${names}"`, "→ ถ้ารถเข้าอู่แล้ว ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
       red.forEach((r) => {
-        const age = ageDays(r.receivedDate) ?? 0
+        const age = ageDays(jobStartDate(r)) ?? 0
         lines.push(`${++n}. ${keyOf(r)} — จอดมา ${age} วัน${age >= 45 ? "‼️" : ""}${r.symptom ? ` (${r.symptom})` : ""}${r.poCode ? " มี PO แล้ว" : ""}`)
         lines.push(linkOf(r))
       })
@@ -885,7 +886,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const jobAlertOf = (r: RepairExternal): JobAlert | null => {
     const ds = dailyStatus[r.plate]
     if (!ds || jobTypeOf(r) === JOB_TYPE_PARTS || isDoneStatus(r.status)) return null
-    const age = ageDays(r.receivedDate)
+    const age = ageDays(jobStartDate(r))
     // เคยเป็น B/BA หลังวันรับแจ้งไหม (YYYY-MM-DD เทียบ string ตรงๆ ได้)
     const everBbaSinceJob = !!ds.last_bba_date && !!r.receivedDate && ds.last_bba_date >= r.receivedDate
 
@@ -1470,7 +1471,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             ) : displayRows.map((r) => {
               const sm = statusMeta(r.status)
               const sla = slaInfo(r)
-              const days = ageDays(r.receivedDate)
+              const days = ageDays(jobStartDate(r))
               const bkt  = days !== null ? agingBucket(days) : null
               const urgent = (days ?? 0) >= 15
               const dueOverdue = !!r.dueDate && r.dueDate < todayStr()
@@ -1482,11 +1483,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   style={{ gridTemplateColumns: TABLE_GRID, background: urgent ? "#FFFBFB" : undefined }}
                 >
                   {/* อายุงาน — ตัวเลขใหญ่ สีตามความช้า */}
-                  <div className="flex gap-2.5">
+                  <div
+                    className="flex gap-2.5"
+                    title={
+                      jobStartDate(r) && jobStartDate(r) !== r.receivedDate
+                        ? `นับจากวันที่รถเข้าอู่ ${fmtDateShort(r.garageInDate)} (เก่ากว่าวันรับแจ้ง ${fmtDateShort(r.receivedDate)} — รายการนี้คีย์ย้อนหลัง)`
+                        : `นับจากวันรับแจ้ง ${fmtDateShort(r.receivedDate)}`
+                    }
+                  >
                     <div className="w-1.5 shrink-0 self-stretch rounded-full" style={{ background: bkt?.text ?? "#9ca3af" }} />
                     <div>
                       <div className="text-[26px] font-semibold leading-none" style={{ fontFamily: "'Mitr', sans-serif", color: bkt?.text ?? "#9ca3af" }}>{days ?? "—"}</div>
                       <div className="mt-1 text-[11px] text-[#9AA8A0]">วัน</div>
+                      {jobStartDate(r) && jobStartDate(r) !== r.receivedDate && (
+                        <div className="mt-0.5 text-[10px] leading-tight text-[#9AA8A0]">จากวันเข้าอู่</div>
+                      )}
                     </div>
                   </div>
                   {/* รถ */}
@@ -1674,7 +1685,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               const colRows = boardRows.filter((r) => r.status === s.value)
               const isDropDone = s.value === doneStatusFor(b.type)
               const colColor = barColor(s.value)
-              const colAges  = colRows.map((r) => ageDays(r.receivedDate)).filter((n): n is number => n !== null)
+              const colAges  = colRows.map((r) => ageDays(jobStartDate(r))).filter((n): n is number => n !== null)
               const avgCol   = colAges.length ? Math.round(colAges.reduce((a, b) => a + b, 0) / colAges.length) : 0
               return (
                 <div
@@ -1707,7 +1718,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   <div className="min-h-[140px] flex-1 space-y-2 p-2">
                     {colRows.map((r) => {
-                      const days = ageDays(r.receivedDate)
+                      const days = ageDays(jobStartDate(r))
                       const bkt  = days !== null ? agingBucket(days) : null
                       const idx  = b.statuses.findIndex((x) => x.value === r.status)
                       const dueOverdue = !!r.dueDate && r.dueDate < todayStr()
