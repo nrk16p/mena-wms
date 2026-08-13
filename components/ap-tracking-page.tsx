@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Banknote, RefreshCw, Search } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import {
@@ -30,6 +30,84 @@ type Summary = {
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const thisMonth = () => new Date().toISOString().slice(0, 7)
+const addDays = (iso: string, n: number) => {
+  const [y, m, d] = iso.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+
+// ช่องหมายเหตุแบบ controlled — พิมพ์แล้วออกจากช่องค่อยบันทึก บันทึกไม่สำเร็จคืนค่ากลับให้เห็นทันที
+// (key={depositCode:note} ที่จุดเรียกใช้ทำให้ remount รับค่าใหม่เมื่อรีเฟรชหรือถูกอัปเดตจากที่อื่น)
+function NoteCell({ row, onSave }: { row: ApRow; onSave: (row: ApRow, note: string) => Promise<boolean> }) {
+  const [value, setValue] = useState(row.note)
+  const handleBlur = async () => {
+    const trimmed = value.trim()
+    if (trimmed === row.note) { setValue(row.note); return }
+    const ok = await onSave(row, trimmed)
+    setValue(ok ? trimmed : row.note)
+  }
+  return (
+    <input value={value} placeholder="—"
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={handleBlur}
+      className="w-40 rounded border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-gray-300 focus:border-gray-400 focus:bg-white dark:focus:bg-white/10" />
+  )
+}
+
+// popover ส่งบัญชี — เป็น component แยกเพื่อให้ state วันที่ตามรอบรีเซ็ตกลับเป็นวันนี้ทุกครั้งที่เปิดใหม่
+// (เปิด/ปิดคือ mount/unmount เพราะฉากหลังบัง overlay ทำให้เปลี่ยนแถวโดยไม่ปิดก่อนไม่ได้)
+function SendDialog({
+  row, onClose, onSent,
+}: {
+  row: ApRow
+  onClose: () => void
+  onSent: (row: ApRow, type: "" | "นอกรอบ" | "ตามรอบ", date: string) => void
+}) {
+  const [roundDate, setRoundDate] = useState(() => new Date().toISOString().slice(0, 10))
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#161a23] p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="font-bold" style={mitr}>ส่งบัญชี · {row.depositCode}</div>
+        <div className="text-xs text-gray-500">{row.supplier} · {baht(row.amount)} บาท</div>
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">💸 นอกรอบ (โอนทุกวันพฤหัส)</div>
+          <div className="flex gap-2">
+            <button onClick={() => onSent(row, "นอกรอบ", nextThursday(new Date().toISOString().slice(0, 10)))}
+              className="flex-1 rounded-lg border px-2 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+              พฤหัสนี้ {thaiDate(nextThursday(new Date().toISOString().slice(0, 10)))}
+            </button>
+            <button onClick={() => {
+              const thu = nextThursday(new Date().toISOString().slice(0, 10))
+              const [y, m, d] = thu.split("-").map(Number)
+              onSent(row, "นอกรอบ", new Date(Date.UTC(y, m - 1, d + 7)).toISOString().slice(0, 10))
+            }}
+              className="flex-1 rounded-lg border px-2 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+              พฤหัสหน้า
+            </button>
+          </div>
+
+          <div className="text-sm font-medium pt-2">📋 ตามรอบ (วันที่ส่งเอกสาร)</div>
+          <div className="flex gap-2">
+            <input type="date" value={roundDate}
+              onChange={(e) => setRoundDate(e.target.value)}
+              className="flex-1 rounded-lg border px-2 py-1.5 text-sm bg-white dark:bg-white/5" />
+            <button onClick={() => roundDate && onSent(row, "ตามรอบ", roundDate)}
+              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+              บันทึก
+            </button>
+          </div>
+        </div>
+
+        <div className="flex justify-between pt-2">
+          {row.sentDate && (
+            <button onClick={() => onSent(row, "", "")} className="text-xs text-rose-600 hover:underline">ยกเลิกการส่งบัญชี</button>
+          )}
+          <button onClick={onClose} className="ml-auto rounded-lg border px-3 py-1.5 text-sm">ปิด</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function ApTrackingPage() {
   const [rows, setRows]       = useState<ApRow[]>([])
@@ -41,25 +119,32 @@ export function ApTrackingPage() {
   const [q, setQ]             = useState("")
   const [sentFor, setSentFor] = useState<ApRow | null>(null)
 
+  // นับรุ่นคำขอ — ตอบกลับที่ไม่ใช่รุ่นล่าสุดถูกทิ้ง กันเดือนเก่ามาทับเดือนใหม่เมื่อสลับเดือนถี่ๆ
+  const loadSeq = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
       const res  = await fetch(`/api/ap-tracking?month=${month}`)
       const data = await res.json()
+      if (seq !== loadSeq.current) return
       if (!res.ok) throw new Error(data?.error ?? "โหลดข้อมูลไม่สำเร็จ")
       setRows(data.rows); setSummary(data.summary)
     } catch (e) {
+      if (seq !== loadSeq.current) return
       const msg = e instanceof Error ? e.message : ""
       swalError(msg ? `โหลดข้อมูลไม่สำเร็จ: ${msg}` : "โหลดข้อมูลไม่สำเร็จ")
-    } finally { setLoading(false) }
+    } finally {
+      if (seq === loadSeq.current) setLoading(false)
+    }
   }, [month])
 
   useEffect(() => { load() }, [load])
 
-  // ติ๊ก/ยกเลิกติ๊กในตาราง — อัปเดตจอทันที แล้วค่อยยิง API (ผิดพลาดค่อยย้อนคืน)
+  // ติ๊ก/ยกเลิกติ๊กในตาราง — อัปเดตจอทันที แล้วค่อยยิง API (ผิดพลาดค่อยย้อนคืนเฉพาะช่องนี้ของแถวนี้ ไม่แตะแถวอื่น)
   const toggleDoc = async (row: ApRow, key: ApDocKey) => {
     const next = !row.docs[key]?.checked
-    const prev = rows
+    const prevMark = row.docs[key]
     setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
       ? { ...r, docs: { ...r.docs, [key]: { checked: next, by: "", at: "" } } } : r))
     try {
@@ -72,7 +157,8 @@ export function ApTrackingPage() {
       setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
         ? { ...r, docs: data.docs, status: data.status } : r))
     } catch (e) {
-      setRows(prev)
+      setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
+        ? { ...r, docs: { ...r.docs, [key]: prevMark } } : r))
       const msg = e instanceof Error ? e.message : ""
       swalError(msg ? `บันทึกไม่สำเร็จ: ${msg}` : "บันทึกไม่สำเร็จ")
     }
@@ -97,8 +183,9 @@ export function ApTrackingPage() {
     }
   }
 
-  const saveNote = async (row: ApRow, note: string) => {
-    if (note === row.note) return
+  // คืน true/false บอกผลบันทึก — ให้ NoteCell รู้ว่าจะโชว์ค่าที่พิมพ์ไว้ หรือคืนกลับค่าเดิม
+  const saveNote = async (row: ApRow, note: string): Promise<boolean> => {
+    if (note === row.note) return true
     try {
       const res  = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -107,9 +194,11 @@ export function ApTrackingPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? "บันทึกไม่สำเร็จ")
       setRows((rs) => rs.map((r) => r.depositCode === row.depositCode ? { ...r, note: data.note } : r))
+      return true
     } catch (e) {
       const msg = e instanceof Error ? e.message : ""
       swalError(msg ? `บันทึกหมายเหตุไม่สำเร็จ: ${msg}` : "บันทึกหมายเหตุไม่สำเร็จ")
+      return false
     }
   }
 
@@ -129,6 +218,37 @@ export function ApTrackingPage() {
     [rows],
   )
 
+  // สรุปสำหรับแถบชิป — คำนวณจากแถวที่กรองด้วยคลัง/คำค้นแล้ว (ไม่กรองด้วยสถานะ เพราะชิปเองคือตัวกรองสถานะ)
+  // เพื่อไม่ให้ตัวเลขบนแถบสรุปขัดกับตารางด้านล่างเมื่อเลือกคลังหรือค้นหา
+  const clientSummary = useMemo(() => {
+    let base = rows
+    if (warehouse) base = base.filter((r) => r.warehouse === warehouse)
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+      base = base.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier))
+    }
+    const today = new Date().toISOString().slice(0, 10)
+    const due7Cutoff = addDays(today, 7)
+    const thu = nextThursday(today)
+    const blank = () => ({ n: 0, amount: 0 })
+    const byStatus: Record<ApStatus, { n: number; amount: number }> = {
+      "รอประกบ": blank(), "ครบชุด": blank(), "ส่งบัญชีแล้ว": blank(),
+    }
+    const overdue = blank()
+    const unsentAging = { notDue: blank(), due7: blank(), overdue: blank() }
+    const thisThursday = { date: thu, n: 0, amount: 0 }
+    for (const r of base) {
+      const b = byStatus[r.status]; b.n++; b.amount += r.amount
+      if (r.status !== "ส่งบัญชีแล้ว") {
+        if (r.overdue > 0) { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
+        else if (r.dueDate && r.dueDate < due7Cutoff) { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
+        else { unsentAging.notDue.n++; unsentAging.notDue.amount += r.amount }
+      }
+      if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
+    }
+    return { byStatus, overdue, thisThursday, unsentAging }
+  }, [rows, warehouse, q])
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center gap-2">
@@ -146,7 +266,7 @@ export function ApTrackingPage() {
       {summary && (
         <div className="flex flex-wrap gap-2">
           {AP_STATUSES.map((st) => {
-            const m = apStatusMeta(st), v = summary.byStatus[st]
+            const m = apStatusMeta(st), v = clientSummary.byStatus[st]
             const on = fStatus === st
             return (
               <button key={st} onClick={() => setFStatus(on ? "" : st)}
@@ -158,17 +278,17 @@ export function ApTrackingPage() {
           })}
           <div className="rounded-xl border px-3 py-2 bg-rose-50 dark:bg-rose-950/20">
             <div className="text-xs text-rose-700 dark:text-rose-300">⏰ เกินกำหนดเครดิต</div>
-            <div className="text-sm font-bold text-rose-700 dark:text-rose-300">{summary.overdue.n} ใบ · {baht(summary.overdue.amount)}</div>
+            <div className="text-sm font-bold text-rose-700 dark:text-rose-300">{clientSummary.overdue.n} ใบ · {baht(clientSummary.overdue.amount)}</div>
           </div>
           <div className="rounded-xl border px-3 py-2 bg-emerald-50 dark:bg-emerald-950/20">
-            <div className="text-xs text-emerald-700 dark:text-emerald-300">💸 เข้าโอนพฤหัสนี้ ({thaiDate(summary.thisThursday.date)})</div>
-            <div className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{summary.thisThursday.n} ใบ · {baht(summary.thisThursday.amount)}</div>
+            <div className="text-xs text-emerald-700 dark:text-emerald-300">💸 เข้าโอนพฤหัสนี้ ({thaiDate(clientSummary.thisThursday.date)})</div>
+            <div className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{clientSummary.thisThursday.n} ใบ · {baht(clientSummary.thisThursday.amount)}</div>
           </div>
           <div className="rounded-xl border px-3 py-2">
             <div className="text-xs text-gray-500">ยอดค้างส่งบัญชี (ยังไม่ครบกำหนด / ≤7 วัน / เกิน)</div>
             <div className="text-sm font-bold">
-              {baht(summary.unsentAging.notDue.amount)} · {baht(summary.unsentAging.due7.amount)} ·{" "}
-              <span className="text-rose-600">{baht(summary.unsentAging.overdue.amount)}</span>
+              {baht(clientSummary.unsentAging.notDue.amount)} · {baht(clientSummary.unsentAging.due7.amount)} ·{" "}
+              <span className="text-rose-600">{baht(clientSummary.unsentAging.overdue.amount)}</span>
             </div>
           </div>
         </div>
@@ -255,9 +375,7 @@ export function ApTrackingPage() {
                     </button>
                   </td>
                   <td className="px-3 py-2">
-                    <input defaultValue={r.note} placeholder="—"
-                      onBlur={(e) => saveNote(r, e.target.value.trim())}
-                      className="w-40 rounded border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-gray-300 focus:border-gray-400 focus:bg-white dark:focus:bg-white/10" />
+                    <NoteCell key={`${r.depositCode}:${r.note}`} row={r} onSave={saveNote} />
                   </td>
                 </tr>
               )
@@ -270,42 +388,7 @@ export function ApTrackingPage() {
       </div>
 
       {sentFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSentFor(null)}>
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#161a23] p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <div className="font-bold" style={mitr}>ส่งบัญชี · {sentFor.depositCode}</div>
-            <div className="text-xs text-gray-500">{sentFor.supplier} · {baht(sentFor.amount)} บาท</div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">💸 นอกรอบ (โอนทุกวันพฤหัส)</div>
-              <div className="flex gap-2">
-                <button onClick={() => setSent(sentFor, "นอกรอบ", nextThursday(new Date().toISOString().slice(0, 10)))}
-                  className="flex-1 rounded-lg border px-2 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
-                  พฤหัสนี้ {thaiDate(nextThursday(new Date().toISOString().slice(0, 10)))}
-                </button>
-                <button onClick={() => {
-                  const thu = nextThursday(new Date().toISOString().slice(0, 10))
-                  const [y, m, d] = thu.split("-").map(Number)
-                  setSent(sentFor, "นอกรอบ", new Date(Date.UTC(y, m - 1, d + 7)).toISOString().slice(0, 10))
-                }}
-                  className="flex-1 rounded-lg border px-2 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
-                  พฤหัสหน้า
-                </button>
-              </div>
-
-              <div className="text-sm font-medium pt-2">📋 ตามรอบ (วันที่ส่งเอกสาร)</div>
-              <input type="date" defaultValue={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => e.target.value && setSent(sentFor, "ตามรอบ", e.target.value)}
-                className="w-full rounded-lg border px-2 py-1.5 text-sm bg-white dark:bg-white/5" />
-            </div>
-
-            <div className="flex justify-between pt-2">
-              {sentFor.sentDate && (
-                <button onClick={() => setSent(sentFor, "", "")} className="text-xs text-rose-600 hover:underline">ยกเลิกการส่งบัญชี</button>
-              )}
-              <button onClick={() => setSentFor(null)} className="ml-auto rounded-lg border px-3 py-1.5 text-sm">ปิด</button>
-            </div>
-          </div>
-        </div>
+        <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />
       )}
     </div>
   )
