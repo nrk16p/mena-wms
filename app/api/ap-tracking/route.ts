@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
-  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, nextThursday,
+  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, nextThursday, todayICT,
   type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
 
@@ -29,11 +29,11 @@ const prevMonths = (ym: string, n: number) => {
   })
 }
 
-// GET /api/ap-tracking?month=YYYY-MM&carryover=1&warehouse=&supplier=&status=&q=&limit=&includeInternal=
+// GET /api/ap-tracking?month=YYYY-MM&carryover=1&carryoverMonths=6&warehouse=&supplier=&status=&q=&limit=&includeInternal=
 export async function GET(req: NextRequest) {
   try {
     const sp        = req.nextUrl.searchParams
-    const today     = new Date().toISOString().slice(0, 10)
+    const today     = todayICT()
     const rawMonth  = sp.get("month")?.trim() || today.slice(0, 7)
     const month     = /^\d{4}-(0[1-9]|1[0-2])$/.test(rawMonth) ? rawMonth : today.slice(0, 7)
     const carryover = sp.get("carryover") !== "0"
@@ -43,14 +43,24 @@ export async function GET(req: NextRequest) {
     const q         = sp.get("q")?.trim()         ?? ""
     const includeInternal = sp.get("includeInternal") === "1"
     const limitRaw  = parseInt(sp.get("limit") || "", 10)
-    const limit     = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 8000) : 4000
+    // ทั้ง collection มี ~15,700 ใบ และยังถูกบีบด้วยตัวกรองเดือนอีกชั้น — เพดานนี้จึงยัง bounded
+    const limit     = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 20000) : 12000
+    // ใบค้างที่เก่ากว่าหน้าต่างนี้จะไม่โผล่ในทุก view (UI ไม่มีทางเปิดเดือนของมันเอง) — ให้ปรับได้ 1–12 เดือน
+    const cmRaw     = parseInt(sp.get("carryoverMonths") || "", 10)
+    const carryoverMonths = Number.isInteger(cmRaw) && cmRaw >= 1 && cmRaw <= 12 ? cmRaw : 6
 
     const client = await clientPromise
     const atms   = client.db("atms")
+    // atms = ฐาน scraper อ่านอย่างเดียว · ถ้า MONGO_DB ถูกตั้งเป็น "atms" เมื่อไหร่ route เขียนของแอป
+    // จะไปเขียนทับฐานนั้น — ตายตั้งแต่ตอนขอ handle ดีกว่าปล่อยให้เขียนพลาด
+    if (MD === "atms") {
+      console.error("[ap-tracking] MONGO_DB ถูกตั้งเป็น 'atms' — ฐานเขียนต้องแยกจากฐานอ่าน")
+      return NextResponse.json({ error: "ตั้งค่าผิดพลาด: MONGO_DB ต้องไม่ใช่ 'atms' (ฐานอ่านอย่างเดียว)" }, { status: 500 })
+    }
     const md     = client.db(MD)
 
-    // 1) แถว DD ของเดือนที่เลือก (+ ย้อนหลัง 3 เดือนสำหรับใบค้าง) — bounded เสมอ
-    const months  = carryover ? [month, ...prevMonths(month, 3)] : [month]
+    // 1) แถว DD ของเดือนที่เลือก (+ ย้อนหลัง carryoverMonths เดือนสำหรับใบค้าง) — bounded เสมอ
+    const months  = carryover ? [month, ...prevMonths(month, carryoverMonths)] : [month]
     const match: Record<string, unknown> = { $or: months.map((m) => ({ received_at: { $regex: monthRe(m) } })) }
     if (warehouse) match.warehouse = warehouse
     if (supplier)  match.supplier  = supplier
@@ -58,13 +68,22 @@ export async function GET(req: NextRequest) {
     // — ตัดออกจากผลลัพธ์เริ่มต้นตั้งแต่ชั้น query กัน flood หน้าติดตามเจ้าหนี้ ขอดูได้ด้วย includeInternal=1
     if (!includeInternal) match.$nor = [{ supplier: "", purchase_order: "" }]
 
-    const heads = await atms.collection("deposit_header")
-      .find(match, { projection: {
+    // เรียง "ล่าสุดก่อน" ต้องแปลง received_at (string "DD/MM/YYYY HH:mm") เป็น date จริงก่อน —
+    // sort ตรง ๆ บน string จะเรียงตามวันของเดือน (31/07 มาก่อน 04/08) และถ้าไม่ sort เลย Mongo
+    // คืนตาม natural order = เดือนเก่าสุดกินโควตา limit จนเดือนปัจจุบันหายทั้งเดือน (pattern เดียวกับ /api/pr)
+    // onError/onNull: null → แถวที่แปลงไม่ได้กลายเป็น null (BSON เรียง null < date) จึงไปอยู่ท้ายสุดของ
+    // sort แบบ -1 และถูก limit ตัดก่อน ไม่ทำให้ทั้ง query พังหรือหน้าว่าง
+    const heads = await atms.collection("deposit_header").aggregate([
+      { $match: match },
+      { $addFields: { _sortDate: { $dateFromString: { dateString: "$received_at", format: "%d/%m/%Y %H:%M", onError: null, onNull: null } } } },
+      { $sort: { _sortDate: -1, _id: -1 } },
+      { $limit: limit },
+      { $unset: "_sortDate" },
+      { $project: {
         _id: 0, deposit_id: 1, deposit_code: 1, warehouse: 1, purchase_order: 1,
         supplier: 1, supplier_ref_no: 1, amount: 1, created_at: 1, received_at: 1,
-      } })
-      .limit(limit)
-      .toArray() as Doc[]
+      } },
+    ]).toArray() as Doc[]
 
     const codes    = heads.map((h) => s(h.deposit_code)).filter(Boolean)
     const poCodes  = [...new Set(heads.map((h) => s(h.purchase_order)).filter(Boolean))]
@@ -115,9 +134,6 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    // ใบเดือนก่อนแสดงเฉพาะที่ยังไม่ส่งบัญชี (ค้างยกมา) — ที่จบแล้วไม่ต้องรก
-    rows = rows.filter((r) => !r.carryover || r.status !== "ส่งบัญชีแล้ว")
-
     if (status) rows = rows.filter((r) => r.status === status)
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
@@ -125,19 +141,32 @@ export async function GET(req: NextRequest) {
     }
     rows.sort((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || "") || b.depositCode.localeCompare(a.depositCode))
 
-    // 4) summary
+    // "แถวที่คืนไปแสดงในตาราง" กับ "แถวที่เอาไปคิดยอดสรุป" ไม่ใช่ชุดเดียวกัน — ตั้งใจให้ต่างกัน:
+    //   ตาราง  = ตัดใบค้างยกมาที่ส่งบัญชีแล้วทิ้ง (จบแล้ว ไม่ต้องรก)
+    //   สรุป    = ยังนับใบค้างยกมาที่ "ส่งบัญชีในเดือนที่กำลังดูอยู่" ด้วย
+    // ถ้าตัดออกก่อนคิดสรุป ยอด "เข้าโอนพฤหัสนี้" จะขาดไปทั้งใบ เช่น ใบวันที่ 25/07 ที่ติ๊กครบแล้ว
+    // ตั้งนอกรอบ 14/08 — เปิดหน้าเดือน 08 เพื่อรวมยอดโอนวันพฤหัส แล้วโอนขาดไปเท่ายอดใบนั้น
+    const sentInView  = (r: typeof rows[number]) => r.sentDate.slice(0, 7) === month
+    const showInTable = (r: typeof rows[number]) => !r.carryover || r.status !== "ส่งบัญชีแล้ว"
+    const countRows   = rows.filter((r) => showInTable(r) || sentInView(r))
+    rows = rows.filter(showInTable)
+
+    // 4) summary — คิดจาก countRows (ซูเปอร์เซ็ตของ rows) ไม่ใช่ rows
     const blank = () => ({ n: 0, amount: 0 })
     const byStatus: Record<string, { n: number; amount: number }> = {
       "รอประกบ": blank(), "ครบชุด": blank(), "ส่งบัญชีแล้ว": blank(),
     }
-    const overdue = blank(), unsentAging = { notDue: blank(), due7: blank(), overdue: blank() }
+    // noTerm = ยังไม่ส่งบัญชีและ "ไม่รู้กำหนดชำระ" เพราะซัพพลายเออร์ยังไม่มีเครดิตเทอมใน master
+    // (วัดจริงเดือน ก.ค. 2026: ~35% ของชื่อไม่มีใน master) — เอาไปกองรวมกับ notDue จะกลายเป็นรายงานลวง
+    const overdue = blank(), unsentAging = { notDue: blank(), due7: blank(), overdue: blank(), noTerm: blank() }
     const thu = nextThursday(today)
     const thisThursday = { date: thu, n: 0, amount: 0 }
-    for (const r of rows) {
+    for (const r of countRows) {
       const b = byStatus[r.status]; b.n++; b.amount += r.amount
       if (r.status !== "ส่งบัญชีแล้ว") {
         if (r.overdue > 0) { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
-        else if (r.dueDate && overdueDays(r.dueDate, addDays(today, 7)) > 0) { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
+        else if (!r.dueDate) { unsentAging.noTerm.n++; unsentAging.noTerm.amount += r.amount }
+        else if (overdueDays(r.dueDate, addDays(today, 7)) > 0) { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
         else { unsentAging.notDue.n++; unsentAging.notDue.amount += r.amount }
       }
       if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
@@ -149,7 +178,13 @@ export async function GET(req: NextRequest) {
     }, "")
     return NextResponse.json({
       rows,
-      summary: { total: rows.length, byStatus: byStatus as Record<ApStatus, { n: number; amount: number }>, overdue, thisThursday, unsentAging, dataAsOf },
+      summary: {
+        total: rows.length,             // จำนวนแถวในตาราง
+        counted: countRows.length,      // จำนวนแถวที่เอาไปคิดยอดสรุป (>= total)
+        truncated: heads.length >= limit, // ชน limit = ผลลัพธ์ถูกตัด ตัวเลขสรุปยังไม่ครบทั้งช่วง
+        byStatus: byStatus as Record<ApStatus, { n: number; amount: number }>,
+        overdue, thisThursday, unsentAging, dataAsOf,
+      },
     })
   } catch (e) {
     console.error("[ap-tracking] GET failed", e)

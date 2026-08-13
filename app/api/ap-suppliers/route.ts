@@ -15,6 +15,7 @@ export async function GET() {
   const items = await client.db(DB).collection(COLL)
     .find({}, { projection: { _id: 0, name: 1, creditTerm: 1, updatedBy: 1, updatedAt: 1 } })
     .sort({ name: 1 })
+    .limit(5000)                // master ซัพพลายเออร์มีหลักร้อย — กันคิวรีไม่มีขอบเขตไว้ก่อน
     .toArray()
   return NextResponse.json(items)
 }

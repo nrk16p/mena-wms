@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Banknote, RefreshCw, Search } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, AP_STATUSES, apStatusMeta, nextThursday, thaiDate,
+  AP_DOC_FIELDS, AP_STATUSES, apStatusMeta, isDocSetComplete, missingDocLabels,
+  nextThursday, overdueDays, thaiDate, todayICT,
   type ApDocKey, type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
@@ -20,21 +21,29 @@ export type ApRow = {
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }
+type Bucket = { n: number; amount: number }
 type Summary = {
   total: number
-  byStatus: Record<ApStatus, { n: number; amount: number }>
-  overdue: { n: number; amount: number }
+  counted?: number
+  truncated?: boolean
+  byStatus: Record<ApStatus, Bucket>
+  overdue: Bucket
   thisThursday: { date: string; n: number; amount: number }
-  unsentAging: { notDue: { n: number; amount: number }; due7: { n: number; amount: number }; overdue: { n: number; amount: number } }
+  unsentAging: { notDue: Bucket; due7: Bucket; overdue: Bucket; noTerm: Bucket }
   dataAsOf: string
 }
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const thisMonth = () => new Date().toISOString().slice(0, 7)
+// วันนี้ตามเวลาไทยเสมอ (เครื่องผู้ใช้อาจตั้ง TZ อื่น / เซิร์ฟเวอร์รัน UTC) — กันวันเลื่อนช่วง 00:00–07:00
+const thisMonth = () => todayICT().slice(0, 7)
 const addDays = (iso: string, n: number) => {
   const [y, m, d] = iso.split("-").map(Number)
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
 }
+
+// ค้นหาให้ครอบคลุมเท่าฝั่ง API (รวมเลขที่บิลของซัพพลายเออร์) ไม่งั้นค้นด้วยเลขบิลแล้วเหมือนไม่เจอ
+const matchQ = (r: ApRow, rx: RegExp) =>
+  rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier) || rx.test(r.supplierRefNo)
 
 // ช่องหมายเหตุแบบ controlled — พิมพ์แล้วออกจากช่องค่อยบันทึก บันทึกไม่สำเร็จคืนค่ากลับให้เห็นทันที
 // (key={depositCode:note} ที่จุดเรียกใช้ทำให้ remount รับค่าใหม่เมื่อรีเฟรชหรือถูกอัปเดตจากที่อื่น)
@@ -63,7 +72,7 @@ function SendDialog({
   onClose: () => void
   onSent: (row: ApRow, type: "" | "นอกรอบ" | "ตามรอบ", date: string) => void
 }) {
-  const [roundDate, setRoundDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [roundDate, setRoundDate] = useState(() => todayICT())
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#161a23] p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -73,12 +82,12 @@ function SendDialog({
         <div className="space-y-2">
           <div className="text-sm font-medium">💸 นอกรอบ (โอนทุกวันพฤหัส)</div>
           <div className="flex gap-2">
-            <button onClick={() => onSent(row, "นอกรอบ", nextThursday(new Date().toISOString().slice(0, 10)))}
+            <button onClick={() => onSent(row, "นอกรอบ", nextThursday(todayICT()))}
               className="flex-1 rounded-lg border px-2 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
-              พฤหัสนี้ {thaiDate(nextThursday(new Date().toISOString().slice(0, 10)))}
+              พฤหัสนี้ {thaiDate(nextThursday(todayICT()))}
             </button>
             <button onClick={() => {
-              const thu = nextThursday(new Date().toISOString().slice(0, 10))
+              const thu = nextThursday(todayICT())
               const [y, m, d] = thu.split("-").map(Number)
               onSent(row, "นอกรอบ", new Date(Date.UTC(y, m - 1, d + 7)).toISOString().slice(0, 10))
             }}
@@ -126,26 +135,44 @@ export function ApTrackingPage() {
   const openDetail = (row: ApRow) => { setSentFor(null); setDetailFor(row) }
 
   // นับรุ่นคำขอ — ตอบกลับที่ไม่ใช่รุ่นล่าสุดถูกทิ้ง กันเดือนเก่ามาทับเดือนใหม่เมื่อสลับเดือนถี่ๆ
-  const loadSeq = useRef(0)
+  // + ยกเลิกคำขอเก่าด้วย AbortController: กดลูกศรของ <input type="month"> ค้างไว้จะยิงทีละครั้งต่อคลิก
+  //   ถ้าแค่ทิ้งผลลัพธ์แต่ไม่ยกเลิก ฝั่งเซิร์ฟเวอร์จะสแกน deposit_header (ไม่มี index) ซ้อนกันหลายรอบ
+  const loadSeq   = useRef(0)
+  const abortRef  = useRef<AbortController | null>(null)
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
     setLoading(true)
     try {
-      const res  = await fetch(`/api/ap-tracking?month=${month}`)
+      const res  = await fetch(`/api/ap-tracking?month=${month}`, { signal: ac.signal })
       const data = await res.json()
       if (seq !== loadSeq.current) return
       if (!res.ok) throw new Error(data?.error ?? "โหลดข้อมูลไม่สำเร็จ")
       setRows(data.rows); setSummary(data.summary)
     } catch (e) {
+      // ถูกยกเลิกเพราะมีคำขอใหม่มาแทน ไม่ใช่ความผิดพลาด — ห้ามเด้ง error ใส่ผู้ใช้
+      if (ac.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) return
       if (seq !== loadSeq.current) return
       const msg = e instanceof Error ? e.message : ""
       swalError(msg ? `โหลดข้อมูลไม่สำเร็จ: ${msg}` : "โหลดข้อมูลไม่สำเร็จ")
     } finally {
+      // คำขอรุ่นล่าสุดเท่านั้นที่ปิดสถานะโหลด — รุ่นเก่าที่ถูกแทนที่ปล่อยให้รุ่นใหม่ปิดให้ ไม่ค้างสปิน
       if (seq === loadSeq.current) setLoading(false)
     }
   }, [month])
 
-  useEffect(() => { load() }, [load])
+  // โหลดครั้งแรกทันที · เปลี่ยนเดือนหลังจากนั้นหน่วง 400ms กันกดลูกศรรัวแล้วยิงคิวรีหนักทุกคลิก
+  const firstLoad = useRef(true)
+  useEffect(() => {
+    if (firstLoad.current) { firstLoad.current = false; load(); return }
+    const t = setTimeout(load, 400)
+    return () => clearTimeout(t)
+  }, [load])
+
+  // ออกจากหน้าแล้วไม่ปล่อยคำขอค้าง
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   // ติ๊ก/ยกเลิกติ๊กในตาราง — อัปเดตจอทันที แล้วค่อยยิง API (ผิดพลาดค่อยย้อนคืนเฉพาะช่องนี้ของแถวนี้ ไม่แตะแถวอื่น)
   const toggleDoc = async (row: ApRow, key: ApDocKey) => {
@@ -179,8 +206,11 @@ export function ApTrackingPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? "บันทึกไม่สำเร็จ")
+      // ยกเลิกส่งบัญชี = กลับมานับวันเกินกำหนดใหม่จาก dueDate (ค่า overdue เดิมเป็น 0 ที่ถูกกดไว้ตอนส่ง)
+      // ถ้าใช้ r.overdue ต่อ badge ⏰ จะหายไปจนกว่าจะรีเฟรชหน้า
       setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
-        ? { ...r, sentType: data.sentType, sentDate: data.sentDate, status: data.status, overdue: data.sentDate ? 0 : r.overdue } : r))
+        ? { ...r, sentType: data.sentType, sentDate: data.sentDate, status: data.status,
+            overdue: data.sentDate ? 0 : overdueDays(r.dueDate, todayICT()) } : r))
       setSentFor(null)
       swalToast("success", date ? `ส่งบัญชี ${type} ${thaiDate(date)}` : "ยกเลิกการส่งบัญชีแล้ว")
     } catch (e) {
@@ -214,7 +244,7 @@ export function ApTrackingPage() {
     if (warehouse) out = out.filter((r) => r.warehouse === warehouse)
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
-      out = out.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier))
+      out = out.filter((r) => matchQ(r, rx))
     }
     return out
   }, [rows, fStatus, warehouse, q])
@@ -231,9 +261,9 @@ export function ApTrackingPage() {
     if (warehouse) base = base.filter((r) => r.warehouse === warehouse)
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
-      base = base.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier))
+      base = base.filter((r) => matchQ(r, rx))
     }
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayICT()
     const due7Cutoff = addDays(today, 7)
     const thu = nextThursday(today)
     const blank = () => ({ n: 0, amount: 0 })
@@ -241,13 +271,16 @@ export function ApTrackingPage() {
       "รอประกบ": blank(), "ครบชุด": blank(), "ส่งบัญชีแล้ว": blank(),
     }
     const overdue = blank()
-    const unsentAging = { notDue: blank(), due7: blank(), overdue: blank() }
+    // noTerm = ยังไม่ส่งบัญชีและไม่มี dueDate เพราะซัพพลายเออร์ยังไม่มีเครดิตเทอมใน master
+    // — แยกออกจาก notDue เพราะ "ยังไม่ถึงกำหนด" กับ "ไม่รู้กำหนด" คนละเรื่องกัน
+    const unsentAging = { notDue: blank(), due7: blank(), overdue: blank(), noTerm: blank() }
     const thisThursday = { date: thu, n: 0, amount: 0 }
     for (const r of base) {
       const b = byStatus[r.status]; b.n++; b.amount += r.amount
       if (r.status !== "ส่งบัญชีแล้ว") {
         if (r.overdue > 0) { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
-        else if (r.dueDate && r.dueDate < due7Cutoff) { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
+        else if (!r.dueDate) { unsentAging.noTerm.n++; unsentAging.noTerm.amount += r.amount }
+        else if (r.dueDate < due7Cutoff) { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
         else { unsentAging.notDue.n++; unsentAging.notDue.amount += r.amount }
       }
       if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
@@ -289,6 +322,11 @@ export function ApTrackingPage() {
           <div className="rounded-xl border px-3 py-2 bg-emerald-50 dark:bg-emerald-950/20">
             <div className="text-xs text-emerald-700 dark:text-emerald-300">💸 เข้าโอนพฤหัสนี้ ({thaiDate(clientSummary.thisThursday.date)})</div>
             <div className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{clientSummary.thisThursday.n} ใบ · {baht(clientSummary.thisThursday.amount)}</div>
+          </div>
+          <div className="rounded-xl border px-3 py-2 bg-amber-50 dark:bg-amber-950/20"
+            title="ซัพพลายเออร์ยังไม่ได้ตั้งเครดิตเทอม จึงคำนวณวันครบกำหนดไม่ได้ — ไม่ใช่ว่ายังไม่ถึงกำหนด">
+            <div className="text-xs text-amber-700 dark:text-amber-300">❓ ยังไม่ตั้งเครดิตเทอม (ไม่รู้กำหนดชำระ)</div>
+            <div className="text-sm font-bold text-amber-700 dark:text-amber-300">{clientSummary.unsentAging.noTerm.n} ใบ · {baht(clientSummary.unsentAging.noTerm.amount)}</div>
           </div>
           <div className="rounded-xl border px-3 py-2">
             <div className="text-xs text-gray-500">ยอดค้างส่งบัญชี (ยังไม่ครบกำหนด / ≤7 วัน / เกิน)</div>
@@ -375,10 +413,23 @@ export function ApTrackingPage() {
                     {r.sentDate && <div className="text-xs text-gray-500 mt-0.5">{r.sentType} {thaiDate(r.sentDate)}</div>}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <button onClick={() => openSent(r)}
-                      className={`rounded-lg border px-2 py-1 text-xs ${r.sentDate ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}>
-                      {r.sentDate ? `✅ ${r.sentType} ${thaiDate(r.sentDate)}` : "ส่งบัญชี"}
-                    </button>
+                    {(() => {
+                      // สะท้อนกฎเดียวกับฝั่งเซิร์ฟเวอร์ (409 ถ้าเอกสารไม่ครบชุด) — ไม่ชวนผู้ใช้กดสิ่งที่ยังไงก็ไม่ผ่าน
+                      // ใบที่ "ส่งบัญชีแล้ว" ต้องกดได้เสมอ ถึงเอกสารจะไม่ครบ เพื่อยกเลิก/แก้ที่ลงผิดไว้
+                      const missing  = missingDocLabels(r.docs)
+                      const blocked  = !r.sentDate && !isDocSetComplete(r.docs)
+                      return (
+                        <button onClick={() => openSent(r)} disabled={blocked}
+                          title={blocked ? `ยังส่งบัญชีไม่ได้ — เอกสารไม่ครบชุด ขาด: ${missing.join(", ")}` : undefined}
+                          className={`rounded-lg border px-2 py-1 text-xs ${r.sentDate
+                            ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300"
+                            : blocked
+                              ? "text-gray-400 border-dashed cursor-not-allowed"
+                              : "hover:bg-gray-50 dark:hover:bg-white/5"}`}>
+                          {r.sentDate ? `✅ ${r.sentType} ${thaiDate(r.sentDate)}` : "ส่งบัญชี"}
+                        </button>
+                      )
+                    })()}
                   </td>
                   <td className="px-3 py-2">
                     <NoteCell key={`${r.depositCode}:${r.note}`} row={r} onSave={saveNote} />

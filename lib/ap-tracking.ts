@@ -30,6 +30,16 @@ export function isDocSetComplete(docs: ApDocs): boolean {
   return FINANCE_DOC_KEYS.some((k) => isOn(docs[k]))
 }
 
+// รายชื่อเอกสารที่ยังขาดก่อนจะครบชุด — ใช้ร่วมกันทั้ง API (ข้อความ 409) และปุ่มส่งบัญชีในตาราง
+// เพื่อไม่ให้กติกา "ครบชุด" ถูกเขียนซ้ำคนละที่แล้วเพี้ยนจากกัน
+export function missingDocLabels(docs: ApDocs): string[] {
+  const out: string[] = []
+  if (!isOn(docs.dd)) out.push("DD (ใบรับของ)")
+  if (!isOn(docs.po)) out.push("PO (ใบสั่งซื้อ)")
+  if (!FINANCE_DOC_KEYS.some((k) => isOn(docs[k]))) out.push("เอกสารการเงินอย่างน้อย 1 ใบ")
+  return out
+}
+
 export function apStatusOf(docs: ApDocs, sentDate: string): ApStatus {
   if (sentDate) return "ส่งบัญชีแล้ว"
   return isDocSetComplete(docs) ? "ครบชุด" : "รอประกบ"
@@ -75,6 +85,15 @@ const toUTC = (iso: string) => {
 }
 const fromUTC = (ms: number) => new Date(ms).toISOString().slice(0, 10)
 const DAY = 86_400_000
+
+// "วันนี้" ตามเวลาไทย (Asia/Bangkok = UTC+7 ตลอดปี ไม่มี DST)
+// ห้ามใช้ new Date().toISOString().slice(0,10) เป็นวันนี้ เพราะทั้งเซิร์ฟเวอร์ (Vercel) และ
+// เบราว์เซอร์ที่ตั้ง TZ อื่น จะได้วันของ "เมื่อวาน" ในช่วง 00:00–07:00 เวลาไทย
+// → วันครบกำหนด/จำนวนวันเกิน/"พฤหัสนี้" เลื่อนไปทั้งระบบ
+export const ICT_OFFSET_MS = 7 * 60 * 60 * 1000
+export function todayICT(): string {
+  return new Date(Date.now() + ICT_OFFSET_MS).toISOString().slice(0, 10)
+}
 
 export function dueDateOf(receivedISO: string, term: string): string {
   const days = termDays(term)

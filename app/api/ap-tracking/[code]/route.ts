@@ -3,15 +3,23 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { AP_DOC_FIELDS, apStatusOf, type ApDocKey, type ApDocs } from "@/lib/ap-tracking"
+import { AP_DOC_FIELDS, apStatusOf, isDocSetComplete, missingDocLabels, type ApDocKey, type ApDocs } from "@/lib/ap-tracking"
 
 export const dynamic = "force-dynamic"
 
 const MD = process.env.MONGO_DB ?? "master_data"
 const COLL = "ap_tracking"
+const LOG_KEEP = 200            // เก็บ log ล่าสุดเท่านี้ต่อใบ — ไม่งั้น array โตไม่มีเพดาน
 const DOC_KEYS = new Set<string>(AP_DOC_FIELDS.map((f) => f.key))
 const SENT_TYPES = new Set(["", "นอกรอบ", "ตามรอบ"])
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
+
+// ฐาน atms เป็นของ scraper อ่านอย่างเดียว · ถ้า MONGO_DB ถูกตั้งเป็น "atms" การเขียนของแอป
+// จะไปทับฐานนั้นทั้งหมด — ตายตั้งแต่ตอนขอ handle ดีกว่าปล่อยให้เขียนพลาดแล้วค่อยรู้
+function writeDb(client: Awaited<typeof clientPromise>) {
+  if (MD === "atms") throw new Error("MONGO_DB ต้องไม่ใช่ 'atms' — ฐาน atms เป็น read-only ห้ามเขียนทับ")
+  return client.db(MD)
+}
 
 // "YYYY-MM-DD" ที่เป็นวันที่จริง (ปฏิเสธ 2026-13-99 ฯลฯ) — ไม่ใช่แค่รูปแบบ
 function isValidYmd(v: string): boolean {
@@ -30,7 +38,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
   if (!depositCode) return NextResponse.json({ error: "ไม่พบเลขที่ใบรับของ" }, { status: 400 })
 
   const client = await clientPromise
-  const atms = client.db("atms"), md = client.db(MD)
+  const atms = client.db("atms"), md = writeDb(client)
 
   const head = await atms.collection("deposit_header").findOne(
     { deposit_code: depositCode },
@@ -61,7 +69,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   const at = new Date().toISOString()
 
   const client = await clientPromise
-  const col = client.db(MD).collection(COLL)
+  const col = writeDb(client).collection(COLL)
   const current = await col.findOne({ depositCode })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,6 +78,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
 
   // ติ๊กแต่ละช่องเขียนแบบ dotted path (docs.<key>) แทนการแทนที่ทั้ง object —
   // กัน race เวลาสองคนติ๊กคนละช่องพร้อมกันแล้วคนหลังทับคนแรก
+  // สถานะ "หลัง" การติ๊กของคำขอนี้ — คำขอเดียวอาจติ๊กช่องสุดท้ายพร้อมลงวันส่งบัญชีมาด้วยกัน
+  // จึงต้องตรวจความครบชุดกับ nextDocs ไม่ใช่ของเดิมใน DB
+  const nextDocs: ApDocs = { ...((current?.docs ?? {}) as ApDocs) }
+
   if (body?.docs && typeof body.docs === "object") {
     for (const [k, v] of Object.entries(body.docs as Record<string, unknown>)) {
       if (!DOC_KEYS.has(k)) return NextResponse.json({ error: `ช่องเอกสารไม่ถูกต้อง: ${k}` }, { status: 400 })
@@ -78,6 +90,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     for (const [k, v] of Object.entries(body.docs as Record<string, boolean>)) {
       const checked = v
       set[`docs.${k as ApDocKey}`] = { checked, by, at }
+      nextDocs[k as ApDocKey] = { checked, by, at }
       log.push({ action: checked ? "ติ๊ก" : "ยกเลิกติ๊ก", field: k, by, byEmail, at })
     }
   }
@@ -91,6 +104,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     if (sentDate && !sentType) return NextResponse.json({ error: "ต้องเลือกว่าเป็น นอกรอบ หรือ ตามรอบ" }, { status: 400 })
     // ระบุ sentType โดยไม่มี sentDate (ทั้งจาก body และของเดิม) = ค่าจะถูกทิ้งเงียบๆ ไม่ยอมให้ทำ
     if (bodySentType && !sentDate) return NextResponse.json({ error: "ต้องระบุ sentDate เมื่อเลือก sentType" }, { status: 400 })
+    // หัวใจของฟีเจอร์: ส่งบัญชีได้ต่อเมื่อประกบเอกสารครบชุด (✓DD + ✓PO + การเงิน ≥1)
+    // ถ้าปล่อยผ่าน ใบที่เอกสารยังไม่ครบจะถูกมาร์คว่าส่งแล้วและหลุดออกจากยอดเกินกำหนดไปด้วย
+    // การล้างวันที่ (sentDate = "") ต้องทำได้เสมอ — ยกเลิก/แก้ที่ลงผิดไว้
+    if (sentDate && !isDocSetComplete(nextDocs)) {
+      return NextResponse.json(
+        { error: `ส่งบัญชีไม่ได้ — เอกสารยังไม่ครบชุด ขาด: ${missingDocLabels(nextDocs).join(", ")}` },
+        { status: 409 },
+      )
+    }
 
     const hadSentDate = Boolean(s(current?.sentDate))
     set.sentType = sentDate ? sentType : ""
@@ -114,8 +136,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   // เพี้ยนจาก DB จริงเวลามีคนอื่นเขียนแทรกระหว่างนี้
   const doc = await col.findOneAndUpdate(
     { depositCode },
+    // $slice: -LOG_KEEP → เก็บเฉพาะ log ล่าสุด กัน document โตชนเพดาน 16MB ของ BSON
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { $set: set, $push: { log: { $each: log } }, $setOnInsert: { createdAt: at, createdBy: by } } as any,
+    { $set: set, $push: { log: { $each: log, $slice: -LOG_KEEP } }, $setOnInsert: { createdAt: at, createdBy: by } } as any,
     { upsert: true, returnDocument: "after" },
   )
 
