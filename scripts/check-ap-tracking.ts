@@ -5,6 +5,7 @@ import {
   parseDmy, parseAmount, dueDateOf, overdueDays, nextThursday,
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS,
+  AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
 } from "../lib/ap-tracking"
 
 const mark = { checked: true, by: "test", at: "2026-08-13T00:00:00.000Z" }
@@ -90,6 +91,37 @@ assert.equal(ICT_OFFSET_MS, 7 * 60 * 60 * 1000, "ไทยเป็น UTC+7 ต
 // ช่วง 00:00–07:00 เวลาไทย = UTC ยังไม่ข้ามวัน → ต้องต่างกัน 1 วันพอดี (นี่คือบั๊กที่ helper นี้มาแก้)
 const ictHour = Number(new Date(Date.now() + ICT_OFFSET_MS).toISOString().slice(11, 13))
 assert.equal(dayGap, ictHour < 7 ? 1 : 0, `ชั่วโมงไทย ${ictHour} → ต้องต่างจาก UTC ${ictHour < 7 ? 1 : 0} วัน`)
+
+// --- go-live cutoff (ใบก่อนวันเริ่มใช้ระบบเป็นของ Excel เดิม ไม่ใช่ยอดค้างของระบบนี้) ---
+assert.equal(AP_GO_LIVE, "2026-08-01")
+assert.equal(inApScope("2026-07-31"), false, "ก่อน cutoff = นอกสโคป")
+assert.equal(inApScope("2026-08-01"), true, "ตรงวัน cutoff = อยู่ในสโคป (>= ไม่ใช่ >)")
+assert.equal(inApScope("2026-08-13"), true, "หลัง cutoff = อยู่ในสโคป")
+assert.equal(inApScope("2026-02-15"), false, "ย้อนไปไกล ๆ ก็ยังนอกสโคป")
+assert.equal(inApScope(""), false, "ไม่มีวันรับของที่อ่านได้ = วางบนเส้นเวลาไม่ได้ = นอกสโคป")
+// override ด้วย since — ใช้เส้นใหม่แทน AP_GO_LIVE ทั้งหมด
+assert.equal(inApScope("2026-07-31", "2026-07-01"), true, "ขยับเส้นแล้วใบเดือน ก.ค. ต้องเข้า")
+assert.equal(inApScope("2026-06-30", "2026-07-01"), false)
+assert.equal(inApScope("2026-08-14", "2026-08-15"), false, "cutoff กลางเดือนต้องตัดรายวันได้")
+assert.equal(inApScope("2026-08-15", "2026-08-15"), true)
+
+// เดือนที่จบก่อน cutoff ทั้งเดือน = ไม่ต้องยิงคิวรีหาเลย
+assert.equal(monthInApScope("2026-07"), false, "ก.ค. จบก่อน 01/08 ทั้งเดือน")
+assert.equal(monthInApScope("2026-08"), true, "เดือนที่มี cutoff อยู่ ต้องดึงมากรองรายแถวต่อ")
+assert.equal(monthInApScope("2026-09"), true)
+assert.equal(monthInApScope("2026-02"), false)
+assert.equal(monthInApScope("2026-07", "2026-07-15"), true, "เดือนที่คร่อม cutoff ต้องไม่ถูกตัดทั้งเดือน")
+
+// since จาก query — ต้องเป็นวันที่จริงเท่านั้น
+assert.equal(apSinceOf(null), AP_GO_LIVE, "ไม่ส่งมา = ใช้ go-live")
+assert.equal(apSinceOf(""), AP_GO_LIVE)
+assert.equal(apSinceOf("  2026-02-01  "), "2026-02-01", "ตัดช่องว่างแล้วใช้ได้")
+assert.equal(apSinceOf("2026-13-01"), AP_GO_LIVE, "เดือน 13 ไม่มีจริง")
+assert.equal(apSinceOf("2026-02-30"), AP_GO_LIVE, "30 ก.พ. ไม่มีจริง")
+assert.equal(apSinceOf("2026-2-1"), AP_GO_LIVE, "ต้องเติมศูนย์เต็มรูปแบบ")
+assert.equal(apSinceOf("ไม่ใช่วันที่"), AP_GO_LIVE)
+assert.equal(apSinceOf("2026-02-29"), AP_GO_LIVE, "2026 ไม่ใช่ปีอธิกสุรทิน 29 ก.พ. จึงไม่มีจริง")
+assert.equal(apSinceOf("2028-02-29"), "2028-02-29", "2028 เป็นปีอธิกสุรทิน 29 ก.พ. มีจริง")
 
 // --- thaiDate ---
 assert.equal(thaiDate("2026-08-13"), "13 ส.ค. 69")

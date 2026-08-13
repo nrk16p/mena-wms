@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, nextThursday, todayICT,
+  apSinceOf, inApScope, monthInApScope,
   type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
 
@@ -48,6 +49,9 @@ export async function GET(req: NextRequest) {
     // ใบค้างที่เก่ากว่าหน้าต่างนี้จะไม่โผล่ในทุก view (UI ไม่มีทางเปิดเดือนของมันเอง) — ให้ปรับได้ 1–12 เดือน
     const cmRaw     = parseInt(sp.get("carryoverMonths") || "", 10)
     const carryoverMonths = Number.isInteger(cmRaw) && cmRaw >= 1 && cmRaw <= 12 ? cmRaw : 6
+    // เส้น go-live — ใบก่อนวันนี้เป็นของกระบวนการ Excel เดิม (ดูเหตุผลเต็มที่ AP_GO_LIVE)
+    // เปิดย้อนหลังได้ด้วย ?since=YYYY-MM-DD (ต้องเป็นวันที่จริง ไม่งั้นถอยไปใช้ค่า go-live)
+    const since     = apSinceOf(sp.get("since"))
 
     const client = await clientPromise
     const atms   = client.db("atms")
@@ -60,7 +64,17 @@ export async function GET(req: NextRequest) {
     const md     = client.db(MD)
 
     // 1) แถว DD ของเดือนที่เลือก (+ ย้อนหลัง carryoverMonths เดือนสำหรับใบค้าง) — bounded เสมอ
-    const months  = carryover ? [month, ...prevMonths(month, carryoverMonths)] : [month]
+    // เดือนที่จบไปทั้งเดือนก่อน go-live ตัดทิ้งตั้งแต่ตอนประกอบ $or — ไม่ต้องให้ Mongo สแกนหาเลย
+    // (นี่คือตัวที่ทำให้เปิดหน้าแล้วได้ 11,203 แถว/8.4 วิ และเดือน ก.ค. ชนเพดานจนข้อมูลถูกตัด)
+    const months  = (carryover ? [month, ...prevMonths(month, carryoverMonths)] : [month])
+      .filter((m) => monthInApScope(m, since))
+
+    // ทุกเดือนในหน้าต่างอยู่ก่อน go-live หมด = ไม่มีอะไรให้ดูจริง ๆ — คืนผลว่างโดยไม่ยิงคิวรี
+    // ($or: [] เป็น error ของ Mongo ด้วย ห้ามปล่อยให้หลุดไปถึงฐานข้อมูล)
+    if (!months.length) {
+      return NextResponse.json({ rows: [], summary: emptySummary(limit, since, todayICT()) })
+    }
+
     const match: Record<string, unknown> = { $or: months.map((m) => ({ received_at: { $regex: monthRe(m) } })) }
     if (warehouse) match.warehouse = warehouse
     if (supplier)  match.supplier  = supplier
@@ -134,6 +148,10 @@ export async function GET(req: NextRequest) {
       }
     })
 
+    // เดือนที่ "คร่อม" เส้น go-live จะมีทั้งใบในสโคปและนอกสโคปปนกัน — ตัดรายแถวอีกชั้น
+    // (ค่า default 2026-08-01 ตรงต้นเดือนพอดี เดือนอื่นจึงไม่โดน แต่ ?since= กลางเดือนจะได้ผลถูกต้อง)
+    rows = rows.filter((r) => inApScope(r.receivedAt, since))
+
     // คำค้นกรองทั้งยอดสรุปและตาราง (คลัง/ซัพพลายเออร์ถูกกรองไปแล้วตั้งแต่ $match)
     // — ยอดสรุปต้องคิดจาก "ชุดเดียวกับที่ผู้ใช้กำลังมอง" ไม่งั้นตัวเลขบนแถบสรุปขัดกับตารางข้างล่าง
     if (q) {
@@ -181,13 +199,20 @@ export async function GET(req: NextRequest) {
       const c = parseDmy(h.created_at)
       return c > mx ? c : mx
     }, "")
+
+    // truncated ต้องเป็นจริงเฉพาะตอน "ข้อมูลที่ต้องใช้จริงหายไป" เท่านั้น
+    // ผลลัพธ์เรียงใหม่→เก่า ดังนั้นที่ถูก limit ตัดทิ้งคือแถวที่เก่ากว่าแถวสุดท้ายที่ได้มาเสมอ
+    // ถ้าแถวเก่าสุดที่ได้มายังอยู่ก่อน go-live อยู่แล้ว ของที่ถูกตัดยิ่งเก่ากว่า = นอกสโคปทั้งหมด ไม่ได้หาย
+    const oldestHead = heads[heads.length - 1]
+    const truncated  = heads.length >= limit && inApScope(parseDmy(oldestHead?.received_at), since)
     return NextResponse.json({
       rows,
       summary: {
         total: rows.length,             // จำนวนแถวในตาราง (หลังกรองสถานะ)
         counted: countRows.length,      // จำนวนแถวที่เอาไปคิดยอดสรุป (>= total)
-        truncated: heads.length >= limit, // ชน limit = ผลลัพธ์ถูกตัด ตัวเลขสรุปยังไม่ครบทั้งช่วง
+        truncated,                      // ผลลัพธ์ถูกตัดจริง = ตัวเลขสรุปยังไม่ครบทั้งช่วง
         limit,                          // เพดานแถวที่ใช้จริง — เอาไปบอกผู้ใช้ตอน truncated
+        since,                          // เส้น go-live ที่ใช้จริง (ใบก่อนวันนี้ไม่อยู่ในระบบนี้)
         byStatus: byStatus as Record<ApStatus, { n: number; amount: number }>,
         overdue, thisThursday, unsentAging, dataAsOf,
       },
@@ -195,6 +220,20 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     console.error("[ap-tracking] GET failed", e)
     return NextResponse.json({ error: "โหลดข้อมูลไม่สำเร็จ" }, { status: 500 })
+  }
+}
+
+// ยอดสรุปเปล่า — ใช้ตอนไม่มีเดือนไหนอยู่ในสโคปเลย (ไม่ยิงคิวรี) · รูปร่างต้องตรงกับ path ปกติเป๊ะ
+// ไม่งั้นหน้าเว็บที่อ่าน summary.* ตรง ๆ จะพังตอน field หาย
+function emptySummary(limit: number, since: string, today: string) {
+  const blank = () => ({ n: 0, amount: 0 })
+  return {
+    total: 0, counted: 0, truncated: false, limit, since,
+    byStatus: { "รอประกบ": blank(), "ครบชุด": blank(), "ส่งบัญชีแล้ว": blank() } as Record<ApStatus, { n: number; amount: number }>,
+    overdue: blank(),
+    thisThursday: { date: nextThursday(today), n: 0, amount: 0 },
+    unsentAging: { notDue: blank(), due7: blank(), overdue: blank(), noTerm: blank() },
+    dataAsOf: "",
   }
 }
 

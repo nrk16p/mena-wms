@@ -55,6 +55,41 @@ export function apStatusMeta(s: ApStatus) {
   return AP_STATUS_META[s] ?? AP_STATUS_META["รอประกบ"]
 }
 
+// วันเริ่มใช้ระบบ (go-live) — ใบรับของที่ "รับก่อนวันนี้" เป็นของกระบวนการ Excel เดิม
+// ปิดจบไปแล้วในไฟล์ เจ้าหนี้เดือน xx.xlsx ไม่ใช่ยอดค้างของระบบนี้ จึงตัดออกจากสโคปทั้งหมด
+// เหตุผล: ap_tracking ยังว่าง (ยังไม่มีใครติ๊ก) ทุกใบที่ scraper เคยเก็บมาจึงเข้าเงื่อนไข
+// "ยังไม่ส่งบัญชี" = ค้างยกมาหมด · วัดจริงก่อนใส่ cutoff: เปิดเดือน ส.ค. ได้ 11,203 แถว
+// ฿155,807,603 ใช้เวลา 8.4 วินาที และเดือน ก.ค. ชนเพดาน 12,000 แถวจนข้อมูลถูกตัด
+// แก้ที่เดียวตรงนี้ที่เดียว (ฝั่ง API อ่านค่านี้ไปใช้) · เปิดดูย้อนหลังได้ด้วย ?since=YYYY-MM-DD
+export const AP_GO_LIVE = "2026-08-01"
+
+// "YYYY-MM-DD" ที่เป็นวันที่จริง (ปฏิเสธ 2026-13-01 / 2026-02-30) — ไม่ใช่แค่รูปแบบถูก
+function isValidYmd(v: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v)
+  if (!m) return false
+  const year = Number(m[1]), month = Number(m[2]), day = Number(m[3])
+  if (month < 1 || month > 12) return false
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return day >= 1 && day <= daysInMonth
+}
+
+// ใบอยู่ในสโคปเมื่อวันรับของ >= cutoff (ทั้งคู่เป็น YYYY-MM-DD เทียบ string ตรง ๆ ได้)
+// ไม่มีวันรับของที่อ่านได้ = วางบนเส้นเวลาไม่ได้ = นอกสโคป
+export function inApScope(receivedISO: string, since: string = AP_GO_LIVE): boolean {
+  return Boolean(receivedISO) && receivedISO >= since
+}
+
+// เดือนที่จบไปทั้งเดือนก่อน cutoff ไม่ต้องถามฐานข้อมูลเลย (ตัดตั้งแต่ตอนประกอบ $or)
+export function monthInApScope(ym: string, since: string = AP_GO_LIVE): boolean {
+  return Boolean(ym) && ym >= since.slice(0, 7)
+}
+
+// since ที่รับจาก query — ต้องเป็นวันที่จริงเท่านั้น ไม่ถูก/ไม่ส่งมา ถอยไปใช้ AP_GO_LIVE
+export function apSinceOf(raw: string | null | undefined): string {
+  const v = String(raw ?? "").trim()
+  return isValidYmd(v) ? v : AP_GO_LIVE
+}
+
 export const CREDIT_TERMS = ["Immediate", "7D", "15D", "30D", "60D"] as const
 const TERM_DAYS: Record<string, number> = { Immediate: 0, "7D": 7, "15D": 15, "30D": 30, "60D": 60 }
 
