@@ -59,6 +59,44 @@ export const jobStartDate = (r: { receivedDate?: string; garageInDate?: string }
   return gi < rc ? gi : rc
 }
 
+/**
+ * ชื่อย่อของอู่สำหรับเทียบว่าเป็นอู่เดียวกันไหม — ตัดคำนำหน้านิติบุคคล/คำว่าอู่-ช่าง และวงเล็บ
+ * คืนได้หลายค่า: ชื่อหลัก + ชื่อในวงเล็บ (เช่น "เอ็มดีทรานสปอร์ต (อู่ช่างเมฆ)" → เอ็มดีทรานสปอร์ต, เมฆ)
+ */
+export function garageAliases(name: string): string[] {
+  const out = new Set<string>()
+  const paren = name.match(/\(([^)]+)\)/)?.[1]
+  for (const raw of [name.replace(/\([^)]*\)/g, ""), paren ?? ""]) {
+    let t = raw.replace(/[\s.·\-—()]/g, "")
+    if (!t) continue
+    t = t.replace(/^(บริษัท|ห้างหุ้นส่วนจำกัด|ห้างหุ้นส่วน|หจก|นางสาว|นาย|นาง|นส|ร้าน)/, "")
+    t = t.replace(/(จำกัด|จํากัด|มหาชน)+$/, "")
+    t = t.replace(/^อู่/, "").replace(/^ช่าง/, "")
+    // ตัดคำต่อท้ายที่ไม่ได้แยกตัวตนอู่ — "ช่างกี้" กับ "ช่างกี้ เซอร์วิส" คืออู่เดียวกัน
+    t = t.replace(/(เซอร์วิส|การช่าง|บริการ|ยนต์)+$/, "")
+    if (t.length >= 3) out.add(t)
+  }
+  return [...out]
+}
+
+/** จัดกลุ่มชื่ออู่ที่น่าจะเป็นอู่เดียวกัน — คืนเฉพาะกลุ่มที่มีมากกว่า 1 ชื่อ */
+export function groupSimilarGarages(names: string[]): string[][] {
+  const alias = new Map(names.map((n) => [n, garageAliases(n)] as const))
+  // ชื่อ A กับ B เป็นกลุ่มเดียวกันเมื่อ alias ตรงกันเป๊ะ หรือ alias หนึ่งเป็นคำขึ้นต้นของอีกอัน (ยาว ≥ 6 กันจับมั่ว)
+  const related = (a: string, b: string) =>
+    (alias.get(a) ?? []).some((x) =>
+      (alias.get(b) ?? []).some((y) => x === y || (x.length >= 6 && y.startsWith(x)) || (y.length >= 6 && x.startsWith(y))))
+  const groups: string[][] = []
+  const used = new Set<string>()
+  for (const n of names) {
+    if (used.has(n)) continue
+    const fam = names.filter((m) => !used.has(m) && (m === n || related(n, m)))
+    fam.forEach((m) => used.add(m))
+    if (fam.length > 1) groups.push(fam)
+  }
+  return groups
+}
+
 export const statusesFor   = (jobType: string) => (jobType === JOB_TYPE_PARTS ? PARTS_STATUSES : REPAIR_STATUSES)
 export const doneStatusFor = (jobType: string) => (jobType === JOB_TYPE_PARTS ? PARTS_DONE_STATUS : REPAIR_DONE_STATUS)
 

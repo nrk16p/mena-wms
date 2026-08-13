@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
 import { bkkToday, bkkDaysAgo, daysSince } from "@/lib/bkk-time"
-import { jobStartDate } from "@/lib/repair-external"
+import { jobStartDate, groupSimilarGarages } from "@/lib/repair-external"
 
 // วันที่ = วันนี้ (เวลาไทย) ลบ n วัน → "YYYY-MM-DD"
 const daysAgo = (n: number): string => bkkDaysAgo(n)
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
   const noPr = await col.countDocuments({ ...match, $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
 
   // ค่าเฉลี่ยวันซ่อม (today − receivedDate) + การกระจายตามอายุงาน + เฉลี่ยต่อสถานะ
-  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, garageInDate: 1, status: 1, _id: 0 }).toArray()
+  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, garageInDate: 1, status: 1, garage: 1, _id: 0 }).toArray()
   const nowMs = Date.now()
   let sum = 0, n = 0
   const agingBuckets = { lt8: 0, d8_14: 0, gte15: 0 }
@@ -105,13 +105,32 @@ export async function GET(req: NextRequest) {
   ]).toArray()
   const fleetDist = fleetAgg.map((f) => ({ fleet: (f._id as string) || "—", count: f.n as number }))
 
-  // จำนวนรถต่ออู่ (นับเฉพาะงานที่ยังไม่ปิด — "ตอนนี้อู่ไหนถือรถอยู่กี่คัน")
-  const garageAgg = await col.aggregate([
-    { $match: { ...match, garage: { $nin: ["", null] }, status: { $nin: DONE_STATUSES } } },
-    { $group: { _id: "$garage", n: { $sum: 1 } } },
-    { $sort: { n: -1 } },
-  ]).toArray()
-  const garageDist = garageAgg.map((g) => ({ garage: (g._id as string) || "—", count: g.n as number }))
+  // จำนวนรถต่ออู่ + อายุงานของรถในอู่นั้น (เฉพาะงานที่ยังไม่ปิด = "ตอนนี้อู่ไหนถือรถอยู่กี่คัน")
+  // ใช้ข้อมูลชุดเดียวกับที่คำนวณอายุงาน จะได้นับวันด้วยกติกาเดียวกัน (jobStartDate)
+  const gMap = new Map<string, { count: number; lt8: number; d8_14: number; gte15: number; maxDays: number; sum: number }>()
+  for (const d of dated) {
+    const g = String(d.garage ?? "").trim()
+    if (!g || DONE_STATUSES.includes(String(d.status ?? ""))) continue
+    const days = daysSince(jobStartDate(d as { receivedDate?: string; garageInDate?: string })) ?? 0
+    const cur = gMap.get(g) ?? { count: 0, lt8: 0, d8_14: 0, gte15: 0, maxDays: 0, sum: 0 }
+    cur.count++; cur.sum += days
+    if (days >= 15) cur.gte15++
+    else if (days >= 8) cur.d8_14++
+    else cur.lt8++
+    if (days > cur.maxDays) cur.maxDays = days
+    gMap.set(g, cur)
+  }
+  const garageDist = [...gMap.entries()]
+    .map(([garage, v]) => ({
+      garage, count: v.count, lt8: v.lt8, d8_14: v.d8_14, gte15: v.gte15,
+      maxDays: v.maxDays, avgDays: Math.round(v.sum / v.count),
+    }))
+    .sort((a, b) => b.count - a.count || b.maxDays - a.maxDays)
 
-  return NextResponse.json({ counts, countsByType, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist, garageDist })
+  // ชื่ออู่ที่น่าจะเป็นอู่เดียวกัน — เตือนให้คนแก้ ไม่รวมตัวเลขให้อัตโนมัติ
+  const garageDupes = groupSimilarGarages(garageDist.map((g) => g.garage))
+    .map((names) => ({ names, total: names.reduce((s2, nm) => s2 + (gMap.get(nm)?.count ?? 0), 0) }))
+    .sort((a, b) => b.total - a.total)
+
+  return NextResponse.json({ counts, countsByType, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist, garageDist, garageDupes })
 }
