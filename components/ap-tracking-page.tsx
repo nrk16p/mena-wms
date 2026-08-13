@@ -24,8 +24,9 @@ export type ApRow = {
 type Bucket = { n: number; amount: number }
 type Summary = {
   total: number
-  counted?: number
-  truncated?: boolean
+  counted: number
+  truncated: boolean
+  limit: number
   byStatus: Record<ApStatus, Bucket>
   overdue: Bucket
   thisThursday: { date: string; n: number; amount: number }
@@ -36,9 +37,15 @@ type Summary = {
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 // วันนี้ตามเวลาไทยเสมอ (เครื่องผู้ใช้อาจตั้ง TZ อื่น / เซิร์ฟเวอร์รัน UTC) — กันวันเลื่อนช่วง 00:00–07:00
 const thisMonth = () => todayICT().slice(0, 7)
-const addDays = (iso: string, n: number) => {
-  const [y, m, d] = iso.split("-").map(Number)
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+
+// ย้าย 1 แถวระหว่างบัคเก็ตสถานะของ summary ที่เซิร์ฟเวอร์ส่งมา — ใช้ตอนติ๊กแล้วสถานะเปลี่ยน
+// ไม่ใช่การคำนวณยอดสรุปซ้ำ: ตัวเลขตั้งต้นและสถานะปลายทางมาจากเซิร์ฟเวอร์ทั้งคู่ แค่บวก/ลบ 1 แถว
+const moveStatusBucket = (sm: Summary | null, from: ApStatus, to: ApStatus, amount: number): Summary | null => {
+  if (!sm || from === to || !sm.byStatus?.[from] || !sm.byStatus?.[to]) return sm
+  const byStatus: Record<ApStatus, Bucket> = { ...sm.byStatus }
+  byStatus[from] = { n: byStatus[from].n - 1, amount: byStatus[from].amount - amount }
+  byStatus[to]   = { n: byStatus[to].n + 1,   amount: byStatus[to].amount + amount }
+  return { ...sm, byStatus }
 }
 
 // ค้นหาให้ครอบคลุมเท่าฝั่ง API (รวมเลขที่บิลของซัพพลายเออร์) ไม่งั้นค้นด้วยเลขบิลแล้วเหมือนไม่เจอ
@@ -127,6 +134,7 @@ export function ApTrackingPage() {
   const [warehouse, setWarehouse] = useState("")
   const [fStatus, setFStatus] = useState<ApStatus | "">("")
   const [q, setQ]             = useState("")
+  const [warehouses, setWarehouses] = useState<string[]>([])
   const [sentFor, setSentFor] = useState<ApRow | null>(null)
   const [detailFor, setDetailFor] = useState<ApRow | null>(null)
 
@@ -146,11 +154,21 @@ export function ApTrackingPage() {
     abortRef.current = ac
     setLoading(true)
     try {
-      const res  = await fetch(`/api/ap-tracking?month=${month}`, { signal: ac.signal })
+      // ส่งตัวกรองที่ใช้อยู่ไปให้เซิร์ฟเวอร์ด้วย เพื่อให้ยอดสรุปคิดจากชุดเดียวกับที่ผู้ใช้เห็น
+      // (ไม่ส่ง status — ชิปสถานะเป็นตัวกรองของตารางฝั่ง client เท่านั้น ถ้าส่งไปชิปอื่นจะกลายเป็น 0)
+      const params = new URLSearchParams({ month })
+      if (warehouse) params.set("warehouse", warehouse)
+      if (q)         params.set("q", q)
+      const res  = await fetch(`/api/ap-tracking?${params.toString()}`, { signal: ac.signal })
       const data = await res.json()
       if (seq !== loadSeq.current) return
       if (!res.ok) throw new Error(data?.error ?? "โหลดข้อมูลไม่สำเร็จ")
       setRows(data.rows); setSummary(data.summary)
+      // ตัวเลือก "คลัง" เก็บไว้เฉพาะตอนผลลัพธ์ยังไม่ถูกกรองด้วยคลัง/คำค้น — ตอนนี้เซิร์ฟเวอร์กรองให้
+      // ตั้งแต่ query แล้ว ถ้าไล่รายชื่อจาก rows ทุกครั้ง พอเลือกคลังหนึ่ง dropdown จะเหลือตัวเดียวจนสลับกลับไม่ได้
+      if (!warehouse && !q) {
+        setWarehouses([...new Set((data.rows as ApRow[]).map((r) => r.warehouse).filter(Boolean))].sort())
+      }
     } catch (e) {
       // ถูกยกเลิกเพราะมีคำขอใหม่มาแทน ไม่ใช่ความผิดพลาด — ห้ามเด้ง error ใส่ผู้ใช้
       if (ac.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) return
@@ -161,9 +179,10 @@ export function ApTrackingPage() {
       // คำขอรุ่นล่าสุดเท่านั้นที่ปิดสถานะโหลด — รุ่นเก่าที่ถูกแทนที่ปล่อยให้รุ่นใหม่ปิดให้ ไม่ค้างสปิน
       if (seq === loadSeq.current) setLoading(false)
     }
-  }, [month])
+  }, [month, warehouse, q])
 
-  // โหลดครั้งแรกทันที · เปลี่ยนเดือนหลังจากนั้นหน่วง 400ms กันกดลูกศรรัวแล้วยิงคิวรีหนักทุกคลิก
+  // โหลดครั้งแรกทันที · เปลี่ยนเดือน/คลัง/คำค้นหลังจากนั้นหน่วง 400ms
+  // (กดลูกศรเดือนรัว ๆ หรือพิมพ์คำค้น = ยิงคิวรีหนักทุกครั้ง ถ้าไม่หน่วง)
   const firstLoad = useRef(true)
   useEffect(() => {
     if (firstLoad.current) { firstLoad.current = false; load(); return }
@@ -189,6 +208,10 @@ export function ApTrackingPage() {
       if (!res.ok) throw new Error(data?.error ?? "บันทึกไม่สำเร็จ")
       setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
         ? { ...r, docs: data.docs, status: data.status } : r))
+      // ติ๊กทำให้ 1 แถวย้ายบัคเก็ตสถานะเท่านั้น (รอประกบ ↔ ครบชุด) และไม่กระทบยอดเงินกลุ่มอื่นเลย
+      // — ขยับชิปตาม status ที่เซิร์ฟเวอร์ยืนยันกลับมา ไม่ได้คิดยอดสรุปใหม่เองฝั่ง client
+      //   (ถ้าไม่ขยับ ชิปจะเพี้ยนจากตารางทุกครั้งที่ติ๊ก · ถ้ายิง load() ใหม่ทุกติ๊ก = สแกนหนักทุกคลิก)
+      setSummary((sm) => moveStatusBucket(sm, row.status, data.status as ApStatus, row.amount))
     } catch (e) {
       setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
         ? { ...r, docs: { ...r.docs, [key]: prevMark } } : r))
@@ -213,6 +236,9 @@ export function ApTrackingPage() {
             overdue: data.sentDate ? 0 : overdueDays(r.dueDate, todayICT()) } : r))
       setSentFor(null)
       swalToast("success", date ? `ส่งบัญชี ${type} ${thaiDate(date)}` : "ยกเลิกการส่งบัญชีแล้ว")
+      // ส่ง/ยกเลิกส่งบัญชี กระทบยอดเงินหลายก้อนพร้อมกัน (โอนพฤหัส · เกินกำหนด · aging · ชิปสถานะ)
+      // และเป็นการกระทำที่นาน ๆ ครั้ง — ดึงยอดสรุปจากเซิร์ฟเวอร์ใหม่ทั้งชุด ไม่คิดเดาเองฝั่ง client
+      load()
     } catch (e) {
       const msg = e instanceof Error ? e.message : ""
       swalError(msg ? `บันทึกไม่สำเร็จ: ${msg}` : "บันทึกไม่สำเร็จ")
@@ -249,45 +275,10 @@ export function ApTrackingPage() {
     return out
   }, [rows, fStatus, warehouse, q])
 
-  const warehouses = useMemo(
-    () => [...new Set(rows.map((r) => r.warehouse).filter(Boolean))].sort(),
-    [rows],
-  )
-
-  // สรุปสำหรับแถบชิป — คำนวณจากแถวที่กรองด้วยคลัง/คำค้นแล้ว (ไม่กรองด้วยสถานะ เพราะชิปเองคือตัวกรองสถานะ)
-  // เพื่อไม่ให้ตัวเลขบนแถบสรุปขัดกับตารางด้านล่างเมื่อเลือกคลังหรือค้นหา
-  const clientSummary = useMemo(() => {
-    let base = rows
-    if (warehouse) base = base.filter((r) => r.warehouse === warehouse)
-    if (q) {
-      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
-      base = base.filter((r) => matchQ(r, rx))
-    }
-    const today = todayICT()
-    const due7Cutoff = addDays(today, 7)
-    const thu = nextThursday(today)
-    const blank = () => ({ n: 0, amount: 0 })
-    const byStatus: Record<ApStatus, { n: number; amount: number }> = {
-      "รอประกบ": blank(), "ครบชุด": blank(), "ส่งบัญชีแล้ว": blank(),
-    }
-    const overdue = blank()
-    // noTerm = ยังไม่ส่งบัญชีและไม่มี dueDate เพราะซัพพลายเออร์ยังไม่มีเครดิตเทอมใน master
-    // — แยกออกจาก notDue เพราะ "ยังไม่ถึงกำหนด" กับ "ไม่รู้กำหนด" คนละเรื่องกัน
-    const unsentAging = { notDue: blank(), due7: blank(), overdue: blank(), noTerm: blank() }
-    const thisThursday = { date: thu, n: 0, amount: 0 }
-    for (const r of base) {
-      const b = byStatus[r.status]; b.n++; b.amount += r.amount
-      if (r.status !== "ส่งบัญชีแล้ว") {
-        if (r.overdue > 0) { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
-        else if (!r.dueDate) { unsentAging.noTerm.n++; unsentAging.noTerm.amount += r.amount }
-        else if (r.dueDate < due7Cutoff) { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
-        else { unsentAging.notDue.n++; unsentAging.notDue.amount += r.amount }
-      }
-      if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
-    }
-    return { byStatus, overdue, thisThursday, unsentAging }
-  }, [rows, warehouse, q])
-
+  // ยอดสรุปทุกตัวมาจาก `summary` ของเซิร์ฟเวอร์แหล่งเดียว — ห้ามคำนวณซ้ำฝั่ง client
+  // เพราะ rows ที่ตารางใช้ "ตั้งใจ" ไม่มีใบค้างยกมาที่ส่งบัญชีไปแล้ว ถ้าเอา rows มาบวกเอง
+  // ยอด "เข้าโอนพฤหัสนี้" จะขาดใบพวกนั้นไปทั้งใบ (เงินโอนขาดจริง) · เซิร์ฟเวอร์คิดจากชุดที่
+  // กรองด้วยคลัง+คำค้นเดียวกับที่ผู้ใช้เห็น แต่ไม่กรองด้วยสถานะ (ชิปสถานะคือตัวกรองเอง)
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center gap-2">
@@ -301,11 +292,20 @@ export function ApTrackingPage() {
         </button>
       </div>
 
-      {/* แถบสรุป — คลิก chip เพื่อกรอง */}
+      {/* ผลลัพธ์ถูกตัดเพราะชน limit — ยอดสรุปทุกตัวข้างล่างยังไม่ครบ ต้องบอกให้ชัด
+          ห้ามปล่อยให้หน้าจอเจ้าหนี้แสดงยอดที่ขาดไปเงียบ ๆ */}
+      {summary?.truncated && (
+        <div className="rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-700">
+          ⚠️ ข้อมูลถูกตัดที่ {summary.limit.toLocaleString("th-TH")} แถว — <b>ยอดสรุปทั้งหมดยังไม่ครบทั้งช่วง</b>{" "}
+          กรุณาแคบช่วงข้อมูลลง (เลือกคลัง หรือใส่คำค้น) แล้วดูใหม่ ถ้ายังไม่พอให้ลดจำนวนเดือนย้อนหลังด้วยพารามิเตอร์ carryoverMonths
+        </div>
+      )}
+
+      {/* แถบสรุป — คลิก chip เพื่อกรอง · ทุกตัวเลขมาจาก summary ของเซิร์ฟเวอร์แหล่งเดียว */}
       {summary && (
         <div className="flex flex-wrap gap-2">
           {AP_STATUSES.map((st) => {
-            const m = apStatusMeta(st), v = clientSummary.byStatus[st]
+            const m = apStatusMeta(st), v = summary.byStatus[st]
             const on = fStatus === st
             return (
               <button key={st} onClick={() => setFStatus(on ? "" : st)}
@@ -317,24 +317,32 @@ export function ApTrackingPage() {
           })}
           <div className="rounded-xl border px-3 py-2 bg-rose-50 dark:bg-rose-950/20">
             <div className="text-xs text-rose-700 dark:text-rose-300">⏰ เกินกำหนดเครดิต</div>
-            <div className="text-sm font-bold text-rose-700 dark:text-rose-300">{clientSummary.overdue.n} ใบ · {baht(clientSummary.overdue.amount)}</div>
+            <div className="text-sm font-bold text-rose-700 dark:text-rose-300">{summary.overdue.n} ใบ · {baht(summary.overdue.amount)}</div>
           </div>
           <div className="rounded-xl border px-3 py-2 bg-emerald-50 dark:bg-emerald-950/20">
-            <div className="text-xs text-emerald-700 dark:text-emerald-300">💸 เข้าโอนพฤหัสนี้ ({thaiDate(clientSummary.thisThursday.date)})</div>
-            <div className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{clientSummary.thisThursday.n} ใบ · {baht(clientSummary.thisThursday.amount)}</div>
+            <div className="text-xs text-emerald-700 dark:text-emerald-300">💸 เข้าโอนพฤหัสนี้ ({thaiDate(summary.thisThursday.date)})</div>
+            <div className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{summary.thisThursday.n} ใบ · {baht(summary.thisThursday.amount)}</div>
           </div>
           <div className="rounded-xl border px-3 py-2 bg-amber-50 dark:bg-amber-950/20"
             title="ซัพพลายเออร์ยังไม่ได้ตั้งเครดิตเทอม จึงคำนวณวันครบกำหนดไม่ได้ — ไม่ใช่ว่ายังไม่ถึงกำหนด">
             <div className="text-xs text-amber-700 dark:text-amber-300">❓ ยังไม่ตั้งเครดิตเทอม (ไม่รู้กำหนดชำระ)</div>
-            <div className="text-sm font-bold text-amber-700 dark:text-amber-300">{clientSummary.unsentAging.noTerm.n} ใบ · {baht(clientSummary.unsentAging.noTerm.amount)}</div>
+            <div className="text-sm font-bold text-amber-700 dark:text-amber-300">{summary.unsentAging.noTerm.n} ใบ · {baht(summary.unsentAging.noTerm.amount)}</div>
           </div>
           <div className="rounded-xl border px-3 py-2">
             <div className="text-xs text-gray-500">ยอดค้างส่งบัญชี (ยังไม่ครบกำหนด / ≤7 วัน / เกิน)</div>
             <div className="text-sm font-bold">
-              {baht(clientSummary.unsentAging.notDue.amount)} · {baht(clientSummary.unsentAging.due7.amount)} ·{" "}
-              <span className="text-rose-600">{baht(clientSummary.unsentAging.overdue.amount)}</span>
+              {baht(summary.unsentAging.notDue.amount)} · {baht(summary.unsentAging.due7.amount)} ·{" "}
+              <span className="text-rose-600">{baht(summary.unsentAging.overdue.amount)}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ใบค้างยกมาที่ส่งบัญชีในเดือนนี้ถูกนับในยอดสรุป (โดยเฉพาะยอดโอนพฤหัส) แต่ไม่แสดงในตาราง
+          — บอกส่วนต่างให้ผู้ใช้เห็น ดีกว่าปล่อยให้สงสัยว่าทำไมนับไม่ตรงกับจำนวนแถว */}
+      {summary && summary.counted > summary.total && !fStatus && (
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          ยอดสรุปรวมใบค้างยกมาที่ส่งบัญชีในเดือนนี้อีก {summary.counted - summary.total} ใบ (ไม่แสดงในตาราง)
         </div>
       )}
 

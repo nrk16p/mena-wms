@@ -134,7 +134,8 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    if (status) rows = rows.filter((r) => r.status === status)
+    // คำค้นกรองทั้งยอดสรุปและตาราง (คลัง/ซัพพลายเออร์ถูกกรองไปแล้วตั้งแต่ $match)
+    // — ยอดสรุปต้องคิดจาก "ชุดเดียวกับที่ผู้ใช้กำลังมอง" ไม่งั้นตัวเลขบนแถบสรุปขัดกับตารางข้างล่าง
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
       rows = rows.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier) || rx.test(r.supplierRefNo))
@@ -172,6 +173,10 @@ export async function GET(req: NextRequest) {
       if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
     }
 
+    // กรองสถานะเป็น "ขั้นสุดท้าย" หลังคิดยอดสรุปเสร็จแล้ว และมีผลเฉพาะแถวที่ส่งกลับไปแสดงในตาราง
+    // — ชิปสถานะบนแถบสรุปคือตัวกรองสถานะเอง ถ้ากรองก่อนนับ ชิปอื่นจะกลายเป็น 0 หมดจนกดสลับไม่ได้
+    if (status) rows = rows.filter((r) => r.status === status)
+
     const dataAsOf = heads.reduce((mx, h) => {
       const c = parseDmy(h.created_at)
       return c > mx ? c : mx
@@ -179,9 +184,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       rows,
       summary: {
-        total: rows.length,             // จำนวนแถวในตาราง
+        total: rows.length,             // จำนวนแถวในตาราง (หลังกรองสถานะ)
         counted: countRows.length,      // จำนวนแถวที่เอาไปคิดยอดสรุป (>= total)
         truncated: heads.length >= limit, // ชน limit = ผลลัพธ์ถูกตัด ตัวเลขสรุปยังไม่ครบทั้งช่วง
+        limit,                          // เพดานแถวที่ใช้จริง — เอาไปบอกผู้ใช้ตอน truncated
         byStatus: byStatus as Record<ApStatus, { n: number; amount: number }>,
         overdue, thisThursday, unsentAging, dataAsOf,
       },
