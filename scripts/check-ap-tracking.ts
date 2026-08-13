@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, nextThursday,
-  isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS,
+  isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
 } from "../lib/ap-tracking"
 
 const mark = { checked: true, by: "test", at: "2026-08-13T00:00:00.000Z" }
@@ -29,6 +29,7 @@ assert.equal(termDays("ไม่รู้จัก"), null)
 assert.equal(dueDateOf("2026-07-01", "30D"), "2026-07-31")
 assert.equal(dueDateOf("2026-07-01", "Immediate"), "2026-07-01")
 assert.equal(dueDateOf("2026-07-31", "60D"), "2026-09-29", "ต้องข้ามเดือนถูก")
+assert.equal(dueDateOf("2026-12-10", "60D"), "2027-02-08", "ต้องข้ามปีถูก")
 assert.equal(dueDateOf("", "30D"), "", "ไม่มีวันรับของ = ไม่มี due")
 assert.equal(dueDateOf("2026-07-01", ""), "", "ไม่มีเครดิตเทอม = ไม่มี due")
 
@@ -63,8 +64,13 @@ assert.equal(
 
 // --- สถานะ ---
 assert.equal(apStatusOf({}, ""), "รอประกบ")
-assert.equal(apStatusOf({ dd: mark, po: mark, bill: mark }), "ครบชุด")
+assert.equal(apStatusOf({ dd: mark, po: mark, bill: mark }, ""), "ครบชุด")
 assert.equal(apStatusOf({ dd: mark, po: mark, bill: mark }, "2026-08-13"), "ส่งบัญชีแล้ว")
 assert.equal(apStatusOf({}, "2026-08-13"), "ส่งบัญชีแล้ว", "ลงวันที่ส่งแล้วถือว่าจบ แม้ติ๊กไม่ครบ")
+
+// --- thaiDate ---
+assert.equal(thaiDate("2026-08-13"), "13 ส.ค. 69")
+assert.equal(thaiDate(""), "—")
+assert.equal(thaiDate("ไม่ใช่วันที่"), "—")
 
 console.log("✅ ap-tracking logic ผ่านทั้งหมด")
