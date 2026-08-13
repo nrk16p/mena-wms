@@ -32,6 +32,8 @@ import {
   Bot,
   Truck,
   X,
+  Banknote,
+  Landmark,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -87,6 +89,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/pr", label: "ติดตาม PR / รับสินค้า", icon: FileText, exact: true },
       { href: "/order-tracking", label: "ติดตามคำขอเปิด PO", icon: ClipboardCheck, exact: true },
+      { href: "/ap-tracking", label: "ติดตามเจ้าหนี้", icon: Banknote, exact: true },
+      { href: "/ap-tracking/suppliers", label: "เครดิตเทอมเจ้าหนี้", icon: Landmark },
       { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen },
       { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen },
     ],
