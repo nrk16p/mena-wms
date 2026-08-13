@@ -3,6 +3,8 @@
 // - fleet/current (fastapi):  รถที่จอดอยู่จริงตอนนี้ + จำนวนวันจอด
 // server-only — API key อยู่ใน env ห้าม import จาก client component
 
+import { bkkYear } from "@/lib/bkk-time"
+
 const MONGODBAPI_URL = process.env.ATMS_MONGODBAPI_URL ?? "https://mongodbapi-548129382487.asia-southeast1.run.app/v1"
 const FLEET_API_URL  = process.env.ATMS_FLEET_API_URL  ?? "https://fastapinextjs-548129382487.asia-southeast3.run.app"
 const API_KEY        = process.env.ATMS_API_KEY ?? ""
@@ -102,7 +104,7 @@ export async function fetchAtmsBoard(): Promise<AtmsBoardData> {
 
 // Timeline รายคันจาก maintenance-requests (ใช้ใน modal)
 export async function fetchAtmsTimeline(plate: string, mrId?: string): Promise<unknown> {
-  const year = new Date().getFullYear()
+  const year = bkkYear()
   const p = new URLSearchParams({ year: String(year), plate })
   if (mrId) p.set("mr_id", mrId)
   return apiGet(`${MONGODBAPI_URL}/maintenance-requests?${p.toString()}`)

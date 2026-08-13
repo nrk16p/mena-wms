@@ -3,10 +3,13 @@ import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import { DONE_STATUSES, isDoneStatus, JOB_TYPE_GARAGE, JOB_TYPE_PARTS } from "@/lib/repair-external"
 import { REPAIR_LOG_COLL, diffRepair, writeRepairLog } from "@/lib/repair-log"
-import { buildDoc } from "../route"
+import { buildDoc, validateStatus } from "../route"
+import { bkkToday, bkkTimestamps } from "@/lib/bkk-time"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
+// field เวลาที่ต้องแปลงเป็นเวลาไทยก่อนส่งออก
+const TIME_FIELDS = ["createdAt", "updatedAt", "statusSinceAt", "lastCheckedAt"]
 
 // กัน regex พิเศษจาก input ภายนอก (endpoint นี้เปิด public)
 function escapeRegex(s: string) {
@@ -85,7 +88,16 @@ export async function GET(req: NextRequest) {
     out = items.map((i) => ({ ...i, history: byId.get(String(i._id)) ?? [] }))
   }
 
-  return NextResponse.json({ ok: true, vehicle, scope: scope || "default", type: type || "all", count: out.length, items: out })
+  // เวลาทั้งหมดที่ส่งออกเป็นเวลาไทย (+07:00) — เดิมเป็น UTC (…Z) อ่านแล้วสับสน
+  out = out.map((i) => ({
+    ...bkkTimestamps(i, TIME_FIELDS),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(i.history ? { history: i.history.map((h: any) => bkkTimestamps(h, ["at"])) } : {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(i.dailyChecks ? { dailyChecks: i.dailyChecks.map((c: any) => bkkTimestamps(c, ["at"])) } : {}),
+  }))
+
+  return NextResponse.json({ ok: true, vehicle, scope: scope || "default", type: type || "all", count: out.length, timezone: "Asia/Bangkok (+07:00)", items: out })
 }
 
 // ── Write API สำหรับทีมภายนอก — ต้องส่ง header x-api-key (middleware บังคับ) ──
@@ -99,7 +111,8 @@ function apiUser(req: NextRequest): string {
   }
   return raw
 }
-const todayStr = () => new Date().toISOString().slice(0, 10)
+// "วันนี้" ต้องเป็นวันตามเวลาไทย — ถ้าใช้ UTC ช่วงเที่ยงคืน-7 โมงเช้าจะได้วันที่ของเมื่อวาน
+const todayStr = () => bkkToday()
 
 // POST /api/repair-external/sync — เปิดรายการใหม่ (กติกาเดียวกับหน้าเว็บ)
 export async function POST(req: NextRequest) {
@@ -107,6 +120,8 @@ export async function POST(req: NextRequest) {
   const doc  = buildDoc(body)
   if (!doc.plate)  return NextResponse.json({ ok: false, error: "กรุณาระบุ plate (ทะเบียนรถ)" }, { status: 400 })
   if (!doc.status) return NextResponse.json({ ok: false, error: "กรุณาระบุ status" }, { status: 400 })
+  const statusErr = validateStatus(doc.jobType, doc.status)
+  if (statusErr) return NextResponse.json({ ok: false, error: statusErr }, { status: 400 })
 
   const by     = apiUser(req)
   const client = await clientPromise
@@ -151,6 +166,9 @@ async function updateRecord(req: NextRequest, partial: boolean) {
 
   // PATCH: field ที่ไม่ส่งมา ใช้ค่าเดิม · PUT: ใช้ body ทั้งชุด
   const doc = buildDoc(partial ? { ...existing, ...body } : body)
+
+  const statusErr = validateStatus(doc.jobType, doc.status)
+  if (statusErr) return NextResponse.json({ ok: false, error: statusErr }, { status: 400 })
 
   // ล็อกสถานะปิดงาน — เปลี่ยน/ย้อนไม่ได้
   const existingStatus = String(existing.status ?? "")

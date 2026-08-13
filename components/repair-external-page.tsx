@@ -25,6 +25,7 @@ import {
   type RepairExternal,
   type RepairField,
 } from "@/lib/repair-external"
+import { bkkToday, bkkDate as bkkDateOf, daysSince } from "@/lib/bkk-time"
 
 type Mode = "active" | "done"
 // สถานะที่เลือกได้ในตัวกรอง (ตัดสถานะปิดงานออก) — แยกต่อประเภทงาน
@@ -89,7 +90,8 @@ type Stats = {
   fleetDist: { fleet: string; count: number }[]
 }
 
-const TODAY_STR = new Date().toISOString().slice(0, 10)
+// "วันนี้" ตามเวลาไทย — เรียกทุกครั้งที่ render (ค่าคงที่ระดับ module จะค้างเมื่อเปิดหน้าข้ามวัน)
+const todayStr = () => bkkToday()
 
 // คัดลอกข้อความไปคลิปบอร์ด + toast (ข้ามค่าว่าง/"—")
 async function copyValue(v: string) {
@@ -109,13 +111,8 @@ const fmtDateTime = (s: string) => {
 // แสดงค่าฟิลด์ใน log ให้อ่านง่าย (ว่าง → "(ว่าง)")
 const showVal = (v: string) => (v === "" || v == null ? "(ว่าง)" : v)
 
-// จำนวนวันตั้งแต่วันรับแจ้ง → วันนี้
-const ageDays = (s: string): number | null => {
-  if (!s) return null
-  const d = new Date(s)
-  if (isNaN(d.getTime())) return null
-  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000))
-}
+// จำนวนวันตั้งแต่วันรับแจ้ง → วันนี้ (นับตามปฏิทินไทย ไม่ใช่ช่วง 24 ชม.)
+const ageDays = (s: string): number | null => daysSince(s)
 
 // พิกัดที่รถเสีย → ลิงก์แผนที่ (รับทั้งลิงก์เต็มและ lat,long)
 const mapUrl = (v: string): string | null => {
@@ -259,11 +256,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     atms?.byKey[atmsKey(r.plate)] ?? (r.fleetNo ? atms?.byKey[atmsKey(r.fleetNo)] : undefined)
 
   // ── ยืนยันตรวจเช็คประจำวัน — จดเวลา+ผู้เช็คต่อรายการ badge เขียวเมื่อเช็คแล้ววันนี้ ──
-  // วันเวลาไทย (+7) ให้ตรงกับฝั่ง API — TODAY_STR เป็น UTC ใช้กับเรื่องนี้ไม่ได้ช่วงก่อน 7 โมงเช้า
-  const bkkDate = (iso?: string) => {
-    const t = iso ? Date.parse(iso) : Date.now()
-    return isNaN(t) ? "" : new Date(t + 7 * 3600 * 1000).toISOString().slice(0, 10)
-  }
+  // วันเวลาไทย (+7) — ใช้ helper กลางจาก lib/bkk-time
+  const bkkDate = (iso?: string) => (iso ? bkkDateOf(iso) : bkkToday())
   const checkedToday = (r: RepairExternal) => !!r.lastCheckedAt && bkkDate(r.lastCheckedAt) === bkkDate()
   // สถานะที่ไม่ต้องเช็คประจำวัน — งานแขวนยาว/รอปิดเอกสาร ไม่นับและไม่โชว์ปุ่ม
   const NO_DAILY_CHECK = new Set(["ซ่อมไม่มีกำหนด", "รถเสร็จ(ไม่มี PR)"])
@@ -462,7 +456,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setForm({
       ...EMPTY,
       jobType: jt,
-      receivedDate: new Date().toISOString().slice(0, 10),
+      receivedDate: bkkToday(),
       status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value,
     })
     setOpen(true)
@@ -473,7 +467,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setEditId(null)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
-    const today = new Date().toISOString().slice(0, 10)
+    const today = bkkToday()
     setForm({
       ...EMPTY,
       jobType: JOB_TYPE_GARAGE,
@@ -674,7 +668,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       }
     }
     if (b.openNotParked.length) {
-      lines.push("", `🟢 ${b.openNotParked.length} คันนี้ รถออกจากอู่กลับมาวิ่งแล้ว แต่งานยังไม่ได้ปิด`, "→ ถ้าซ่อมเสร็จแล้ว ฝากปิดงานด้วยครับ (ใส่วันเสร็จ = วันที่ออกอู่)", "")
+      lines.push("", `🟢 ${b.openNotParked.length} คันนี้ ไม่อยู่ในรายการรถจอดซ่อมแล้ว แต่งานยังไม่ได้ปิด`, "→ รบกวนเช็คว่าออกอู่จริงไหม ถ้าซ่อมเสร็จแล้วฝากปิดงานด้วยครับ (ใส่วันเสร็จ = วันที่ออกอู่)", "")
       for (const w of b.openNotParked) {
         const done = w.atmsStep === "รถซ่อมเสร็จสิ้น" ? " (Mena-Next ปิดว่าเสร็จสิ้นแล้ว)" : ""
         lines.push(`${++n}. ${w.fleetNo || w.plate} — สถานะค้างที่ "${w.status}"${done}`)
@@ -1479,7 +1473,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               const days = ageDays(r.receivedDate)
               const bkt  = days !== null ? agingBucket(days) : null
               const urgent = (days ?? 0) >= 15
-              const dueOverdue = !!r.dueDate && r.dueDate < TODAY_STR
+              const dueOverdue = !!r.dueDate && r.dueDate < todayStr()
               return (
                 <div
                   key={r._id}
@@ -1670,7 +1664,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           )}
         <div className="overflow-x-auto pb-2">
           <div className="flex gap-3">
-            {b.statuses.map((s) => {
+            {(() => {
+              // สถานะที่มีข้อมูลจริงแต่ไม่อยู่ใน workflow แล้ว (รายการเก่า/นำเข้าผิด) — ต้องมีคอลัมน์ ไม่งั้นการ์ดหายเงียบ
+              const known = new Set(b.statuses.map((x) => x.value))
+              const extra = [...new Set(boardRows.map((r) => r.status).filter((v) => v && !known.has(v)))]
+                .map((v) => statusMeta(v))
+              return [...b.statuses, ...extra]
+            })().map((s) => {
               const colRows = boardRows.filter((r) => r.status === s.value)
               const isDropDone = s.value === doneStatusFor(b.type)
               const colColor = barColor(s.value)
@@ -1710,7 +1710,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       const days = ageDays(r.receivedDate)
                       const bkt  = days !== null ? agingBucket(days) : null
                       const idx  = b.statuses.findIndex((x) => x.value === r.status)
-                      const dueOverdue = !!r.dueDate && r.dueDate < TODAY_STR
+                      const dueOverdue = !!r.dueDate && r.dueDate < todayStr()
                       return (
                       <div
                         key={r._id}
@@ -2029,7 +2029,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       if (editRow.lastCheckedAt && !byDate.has(bkkDate(editRow.lastCheckedAt)))
                         byDate.set(bkkDate(editRow.lastCheckedAt), { by: editRow.lastCheckedBy || "", at: editRow.lastCheckedAt })
                       // ไล่วันจากวันรับแจ้ง → วันนี้ (โชว์ล่าสุดไม่เกิน 60 วัน)
-                      const startTs = Date.parse(editRow.receivedDate || today)
+                      // receivedDate อาจเป็นวันในอนาคต (คีย์ผิด) — ให้เริ่มไม่เกินวันนี้ ปฏิทินจะได้มีช่องวันนี้เสมอ
+                      const rcv = editRow.receivedDate && editRow.receivedDate < today ? editRow.receivedDate : today
+                      const startTs = Date.parse(rcv)
                       const days: string[] = []
                       for (let t = isNaN(startTs) ? Date.parse(today) : startTs; ; t += 86400000) {
                         const ds = new Date(t).toISOString().slice(0, 10)
@@ -2290,7 +2292,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="p-4">
                     {atmsTlErr && <p className="text-sm text-red-500">โหลดไม่สำเร็จ: {atmsTlErr}</p>}
                     {atmsTl === null && !atmsTlErr && !atmsTlLoading && (
-                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก Mena-Next (ปี {new Date().getFullYear()})</p>
+                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก Mena-Next (ปี {new Date(Date.now() + 25200000).getUTCFullYear()})</p>
                     )}
                     {atmsTl !== null && atmsTl.length === 0 && <p className="text-sm text-gray-400">ไม่พบข้อมูลใน Mena-Next สำหรับทะเบียนนี้</p>}
                     {atmsTl !== null && atmsTl.length > 0 && (

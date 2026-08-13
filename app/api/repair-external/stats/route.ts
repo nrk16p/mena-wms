@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
+import { bkkToday, bkkDaysAgo, daysSince } from "@/lib/bkk-time"
 
-// วันที่ = today ลบ n วัน → "YYYY-MM-DD"
-function daysAgo(n: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
-  return d.toISOString().slice(0, 10)
-}
+// วันที่ = วันนี้ (เวลาไทย) ลบ n วัน → "YYYY-MM-DD"
+const daysAgo = (n: number): string => bkkDaysAgo(n)
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -52,7 +49,7 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const typeMatch: Record<string, any> = match.jobType !== undefined ? { jobType: match.jobType } : {}
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = bkkToday()
   const overdue = await col.countDocuments({
     ...typeMatch,
     dueDate: { $ne: "", $lt: today },
@@ -85,9 +82,8 @@ export async function GET(req: NextRequest) {
   const agingBuckets = { lt8: 0, d8_14: 0, gte15: 0 }
   const stSum: Record<string, number> = {}, stN: Record<string, number> = {}
   for (const d of dated) {
-    const dt = new Date(d.receivedDate as string)
-    if (isNaN(dt.getTime())) continue
-    const days = Math.max(0, Math.floor((nowMs - dt.getTime()) / 86400000))
+    const days = daysSince(d.receivedDate as string)
+    if (days === null) continue
     sum += days; n++
     if (days >= 15) agingBuckets.gte15++
     else if (days >= 8) agingBuckets.d8_14++
