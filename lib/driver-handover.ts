@@ -90,6 +90,9 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
     if (!name || !status) return
     const keep = (ACTIVE_STATUSES as readonly string[]).includes(status) || status === "รับรถแล้ว"
     if (!keep) return
+    // Spare Driver ไม่อยู่ในคิวส่งมอบรถ พจส.ใหม่
+    const fleetKey = driverFleetKey(get(COL.customer), get(COL.position))
+    if (fleetKey === "SPARE") return
 
     const due = parseSheetDate(get(COL.trainDue))
     let readyDate: string | null = null
@@ -121,7 +124,7 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
       trainer: get(COL.trainer), trainStart: get(COL.trainStart), trainDue: get(COL.trainDue),
       truckNum: get(COL.truckNum), plate: get(COL.plate), readiness: get(COL.readiness),
       examScore: get(COL.examScore), receivedDate: get(COL.receivedDate),
-      fleetKey: driverFleetKey(get(COL.customer), get(COL.position)),
+      fleetKey,
       readyDate, readyEstimated, waitDays, truckStatus: null,
     })
   })

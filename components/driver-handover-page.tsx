@@ -62,8 +62,8 @@ function driverPeriod(d: HandoverDriver): PeriodKey {
 const isStale = (d: HandoverDriver) =>
   isActive(d.status) && d.status !== "รอรับรถ" && !!d.readyDate && d.readyDate <= todayIso()
 
-/** ฟลีทที่จับคู่รถได้จริง (SPARE/ลูกค้าว่าง จับคู่ตามฟลีทไม่ได้) */
-const matchableFleet = (f: string) => f !== "SPARE" && f !== "❓ไม่ระบุ"
+/** ฟลีทที่จับคู่รถได้จริง (ลูกค้าว่างในชีต จับคู่ตามฟลีทไม่ได้) */
+const matchableFleet = (f: string) => f !== "❓ไม่ระบุ"
 
 /** เทียบเบอร์รถแบบไม่สนช่องว่าง — ให้ตรงกับ normTruckNum ฝั่ง server */
 const normNum = (s: string) => s.toUpperCase().replace(/\s+/g, "")
@@ -170,7 +170,7 @@ export function DriverHandoverPage() {
       fixing: list.filter((d) => d.truckNum && !truckDone(d)).length,
       none: list.filter((d) => !d.truckNum).length,
     })
-    // รวมแถว SPARE/❓ไม่ระบุ ด้วย เพื่อให้ผลรวมคอลัมน์ "พร้อมตอนนี้" = KPI = แท็บ เสมอ
+    // รวมแถว ❓ไม่ระบุ ด้วย เพื่อให้ผลรวมคอลัมน์ "พร้อมตอนนี้" = KPI = แท็บ เสมอ
     const demand = drivers.filter((d) => isActive(d.status))
     const supply = trucks.filter((t) => !t.forSale && !t.reservedBy)
     const fleets = [...new Set([...demand.map((d) => d.fleetKey), ...supply.map((t) => t.fleetKey)])]
@@ -287,7 +287,7 @@ export function DriverHandoverPage() {
     for (const d of drivers) if (isActive(d.status)) count.set(d.fleetKey, (count.get(d.fleetKey) ?? 0) + 1)
     for (const t of trucks) if (!t.forSale && !count.has(t.fleetKey)) count.set(t.fleetKey, 0)
     return [...count.entries()]
-      .filter(([f]) => f.trim() && f !== "SPARE" && f !== "❓ไม่ระบุ")
+      .filter(([f]) => f.trim() && f !== "❓ไม่ระบุ")
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
   }, [drivers, trucks])
 
