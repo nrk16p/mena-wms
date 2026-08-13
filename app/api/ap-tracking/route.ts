@@ -30,13 +30,15 @@ export async function GET(req: NextRequest) {
   try {
     const sp        = req.nextUrl.searchParams
     const today     = new Date().toISOString().slice(0, 10)
-    const month     = sp.get("month")?.trim() || today.slice(0, 7)
+    const rawMonth  = sp.get("month")?.trim() || today.slice(0, 7)
+    const month     = /^\d{4}-(0[1-9]|1[0-2])$/.test(rawMonth) ? rawMonth : today.slice(0, 7)
     const carryover = sp.get("carryover") !== "0"
     const warehouse = sp.get("warehouse")?.trim() ?? ""
     const supplier  = sp.get("supplier")?.trim()  ?? ""
     const status    = sp.get("status")?.trim()    ?? ""
     const q         = sp.get("q")?.trim()         ?? ""
-    const limit     = Math.min(parseInt(sp.get("limit") ?? "4000"), 8000)
+    const limitRaw  = parseInt(sp.get("limit") || "", 10)
+    const limit     = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 8000) : 4000
 
     const client = await clientPromise
     const atms   = client.db("atms")
@@ -133,7 +135,10 @@ export async function GET(req: NextRequest) {
       if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
     }
 
-    const dataAsOf = rows.reduce((mx, r) => (r.createdAt > mx ? r.createdAt : mx), "")
+    const dataAsOf = heads.reduce((mx, h) => {
+      const c = parseDmy(h.created_at)
+      return c > mx ? c : mx
+    }, "")
     return NextResponse.json({
       rows,
       summary: { total: rows.length, byStatus: byStatus as Record<ApStatus, { n: number; amount: number }>, overdue, thisThursday, unsentAging, dataAsOf },
