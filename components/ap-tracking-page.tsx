@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Banknote, RefreshCw, Search } from "lucide-react"
-import { swalError } from "@/lib/swal"
+import { swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, apStatusMeta, thaiDate,
+  AP_DOC_FIELDS, AP_STATUSES, apStatusMeta, nextThursday, thaiDate,
   type ApDocKey, type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
 
@@ -39,6 +39,7 @@ export function ApTrackingPage() {
   const [warehouse, setWarehouse] = useState("")
   const [fStatus, setFStatus] = useState<ApStatus | "">("")
   const [q, setQ]             = useState("")
+  const [sentFor, setSentFor] = useState<ApRow | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -77,6 +78,41 @@ export function ApTrackingPage() {
     }
   }
 
+  // บันทึกวันส่งบัญชี — นอกรอบ = โอนทุกวันพฤหัส · ตามรอบ = วันที่ส่งเอกสาร
+  const setSent = async (row: ApRow, type: "" | "นอกรอบ" | "ตามรอบ", date: string) => {
+    try {
+      const res  = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sentType: type, sentDate: date }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? "บันทึกไม่สำเร็จ")
+      setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
+        ? { ...r, sentType: data.sentType, sentDate: data.sentDate, status: data.status, overdue: data.sentDate ? 0 : r.overdue } : r))
+      setSentFor(null)
+      swalToast("success", date ? `ส่งบัญชี ${type} ${thaiDate(date)}` : "ยกเลิกการส่งบัญชีแล้ว")
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : ""
+      swalError(msg ? `บันทึกไม่สำเร็จ: ${msg}` : "บันทึกไม่สำเร็จ")
+    }
+  }
+
+  const saveNote = async (row: ApRow, note: string) => {
+    if (note === row.note) return
+    try {
+      const res  = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? "บันทึกไม่สำเร็จ")
+      setRows((rs) => rs.map((r) => r.depositCode === row.depositCode ? { ...r, note: data.note } : r))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : ""
+      swalError(msg ? `บันทึกหมายเหตุไม่สำเร็จ: ${msg}` : "บันทึกหมายเหตุไม่สำเร็จ")
+    }
+  }
+
   const shown = useMemo(() => {
     let out = rows
     if (fStatus)   out = out.filter((r) => r.status === fStatus)
@@ -105,6 +141,38 @@ export function ApTrackingPage() {
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> รีเฟรช
         </button>
       </div>
+
+      {/* แถบสรุป — คลิก chip เพื่อกรอง */}
+      {summary && (
+        <div className="flex flex-wrap gap-2">
+          {AP_STATUSES.map((st) => {
+            const m = apStatusMeta(st), v = summary.byStatus[st]
+            const on = fStatus === st
+            return (
+              <button key={st} onClick={() => setFStatus(on ? "" : st)}
+                className={`rounded-xl border px-3 py-2 text-left transition ${on ? "ring-2 ring-offset-1" : ""} ${m.cls}`}>
+                <div className="text-xs">{m.emoji} {st}</div>
+                <div className="text-sm font-bold">{v.n} ใบ · {baht(v.amount)}</div>
+              </button>
+            )
+          })}
+          <div className="rounded-xl border px-3 py-2 bg-rose-50 dark:bg-rose-950/20">
+            <div className="text-xs text-rose-700 dark:text-rose-300">⏰ เกินกำหนดเครดิต</div>
+            <div className="text-sm font-bold text-rose-700 dark:text-rose-300">{summary.overdue.n} ใบ · {baht(summary.overdue.amount)}</div>
+          </div>
+          <div className="rounded-xl border px-3 py-2 bg-emerald-50 dark:bg-emerald-950/20">
+            <div className="text-xs text-emerald-700 dark:text-emerald-300">💸 เข้าโอนพฤหัสนี้ ({thaiDate(summary.thisThursday.date)})</div>
+            <div className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{summary.thisThursday.n} ใบ · {baht(summary.thisThursday.amount)}</div>
+          </div>
+          <div className="rounded-xl border px-3 py-2">
+            <div className="text-xs text-gray-500">ยอดค้างส่งบัญชี (ยังไม่ครบกำหนด / ≤7 วัน / เกิน)</div>
+            <div className="text-sm font-bold">
+              {baht(summary.unsentAging.notDue.amount)} · {baht(summary.unsentAging.due7.amount)} ·{" "}
+              <span className="text-rose-600">{baht(summary.unsentAging.overdue.amount)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ตัวกรอง */}
       <div className="flex flex-wrap items-center gap-2">
@@ -140,6 +208,8 @@ export function ApTrackingPage() {
                 <th key={f.key} className="px-2 py-2 text-center whitespace-nowrap" title={f.label}>{f.short}</th>
               ))}
               <th className="px-3 py-2 text-left">สถานะ</th>
+              <th className="px-3 py-2 text-left">ส่งบัญชี</th>
+              <th className="px-3 py-2 text-left">หมายเหตุ</th>
             </tr>
           </thead>
           <tbody>
@@ -178,15 +248,65 @@ export function ApTrackingPage() {
                     </span>
                     {r.sentDate && <div className="text-xs text-gray-500 mt-0.5">{r.sentType} {thaiDate(r.sentDate)}</div>}
                   </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <button onClick={() => setSentFor(r)}
+                      className={`rounded-lg border px-2 py-1 text-xs ${r.sentDate ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}>
+                      {r.sentDate ? `✅ ${r.sentType} ${thaiDate(r.sentDate)}` : "ส่งบัญชี"}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <input defaultValue={r.note} placeholder="—"
+                      onBlur={(e) => saveNote(r, e.target.value.trim())}
+                      className="w-40 rounded border-transparent bg-transparent px-1 py-0.5 text-xs hover:border-gray-300 focus:border-gray-400 focus:bg-white dark:focus:bg-white/10" />
+                  </td>
                 </tr>
               )
             })}
             {!loading && shown.length === 0 && (
-              <tr><td colSpan={13} className="px-3 py-10 text-center text-gray-400">ไม่พบรายการ</td></tr>
+              <tr><td colSpan={15} className="px-3 py-10 text-center text-gray-400">ไม่พบรายการ</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {sentFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSentFor(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#161a23] p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="font-bold" style={mitr}>ส่งบัญชี · {sentFor.depositCode}</div>
+            <div className="text-xs text-gray-500">{sentFor.supplier} · {baht(sentFor.amount)} บาท</div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">💸 นอกรอบ (โอนทุกวันพฤหัส)</div>
+              <div className="flex gap-2">
+                <button onClick={() => setSent(sentFor, "นอกรอบ", nextThursday(new Date().toISOString().slice(0, 10)))}
+                  className="flex-1 rounded-lg border px-2 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+                  พฤหัสนี้ {thaiDate(nextThursday(new Date().toISOString().slice(0, 10)))}
+                </button>
+                <button onClick={() => {
+                  const thu = nextThursday(new Date().toISOString().slice(0, 10))
+                  const [y, m, d] = thu.split("-").map(Number)
+                  setSent(sentFor, "นอกรอบ", new Date(Date.UTC(y, m - 1, d + 7)).toISOString().slice(0, 10))
+                }}
+                  className="flex-1 rounded-lg border px-2 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+                  พฤหัสหน้า
+                </button>
+              </div>
+
+              <div className="text-sm font-medium pt-2">📋 ตามรอบ (วันที่ส่งเอกสาร)</div>
+              <input type="date" defaultValue={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => e.target.value && setSent(sentFor, "ตามรอบ", e.target.value)}
+                className="w-full rounded-lg border px-2 py-1.5 text-sm bg-white dark:bg-white/5" />
+            </div>
+
+            <div className="flex justify-between pt-2">
+              {sentFor.sentDate && (
+                <button onClick={() => setSent(sentFor, "", "")} className="text-xs text-rose-600 hover:underline">ยกเลิกการส่งบัญชี</button>
+              )}
+              <button onClick={() => setSentFor(null)} className="ml-auto rounded-lg border px-3 py-1.5 text-sm">ปิด</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
