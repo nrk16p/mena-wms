@@ -105,5 +105,13 @@ export async function GET(req: NextRequest) {
   ]).toArray()
   const fleetDist = fleetAgg.map((f) => ({ fleet: (f._id as string) || "—", count: f.n as number }))
 
-  return NextResponse.json({ counts, countsByType, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist })
+  // จำนวนรถต่ออู่ (นับเฉพาะงานที่ยังไม่ปิด — "ตอนนี้อู่ไหนถือรถอยู่กี่คัน")
+  const garageAgg = await col.aggregate([
+    { $match: { ...match, garage: { $nin: ["", null] }, status: { $nin: DONE_STATUSES } } },
+    { $group: { _id: "$garage", n: { $sum: 1 } } },
+    { $sort: { n: -1 } },
+  ]).toArray()
+  const garageDist = garageAgg.map((g) => ({ garage: (g._id as string) || "—", count: g.n as number }))
+
+  return NextResponse.json({ counts, countsByType, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist, garageDist })
 }

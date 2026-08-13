@@ -89,6 +89,7 @@ type Stats = {
   avgByStatus: Record<string, number>
   agingBuckets: { lt8: number; d8_14: number; gte15: number }
   fleetDist: { fleet: string; count: number }[]
+  garageDist?: { garage: string; count: number }[]
 }
 
 // "วันนี้" ตามเวลาไทย — เรียกทุกครั้งที่ render (ค่าคงที่ระดับ module จะค้างเมื่อเปิดหน้าข้ามวัน)
@@ -338,7 +339,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // view + สรุปสถานะ
   const [view, setView]   = useState<"table" | "board">("table")
-  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
+  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [], garageDist: [] })
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
 
@@ -347,6 +348,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [slaOnly, setSlaOnly]   = useState(false)
   const [noPrOnly, setNoPrOnly] = useState(false)
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
+  // การ์ดสัดส่วน: ดูตามฟลีท หรือ จำนวนรถต่ออู่
+  const [distBy, setDistBy] = useState<"fleet" | "garage">("fleet")
+  const [showAllGarages, setShowAllGarages] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -382,7 +386,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     try {
       const res  = await fetch(`/api/repair-external/stats?scope=${mode}${fType ? `&type=${encodeURIComponent(fType)}` : ""}`)
       const data = await res.json()
-      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
+      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [], garageDist: [] })
     } catch { /* ignore */ }
   }, [mode, fType])
 
@@ -1126,40 +1130,74 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })()}
 
       {/* สัดส่วนตามฟลีท */}
-      {!isDone && stats.fleetDist.length > 0 && (() => {
-        const fleetTotal = stats.fleetDist.reduce((s, f) => s + f.count, 0)
+      {!isDone && (stats.fleetDist.length > 0 || (stats.garageDist?.length ?? 0) > 0) && (() => {
+        const byGarage = distBy === "garage"
+        const garages  = stats.garageDist ?? []
+        // แถบสีเรียงจากมากไปน้อยอยู่แล้ว — อู่เยอะ ย่อเหลือ 12 อันดับแรก + ปุ่มดูทั้งหมด
+        const rows: { key: string; count: number }[] = byGarage
+          ? garages.map((g) => ({ key: g.garage, count: g.count }))
+          : stats.fleetDist.map((f) => ({ key: f.fleet, count: f.count }))
+        const fleetTotal = rows.reduce((s, r) => s + r.count, 0)
+        const legendRows = byGarage && !showAllGarages ? rows.slice(0, 12) : rows
+        const activeKey  = byGarage ? fGarage : fFleet
+        const pick = (k: string) => (byGarage ? setFGarage(fGarage === k ? "" : k) : setFFleet(fFleet === k ? "" : k))
         return (
           <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">สัดส่วนตามฟลีท</p>
-              <span className="text-xs text-gray-400">{stats.fleetDist.length} ฟลีท · {fleetTotal} คัน</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">
+                  {byGarage ? "จำนวนรถต่ออู่ (งานที่ยังไม่ปิด)" : "สัดส่วนตามฟลีท"}
+                </p>
+                {/* toggle ฟลีท / อู่ */}
+                <div className="inline-flex overflow-hidden rounded-lg border border-[#E2E8E4] dark:border-white/10">
+                  {([["fleet", "🚚 ฟลีท"], ["garage", "🏭 อู่"]] as const).map(([v, label]) => (
+                    <button
+                      key={v}
+                      onClick={() => setDistBy(v)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold transition ${distBy === v ? "bg-[#14271C] text-white dark:bg-white dark:text-[#14271C]" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <span className="text-xs text-gray-400">
+                {rows.length} {byGarage ? "อู่" : "ฟลีท"} · {fleetTotal} คัน
+                {byGarage && rows.length > 0 && ` · มากสุด ${rows[0].key} ${rows[0].count} คัน`}
+              </span>
             </div>
             <div className="mt-2.5 flex h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
-              {stats.fleetDist.map((f, i) => (f.count && fleetTotal ? (
+              {rows.map((r, i) => (r.count && fleetTotal ? (
                 <button
-                  key={f.fleet}
-                  title={`${f.fleet} · ${f.count} คัน`}
-                  onClick={() => setFFleet(fFleet === f.fleet ? "" : f.fleet)}
+                  key={r.key}
+                  title={`${r.key} · ${r.count} คัน`}
+                  onClick={() => pick(r.key)}
                   className="h-full transition-opacity hover:opacity-80"
-                  style={{ width: `${(f.count / fleetTotal) * 100}%`, background: FLEET_PALETTE[i % FLEET_PALETTE.length] }}
+                  style={{ width: `${(r.count / fleetTotal) * 100}%`, background: FLEET_PALETTE[i % FLEET_PALETTE.length] }}
                 />
               ) : null))}
             </div>
             <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-              {stats.fleetDist.map((f, i) => {
-                const active = fFleet === f.fleet
+              {legendRows.map((r, i) => {
+                const active = activeKey === r.key
                 return (
                   <button
-                    key={f.fleet}
-                    onClick={() => setFFleet(active ? "" : f.fleet)}
-                    className={`inline-flex items-center gap-1.5 rounded px-1 text-xs transition ${active ? "bg-[#F0FDF4] dark:bg-white/5" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                    key={r.key}
+                    onClick={() => pick(r.key)}
+                    title={`${r.key} · ${r.count} คัน — คลิกเพื่อกรอง`}
+                    className={`inline-flex max-w-[240px] items-center gap-1.5 rounded px-1 text-xs transition ${active ? "bg-[#F0FDF4] dark:bg-white/5" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
                   >
-                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: FLEET_PALETTE[i % FLEET_PALETTE.length] }} />
-                    <span className={active ? "font-semibold text-[#14271C] dark:text-white" : "text-gray-600 dark:text-gray-300"}>{f.fleet}</span>
-                    <span className="font-semibold text-[#14271C] dark:text-white">{f.count}</span>
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: FLEET_PALETTE[i % FLEET_PALETTE.length] }} />
+                    <span className={`truncate ${active ? "font-semibold text-[#14271C] dark:text-white" : "text-gray-600 dark:text-gray-300"}`}>{r.key}</span>
+                    <span className="shrink-0 font-semibold text-[#14271C] dark:text-white">{r.count}</span>
                   </button>
                 )
               })}
+              {byGarage && rows.length > 12 && (
+                <button onClick={() => setShowAllGarages((v) => !v)} className="text-xs font-medium text-[#1B8C4B] hover:underline">
+                  {showAllGarages ? "ย่อ" : `ดูทั้งหมด (อีก ${rows.length - 12} อู่)`}
+                </button>
+              )}
             </div>
           </div>
         )
