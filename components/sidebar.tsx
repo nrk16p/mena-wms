@@ -253,6 +253,38 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
       <nav className="flex-1 overflow-y-auto px-3 py-3">
         {visibleGroups.map((group, gi) => {
           const open = isGroupOpen(group)
+
+          // ── ย่อ: โชว์แค่ไอคอนหมวดใหญ่ 1 อันต่อกลุ่ม (คลิก = ไปเมนูแรกของหมวด) ──
+          if (collapsed) {
+            const first = group.items.find((i) => !i.subheader && (!i.adminOnly || isAdmin))
+            if (!first) return null
+            const GroupIcon = first.icon
+            const groupActive = group.items.some((i) => !i.subheader && isActive(i.href, i.exact))
+            const showDot = group.label === "จัดการ SKU" && isAdmin && pendingCount > 0
+            return (
+              <Link
+                key={group.label}
+                href={first.href}
+                onClick={onClose}
+                title={group.label}
+                className={[
+                  "relative mx-auto mb-1 flex h-10 w-10 items-center justify-center rounded-[11px] transition-all duration-100",
+                  groupActive
+                    ? "bg-[#1B8C4B] text-white"
+                    : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
+                ].join(" ")}
+              >
+                <GroupIcon size={17} className="shrink-0" />
+                {groupActive && (
+                  <span className="absolute -right-1 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-white" />
+                )}
+                {showDot && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#E8A317] ring-2 ring-white dark:ring-[#111714]" />
+                )}
+              </Link>
+            )
+          }
+
           return (
             <div key={group.label} className={gi > 0 ? "mt-1" : ""}>
 
@@ -293,11 +325,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
                 </button>
               )}
 
-              {collapsed && gi > 0 && (
-                <div className="my-2.5 mx-auto h-[2px] w-8 rounded-full bg-[#EEF2F0] dark:bg-white/10" />
-              )}
-
-              <div className={["mt-0.5 space-y-px", !collapsed && !open ? "hidden" : ""].join(" ")}>
+              <div className={["mt-0.5 space-y-px", !open ? "hidden" : ""].join(" ")}>
                 {group.items.map((item) => {
                   const Icon = item.icon
                   if (item.adminOnly && !isAdmin) return null
