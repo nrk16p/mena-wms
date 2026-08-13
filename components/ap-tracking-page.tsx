@@ -7,6 +7,7 @@ import {
   AP_DOC_FIELDS, AP_STATUSES, apStatusMeta, nextThursday, thaiDate,
   type ApDocKey, type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
+import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 
 const mitr = { fontFamily: "var(--font-mitr), sans-serif" }
 
@@ -118,6 +119,11 @@ export function ApTrackingPage() {
   const [fStatus, setFStatus] = useState<ApStatus | "">("")
   const [q, setQ]             = useState("")
   const [sentFor, setSentFor] = useState<ApRow | null>(null)
+  const [detailFor, setDetailFor] = useState<ApRow | null>(null)
+
+  // เปิดกล่องโต้ตอบใดกล่องหนึ่งแล้วปิดอีกกล่องเสมอ กันสองโอเวอร์เลย์ซ้อนกันพร้อมกัน
+  const openSent = (row: ApRow) => { setDetailFor(null); setSentFor(row) }
+  const openDetail = (row: ApRow) => { setSentFor(null); setDetailFor(row) }
 
   // นับรุ่นคำขอ — ตอบกลับที่ไม่ใช่รุ่นล่าสุดถูกทิ้ง กันเดือนเก่ามาทับเดือนใหม่เมื่อสลับเดือนถี่ๆ
   const loadSeq = useRef(0)
@@ -339,7 +345,7 @@ export function ApTrackingPage() {
                 <tr key={r.depositCode}
                   className={`border-t dark:border-white/10 ${r.overdue > 0 ? "bg-rose-50/60 dark:bg-rose-950/20" : ""}`}>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="font-medium">{r.depositCode}</div>
+                    <button type="button" onClick={() => openDetail(r)} className="font-medium text-blue-600 hover:underline">{r.depositCode}</button>
                     <div className="text-xs text-gray-500">
                       {thaiDate(r.receivedAt)}{r.carryover && <span className="ml-1 text-amber-600">ค้างยกมา</span>}
                     </div>
@@ -369,7 +375,7 @@ export function ApTrackingPage() {
                     {r.sentDate && <div className="text-xs text-gray-500 mt-0.5">{r.sentType} {thaiDate(r.sentDate)}</div>}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <button onClick={() => setSentFor(r)}
+                    <button onClick={() => openSent(r)}
                       className={`rounded-lg border px-2 py-1 text-xs ${r.sentDate ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}>
                       {r.sentDate ? `✅ ${r.sentType} ${thaiDate(r.sentDate)}` : "ส่งบัญชี"}
                     </button>
@@ -389,6 +395,9 @@ export function ApTrackingPage() {
 
       {sentFor && (
         <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />
+      )}
+      {detailFor && (
+        <ApTrackingDetail row={detailFor} onClose={() => setDetailFor(null)} />
       )}
     </div>
   )
