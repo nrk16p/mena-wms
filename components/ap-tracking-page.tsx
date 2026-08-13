@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Banknote, RefreshCw, Search } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, AP_STATUSES, apStatusMeta, isDocSetComplete, missingDocLabels,
-  nextThursday, overdueDays, thaiDate, todayICT,
+  AP_DOC_FIELDS, AP_GO_LIVE, AP_STATUSES, apStatusMeta, isDocSetComplete, missingDocLabels,
+  monthInApScope, nextThursday, overdueDays, thaiDate, todayICT,
   type ApDocKey, type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
@@ -27,6 +27,7 @@ type Summary = {
   counted: number
   truncated: boolean
   limit: number
+  since: string          // เส้น go-live ที่เซิร์ฟเวอร์ใช้จริง (อาจถูก override ด้วย ?since=)
   byStatus: Record<ApStatus, Bucket>
   overdue: Bucket
   thisThursday: { date: string; n: number; amount: number }
@@ -275,6 +276,12 @@ export function ApTrackingPage() {
     return out
   }, [rows, fStatus, warehouse, q])
 
+  // เดือนที่เลือกอยู่ก่อนเส้น go-live ทั้งเดือนหรือไม่ — ใช้ helper ตัวเดียวกับที่ API ใช้ตัดเดือน
+  // ไม่เทียบวันที่เองซ้ำตรงนี้ · เส้นที่ใช้เอาจากคำตอบของเซิร์ฟเวอร์ก่อน (รองรับ ?since= override)
+  // ถ้ายังไม่มีคำตอบค่อยถอยไปใช้ AP_GO_LIVE
+  const scopeSince = summary?.since || AP_GO_LIVE
+  const monthOutOfScope = !monthInApScope(month, scopeSince)
+
   // ยอดสรุปทุกตัวมาจาก `summary` ของเซิร์ฟเวอร์แหล่งเดียว — ห้ามคำนวณซ้ำฝั่ง client
   // เพราะ rows ที่ตารางใช้ "ตั้งใจ" ไม่มีใบค้างยกมาที่ส่งบัญชีไปแล้ว ถ้าเอา rows มาบวกเอง
   // ยอด "เข้าโอนพฤหัสนี้" จะขาดใบพวกนั้นไปทั้งใบ (เงินโอนขาดจริง) · เซิร์ฟเวอร์คิดจากชุดที่
@@ -446,7 +453,20 @@ export function ApTrackingPage() {
               )
             })}
             {!loading && shown.length === 0 && (
-              <tr><td colSpan={15} className="px-3 py-10 text-center text-gray-400">ไม่พบรายการ</td></tr>
+              <tr><td colSpan={15} className="px-3 py-10 text-center text-gray-400">
+                {monthOutOfScope ? (
+                  // เดือนก่อนเส้น go-live ว่างเพราะ "ไม่อยู่ในขอบเขตระบบ" ไม่ใช่เพราะหาไม่เจอ —
+                  // ต้องบอกให้ชัด ไม่งั้นผู้ใช้เข้าใจว่าระบบพัง/ข้อมูลหาย แล้วเลิกเชื่อตัวเลขทั้งหน้า
+                  <div className="space-y-1">
+                    <div className="font-medium text-gray-500 dark:text-gray-400">
+                      เดือนนี้อยู่ก่อนวันที่ระบบเริ่มติดตามเจ้าหนี้ ({thaiDate(scopeSince)})
+                    </div>
+                    <div className="text-xs">
+                      ใบรับของก่อนวันดังกล่าวจัดการในไฟล์ Excel ของกระบวนการเดิม จึงไม่ถูกดึงเข้ามาในระบบนี้ — เป็นเรื่องปกติ ไม่ใช่ข้อผิดพลาด
+                    </div>
+                  </div>
+                ) : "ไม่พบรายการ"}
+              </td></tr>
             )}
           </tbody>
         </table>
