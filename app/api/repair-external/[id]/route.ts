@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { buildDoc } from "../route"
 import { diffRepair, writeRepairLog } from "@/lib/repair-log"
+import { bkkToday } from "@/lib/bkk-time"
 import { DONE_STATUSES, isDoneStatus } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -57,7 +58,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const now = new Date()
   // อัปเดตวันเข้าสถานะเมื่อสถานะเปลี่ยนเท่านั้น (ไว้คำนวณ "ค้างในสถานะกี่วัน")
   const statusChanged = String(existing.status ?? "") !== doc.status
-  const statusSince = statusChanged ? now.toISOString().slice(0, 10) : (existing.statusSince ?? "")
+  const statusSince = statusChanged ? bkkToday() : (existing.statusSince ?? "")
   const statusSinceAt = statusChanged ? now.toISOString() : (existing.statusSinceAt ?? "")
   const editedBy = session?.user?.name || session?.user?.email || existing.editedBy || ""
   await col.updateOne({ _id: new ObjectId(id) }, { $set: { ...doc, statusSince, statusSinceAt, editedBy, updatedAt: now } })

@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
+import { bkkToday, bkkDaysAgo, daysSince } from "@/lib/bkk-time"
+import { jobStartDate, groupSimilarGarages } from "@/lib/repair-external"
 
-// วันที่ = today ลบ n วัน → "YYYY-MM-DD"
-function daysAgo(n: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
-  return d.toISOString().slice(0, 10)
-}
+// วันที่ = วันนี้ (เวลาไทย) ลบ n วัน → "YYYY-MM-DD"
+const daysAgo = (n: number): string => bkkDaysAgo(n)
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -52,7 +50,7 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const typeMatch: Record<string, any> = match.jobType !== undefined ? { jobType: match.jobType } : {}
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = bkkToday()
   const overdue = await col.countDocuments({
     ...typeMatch,
     dueDate: { $ne: "", $lt: today },
@@ -79,15 +77,14 @@ export async function GET(req: NextRequest) {
   const noPr = await col.countDocuments({ ...match, $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
 
   // ค่าเฉลี่ยวันซ่อม (today − receivedDate) + การกระจายตามอายุงาน + เฉลี่ยต่อสถานะ
-  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, status: 1, _id: 0 }).toArray()
+  const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, garageInDate: 1, status: 1, garage: 1, _id: 0 }).toArray()
   const nowMs = Date.now()
   let sum = 0, n = 0
   const agingBuckets = { lt8: 0, d8_14: 0, gte15: 0 }
   const stSum: Record<string, number> = {}, stN: Record<string, number> = {}
   for (const d of dated) {
-    const dt = new Date(d.receivedDate as string)
-    if (isNaN(dt.getTime())) continue
-    const days = Math.max(0, Math.floor((nowMs - dt.getTime()) / 86400000))
+    const days = daysSince(jobStartDate(d as { receivedDate?: string; garageInDate?: string }))
+    if (days === null) continue
     sum += days; n++
     if (days >= 15) agingBuckets.gte15++
     else if (days >= 8) agingBuckets.d8_14++
@@ -108,5 +105,32 @@ export async function GET(req: NextRequest) {
   ]).toArray()
   const fleetDist = fleetAgg.map((f) => ({ fleet: (f._id as string) || "—", count: f.n as number }))
 
-  return NextResponse.json({ counts, countsByType, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist })
+  // จำนวนรถต่ออู่ + อายุงานของรถในอู่นั้น (เฉพาะงานที่ยังไม่ปิด = "ตอนนี้อู่ไหนถือรถอยู่กี่คัน")
+  // ใช้ข้อมูลชุดเดียวกับที่คำนวณอายุงาน จะได้นับวันด้วยกติกาเดียวกัน (jobStartDate)
+  const gMap = new Map<string, { count: number; lt8: number; d8_14: number; gte15: number; maxDays: number; sum: number }>()
+  for (const d of dated) {
+    const g = String(d.garage ?? "").trim()
+    if (!g || DONE_STATUSES.includes(String(d.status ?? ""))) continue
+    const days = daysSince(jobStartDate(d as { receivedDate?: string; garageInDate?: string })) ?? 0
+    const cur = gMap.get(g) ?? { count: 0, lt8: 0, d8_14: 0, gte15: 0, maxDays: 0, sum: 0 }
+    cur.count++; cur.sum += days
+    if (days >= 15) cur.gte15++
+    else if (days >= 8) cur.d8_14++
+    else cur.lt8++
+    if (days > cur.maxDays) cur.maxDays = days
+    gMap.set(g, cur)
+  }
+  const garageDist = [...gMap.entries()]
+    .map(([garage, v]) => ({
+      garage, count: v.count, lt8: v.lt8, d8_14: v.d8_14, gte15: v.gte15,
+      maxDays: v.maxDays, avgDays: Math.round(v.sum / v.count),
+    }))
+    .sort((a, b) => b.count - a.count || b.maxDays - a.maxDays)
+
+  // ชื่ออู่ที่น่าจะเป็นอู่เดียวกัน — เตือนให้คนแก้ ไม่รวมตัวเลขให้อัตโนมัติ
+  const garageDupes = groupSimilarGarages(garageDist.map((g) => g.garage))
+    .map((names) => ({ names, total: names.reduce((s2, nm) => s2 + (gMap.get(nm)?.count ?? 0), 0) }))
+    .sort((a, b) => b.total - a.total)
+
+  return NextResponse.json({ counts, countsByType, total, overdue, slaBreached, noPr, avgDays, avgByStatus, agingBuckets, fleetDist, garageDist, garageDupes })
 }

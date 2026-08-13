@@ -11,13 +11,16 @@ export type GalleryImage = { url: string; thumb?: string; filename?: string }
  * ไม่ใช้ <a> เลย (href ว่างทำหน้า reload เด้งขึ้นบนสุด) และล็อกสกรอลพื้นหลังตอนเปิด
  */
 export function ImageGallery({ images, start = 0, onClose }: { images: GalleryImage[]; start?: number; onClose: () => void }) {
-  const n = images.length
+  // ตัดรายการที่ไม่มี URL ออก — <img src=""> ทำให้เบราว์เซอร์ยิงโหลดหน้าเดิมซ้ำ
+  const pics = images.filter((im) => (im.url || im.thumb || "").trim())
+  const n = pics.length
   const [i, setI] = useState(Math.min(Math.max(start, 0), Math.max(n - 1, 0)))
-  const cur = images[i]
-  const prev = useCallback(() => setI((x) => (x - 1 + n) % n), [n])
-  const next = useCallback(() => setI((x) => (x + 1) % n), [n])
+  const cur = pics[i]
+  const prev = useCallback(() => setI((x) => (n ? (x - 1 + n) % n : 0)), [n])
+  const next = useCallback(() => setI((x) => (n ? (x + 1) % n : 0)), [n])
 
   useEffect(() => {
+    if (!n) { onClose(); return }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
       else if (e.key === "ArrowLeft") prev()
@@ -27,7 +30,7 @@ export function ImageGallery({ images, start = 0, onClose }: { images: GalleryIm
     const old = document.body.style.overflow
     document.body.style.overflow = "hidden"
     return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = old }
-  }, [onClose, prev, next])
+  }, [onClose, prev, next, n])
 
   // CDN คนละ origin — ดาวน์โหลดต้อง fetch เป็น blob ก่อน (แบบเดียวกับ image-upload)
   async function download() {
@@ -35,11 +38,14 @@ export function ImageGallery({ images, start = 0, onClose }: { images: GalleryIm
     try {
       const res  = await fetch(cur.url)
       const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
-      a.href = URL.createObjectURL(blob)
+      a.href = url
       a.download = cur.filename || `image-${i + 1}`
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(a.href)
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch { window.open(cur.url, "_blank", "noopener") }
   }
 
@@ -81,7 +87,7 @@ export function ImageGallery({ images, start = 0, onClose }: { images: GalleryIm
         {cur.filename && <p className="mb-2 truncate text-center text-[11px] text-white/60">{cur.filename}</p>}
         {n > 1 && (
           <div className="flex justify-center gap-1.5 overflow-x-auto pb-1">
-            {images.map((im, ii) => (
+            {pics.map((im, ii) => (
               <button key={ii} type="button" onClick={() => setI(ii)}
                 className={`shrink-0 overflow-hidden rounded-lg border-2 transition ${ii === i ? "border-white" : "border-transparent opacity-50 hover:opacity-90"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}

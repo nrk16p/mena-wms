@@ -102,6 +102,7 @@ console.log(data.count, data.items)`}</CodeBlock>
   "vehicle": "70-1234",
   "scope": "default",   // default = งานเปิดทั้งหมด + รถเสร็จล่าสุด 1 รายการ
   "count": 2,
+  "timezone": "Asia/Bangkok (+07:00)",   // เวลาทุก field เป็นเวลาไทย
   "items": [
     {
       "_id": "665f1c...",
@@ -128,13 +129,13 @@ console.log(data.count, data.items)`}</CodeBlock>
         {
           "action": "create",    // create | update | delete
           "by": "Nopparut",
-          "at": "2026-07-18T03:12:45.000Z",
+          "at": "2026-07-18T10:12:45.000+07:00",   // เวลาไทย
           "statusChange": { "from": "", "to": "รอรถเข้า" }
         },
         {
           "action": "update",
           "by": "Plug",
-          "at": "2026-07-19T08:30:02.000Z",
+          "at": "2026-07-19T15:30:02.000+07:00",
           "statusChange": { "from": "รอรถเข้า", "to": "รถเข้าอู่ซ่อม" },
           "changes": [ { "field": "garageInDate", "label": "วันที่รถเข้าอู่ซ่อม", "from": "", "to": "2026-07-19" } ]
         }
@@ -143,6 +144,10 @@ console.log(data.count, data.items)`}</CodeBlock>
   ]
 }`}</CodeBlock>
           <p className="text-[#9AA8A0]">หมายเหตุ: ไม่รวมรูปภาพ (images) เพื่อให้ payload เล็กและเร็ว · ถ้าไม่ส่ง <code>vehicle</code> จะได้ <code>400</code> พร้อมข้อความอธิบาย</p>
+          <p className="text-[#9AA8A0]">
+            🕒 <b className="text-[#37473E] dark:text-gray-200">เขตเวลา:</b> ทุก field ที่เป็นวัน-เวลา (<code>createdAt</code>, <code>updatedAt</code>, <code>statusSinceAt</code>, <code>history[].at</code>)
+            ส่งออกเป็น<b>เวลาไทย</b> รูปแบบ ISO 8601 พร้อม offset <code>+07:00</code> — นำไปแสดงผลได้ตรง ๆ และ parse ได้ทุกภาษา ส่วน field ที่เป็นวันที่ล้วน (<code>receivedDate</code>, <code>dueDate</code> ฯลฯ) เป็นวันไทยอยู่แล้วในรูปแบบ <code>YYYY-MM-DD</code>
+          </p>
         </Section>
 
         <Section icon={PencilLine} title="การเขียนข้อมูล — POST / PUT / PATCH">
@@ -192,8 +197,13 @@ console.log(data.count, data.items)`}</CodeBlock>
         <Section icon={ListOrdered} title="สถานะที่เป็นไปได้ (status)">
           <p><b>🔧 อู่นอก:</b></p>
           <p>
-            <code>รอรถเข้า</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอใบเสนอราคา</code> → <code>รอ PR</code> →{" "}
+            <code>รอรถเข้า</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอ PR</code> →{" "}
             <code>ซ่อมไม่มีกำหนด</code> / <code>ซ่อมมีกำหนดเสร็จ</code> → <code>รถเสร็จ(ไม่มี PR)</code> → <code>รถเสร็จ</code>
+          </p>
+          <p className="text-[#9AA8A0]">
+            หมายเหตุ: &quot;รอใบเสนอราคา&quot; ไม่ใช่สถานะของอู่นอกอีกต่อไป (ตั้งแต่ 11 ส.ค. 2026) — เป็น field แยก{" "}
+            <code>waitingQuote</code> (<code>&quot;&quot;</code> หรือ <code>&quot;รอใบเสนอราคา&quot;</code>) ติ๊กควบคู่กับสถานะใดก็ได้ ·
+            ส่ง status นอกรายการนี้จะได้ <code>400</code>
           </p>
           <p className="pt-1"><b>🔩 อะไหล่ลงคัน:</b></p>
           <p>

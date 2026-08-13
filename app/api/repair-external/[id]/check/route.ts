@@ -16,6 +16,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 })
 
   const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const by      = session?.user?.name || session?.user?.email || ""
   const byEmail = session?.user?.email || ""
 
@@ -33,17 +34,19 @@ export async function POST(_req: NextRequest, { params }: Params) {
     { $set: { lastCheckedAt: now.toISOString(), lastCheckedBy: by, lastCheckedByEmail: byEmail } },
   )
   // เก็บประวัติรายวันสำหรับปฏิทิน — วันละ 1 รายการ (กดซ้ำในวันเดิมไม่เพิ่ม)
-  await db.collection(COLL).updateOne(
+  const pushed = await db.collection(COLL).updateOne(
     { _id, "dailyChecks.date": { $ne: dateBKK } },
+    // เก็บย้อนหลังไม่เกิน 365 วัน — งานที่เปิดยาวจะได้ไม่บวมจนส่งกลับช้า
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { $push: { dailyChecks: { date: dateBKK, by, at: now.toISOString() } } as any },
+    { $push: { dailyChecks: { $each: [{ date: dateBKK, by, at: now.toISOString() }], $slice: -365 } } as any },
   )
-  await db.collection(REPAIR_LOG_COLL).insertOne({
+  // ลง log เฉพาะการเช็คครั้งแรกของวัน — กดซ้ำ/retry ไม่ต้องเพิ่มแถวประวัติ
+  if (pushed.modifiedCount > 0) await db.collection(REPAIR_LOG_COLL).insertOne({
     repairId: id, plate: doc.plate ?? "", fleetNo: doc.fleetNo ?? "",
     action: "update", by, byEmail, at: now,
     changes: [{
       field: "dailyCheck", label: "ตรวจเช็คประจำวัน", from: "",
-      to: `ยืนยันแล้ว ${now.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+      to: `ยืนยันแล้ว ${now.toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
     }],
   })
   return NextResponse.json({ ok: true, lastCheckedAt: now.toISOString(), lastCheckedBy: by, date: dateBKK })

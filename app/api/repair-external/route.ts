@@ -3,11 +3,21 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
-import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus } from "@/lib/repair-external"
+import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, statusesFor } from "@/lib/repair-external"
 import { normalizeImages } from "@/lib/media"
+import { bkkToday } from "@/lib/bkk-time"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
+
+/** สถานะต้องอยู่ใน workflow ของประเภทงานนั้น — คืนข้อความ error ถ้าไม่ผ่าน (null = ผ่าน) */
+export function validateStatus(jobType: string, status: string): string | null {
+  if (!status) return null
+  const allowed = statusesFor(jobType).map((s) => s.value)
+  return allowed.includes(status)
+    ? null
+    : `สถานะ "${status}" ไม่อยู่ใน workflow ของ ${jobType} (ใช้ได้: ${allowed.join(", ")})`
+}
 
 // แปลง body → doc ที่จะบันทึก (ใช้ร่วมกับ PUT ผ่าน buildDoc)
 export function buildDoc(body: Record<string, unknown>) {
@@ -134,7 +144,7 @@ export async function POST(req: NextRequest) {
   }
 
   const now   = new Date()
-  const today = now.toISOString().slice(0, 10)
+  const today = bkkToday()  // วันไทย — UTC จะได้วันของเมื่อวานช่วง 00:00-07:00
   const by    = session?.user?.name || session?.user?.email || ""
   const result = await col.insertOne({ ...doc, statusSince: today, statusSinceAt: now.toISOString(), createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
   await writeRepairLog(db, {

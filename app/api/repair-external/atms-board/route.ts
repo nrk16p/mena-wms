@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { fetchAtmsBoard, normKey } from "@/lib/atms-board"
 import { DONE_STATUSES, JOB_TYPE_PARTS } from "@/lib/repair-external"
@@ -12,6 +14,8 @@ const FINISHED = [...DONE_STATUSES, "รถเสร็จ(ไม่มี PR)"]
 // GET /api/repair-external/atms-board
 // เทียบข้อมูล 3 ทาง: รถจอดจริง (fleet) × งานอู่นอกเปิดใน ATMS (open-jobs) × งานอู่นอกเปิดใน WMS
 export async function GET() {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   try {
     const [board, client] = await Promise.all([fetchAtmsBoard(), clientPromise])
     const wms = await client.db(DB).collection(COLL)

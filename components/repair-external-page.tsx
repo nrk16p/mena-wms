@@ -15,6 +15,7 @@ import {
   JOB_TYPE_PARTS,
   jobTypeOf,
   isDoneStatus,
+  jobStartDate,
   statusesFor,
   doneStatusFor,
   requiredFieldsFor,
@@ -25,6 +26,7 @@ import {
   type RepairExternal,
   type RepairField,
 } from "@/lib/repair-external"
+import { bkkToday, bkkDate as bkkDateOf, daysSince } from "@/lib/bkk-time"
 
 type Mode = "active" | "done"
 // สถานะที่เลือกได้ในตัวกรอง (ตัดสถานะปิดงานออก) — แยกต่อประเภทงาน
@@ -87,9 +89,12 @@ type Stats = {
   avgByStatus: Record<string, number>
   agingBuckets: { lt8: number; d8_14: number; gte15: number }
   fleetDist: { fleet: string; count: number }[]
+  garageDist?: { garage: string; count: number; lt8: number; d8_14: number; gte15: number; maxDays: number; avgDays: number }[]
+  garageDupes?: { names: string[]; total: number }[]
 }
 
-const TODAY_STR = new Date().toISOString().slice(0, 10)
+// "วันนี้" ตามเวลาไทย — เรียกทุกครั้งที่ render (ค่าคงที่ระดับ module จะค้างเมื่อเปิดหน้าข้ามวัน)
+const todayStr = () => bkkToday()
 
 // คัดลอกข้อความไปคลิปบอร์ด + toast (ข้ามค่าว่าง/"—")
 async function copyValue(v: string) {
@@ -109,13 +114,8 @@ const fmtDateTime = (s: string) => {
 // แสดงค่าฟิลด์ใน log ให้อ่านง่าย (ว่าง → "(ว่าง)")
 const showVal = (v: string) => (v === "" || v == null ? "(ว่าง)" : v)
 
-// จำนวนวันตั้งแต่วันรับแจ้ง → วันนี้
-const ageDays = (s: string): number | null => {
-  if (!s) return null
-  const d = new Date(s)
-  if (isNaN(d.getTime())) return null
-  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000))
-}
+// จำนวนวันตั้งแต่วันรับแจ้ง → วันนี้ (นับตามปฏิทินไทย ไม่ใช่ช่วง 24 ชม.)
+const ageDays = (s: string): number | null => daysSince(s)
 
 // พิกัดที่รถเสีย → ลิงก์แผนที่ (รับทั้งลิงก์เต็มและ lat,long)
 const mapUrl = (v: string): string | null => {
@@ -141,7 +141,7 @@ const slaInfo = (r: RepairExternal): { hours: number; limitH: number; over: bool
   if (r.statusSinceAt) {
     hours = Math.max(0, Math.floor((Date.now() - Date.parse(r.statusSinceAt)) / 3600000))
   } else {
-    const d = ageDays(r.statusSince || r.receivedDate)
+    const d = ageDays(r.statusSince || jobStartDate(r))
     if (d === null) return null
     hours = d * 24
   }
@@ -259,11 +259,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     atms?.byKey[atmsKey(r.plate)] ?? (r.fleetNo ? atms?.byKey[atmsKey(r.fleetNo)] : undefined)
 
   // ── ยืนยันตรวจเช็คประจำวัน — จดเวลา+ผู้เช็คต่อรายการ badge เขียวเมื่อเช็คแล้ววันนี้ ──
-  // วันเวลาไทย (+7) ให้ตรงกับฝั่ง API — TODAY_STR เป็น UTC ใช้กับเรื่องนี้ไม่ได้ช่วงก่อน 7 โมงเช้า
-  const bkkDate = (iso?: string) => {
-    const t = iso ? Date.parse(iso) : Date.now()
-    return isNaN(t) ? "" : new Date(t + 7 * 3600 * 1000).toISOString().slice(0, 10)
-  }
+  // วันเวลาไทย (+7) — ใช้ helper กลางจาก lib/bkk-time
+  const bkkDate = (iso?: string) => (iso ? bkkDateOf(iso) : bkkToday())
   const checkedToday = (r: RepairExternal) => !!r.lastCheckedAt && bkkDate(r.lastCheckedAt) === bkkDate()
   // สถานะที่ไม่ต้องเช็คประจำวัน — งานแขวนยาว/รอปิดเอกสาร ไม่นับและไม่โชว์ปุ่ม
   const NO_DAILY_CHECK = new Set(["ซ่อมไม่มีกำหนด", "รถเสร็จ(ไม่มี PR)"])
@@ -312,6 +309,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // modal
   const [open, setOpen]     = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
+  // เปิดรายการเดิม = ดูรายละเอียดก่อน (อ่านอย่างเดียว) ต้องกด "แก้ไขข้อมูล" ถึงเข้าฟอร์ม
+  const [viewOnly, setViewOnly] = useState(false)
   const [form, setForm]     = useState<Omit<RepairExternal, "_id">>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [origStatus, setOrigStatus] = useState("")  // สถานะเดิมของรายการ (ล็อกถ้ารถเสร็จ)
@@ -341,7 +340,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // view + สรุปสถานะ
   const [view, setView]   = useState<"table" | "board">("table")
-  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
+  const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [], garageDist: [], garageDupes: [] })
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
 
@@ -350,6 +349,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [slaOnly, setSlaOnly]   = useState(false)
   const [noPrOnly, setNoPrOnly] = useState(false)
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
+  // การ์ดสัดส่วน: ดูตามฟลีท หรือ จำนวนรถต่ออู่
+  const [distBy, setDistBy] = useState<"fleet" | "garage">("fleet")
+  const [showAllGarages, setShowAllGarages] = useState(false)
+  const [showDupes, setShowDupes] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -385,7 +388,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     try {
       const res  = await fetch(`/api/repair-external/stats?scope=${mode}${fType ? `&type=${encodeURIComponent(fType)}` : ""}`)
       const data = await res.json()
-      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [] })
+      setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [], garageDist: [], garageDupes: [] })
     } catch { /* ignore */ }
   }, [mode, fType])
 
@@ -455,6 +458,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   function openAdd() {
     setEditId(null)
+    setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
     // ประเภทเริ่มต้นตาม tab ที่กรองอยู่ (เปลี่ยนได้ใน step 1)
@@ -462,7 +466,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setForm({
       ...EMPTY,
       jobType: jt,
-      receivedDate: new Date().toISOString().slice(0, 10),
+      receivedDate: bkkToday(),
       status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value,
     })
     setOpen(true)
@@ -471,9 +475,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // สร้างรายการใหม่จากงานอู่นอกใน ATMS ที่ยังไม่มีในระบบ — prefill จากข้อมูลจริง (คนตรวจแล้วกดบันทึกเอง)
   function openAddFromAtms(m: AtmsPending) {
     setEditId(null)
+    setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
-    const today = new Date().toISOString().slice(0, 10)
+    const today = bkkToday()
     setForm({
       ...EMPTY,
       jobType: JOB_TYPE_GARAGE,
@@ -494,7 +499,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEditFillMr(wmsId: string, mrCode: string) {
     const r = rows.find((x) => x._id === wmsId)
     if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
-    openEdit(r)
+    openEdit(r, true)
     setForm((f) => ({ ...f, mrNo: mrCode }))
   }
 
@@ -502,7 +507,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEditFillPr(p: AtmsBoard["prFill"][number]) {
     const r = rows.find((x) => x._id === p.id)
     if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
-    openEdit(r)
+    openEdit(r, true)
     setForm((f) => ({
       ...f,
       prCode: f.prCode?.trim() ? f.prCode : p.prCodes.join(","),
@@ -515,8 +520,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function setJobType(jt: string) {
     setForm((f) => ({ ...f, jobType: jt, status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value }))
   }
-  function openEdit(r: RepairExternal) {
+  function openEdit(r: RepairExternal, startEditing = false) {
     setEditId(r._id)
+    setViewOnly(!startEditing)
     setEditRow(r)
     setFormImages(r.images ?? []); setFormNegImages(r.negotiationImages ?? []); setFormQuotImages(r.quotationImages ?? []); setVdRef(""); setOrigStatus(r.status)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -527,6 +533,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     loadComments(r._id)
     loadLog(r)
     setOpen(true)
+  }
+
+  // ยกเลิกการแก้ไข: รายการเดิม → ทิ้งที่แก้ค้างไว้ กลับไปหน้ารายละเอียด · รายการใหม่ → ปิด modal
+  function cancelEdit() {
+    if (!editId || !editRow) { setOpen(false); return }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { _id, ...rest } = editRow
+    setForm({ ...EMPTY, ...rest })
+    setFormImages(editRow.images ?? []); setFormNegImages(editRow.negotiationImages ?? []); setFormQuotImages(editRow.quotationImages ?? [])
+    setViewOnly(true)
   }
 
   // โหลด timeline ATMS ของคันนี้ (ปีปัจจุบัน + mr_id ถ้ารู้)
@@ -593,7 +609,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     lines.push("━━━━━━━━━━━━━━")
     colRows.forEach((r, i) => {
       const sla = slaInfo(r)
-      const age = ageDays(r.receivedDate)
+      const age = ageDays(jobStartDate(r))
       lines.push(`${i + 1}. 🚚 ${r.plate || "-"}${r.fleetNo ? ` (${r.fleetNo})` : ""}${r.fleet ? ` · ${r.fleet}` : ""}`)
       if (r.symptom) lines.push(`   🔧 ${r.symptom}`)
       const meta: string[] = []
@@ -674,7 +690,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       }
     }
     if (b.openNotParked.length) {
-      lines.push("", `🟢 ${b.openNotParked.length} คันนี้ รถออกจากอู่กลับมาวิ่งแล้ว แต่งานยังไม่ได้ปิด`, "→ ถ้าซ่อมเสร็จแล้ว ฝากปิดงานด้วยครับ (ใส่วันเสร็จ = วันที่ออกอู่)", "")
+      lines.push("", `🟢 ${b.openNotParked.length} คันนี้ ไม่อยู่ในรายการรถจอดซ่อมแล้ว แต่งานยังไม่ได้ปิด`, "→ รบกวนเช็คว่าออกอู่จริงไหม ถ้าซ่อมเสร็จแล้วฝากปิดงานด้วยครับ (ใส่วันเสร็จ = วันที่ออกอู่)", "")
       for (const w of b.openNotParked) {
         const done = w.atmsStep === "รถซ่อมเสร็จสิ้น" ? " (Mena-Next ปิดว่าเสร็จสิ้นแล้ว)" : ""
         lines.push(`${++n}. ${w.fleetNo || w.plate} — สถานะค้างที่ "${w.status}"${done}`)
@@ -716,7 +732,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
     const red = list
       .filter((r) => r.status === statusesFor(jobTypeOf(r))[0].value)
-      .sort((a, b) => (ageDays(b.receivedDate) ?? 0) - (ageDays(a.receivedDate) ?? 0))
+      .sort((a, b) => (ageDays(jobStartDate(b)) ?? 0) - (ageDays(jobStartDate(a)) ?? 0))
     const green = list
       .filter((r) => !red.includes(r) && r.dueDate && r.dueDate < today)
       .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))
@@ -730,7 +746,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const names = [...new Set(red.map((r) => r.status))].join("/")
       lines.push("", `🔴 ${red.length} คันนี้ ในระบบยังเขียนว่า "${names}"`, "→ ถ้ารถเข้าอู่แล้ว ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
       red.forEach((r) => {
-        const age = ageDays(r.receivedDate) ?? 0
+        const age = ageDays(jobStartDate(r)) ?? 0
         lines.push(`${++n}. ${keyOf(r)} — จอดมา ${age} วัน${age >= 45 ? "‼️" : ""}${r.symptom ? ` (${r.symptom})` : ""}${r.poCode ? " มี PO แล้ว" : ""}`)
         lines.push(linkOf(r))
       })
@@ -803,6 +819,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     if (missing.length) {
       // เปิดฟอร์ม (หน้าเดียว) ให้กรอกฟิลด์ที่ขาดก่อนปิดงาน
       setEditId(r._id)
+      setViewOnly(false)
       setEditRow(r)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _id, ...rest } = r
@@ -891,7 +908,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const jobAlertOf = (r: RepairExternal): JobAlert | null => {
     const ds = dailyStatus[r.plate]
     if (!ds || jobTypeOf(r) === JOB_TYPE_PARTS || isDoneStatus(r.status)) return null
-    const age = ageDays(r.receivedDate)
+    const age = ageDays(jobStartDate(r))
     // เคยเป็น B/BA หลังวันรับแจ้งไหม (YYYY-MM-DD เทียบ string ตรงๆ ได้)
     const everBbaSinceJob = !!ds.last_bba_date && !!r.receivedDate && ds.last_bba_date >= r.receivedDate
 
@@ -1115,12 +1132,110 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })()}
 
       {/* สัดส่วนตามฟลีท */}
-      {!isDone && stats.fleetDist.length > 0 && (() => {
-        const fleetTotal = stats.fleetDist.reduce((s, f) => s + f.count, 0)
+      {!isDone && (stats.fleetDist.length > 0 || (stats.garageDist?.length ?? 0) > 0) && (() => {
+        const byGarage = distBy === "garage"
+        const garages  = stats.garageDist ?? []
+        const dupes    = stats.garageDupes ?? []
+        const toggle = (
+          <div className="inline-flex overflow-hidden rounded-lg border border-[#E2E8E4] dark:border-white/10">
+            {([["fleet", "🚚 ฟลีท"], ["garage", "🏭 อู่"]] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setDistBy(v)}
+                className={`px-2.5 py-1 text-[11px] font-semibold transition ${distBy === v ? "bg-[#14271C] text-white dark:bg-white dark:text-[#14271C]" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )
+
+        /* ── มุมมองอู่: อันดับอู่ที่ถือรถอยู่ + แถบแบ่งตามช่วงวันซ่อม ── */
+        if (byGarage) {
+          const shown   = showAllGarages ? garages : garages.slice(0, 8)
+          const maxCnt  = garages[0]?.count ?? 1
+          const trucks  = garages.reduce((a, g) => a + g.count, 0)
+          const slowest = [...garages].sort((a, b) => b.maxDays - a.maxDays)[0]
+          const seg = (n: number, color: string, label: string) =>
+            n ? <div key={label} title={`${label} ${n} คัน`} style={{ flex: n, background: color }} /> : null
+          return (
+            <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">🏭 อู่ที่ถือรถอยู่ตอนนี้</p>
+                  {toggle}
+                </div>
+                <span className="text-xs text-gray-400">
+                  {garages.length} อู่ · {trucks} คัน
+                  {slowest && <> · ค้างนานสุด <b className="text-[#DC2626]">{slowest.garage} {slowest.maxDays} วัน</b></>}
+                </span>
+              </div>
+
+              {/* ชื่ออู่ที่อาจเป็นอู่เดียวกัน — ตัวเลขจะกระจายกันจนดูน้อยกว่าจริง */}
+              {dupes.length > 0 && (
+                <div className="mt-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-300">
+                  <button onClick={() => setShowDupes((v) => !v)} className="text-left font-semibold">
+                    ⚠ พบชื่ออู่ที่น่าจะเป็นอู่เดียวกัน {dupes.length} กลุ่ม — ตัวเลขด้านล่างจึงกระจายกันอยู่ {showDupes ? "▲" : "▼"}
+                  </button>
+                  {showDupes && (
+                    <ul className="mt-1.5 space-y-1">
+                      {dupes.map((d) => (
+                        <li key={d.names.join("|")} className="text-[11.5px]">
+                          รวมกัน <b>{d.total} คัน</b>: {d.names.join("  ·  ")}
+                        </li>
+                      ))}
+                      <li className="pt-0.5 text-[11px] opacity-80">แก้โดยเปิดรายการแล้วเลือกชื่ออู่ให้ตรงกันจากรายการอู่ (หน้า จัดการอู่ / ร้านอะไหล่)</li>
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-3 space-y-1">
+                {shown.map((g) => {
+                  const active = fGarage === g.garage
+                  const worst  = g.gte15 ? "#DC2626" : g.d8_14 ? "#E8A317" : "#1B8C4B"
+                  return (
+                    <button
+                      key={g.garage}
+                      onClick={() => setFGarage(active ? "" : g.garage)}
+                      title={`${g.garage} — ${g.count} คัน · เฉลี่ย ${g.avgDays} วัน · นานสุด ${g.maxDays} วัน (คลิกเพื่อกรองตาราง)`}
+                      className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition ${active ? "bg-[#F0FDF4] ring-1 ring-[#1B8C4B]/30 dark:bg-white/5" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                    >
+                      <span className="w-7 shrink-0 text-right text-[19px] font-semibold leading-none" style={{ fontFamily: "'Mitr', sans-serif", color: worst }}>{g.count}</span>
+                      <span className={`min-w-0 flex-1 truncate text-[13px] ${active ? "font-semibold text-[#14271C] dark:text-white" : "text-gray-700 dark:text-gray-300"}`}>{g.garage}</span>
+                      <span className="hidden h-2.5 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10 sm:flex" style={{ width: `${Math.max(12, (g.count / maxCnt) * 100)}%`, maxWidth: 200, minWidth: 24 }}>
+                        {seg(g.lt8, "#1B8C4B", "0-7 วัน")}{seg(g.d8_14, "#E8A317", "8-14 วัน")}{seg(g.gte15, "#DC2626", "15+ วัน")}
+                      </span>
+                      <span className="w-[92px] shrink-0 text-right text-[11.5px] font-semibold" style={{ color: worst }}>นานสุด {g.maxDays} วัน</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#F1F5F2] dark:border-white/5 pt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                {[["#1B8C4B", "0–7 วัน"], ["#E8A317", "8–14 วัน"], ["#DC2626", "15+ วัน"]].map(([c, l]) => (
+                  <span key={l} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c }} />{l}</span>
+                ))}
+                <span className="opacity-70">คลิกแถว = กรองตารางเฉพาะอู่นั้น</span>
+                {garages.length > 8 && (
+                  <button onClick={() => setShowAllGarages((v) => !v)} className="ml-auto font-medium text-[#1B8C4B] hover:underline">
+                    {showAllGarages ? "ย่อเหลือ 8 อันดับแรก" : `ดูอีก ${garages.length - 8} อู่`}
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        /* ── มุมมองฟลีท (เดิม) ── */
+        const fleetTotal = stats.fleetDist.reduce((s2, f) => s2 + f.count, 0)
         return (
           <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">สัดส่วนตามฟลีท</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">สัดส่วนตามฟลีท</p>
+                {toggle}
+              </div>
               <span className="text-xs text-gray-400">{stats.fleetDist.length} ฟลีท · {fleetTotal} คัน</span>
             </div>
             <div className="mt-2.5 flex h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
@@ -1476,10 +1591,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             ) : displayRows.map((r) => {
               const sm = statusMeta(r.status)
               const sla = slaInfo(r)
-              const days = ageDays(r.receivedDate)
+              const days = ageDays(jobStartDate(r))
               const bkt  = days !== null ? agingBucket(days) : null
               const urgent = (days ?? 0) >= 15
-              const dueOverdue = !!r.dueDate && r.dueDate < TODAY_STR
+              const dueOverdue = !!r.dueDate && r.dueDate < todayStr()
               return (
                 <div
                   key={r._id}
@@ -1488,17 +1603,27 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   style={{ gridTemplateColumns: TABLE_GRID, background: urgent ? "#FFFBFB" : undefined }}
                 >
                   {/* อายุงาน — ตัวเลขใหญ่ สีตามความช้า */}
-                  <div className="flex gap-2.5">
+                  <div
+                    className="flex gap-2.5"
+                    title={
+                      jobStartDate(r) && jobStartDate(r) !== r.receivedDate
+                        ? `นับจากวันที่รถเข้าอู่ ${fmtDateShort(r.garageInDate)} (เก่ากว่าวันรับแจ้ง ${fmtDateShort(r.receivedDate)} — รายการนี้คีย์ย้อนหลัง)`
+                        : `นับจากวันรับแจ้ง ${fmtDateShort(r.receivedDate)}`
+                    }
+                  >
                     <div className="w-1.5 shrink-0 self-stretch rounded-full" style={{ background: bkt?.text ?? "#9ca3af" }} />
                     <div>
                       <div className="text-[26px] font-semibold leading-none" style={{ fontFamily: "'Mitr', sans-serif", color: bkt?.text ?? "#9ca3af" }}>{days ?? "—"}</div>
                       <div className="mt-1 text-[11px] text-[#9AA8A0]">วัน</div>
+                      {jobStartDate(r) && jobStartDate(r) !== r.receivedDate && (
+                        <div className="mt-0.5 text-[10px] leading-tight text-[#9AA8A0]">จากวันเข้าอู่</div>
+                      )}
                     </div>
                   </div>
                   {/* รถ */}
                   <div className="min-w-0">
-                    <div className="truncate text-[17px] font-bold text-[#14271C] dark:text-white" title={r.plate}>{r.plate || "—"}</div>
-                    {r.fleetNo && <div className="text-[13px] font-medium text-[#5B7568]">เบอร์ {r.fleetNo}</div>}
+                    <div className="truncate text-[17px] font-bold text-[#14271C] dark:text-white" title={r.fleetNo || r.plate}>{r.fleetNo || r.plate || "—"}</div>
+                    {r.fleetNo && r.plate && <div className="text-[13px] font-medium text-[#5B7568]">{r.plate}</div>}
                     {/* สถานะรายวันล่าสุดของรถ (จาก mena-intelligence) */}
                     {dailyStatus[r.plate] && (
                       <div
@@ -1670,11 +1795,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           )}
         <div className="overflow-x-auto pb-2">
           <div className="flex gap-3">
-            {b.statuses.map((s) => {
+            {(() => {
+              // สถานะที่มีข้อมูลจริงแต่ไม่อยู่ใน workflow แล้ว (รายการเก่า/นำเข้าผิด) — ต้องมีคอลัมน์ ไม่งั้นการ์ดหายเงียบ
+              const known = new Set(b.statuses.map((x) => x.value))
+              const extra = [...new Set(boardRows.map((r) => r.status).filter((v) => v && !known.has(v)))]
+                .map((v) => statusMeta(v))
+              return [...b.statuses, ...extra]
+            })().map((s) => {
               const colRows = boardRows.filter((r) => r.status === s.value)
               const isDropDone = s.value === doneStatusFor(b.type)
               const colColor = barColor(s.value)
-              const colAges  = colRows.map((r) => ageDays(r.receivedDate)).filter((n): n is number => n !== null)
+              const colAges  = colRows.map((r) => ageDays(jobStartDate(r))).filter((n): n is number => n !== null)
               const avgCol   = colAges.length ? Math.round(colAges.reduce((a, b) => a + b, 0) / colAges.length) : 0
               return (
                 <div
@@ -1707,10 +1838,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   <div className="min-h-[140px] flex-1 space-y-2 p-2">
                     {colRows.map((r) => {
-                      const days = ageDays(r.receivedDate)
+                      const days = ageDays(jobStartDate(r))
                       const bkt  = days !== null ? agingBucket(days) : null
                       const idx  = b.statuses.findIndex((x) => x.value === r.status)
-                      const dueOverdue = !!r.dueDate && r.dueDate < TODAY_STR
+                      const dueOverdue = !!r.dueDate && r.dueDate < todayStr()
                       return (
                       <div
                         key={r._id}
@@ -1787,9 +1918,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-                  {isParts
-                    ? (editId ? "แก้ไขรายการอะไหล่ลงคัน" : "รายการอะไหล่ลงคัน")
-                    : (editId ? "แก้ไขรายการแจ้งซ่อม" : "รายการแจ้งซ่อม")}
+                  {!editId
+                    ? (isParts ? "รายการอะไหล่ลงคัน" : "รายการแจ้งซ่อม")
+                    : viewOnly
+                      ? (isParts ? "รายละเอียดอะไหล่ลงคัน" : "รายละเอียดรายการแจ้งซ่อม")
+                      : (isParts ? "แก้ไขรายการอะไหล่ลงคัน" : "แก้ไขรายการแจ้งซ่อม")}
                 </h2>
                 {editId && (
                   <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${isParts ? "bg-[#EEF2FF] text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300" : "bg-[#F1F5F2] dark:bg-white/10 text-[#5B7568] dark:text-gray-300"}`}>
@@ -1815,6 +1948,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 )}
               </div>
               <div className="flex items-center gap-1.5">
+                {editId && viewOnly && (
+                  <button onClick={() => setViewOnly(false)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0F6A3C]">
+                    <Pencil size={14} /> แก้ไขข้อมูล
+                  </button>
+                )}
                 {editId && (
                   <button onClick={copyShareLink} title="คัดลอกลิงก์แชร์รายการนี้" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
                     <Link2 size={14} /> คัดลอกลิงก์
@@ -1828,6 +1966,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
             {/* body — ทุก section เรียงบนลงล่างในหน้าเดียว เลื่อนดูได้ */}
             <div className="flex-1 overflow-y-auto px-5 py-5">
+              {viewOnly && editId ? (
+                <RepairDetailCard r={form} isParts={isParts} images={formImages} quotImages={formQuotImages} negImages={formNegImages} />
+              ) : (<>
               {/* ── หมวด 1: ข้อมูลรถ (เขียว) ── */}
               <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
               <p className="flex items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-4 py-2.5 text-[15px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ</p>
@@ -2029,7 +2170,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       if (editRow.lastCheckedAt && !byDate.has(bkkDate(editRow.lastCheckedAt)))
                         byDate.set(bkkDate(editRow.lastCheckedAt), { by: editRow.lastCheckedBy || "", at: editRow.lastCheckedAt })
                       // ไล่วันจากวันรับแจ้ง → วันนี้ (โชว์ล่าสุดไม่เกิน 60 วัน)
-                      const startTs = Date.parse(editRow.receivedDate || today)
+                      // receivedDate อาจเป็นวันในอนาคต (คีย์ผิด) — ให้เริ่มไม่เกินวันนี้ ปฏิทินจะได้มีช่องวันนี้เสมอ
+                      const rcv = editRow.receivedDate && editRow.receivedDate < today ? editRow.receivedDate : today
+                      const startTs = Date.parse(rcv)
                       const days: string[] = []
                       for (let t = isNaN(startTs) ? Date.parse(today) : startTs; ; t += 86400000) {
                         const ds = new Date(t).toISOString().slice(0, 10)
@@ -2172,6 +2315,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
               </section>
 
+              </>)}
+
               {/* ── หมวด 4: ประวัติ (เทา) — โชว์ในหน้าเลย โฟกัสเส้นทางสถานะ ── */}
               {editId && (
                 <section className="mt-5 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10">
@@ -2290,7 +2435,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className="p-4">
                     {atmsTlErr && <p className="text-sm text-red-500">โหลดไม่สำเร็จ: {atmsTlErr}</p>}
                     {atmsTl === null && !atmsTlErr && !atmsTlLoading && (
-                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก Mena-Next (ปี {new Date().getFullYear()})</p>
+                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก Mena-Next (ปี {new Date(Date.now() + 25200000).getUTCFullYear()})</p>
                     )}
                     {atmsTl !== null && atmsTl.length === 0 && <p className="text-sm text-gray-400">ไม่พบข้อมูลใน Mena-Next สำหรับทะเบียนนี้</p>}
                     {atmsTl !== null && atmsTl.length > 0 && (
@@ -2394,15 +2539,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             {/* footer ตรึงล่าง — ลบได้จากที่นี่ที่เดียว (ตารางไม่มีปุ่มลบแล้ว) */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-3.5">
               <div>
-                {editId && editRow && (
+                {editId && editRow && !viewOnly && (
                   <button onClick={() => remove(editRow)} className="inline-flex items-center gap-1.5 rounded-lg border border-[#F3C1C1] dark:border-red-900/40 px-3.5 py-2 text-sm font-medium text-[#DC2626] hover:bg-[#FEECEC] dark:hover:bg-red-950/20">
                     <Trash2 size={15} /> ลบรายการ
                   </button>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
-                <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
+                {viewOnly && editId ? (
+                  <>
+                    <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ปิด</button>
+                    <button onClick={() => setViewOnly(false)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><Pencil size={15} /> แก้ไขข้อมูล</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={cancelEdit} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
+                    <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -2580,6 +2734,104 @@ function CopyText({ value }: { value: string }) {
       <span className="truncate">{v}</span>
       <Copy size={11} className="shrink-0 opacity-0 transition group-hover:opacity-60" />
     </button>
+  )
+}
+
+/* ── มุมมองอ่านอย่างเดียว: การ์ดสรุปรายละเอียดงานซ่อม (กด "แก้ไขข้อมูล" เพื่อเข้าฟอร์ม) ── */
+function DetailField({ label, value, wide, mono }: { label: string; value?: React.ReactNode; wide?: boolean; mono?: boolean }) {
+  const empty = value === undefined || value === null || value === "" || value === 0
+  return (
+    <div className={wide ? "sm:col-span-2" : ""}>
+      <p className="text-[11px] font-medium text-[#9AA8A0] dark:text-white/40">{label}</p>
+      <p className={`mt-0.5 text-[13.5px] ${empty ? "text-[#C6CFC9] dark:text-white/25" : "font-medium text-[#14271C] dark:text-white"} ${mono ? "font-mono" : ""} whitespace-pre-wrap break-words`}>
+        {empty ? "—" : value}
+      </p>
+    </div>
+  )
+}
+
+function DetailSection({ title, tone, children }: { title: string; tone: string; children: React.ReactNode }) {
+  return (
+    <section className={`mt-4 overflow-hidden rounded-xl border first:mt-0 ${tone}`}>
+      <p className="border-b border-inherit bg-black/[0.02] px-4 py-2 text-[13.5px] font-bold text-[#37473E] dark:bg-white/5 dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>{title}</p>
+      <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-4 sm:grid-cols-2">{children}</div>
+    </section>
+  )
+}
+
+function DetailImages({ label, items }: { label: string; items: SkuImage[] }) {
+  if (!items.length) return null
+  return (
+    <div className="sm:col-span-2">
+      <p className="text-[11px] font-medium text-[#9AA8A0] dark:text-white/40">{label} ({items.length})</p>
+      <div className="mt-1.5 flex flex-wrap gap-2">
+        {items.map((im) => (
+          <a key={im.mediaId} href={im.webpUrl} target="_blank" rel="noopener noreferrer" title={im.filename}
+            className="block h-16 w-16 overflow-hidden rounded-lg border border-[#EEF2F0] dark:border-white/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={im.thumbnailUrl || im.webpUrl} alt={im.filename} className="h-full w-full object-cover" />
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
+  r: Omit<RepairExternal, "_id">; isParts: boolean
+  images: SkuImage[]; quotImages: SkuImage[]; negImages: SkuImage[]
+}) {
+  const money = (n: number) => (n ? `${fmtNum(n)} บาท` : "")
+  const date = (s: string) => (s ? fmtDateShort(s) : "")
+  return (
+    <div>
+      <DetailSection title="🚚 ข้อมูลรถ" tone="border-[#D6EFDF] dark:border-[#1B8C4B]/30">
+        <DetailField label="เบอร์รถ" value={r.fleetNo} mono />
+        <DetailField label="ทะเบียน" value={r.plate} mono />
+        <DetailField label="ฟลีท" value={r.fleet} />
+        <DetailField label="แพล้นท์" value={r.plant} />
+        <DetailField label="คนขับ" value={r.driverName} />
+        <DetailField label="เบอร์โทรคนขับ" value={r.driverPhone} />
+        <DetailField label="สถานะปูนในโม่" value={r.cementStatus} />
+        <DetailField label="สภาพรถ" value={r.drivableStatus} />
+        <DetailField label="จุดที่รถเสีย" value={r.breakdownLocation} wide />
+      </DetailSection>
+
+      <DetailSection title={isParts ? "🔩 อะไหล่ลงคัน" : "🔧 งานซ่อม"} tone={isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}>
+        <DetailField label="เลข MR" value={r.mrNo} mono />
+        <DetailField label={isParts ? "ร้านอะไหล่" : "อู่ซ่อม"} value={r.garage} />
+        <DetailField label="อาการ / รายละเอียด" value={r.symptom} wide />
+        <DetailField label="วันที่รับแจ้ง" value={date(r.receivedDate)} />
+        <DetailField label={isParts ? "วันที่สั่งของ" : "วันที่รถเข้าอู่"} value={date(r.garageInDate)} />
+        <DetailField label="กำหนดเสร็จ" value={date(r.dueDate)} />
+        <DetailField label="วันที่เสร็จจริง" value={date(r.completedDate)} />
+        <DetailImages label="ไฟล์แนบ" items={images} />
+      </DetailSection>
+
+      <DetailSection title="💰 ราคา · ใบเสนอราคา" tone="border-[#BEE7F2] dark:border-cyan-500/30">
+        <DetailField label="ราคาเสนอครั้งแรก" value={money(r.offerPrice)} />
+        <DetailField label="ประกันที่เสนอ" value={r.offerWarranty} />
+        <DetailField label="ราคาหลังต่อรอง" value={money(r.negotiatedPrice)} />
+        <DetailField label="ขอบเขตต่อรอง" value={r.negotiationScope === "ระบุสินค้า/บริการ" ? `${r.negotiationScope}: ${r.negotiationItem || "—"}` : r.negotiationScope} />
+        <DetailField label="ราคาซ่อมที่ตกลง" value={money(r.repairPrice)} />
+        <DetailField label="รับประกัน" value={r.warranty} />
+        <DetailField label="รายละเอียดใบเสนอราคา" value={r.quotationDetail} wide />
+        <DetailImages label="ไฟล์ใบเสนอราคา" items={quotImages} />
+        <DetailImages label="หลักฐานการต่อรอง" items={negImages} />
+      </DetailSection>
+
+      <DetailSection title="📄 สถานะ · เอกสาร" tone="border-[#E4D5FB] dark:border-violet-500/30">
+        <DetailField label="สถานะปัจจุบัน" value={
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold ${statusMeta(r.status).cls}`}>
+            {statusMeta(r.status).emoji} {r.status}
+          </span>} />
+        <DetailField label="อยู่สถานะนี้ตั้งแต่" value={date(r.statusSince)} />
+        <DetailField label="เลข PR" value={r.prCode} mono />
+        <DetailField label="เลข PO" value={r.poCode} mono />
+        {!isParts && <DetailField label="รอใบเสนอราคา" value={r.waitingQuote ? "🔍 ใช่" : ""} />}
+        <DetailField label="หมายเหตุ" value={r.note} wide />
+      </DetailSection>
+    </div>
   )
 }
 
