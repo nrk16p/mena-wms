@@ -249,7 +249,7 @@ export function DriverHandoverPage() {
   }, [statusTab, filterFleet, filterBucket, noTruckOnly, staleOnly, blankCustOnly, q])
 
   const shownDrivers = useMemo(() => {
-    const order: Record<string, number> = { "รอรับรถ": 0, "ฝึกงาน": 1, "ฝึกงาน 1-2 วัน": 2, "รอฝึกงาน": 3, "รับรถแล้ว": 4 }
+    const order: Record<string, number> = { "รอรับรถ": 0, "ฝึกงาน": 1, "รอฝึกงาน": 2, "รับรถแล้ว": 3 }
     return [...applyFilters(drivers)].sort((a, b) =>
       (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.waitDays - a.waitDays || (a.readyDate ?? "9") .localeCompare(b.readyDate ?? "9"))
   }, [drivers, applyFilters])
@@ -824,7 +824,7 @@ function StatusModal({ driver, saving, onClose, onSave }: {
   driver: HandoverDriver; saving: boolean
   onClose: () => void; onSave: (toStatus: string, note: string) => void
 }) {
-  const [toStatus, setToStatus] = useState(driver.status === "ฝึกงาน 1-2 วัน" ? "ฝึกงาน" : driver.status)
+  const [toStatus, setToStatus] = useState(driver.status)
   const [note, setNote] = useState("")
   const meta = driverStatusMeta(driver.status)
   return (

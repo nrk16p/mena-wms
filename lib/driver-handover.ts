@@ -104,7 +104,7 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
     if (status === "รอรับรถ") {
       // พร้อมตั้งแต่วันครบฝึก (ถ้ามี) ไม่งั้นถือว่าพร้อมแล้ววันนี้
       readyDate = due && due < today ? iso(due) : iso(today)
-    } else if (status === "ฝึกงาน" || status === "ฝึกงาน 1-2 วัน") {
+    } else if (status === "ฝึกงาน") {
       if (due) readyDate = iso(due)
       else estimateFromStart()
     } else if (status === "รอฝึกงาน") {

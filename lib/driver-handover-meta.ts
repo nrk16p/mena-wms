@@ -68,7 +68,8 @@ export type HandoverData = {
   fetchedAt: string
 }
 
-export const ACTIVE_STATUSES = ["รอฝึกงาน", "ฝึกงาน", "ฝึกงาน 1-2 วัน", "รอรับรถ"] as const
+// "ฝึกงาน 1-2 วัน" ไม่นับเป็น active — เป็นสถานะค้างเก่าในชีต ไม่อยู่ในคิวส่งมอบจริง
+export const ACTIVE_STATUSES = ["รอฝึกงาน", "ฝึกงาน", "รอรับรถ"] as const
 
 export const EDITABLE_STATUSES = [
   "รอฝึกงาน", "ฝึกงาน", "รอรับรถ", "รับรถแล้ว", "ลาออก", "ยกเลิกฝึกงาน", "สละสิทธิ์", "ปลด",
@@ -78,7 +79,6 @@ export const EDITABLE_STATUSES = [
 export const DRIVER_STATUS_META: { value: string; emoji: string; cls: string }[] = [
   { value: "รอฝึกงาน", emoji: "🕐", cls: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300" },
   { value: "ฝึกงาน", emoji: "🎓", cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300" },
-  { value: "ฝึกงาน 1-2 วัน", emoji: "⏸️", cls: "bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15 dark:text-zinc-400" },
   { value: "รอรับรถ", emoji: "🚛", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" },
   { value: "รับรถแล้ว", emoji: "✅", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
   { value: "ลาออก", emoji: "🚪", cls: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" },
