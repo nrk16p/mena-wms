@@ -41,8 +41,29 @@ if (conflicts.length) {
 }
 if (DRY) { console.log("(--dry ไม่เขียน DB)"); process.exit(0) }
 
-const src = readFileSync(new URL("./check-sku-vehicles.mjs", import.meta.url), "utf8")
-const uri = process.env.MONGO_URI || src.match(/mongodb(?:\+srv)?:\/\/[^"']+/)[0]
+// Resolve MONGO_URI: prefer env var, fall back to extracting from check-sku-vehicles.mjs
+let uri = process.env.MONGO_URI
+if (!uri) {
+  let src
+  try {
+    src = readFileSync(new URL("./check-sku-vehicles.mjs", import.meta.url), "utf8")
+  } catch {
+    console.error("หา MONGO_URI ไม่เจอ — ตั้ง env MONGO_URI ก่อนรันสคริปต์นี้")
+    process.exit(1)
+  }
+  const match = src.match(/mongodb(?:\+srv)?:\/\/[^"']+/)
+  if (!match) {
+    console.error("หา MONGO_URI ไม่เจอ — ตั้ง env MONGO_URI ก่อนรันสคริปต์นี้")
+    process.exit(1)
+  }
+  uri = match[0]
+}
+
+// Sanity-check URI format before connecting
+if (!uri.startsWith("mongodb://") && !uri.startsWith("mongodb+srv://")) {
+  console.error("หา MONGO_URI ไม่เจอ — ตั้ง env MONGO_URI ก่อนรันสคริปต์นี้")
+  process.exit(1)
+}
 const client = new MongoClient(uri)
 await client.connect()
 const col = client.db("master_data").collection("ap_supplier")
