@@ -103,6 +103,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/deadstock", label: "ภาพรายเดือน", icon: BarChart3, exact: true },
       { href: "/deadstock/pending", label: "สถานะล่าสุด", icon: PackageX, exact: true },
       { href: "/deadstock/items", label: "รายรหัสสินค้า", icon: PackageSearch, exact: true },
+      { href: "/deadstock/baseline", label: "นิยามตัวชี้วัด", icon: BookOpen, exact: true },
     ],
   },
   {

@@ -3,9 +3,18 @@
 import { useMemo, useRef, useState } from "react"
 import { Image as ImageIcon } from "lucide-react"
 import { DeadstockShell, SummaryCards, baht, mitr, useDeadstock } from "@/components/deadstock-shared"
-import type { DeadstockPayload } from "@/lib/deadstock-core"
+import type { BucketKey, DeadstockPayload } from "@/lib/deadstock-core"
 
 type Metric = "count" | "value"
+
+/** ไล่สีตามความรุนแรงของอายุค้าง — เขียว (เพิ่งรับ) ไปแดงเข้ม (ค้างนาน) */
+const AGE_COLOR: Record<BucketKey, string> = {
+  "0-7": "#10B981",
+  "8-15": "#F59E0B",
+  "16-30": "#F97316",
+  "31-60": "#DC2626",
+  "60+": "#7F1D1D",
+}
 
 export function DeadstockMonthlyPage() {
   const { data, error, loading, reload } = useDeadstock()
@@ -215,6 +224,7 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
 
   const maxMonth = Math.max(1, ...data.monthly.map((m) => m.count))
   const maxGroup = Math.max(1, ...groups.map((g) => g.value))
+  const maxBucket = Math.max(1, ...data.summary.buckets.map((b) => b.value))
   const first = data.monthly[0]
   const last = data.monthly[data.monthly.length - 1]
   const growth = first && last && first.count > 0 ? Math.round(((last.count - first.count) / first.count) * 100) : 0
@@ -325,13 +335,27 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
             </div>
           </div>
 
-          <div style={{ border: "1px solid #E5E7EB", borderRadius: 12, padding: "12px 16px" }}>
-            <h2 style={{ ...mitr, fontSize: 15, fontWeight: 700, margin: "0 0 8px" }}>แยกตามอายุค้าง</h2>
-            <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ height: 194, border: "1px solid #E5E7EB", borderRadius: 12, padding: "12px 16px", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+              <h2 style={{ ...mitr, fontSize: 15, fontWeight: 700, margin: 0 }}>แยกตามอายุค้าง</h2>
+              <span style={{ fontSize: 11.5, color: "#9CA3AF" }}>ความสูงแท่ง = มูลค่า · ตัวเลขในวงเล็บ = จำนวนรายการ</span>
+            </div>
+            <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 7, minHeight: 0 }}>
               {data.summary.buckets.map((b) => (
-                <div key={b.key} style={{ flex: 1, textAlign: "center", background: b.key === "60+" ? "#7F1D1D" : "#F9FAFB", color: b.key === "60+" ? "#fff" : "#111827", border: "1px solid #E5E7EB", borderRadius: 8, padding: "7px 3px" }}>
-                  <div style={{ ...mitr, fontSize: 19, fontWeight: 700, lineHeight: 1.15 }}>{b.count}</div>
-                  <div style={{ fontSize: 10.5, color: b.key === "60+" ? "#FCA5A5" : "#6B7280", whiteSpace: "nowrap" }}>{b.label}</div>
+                <div key={b.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%", justifyContent: "flex-end", gap: 3 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: AGE_COLOR[b.key], whiteSpace: "nowrap" }}>{baht(b.value)}</div>
+                  <div
+                    title={`${b.label} — ${b.count} รายการ · ${baht(b.value)}`}
+                    style={{ width: "100%", maxWidth: 44, height: `${Math.max((b.value / maxBucket) * 100, 2)}%`, background: AGE_COLOR[b.key], borderRadius: "4px 4px 0 0" }}
+                  />
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 7, marginTop: 5 }}>
+              {data.summary.buckets.map((b) => (
+                <div key={b.key} style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ fontSize: 10.5, color: "#374151", fontWeight: 600, whiteSpace: "nowrap" }}>{b.label}</div>
+                  <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>({b.count})</div>
                 </div>
               ))}
             </div>

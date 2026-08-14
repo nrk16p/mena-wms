@@ -17,6 +17,13 @@ export const START_YM = "2026-01"
 /** เกินกี่วันถือว่า "ค้างนาน" — ผู้ใช้กำหนด 7 วัน */
 export const STALE_DAYS = 7
 
+/** ── ตัวชี้วัด (KPI) ──
+ *  วัดที่ "มูลค่าของที่ค้างเกิน KPI_AGE_DAYS วัน" ต้องไม่เกิน KPI_MAX_VALUE บาท
+ *  เป็นเป้าหมายที่ฝ่ายบริหารกำหนด ไม่ได้คำนวณจากข้อมูลย้อนหลัง (ต่างจาก baseline แบบ X̄ ± SD)
+ *  แนวเดียวกับ KPI "มูลค่าสินค้าคงคลัง >12 เดือน" ของ mena-intelligence ที่ตั้งเป้า ศลบ. ฿13,000 */
+export const KPI_AGE_DAYS = 60
+export const KPI_MAX_VALUE = 12_000
+
 export const AGE_BUCKETS = [
   { key: "0-7", label: "0-7 วัน", max: 7 },
   { key: "8-15", label: "8-15 วัน", max: 15 },
@@ -123,6 +130,9 @@ export type MonthPoint = {
   value: number
   staleCount: number
   staleValue: number
+  /** ของที่ค้างเกิน KPI_AGE_DAYS วัน ณ สิ้นเดือนนั้น = ตัวเลขที่ KPI คุม */
+  kpiCount: number
+  kpiValue: number
 }
 
 export type ItemRow = {
@@ -148,6 +158,9 @@ export type DeadstockPayload = {
     pendingValue: number
     staleCount: number
     staleValue: number
+    /** ของที่ค้างเกิน KPI_AGE_DAYS วัน ณ วันนี้ = ตัวเลขที่ KPI คุม */
+    kpiCount: number
+    kpiValue: number
     buckets: { key: BucketKey; label: string; count: number; value: number }[]
   }
   monthly: MonthPoint[]
@@ -299,6 +312,8 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
     let value = 0
     let staleCount = 0
     let staleValue = 0
+    let kpiCount = 0
+    let kpiValue = 0
     for (const e of byItem.values()) {
       const upTo = e.layers.filter((l) => l.date <= cutoffIso)
       if (upTo.length === 0) continue
@@ -306,16 +321,25 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
       for (const r of remaining) {
         if (!r.plate) continue // สต็อกกลาง — ร่วมตัดแล้ว แต่ไม่นับเป็นของค้างที่ต้องตาม
         const v = r.remaining * r.cost
+        const age = daysBetween(r.date, cutoff)
         count += 1
         qty += r.remaining
         value += v
-        if (daysBetween(r.date, cutoff) > STALE_DAYS) {
+        if (age > STALE_DAYS) {
           staleCount += 1
           staleValue += v
         }
+        if (age > KPI_AGE_DAYS) {
+          kpiCount += 1
+          kpiValue += v
+        }
       }
     }
-    return { ym, count, qty: r4(qty), value: r2(value), staleCount, staleValue: r2(staleValue) }
+    return {
+      ym, count, qty: r4(qty), value: r2(value),
+      staleCount, staleValue: r2(staleValue),
+      kpiCount, kpiValue: r2(kpiValue),
+    }
   })
 
   // ── สถานะล่าสุด ──
@@ -374,6 +398,7 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
     }
   })
   const stale = pending.filter((p) => p.ageDays > STALE_DAYS)
+  const kpiRows = pending.filter((p) => p.ageDays > KPI_AGE_DAYS)
 
   const items = rollupItems(pending)
 
@@ -388,6 +413,8 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
       pendingValue: r2(pending.reduce((s, p) => s + p.value, 0)),
       staleCount: stale.length,
       staleValue: r2(stale.reduce((s, p) => s + p.value, 0)),
+      kpiCount: kpiRows.length,
+      kpiValue: r2(kpiRows.reduce((s, p) => s + p.value, 0)),
       buckets,
     },
     monthly,

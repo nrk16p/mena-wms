@@ -1,0 +1,482 @@
+"use client"
+
+import { useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb, Download } from "lucide-react"
+import { KPI_AGE_DAYS, KPI_MAX_VALUE, STALE_DAYS, type DeadstockPayload } from "@/lib/deadstock-core"
+
+const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+
+// ขนาดสไลด์คงที่ — PNG ออกมา 2× ของนี้ (2560×1440)
+const SLIDE_W = 1280
+const SLIDE_H = 720
+// เพดานความกว้างพรีวิว — จอ ultrawide ไม่ให้สไลด์บานจนล้นจอ
+const PREVIEW_MAX_W = 1920
+
+function monthLabel(month: string): string {
+  const [y, m] = month.split("-")
+  return `${TH_MONTHS[+m - 1]} ${(+y + 543) % 100}`
+}
+
+const baht = (n: number) => "฿" + Math.round(n).toLocaleString("th-TH")
+
+function Card({ icon: Icon, no, title, children }: {
+  icon: React.ElementType; no?: string; title: string; children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5">
+      <div className="flex items-center gap-2.5 mb-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600">
+          <Icon size={16} />
+        </span>
+        <p className="text-sm font-bold text-gray-900 dark:text-white">
+          {no && <span className="text-red-600 mr-1.5">{no}</span>}{title}
+        </p>
+      </div>
+      <div className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-2">{children}</div>
+    </div>
+  )
+}
+
+function QA({ q, a }: { q: string; a: React.ReactNode }) {
+  return (
+    <div className="rounded-lg bg-gray-50 dark:bg-white/[0.03] p-3.5">
+      <p className="text-[13px] font-semibold text-gray-800 dark:text-gray-200 mb-1">Q: {q}</p>
+      <p className="text-[13px] text-gray-600 dark:text-gray-400 leading-relaxed">A: {a}</p>
+    </div>
+  )
+}
+
+export default function DeadstockBaselinePage() {
+  const [data, setData] = useState<DeadstockPayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [savingPng, setSavingPng] = useState(false)
+  const slideRef = useRef<HTMLDivElement>(null)
+  // พรีวิวสเกลตามความกว้างจอ แต่ตัวที่ export ยังเป็น 1280×720 เป๊ะเสมอ
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setScale(Math.min(e.contentRect.width, PREVIEW_MAX_W) / SLIDE_W))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/deadstock")
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setData(d) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  /** สถิติจาก "เดือนที่จบแล้ว และวัดผลได้จริง" เท่านั้น
+   *  ตัด 2 อย่างออก:
+   *    1. เดือนปัจจุบัน — ยังเดินอยู่ เอามาเฉลี่ยจะกดค่าให้ต่ำกว่าจริง
+   *    2. เดือนแรก ๆ ที่ของยังอายุไม่ถึง KPI_AGE_DAYS วัน — ค่าเป็น ฿0 เชิงโครงสร้าง
+   *       (ข้อมูลเริ่มที่ startYm ของชิ้นแรกจึงเพิ่งครบ 60 วันหลังจากนั้น) ไม่ใช่เพราะทำได้ตามเป้า
+   *       ถ้าเอามาเฉลี่ยด้วยจะทำให้ X̄ ต่ำกว่าความจริงและ "ต่ำสุด ฿0" ทำให้เข้าใจผิด */
+  const stat = useMemo(() => {
+    if (!data || data.monthly.length < 2) return null
+    const [sy, sm] = data.startYm.split("-").map(Number)
+    const firstMeasurable = new Date(Date.UTC(sy, sm - 1, 1))
+    firstMeasurable.setUTCDate(firstMeasurable.getUTCDate() + KPI_AGE_DAYS)
+    const fromYm = `${firstMeasurable.getUTCFullYear()}-${String(firstMeasurable.getUTCMonth() + 1).padStart(2, "0")}`
+
+    const closed = data.monthly.slice(0, -1)
+    const done = closed.filter((m) => m.ym >= fromYm)
+    if (done.length === 0) return null
+    const skipped = closed.length - done.length
+    const kpi = done.map((m) => m.kpiValue)
+    const avg = kpi.reduce((a, b) => a + b, 0) / kpi.length
+    const sd = Math.sqrt(kpi.reduce((a, b) => a + (b - avg) ** 2, 0) / kpi.length)
+    const current = data.summary.kpiValue
+    return {
+      done,
+      skipped,
+      fromYm,
+      monthCount: done.length,
+      closedCount: closed.length,
+      avg,
+      sd,
+      min: Math.min(...kpi),
+      max: Math.max(...kpi),
+      first: done[0],
+      last: done[done.length - 1],
+      current,
+      currentCount: data.summary.kpiCount,
+      gap: current - KPI_MAX_VALUE,
+      ratio: current / KPI_MAX_VALUE,
+      achievement: Math.round((KPI_MAX_VALUE / Math.max(current, 1)) * 100),
+    }
+  }, [data])
+
+  const savePng = async () => {
+    const el = slideRef.current
+    if (!el || savingPng) return
+    setSavingPng(true)
+    try {
+      const { toBlob } = await import("html-to-image")
+      const opts = { pixelRatio: 2, backgroundColor: "#ffffff", skipFonts: true }
+      // Safari/WebKit: การจับภาพครั้งแรกมักได้ภาพเปล่า — วอร์มก่อนแล้วค่อยจับจริง
+      await toBlob(el, opts)
+      const blob = await toBlob(el, opts)
+      if (!blob) throw new Error("capture returned empty image")
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.download = `deadstock-baseline-${new Date().toISOString().slice(0, 10)}.png`
+      a.href = url
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e) {
+      console.error("save png failed", e)
+      alert(`บันทึก PNG ไม่สำเร็จ: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setSavingPng(false)
+    }
+  }
+
+  const maxKpi = Math.max(KPI_MAX_VALUE, ...(data?.monthly.map((m) => m.kpiValue) ?? [1]))
+
+  return (
+    <div className="p-5 md:p-6 max-w-[1400px] mx-auto">
+      <Link
+        href="/deadstock"
+        className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-600 transition-colors mb-3"
+      >
+        <ArrowLeft size={12} /> กลับไปหน้ารายงาน
+      </Link>
+      <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">
+        นิยามตัวชี้วัด &amp; Baseline — ของค้างคลัง (Deadstock)
+      </h1>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+        เอกสารกำกับตัวชี้วัดของค้างคลังลาดกระบัง — ใบรับสินค้า (DD) ที่ยังไม่ถูกเบิก (WD) สำหรับการจัดทำ Baseline และการควบคุมทุนจม
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-5">
+        {/* 1. แหล่งที่มา */}
+        <Card icon={Database} no="1." title="แหล่งที่มาของข้อมูล (Data Source)">
+          <p>
+            <span className="font-semibold text-gray-800 dark:text-gray-200">ระบบ ATMS</span> — รายการเคลื่อนไหวสินค้า (stock movement)
+            ของคลังลาดกระบัง ดึงเข้าฐานข้อมูล <span className="font-mono text-xs">atms.stockmovement_v5</span> อัตโนมัติทุกวัน
+            โดยแยกเป็นแถว &quot;รับเข้า&quot; (มีเลขใบ DD) และ &quot;เบิกออก&quot; (มีเลขใบ WD)
+          </p>
+          <p>
+            <span className="font-semibold text-gray-800 dark:text-gray-200">ระบบ Mena-WMS</span> — จับคู่ใบรับกับใบเบิกด้วยหลัก FIFO
+            รายรหัสสินค้า แล้วแสดงผลที่หน้า <span className="font-mono text-xs">/deadstock</span>
+          </p>
+        </Card>
+
+        {/* 2. As-Is */}
+        <Card icon={CalendarRange} no="2." title="การเก็บข้อมูลก่อนการปรับปรุง (As-Is Data Collection)">
+          <p>
+            เก็บข้อมูลย้อนหลัง<span className="font-semibold text-gray-800 dark:text-gray-200">ตั้งแต่ {data ? monthLabel(data.startYm) : "ม.ค. 69"} จนถึงปัจจุบัน</span>
+            {data && stat && <> รวม {data.monthly.length} เดือน (จบเดือนแล้ว {stat.monthCount} เดือน)</>}
+            {data && <> ปัจจุบันมีใบ DD ค้าง {data.summary.pendingCount.toLocaleString()} รายการ มูลค่า {baht(data.summary.pendingValue)}</>}
+          </p>
+          <p>
+            วัดผลเป็น<span className="font-semibold text-gray-800 dark:text-gray-200">มูลค่าของที่ค้างเกิน {KPI_AGE_DAYS} วัน ณ สิ้นเดือน</span> —
+            คำนวณสดจากข้อมูลที่ซิงค์รายวัน ไม่มีการกรอกมือ
+          </p>
+        </Card>
+
+        {/* 3. ความเกี่ยวข้อง */}
+        <Card icon={Link2} no="3." title="ความเกี่ยวข้องของข้อมูล (Data Relevance)">
+          <p>
+            อะไหล่ที่สั่งซื้อโดยระบุทะเบียนรถไว้ตั้งแต่ตอนขอซื้อ <span className="font-semibold text-gray-800 dark:text-gray-200">ต้องถูกเบิกไปติดตั้งกับรถคันนั้น</span> —
+            ถ้ารับเข้ามาแล้วไม่ถูกเบิก แปลว่าเงินจมอยู่ในคลังโดยไม่เกิดประโยชน์ และมีความเสี่ยงสูญหาย/เสื่อมสภาพ
+          </p>
+          <p>
+            ตัวเลขนี้ยังสะท้อนคุณภาพการวางแผนจัดซื้อ — ของที่ค้างพร้อมกับมี<span className="font-semibold text-gray-800 dark:text-gray-200">การซื้อซ้ำ</span>ของรหัสเดียวกัน
+            คือสัญญาณว่าการสั่งซื้อไม่ได้ดูของที่มีอยู่ก่อน
+          </p>
+        </Card>
+
+        {/* 4. สูตร Baseline */}
+        <Card icon={Calculator} no="4." title="สูตรการคำนวณ Baseline">
+          {loading || !stat ? (
+            <p className="text-gray-400">กำลังคำนวณจากข้อมูลจริง...</p>
+          ) : (
+            <>
+              <div className="rounded-lg bg-gray-50 dark:bg-white/[0.03] p-3 font-mono text-[12.5px] space-y-1">
+                <p>เป้าหมาย (Target) = <span className="font-bold text-red-600">ไม่เกิน {baht(KPI_MAX_VALUE)}</span></p>
+                <p>ค่าปัจจุบัน = <span className="font-bold text-gray-900 dark:text-white">{baht(stat.current)}</span> ({stat.currentCount} รายการ)</p>
+                <p>ค่าเฉลี่ยย้อนหลัง (X̄) = {baht(stat.avg)}/เดือน</p>
+                <p>ส่วนเบี่ยงเบนมาตรฐาน (SD) = {baht(stat.sd)}</p>
+              </div>
+              <p>
+                ตัวชี้วัดคือ<span className="font-semibold text-gray-800 dark:text-gray-200">มูลค่าของที่ค้างเกิน {KPI_AGE_DAYS} วัน</span> ต้องไม่เกิน{" "}
+                {baht(KPI_MAX_VALUE)} — เป็นเป้าหมายที่กำหนดจากนโยบาย ไม่ได้คำนวณจากข้อมูลย้อนหลัง
+              </p>
+              <p>
+                คำนวณจากข้อมูลจริง {stat.monthCount} เดือน ({monthLabel(stat.first.ym)} – {monthLabel(stat.last.ym)},
+                ต่ำสุด {baht(stat.min)} / สูงสุด {baht(stat.max)})
+              </p>
+              {stat.skipped > 0 && (
+                <p className="rounded-lg bg-amber-50 dark:bg-amber-500/10 p-3 text-[12.5px] text-amber-800 dark:text-amber-300">
+                  <span className="font-bold">ตัด {stat.skipped} เดือนแรกออกจากการเฉลี่ย</span> — ข้อมูลเริ่มเก็บที่{" "}
+                  {monthLabel(data!.startYm)} ของที่รับเข้ามาจึงยังอายุไม่ถึง {KPI_AGE_DAYS} วัน ค่าเป็น ฿0
+                  <span className="font-semibold">เชิงโครงสร้าง ไม่ใช่เพราะทำได้ตามเป้า</span> — ถ้านับรวมจะทำให้ค่าเฉลี่ยต่ำกว่าความจริง
+                </p>
+              )}
+              <p className="rounded-lg bg-red-50 dark:bg-red-500/10 p-3 text-[12.5px]">
+                <span className="font-bold text-red-700 dark:text-red-400">สถานะปัจจุบัน</span> — ค่าจริงอยู่ที่{" "}
+                <span className="font-bold">{baht(stat.current)}</span> สูงกว่าเป้าหมาย{" "}
+                <span className="font-bold">{stat.ratio.toFixed(1)} เท่า</span> (ส่วนเกิน {baht(stat.gap)})
+                ต้องลดลงให้ได้ก่อนจึงจะผ่านเกณฑ์
+              </p>
+            </>
+          )}
+        </Card>
+      </div>
+
+      {/* กราฟ KPI รายเดือนเทียบเป้า */}
+      {stat && data && (
+        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
+          <p className="text-sm font-bold text-gray-900 dark:text-white mb-1">
+            มูลค่าของที่ค้างเกิน {KPI_AGE_DAYS} วัน เทียบเป้าหมาย {baht(KPI_MAX_VALUE)}
+          </p>
+          <p className="text-xs text-gray-500 mb-4">
+            เส้นประแดง = เพดานเป้าหมาย · เดือนสุดท้ายยังไม่จบเดือน · แท่งเทา = ของยังอายุไม่ถึง {KPI_AGE_DAYS} วัน จึงยังวัดผลไม่ได้
+          </p>
+          <div className="relative flex items-end gap-3 h-48">
+            <div
+              className="absolute left-0 right-0 border-t-2 border-dashed border-red-500"
+              style={{ bottom: `${(KPI_MAX_VALUE / maxKpi) * 100}%` }}
+            >
+              <span className="absolute -top-5 right-0 text-[11px] font-bold text-red-600">เป้า {baht(KPI_MAX_VALUE)}</span>
+            </div>
+            {data.monthly.map((m, idx) => {
+              // เดือนที่ของยังอายุไม่ถึงเกณฑ์ = วัดไม่ได้ ห้ามแสดงเป็นสีเขียว "ผ่าน"
+              const notMeasurable = m.ym < stat.fromYm
+              const over = m.kpiValue > KPI_MAX_VALUE
+              const isCurrent = idx === data.monthly.length - 1
+              const color = notMeasurable ? "bg-gray-300" : over ? "bg-red-600" : "bg-emerald-500"
+              return (
+                <div key={m.ym} className="flex-1 flex flex-col items-center justify-end h-full gap-1">
+                  <span className={`text-[11px] font-bold ${notMeasurable ? "text-gray-400" : over ? "text-red-600" : "text-emerald-600"}`}>
+                    {notMeasurable ? "ยังวัดไม่ได้" : baht(m.kpiValue)}
+                  </span>
+                  <div
+                    className={`w-full max-w-[54px] rounded-t ${color} ${isCurrent ? "opacity-60" : ""}`}
+                    style={{ height: `${Math.max((m.kpiValue / maxKpi) * 100, notMeasurable ? 2 : 1)}%` }}
+                    title={
+                      notMeasurable
+                        ? `${m.ym} — ของยังอายุไม่ถึง ${KPI_AGE_DAYS} วัน จึงยังวัดผลไม่ได้`
+                        : `${m.ym} — ${m.kpiCount} รายการ ${baht(m.kpiValue)}`
+                    }
+                  />
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex gap-3 mt-2">
+            {data.monthly.map((m, idx) => (
+              <div key={m.ym} className="flex-1 text-center text-[11px] text-gray-500">
+                {monthLabel(m.ym)}{idx === data.monthly.length - 1 ? "*" : ""}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* นิยามการวัด */}
+      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
+        <div className="flex items-center gap-2.5 mb-4">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600">
+            <BookOpen size={16} />
+          </span>
+          <p className="text-sm font-bold text-gray-900 dark:text-white">นิยามการวัด (Measurement Definition)</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <QA
+            q="ทุกคนในองค์กรเข้าใจสิ่งที่กำลังจะวัดหรือไม่ ? นิยามคืออะไร ?"
+            a={<>เข้าใจตรงกันด้วยนิยามชัดเจน — <span className="font-semibold">&quot;ของค้าง&quot; คือใบรับสินค้า (DD) ที่ยังไม่ถูกใบเบิก (WD) ตัดออกตามลำดับ FIFO</span> นับเฉพาะของที่ระบุทะเบียนรถไว้ตอนขอซื้อ ไม่รวมค่าแรงและของที่รับเข้าสต็อกกลาง</>}
+          />
+          <QA
+            q="ทำไมถึงต้องเก็บข้อมูลนี้ ?"
+            a="เพราะของที่ซื้อมาเพื่อรถคันหนึ่งแล้วไม่ถูกเบิกไปติดตั้ง คือเงินที่จมอยู่ในคลังโดยไม่เกิดประโยชน์ เสี่ยงสูญหายและเสื่อมสภาพ — และมักตามมาด้วยการซื้อซ้ำของเดิม"
+          />
+          <QA
+            q="ข้อมูลที่รวบรวมวัดได้อย่างไร ?"
+            a={<>จับคู่ใบรับกับใบเบิกด้วยหลัก FIFO รายรหัสสินค้า (ตัดจากใบเก่าสุดก่อน) ใบที่ตัดไม่หมดคือของค้าง แล้ววัด<span className="font-semibold">มูลค่าของที่ค้างเกิน {KPI_AGE_DAYS} วัน</span> ณ สิ้นเดือน</>}
+          />
+          <QA
+            q="เมื่อได้ข้อมูลการวัดนี้มาแล้ว จะทำอะไรต่อ ?"
+            a={<>ใช้ตรวจสอบและควบคุม (Monitoring &amp; Control) — ของที่ค้างเกิน {STALE_DAYS} วันต้องตามหาสาเหตุ ส่วนที่เกิน {KPI_AGE_DAYS} วันต้องตัดสินใจว่าจะคืนผู้ขาย โอนเข้าสต็อกกลาง หรือใช้กับรถคันอื่น</>}
+          />
+        </div>
+      </div>
+
+      {/* ความน่าเชื่อถือ */}
+      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
+        <div className="flex items-center gap-2.5 mb-4">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600">
+            <ShieldCheck size={16} />
+          </span>
+          <p className="text-sm font-bold text-gray-900 dark:text-white">ความน่าเชื่อถือและเจ้าของข้อมูล (Data Trust &amp; Ownership)</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <QA
+            q="ข้อมูลนี้ได้มาจากที่ไหน ?"
+            a="ระบบ ATMS (รายการเคลื่อนไหวสินค้า) ดึงเข้า MongoDB อัตโนมัติรายวัน แล้ว Mena-WMS คำนวณ FIFO สดทุกครั้งที่เปิดหน้า (พักผลไว้ 1 ชั่วโมง)"
+          />
+          <QA
+            q="ข้อมูลเชื่อถือได้มากน้อยแค่ไหน ? มาจากหลักฐานอะไร ?"
+            a={<>เชื่อถือได้สูง — ทุกแถวมาจากเอกสารจริงในระบบ (เลขใบ DD / WD / PR / PO) ไม่มีการกรอกมือ ตรวจสอบย้อนกลับได้ถึงใบต้นทาง <span className="font-semibold">ข้อจำกัดที่รู้ตัว:</span> เริ่มนับที่ {data?.startYm ?? "2026-01"} ของที่รับก่อนหน้านั้นไม่ปรากฏ ทำให้มียอดเบิกบางส่วนหาใบ DD ต้นทางไม่พบ{data && <> ({data.dataQuality.unmatchedIssueQty.toLocaleString()} หน่วย)</>}</>}
+          />
+          <QA
+            q="ใครเป็นเจ้าของข้อมูล ?"
+            a="ทีมจัดซื้อและยานยนต์ (Procurement & Automotive) — เป็นผู้ขอซื้อ รับของ และเบิกของไปติดตั้ง จึงเป็นผู้ควบคุมตัวเลขนี้โดยตรง"
+          />
+        </div>
+      </div>
+
+      {/* ข้อเสนอแนะ */}
+      <div className="rounded-xl border border-dashed border-red-400/40 bg-red-50/50 dark:bg-red-500/5 p-5">
+        <div className="flex items-center gap-2.5 mb-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white">
+            <Lightbulb size={16} />
+          </span>
+          <p className="text-sm font-bold text-gray-900 dark:text-white">ข้อเสนอแนะการพัฒนาต่อ (Next Steps)</p>
+        </div>
+        <ul className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-1.5 list-disc pl-5">
+          <li>เคลียร์ของค้างเกิน {KPI_AGE_DAYS} วันที่มีอยู่เดิมก่อน — ตัดสินใจรายตัวว่าคืนผู้ขาย โอนเข้าสต็อกกลาง หรือใช้กับรถคันอื่น</li>
+          <li>แจ้งเตือนอัตโนมัติ (อีเมล/LINE) เมื่อมีใบ DD ค้างเกิน {STALE_DAYS} วัน หรือเมื่อมูลค่าเกิน {KPI_AGE_DAYS} วันทะลุเป้า</li>
+          <li>เตือนตอนขอซื้อ — ถ้ารหัสสินค้านั้นยังมีของค้างอยู่ ให้ระบบทักก่อนเปิด PR ใหม่ (ตอนนี้เห็นย้อนหลังได้จากคอลัมน์ &quot;ซื้อซ้ำ&quot; เท่านั้น)</li>
+          <li>ขยายการวัดไปคลังอื่น (สระบุรี / ขอนแก่น / DIST) — โครงสร้างรองรับแล้ว เปลี่ยนแค่รหัสคลัง</li>
+          <li>ทบทวนเป้าหมายและ Baseline ทุก 6 เดือน หรือเมื่อครบ 12 เดือนเต็มจึงคำนวณ X̄ ± SD ตามมาตรฐาน</li>
+        </ul>
+      </div>
+
+      {/* ── สไลด์นำเสนอ (16:9 PNG export) ── */}
+      <div className="mt-8">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">สไลด์สำหรับรายงาน (16:9)</p>
+          <button
+            onClick={savePng}
+            disabled={savingPng || loading}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+          >
+            <Download size={14} />
+            {savingPng ? "กำลังบันทึก..." : "Export PNG"}
+          </button>
+        </div>
+
+        {/* ruler: กว้างเท่าคอนเทนเนอร์เสมอ ไม่ขึ้นกับสไลด์ข้างใน → ResizeObserver ไม่วนลูป */}
+        <div ref={wrapRef} className="w-full">
+          <div
+            className="mx-auto overflow-hidden rounded-xl border border-gray-200 dark:border-white/8"
+            style={{ width: SLIDE_W * scale, height: SLIDE_H * scale }}
+          >
+            <div style={{ transform: `scale(${scale})`, transformOrigin: "top left" }}>
+              <div ref={slideRef} style={{ width: SLIDE_W, height: SLIDE_H }} className="bg-white p-10 flex flex-col">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <h2 className="text-3xl font-bold text-gray-900 leading-tight">
+                      นิยามตัวชี้วัด &amp; Baseline — ของค้างคลัง (Deadstock)
+                    </h2>
+                    <p className="text-lg text-gray-500 mt-1.5">
+                      {data?.warehouse ?? "คลังลาดกระบัง"} • ใบรับสินค้า (DD) ที่ยังไม่ถูกเบิก (WD) • ตัดของแบบ FIFO
+                    </p>
+                  </div>
+                  {stat && (
+                    <div className="flex gap-3 shrink-0">
+                      <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-3 text-center">
+                        <p className="text-sm font-semibold text-red-600">เป้าหมาย</p>
+                        <p className="text-3xl font-bold text-red-600 tabular-nums">{baht(KPI_MAX_VALUE)}</p>
+                        <p className="text-sm text-gray-400">เกิน {KPI_AGE_DAYS} วัน</p>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 px-6 py-3 text-center">
+                        <p className="text-sm font-semibold text-gray-400">ค่าปัจจุบัน</p>
+                        <p className="text-3xl font-bold text-gray-900 tabular-nums">{baht(stat.current)}</p>
+                        <p className="text-sm text-gray-400">{stat.currentCount} รายการ</p>
+                      </div>
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-3 text-center">
+                        <p className="text-sm font-semibold text-amber-600">ห่างจากเป้า</p>
+                        <p className="text-3xl font-bold text-amber-600 tabular-nums">{stat.ratio.toFixed(1)}×</p>
+                        <p className="text-sm text-gray-400">ส่วนเกิน {baht(stat.gap)}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4 numbered cards */}
+                <div className="grid grid-cols-4 gap-4 mb-5">
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-red-600">1.</span> แหล่งที่มาของข้อมูล</p>
+                    <p className="text-[15px] text-gray-600 leading-relaxed">
+                      <span className="font-semibold text-gray-800">ATMS</span> — รายการเคลื่อนไหวสินค้า แถวรับเข้ามีเลข DD แถวเบิกออกมีเลข WD<br />
+                      <span className="font-semibold text-gray-800">Mena-WMS</span> — จับคู่ FIFO รายรหัสสินค้าและแสดงผล
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-red-600">2.</span> การเก็บข้อมูล (As-Is)</p>
+                    <p className="text-[15px] text-gray-600 leading-relaxed">
+                      ตั้งแต่ <span className="font-semibold text-gray-800">{data ? monthLabel(data.startYm) : "ม.ค. 69"} – ปัจจุบัน</span>
+                      {stat && <> รวม {data!.monthly.length} เดือน</>}
+                      {data && <> · ค้าง {data.summary.pendingCount} รายการ {baht(data.summary.pendingValue)}</>}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-red-600">3.</span> ความเกี่ยวข้องของข้อมูล</p>
+                    <p className="text-[15px] text-gray-600 leading-relaxed">
+                      ของที่ซื้อโดยระบุทะเบียนรถ <span className="font-semibold text-gray-800">ต้องถูกเบิกไปติดตั้งกับรถคันนั้น</span> — ค้างไว้ = ทุนจม เสี่ยงสูญหาย และมักตามด้วยการซื้อซ้ำ
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <p className="text-base font-bold text-gray-900 mb-1.5"><span className="text-red-600">4.</span> สูตร Baseline</p>
+                    {stat && (
+                      <p className="text-[15px] text-gray-600 leading-relaxed">
+                        เป้าหมาย = มูลค่าค้างเกิน {KPI_AGE_DAYS} วัน <span className="font-bold text-red-600">≤ {baht(KPI_MAX_VALUE)}</span><br />
+                        ค่าจริง = <span className="font-bold text-gray-900">{baht(stat.current)}</span> · X̄ ย้อนหลัง {baht(stat.avg)}<br />
+                        SD = {baht(stat.sd)} · ต่ำสุด {baht(stat.min)} / สูงสุด {baht(stat.max)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Definition + trust */}
+                <div className="flex-1 grid grid-cols-2 gap-4 min-h-0">
+                  <div className="rounded-xl bg-gray-50 p-4">
+                    <p className="text-base font-bold text-gray-900 mb-2">นิยามการวัด (Measurement Definition)</p>
+                    <ul className="text-[15px] text-gray-600 leading-relaxed space-y-1.5">
+                      <li><span className="font-semibold text-gray-800">วัดอะไร:</span> ใบรับ (DD) ที่ยังไม่ถูกใบเบิก (WD) ตัดออกตาม FIFO — เฉพาะของที่ระบุทะเบียนรถ ไม่รวมค่าแรงและสต็อกกลาง</li>
+                      <li><span className="font-semibold text-gray-800">ทำไมต้องเก็บ:</span> ของที่ซื้อเพื่อรถคันหนึ่งแล้วไม่ถูกเบิก = เงินจม เสี่ยงสูญหาย</li>
+                      <li><span className="font-semibold text-gray-800">วัดอย่างไร:</span> มูลค่าของที่ค้างเกิน {KPI_AGE_DAYS} วัน ณ สิ้นเดือน</li>
+                      <li><span className="font-semibold text-gray-800">ใช้ทำอะไรต่อ:</span> เกิน {STALE_DAYS} วันตามหาสาเหตุ · เกิน {KPI_AGE_DAYS} วันตัดสินใจคืนผู้ขาย/โอนสต็อกกลาง/ใช้กับรถคันอื่น</li>
+                    </ul>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-4">
+                    <p className="text-base font-bold text-gray-900 mb-2">ความน่าเชื่อถือและเจ้าของข้อมูล</p>
+                    <ul className="text-[15px] text-gray-600 leading-relaxed space-y-1.5">
+                      <li><span className="font-semibold text-gray-800">ที่มา:</span> ATMS → MongoDB ซิงค์อัตโนมัติรายวัน · Mena-WMS คำนวณ FIFO สด</li>
+                      <li><span className="font-semibold text-gray-800">ความน่าเชื่อถือ:</span> สูง — ทุกแถวมาจากเอกสารจริง (DD / WD / PR / PO) ไม่มีการกรอกมือ ตรวจย้อนกลับได้ถึงใบต้นทาง</li>
+                      <li><span className="font-semibold text-gray-800">ข้อจำกัด:</span> เริ่มนับที่ {data?.startYm ?? "2026-01"} ของที่รับก่อนหน้านั้นไม่ปรากฏ{data && <> — ยอดเบิก {data.dataQuality.unmatchedIssueQty.toLocaleString()} หน่วยหาใบต้นทางไม่พบ</>}</li>
+                      <li><span className="font-semibold text-gray-800">เจ้าของข้อมูล:</span> ทีมจัดซื้อและยานยนต์ (Procurement &amp; Automotive)</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-between border-t border-gray-100 pt-3 mt-4">
+                  <p className="text-sm text-gray-400">ที่มา: ATMS stock movement × Mena-WMS • เอกสารกำกับตัวชี้วัด</p>
+                  <p className="text-sm text-gray-400">
+                    สร้างเมื่อ {new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

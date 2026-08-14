@@ -108,6 +108,7 @@ const TABS = [
   { href: "/deadstock", label: "ภาพรายเดือน" },
   { href: "/deadstock/pending", label: "สถานะล่าสุด" },
   { href: "/deadstock/items", label: "รายรหัสสินค้า" },
+  { href: "/deadstock/baseline", label: "นิยามตัวชี้วัด" },
 ]
 
 export function DeadstockShell({
