@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, MessageSquare, Send, CornerDownRight, Copy, Link2, Megaphone } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, MessageSquare, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
 import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
@@ -23,6 +23,7 @@ import {
   REPAIR_SLA_NOTE,
   WARRANTY_OPTIONS,
   statusMeta,
+  buildRepairSummary,
   type RepairExternal,
   type RepairField,
 } from "@/lib/repair-external"
@@ -771,6 +772,29 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const url = `${window.location.origin}/repair-external?id=${editId}`
     navigator.clipboard?.writeText(url).then(
       () => swalToast("success", "คัดลอกลิงก์แชร์แล้ว"),
+      () => swalError("คัดลอกไม่สำเร็จ"),
+    )
+  }
+
+  // คัดลอกสรุปส่งกลุ่มไลน์ — ยี่ห้อ/รุ่นไม่ได้เก็บในใบแจ้งซ่อม จึงดึงจากทะเบียนรถตอนกด
+  // (หาไม่เจอก็ยังคัดลอกได้ แค่บรรทัดแรกไม่มีสเปครถ)
+  async function copyCarSummary() {
+    let brand = "", model = ""
+    const plate = form.plate.trim()
+    if (plate) {
+      try {
+        const res  = await fetch(`/api/vehicles?q=${encodeURIComponent(plate)}&limit=20`)
+        const list = await res.json()
+        const hit  = Array.isArray(list)
+          ? list.find((v: { plate?: string }) => String(v.plate ?? "").trim() === plate)
+          : null
+        if (hit) { brand = String(hit.brand ?? ""); model = String(hit.model ?? "") }
+      } catch { /* ไม่มีสเปครถก็ยังสรุปได้ */ }
+    }
+    const text = buildRepairSummary({ ...form, brand, model })
+    if (!text) { swalError("ยังไม่มีข้อมูลพอให้สรุป"); return }
+    navigator.clipboard?.writeText(text).then(
+      () => swalToast("success", "คัดลอกสรุปแล้ว — วางในไลน์ได้เลย"),
       () => swalError("คัดลอกไม่สำเร็จ"),
     )
   }
@@ -1956,6 +1980,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 {editId && (
                   <button onClick={copyShareLink} title="คัดลอกลิงก์แชร์รายการนี้" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
                     <Link2 size={14} /> คัดลอกลิงก์
+                  </button>
+                )}
+                {editId && (
+                  <button onClick={copyCarSummary} title="คัดลอกสรุปรายการนี้เป็นข้อความสำหรับส่งกลุ่มไลน์" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
+                    <ClipboardList size={14} /> คัดลอกสรุปรถ
                   </button>
                 )}
                 <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">

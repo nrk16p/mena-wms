@@ -228,3 +228,47 @@ export function requiredFieldsFor(status: string, jobType: string = JOB_TYPE_GAR
   }
   return out
 }
+
+// ── สรุปใบแจ้งซ่อมสำหรับส่งกลุ่มไลน์ ─────────────────────────────────
+// (car)/(earth)/(sun)/... คือ shortcode ของ LINE — เก็บเป็นข้อความธรรมดา
+// แล้วแอปไลน์แปลงเป็นอิโมจิเองตอนวาง จึงต้องไม่แปลงเป็นอิโมจิจริงที่นี่
+// ช่องไหนว่าง = ตัดทั้งบรรทัดทิ้ง ไม่ปล่อยหัวข้อลอย ๆ เข้ากลุ่ม เช่น "(sun) เบอร์ "
+export type RepairSummaryInput = {
+  fleetNo?:        string
+  brand?:          string   // ไม่ได้เก็บในใบแจ้งซ่อม — ผู้เรียกดึงจาก vehicle_master มาให้
+  model?:          string
+  driverName?:     string
+  driverPhone?:    string
+  symptom?:        string
+  note?:           string
+  plant?:          string
+  cementStatus?:   string
+  drivableStatus?: string
+}
+
+// ถ้อยคำในไลน์ต่างจากค่าที่เก็บ — กลุ่มอ่าน "รถวิ่งเข้าอู่ได้" เข้าใจกว่า "วิ่งได้"
+const DRIVABLE_LINE_TEXT: Record<string, string> = {
+  "วิ่งได้":     "รถวิ่งเข้าอู่ได้",
+  "วิ่งไม่ได้":  "รถวิ่งเข้าอู่ไม่ได้",
+}
+
+export function buildRepairSummary(r: RepairSummaryInput): string {
+  const t = (v?: string) => String(v ?? "").trim()
+  const lines: string[] = []
+
+  const fleetNo = t(r.fleetNo)
+  if (fleetNo) {
+    const spec = [t(r.brand), t(r.model)].filter(Boolean).join(" ")
+    lines.push(`(car) เบอร์รถ ${fleetNo}${spec ? ` /${spec}` : ""}`)
+  }
+  if (t(r.driverName))  lines.push(`(earth) ชื่อ ${t(r.driverName)}`)
+  if (t(r.driverPhone)) lines.push(`(sun) เบอร์ ${t(r.driverPhone)}`)
+  if (t(r.symptom))     lines.push(`(ambulance) ${t(r.symptom)}`)
+  if (t(r.note))        lines.push(t(r.note))
+  if (t(r.plant))       lines.push(`(tool) แพล้น${t(r.plant)}`)
+
+  const tail = [t(r.cementStatus), DRIVABLE_LINE_TEXT[t(r.drivableStatus)] ?? ""].filter(Boolean).join(" / ")
+  if (tail) lines.push(`(money) ${tail}`)
+
+  return lines.join("\n")
+}
