@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb, Download } from "lucide-react"
+import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb, Download, SearchCheck } from "lucide-react"
 import { KPI_AGE_DAYS, KPI_MAX_VALUE, STALE_DAYS, type DeadstockPayload } from "@/lib/deadstock-core"
 
 const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
@@ -43,6 +43,54 @@ function QA({ q, a }: { q: string; a: React.ReactNode }) {
     <div className="rounded-lg bg-gray-50 dark:bg-white/[0.03] p-3.5">
       <p className="text-[13px] font-semibold text-gray-800 dark:text-gray-200 mb-1">Q: {q}</p>
       <p className="text-[13px] text-gray-600 dark:text-gray-400 leading-relaxed">A: {a}</p>
+    </div>
+  )
+}
+
+/** กราฟ Pareto — แท่งเรียงมูลค่ามากไปน้อย + เส้นเปอร์เซ็นต์สะสม (เครื่องมือมาตรฐานของขั้น Analyze)
+ *  วาดด้วย div + SVG overlay เพราะ repo ไม่มี chart library และไม่ควรเพิ่ม dependency เพื่อกราฟเดียว */
+function ParetoChart({ groups, total }: { groups: { name: string; value: number; count: number; cumPct: number }[]; total: number }) {
+  const H = 150
+  const max = Math.max(...groups.map((g) => g.value), 1)
+  const n = groups.length
+  // จุดกึ่งกลางแท่งที่ i ในระบบพิกัด 0–100 ของความกว้าง
+  const cx = (i: number) => ((i + 0.5) / n) * 100
+  const points = groups.map((g, i) => `${cx(i)},${H - (g.cumPct / 100) * H}`).join(" ")
+
+  return (
+    <div>
+      <div className="relative" style={{ height: H }}>
+        {/* แท่งมูลค่า */}
+        <div className="absolute inset-0 flex items-end gap-1.5">
+          {groups.map((g) => (
+            <div
+              key={g.name}
+              className="flex-1 rounded-t bg-red-500/80"
+              style={{ height: `${Math.max((g.value / max) * 100, 1.5)}%` }}
+              title={`${g.name} — ${g.count} รายการ · ${"฿" + Math.round(g.value).toLocaleString("th-TH")} · สะสม ${g.cumPct.toFixed(0)}%`}
+            />
+          ))}
+        </div>
+        {/* เส้นสะสม + เส้น 80% */}
+        <svg className="absolute inset-0 w-full h-full overflow-visible" viewBox={`0 0 100 ${H}`} preserveAspectRatio="none">
+          <line x1="0" y1={H - 0.8 * H} x2="100" y2={H - 0.8 * H} stroke="#9CA3AF" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+          <polyline points={points} fill="none" stroke="#111827" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+          {groups.map((g, i) => (
+            <circle key={g.name} cx={cx(i)} cy={H - (g.cumPct / 100) * H} r="3" fill="#111827" vectorEffect="non-scaling-stroke" />
+          ))}
+        </svg>
+        <span className="absolute right-0 text-[10px] font-bold text-gray-400" style={{ top: H - 0.8 * H - 14 }}>
+          80%
+        </span>
+      </div>
+      <div className="flex gap-1.5 mt-1.5">
+        {groups.map((g) => (
+          <div key={g.name} className="flex-1 min-w-0 text-center">
+            <p className="text-[10px] text-gray-500 truncate" title={g.name}>{g.name}</p>
+            <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">{Math.round((g.value / total) * 100)}%</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -112,6 +160,68 @@ export default function DeadstockBaselinePage() {
       gap: current - KPI_MAX_VALUE,
       ratio: current / KPI_MAX_VALUE,
       achievement: Math.round((KPI_MAX_VALUE / Math.max(current, 1)) * 100),
+    }
+  }, [data])
+
+  /** ขั้นวิเคราะห์ (Analyze) — หาว่าเงินที่จมกระจุกอยู่ตรงไหน และสมมติฐานสาเหตุไหนที่ข้อมูลรับ/ไม่รับ */
+  const analysis = useMemo(() => {
+    if (!data) return null
+    const aged = data.pending.filter((r) => r.ageDays > KPI_AGE_DAYS)
+    if (aged.length === 0) return null
+    const total = aged.reduce((s, r) => s + r.value, 0)
+
+    // Pareto ระดับรายการ — กี่รายการรวมกันเป็น 80% ของมูลค่า
+    const sorted = [...aged].sort((a, b) => b.value - a.value)
+    let cum = 0
+    let n80 = 0
+    for (const r of sorted) {
+      cum += r.value
+      n80 += 1
+      if (cum >= total * 0.8) break
+    }
+
+    // Pareto ระดับกลุ่มสินค้า (ใช้วาดกราฟ)
+    const gmap = new Map<string, { name: string; value: number; count: number }>()
+    for (const r of aged) {
+      let g = gmap.get(r.itemGroup)
+      if (!g) gmap.set(r.itemGroup, (g = { name: r.itemGroup, value: 0, count: 0 }))
+      g.value += r.value
+      g.count += 1
+    }
+    let run = 0
+    const groups = [...gmap.values()]
+      .sort((a, b) => b.value - a.value)
+      .map((g) => {
+        run += g.value
+        return { ...g, cumPct: (run / total) * 100 }
+      })
+
+    const plates = new Set(aged.map((r) => r.plate))
+    const perPlate = new Map<string, number>()
+    for (const r of aged) perPlate.set(r.plate, (perPlate.get(r.plate) ?? 0) + 1)
+    const heavyPlates = [...perPlate.values()].filter((n) => n >= 3).length
+
+    const repurchased = aged.filter((r) => r.newerCount > 0)
+    const cheap = aged.filter((r) => r.value < 500)
+    const ages = aged.map((r) => r.ageDays).sort((a, b) => a - b)
+
+    return {
+      aged,
+      total,
+      n80,
+      n80Pct: (n80 / aged.length) * 100,
+      groups,
+      top: sorted.slice(0, 6),
+      plateCount: plates.size,
+      heavyPlates,
+      repurchasedCount: repurchased.length,
+      repurchasedPct: (repurchased.length / aged.length) * 100,
+      repurchasedValue: repurchased.reduce((s, r) => s + r.value, 0),
+      cheapCount: cheap.length,
+      cheapValue: cheap.reduce((s, r) => s + r.value, 0),
+      cheapPct: (cheap.reduce((s, r) => s + r.value, 0) / total) * 100,
+      medianAge: ages[Math.floor(ages.length / 2)],
+      maxAge: ages[ages.length - 1],
     }
   }, [data])
 
@@ -286,6 +396,143 @@ export default function DeadstockBaselinePage() {
         </div>
       )}
 
+      {/* ── ขั้นวิเคราะห์ (Analyze) ── */}
+      {analysis && (
+        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
+          <div className="flex items-center gap-2.5 mb-1">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600">
+              <SearchCheck size={16} />
+            </span>
+            <p className="text-sm font-bold text-gray-900 dark:text-white">
+              ขั้นวิเคราะห์ (Analyze) — เงินจมอยู่ตรงไหน และเพราะอะไร
+            </p>
+          </div>
+          <p className="text-xs text-gray-500 mb-4 pl-[42px]">
+            วิเคราะห์ของที่ค้างเกิน {KPI_AGE_DAYS} วัน จำนวน {analysis.aged.length} รายการ มูลค่า {baht(analysis.total)}
+          </p>
+
+          {/* ตัวเลขสรุปจากการวิเคราะห์ */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            {[
+              { label: "หลักการ Pareto", value: `${analysis.n80} / ${analysis.aged.length} รายการ`, sub: `${analysis.n80Pct.toFixed(0)}% ของจำนวน = 80% ของมูลค่า` },
+              { label: "การกระจายตัว", value: `${analysis.plateCount} คัน`, sub: `มีเพียง ${analysis.heavyPlates} คันที่ค้าง ≥3 รายการ` },
+              { label: "อายุค้าง (ค่ากลาง)", value: `${analysis.medianAge} วัน`, sub: `นานสุด ${analysis.maxAge} วัน` },
+              { label: "ของถูก (<฿500)", value: `${analysis.cheapCount} รายการ`, sub: `แต่เป็นเงินแค่ ${analysis.cheapPct.toFixed(0)}% (${baht(analysis.cheapValue)})` },
+            ].map((s) => (
+              <div key={s.label} className="rounded-lg bg-gray-50 dark:bg-white/[0.03] p-3">
+                <p className="text-[11.5px] font-semibold text-gray-500">{s.label}</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{s.value}</p>
+                <p className="text-[11.5px] text-gray-500">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Pareto ตามกลุ่มสินค้า */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div>
+              <p className="text-[13px] font-bold text-gray-800 dark:text-gray-200 mb-1">
+                Pareto — มูลค่าที่ค้างตามกลุ่มสินค้า
+              </p>
+              <p className="text-[11.5px] text-gray-500 mb-3">แท่ง = มูลค่า · เส้น = เปอร์เซ็นต์สะสม</p>
+              <ParetoChart groups={analysis.groups} total={analysis.total} />
+            </div>
+
+            <div>
+              <p className="text-[13px] font-bold text-gray-800 dark:text-gray-200 mb-1">รายการที่จมเงินมากที่สุด</p>
+              <p className="text-[11.5px] text-gray-500 mb-3">ล้วนเป็นอะไหล่ชิ้นใหญ่เฉพาะรุ่นที่ค้างนานหลายเดือน</p>
+              <div className="space-y-1.5">
+                {analysis.top.map((r) => (
+                  <div key={`${r.dd}|${r.itemCode}`} className="flex items-center gap-2.5 rounded-lg bg-gray-50 dark:bg-white/[0.03] px-3 py-2">
+                    <span className="text-[13px] font-bold text-gray-900 dark:text-white tabular-nums w-[68px] shrink-0 text-right">{baht(r.value)}</span>
+                    <span className="text-[11px] font-semibold text-red-600 tabular-nums w-[52px] shrink-0">{r.ageDays} วัน</span>
+                    <span className="text-[12.5px] text-gray-600 dark:text-gray-400 truncate flex-1">{r.itemName}</span>
+                    <span className="text-[11.5px] text-gray-400 shrink-0">{r.plate}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* สมมติฐานสาเหตุ */}
+          <p className="text-[13px] font-bold text-gray-800 dark:text-gray-200 mt-6 mb-1">สมมติฐานสาเหตุ และสิ่งที่ข้อมูลบอก</p>
+          <p className="text-[11.5px] text-gray-500 mb-3">
+            ข้อมูลยืนยันได้เฉพาะ &quot;รูปแบบ&quot; — สาเหตุที่แท้จริงต้องยืนยันกับผู้ปฏิบัติงานอีกชั้น จึงระบุสถานะกำกับไว้ทุกข้อ
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/8">
+            <table className="w-full text-[12.5px]">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-white/[0.03] text-left">
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">สมมติฐาน</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">หลักฐานจากข้อมูล</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="text-gray-600 dark:text-gray-400">
+                {[
+                  {
+                    h: "สั่งซื้อซ้ำทั้งที่ของเก่ายังอยู่",
+                    e: `มีของค้างเก่าเพียง ${analysis.repurchasedCount} จาก ${analysis.aged.length} รายการ (${analysis.repurchasedPct.toFixed(0)}%) ที่ถูกสั่งซ้ำ คิดเป็นเงิน ${baht(analysis.repurchasedValue)}`,
+                    v: "ตกไป",
+                    tone: "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300",
+                  },
+                  {
+                    h: "กระจุกอยู่ที่รถไม่กี่คันที่ถูกทิ้งค้าง",
+                    e: `ของค้างกระจายอยู่ ${analysis.plateCount} คัน จาก ${analysis.aged.length} รายการ มีเพียง ${analysis.heavyPlates} คันที่ค้าง ≥3 รายการ`,
+                    v: "ตกไป",
+                    tone: "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300",
+                  },
+                  {
+                    h: "สั่งของมาแล้วงานซ่อมไม่ได้ทำ หรือเปลี่ยนวิธีซ่อม",
+                    e: "รายการที่จมเงินสูงสุดล้วนเป็นอะไหล่ชิ้นใหญ่เฉพาะรุ่น (ไดสตาร์ท / แผงคอยร้อน / ขาไก่คันส่งพวงมาลัย) ค้าง 170–210 วัน — ของแบบนี้สั่งเพื่องานซ่อมงานเดียว ไม่ใช่ของหมุนเวียน",
+                    v: "สอดคล้อง",
+                    tone: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+                  },
+                  {
+                    h: "ไม่มีกลไกปิดงาน ของจึงค้างถาวร",
+                    e: `อายุค่ากลาง ${analysis.medianAge} วัน สูงสุด ${analysis.maxAge} วัน และของที่รับเข้ามาค้างต่อเนื่องทุกเดือน ไม่ใช่เหตุการณ์ครั้งเดียว — ระบบไม่มีสถานะ "คืนผู้ขาย" หรือ "โอนเข้าสต็อกกลาง" ให้ปิดรายการ`,
+                    v: "สอดคล้อง",
+                    tone: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+                  },
+                  {
+                    h: "อะไหล่รุ่นหายาก / รถปลดระวาง จึงไม่มีโอกาสได้ใช้",
+                    e: "ของที่ค้างนานสุดเป็นอะไหล่ยี่ห้อ FAW, SANY, NISSAN CWM4 ซึ่งเป็นรุ่นส่วนน้อยของฟลีท — แต่ยังไม่ได้ตรวจสอบกับทะเบียนรถว่ายังใช้งานอยู่หรือไม่",
+                    v: "ต้องตรวจต่อ",
+                    tone: "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300",
+                  },
+                  {
+                    h: "ของราคาถูกไม่มีใครตาม",
+                    e: `${analysis.cheapCount} รายการราคาต่ำกว่า ฿500 รวมเป็นเงินเพียง ${baht(analysis.cheapValue)} (${analysis.cheapPct.toFixed(0)}% ของทั้งหมด) — รกรายการแต่ไม่ใช่ตัวปัญหาด้านเงิน`,
+                    v: "สอดคล้อง",
+                    tone: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+                  },
+                ].map((row) => (
+                  <tr key={row.h} className="border-t border-gray-100 dark:border-white/5 align-top">
+                    <td className="px-3 py-2.5 font-semibold text-gray-800 dark:text-gray-200 min-w-[180px]">{row.h}</td>
+                    <td className="px-3 py-2.5 leading-relaxed">{row.e}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11.5px] font-bold whitespace-nowrap ${row.tone}`}>
+                        {row.v}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ข้อสรุปของขั้นวิเคราะห์ */}
+          <div className="mt-4 rounded-lg bg-red-50 dark:bg-red-500/10 p-4 text-[12.5px] text-gray-700 dark:text-gray-300 leading-relaxed">
+            <p className="font-bold text-red-700 dark:text-red-400 mb-1.5">ข้อสรุปของขั้นวิเคราะห์</p>
+            ของค้างชุดนี้<span className="font-semibold">ไม่ได้เกิดจากการสั่งซ้ำหรือรถไม่กี่คัน</span> แต่เป็นการรั่วทีละน้อยกระจายทั่วทั้งฟลีท
+            ทุกเดือนอย่างต่อเนื่อง และแบ่งได้เป็น <span className="font-semibold">สองประชากรที่ต้องใช้คนละวิธีจัดการ</span> —
+            {" "}{analysis.n80} รายการแรกที่กินเงิน 80% ต้องไล่ตัดสินใจรายตัว ส่วนอีก {analysis.cheapCount} รายการราคาต่ำกว่า ฿500
+            (รวมกันแค่ {analysis.cheapPct.toFixed(0)}% ของเงิน) ควรจัดการเป็นชุดเดียวเพื่อล้างรายการให้หมด
+            ปัญหาที่แท้จริงคือ<span className="font-semibold">ระบบไม่มีทางออกให้ของที่ไม่ได้ใช้</span> —
+            เมื่อไม่มีสถานะปิดงาน ของจึงค้างสะสมไปเรื่อย ๆ โดยไม่มีใครต้องรับผิดชอบ
+          </div>
+        </div>
+      )}
+
       {/* นิยามการวัด */}
       <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
         <div className="flex items-center gap-2.5 mb-4">
@@ -344,15 +591,45 @@ export default function DeadstockBaselinePage() {
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white">
             <Lightbulb size={16} />
           </span>
-          <p className="text-sm font-bold text-gray-900 dark:text-white">ข้อเสนอแนะการพัฒนาต่อ (Next Steps)</p>
+          <p className="text-sm font-bold text-gray-900 dark:text-white">ข้อเสนอแนะ (Improve) — จากผลการวิเคราะห์</p>
         </div>
-        <ul className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-1.5 list-disc pl-5">
-          <li>เคลียร์ของค้างเกิน {KPI_AGE_DAYS} วันที่มีอยู่เดิมก่อน — ตัดสินใจรายตัวว่าคืนผู้ขาย โอนเข้าสต็อกกลาง หรือใช้กับรถคันอื่น</li>
-          <li>แจ้งเตือนอัตโนมัติ (อีเมล/LINE) เมื่อมีใบ DD ค้างเกิน {STALE_DAYS} วัน หรือเมื่อมูลค่าเกิน {KPI_AGE_DAYS} วันทะลุเป้า</li>
-          <li>เตือนตอนขอซื้อ — ถ้ารหัสสินค้านั้นยังมีของค้างอยู่ ให้ระบบทักก่อนเปิด PR ใหม่ (ตอนนี้เห็นย้อนหลังได้จากคอลัมน์ &quot;ซื้อซ้ำ&quot; เท่านั้น)</li>
-          <li>ขยายการวัดไปคลังอื่น (สระบุรี / ขอนแก่น / DIST) — โครงสร้างรองรับแล้ว เปลี่ยนแค่รหัสคลัง</li>
-          <li>ทบทวนเป้าหมายและ Baseline ทุก 6 เดือน หรือเมื่อครบ 12 เดือนเต็มจึงคำนวณ X̄ ± SD ตามมาตรฐาน</li>
-        </ul>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="text-[13px] font-bold text-gray-800 dark:text-gray-200 mb-2">ทำได้ทันที (Quick Win)</p>
+            <ul className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-1.5 list-disc pl-5">
+              <li>
+                <span className="font-semibold">ไล่ {analysis?.n80 ?? 23} รายการแรกที่กินเงิน 80%</span> — ตัดสินใจรายตัวว่า
+                คืนผู้ขาย / โอนเข้าสต็อกกลาง / ใช้กับรถคันอื่น (ดาวน์โหลดรายการได้จากหน้าสถานะล่าสุด กรองช่วงอายุเกิน 30 วัน)
+              </li>
+              <li>
+                <span className="font-semibold">ล้างของถูกเป็นชุดเดียว</span> — {analysis?.cheapCount ?? 31} รายการต่ำกว่า ฿500
+                รวมกันแค่ {analysis ? analysis.cheapPct.toFixed(0) : 9}% ของเงิน ไม่คุ้มไล่ทีละตัว ควรโอนเข้าสต็อกกลางทั้งก้อน
+              </li>
+              <li>
+                <span className="font-semibold">ตรวจ {analysis?.plateCount ?? 46} คันที่มีของค้าง</span> ว่ายังใช้งานอยู่หรือปลดระวางแล้ว
+                — เพื่อยืนยันสมมติฐาน &quot;อะไหล่รุ่นหายาก/รถปลดระวาง&quot; ที่ยังตรวจไม่ได้จากข้อมูลชุดนี้
+              </li>
+            </ul>
+          </div>
+          <div>
+            <p className="text-[13px] font-bold text-gray-800 dark:text-gray-200 mb-2">แก้ที่ระบบ (Structural)</p>
+            <ul className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-1.5 list-disc pl-5">
+              <li>
+                <span className="font-semibold">เพิ่มสถานะปิดงานให้ของที่ไม่ได้ใช้</span> — สาเหตุหลักที่พบคือระบบไม่มีทางออกให้ของ
+                เมื่อไม่มีสถานะ &quot;คืนผู้ขาย / โอนสต็อกกลาง&quot; ของจึงค้างสะสมโดยไม่มีใครรับผิดชอบ
+              </li>
+              <li>
+                <span className="font-semibold">ผูกใบ DD กับใบแจ้งซ่อม (MR)</span> — ถ้างานซ่อมปิดหรือยกเลิกแล้วแต่ของยังไม่ถูกเบิก
+                ให้ระบบทักทันที ไม่ต้องรอครบ {KPI_AGE_DAYS} วัน
+              </li>
+              <li>
+                แจ้งเตือนอัตโนมัติ (อีเมล/LINE) เมื่อมีใบ DD ค้างเกิน {STALE_DAYS} วัน หรือเมื่อมูลค่าเกิน {KPI_AGE_DAYS} วันทะลุเป้า
+              </li>
+              <li>ขยายการวัดไปคลังอื่น (สระบุรี / ขอนแก่น / DIST) — โครงสร้างรองรับแล้ว เปลี่ยนแค่รหัสคลัง</li>
+              <li>ทบทวนเป้าหมายและ Baseline ทุก 6 เดือน หรือเมื่อครบ 12 เดือนเต็มจึงคำนวณ X̄ ± SD ตามมาตรฐาน</li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       {/* ── สไลด์นำเสนอ (16:9 PNG export) ── */}
