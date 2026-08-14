@@ -1,0 +1,35 @@
+// lib/deadstock.ts
+// ชั้นคุย MongoDB ของหน้า /deadstock — ตรรกะทั้งหมดอยู่ใน deadstock-core.ts
+import clientPromise from "@/lib/mongo"
+import {
+  DB_NAME, COLL_NAME, LAYER_PIPELINE, ISSUE_PIPELINE, buildPayload,
+  type LayerDoc, type IssueDoc, type DeadstockPayload,
+} from "@/lib/deadstock-core"
+
+/** ยุบข้อมูลฝั่ง Mongo ก่อนเสมอ — ดึงแถวดิบ 54k แถวใช้ 152 วินาที ส่วนยุบก่อนใช้ 1.7 วินาที */
+async function fetchRaw(): Promise<{ layers: LayerDoc[]; issues: IssueDoc[] }> {
+  const client = await clientPromise
+  const col = client.db(DB_NAME).collection(COLL_NAME)
+  const [layers, issues] = await Promise.all([
+    col.aggregate<LayerDoc>(LAYER_PIPELINE, { maxTimeMS: 60_000 }).toArray(),
+    col.aggregate<IssueDoc>(ISSUE_PIPELINE, { maxTimeMS: 60_000 }).toArray(),
+  ])
+  return { layers, issues }
+}
+
+// ข้อมูลต้นทางอัปเดตวันละครั้งจาก pipeline ATMS — ไม่มีเหตุให้ยิง DB ทุก request
+// เก็บบน globalThis เพื่อให้รอดข้าม hot-reload ตอน dev และข้าม warm invocation บน Vercel
+const TTL_MS = 60 * 60 * 1000
+
+declare global {
+  var _deadstockCache: { at: number; data: DeadstockPayload } | undefined
+}
+
+export async function getDeadstock(force = false): Promise<DeadstockPayload> {
+  const hit = globalThis._deadstockCache
+  if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.data
+  const { layers, issues } = await fetchRaw()
+  const data = buildPayload(layers, issues, new Date())
+  globalThis._deadstockCache = { at: Date.now(), data }
+  return data
+}
