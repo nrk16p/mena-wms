@@ -6,7 +6,7 @@ import { swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_GO_LIVE, AP_STATUSES, apStatusMeta, isDocSetComplete, missingDocLabels,
   monthInApScope, nextThursday, overdueDays, thaiDate, todayICT,
-  type ApDocKey, type ApDocs, type ApStatus,
+  type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 
@@ -194,31 +194,17 @@ export function ApTrackingPage() {
   // ออกจากหน้าแล้วไม่ปล่อยคำขอค้าง
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  // ติ๊ก/ยกเลิกติ๊กในตาราง — อัปเดตจอทันที แล้วค่อยยิง API (ผิดพลาดค่อยย้อนคืนเฉพาะช่องนี้ของแถวนี้ ไม่แตะแถวอื่น)
-  const toggleDoc = async (row: ApRow, key: ApDocKey) => {
-    const next = !row.docs[key]?.checked
-    const prevMark = row.docs[key]
-    setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
-      ? { ...r, docs: { ...r.docs, [key]: { checked: next, by: "", at: "" } } } : r))
-    try {
-      const res  = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docs: { [key]: next } }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? "บันทึกไม่สำเร็จ")
-      setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
-        ? { ...r, docs: data.docs, status: data.status } : r))
-      // ติ๊กทำให้ 1 แถวย้ายบัคเก็ตสถานะเท่านั้น (รอประกบ ↔ ครบชุด) และไม่กระทบยอดเงินกลุ่มอื่นเลย
-      // — ขยับชิปตาม status ที่เซิร์ฟเวอร์ยืนยันกลับมา ไม่ได้คิดยอดสรุปใหม่เองฝั่ง client
-      //   (ถ้าไม่ขยับ ชิปจะเพี้ยนจากตารางทุกครั้งที่ติ๊ก · ถ้ายิง load() ใหม่ทุกติ๊ก = สแกนหนักทุกคลิก)
-      setSummary((sm) => moveStatusBucket(sm, row.status, data.status as ApStatus, row.amount))
-    } catch (e) {
-      setRows((rs) => rs.map((r) => r.depositCode === row.depositCode
-        ? { ...r, docs: { ...r.docs, [key]: prevMark } } : r))
-      const msg = e instanceof Error ? e.message : ""
-      swalError(msg ? `บันทึกไม่สำเร็จ: ${msg}` : "บันทึกไม่สำเร็จ")
-    }
+  // โมดัลรายละเอียดบันทึกการติ๊กสำเร็จ — เอาผลที่เซิร์ฟเวอร์ยืนยันกลับมาเสียบเข้าตาราง
+  // (ตารางเป็นแบบดูอย่างเดียว การติ๊กทั้งหมดเกิดในโมดัลที่เห็นรายการสินค้า/PO ประกอบก่อนตัดสินใจ)
+  const onDocsSaved = (depositCode: string, docs: ApDocs, status: ApStatus) => {
+    const before = rows.find((r) => r.depositCode === depositCode)
+    setRows((rs) => rs.map((r) => r.depositCode === depositCode ? { ...r, docs, status } : r))
+    // โมดัลถือ row เดิมไว้ตั้งแต่ตอนเปิด — อัปเดตด้วย ไม่งั้นปิดแล้วเปิดใบเดิมซ้ำจะเห็นค่าเก่า
+    setDetailFor((d) => d && d.depositCode === depositCode ? { ...d, docs, status } : d)
+    // ติ๊กทำให้ 1 แถวย้ายบัคเก็ตสถานะเท่านั้น (รอประกบ ↔ ครบชุด) และไม่กระทบยอดเงินกลุ่มอื่นเลย
+    // — ขยับชิปตาม status ที่เซิร์ฟเวอร์ยืนยันกลับมา ไม่ได้คิดยอดสรุปใหม่เองฝั่ง client
+    //   (ถ้าไม่ขยับ ชิปจะเพี้ยนจากตารางทุกครั้งที่บันทึก · ถ้ายิง load() ใหม่ = สแกนหนักทุกครั้ง)
+    if (before) setSummary((sm) => moveStatusBucket(sm, before.status, status, before.amount))
   }
 
   // บันทึกวันส่งบัญชี — นอกรอบ = โอนทุกวันพฤหัส · ตามรอบ = วันที่ส่งเอกสาร
@@ -384,7 +370,8 @@ export function ApTrackingPage() {
               <th className="px-3 py-2 text-right">ยอดเงิน</th>
               <th className="px-3 py-2 text-left">ครบกำหนด</th>
               {AP_DOC_FIELDS.map((f) => (
-                <th key={f.key} className="px-2 py-2 text-center whitespace-nowrap" title={f.label}>{f.short}</th>
+                <th key={f.key} className="px-2 py-2 text-center whitespace-nowrap"
+                  title={`${f.label} — ติ๊กได้ที่หน้ารายละเอียด (คลิกเลข DD)`}>{f.short}</th>
               ))}
               <th className="px-3 py-2 text-left">สถานะ</th>
               <th className="px-3 py-2 text-left">ส่งบัญชี</th>
@@ -413,12 +400,15 @@ export function ApTrackingPage() {
                     {r.dueDate ? thaiDate(r.dueDate) : "—"}
                     {r.overdue > 0 && <div className="text-rose-600 font-medium">⏰ เกิน {r.overdue} วัน</div>}
                   </td>
+                  {/* ดูอย่างเดียว — ติ๊กได้ที่หน้ารายละเอียด (คลิกเลข DD) ซึ่งเห็นรายการสินค้า/PO ประกอบ
+                      แล้วกดบันทึกทีเดียว · disabled ทำให้ onChange ไม่ยิง จึงไม่มีทางบันทึกพลาดจากตาราง */}
                   {AP_DOC_FIELDS.map((f) => (
                     <td key={f.key} className="px-2 py-2 text-center">
-                      <input type="checkbox" checked={Boolean(r.docs[f.key]?.checked)}
-                        onChange={() => toggleDoc(r, f.key)}
-                        title={r.docs[f.key]?.by ? `${r.docs[f.key]!.by} · ${thaiDate((r.docs[f.key]!.at || "").slice(0, 10))}` : f.label}
-                        className="w-4 h-4 accent-emerald-600 cursor-pointer" />
+                      <input type="checkbox" disabled checked={Boolean(r.docs[f.key]?.checked)} readOnly
+                        title={r.docs[f.key]?.checked && r.docs[f.key]?.by
+                          ? `${f.label} · ติ๊กโดย ${r.docs[f.key]!.by} ${thaiDate((r.docs[f.key]!.at || "").slice(0, 10))}`
+                          : `${f.label} — แก้ไขที่หน้ารายละเอียด (คลิกเลข DD)`}
+                        className="w-4 h-4 accent-emerald-600 opacity-90" />
                     </td>
                   ))}
                   <td className="px-3 py-2 whitespace-nowrap">
@@ -475,8 +465,9 @@ export function ApTrackingPage() {
       {sentFor && (
         <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />
       )}
+      {/* key = เลขใบ · เปลี่ยนใบแล้ว component เกิดใหม่ ทำให้ draft การติ๊กเริ่มจากใบใหม่เสมอ */}
       {detailFor && (
-        <ApTrackingDetail row={detailFor} onClose={() => setDetailFor(null)} />
+        <ApTrackingDetail key={detailFor.depositCode} row={detailFor} onClose={() => setDetailFor(null)} onSaved={onDocsSaved} />
       )}
     </div>
   )
