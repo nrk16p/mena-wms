@@ -24,6 +24,7 @@ import {
   WARRANTY_OPTIONS,
   statusMeta,
   buildRepairSummary,
+  mapUrl,
   type RepairExternal,
   type RepairField,
 } from "@/lib/repair-external"
@@ -118,14 +119,7 @@ const showVal = (v: string) => (v === "" || v == null ? "(ว่าง)" : v)
 // จำนวนวันตั้งแต่วันรับแจ้ง → วันนี้ (นับตามปฏิทินไทย ไม่ใช่ช่วง 24 ชม.)
 const ageDays = (s: string): number | null => daysSince(s)
 
-// พิกัดที่รถเสีย → ลิงก์แผนที่ (รับทั้งลิงก์เต็มและ lat,long)
-const mapUrl = (v: string): string | null => {
-  const t = (v ?? "").trim()
-  if (!t) return null
-  if (/^https?:\/\//i.test(t)) return t
-  if (/^-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+$/.test(t)) return `https://www.google.com/maps?q=${encodeURIComponent(t)}`
-  return null
-}
+// mapUrl ย้ายไป lib/repair-external.ts แล้ว — ข้อความสรุปส่งไลน์ต้องตีความพิกัดแบบเดียวกับหน้าเว็บ
 
 // สีตามช่วงอายุงาน (bucket) สำหรับ pill/ตัวเลข
 const agingBucket = (days: number): { text: string; bg: string } =>

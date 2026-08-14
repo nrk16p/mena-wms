@@ -241,9 +241,22 @@ export type RepairSummaryInput = {
   driverPhone?:    string
   symptom?:        string
   note?:           string
+  breakdownLocation?: string
   plant?:          string
   cementStatus?:   string
   drivableStatus?: string
+}
+
+/**
+ * จุดที่รถเสีย → ลิงก์แผนที่ (รับทั้งลิงก์เต็มและ lat,long) · คืน null ถ้าเป็นคำบรรยายเฉย ๆ
+ * อยู่ใน lib เพราะทั้งหน้าเว็บและข้อความสรุปส่งไลน์ต้องตีความค่าเดียวกันให้ตรงกัน
+ */
+export function mapUrl(v: string): string | null {
+  const t = (v ?? "").trim()
+  if (!t) return null
+  if (/^https?:\/\//i.test(t)) return t
+  if (/^-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+$/.test(t)) return `https://www.google.com/maps?q=${encodeURIComponent(t)}`
+  return null
 }
 
 // ถ้อยคำในไลน์ต่างจากค่าที่เก็บ — กลุ่มอ่าน "รถวิ่งเข้าอู่ได้" เข้าใจกว่า "วิ่งได้"
@@ -261,10 +274,13 @@ export function buildRepairSummary(r: RepairSummaryInput): string {
     const spec = [t(r.brand), t(r.model)].filter(Boolean).join(" ")
     lines.push(`🚗 เบอร์รถ ${fleetNo}${spec ? ` /${spec}` : ""}`)
   }
-  if (t(r.driverName))  lines.push(`🌏 ชื่อ ${t(r.driverName)}`)
-  if (t(r.driverPhone)) lines.push(`☀️ เบอร์ ${t(r.driverPhone)}`)
+  if (t(r.driverName))  lines.push(`👤 ชื่อ ${t(r.driverName)}`)
+  if (t(r.driverPhone)) lines.push(`📞 เบอร์ ${t(r.driverPhone)}`)
   if (t(r.symptom))     lines.push(`🚑 ${t(r.symptom)}`)
   if (t(r.note))        lines.push(t(r.note))
+  // พิกัด/ลิงก์ → ส่งเป็น URL ให้กดเปิดแผนที่ในไลน์ได้เลย · คำบรรยายสถานที่ → ส่งข้อความตามที่พิมพ์
+  const loc = t(r.breakdownLocation)
+  if (loc)              lines.push(`📍 จุดที่รถเสีย ${mapUrl(loc) ?? loc}`)
   if (t(r.plant))       lines.push(`🔧 แพล้น${t(r.plant)}`)
 
   const tail = [t(r.cementStatus), DRIVABLE_LINE_TEXT[t(r.drivableStatus)] ?? ""].filter(Boolean).join(" / ")
