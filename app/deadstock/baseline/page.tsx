@@ -404,12 +404,32 @@ export default function DeadstockBaselinePage() {
               <SearchCheck size={16} />
             </span>
             <p className="text-sm font-bold text-gray-900 dark:text-white">
-              ขั้นวิเคราะห์ (Analyze) — เงินจมอยู่ตรงไหน และเพราะอะไร
+              <span className="text-red-600 mr-1.5">5.</span>Analysis Phase — การวิเคราะห์สาเหตุ (Lean / DMAIC)
             </p>
           </div>
           <p className="text-xs text-gray-500 mb-4 pl-[42px]">
-            วิเคราะห์ของที่ค้างเกิน {KPI_AGE_DAYS} วัน จำนวน {analysis.aged.length} รายการ มูลค่า {baht(analysis.total)}
+            วิเคราะห์ของที่ค้างเกิน {KPI_AGE_DAYS} วัน จำนวน {analysis.aged.length} รายการ มูลค่า {baht(analysis.total)}{" "}
+            เพื่อระบุสาเหตุก่อนเข้าสู่ขั้น Improve — เครื่องมือที่ใช้: Pareto, การกระจายตัว (Concentration),
+            การกระจายของอายุค้าง (Aging) และการตรวจสอบการซื้อซ้ำ
           </p>
+
+          {/* ข้อค้นพบหลัก */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+            <div className="rounded-lg border-l-4 border-red-500 bg-red-50/70 dark:bg-red-500/10 px-4 py-3">
+              <p className="text-[13px] font-bold text-gray-900 dark:text-white mb-0.5">หลักการ Pareto ยืนยันจุดโฟกัส</p>
+              <p className="text-[12.5px] text-gray-600 dark:text-gray-400 leading-relaxed">
+                {analysis.n80} จาก {analysis.aged.length} รายการ ({analysis.n80Pct.toFixed(0)}% ของจำนวน) กินมูลค่าถึง 80%
+                — ไล่เคลียร์เฉพาะกลุ่มนี้ให้ผลตอบแทนสูงสุดต่อแรงที่ลงไป
+              </p>
+            </div>
+            <div className="rounded-lg border-l-4 border-gray-400 bg-gray-50 dark:bg-white/[0.03] px-4 py-3">
+              <p className="text-[13px] font-bold text-gray-900 dark:text-white mb-0.5">สาเหตุที่มักถูกเดา ไม่ใช่สาเหตุจริง</p>
+              <p className="text-[12.5px] text-gray-600 dark:text-gray-400 leading-relaxed">
+                การซื้อซ้ำเกิดขึ้นเพียง {analysis.repurchasedPct.toFixed(0)}% ของรายการ และของกระจายอยู่ถึง{" "}
+                {analysis.plateCount} คัน — ปัญหานี้จึงไม่ใช่ &quot;สั่งซ้ำ&quot; หรือ &quot;รถไม่กี่คันถูกทิ้ง&quot; แต่เป็นการรั่วเชิงระบบ
+              </p>
+            </div>
+          </div>
 
           {/* ตัวเลขสรุปจากการวิเคราะห์ */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -454,17 +474,19 @@ export default function DeadstockBaselinePage() {
           </div>
 
           {/* สมมติฐานสาเหตุ */}
-          <p className="text-[13px] font-bold text-gray-800 dark:text-gray-200 mt-6 mb-1">สมมติฐานสาเหตุ และสิ่งที่ข้อมูลบอก</p>
+          <p className="text-[13px] font-bold text-gray-800 dark:text-gray-200 mt-6 mb-1">สาเหตุ (Root Cause) · หลักฐาน · แนวทางแก้</p>
           <p className="text-[11.5px] text-gray-500 mb-3">
             ข้อมูลยืนยันได้เฉพาะ &quot;รูปแบบ&quot; — สาเหตุที่แท้จริงต้องยืนยันกับผู้ปฏิบัติงานอีกชั้น จึงระบุสถานะกำกับไว้ทุกข้อ
+            รวมถึงสมมติฐานที่ข้อมูลหักล้างไปแล้ว เพื่อไม่ให้กลับมาเสียเวลาแก้ผิดจุดซ้ำ
           </p>
           <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/8">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="bg-gray-50 dark:bg-white/[0.03] text-left">
-                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">สมมติฐาน</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">สาเหตุ / สมมติฐาน</th>
                   <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">หลักฐานจากข้อมูล</th>
                   <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">สถานะ</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">แนวทางแก้ (→ Improve)</th>
                 </tr>
               </thead>
               <tbody className="text-gray-600 dark:text-gray-400">
@@ -474,46 +496,53 @@ export default function DeadstockBaselinePage() {
                     e: `มีของค้างเก่าเพียง ${analysis.repurchasedCount} จาก ${analysis.aged.length} รายการ (${analysis.repurchasedPct.toFixed(0)}%) ที่ถูกสั่งซ้ำ คิดเป็นเงิน ${baht(analysis.repurchasedValue)}`,
                     v: "ตกไป",
                     tone: "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300",
+                    fix: "ไม่ต้องลงแรงแก้จุดนี้ — คอลัมน์ “ซื้อซ้ำ” ในหน้าสถานะล่าสุดใช้เฝ้าระวังไว้ก็พอ",
                   },
                   {
                     h: "กระจุกอยู่ที่รถไม่กี่คันที่ถูกทิ้งค้าง",
                     e: `ของค้างกระจายอยู่ ${analysis.plateCount} คัน จาก ${analysis.aged.length} รายการ มีเพียง ${analysis.heavyPlates} คันที่ค้าง ≥3 รายการ`,
                     v: "ตกไป",
                     tone: "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300",
+                    fix: "การไล่แก้เป็นรายคันไม่ได้ผล ต้องแก้ที่กระบวนการซึ่งใช้ร่วมกันทั้งฟลีท",
                   },
                   {
                     h: "สั่งของมาแล้วงานซ่อมไม่ได้ทำ หรือเปลี่ยนวิธีซ่อม",
                     e: "รายการที่จมเงินสูงสุดล้วนเป็นอะไหล่ชิ้นใหญ่เฉพาะรุ่น (ไดสตาร์ท / แผงคอยร้อน / ขาไก่คันส่งพวงมาลัย) ค้าง 170–210 วัน — ของแบบนี้สั่งเพื่องานซ่อมงานเดียว ไม่ใช่ของหมุนเวียน",
                     v: "สอดคล้อง",
                     tone: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+                    fix: "ผูกใบ DD กับใบแจ้งซ่อม (MR) — เมื่องานซ่อมปิดหรือยกเลิกแต่ของยังไม่ถูกเบิก ให้ระบบทักทันที ไม่ต้องรอครบ 60 วัน",
                   },
                   {
                     h: "ไม่มีกลไกปิดงาน ของจึงค้างถาวร",
                     e: `อายุค่ากลาง ${analysis.medianAge} วัน สูงสุด ${analysis.maxAge} วัน และของที่รับเข้ามาค้างต่อเนื่องทุกเดือน ไม่ใช่เหตุการณ์ครั้งเดียว — ระบบไม่มีสถานะ "คืนผู้ขาย" หรือ "โอนเข้าสต็อกกลาง" ให้ปิดรายการ`,
                     v: "สอดคล้อง",
                     tone: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+                    fix: "เพิ่มสถานะปิดงานให้ของที่ไม่ได้ใช้ (คืนผู้ขาย / โอนสต็อกกลาง / ย้ายไปรถคันอื่น) พร้อมผู้รับผิดชอบและวันครบกำหนด",
                   },
                   {
                     h: "อะไหล่รุ่นหายาก / รถปลดระวาง จึงไม่มีโอกาสได้ใช้",
                     e: "ของที่ค้างนานสุดเป็นอะไหล่ยี่ห้อ FAW, SANY, NISSAN CWM4 ซึ่งเป็นรุ่นส่วนน้อยของฟลีท — แต่ยังไม่ได้ตรวจสอบกับทะเบียนรถว่ายังใช้งานอยู่หรือไม่",
                     v: "ต้องตรวจต่อ",
                     tone: "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300",
+                    fix: `ตรวจทะเบียนรถ ${analysis.plateCount} คันว่ายังใช้งานอยู่ไหม — ถ้าปลดระวางแล้วให้ตัดขายหรือคืนผู้ขายทันที ไม่ต้องรอ`,
                   },
                   {
                     h: "ของราคาถูกไม่มีใครตาม",
                     e: `${analysis.cheapCount} รายการราคาต่ำกว่า ฿500 รวมเป็นเงินเพียง ${baht(analysis.cheapValue)} (${analysis.cheapPct.toFixed(0)}% ของทั้งหมด) — รกรายการแต่ไม่ใช่ตัวปัญหาด้านเงิน`,
                     v: "สอดคล้อง",
                     tone: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+                    fix: "ตั้งเกณฑ์มูลค่า — ต่ำกว่า ฿500 ให้โอนเข้าสต็อกกลางเป็นชุดโดยไม่ต้องอนุมัติรายตัว ลดงานเอกสารที่ไม่คุ้ม",
                   },
                 ].map((row) => (
                   <tr key={row.h} className="border-t border-gray-100 dark:border-white/5 align-top">
-                    <td className="px-3 py-2.5 font-semibold text-gray-800 dark:text-gray-200 min-w-[180px]">{row.h}</td>
-                    <td className="px-3 py-2.5 leading-relaxed">{row.e}</td>
+                    <td className="px-3 py-2.5 font-semibold text-gray-800 dark:text-gray-200 min-w-[170px]">{row.h}</td>
+                    <td className="px-3 py-2.5 leading-relaxed min-w-[240px]">{row.e}</td>
                     <td className="px-3 py-2.5">
                       <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11.5px] font-bold whitespace-nowrap ${row.tone}`}>
                         {row.v}
                       </span>
                     </td>
+                    <td className="px-3 py-2.5 leading-relaxed min-w-[220px]">{row.fix}</td>
                   </tr>
                 ))}
               </tbody>
