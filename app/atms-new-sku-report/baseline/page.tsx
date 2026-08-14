@@ -8,6 +8,12 @@ type MonthRow = { month: string; count: number }
 
 const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
+// ขนาดสไลด์คงที่ — PNG ออกมา 2× ของนี้ (2560×1440)
+const SLIDE_W = 1280
+const SLIDE_H = 720
+// เพดานความกว้างพรีวิว — จอ ultrawide ไม่ให้สไลด์บานจนล้นจอ
+const PREVIEW_MAX_W = 1920
+
 function monthLabel(month: string): string {
   const [y, m] = month.split("-")
   return `${TH_MONTHS[+m - 1]} ${(+y + 543) % 100}`
@@ -45,6 +51,17 @@ export default function AtmsNewSkuBaselinePage() {
   const [loading, setLoading] = useState(true)
   const [savingPng, setSavingPng] = useState(false)
   const slideRef = useRef<HTMLDivElement>(null)
+  // พรีวิวสเกลตามความกว้างจอ แต่ตัวที่ export ยังเป็น 1280×720 เป๊ะเสมอ
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setScale(Math.min(e.contentRect.width, PREVIEW_MAX_W) / SLIDE_W))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     fetch("/api/atms-sku-report")
@@ -109,7 +126,7 @@ export default function AtmsNewSkuBaselinePage() {
   }
 
   return (
-    <div className="max-w-5xl">
+    <div>
       <Link
         href="/atms-new-sku-report"
         className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-[#1B8C4B] transition-colors mb-3"
@@ -123,7 +140,7 @@ export default function AtmsNewSkuBaselinePage() {
         เอกสารกำกับตัวชี้วัดการสร้างรหัสสินค้าใหม่ ATMS × Mena-WMS สำหรับการจัดทำ Baseline และการควบคุมคุณภาพข้อมูล
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-5">
         {/* 1. แหล่งที่มา */}
         <Card icon={Database} no="1." title="แหล่งที่มาของข้อมูล (Data Source)">
           <p>
@@ -198,7 +215,7 @@ export default function AtmsNewSkuBaselinePage() {
           </span>
           <p className="text-sm font-bold text-gray-900 dark:text-white">นิยามการวัด (Measurement Definition)</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           <QA
             q="ทุกคนในองค์กรเข้าใจสิ่งที่กำลังจะวัดหรือไม่ ? นิยามคืออะไร ?"
             a={<>เข้าใจตรงกันด้วยนิยามชัดเจน — <span className="font-semibold">&quot;รหัสสินค้าใหม่ (New SKU)&quot; คือรหัสที่ถูกสร้างครั้งแรกในระบบ ATMS</span> โดยการวัดนี้มีเป้าหมายเพื่อพัฒนาการจัดเก็บข้อมูลสำหรับจัดทำราคากลาง (Price Benchmark) และทำให้ฐานข้อมูลถูกต้องแม่นยำยิ่งขึ้น</>}
@@ -274,9 +291,16 @@ export default function AtmsNewSkuBaselinePage() {
           </button>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-white/8">
-          {/* fixed 1280×720 → PNG 2560×1440; light theme only */}
-          <div ref={slideRef} className="w-[1280px] aspect-video shrink-0 bg-white p-10 flex flex-col">
+        {/* ruler: กว้างเท่าคอนเทนเนอร์เสมอ ไม่ขึ้นกับสไลด์ข้างใน → ResizeObserver ไม่วนลูป */}
+        <div ref={wrapRef} className="w-full">
+          {/* พรีวิวย่อ/ขยายด้วย transform — DOM ที่ capture ยังเป็น 1280×720 เป๊ะ */}
+          <div
+            className="mx-auto overflow-hidden rounded-xl border border-gray-200 dark:border-white/8"
+            style={{ width: SLIDE_W * scale, height: SLIDE_H * scale }}
+          >
+            {/* fixed 1280×720 → PNG 2560×1440; light theme only */}
+            <div style={{ transform: `scale(${scale})`, transformOrigin: "top left" }}>
+              <div ref={slideRef} style={{ width: SLIDE_W, height: SLIDE_H }} className="bg-white p-10 flex flex-col">
             {/* Header */}
             <div className="flex items-start justify-between mb-6">
               <div>
@@ -367,6 +391,8 @@ export default function AtmsNewSkuBaselinePage() {
               <p className="text-sm text-gray-400">
                 สร้างเมื่อ {new Date().toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" })}
               </p>
+            </div>
+              </div>
             </div>
           </div>
         </div>
