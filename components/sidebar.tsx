@@ -34,6 +34,7 @@ import {
   X,
   Banknote,
   Landmark,
+  PackageX,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -93,6 +94,15 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/ap-tracking/suppliers", label: "เครดิตเทอมเจ้าหนี้", icon: Landmark },
       { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen },
       { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen },
+    ],
+  },
+  {
+    label: "ของค้างคลัง (ลาดกระบัง)",
+    collapsible: true,
+    items: [
+      { href: "/deadstock", label: "ภาพรายเดือน", icon: BarChart3, exact: true },
+      { href: "/deadstock/pending", label: "สถานะล่าสุด", icon: PackageX, exact: true },
+      { href: "/deadstock/items", label: "รายรหัสสินค้า", icon: PackageSearch, exact: true },
     ],
   },
   {
