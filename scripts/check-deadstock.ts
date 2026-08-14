@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { MongoClient } from "mongodb"
 import {
-  DB_NAME, COLL_NAME, INVENTORY_ID, LAYER_PIPELINE, ISSUE_PIPELINE, buildPayload,
+  DB_NAME, COLL_NAME, INVENTORY_ID, START_YM, LAYER_PIPELINE, ISSUE_PIPELINE, buildPayload,
   type LayerDoc, type IssueDoc,
 } from "../lib/deadstock-core"
 
@@ -21,7 +21,7 @@ await client.connect()
 const col = client.db(DB_NAME).collection(COLL_NAME)
 
 // 1) query ต้องใช้ index ไม่ใช่ collscan — กติกาข้อสำคัญที่สุดของงานนี้
-const plan = await col.find({ inventory_id: INVENTORY_ID, year_month: { $gte: "2026-01" } }).explain("queryPlanner")
+const plan = await col.find({ inventory_id: INVENTORY_ID, year_month: { $gte: START_YM } }).explain("queryPlanner")
 const planJson = JSON.stringify(plan.queryPlanner?.winningPlan ?? plan)
 assert.ok(planJson.includes("IXSCAN"), "query ต้องวิ่งผ่าน index")
 assert.ok(!planJson.includes("COLLSCAN"), "ห้าม collscan เด็ดขาด")
@@ -60,7 +60,7 @@ assert.equal(p.summary.buckets.reduce((s, b) => s + b.count, 0), p.summary.pendi
 assert.equal(p.items.reduce((s, i) => s + i.layers, 0), p.summary.pendingCount, "ผลรวมรายรหัสต้องเท่ายอดรวม")
 assert.ok(p.pending.every((r) => r.plate), "ทุกแถวที่แสดงต้องมีทะเบียนรถ")
 assert.ok(p.pending.every((r) => r.remaining > 0), "ห้ามมีแถวคงเหลือ 0 หรือติดลบ")
-assert.ok(p.monthly.length >= 1 && p.monthly[0].ym === "2026-01")
+assert.ok(p.monthly.length >= 1 && p.monthly[0].ym === START_YM, `เดือนแรกต้องเป็น ${START_YM}`)
 
 console.log("\n✅ check-deadstock: ผ่านทั้งหมด")
 await client.close()

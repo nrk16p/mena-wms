@@ -136,9 +136,11 @@ export default function DeadstockBaselinePage() {
     const fromYm = `${firstMeasurable.getUTCFullYear()}-${String(firstMeasurable.getUTCMonth() + 1).padStart(2, "0")}`
 
     const closed = data.monthly.slice(0, -1)
-    const done = closed.filter((m) => m.ym >= fromYm)
+    const measurable = closed.filter((m) => m.ym >= fromYm)
+    // ใช้ 12 เดือนล่าสุดตามธรรมเนียมเอกสารกำกับตัวชี้วัด (ถ้ายังไม่ครบ 12 ก็ใช้เท่าที่มี)
+    const done = measurable.slice(-12)
     if (done.length === 0) return null
-    const skipped = closed.length - done.length
+    const skipped = closed.length - measurable.length
     const kpi = done.map((m) => m.kpiValue)
     const avg = kpi.reduce((a, b) => a + b, 0) / kpi.length
     const sd = Math.sqrt(kpi.reduce((a, b) => a + (b - avg) ** 2, 0) / kpi.length)
@@ -252,7 +254,9 @@ export default function DeadstockBaselinePage() {
     }
   }
 
-  const maxKpi = Math.max(KPI_MAX_VALUE, ...(data?.monthly.map((m) => m.kpiValue) ?? [1]))
+  // กราฟจำกัด 12 เดือนล่าสุด — ข้อมูลยาว 20 เดือน ป้ายมูลค่าบนแท่งจะทับกัน
+  const chartMonths = useMemo(() => data?.monthly.slice(-12) ?? [], [data])
+  const maxKpi = Math.max(KPI_MAX_VALUE, ...chartMonths.map((m) => m.kpiValue), 1)
 
   return (
     <div className="p-5 md:p-6 max-w-[1400px] mx-auto">
@@ -287,7 +291,7 @@ export default function DeadstockBaselinePage() {
         <Card icon={CalendarRange} no="2." title="การเก็บข้อมูลก่อนการปรับปรุง (As-Is Data Collection)">
           <p>
             เก็บข้อมูลย้อนหลัง<span className="font-semibold text-gray-800 dark:text-gray-200">ตั้งแต่ {data ? monthLabel(data.startYm) : "ม.ค. 69"} จนถึงปัจจุบัน</span>
-            {data && stat && <> รวม {data.monthly.length} เดือน (จบเดือนแล้ว {stat.monthCount} เดือน)</>}
+            {data && stat && <> รวม {data.monthly.length} เดือน (ใช้คำนวณ Baseline {stat.monthCount} เดือน)</>}
             {data && <> ปัจจุบันมีใบ DD ค้าง {data.summary.pendingCount.toLocaleString()} รายการ มูลค่า {baht(data.summary.pendingValue)}</>}
           </p>
           <p>
@@ -362,11 +366,11 @@ export default function DeadstockBaselinePage() {
             >
               <span className="absolute -top-5 right-0 text-[11px] font-bold text-red-600">เป้า {baht(KPI_MAX_VALUE)}</span>
             </div>
-            {data.monthly.map((m, idx) => {
+            {chartMonths.map((m, idx) => {
               // เดือนที่ของยังอายุไม่ถึงเกณฑ์ = วัดไม่ได้ ห้ามแสดงเป็นสีเขียว "ผ่าน"
               const notMeasurable = m.ym < stat.fromYm
               const over = m.kpiValue > KPI_MAX_VALUE
-              const isCurrent = idx === data.monthly.length - 1
+              const isCurrent = idx === chartMonths.length - 1
               const color = notMeasurable ? "bg-gray-300" : over ? "bg-red-600" : "bg-emerald-500"
               return (
                 <div key={m.ym} className="flex-1 flex flex-col items-center justify-end h-full gap-1">
@@ -387,9 +391,9 @@ export default function DeadstockBaselinePage() {
             })}
           </div>
           <div className="flex gap-3 mt-2">
-            {data.monthly.map((m, idx) => (
+            {chartMonths.map((m, idx) => (
               <div key={m.ym} className="flex-1 text-center text-[11px] text-gray-500">
-                {monthLabel(m.ym)}{idx === data.monthly.length - 1 ? "*" : ""}
+                {monthLabel(m.ym)}{idx === chartMonths.length - 1 ? "*" : ""}
               </div>
             ))}
           </div>

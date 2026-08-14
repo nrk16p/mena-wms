@@ -222,11 +222,13 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
     return [...m.values()].sort((a, b) => b.value - a.value).slice(0, 6)
   }, [data, stale])
 
-  const maxMonth = Math.max(1, ...data.monthly.map((m) => m.count))
+  // สไลด์กว้างคงที่ 1280px — เกิน 12 แท่งตัวเลขบนแท่งจะทับกัน จึงตัดเหลือ 12 เดือนล่าสุด
+  const slideMonths = data.monthly.slice(-12)
+  const maxMonth = Math.max(1, ...slideMonths.map((m) => m.count))
   const maxGroup = Math.max(1, ...groups.map((g) => g.value))
   const maxBucket = Math.max(1, ...data.summary.buckets.map((b) => b.value))
-  const first = data.monthly[0]
-  const last = data.monthly[data.monthly.length - 1]
+  const first = slideMonths[0]
+  const last = slideMonths[slideMonths.length - 1]
   const growth = first && last && first.count > 0 ? Math.round(((last.count - first.count) / first.count) * 100) : 0
 
   const kpis = [
@@ -282,7 +284,7 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
         <div style={{ flex: "1 1 62%", border: "1px solid #E5E7EB", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
             <h2 style={{ ...mitr, fontSize: 16, fontWeight: 700, margin: 0 }}>ของค้าง ณ สิ้นแต่ละเดือน</h2>
-            <span style={{ fontSize: 12, color: "#9CA3AF" }}>จำนวนรายการ</span>
+            <span style={{ fontSize: 12, color: "#9CA3AF" }}>จำนวนรายการ · {slideMonths.length} เดือนล่าสุด</span>
             <span style={{ marginLeft: "auto", fontSize: 12, color: "#6B7280" }}>
               <i style={{ display: "inline-block", width: 9, height: 9, background: "#DC2626", borderRadius: 2, marginRight: 5 }} />
               ค้างเกิน {stale} วัน
@@ -294,7 +296,7 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
             </p>
           )}
           <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 10, minHeight: 0 }}>
-            {data.monthly.map((m) => {
+            {slideMonths.map((m) => {
               const h = (m.count / maxMonth) * 100
               const sh = m.count > 0 ? (m.staleCount / m.count) * 100 : 0
               return (
@@ -308,7 +310,7 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
             })}
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-            {data.monthly.map((m) => (
+            {slideMonths.map((m) => (
               <div key={m.ym} style={{ flex: 1, textAlign: "center", fontSize: 11.5, color: "#6B7280" }}>
                 {m.ym.slice(5)}/{m.ym.slice(2, 4)}
               </div>

@@ -12,7 +12,7 @@ export const COLL_NAME = "stockmovement_v5"
  *  `คลังสินค้า` ไม่มี index (collscan 435k แถว) ส่วนคู่ year_month+inventory_id มี index รองรับ */
 export const INVENTORY_ID = "4"
 export const WAREHOUSE = "คลังลาดกระบัง"
-export const START_YM = "2026-01"
+export const START_YM = "2025-01"
 
 /** เกินกี่วันถือว่า "ค้างนาน" — ผู้ใช้กำหนด 7 วัน */
 export const STALE_DAYS = 7

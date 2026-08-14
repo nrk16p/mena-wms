@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import {
   plateFromNote, daysBetween, bucketOf, consumeFifo, buildPayload,
-  matchesAgeFilter, rollupItems, ITEM_AGE_FILTERS,
+  matchesAgeFilter, rollupItems, ITEM_AGE_FILTERS, START_YM,
   STALE_DAYS, type Layer, type LayerDoc, type IssueDoc, type PendingRow,
 } from "../lib/deadstock-core"
 
@@ -96,11 +96,15 @@ const L = (dd: string, date: string, qty: number, plate: string | null = "71-000
   assert.equal(p.summary.pendingValue, 500)
   assert.equal(p.summary.staleCount, 1, "รับ 2 ม.ค. วัดวันที่ 10 ก.พ. = 39 วัน > 7")
   assert.equal(p.dataQuality.stockLayersRemaining, 0)
-  // ภาพรายเดือน: ม.ค. ถึง ก.พ.
-  assert.deepEqual(p.monthly.map((m) => m.ym), ["2026-01", "2026-02"])
-  assert.equal(p.monthly[0].count, 1, "สิ้น ม.ค. ก็ค้างแล้ว 1 รายการ")
-  assert.equal(p.monthly[0].staleCount, 1, "รับ 2 ม.ค. วัดสิ้น ม.ค. = 29 วัน > 7")
-  assert.equal(p.monthly[0].value, 500)
+  // ภาพรายเดือน: เริ่มที่ START_YM เสมอ และจบที่เดือนของ asOf
+  assert.equal(p.monthly[0].ym, START_YM, "เดือนแรกต้องเป็น START_YM")
+  assert.equal(p.monthly.at(-1)!.ym, "2026-02", "เดือนสุดท้ายต้องเป็นเดือนของ asOf")
+  const jan = p.monthly.find((m) => m.ym === "2026-01")!
+  assert.equal(jan.count, 1, "สิ้น ม.ค. 2026 ก็ค้างแล้ว 1 รายการ")
+  assert.equal(jan.staleCount, 1, "รับ 2 ม.ค. วัดสิ้น ม.ค. = 29 วัน > 7")
+  assert.equal(jan.value, 500)
+  // เดือนก่อนที่ของจะถูกรับเข้ามา ต้องยังไม่มีอะไรค้าง
+  if (START_YM < "2026-01") assert.equal(p.monthly[0].count, 0, "เดือนก่อนรับของ ต้องค้าง 0")
 }
 
 // --- buildPayload: unmatched ---
