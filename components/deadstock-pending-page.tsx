@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { Download, Search } from "lucide-react"
 import * as XLSX from "xlsx"
-import { BucketBadge, DeadstockShell, SummaryCards, baht, mitr, thaiDate, useDeadstock } from "@/components/deadstock-shared"
+import { BucketBadge, DeadstockShell, RepurchaseBadge, SummaryCards, baht, mitr, thaiDate, useDeadstock } from "@/components/deadstock-shared"
 import { AGE_BUCKETS } from "@/lib/deadstock-core"
 
 type GroupBar = { name: string; value: number; count: number; staleValue: number }
@@ -159,6 +159,7 @@ export function DeadstockPendingPage() {
         ราคาทุน: r.cost,
         มูลค่า: r.value,
         "อายุค้าง (วัน)": r.ageDays,
+        "ซื้อซ้ำหลังใบนี้ (ใบ)": r.newerCount,
       }))
     )
     const wb = XLSX.utils.book_new()
@@ -245,9 +246,10 @@ export function DeadstockPendingPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง"].map((h, i) => (
+                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "ซื้อซ้ำ"].map((h, i) => (
                     <th
                       key={h}
+                      title={h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ)" : undefined}
                       style={{
                         padding: "10px 12px",
                         fontWeight: 700,
@@ -276,11 +278,14 @@ export function DeadstockPendingPage() {
                     <td style={{ padding: "9px 12px", textAlign: "right" }}>
                       <BucketBadge bucket={r.bucket} days={r.ageDays} />
                     </td>
+                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                      <RepurchaseBadge n={r.newerCount} />
+                    </td>
                   </tr>
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                    <td colSpan={10} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                       ไม่พบรายการตามเงื่อนไข
                     </td>
                   </tr>

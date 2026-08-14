@@ -43,18 +43,46 @@ export function BucketBadge({ bucket, days }: { bucket: BucketKey; days: number 
   )
 }
 
+/** "ซื้อซ้ำ" — จำนวนใบ DD ของรหัสเดียวกันที่รับเข้ามาหลังใบนี้ ทั้งที่ใบนี้ยังไม่ถูกเบิก
+ *  0 = ไม่ได้ซื้อซ้ำ แสดงเป็นขีดจาง เพื่อให้สายตาไปจับเฉพาะตัวที่มีปัญหา */
+export function RepurchaseBadge({ n }: { n: number }) {
+  if (n <= 0) return <span style={{ color: "#D1D5DB" }}>–</span>
+  const heavy = n >= 4
+  return (
+    <span
+      title={`มีใบ DD ของรหัสนี้รับเข้ามาหลังใบนี้อีก ${n} ใบ ทั้งที่ใบนี้ยังไม่ถูกเบิก`}
+      style={{
+        background: heavy ? "#7C2D12" : "#FFF7ED",
+        color: heavy ? "#fff" : "#C2410C",
+        border: `1px solid ${heavy ? "#7C2D12" : "#FED7AA"}`,
+        padding: "2px 8px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      +{n} ใบ
+    </span>
+  )
+}
+
+async function fetchDeadstock(refresh: boolean): Promise<DeadstockPayload> {
+  const res = await fetch(`/api/deadstock${refresh ? "?refresh=1" : ""}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
 export function useDeadstock() {
   const [data, setData] = useState<DeadstockPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(async (refresh = false) => {
+  const reload = useCallback(async (refresh = false) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/deadstock${refresh ? "?refresh=1" : ""}`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setData(await res.json())
+      setData(await fetchDeadstock(refresh))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -62,11 +90,18 @@ export function useDeadstock() {
     }
   }, [])
 
+  // โหลดครั้งแรก — setState ทุกตัวเกิดหลัง await เท่านั้น (กัน cascading render)
+  // และเช็ค cancelled กันเซ็ต state หลังผู้ใช้ออกจากหน้าไปแล้ว
   useEffect(() => {
-    void load()
-  }, [load])
+    let cancelled = false
+    fetchDeadstock(false)
+      .then((d) => { if (!cancelled) setData(d) })
+      .catch((e) => { if (!cancelled) setError(String(e)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
 
-  return { data, error, loading, reload: load }
+  return { data, error, loading, reload }
 }
 
 const TABS = [

@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react"
 import { ChevronDown, ChevronRight, Search } from "lucide-react"
-import { BucketBadge, DeadstockShell, baht, thaiDate, useDeadstock } from "@/components/deadstock-shared"
+import { BucketBadge, DeadstockShell, RepurchaseBadge, baht, thaiDate, useDeadstock } from "@/components/deadstock-shared"
 import { ITEM_AGE_FILTERS, matchesAgeFilter, rollupItems } from "@/lib/deadstock-core"
 
 export function DeadstockItemsPage() {
@@ -81,9 +81,10 @@ export function DeadstockItemsPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "ใบ DD ค้าง", "คงเหลือ", "มูลค่า", "ค้างนานสุด"].map((h, i) => (
+                  {["", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "ใบ DD ค้าง", "คงเหลือ", "มูลค่า", "ค้างนานสุด", "ซื้อซ้ำ"].map((h, i) => (
                     <th
                       key={h || `col${i}`}
+                      title={h === "ซื้อซ้ำ" ? "ใบ DD ของรหัสนี้ที่รับเข้ามาหลังใบเก่าสุดที่ยังค้าง (นับเฉพาะใบที่ผูกทะเบียนรถ)" : undefined}
                       style={{
                         padding: "10px 12px",
                         fontWeight: 700,
@@ -115,6 +116,9 @@ export function DeadstockItemsPage() {
                         <td style={{ padding: "9px 12px", textAlign: "right" }}>{it.remaining.toLocaleString()}</td>
                         <td style={{ padding: "9px 12px", textAlign: "right", fontWeight: 600 }}>{baht(it.value)}</td>
                         <td style={{ padding: "9px 12px", textAlign: "right" }}>{it.oldestAgeDays} วัน</td>
+                        <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                          <RepurchaseBadge n={it.newerMax} />
+                        </td>
                       </tr>
                       {isOpen &&
                         layers.map((l) => (
@@ -131,6 +135,9 @@ export function DeadstockItemsPage() {
                             <td style={{ padding: "7px 12px", textAlign: "right" }}>
                               <BucketBadge bucket={l.bucket} days={l.ageDays} />
                             </td>
+                            <td style={{ padding: "7px 12px", textAlign: "right" }}>
+                              <RepurchaseBadge n={l.newerCount} />
+                            </td>
                           </tr>
                         ))}
                     </Fragment>
@@ -138,7 +145,7 @@ export function DeadstockItemsPage() {
                 })}
                 {items.length === 0 && (
                   <tr>
-                    <td colSpan={8} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                    <td colSpan={9} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                       ไม่พบรหัสสินค้าตามเงื่อนไข
                     </td>
                   </tr>

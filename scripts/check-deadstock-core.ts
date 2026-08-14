@@ -129,6 +129,40 @@ const L = (dd: string, date: string, qty: number, plate: string | null = "71-000
   assert.equal(p.items[0].oldestAgeDays, 50, "ชั้นเก่าสุด 10 ม.ค. ถึง 1 มี.ค. = 50 วัน")
 }
 
+// --- newerCount: ซื้อซ้ำทั้งที่ของเก่ายังค้าง ---
+{
+  const mk = (dd: string, day: string, note: string): LayerDoc =>
+    ({ _id: { i: "Z", d: dd, t: `2026-01-${day}T00:00:00.000Z` }, q: 1, c: 10, n: "ของ Z", g: "กลุ่ม", note })
+  const TRUCK1 = "LBPR1/71-1111/T1/โม่"
+  const TRUCK2 = "LBPR2/71-2222/T2/โม่"
+  const TRUCK3 = "LBPR3/71-3333/T3/โม่"
+  const p = buildPayload(
+    [mk("DD1", "05", TRUCK1), mk("DD2", "10", TRUCK2), mk("DD3", "20", TRUCK3)],
+    [],
+    new Date("2026-02-01T00:00:00.000Z")
+  )
+  const byDd = Object.fromEntries(p.pending.map((r) => [r.dd, r.newerCount]))
+  assert.equal(byDd["DD1"], 2, "ใบเก่าสุดต้องมีใบใหม่กว่า 2 ใบ")
+  assert.equal(byDd["DD2"], 1)
+  assert.equal(byDd["DD3"], 0, "ใบใหม่สุดต้องไม่มีใบใหม่กว่า")
+  assert.equal(p.items[0].newerMax, 2)
+
+  // ของเข้าสต็อกกลางที่ใหม่กว่า ต้องไม่ถูกนับ (ผู้ใช้เลือกนับเฉพาะใบที่ผูกทะเบียนรถ)
+  const p2 = buildPayload(
+    [mk("DD1", "05", TRUCK1), mk("DD-STOCK", "10", "LBPR9/STOCK"), mk("DD3", "20", TRUCK3)],
+    [],
+    new Date("2026-02-01T00:00:00.000Z")
+  )
+  assert.equal(p2.pending.find((r) => r.dd === "DD1")!.newerCount, 1, "นับเฉพาะ DD3 ไม่นับใบสต็อกกลาง")
+  assert.equal(p2.dataQuality.stockLayersRemaining, 1)
+
+  // ใบเก่าถูกเบิกหมดแล้ว ต้องหลุดจากรายการค้าง และไม่ถูกนับเป็นใบใหม่กว่าของใคร
+  const p3 = buildPayload([mk("DD1", "05", TRUCK1), mk("DD2", "10", TRUCK2)], [{ _id: { i: "Z", m: "2026-01" }, q: 1 }], new Date("2026-02-01T00:00:00.000Z"))
+  assert.equal(p3.pending.length, 1)
+  assert.equal(p3.pending[0].dd, "DD2")
+  assert.equal(p3.pending[0].newerCount, 0)
+}
+
 // --- matchesAgeFilter: ขอบเขตแบ่งที่ < 7 กับ >= 7 (ไม่ใช่ > 7 แบบ STALE_DAYS) ---
 assert.equal(ITEM_AGE_FILTERS.length, 4)
 assert.equal(matchesAgeFilter("", 999), true, "ค่าว่าง = ไม่กรอง")
@@ -145,7 +179,7 @@ assert.equal(matchesAgeFilter("gt30", 31), true)
   const row = (dd: string, ageDays: number, remaining: number, value: number): PendingRow => ({
     dd, date: "2026-01-01T00:00:00.000Z", plate: "71-0001",
     itemCode: "A", itemName: "ของ A", itemGroup: "กลุ่ม1",
-    remaining, cost: value / remaining, value, ageDays, bucket: bucketOf(ageDays),
+    remaining, cost: value / remaining, value, ageDays, bucket: bucketOf(ageDays), newerCount: 0,
   })
   const rows = [row("DD-NEW", 3, 2, 200), row("DD-OLD", 45, 1, 100)]
 

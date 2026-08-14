@@ -110,6 +110,10 @@ export type PendingRow = {
   value: number
   ageDays: number
   bucket: BucketKey
+  /** จำนวนใบ DD ที่ผูกทะเบียนรถของ "รหัสสินค้าเดียวกัน" ซึ่งรับเข้ามาหลังใบนี้ = ซื้อซ้ำทั้งที่ของเก่ายังไม่ถูกเบิก
+   *  ไม่ต้องเช็คว่าใบใหม่กว่า "ยังไม่ถูกเบิก" ซ้ำอีก — FIFO ตัดจากใบเก่าสุดก่อน
+   *  ถ้าใบนี้ยังค้าง ใบที่ใหม่กว่าย่อมยังไม่ถูกแตะเสมอ (ตรวจกับข้อมูลจริงแล้ว 0/290 กรณีขัดแย้ง) */
+  newerCount: number
 }
 
 export type MonthPoint = {
@@ -129,6 +133,8 @@ export type ItemRow = {
   remaining: number
   value: number
   oldestAgeDays: number
+  /** ซื้อซ้ำมากสุดของรหัสนี้ = newerCount ของใบที่เก่าที่สุด */
+  newerMax: number
 }
 
 export type DeadstockPayload = {
@@ -234,12 +240,14 @@ export function rollupItems(rows: PendingRow[]): ItemRow[] {
           remaining: 0,
           value: 0,
           oldestAgeDays: 0,
+          newerMax: 0,
         })
       )
     it.layers += 1
     it.remaining = r4(it.remaining + p.remaining)
     it.value = r2(it.value + p.value)
     it.oldestAgeDays = Math.max(it.oldestAgeDays, p.ageDays)
+    it.newerMax = Math.max(it.newerMax, p.newerCount)
   }
   return [...itemMap.values()].sort((a, b) => b.value - a.value)
 }
@@ -336,9 +344,23 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
         value: r2(r.remaining * r.cost),
         ageDays,
         bucket: bucketOf(ageDays),
+        newerCount: 0, // เติมด้านล่างเมื่อรู้ครบทุกใบของรหัสนั้นแล้ว
       })
     }
   }
+
+  // ซื้อซ้ำ: ต่อรหัสสินค้า เรียงใบที่ค้างจากเก่า→ใหม่ ใบลำดับที่ i มีใบใหม่กว่าเหลืออีก (n-1-i) ใบ
+  const byCode = new Map<string, PendingRow[]>()
+  for (const p of pending) {
+    const arr = byCode.get(p.itemCode)
+    if (arr) arr.push(p)
+    else byCode.set(p.itemCode, [p])
+  }
+  for (const rows of byCode.values()) {
+    rows.sort((a, b) => (a.date === b.date ? a.dd.localeCompare(b.dd) : a.date < b.date ? -1 : 1))
+    for (let i = 0; i < rows.length; i++) rows[i].newerCount = rows.length - 1 - i
+  }
+
   pending.sort((a, b) => b.ageDays - a.ageDays || b.value - a.value)
 
   // ── สรุป ──
