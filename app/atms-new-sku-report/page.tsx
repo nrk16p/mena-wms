@@ -42,6 +42,8 @@ export default function AtmsNewSkuReportPage() {
   const [lastSync, setLastSync]   = useState<SyncLog>(null)
   const [loading, setLoading]     = useState(true)
   const [savingPng, setSavingPng] = useState(false)
+  const [xlMonth, setXlMonth]     = useState("")      // "" = ยังไม่ได้เลือก → ใช้เดือนล่าสุดที่มีข้อมูล
+  const [downloading, setDownloading] = useState(false)
   const slideRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback((whs: string[]) => {
@@ -136,6 +138,54 @@ export default function AtmsNewSkuReportPage() {
 
   const slideWhLabel = selWh.length === 0 ? "ทุกคลังสินค้า" : selWh.join(" • ")
 
+  // เดือนสำหรับดาวน์โหลด — ไล่จากใหม่ไปเก่า · ค่าตั้งต้นคือเดือนล่าสุดที่มีข้อมูล (คำนวณตอน render
+  // ไม่ตั้งผ่าน effect เพราะ monthly มาทีหลังและจะกลายเป็น setState ซ้อน render โดยไม่จำเป็น)
+  const monthOptions = useMemo(() => [...monthly].reverse(), [monthly])
+  const exportMonth  = xlMonth || monthOptions[0]?.month || curKey
+
+  // ดึงรายการ SKU ของเดือนที่เลือก (กรองตามคลังที่เลือกไว้ด้านบน) แล้วสร้างไฟล์ Excel ฝั่งเบราว์เซอร์
+  // โหลด xlsx แบบ dynamic เหมือน html-to-image — ไม่ให้ไลบรารีที่ใช้เฉพาะตอนกดปุ่มไปถ่วง bundle ของหน้า
+  const downloadExcel = async () => {
+    if (downloading) return
+    setDownloading(true)
+    try {
+      const p = new URLSearchParams({ month: exportMonth })
+      if (selWh.length) p.set("warehouse", selWh.join(","))
+      const res = await fetch(`/api/atms-sku-report/export?${p.toString()}`)
+      const d   = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? "ดึงข้อมูลไม่สำเร็จ")
+
+      const rows = (d.rows ?? []) as RecentRow[]
+      if (!rows.length) {
+        alert(`ไม่มีรหัสสินค้าใหม่ในเดือน ${monthLabel(exportMonth)}${selWh.length ? ` (คลัง ${selWh.join(", ")})` : ""}`)
+        return
+      }
+
+      const XLSX = await import("xlsx")
+      const ws = XLSX.utils.json_to_sheet(rows.map((r) => ({
+        "รหัสสินค้า": r.code ?? "",
+        "ชื่อสินค้า": r.name ?? "",
+        "กลุ่ม":      r.group ?? "",
+        "คลัง":       r.warehouse ?? "",
+        "ผู้เพิ่ม":    r.username ?? "",
+        // addedAtText คือข้อความวันที่จาก ATMS ตรง ๆ — ใช้ก่อนเสมอ ค่อยถอยไปแปลงจาก addedAt เอง
+        "วันที่เพิ่ม": r.addedAtText || (r.addedAt ? new Date(r.addedAt).toLocaleString("th-TH") : ""),
+      })))
+      ws["!cols"] = [{ wch: 18 }, { wch: 46 }, { wch: 22 }, { wch: 18 }, { wch: 16 }, { wch: 20 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, exportMonth)   // ชื่อชีต = YYYY-MM (ปลอดอักขระต้องห้ามของ Excel)
+      const whPart = selWh.length === 1 ? `-${selWh[0]}` : selWh.length ? `-${selWh.length}คลัง` : ""
+      XLSX.writeFile(wb, `new-sku-${exportMonth}${whPart}.xlsx`)
+
+      if (d.truncated) alert(`ข้อมูลถูกตัดที่ ${d.limit.toLocaleString()} แถว — ไฟล์นี้ยังไม่ครบทั้งเดือน`)
+    } catch (e) {
+      console.error("export excel failed", e)
+      alert(`ดาวน์โหลด Excel ไม่สำเร็จ: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
@@ -169,6 +219,27 @@ export default function AtmsNewSkuReportPage() {
           <button onClick={() => setSelWh([])} className="text-xs text-[#1B8C4B] hover:underline pt-2.5">ล้างตัวกรอง</button>
         )}
         {loading && <span className="text-xs text-gray-400 animate-pulse pt-2.5">กำลังโหลด...</span>}
+      </div>
+
+      {/* ดาวน์โหลดรายชื่อ SKU ใหม่ทีละเดือน — กรองตามคลังที่เลือกไว้ด้านบน (ไม่มีช่องเลือกคลังซ้ำ) */}
+      <div className="flex flex-wrap items-center gap-2 mb-6 rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] px-4 py-3">
+        <label htmlFor="xl-month" className="text-sm font-medium text-gray-700 dark:text-gray-300">ดาวน์โหลดรหัสสินค้าใหม่:</label>
+        <select id="xl-month" value={exportMonth} onChange={(e) => setXlMonth(e.target.value)}
+          disabled={monthOptions.length === 0}
+          className="rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-3 py-1.5 text-sm">
+          {monthOptions.length === 0
+            ? <option value={curKey}>{monthLabel(curKey)}</option>
+            : monthOptions.map((r) => (
+              <option key={r.month} value={r.month}>{monthLabel(r.month)} · {r.count.toLocaleString()} รายการ</option>
+            ))}
+        </select>
+        <button onClick={downloadExcel} disabled={downloading || loading}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#167a41] disabled:opacity-50">
+          <Download size={15} /> {downloading ? "กำลังเตรียมไฟล์..." : "Excel"}
+        </button>
+        <span className="text-xs text-gray-400 dark:text-gray-500">
+          กรองตามคลัง: {selWh.length === 0 ? "ทุกคลัง" : selWh.join(", ")}
+        </span>
       </div>
 
       {/* KPI tiles */}
