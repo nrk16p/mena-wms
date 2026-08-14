@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react"
 import { Download, Search } from "lucide-react"
 import * as XLSX from "xlsx"
-import { BucketBadge, DeadstockShell, RepurchaseBadge, SummaryCards, baht, mitr, thaiDate, useDeadstock } from "@/components/deadstock-shared"
+import { BucketBadge, DeadstockShell, RepurchaseBadge, StatusBadge, SummaryCards, baht, mitr, thaiDate, useDeadstock } from "@/components/deadstock-shared"
 import { AGE_BUCKETS } from "@/lib/deadstock-core"
+
+const BUCKET_LABEL = Object.fromEntries(AGE_BUCKETS.map((b) => [b.key, b])) as Record<string, (typeof AGE_BUCKETS)[number]>
 
 type GroupBar = { name: string; value: number; count: number; staleValue: number }
 
@@ -159,6 +161,8 @@ export function DeadstockPendingPage() {
         ราคาทุน: r.cost,
         มูลค่า: r.value,
         "อายุค้าง (วัน)": r.ageDays,
+        สถานะ: BUCKET_LABEL[r.bucket]?.label ?? r.bucket,
+        "สถานะ (ไทย)": BUCKET_LABEL[r.bucket]?.th ?? "",
         "ซื้อซ้ำหลังใบนี้ (ใบ)": r.newerCount,
       }))
     )
@@ -195,12 +199,12 @@ export function DeadstockPendingPage() {
               onChange={(e) => setBucket(e.target.value)}
               style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13 }}
             >
-              <option value="">ทุกช่วงอายุ</option>
+              <option value="">ทุกสถานะ</option>
               {AGE_BUCKETS.map((b) => {
                 const n = data.summary.buckets.find((x) => x.key === b.key)?.count ?? 0
                 return (
                   <option key={b.key} value={b.key}>
-                    {b.label} ({n})
+                    {b.label} · {b.range} ({n})
                   </option>
                 )
               })}
@@ -246,7 +250,7 @@ export function DeadstockPendingPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "ซื้อซ้ำ"].map((h, i) => (
+                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ"].map((h, i) => (
                     <th
                       key={h}
                       title={h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ)" : undefined}
@@ -279,13 +283,16 @@ export function DeadstockPendingPage() {
                       <BucketBadge bucket={r.bucket} days={r.ageDays} />
                     </td>
                     <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                      <StatusBadge bucket={r.bucket} />
+                    </td>
+                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
                       <RepurchaseBadge n={r.newerCount} />
                     </td>
                   </tr>
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={10} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                    <td colSpan={11} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                       ไม่พบรายการตามเงื่อนไข
                     </td>
                   </tr>

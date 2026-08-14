@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { AlertTriangle, PackageX, RefreshCw } from "lucide-react"
-import type { BucketKey, DeadstockPayload } from "@/lib/deadstock-core"
+import { AGE_BUCKETS, KPI_AGE_DAYS, type BucketKey, type DeadstockPayload } from "@/lib/deadstock-core"
 
 export const mitr = { fontFamily: "var(--font-mitr), sans-serif" }
 
@@ -14,19 +14,24 @@ export const baht = (n: number) =>
 export const thaiDate = (iso: string) =>
   new Date(iso).toLocaleDateString("th-TH", { day: "2-digit", month: "short", year: "2-digit", timeZone: "UTC" })
 
-/** สีตามช่วงอายุ — ยิ่งค้างนานยิ่งแดง */
-export const BUCKET_STYLE: Record<BucketKey, { bg: string; fg: string; ring: string }> = {
-  "0-7": { bg: "#ECFDF5", fg: "#047857", ring: "#A7F3D0" },
-  "8-15": { bg: "#FEFCE8", fg: "#A16207", ring: "#FDE68A" },
-  "16-30": { bg: "#FFF7ED", fg: "#C2410C", ring: "#FED7AA" },
-  "31-60": { bg: "#FEF2F2", fg: "#B91C1C", ring: "#FECACA" },
-  "60+": { bg: "#7F1D1D", fg: "#FFFFFF", ring: "#7F1D1D" },
+/** สีตามสถานะอายุ — ยิ่งค้างนานยิ่งแดง */
+export const BUCKET_STYLE: Record<BucketKey, { bg: string; fg: string; ring: string; solid: string }> = {
+  normal: { bg: "#ECFDF5", fg: "#047857", ring: "#A7F3D0", solid: "#10B981" },
+  watch: { bg: "#FEFCE8", fg: "#A16207", ring: "#FDE68A", solid: "#F59E0B" },
+  slow: { bg: "#FFF7ED", fg: "#C2410C", ring: "#FED7AA", solid: "#F97316" },
+  candidate: { bg: "#FEF2F2", fg: "#B91C1C", ring: "#FECACA", solid: "#DC2626" },
+  confirmed: { bg: "#7F1D1D", fg: "#FFFFFF", ring: "#7F1D1D", solid: "#7F1D1D" },
 }
 
+const BUCKET_META = Object.fromEntries(AGE_BUCKETS.map((b) => [b.key, b])) as Record<BucketKey, (typeof AGE_BUCKETS)[number]>
+
+/** ป้ายจำนวนวันที่ค้าง ระบายสีตามสถานะ */
 export function BucketBadge({ bucket, days }: { bucket: BucketKey; days: number }) {
   const s = BUCKET_STYLE[bucket]
+  const m = BUCKET_META[bucket]
   return (
     <span
+      title={`${m.label} (${m.th}) — ${m.range}`}
       style={{
         background: s.bg,
         color: s.fg,
@@ -39,6 +44,33 @@ export function BucketBadge({ bucket, days }: { bucket: BucketKey; days: number 
       }}
     >
       {days} วัน
+    </span>
+  )
+}
+
+/** ป้ายสถานะตามศัพท์ Lean — ใช้ในคอลัมน์ "สถานะ" */
+export function StatusBadge({ bucket }: { bucket: BucketKey }) {
+  const s = BUCKET_STYLE[bucket]
+  const m = BUCKET_META[bucket]
+  return (
+    <span
+      title={`${m.th} · ${m.range}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        background: s.bg,
+        color: s.fg,
+        border: `1px solid ${s.ring}`,
+        padding: "2px 9px",
+        borderRadius: 999,
+        fontSize: 11.5,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <i style={{ width: 7, height: 7, borderRadius: 999, background: s.solid, flexShrink: 0 }} />
+      {m.label}
     </span>
   )
 }
@@ -192,11 +224,11 @@ export function DeadstockShell({
 
 export function SummaryCards({ data }: { data: DeadstockPayload }) {
   const s = data.summary
-  const over60 = s.buckets.find((b) => b.key === "60+")
   const cards = [
     { label: "ค้างทั้งหมด", value: `${s.pendingCount.toLocaleString()} รายการ`, sub: baht(s.pendingValue), tone: "#111827" },
     { label: `ค้างเกิน ${data.staleDays} วัน`, value: `${s.staleCount.toLocaleString()} รายการ`, sub: baht(s.staleValue), tone: "#B91C1C" },
-    { label: "ค้างเกิน 60 วัน", value: `${(over60?.count ?? 0).toLocaleString()} รายการ`, sub: baht(over60?.value ?? 0), tone: "#7F1D1D" },
+    // ตัวเลขที่ KPI คุม — Deadstock Candidate ขึ้นไป (ค้างเกิน KPI_AGE_DAYS วัน)
+    { label: `ค้างเกิน ${KPI_AGE_DAYS} วัน (Deadstock)`, value: `${s.kpiCount.toLocaleString()} รายการ`, sub: baht(s.kpiValue), tone: "#7F1D1D" },
     { label: "รหัสสินค้าที่ค้าง", value: `${data.items.length.toLocaleString()} รายการ`, sub: `${s.pendingQty.toLocaleString()} ชิ้น`, tone: "#374151" },
   ]
   return (

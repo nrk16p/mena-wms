@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import {
   plateFromNote, daysBetween, bucketOf, consumeFifo, buildPayload,
-  matchesAgeFilter, rollupItems, ITEM_AGE_FILTERS, START_YM,
+  matchesAgeFilter, rollupItems, ITEM_AGE_FILTERS, START_YM, KPI_AGE_DAYS,
   STALE_DAYS, type Layer, type LayerDoc, type IssueDoc, type PendingRow,
 } from "../lib/deadstock-core"
 
@@ -19,12 +19,21 @@ assert.equal(plateFromNote(null), null)
 // --- daysBetween / bucketOf ---
 assert.equal(daysBetween("2026-08-01T00:00:00.000Z", new Date("2026-08-14T00:00:00.000Z")), 13)
 assert.equal(daysBetween("2026-08-14T00:00:00.000Z", new Date("2026-08-14T00:00:00.000Z")), 0)
-assert.equal(bucketOf(0), "0-7")
-assert.equal(bucketOf(7), "0-7")
-assert.equal(bucketOf(8), "8-15")
-assert.equal(bucketOf(30), "16-30")
-assert.equal(bucketOf(61), "60+")
+// สถานะตามศัพท์ Lean — ขอบเขต 7 / 30 / 60 / 180 วัน
+assert.equal(bucketOf(0), "normal")
+assert.equal(bucketOf(7), "normal")
+assert.equal(bucketOf(8), "watch")
+assert.equal(bucketOf(30), "watch")
+assert.equal(bucketOf(31), "slow")
+assert.equal(bucketOf(60), "slow")
+assert.equal(bucketOf(61), "candidate")
+assert.equal(bucketOf(180), "candidate")
+assert.equal(bucketOf(181), "confirmed")
+assert.equal(bucketOf(9999), "confirmed")
 assert.equal(STALE_DAYS, 7)
+// ขอบเขต KPI ต้องตรงกับรอยต่อ Slow Moving → Deadstock Candidate พอดี
+assert.equal(bucketOf(KPI_AGE_DAYS), "slow")
+assert.equal(bucketOf(KPI_AGE_DAYS + 1), "candidate")
 
 // --- consumeFifo ---
 const L = (dd: string, date: string, qty: number, plate: string | null = "71-0001"): Layer => ({

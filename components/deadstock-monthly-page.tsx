@@ -7,13 +7,13 @@ import type { BucketKey, DeadstockPayload } from "@/lib/deadstock-core"
 
 type Metric = "count" | "value"
 
-/** ไล่สีตามความรุนแรงของอายุค้าง — เขียว (เพิ่งรับ) ไปแดงเข้ม (ค้างนาน) */
+/** ไล่สีตามความรุนแรงของสถานะ — เขียว (เพิ่งรับ) ไปแดงเข้ม (ของตาย) */
 const AGE_COLOR: Record<BucketKey, string> = {
-  "0-7": "#10B981",
-  "8-15": "#F59E0B",
-  "16-30": "#F97316",
-  "31-60": "#DC2626",
-  "60+": "#7F1D1D",
+  normal: "#10B981",
+  watch: "#F59E0B",
+  slow: "#F97316",
+  candidate: "#DC2626",
+  confirmed: "#7F1D1D",
 }
 
 export function DeadstockMonthlyPage() {
@@ -339,8 +339,8 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
 
           <div style={{ height: 194, border: "1px solid #E5E7EB", borderRadius: 12, padding: "12px 16px", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-              <h2 style={{ ...mitr, fontSize: 15, fontWeight: 700, margin: 0 }}>แยกตามอายุค้าง</h2>
-              <span style={{ fontSize: 11.5, color: "#9CA3AF" }}>ความสูงแท่ง = มูลค่า · ตัวเลขในวงเล็บ = จำนวนรายการ</span>
+              <h2 style={{ ...mitr, fontSize: 15, fontWeight: 700, margin: 0 }}>แยกตามสถานะ</h2>
+              <span style={{ fontSize: 11.5, color: "#9CA3AF" }}>ความสูงแท่ง = มูลค่า · ในวงเล็บ = จำนวนรายการ</span>
             </div>
             <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 7, minHeight: 0 }}>
               {data.summary.buckets.map((b) => (
@@ -355,9 +355,11 @@ function DeadstockSlide({ ref, data }: { ref: React.Ref<HTMLDivElement>; data: D
             </div>
             <div style={{ display: "flex", gap: 7, marginTop: 5 }}>
               {data.summary.buckets.map((b) => (
-                <div key={b.key} style={{ flex: 1, textAlign: "center" }}>
-                  <div style={{ fontSize: 10.5, color: "#374151", fontWeight: 600, whiteSpace: "nowrap" }}>{b.label}</div>
-                  <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>({b.count})</div>
+                <div key={b.key} style={{ flex: 1, textAlign: "center", minWidth: 0 }}>
+                  <div style={{ fontSize: 9.5, color: "#374151", fontWeight: 700, lineHeight: 1.25 }}>
+                    {b.label.replace("Deadstock ", "DS ")}
+                  </div>
+                  <div style={{ fontSize: 9.5, color: "#9CA3AF", lineHeight: 1.25 }}>{b.range} ({b.count})</div>
                 </div>
               ))}
             </div>

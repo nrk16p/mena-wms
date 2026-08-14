@@ -24,12 +24,17 @@ export const STALE_DAYS = 7
 export const KPI_AGE_DAYS = 60
 export const KPI_MAX_VALUE = 12_000
 
+/** สถานะของค้างตามอายุ — ใช้ชุดเดียวกันทุกหน้า (ตาราง / กราฟ / ตัวกรอง / สไลด์)
+ *
+ *  หมายเหตุเรื่องศัพท์: ตำราคลังสินค้านิยาม Slow Moving / Deadstock จาก "การไม่มีการเบิกออก"
+ *  แต่ที่นี่วัดจาก "อายุของล็อตที่รับเข้ามาแล้วยังไม่ถูกเบิก" ซึ่งเป็นคนละมุม —
+ *  ใช้ศัพท์ชุดนี้เพื่อให้ตรงกับเอกสารโครงการ Lean โดยมีนิยามกำกับที่หน้า /deadstock/baseline */
 export const AGE_BUCKETS = [
-  { key: "0-7", label: "0-7 วัน", max: 7 },
-  { key: "8-15", label: "8-15 วัน", max: 15 },
-  { key: "16-30", label: "16-30 วัน", max: 30 },
-  { key: "31-60", label: "31-60 วัน", max: 60 },
-  { key: "60+", label: "เกิน 60 วัน", max: Number.POSITIVE_INFINITY },
+  { key: "normal", label: "Normal", th: "ปกติ", range: "0-7 วัน", max: 7 },
+  { key: "watch", label: "Watch", th: "เฝ้าระวัง", range: "8-30 วัน", max: 30 },
+  { key: "slow", label: "Slow Moving", th: "เคลื่อนไหวช้า", range: "31-60 วัน", max: 60 },
+  { key: "candidate", label: "Deadstock Candidate", th: "เข้าข่ายของตาย", range: "61-180 วัน", max: 180 },
+  { key: "confirmed", label: "Deadstock Confirmed", th: "ของตาย", range: "เกิน 180 วัน", max: Number.POSITIVE_INFINITY },
 ] as const
 
 export type BucketKey = (typeof AGE_BUCKETS)[number]["key"]
@@ -161,7 +166,7 @@ export type DeadstockPayload = {
     /** ของที่ค้างเกิน KPI_AGE_DAYS วัน ณ วันนี้ = ตัวเลขที่ KPI คุม */
     kpiCount: number
     kpiValue: number
-    buckets: { key: BucketKey; label: string; count: number; value: number }[]
+    buckets: { key: BucketKey; label: string; th: string; range: string; count: number; value: number }[]
   }
   monthly: MonthPoint[]
   pending: PendingRow[]
@@ -393,6 +398,8 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
     return {
       key: b.key,
       label: b.label,
+      th: b.th,
+      range: b.range,
       count: rows.length,
       value: r2(rows.reduce((s, p) => s + p.value, 0)),
     }
