@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb, Download, SearchCheck } from "lucide-react"
-import { KPI_AGE_DAYS, KPI_MAX_VALUE, STALE_DAYS, type DeadstockPayload } from "@/lib/deadstock-core"
+import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb, Download, SearchCheck, Layers } from "lucide-react"
+import { AGE_BUCKETS, KPI_AGE_DAYS, KPI_MAX_VALUE, STALE_DAYS, type DeadstockPayload } from "@/lib/deadstock-core"
 
 const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
@@ -350,6 +350,75 @@ export default function DeadstockBaselinePage() {
         </Card>
       </div>
 
+      {/* นิยามสถานะ 5 ชั้น */}
+      {data && (
+        <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
+          <div className="flex items-center gap-2.5 mb-1">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600">
+              <Layers size={16} />
+            </span>
+            <p className="text-sm font-bold text-gray-900 dark:text-white">นิยามสถานะของค้าง (Ageing Status)</p>
+          </div>
+          <p className="text-xs text-gray-500 mb-4 pl-[42px]">
+            ใช้ชุดเดียวกันทุกหน้า — ตาราง กราฟ ตัวกรอง และไฟล์ Excel · รอยต่อ Slow Moving → Deadstock Candidate
+            ตรงกับเกณฑ์ KPI ({KPI_AGE_DAYS} วัน) พอดี
+          </p>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/8">
+            <table className="w-full text-[12.5px]">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-white/[0.03] text-left">
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">สถานะ</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 whitespace-nowrap">ช่วงอายุ</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 text-right whitespace-nowrap">รายการ</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300 text-right whitespace-nowrap">มูลค่า</th>
+                  <th className="px-3 py-2 font-bold text-gray-700 dark:text-gray-300">ความหมาย / สิ่งที่ต้องทำ</th>
+                </tr>
+              </thead>
+              <tbody className="text-gray-600 dark:text-gray-400">
+                {AGE_BUCKETS.map((b) => {
+                  const s = data.summary.buckets.find((x) => x.key === b.key)
+                  const meaning: Record<string, string> = {
+                    normal: "อยู่ในรอบเบิกปกติ ยังไม่ต้องทำอะไร — ของเพิ่งรับเข้ามารอช่างเบิกไปติดตั้ง",
+                    watch: "เกินรอบปกติแล้ว ให้ตามกับช่างว่าจะติดตั้งเมื่อไหร่ ยังไม่ถือว่าผิดปกติรุนแรง",
+                    slow: "ผิดปกติชัดเจน ต้องหาสาเหตุ — งานซ่อมถูกยกเลิก เปลี่ยนวิธีซ่อม หรือรถไม่เข้าอู่",
+                    candidate: `เข้าเกณฑ์ KPI แล้ว (นับรวมในเป้า ${baht(KPI_MAX_VALUE)}) ต้องตัดสินใจรายตัว — คืนผู้ขาย โอนเข้าสต็อกกลาง หรือย้ายไปใช้กับรถคันอื่น`,
+                    confirmed: "ค้างข้ามปี แทบไม่มีโอกาสได้ใช้ตามวัตถุประสงค์เดิม — ตัดสินใจขั้นสุดท้าย ตัดจำหน่ายหรือขายทิ้ง",
+                  }
+                  const dot: Record<string, string> = {
+                    normal: "bg-emerald-500", watch: "bg-amber-500", slow: "bg-orange-500",
+                    candidate: "bg-red-600", confirmed: "bg-red-900",
+                  }
+                  return (
+                    <tr key={b.key} className="border-t border-gray-100 dark:border-white/5 align-top">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-2 font-bold text-gray-800 dark:text-gray-200">
+                          <i className={`h-2 w-2 rounded-full ${dot[b.key]}`} />
+                          {b.label}
+                        </span>
+                        <span className="block text-[11.5px] text-gray-400 pl-4">{b.th}</span>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-semibold">{b.range}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{(s?.count ?? 0).toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-gray-800 dark:text-gray-200">{baht(s?.value ?? 0)}</td>
+                      <td className="px-3 py-2.5 leading-relaxed min-w-[260px]">{meaning[b.key]}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="mt-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 p-3 text-[12.5px] text-amber-800 dark:text-amber-300 leading-relaxed">
+            <span className="font-bold">ข้อควรระวังเรื่องศัพท์</span> — ตำราคลังสินค้านิยาม Slow Moving และ Deadstock จาก
+            &quot;การไม่มีการเบิกออกจากคลัง&quot; แต่ตัวชี้วัดชุดนี้วัดจาก
+            <span className="font-semibold">&quot;อายุของล็อตที่รับเข้ามาแล้วยังไม่ถูกเบิก&quot;</span> ซึ่งเป็นคนละมุม —
+            ของบางตัวเบิกออกทุกเดือนแต่ยังมีล็อตเก่าค้างอยู่ก็เข้าเกณฑ์นี้ได้ ใช้ศัพท์ชุดนี้เพื่อให้ตรงกับเอกสารโครงการ Lean
+            แต่ต้องอ้างนิยามในตารางนี้เสมอเวลารายงาน
+          </p>
+        </div>
+      )}
+
       {/* กราฟ KPI รายเดือนเทียบเป้า */}
       {stat && data && (
         <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
@@ -589,7 +658,7 @@ export default function DeadstockBaselinePage() {
           />
           <QA
             q="เมื่อได้ข้อมูลการวัดนี้มาแล้ว จะทำอะไรต่อ ?"
-            a={<>ใช้ตรวจสอบและควบคุม (Monitoring &amp; Control) — ของที่ค้างเกิน {STALE_DAYS} วันต้องตามหาสาเหตุ ส่วนที่เกิน {KPI_AGE_DAYS} วันต้องตัดสินใจว่าจะคืนผู้ขาย โอนเข้าสต็อกกลาง หรือใช้กับรถคันอื่น</>}
+            a={<>ใช้ตรวจสอบและควบคุม (Monitoring &amp; Control) ตามสถานะ — <span className="font-semibold">Watch</span> ({STALE_DAYS}+ วัน) ตามกับช่าง · <span className="font-semibold">Slow Moving</span> (31+ วัน) หาสาเหตุ · <span className="font-semibold">Deadstock Candidate</span> ({KPI_AGE_DAYS}+ วัน) ตัดสินใจคืนผู้ขาย/โอนสต็อกกลาง/ย้ายรถ · <span className="font-semibold">Confirmed</span> (180+ วัน) ตัดจำหน่าย</>}
           />
         </div>
       </div>
@@ -632,7 +701,8 @@ export default function DeadstockBaselinePage() {
             <ul className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-1.5 list-disc pl-5">
               <li>
                 <span className="font-semibold">ไล่ {analysis?.n80 ?? 23} รายการแรกที่กินเงิน 80%</span> — ตัดสินใจรายตัวว่า
-                คืนผู้ขาย / โอนเข้าสต็อกกลาง / ใช้กับรถคันอื่น (ดาวน์โหลดรายการได้จากหน้าสถานะล่าสุด กรองช่วงอายุเกิน 30 วัน)
+                คืนผู้ขาย / โอนเข้าสต็อกกลาง / ใช้กับรถคันอื่น (ดาวน์โหลดรายการได้จากหน้าสถานะล่าสุด กรองสถานะ{" "}
+                <span className="font-semibold">Deadstock Candidate</span> ขึ้นไป)
               </li>
               <li>
                 <span className="font-semibold">ล้างของถูกเป็นชุดเดียว</span> — {analysis?.cheapCount ?? 31} รายการต่ำกว่า ฿500
@@ -761,7 +831,8 @@ export default function DeadstockBaselinePage() {
                       <li><span className="font-semibold text-gray-800">วัดอะไร:</span> ใบรับ (DD) ที่ยังไม่ถูกใบเบิก (WD) ตัดออกตาม FIFO — เฉพาะของที่ระบุทะเบียนรถ ไม่รวมค่าแรงและสต็อกกลาง</li>
                       <li><span className="font-semibold text-gray-800">ทำไมต้องเก็บ:</span> ของที่ซื้อเพื่อรถคันหนึ่งแล้วไม่ถูกเบิก = เงินจม เสี่ยงสูญหาย</li>
                       <li><span className="font-semibold text-gray-800">วัดอย่างไร:</span> มูลค่าของที่ค้างเกิน {KPI_AGE_DAYS} วัน ณ สิ้นเดือน</li>
-                      <li><span className="font-semibold text-gray-800">ใช้ทำอะไรต่อ:</span> เกิน {STALE_DAYS} วันตามหาสาเหตุ · เกิน {KPI_AGE_DAYS} วันตัดสินใจคืนผู้ขาย/โอนสต็อกกลาง/ใช้กับรถคันอื่น</li>
+                      <li><span className="font-semibold text-gray-800">สถานะตามอายุ:</span> Normal 0-7 · Watch 8-30 · Slow Moving 31-60 · Deadstock Candidate 61-180 · Confirmed 180+ วัน</li>
+                      <li><span className="font-semibold text-gray-800">ใช้ทำอะไรต่อ:</span> Watch ตามกับช่าง · Slow Moving หาสาเหตุ · Candidate ขึ้นไปตัดสินใจคืนผู้ขาย/โอนสต็อกกลาง/ย้ายรถ</li>
                     </ul>
                   </div>
                   <div className="rounded-xl bg-gray-50 p-4">
