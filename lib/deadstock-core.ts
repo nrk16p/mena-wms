@@ -27,6 +27,25 @@ export const AGE_BUCKETS = [
 
 export type BucketKey = (typeof AGE_BUCKETS)[number]["key"]
 
+/** ตัวกรองช่วงอายุของหน้า "รายรหัสสินค้า" — กรองที่ระดับใบ DD แล้วรวมยอดใหม่
+ *  หมายเหตุ: แบ่งที่ < 7 กับ >= 7 ตามที่ผู้ใช้กำหนด ซึ่งไม่ตรงกับ STALE_DAYS (นับ > 7)
+ *  ของที่ค้างพอดี 7 วันจึงอยู่ใน "≥ 7 วัน" แต่ไม่นับเป็น stale ของหน้าอื่น */
+export const ITEM_AGE_FILTERS = [
+  { key: "", label: "ทุกช่วงอายุ" },
+  { key: "lt7", label: "ต่ำกว่า 7 วัน" },
+  { key: "gte7", label: "7 วันขึ้นไป" },
+  { key: "gt30", label: "เกิน 30 วัน" },
+] as const
+
+export type ItemAgeFilterKey = (typeof ITEM_AGE_FILTERS)[number]["key"]
+
+export function matchesAgeFilter(key: string, days: number): boolean {
+  if (key === "lt7") return days < 7
+  if (key === "gte7") return days >= 7
+  if (key === "gt30") return days > 30
+  return true
+}
+
 // ── Mongo pipelines ─────────────────────────────────────────────────────────
 // อยู่ในไฟล์นี้เพื่อให้สคริปต์ตรวจสอบใช้ pipeline "ตัวเดียวกัน" กับที่ production ใช้จริง
 // ค่าแรงถูกตัดตั้งแต่ใน query ได้ เพราะเป็นคุณสมบัติระดับรหัสสินค้า (ไม่ก้ำกึ่ง)
@@ -198,6 +217,33 @@ function cutoffOf(ym: string, asOf: Date): Date {
   return end > asOf ? asOf : end
 }
 
+/** รวมใบ DD ที่ค้างเป็นยอดต่อรหัสสินค้า เรียงตามมูลค่ามากไปน้อย
+ *  แยกออกมาเพราะหน้า "รายรหัสสินค้า" ต้องรวมยอดใหม่หลังกรองช่วงอายุ — ใช้ตัวเดียวกันทั้งสองที่ */
+export function rollupItems(rows: PendingRow[]): ItemRow[] {
+  const itemMap = new Map<string, ItemRow>()
+  for (const p of rows) {
+    let it = itemMap.get(p.itemCode)
+    if (!it)
+      itemMap.set(
+        p.itemCode,
+        (it = {
+          itemCode: p.itemCode,
+          itemName: p.itemName,
+          itemGroup: p.itemGroup,
+          layers: 0,
+          remaining: 0,
+          value: 0,
+          oldestAgeDays: 0,
+        })
+      )
+    it.layers += 1
+    it.remaining = r4(it.remaining + p.remaining)
+    it.value = r2(it.value + p.value)
+    it.oldestAgeDays = Math.max(it.oldestAgeDays, p.ageDays)
+  }
+  return [...itemMap.values()].sort((a, b) => b.value - a.value)
+}
+
 // ── Payload builder ─────────────────────────────────────────────────────────
 export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf: Date): DeadstockPayload {
   type Entry = { layers: Layer[]; issues: Map<string, number> }
@@ -307,29 +353,7 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
   })
   const stale = pending.filter((p) => p.ageDays > STALE_DAYS)
 
-  // ── รวมรายรหัสสินค้า ──
-  const itemMap = new Map<string, ItemRow>()
-  for (const p of pending) {
-    let it = itemMap.get(p.itemCode)
-    if (!it)
-      itemMap.set(
-        p.itemCode,
-        (it = {
-          itemCode: p.itemCode,
-          itemName: p.itemName,
-          itemGroup: p.itemGroup,
-          layers: 0,
-          remaining: 0,
-          value: 0,
-          oldestAgeDays: 0,
-        })
-      )
-    it.layers += 1
-    it.remaining = r4(it.remaining + p.remaining)
-    it.value = r2(it.value + p.value)
-    it.oldestAgeDays = Math.max(it.oldestAgeDays, p.ageDays)
-  }
-  const items = [...itemMap.values()].sort((a, b) => b.value - a.value)
+  const items = rollupItems(pending)
 
   return {
     asOf: asOf.toISOString(),

@@ -3,7 +3,8 @@
 import assert from "node:assert/strict"
 import {
   plateFromNote, daysBetween, bucketOf, consumeFifo, buildPayload,
-  STALE_DAYS, type Layer, type LayerDoc, type IssueDoc,
+  matchesAgeFilter, rollupItems, ITEM_AGE_FILTERS,
+  STALE_DAYS, type Layer, type LayerDoc, type IssueDoc, type PendingRow,
 } from "../lib/deadstock-core"
 
 // --- plateFromNote: ทะเบียนถูกฝังใน หมายเหตุ เพราะแถว DD ไม่มีคอลัมน์ ทะเบียน เลย ---
@@ -126,6 +127,47 @@ const L = (dd: string, date: string, qty: number, plate: string | null = "71-000
   assert.equal(p.items[0].remaining, 5)
   assert.equal(p.items[0].value, 100)
   assert.equal(p.items[0].oldestAgeDays, 50, "ชั้นเก่าสุด 10 ม.ค. ถึง 1 มี.ค. = 50 วัน")
+}
+
+// --- matchesAgeFilter: ขอบเขตแบ่งที่ < 7 กับ >= 7 (ไม่ใช่ > 7 แบบ STALE_DAYS) ---
+assert.equal(ITEM_AGE_FILTERS.length, 4)
+assert.equal(matchesAgeFilter("", 999), true, "ค่าว่าง = ไม่กรอง")
+assert.equal(matchesAgeFilter("lt7", 6), true)
+assert.equal(matchesAgeFilter("lt7", 7), false, "7 วันพอดี ต้องไม่อยู่ใน 'ต่ำกว่า 7'")
+assert.equal(matchesAgeFilter("gte7", 7), true, "7 วันพอดี ต้องอยู่ใน '7 วันขึ้นไป'")
+assert.equal(matchesAgeFilter("gte7", 6), false)
+assert.equal(matchesAgeFilter("gte7", 400), true, "'7 วันขึ้นไป' ครอบของเก่ามากด้วย")
+assert.equal(matchesAgeFilter("gt30", 30), false, "30 วันพอดี ต้องไม่อยู่ใน 'เกิน 30'")
+assert.equal(matchesAgeFilter("gt30", 31), true)
+
+// --- rollupItems: กรองระดับใบ DD แล้วยอดต้องคำนวณใหม่ ไม่ใช่ยอดเดิมทั้งรหัส ---
+{
+  const row = (dd: string, ageDays: number, remaining: number, value: number): PendingRow => ({
+    dd, date: "2026-01-01T00:00:00.000Z", plate: "71-0001",
+    itemCode: "A", itemName: "ของ A", itemGroup: "กลุ่ม1",
+    remaining, cost: value / remaining, value, ageDays, bucket: bucketOf(ageDays),
+  })
+  const rows = [row("DD-NEW", 3, 2, 200), row("DD-OLD", 45, 1, 100)]
+
+  const all = rollupItems(rows)
+  assert.equal(all.length, 1)
+  assert.equal(all[0].layers, 2)
+  assert.equal(all[0].value, 300)
+  assert.equal(all[0].oldestAgeDays, 45)
+
+  const old = rollupItems(rows.filter((r) => matchesAgeFilter("gt30", r.ageDays)))
+  assert.equal(old.length, 1, "รหัสยังอยู่ เพราะมีใบที่เข้าช่วง")
+  assert.equal(old[0].layers, 1, "เหลือใบเดียว")
+  assert.equal(old[0].value, 100, "มูลค่าต้องนับเฉพาะใบที่เข้าช่วง ไม่ใช่ 300")
+  assert.equal(old[0].oldestAgeDays, 45)
+
+  const fresh = rollupItems(rows.filter((r) => matchesAgeFilter("lt7", r.ageDays)))
+  assert.equal(fresh[0].layers, 1)
+  assert.equal(fresh[0].value, 200)
+  assert.equal(fresh[0].oldestAgeDays, 3, "ค้างนานสุดต้องคิดใหม่จากใบที่เหลือ")
+
+  // ไม่มีใบไหนเข้าช่วง = รหัสสินค้าต้องหายไปเลย
+  assert.deepEqual(rollupItems(rows.filter((r) => matchesAgeFilter("gt30", r.ageDays) && r.dd === "DD-NEW")), [])
 }
 
 console.log("✅ deadstock-core: ผ่านทั้งหมด")

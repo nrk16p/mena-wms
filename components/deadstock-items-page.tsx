@@ -3,10 +3,12 @@
 import { Fragment, useMemo, useState } from "react"
 import { ChevronDown, ChevronRight, Search } from "lucide-react"
 import { BucketBadge, DeadstockShell, baht, thaiDate, useDeadstock } from "@/components/deadstock-shared"
+import { ITEM_AGE_FILTERS, matchesAgeFilter, rollupItems } from "@/lib/deadstock-core"
 
 export function DeadstockItemsPage() {
   const { data, error, loading, reload } = useDeadstock()
   const [q, setQ] = useState("")
+  const [age, setAge] = useState<string>("")
   const [open, setOpen] = useState<Set<string>>(new Set())
 
   const toggle = (code: string) =>
@@ -17,11 +19,22 @@ export function DeadstockItemsPage() {
       return s
     })
 
+  // กรองที่ระดับใบ DD ก่อน แล้วรวมยอดต่อรหัสสินค้าใหม่ — จำนวนใบ/คงเหลือ/มูลค่า/ค้างนานสุด
+  // จึงสะท้อนเฉพาะใบที่เข้าช่วงอายุ ไม่ใช่ยอดเดิมทั้งรหัส
+  const layersInScope = useMemo(
+    () => (data ? data.pending.filter((p) => matchesAgeFilter(age, p.ageDays)) : []),
+    [data, age]
+  )
+
   const items = useMemo(() => {
-    if (!data) return []
     const rx = q.trim() ? new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null
-    return data.items.filter((i) => !rx || rx.test(i.itemCode) || rx.test(i.itemName) || rx.test(i.itemGroup))
-  }, [data, q])
+    return rollupItems(layersInScope).filter(
+      (i) => !rx || rx.test(i.itemCode) || rx.test(i.itemName) || rx.test(i.itemGroup)
+    )
+  }, [layersInScope, q])
+
+  const countFor = (key: string) =>
+    data ? new Set(data.pending.filter((p) => matchesAgeFilter(key, p.ageDays)).map((p) => p.itemCode)).size : 0
 
   return (
     <DeadstockShell data={data} loading={loading} error={error} reload={reload}>
@@ -37,8 +50,30 @@ export function DeadstockItemsPage() {
                 style={{ padding: "7px 12px 7px 30px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13, width: 290 }}
               />
             </div>
+            <div style={{ display: "flex", gap: 4, background: "#F3F4F6", padding: 3, borderRadius: 999, flexWrap: "wrap" }}>
+              {ITEM_AGE_FILTERS.map((f) => (
+                <button
+                  key={f.key || "all"}
+                  onClick={() => setAge(f.key)}
+                  style={{
+                    padding: "5px 13px",
+                    borderRadius: 999,
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                    background: age === f.key ? "#111827" : "transparent",
+                    color: age === f.key ? "#fff" : "#6B7280",
+                  }}
+                >
+                  {f.label} ({countFor(f.key)})
+                </button>
+              ))}
+            </div>
             <span style={{ fontSize: 13, color: "#6B7280" }}>
-              {items.length.toLocaleString()} รหัสสินค้า · {baht(items.reduce((s, i) => s + i.value, 0))}
+              {items.length.toLocaleString()} รหัสสินค้า · {layersInScope.length.toLocaleString()} ใบ DD ·{" "}
+              {baht(items.reduce((s, i) => s + i.value, 0))}
             </span>
           </div>
 
@@ -66,7 +101,7 @@ export function DeadstockItemsPage() {
               <tbody>
                 {items.map((it) => {
                   const isOpen = open.has(it.itemCode)
-                  const layers = isOpen ? data.pending.filter((p) => p.itemCode === it.itemCode) : []
+                  const layers = isOpen ? layersInScope.filter((p) => p.itemCode === it.itemCode) : []
                   return (
                     <Fragment key={it.itemCode}>
                       <tr onClick={() => toggle(it.itemCode)} style={{ borderBottom: "1px solid #F3F4F6", cursor: "pointer" }}>
