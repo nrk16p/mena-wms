@@ -39,6 +39,28 @@ export const AGE_BUCKETS = [
 
 export type BucketKey = (typeof AGE_BUCKETS)[number]["key"]
 
+/** การจัดการของค้าง — ผู้ใช้เลือกเองต่อใบ DD เก็บทับไว้อีกชั้นใน master_data.deadstock_action
+ *  ไม่แตะข้อมูล ATMS และ**ไม่ตัดแถวออกจากรายการ** (ของยังอยู่ในคลังจริงจนกว่าจะมีใบ WD มาตัด)
+ *  จึงยังนับใน KPI ตามปกติ — ป้ายนี้บอกแค่ว่า "มีคนดูและตัดสินใจแล้ว" */
+export const DEADSTOCK_ACTIONS = [
+  { key: "wrong_spec", label: "ผิด Spec", hint: "ของที่ได้มาไม่ตรงสเปคที่ขอ ใช้กับงานเดิมไม่ได้" },
+  { key: "return_vendor", label: "คืนผู้ขาย", hint: "ส่งคืนผู้ขายเพื่อรับเงินคืนหรือเปลี่ยนของ" },
+  { key: "to_stock", label: "โอนสต็อกกลาง", hint: "ย้ายเข้าสต็อกกลาง ให้ใช้กับรถคันไหนก็ได้" },
+  { key: "move_truck", label: "ย้ายไปรถคันอื่น", hint: "เอาไปใช้กับรถคันอื่นที่ต้องการของชิ้นเดียวกัน" },
+] as const
+
+export type ActionKey = (typeof DEADSTOCK_ACTIONS)[number]["key"]
+
+export const ACTION_LABEL: Record<string, string> = Object.fromEntries(
+  DEADSTOCK_ACTIONS.map((a) => [a.key, a.label])
+)
+
+/** คีย์ประจำล็อต — ต้องคงที่ทุกครั้งที่คำนวณ FIFO ใหม่ ไม่งั้นป้ายที่บันทึกไว้จะหลุด
+ *  ใช้ (เลขใบ DD + รหัสสินค้า + วันที่รับ) ซึ่งมาจากเอกสารจริงทั้งสามส่วน */
+export function layerKey(r: { dd: string; itemCode: string; date: string }): string {
+  return `${r.dd}|${r.itemCode}|${r.date.slice(0, 10)}`
+}
+
 /** ตัวกรองช่วงอายุของหน้า "รายรหัสสินค้า" — กรองที่ระดับใบ DD แล้วรวมยอดใหม่
  *  หมายเหตุ: แบ่งที่ < 7 กับ >= 7 ตามที่ผู้ใช้กำหนด ซึ่งไม่ตรงกับ STALE_DAYS (นับ > 7)
  *  ของที่ค้างพอดี 7 วันจึงอยู่ใน "≥ 7 วัน" แต่ไม่นับเป็น stale ของหน้าอื่น */

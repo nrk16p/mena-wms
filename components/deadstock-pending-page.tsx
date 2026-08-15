@@ -1,12 +1,64 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Download, Search } from "lucide-react"
 import * as XLSX from "xlsx"
+import { swalError, swalToast } from "@/lib/swal"
 import { BucketBadge, DeadstockShell, RepurchaseBadge, StatusBadge, SummaryCards, baht, mitr, thaiDate, useDeadstock } from "@/components/deadstock-shared"
-import { AGE_BUCKETS } from "@/lib/deadstock-core"
+import { AGE_BUCKETS, ACTION_LABEL, DEADSTOCK_ACTIONS, layerKey, type ActionKey } from "@/lib/deadstock-core"
 
 const BUCKET_LABEL = Object.fromEntries(AGE_BUCKETS.map((b) => [b.key, b])) as Record<string, (typeof AGE_BUCKETS)[number]>
+
+type ActionEntry = { action: ActionKey | ""; note: string; by: string; byEmail: string; at: string }
+
+const ACTION_STYLE: Record<string, { bg: string; fg: string; ring: string }> = {
+  wrong_spec: { bg: "#FEF3C7", fg: "#92400E", ring: "#FDE68A" },
+  return_vendor: { bg: "#DBEAFE", fg: "#1E40AF", ring: "#BFDBFE" },
+  to_stock: { bg: "#EDE9FE", fg: "#5B21B6", ring: "#DDD6FE" },
+  move_truck: { bg: "#D1FAE5", fg: "#065F46", ring: "#A7F3D0" },
+}
+
+/** ป้ายการจัดการ — เลือกแล้วบันทึกทันที ถ้าเซิร์ฟเวอร์ปฏิเสธจะคืนค่าเดิมให้เห็น */
+function ActionSelect({
+  value,
+  saving,
+  onChange,
+}: {
+  value: ActionEntry | undefined
+  saving: boolean
+  onChange: (next: ActionKey | "") => void
+}) {
+  const cur = value?.action ?? ""
+  const s = cur ? ACTION_STYLE[cur] : null
+  const title = value?.by ? `${ACTION_LABEL[cur] ?? "-"} · โดย ${value.by} เมื่อ ${new Date(value.at).toLocaleString("th-TH")}` : "ยังไม่ได้เลือก"
+  return (
+    <select
+      value={cur}
+      disabled={saving}
+      onChange={(e) => onChange(e.target.value as ActionKey | "")}
+      title={title}
+      style={{
+        padding: "3px 8px",
+        borderRadius: 999,
+        fontSize: 11.5,
+        fontWeight: 700,
+        cursor: saving ? "wait" : "pointer",
+        opacity: saving ? 0.5 : 1,
+        maxWidth: 150,
+        background: s ? s.bg : "#fff",
+        color: s ? s.fg : "#9CA3AF",
+        border: `1px solid ${s ? s.ring : "#E5E7EB"}`,
+      }}
+    >
+      <option value="">— เลือก —</option>
+      {DEADSTOCK_ACTIONS.map((a) => (
+        <option key={a.key} value={a.key}>
+          {a.label}
+        </option>
+      ))}
+    </select>
+  )
+}
 
 type GroupBar = { name: string; value: number; count: number; staleValue: number }
 
@@ -118,6 +170,48 @@ export function DeadstockPendingPage() {
   const [q, setQ] = useState("")
   const [bucket, setBucket] = useState("")
   const [group, setGroup] = useState("")
+  const [actionFilter, setActionFilter] = useState("")
+
+  // ป้ายการจัดการ — โหลดแยกจาก /api/deadstock เพราะตัวนั้น cache 1 ชม. แต่ป้ายต้องเห็นผลทันที
+  const [actions, setActions] = useState<Record<string, ActionEntry>>({})
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/deadstock/action")
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d?.actions) setActions(d.actions) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const saveAction = useCallback(async (key: string, next: ActionKey | "") => {
+    const prev = actions[key]
+    setSavingKey(key)
+    // optimistic — คืนค่าเดิมถ้าบันทึกไม่ผ่าน
+    setActions((m) => ({ ...m, [key]: { action: next, note: "", by: "", byEmail: "", at: new Date().toISOString() } }))
+    try {
+      const res = await fetch("/api/deadstock/action", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, action: next }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+      setActions((m) => ({ ...m, [key]: json.entry }))
+      swalToast("success", next ? `บันทึก "${ACTION_LABEL[next]}" แล้ว` : "ล้างป้ายแล้ว")
+    } catch (e) {
+      setActions((m) => {
+        const copy = { ...m }
+        if (prev) copy[key] = prev
+        else delete copy[key]
+        return copy
+      })
+      swalError(`บันทึกไม่สำเร็จ: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setSavingKey(null)
+    }
+  }, [actions])
 
   const groups = useMemo(() => [...new Set(data?.pending.map((p) => p.itemGroup) ?? [])].sort(), [data])
 
@@ -132,7 +226,16 @@ export function DeadstockPendingPage() {
     )
   }, [data, q, bucket])
 
-  const rows = useMemo(() => chartRows.filter((p) => !group || p.itemGroup === group), [chartRows, group])
+  const rows = useMemo(
+    () =>
+      chartRows.filter(
+        (p) =>
+          (!group || p.itemGroup === group) &&
+          (!actionFilter ||
+            (actionFilter === "__none" ? !actions[layerKey(p)]?.action : actions[layerKey(p)]?.action === actionFilter))
+      ),
+    [chartRows, group, actionFilter, actions]
+  )
 
   /** ยอดต่อกลุ่มสินค้า เรียงมูลค่ามากไปน้อย + แยกส่วนที่ค้างเกินเกณฑ์ */
   const byGroup = useMemo(() => {
@@ -164,6 +267,8 @@ export function DeadstockPendingPage() {
         สถานะ: BUCKET_LABEL[r.bucket]?.label ?? r.bucket,
         "สถานะ (ไทย)": BUCKET_LABEL[r.bucket]?.th ?? "",
         "ซื้อซ้ำหลังใบนี้ (ใบ)": r.newerCount,
+        การจัดการ: ACTION_LABEL[actions[layerKey(r)]?.action ?? ""] ?? "",
+        "ผู้บันทึกการจัดการ": actions[layerKey(r)]?.by ?? "",
       }))
     )
     const wb = XLSX.utils.book_new()
@@ -221,6 +326,19 @@ export function DeadstockPendingPage() {
                 </option>
               ))}
             </select>
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13 }}
+            >
+              <option value="">การจัดการ: ทั้งหมด</option>
+              <option value="__none">ยังไม่ได้เลือก</option>
+              {DEADSTOCK_ACTIONS.map((a) => (
+                <option key={a.key} value={a.key}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
             <span style={{ fontSize: 13, color: "#6B7280" }}>
               แสดง {rows.length.toLocaleString()} / {data.pending.length.toLocaleString()} รายการ ·{" "}
               {baht(rows.reduce((s, r) => s + r.value, 0))}
@@ -250,7 +368,7 @@ export function DeadstockPendingPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ"].map((h, i) => (
+                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ", "การจัดการ"].map((h, i) => (
                     <th
                       key={h}
                       title={h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ)" : undefined}
@@ -288,11 +406,18 @@ export function DeadstockPendingPage() {
                     <td style={{ padding: "9px 12px", textAlign: "right" }}>
                       <RepurchaseBadge n={r.newerCount} />
                     </td>
+                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                      <ActionSelect
+                        value={actions[layerKey(r)]}
+                        saving={savingKey === layerKey(r)}
+                        onChange={(next) => saveAction(layerKey(r), next)}
+                      />
+                    </td>
                   </tr>
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={11} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                    <td colSpan={12} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                       ไม่พบรายการตามเงื่อนไข
                     </td>
                   </tr>
