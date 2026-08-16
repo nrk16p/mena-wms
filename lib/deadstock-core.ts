@@ -47,6 +47,7 @@ export const DEADSTOCK_ACTIONS = [
   { key: "return_vendor", label: "คืนผู้ขาย", hint: "ส่งคืนผู้ขายเพื่อรับเงินคืนหรือเปลี่ยนของ" },
   { key: "to_stock", label: "โอนสต็อกกลาง", hint: "ย้ายเข้าสต็อกกลาง ให้ใช้กับรถคันไหนก็ได้" },
   { key: "move_truck", label: "ย้ายไปรถคันอื่น", hint: "เอาไปใช้กับรถคันอื่นที่ต้องการของชิ้นเดียวกัน" },
+  { key: "for_sale", label: "รอขาย", hint: "ไม่มีทางได้ใช้ตามวัตถุประสงค์เดิม รอตัดขาย/ขายเป็นเศษซาก" },
 ] as const
 
 export type ActionKey = (typeof DEADSTOCK_ACTIONS)[number]["key"]

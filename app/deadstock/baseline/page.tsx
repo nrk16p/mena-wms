@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, Database, CalendarRange, Link2, Calculator, BookOpen, ShieldCheck, Lightbulb, Download, SearchCheck, Layers } from "lucide-react"
-import { AGE_BUCKETS, KPI_AGE_DAYS, KPI_MAX_VALUE, STALE_DAYS, type DeadstockPayload } from "@/lib/deadstock-core"
+import { AGE_BUCKETS, DEADSTOCK_ACTIONS, KPI_AGE_DAYS, KPI_MAX_VALUE, STALE_DAYS, type DeadstockPayload } from "@/lib/deadstock-core"
+
+/** รายชื่อตัวเลือกการจัดการ — ดึงจากค่าจริงเพื่อไม่ให้เอกสารหลุดจากหน้าใช้งานเวลาเพิ่มตัวเลือกใหม่ */
+const ACTION_LIST = DEADSTOCK_ACTIONS.map((a) => a.label).join(" / ")
 
 const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
@@ -382,8 +385,8 @@ export default function DeadstockBaselinePage() {
                     normal: "อยู่ในรอบเบิกปกติ ยังไม่ต้องทำอะไร — ของเพิ่งรับเข้ามารอช่างเบิกไปติดตั้ง",
                     watch: "เกินรอบปกติแล้ว ให้ตามกับช่างว่าจะติดตั้งเมื่อไหร่ ยังไม่ถือว่าผิดปกติรุนแรง",
                     slow: "ผิดปกติชัดเจน ต้องหาสาเหตุ — งานซ่อมถูกยกเลิก เปลี่ยนวิธีซ่อม หรือรถไม่เข้าอู่",
-                    candidate: `เข้าเกณฑ์ KPI แล้ว (นับรวมในเป้า ${baht(KPI_MAX_VALUE)}) ต้องตัดสินใจรายตัว — คืนผู้ขาย โอนเข้าสต็อกกลาง หรือย้ายไปใช้กับรถคันอื่น`,
-                    confirmed: "ค้างข้ามปี แทบไม่มีโอกาสได้ใช้ตามวัตถุประสงค์เดิม — ตัดสินใจขั้นสุดท้าย ตัดจำหน่ายหรือขายทิ้ง",
+                    candidate: `เข้าเกณฑ์ KPI แล้ว (นับรวมในเป้า ${baht(KPI_MAX_VALUE)}) ต้องตัดสินใจรายตัวผ่านคอลัมน์ "การจัดการ" — ${ACTION_LIST}`,
+                    confirmed: 'ค้างข้ามปี แทบไม่มีโอกาสได้ใช้ตามวัตถุประสงค์เดิม — ตัดสินใจขั้นสุดท้าย ส่วนใหญ่ควรเป็น "รอขาย" หรือคืนผู้ขาย',
                   }
                   const dot: Record<string, string> = {
                     normal: "bg-emerald-500", watch: "bg-amber-500", slow: "bg-orange-500",
@@ -587,10 +590,10 @@ export default function DeadstockBaselinePage() {
                   },
                   {
                     h: "ไม่มีกลไกปิดงาน ของจึงค้างถาวร",
-                    e: `อายุค่ากลาง ${analysis.medianAge} วัน สูงสุด ${analysis.maxAge} วัน และของที่รับเข้ามาค้างต่อเนื่องทุกเดือน ไม่ใช่เหตุการณ์ครั้งเดียว — ระบบไม่มีสถานะ "คืนผู้ขาย" หรือ "โอนเข้าสต็อกกลาง" ให้ปิดรายการ`,
-                    v: "สอดคล้อง",
-                    tone: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
-                    fix: "เพิ่มสถานะปิดงานให้ของที่ไม่ได้ใช้ (คืนผู้ขาย / โอนสต็อกกลาง / ย้ายไปรถคันอื่น) พร้อมผู้รับผิดชอบและวันครบกำหนด",
+                    e: `อายุค่ากลาง ${analysis.medianAge} วัน สูงสุด ${analysis.maxAge} วัน และของที่รับเข้ามาค้างต่อเนื่องทุกเดือน ไม่ใช่เหตุการณ์ครั้งเดียว — เดิมระบบไม่มีช่องให้บันทึกว่าจะทำอย่างไรกับของที่ไม่ได้ใช้ ของจึงค้างสะสมโดยไม่มีใครรับผิดชอบ`,
+                    v: "แก้แล้วบางส่วน",
+                    tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300",
+                    fix: `เพิ่มคอลัมน์ "การจัดการ" ในหน้าสถานะล่าสุดแล้ว (${ACTION_LIST}) บันทึกผู้เลือกและเวลาไว้ครบ — ที่ยังขาดคือการติดตามว่า "ทำจริงหรือยัง" (วันครบกำหนด + เลขเอกสารอ้างอิง) ซึ่งจะทำให้ KPI ลดลงได้จริง`,
                   },
                   {
                     h: "อะไหล่รุ่นหายาก / รถปลดระวาง จึงไม่มีโอกาสได้ใช้",
@@ -631,6 +634,10 @@ export default function DeadstockBaselinePage() {
             (รวมกันแค่ {analysis.cheapPct.toFixed(0)}% ของเงิน) ควรจัดการเป็นชุดเดียวเพื่อล้างรายการให้หมด
             ปัญหาที่แท้จริงคือ<span className="font-semibold">ระบบไม่มีทางออกให้ของที่ไม่ได้ใช้</span> —
             เมื่อไม่มีสถานะปิดงาน ของจึงค้างสะสมไปเรื่อย ๆ โดยไม่มีใครต้องรับผิดชอบ
+            <span className="block mt-1.5 text-emerald-700 dark:text-emerald-400">
+              แก้ไปแล้วบางส่วน: หน้าสถานะล่าสุดมีคอลัมน์ &quot;การจัดการ&quot; ให้เลือก ({ACTION_LIST}) พร้อมบันทึกผู้เลือกและเวลา —
+              แต่ยังไม่มีการติดตามว่าลงมือทำจริงหรือยัง ตัวเลข KPI จึงยังไม่ลดจนกว่าของจะออกจากคลังจริง
+            </span>
           </div>
         </div>
       )}
@@ -658,7 +665,7 @@ export default function DeadstockBaselinePage() {
           />
           <QA
             q="เมื่อได้ข้อมูลการวัดนี้มาแล้ว จะทำอะไรต่อ ?"
-            a={<>ใช้ตรวจสอบและควบคุม (Monitoring &amp; Control) ตามสถานะ — <span className="font-semibold">Watch</span> ({STALE_DAYS}+ วัน) ตามกับช่าง · <span className="font-semibold">Slow Moving</span> (31+ วัน) หาสาเหตุ · <span className="font-semibold">Deadstock Candidate</span> ({KPI_AGE_DAYS}+ วัน) ตัดสินใจคืนผู้ขาย/โอนสต็อกกลาง/ย้ายรถ · <span className="font-semibold">Confirmed</span> (180+ วัน) ตัดจำหน่าย</>}
+            a={<>ใช้ตรวจสอบและควบคุม (Monitoring &amp; Control) ตามสถานะ — <span className="font-semibold">Watch</span> ({STALE_DAYS}+ วัน) ตามกับช่าง · <span className="font-semibold">Slow Moving</span> (31+ วัน) หาสาเหตุ · <span className="font-semibold">Deadstock Candidate</span> ({KPI_AGE_DAYS}+ วัน) ขึ้นไปเลือกการจัดการ ({ACTION_LIST})</>}
           />
         </div>
       </div>
@@ -701,7 +708,7 @@ export default function DeadstockBaselinePage() {
             <ul className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed space-y-1.5 list-disc pl-5">
               <li>
                 <span className="font-semibold">ไล่ {analysis?.n80 ?? 23} รายการแรกที่กินเงิน 80%</span> — ตัดสินใจรายตัวว่า
-                คืนผู้ขาย / โอนเข้าสต็อกกลาง / ใช้กับรถคันอื่น (ดาวน์โหลดรายการได้จากหน้าสถานะล่าสุด กรองสถานะ{" "}
+                {ACTION_LIST} ผ่านคอลัมน์ “การจัดการ” (ดาวน์โหลดรายการได้จากหน้าสถานะล่าสุด กรองสถานะ{" "}
                 <span className="font-semibold">Deadstock Candidate</span> ขึ้นไป)
               </li>
               <li>
@@ -832,7 +839,7 @@ export default function DeadstockBaselinePage() {
                       <li><span className="font-semibold text-gray-800">ทำไมต้องเก็บ:</span> ของที่ซื้อเพื่อรถคันหนึ่งแล้วไม่ถูกเบิก = เงินจม เสี่ยงสูญหาย</li>
                       <li><span className="font-semibold text-gray-800">วัดอย่างไร:</span> มูลค่าของที่ค้างเกิน {KPI_AGE_DAYS} วัน ณ สิ้นเดือน</li>
                       <li><span className="font-semibold text-gray-800">สถานะตามอายุ:</span> Normal 0-7 · Watch 8-30 · Slow Moving 31-60 · Deadstock Candidate 61-180 · Confirmed 180+ วัน</li>
-                      <li><span className="font-semibold text-gray-800">ใช้ทำอะไรต่อ:</span> Watch ตามกับช่าง · Slow Moving หาสาเหตุ · Candidate ขึ้นไปตัดสินใจคืนผู้ขาย/โอนสต็อกกลาง/ย้ายรถ</li>
+                      <li><span className="font-semibold text-gray-800">ใช้ทำอะไรต่อ:</span> Watch ตามกับช่าง · Slow Moving หาสาเหตุ · Candidate ขึ้นไปเลือกการจัดการ: {ACTION_LIST}</li>
                     </ul>
                   </div>
                   <div className="rounded-xl bg-gray-50 p-4">
