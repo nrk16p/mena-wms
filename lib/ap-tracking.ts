@@ -189,6 +189,46 @@ export function apStage(o: {
   return isDocSetComplete(o.docs) ? "ready" : "wait"
 }
 
+// ── เส้นทางสถานะ (timeline) ───────────────────────────────────────────────────
+// อ่านจาก log ที่ API เขียนไว้ — ใช้ `field` เป็นตัวชี้ (ไม่แกะจากข้อความ action ที่แปลได้หลายแบบ)
+// 4 ช่วง: เริ่มประกบ → เอกสารครบชุด → ส่งบัญชี → บัญชีตรวจ
+// "ไม่ผ่าน" นับเป็นช่วงที่เกิดแล้ว (state done) แต่ป้ายกับสีบอกว่าเป็นการตีกลับ
+export type ApTimelineState = "done" | "current" | "todo" | "rejected"
+export type ApTimelineStep = { key: string; label: string; at: string; by: string; state: ApTimelineState }
+type ApLogEntry = { action?: string; field?: string; at?: string; by?: string }
+
+const isDocField = (f: string) => FINANCE_DOC_KEYS.includes(f as ApDocKey)
+
+export function apTimeline(
+  log: ApLogEntry[] | undefined,
+  o: { docs: ApDocs; sentDate: string; review?: { status?: string } | null },
+): ApTimelineStep[] {
+  const entries = Array.isArray(log) ? log : []
+  const first   = entries[0]
+  // ติ๊กครั้งล่าสุด = เวลาที่ชุดเอกสารครบ (ประมาณจาก log — ไม่ได้เก็บ "เวลาที่ครบชุด" เป็นฟิลด์แยก)
+  const lastTick = [...entries].reverse().find((e) => isDocField(String(e.field)) && String(e.action).startsWith("ติ๊ก"))
+  const sentAt   = [...entries].reverse().find((e) => e.field === "sent" && String(e.action).startsWith("ส่งบัญชี"))
+  const reviewAt = [...entries].reverse().find((e) => e.field === "review" && String(e.action).startsWith("บัญชีตรวจ"))
+
+  const complete = isDocSetComplete(o.docs)
+  const sent     = Boolean(o.sentDate)
+  const rv       = String(o.review?.status ?? "").trim()
+
+  const step = (key: string, label: string, e: ApLogEntry | undefined, state: ApTimelineState): ApTimelineStep =>
+    ({ key, label, at: String(e?.at ?? ""), by: String(e?.by ?? ""), state })
+
+  return [
+    step("start", "เริ่มประกบเอกสาร", first, first ? "done" : "current"),
+    step("ready", "เอกสารครบชุด", complete ? lastTick : undefined,
+      complete ? "done" : first ? "current" : "todo"),
+    step("sent", "ส่งบัญชี", sent ? sentAt : undefined,
+      sent ? "done" : complete ? "current" : "todo"),
+    step("review", rv === "ไม่ผ่าน" ? "บัญชีตีกลับ" : rv === "ผ่าน" ? "บัญชีตรวจผ่าน" : "รอบัญชีตรวจ",
+      rv ? reviewAt : undefined,
+      rv === "ไม่ผ่าน" ? "rejected" : rv === "ผ่าน" ? "done" : sent ? "current" : "todo"),
+  ]
+}
+
 // วันเริ่มใช้ระบบ (go-live) — ใบรับของที่ "รับก่อนวันนี้" เป็นของกระบวนการ Excel เดิม
 // ปิดจบไปแล้วในไฟล์ เจ้าหนี้เดือน xx.xlsx ไม่ใช่ยอดค้างของระบบนี้ จึงตัดออกจากสโคปทั้งหมด
 // เหตุผล: ap_tracking ยังว่าง (ยังไม่มีใครติ๊ก) ทุกใบที่ scraper เคยเก็บมาจึงเข้าเงื่อนไข

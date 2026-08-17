@@ -6,12 +6,12 @@ import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
-  apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, cleanTaxInvoiceNos,
+  apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline, cleanTaxInvoiceNos,
   docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingThursdays,
   type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApReview, type ApReviewStatus,
-  type ApSentType, type ApStatus,
+  type ApSentType, type ApStatus, type ApTimelineStep,
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
 import { ImageUpload } from "@/components/image-upload"
@@ -53,6 +53,39 @@ function logSubject(field?: string): string {
 
 const filesKey = (files: ApFile[]) =>
   files.map((f) => `${f.webpUrl}|${f.docType ?? ""}`).sort().join("\n")
+
+// เส้นทางสถานะ — ใบนี้เดินมาถึงไหนแล้ว ใครทำเมื่อไหร่ · อยู่ใต้หัวโมดัลจึงเห็นได้ทุกแท็บ
+const STEP_DOT: Record<ApTimelineStep["state"], string> = {
+  done:     "bg-emerald-500 border-emerald-500",
+  current:  "bg-white border-emerald-500 dark:bg-[#161a23]",
+  rejected: "bg-rose-500 border-rose-500",
+  todo:     "bg-gray-200 border-gray-200 dark:bg-white/10 dark:border-white/10",
+}
+const STEP_TEXT: Record<ApTimelineStep["state"], string> = {
+  done:     "text-gray-700 dark:text-gray-200",
+  current:  "font-medium text-emerald-700 dark:text-emerald-400",
+  rejected: "font-medium text-rose-600 dark:text-rose-400",
+  todo:     "text-gray-400",
+}
+
+function ApTimelineBar({ steps }: { steps: ApTimelineStep[] }) {
+  return (
+    <ol className="flex flex-wrap items-start gap-x-1 gap-y-2 pt-3">
+      {steps.map((s, i) => (
+        <li key={s.key} className="flex items-start gap-1">
+          {i > 0 && <span className="mt-[7px] mr-1 h-px w-6 bg-gray-200 dark:bg-white/10" />}
+          <span className={`mt-[3px] h-2.5 w-2.5 shrink-0 rounded-full border-2 ${STEP_DOT[s.state]}`} />
+          <span className="leading-tight">
+            <span className={`block text-[11px] ${STEP_TEXT[s.state]}`}>{s.label}</span>
+            <span className="block text-[10px] text-gray-400" title={s.by ? `โดย ${s.by}` : undefined}>
+              {s.at ? thaiDateTime(s.at) : "—"}
+            </span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  )
+}
 
 export function ApTrackingDetail({
   row, onClose, onSaved,
@@ -123,6 +156,11 @@ export function ApTrackingDetail({
     return savedSent.type === "นอกรอบ" && savedSent.date && !list.includes(savedSent.date)
       ? [savedSent.date, ...list] : list
   }, [savedSent])
+
+  const timeline = useMemo(
+    () => apTimeline(data?.tracking?.log, { docs: saved, sentDate: savedSent.date, review: savedReview }),
+    [data, saved, savedSent.date, savedReview],
+  )
 
   const depositItems = useMemo(() => data?.items ?? [], [data])
   const itemKeys     = useMemo(() => apItemKeys(depositItems), [depositItems])
@@ -289,6 +327,8 @@ export function ApTrackingDetail({
             <button onClick={requestClose} aria-label="ปิด"
               className="rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-white/10"><X className="h-5 w-5" /></button>
           </div>
+
+          <ApTimelineBar steps={timeline} />
 
           <div className="mt-3 flex gap-1 overflow-x-auto">
             {TABS.map((t) => (
