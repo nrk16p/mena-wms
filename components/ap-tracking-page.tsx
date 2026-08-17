@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Banknote, RefreshCw, Search } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import {
@@ -36,6 +36,9 @@ type Summary = {
 }
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// 0 = ทั้งหมด (ไว้ใช้ตอนอยากกด Ctrl+F หาทั้งเดือน หรือปรินต์) — แถวทั้งชุดโหลดมาอยู่ในหน่วยความจำแล้ว
+// การแบ่งหน้าเป็นแค่การตัดชิ้นตอนแสดงผล ไม่ยิงคิวรีใหม่ ยอดสรุปด้านบนจึงยังคิดจากทั้งช่วงเหมือนเดิม
+const PER_PAGE_OPTIONS = [25, 50, 100, 0] as const
 // วันนี้ตามเวลาไทยเสมอ (เครื่องผู้ใช้อาจตั้ง TZ อื่น / เซิร์ฟเวอร์รัน UTC) — กันวันเลื่อนช่วง 00:00–07:00
 const thisMonth = () => todayICT().slice(0, 7)
 
@@ -138,6 +141,12 @@ export function ApTrackingPage() {
   const [warehouses, setWarehouses] = useState<string[]>([])
   const [sentFor, setSentFor] = useState<ApRow | null>(null)
   const [detailFor, setDetailFor] = useState<ApRow | null>(null)
+  const [page, setPage]       = useState(1)
+  const [perPage, setPerPage] = useState<number>(50)
+
+  // ทุกตัวกรองต้องพากลับหน้า 1 (ค้างอยู่หน้า 9 แล้วสลับไปเดือนที่มี 2 หน้า จะเห็นตารางว่างทั้งที่มีข้อมูล)
+  // ทำที่ตัวจัดการเหตุการณ์ ไม่ใช่ใน useEffect — setState ใน effect ทำให้ render ซ้อนโดยไม่จำเป็น
+  const applyFilter = (fn: () => void) => { fn(); setPage(1) }
 
   // เปิดกล่องโต้ตอบใดกล่องหนึ่งแล้วปิดอีกกล่องเสมอ กันสองโอเวอร์เลย์ซ้อนกันพร้อมกัน
   const openSent = (row: ApRow) => { setDetailFor(null); setSentFor(row) }
@@ -262,6 +271,27 @@ export function ApTrackingPage() {
     return out
   }, [rows, fStatus, warehouse, q])
 
+  const totalPages = perPage === 0 ? 1 : Math.max(1, Math.ceil(shown.length / perPage))
+  // กันหน้าปัจจุบันเกินช่วงในจังหวะที่จำนวนแถวลดลงก่อน effect ข้างบนจะรีเซ็ต (เช่น ติ๊กแล้วแถวหลุดตัวกรองสถานะ)
+  // — ใช้ค่าที่ clamp แล้วในการตัดชิ้นเสมอ ไม่รอ setState รอบถัดไป ตารางจึงไม่มีจังหวะกะพริบเป็นหน้าว่าง
+  const safePage = Math.min(page, totalPages)
+  const paged = useMemo(
+    () => (perPage === 0 ? shown : shown.slice((safePage - 1) * perPage, safePage * perPage)),
+    [shown, safePage, perPage],
+  )
+  const firstIdx = shown.length === 0 ? 0 : perPage === 0 ? 1 : (safePage - 1) * perPage + 1
+  const lastIdx  = perPage === 0 ? shown.length : Math.min(safePage * perPage, shown.length)
+
+  // เลขหน้าแบบย่อ: หน้าแรก/สุดท้ายเสมอ + หน้ารอบ ๆ ปัจจุบันอีกข้างละ 2 (ที่เหลือยุบเป็น …)
+  const pageNumbers = useMemo(() => {
+    const win = new Set<number>([1, totalPages, safePage])
+    for (let d = 1; d <= 2; d++) {
+      if (safePage - d >= 1) win.add(safePage - d)
+      if (safePage + d <= totalPages) win.add(safePage + d)
+    }
+    return [...win].sort((a, b) => a - b)
+  }, [safePage, totalPages])
+
   // เดือนที่เลือกอยู่ก่อนเส้น go-live ทั้งเดือนหรือไม่ — ใช้ helper ตัวเดียวกับที่ API ใช้ตัดเดือน
   // ไม่เทียบวันที่เองซ้ำตรงนี้ · เส้นที่ใช้เอาจากคำตอบของเซิร์ฟเวอร์ก่อน (รองรับ ?since= override)
   // ถ้ายังไม่มีคำตอบค่อยถอยไปใช้ AP_GO_LIVE
@@ -301,7 +331,7 @@ export function ApTrackingPage() {
             const m = apStatusMeta(st), v = summary.byStatus[st]
             const on = fStatus === st
             return (
-              <button key={st} onClick={() => setFStatus(on ? "" : st)}
+              <button key={st} onClick={() => applyFilter(() => setFStatus(on ? "" : st))}
                 className={`rounded-xl border px-3 py-2 text-left transition ${on ? "ring-2 ring-offset-1" : ""} ${m.cls}`}>
                 <div className="text-xs">{m.emoji} {st}</div>
                 <div className="text-sm font-bold">{v.n} ใบ · {baht(v.amount)}</div>
@@ -341,20 +371,20 @@ export function ApTrackingPage() {
 
       {/* ตัวกรอง */}
       <div className="flex flex-wrap items-center gap-2">
-        <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+        <input type="month" value={month} onChange={(e) => applyFilter(() => setMonth(e.target.value))}
           className="rounded-lg border px-3 py-1.5 text-sm bg-white dark:bg-white/5" />
-        <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)}
+        <select value={warehouse} onChange={(e) => applyFilter(() => setWarehouse(e.target.value))}
           className="rounded-lg border px-3 py-1.5 text-sm bg-white dark:bg-white/5">
           <option value="">ทุกคลัง</option>
           {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
         </select>
         <div className="relative">
           <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา DD / PO / ซัพพลายเออร์"
+          <input value={q} onChange={(e) => applyFilter(() => setQ(e.target.value))} placeholder="ค้นหา DD / PO / ซัพพลายเออร์"
             className="rounded-lg border pl-8 pr-3 py-1.5 text-sm w-64 bg-white dark:bg-white/5" />
         </div>
         {fStatus && (
-          <button onClick={() => setFStatus("")} className="text-xs text-blue-600 hover:underline">ล้างตัวกรองสถานะ</button>
+          <button onClick={() => applyFilter(() => setFStatus(""))} className="text-xs text-blue-600 hover:underline">ล้างตัวกรองสถานะ</button>
         )}
         <span className="ml-auto text-sm text-gray-500">{shown.length} ใบ · {baht(shown.reduce((s, r) => s + r.amount, 0))} บาท</span>
       </div>
@@ -379,7 +409,7 @@ export function ApTrackingPage() {
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => {
+            {paged.map((r) => {
               const meta = apStatusMeta(r.status)
               return (
                 <tr key={r.depositCode}
@@ -461,6 +491,39 @@ export function ApTrackingPage() {
           </tbody>
         </table>
       </div>
+
+      {/* แถบแบ่งหน้า — ตัดเฉพาะตอนแสดงผล ยอดสรุปด้านบนและบรรทัด "N ใบ · ยอดรวม" ยังเป็นของทั้งชุดที่กรองไว้ */}
+      {shown.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-gray-500 dark:text-gray-400">
+            แสดง {firstIdx.toLocaleString("th-TH")}–{lastIdx.toLocaleString("th-TH")} จาก {shown.length.toLocaleString("th-TH")} ใบ
+          </span>
+          <select value={perPage} onChange={(e) => applyFilter(() => setPerPage(Number(e.target.value)))}
+            className="rounded-lg border px-2 py-1 text-xs bg-white dark:bg-white/5">
+            {PER_PAGE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n === 0 ? "ทั้งหมด" : `${n} แถว/หน้า`}</option>
+            ))}
+          </select>
+
+          {totalPages > 1 && (
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={() => setPage(safePage - 1)} disabled={safePage === 1}
+                className="rounded-lg border px-2 py-1 text-xs disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">‹ ก่อนหน้า</button>
+              {pageNumbers.map((p, i) => (
+                <Fragment key={p}>
+                  {i > 0 && p - pageNumbers[i - 1] > 1 && <span className="px-1 text-xs text-gray-400">…</span>}
+                  <button onClick={() => setPage(p)}
+                    className={`min-w-[2rem] rounded-lg border px-2 py-1 text-xs ${p === safePage
+                      ? "bg-emerald-600 text-white border-emerald-600"
+                      : "hover:bg-gray-50 dark:hover:bg-white/5"}`}>{p}</button>
+                </Fragment>
+              ))}
+              <button onClick={() => setPage(safePage + 1)} disabled={safePage === totalPages}
+                className="rounded-lg border px-2 py-1 text-xs disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">ถัดไป ›</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {sentFor && (
         <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />
