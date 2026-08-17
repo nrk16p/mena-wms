@@ -25,11 +25,10 @@ type Detail = {
   po: Record<string, unknown> | null
 }
 type Draft = Record<ApDocKey, boolean>
-type Tab = "docs" | "items" | "money" | "log"
+type Tab = "docs" | "money" | "log"
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: "docs",  label: "เอกสาร" },
-  { key: "items", label: "รายการสินค้า" },
+  { key: "docs",  label: "เอกสารและรายการสินค้า" },
   { key: "money", label: "การเงิน" },
   { key: "log",   label: "ประวัติ" },
 ]
@@ -282,11 +281,11 @@ export function ApTrackingDetail({
                   ? "border-emerald-600 font-medium text-emerald-700 dark:text-emerald-400"
                   : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
                 {t.label}
-                {t.key === "items" && depositItems.length > 0 && (
-                  <span className="ml-1 text-[10px] text-gray-400">{itemsDone}/{depositItems.length}</span>
-                )}
-                {t.key === "docs" && files.length > 0 && (
-                  <span className="ml-1 text-[10px] text-gray-400">📎{files.length}</span>
+                {t.key === "docs" && (depositItems.length > 0 || files.length > 0) && (
+                  <span className="ml-1 text-[10px] text-gray-400">
+                    {depositItems.length > 0 ? `${itemsDone}/${depositItems.length}` : ""}
+                    {files.length > 0 ? ` 📎${files.length}` : ""}
+                  </span>
                 )}
               </button>
             ))}
@@ -296,8 +295,66 @@ export function ApTrackingDetail({
         {/* เนื้อหาแท็บ — เลื่อนเฉพาะส่วนนี้ หัวกับปุ่มบันทึกอยู่กับที่ */}
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {tab === "docs" && (
+            <section className="space-y-2">
+              <div className="text-xs text-gray-500">
+                {row.purchaseOrder
+                  ? <>PO {row.purchaseOrder} · ยอด <span className={NUM}>{row.poTotal.toLocaleString("th-TH")}</span> · กำหนดส่ง {thaiDate(row.poDue)} · {row.poStatus || "—"}</>
+                  : "ไม่มี PO ผูกกับใบนี้ในระบบ ATMS"}
+              </div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold" style={mitr}>รายการสินค้า</h3>
+                {depositItems.length > 0 && (
+                  <span className={`text-xs ${itemsDone === depositItems.length ? "text-emerald-700 dark:text-emerald-400" : "text-gray-500"}`}>
+                    หลักฐานครบ {itemsDone}/{depositItems.length} รายการ
+                  </span>
+                )}
+                <span className="text-[10px] text-gray-400">(ติ๊กได้เลย ไม่ต้องแนบไฟล์)</span>
+              </div>
+              {loading ? <div className="text-sm text-gray-400">กำลังโหลด…</div> : (
+                <div className="overflow-x-auto rounded-xl border border-gray-200/80 dark:border-white/10">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-gray-50/80 text-gray-500 dark:bg-white/5">
+                      <tr>
+                        <th className="px-2 py-2 text-left font-medium">รายการ</th>
+                        <th className="px-2 py-2 text-right font-medium">จำนวน</th>
+                        <th className="px-2 py-2 text-right font-medium">ราคา/หน่วย</th>
+                        <th className="px-2 py-2 text-right font-medium">รวม</th>
+                        <th className="px-2 py-2 text-center font-medium">หลักฐาน</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {depositItems.map((it, i) => {
+                        const k = itemKeys[i]
+                        const mark = savedItems[k]
+                        const on = Boolean(itemDraft[k])
+                        return (
+                          <tr key={k} className="border-t border-gray-100 dark:border-white/5">
+                            <td className="px-2 py-2">{it.item}</td>
+                            <td className={`px-2 py-2 text-right ${NUM}`}>{it.qty}</td>
+                            <td className={`px-2 py-2 text-right ${NUM}`}>{it.unit_price}</td>
+                            <td className={`px-2 py-2 text-right ${NUM}`}>{it.total}</td>
+                            <td className="px-2 py-2 text-center">
+                              <input type="checkbox" checked={on}
+                                onChange={(e) => setItemDraft((d) => ({ ...d, [k]: e.target.checked }))}
+                                title={mark?.checked && mark.by ? `ติ๊กโดย ${mark.by} ${thaiDate((mark.at || "").slice(0, 10))}` : undefined}
+                                className={`h-4 w-4 cursor-pointer accent-emerald-600 ${on !== Boolean(mark?.checked) ? "rounded ring-2 ring-amber-400" : ""}`} />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {depositItems.length === 0 && (
+                        <tr><td colSpan={5} className="px-2 py-6 text-center text-gray-400">ไม่มีรายการสินค้าในระบบ</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+
+          {tab === "docs" && (
             <>
-              <section className="space-y-2">
+              <section className="space-y-2 border-t border-gray-100 pt-4 dark:border-white/10">
                 <h3 className="text-sm font-bold" style={mitr}>ชุดเอกสาร</h3>
                 <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
                   {AP_DOC_FIELDS.map((f) => {
@@ -376,64 +433,6 @@ export function ApTrackingDetail({
                 )}
               </section>
             </>
-          )}
-
-          {tab === "items" && (
-            <section className="space-y-2">
-              <div className="text-xs text-gray-500">
-                {row.purchaseOrder
-                  ? <>PO {row.purchaseOrder} · ยอด <span className={NUM}>{row.poTotal.toLocaleString("th-TH")}</span> · กำหนดส่ง {thaiDate(row.poDue)} · {row.poStatus || "—"}</>
-                  : "ไม่มี PO ผูกกับใบนี้ในระบบ ATMS"}
-              </div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold" style={mitr}>รายการสินค้า</h3>
-                {depositItems.length > 0 && (
-                  <span className={`text-xs ${itemsDone === depositItems.length ? "text-emerald-700 dark:text-emerald-400" : "text-gray-500"}`}>
-                    หลักฐานครบ {itemsDone}/{depositItems.length} รายการ
-                  </span>
-                )}
-                <span className="text-[10px] text-gray-400">(ติ๊กได้เลย ไม่ต้องแนบไฟล์)</span>
-              </div>
-              {loading ? <div className="text-sm text-gray-400">กำลังโหลด…</div> : (
-                <div className="overflow-x-auto rounded-xl border border-gray-200/80 dark:border-white/10">
-                  <table className="min-w-full text-xs">
-                    <thead className="bg-gray-50/80 text-gray-500 dark:bg-white/5">
-                      <tr>
-                        <th className="px-2 py-2 text-left font-medium">รายการ</th>
-                        <th className="px-2 py-2 text-right font-medium">จำนวน</th>
-                        <th className="px-2 py-2 text-right font-medium">ราคา/หน่วย</th>
-                        <th className="px-2 py-2 text-right font-medium">รวม</th>
-                        <th className="px-2 py-2 text-center font-medium">หลักฐาน</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {depositItems.map((it, i) => {
-                        const k = itemKeys[i]
-                        const mark = savedItems[k]
-                        const on = Boolean(itemDraft[k])
-                        return (
-                          <tr key={k} className="border-t border-gray-100 dark:border-white/5">
-                            <td className="px-2 py-2">{it.item}</td>
-                            <td className={`px-2 py-2 text-right ${NUM}`}>{it.qty}</td>
-                            <td className={`px-2 py-2 text-right ${NUM}`}>{it.unit_price}</td>
-                            <td className={`px-2 py-2 text-right ${NUM}`}>{it.total}</td>
-                            <td className="px-2 py-2 text-center">
-                              <input type="checkbox" checked={on}
-                                onChange={(e) => setItemDraft((d) => ({ ...d, [k]: e.target.checked }))}
-                                title={mark?.checked && mark.by ? `ติ๊กโดย ${mark.by} ${thaiDate((mark.at || "").slice(0, 10))}` : undefined}
-                                className={`h-4 w-4 cursor-pointer accent-emerald-600 ${on !== Boolean(mark?.checked) ? "rounded ring-2 ring-amber-400" : ""}`} />
-                            </td>
-                          </tr>
-                        )
-                      })}
-                      {depositItems.length === 0 && (
-                        <tr><td colSpan={5} className="px-2 py-6 text-center text-gray-400">ไม่มีรายการสินค้าในระบบ</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
           )}
 
           {tab === "money" && (
