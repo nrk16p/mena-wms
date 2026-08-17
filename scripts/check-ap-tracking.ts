@@ -6,6 +6,7 @@ import {
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
+  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
 
 const mark = { checked: true, by: "test", at: "2026-08-13T00:00:00.000Z" }
@@ -46,38 +47,67 @@ assert.equal(nextThursday("2026-08-13"), "2026-08-13", "วันพฤหัส
 assert.equal(nextThursday("2026-08-14"), "2026-08-20", "ศุกร์ → พฤหัสหน้า")
 assert.equal(nextThursday("2026-08-10"), "2026-08-13", "จันทร์ → พฤหัสสัปดาห์นี้")
 
-// --- โครงช่องเอกสาร ---
-assert.equal(AP_DOC_FIELDS.length, 7)
-assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["dd","po","bill","invoice","taxInvoice","receipt","billingNote"])
+// --- โครงช่องเอกสาร (ถอด DD/PO ออก 2026-08-17: ระบบมีข้อมูลใบรับของ+PO อยู่แล้ว ไม่ต้องให้คนติ๊กซ้ำ
+//     และใบที่ไม่มี PO ผูกใน ATMS จะติดค้าง "รอประกบ" ตลอดไปจนส่งบัญชีไม่ได้) ---
+assert.equal(AP_DOC_FIELDS.length, 5)
+assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["bill","invoice","taxInvoice","receipt","billingNote"])
 assert.deepEqual(FINANCE_DOC_KEYS, ["bill","invoice","taxInvoice","receipt","billingNote"])
 
-// --- เงื่อนไขครบชุด: DD + PO + อย่างน้อย 1 ใน 5 ---
+// --- เงื่อนไขครบชุด: มีเอกสารการเงินอย่างน้อย 1 ใน 5 ---
 assert.equal(isDocSetComplete({}), false)
-assert.equal(isDocSetComplete({ dd: mark, po: mark }), false, "มีแค่ DD+PO ยังไม่ครบ")
-assert.equal(isDocSetComplete({ dd: mark, bill: mark }), false, "ขาด PO")
-assert.equal(isDocSetComplete({ po: mark, bill: mark }), false, "ขาด DD")
-assert.equal(isDocSetComplete({ dd: mark, po: mark, bill: mark }), true)
-assert.equal(isDocSetComplete({ dd: mark, po: mark, receipt: mark }), true, "ใบเสร็จอย่างเดียวก็ครบ")
-assert.equal(
-  isDocSetComplete({ dd: mark, po: mark, bill: { ...mark, checked: false } }),
-  false,
-  "checked=false ไม่นับ",
-)
+assert.equal(isDocSetComplete({ bill: mark }), true, "บิลใบเดียวก็ครบ")
+assert.equal(isDocSetComplete({ receipt: mark }), true, "ใบเสร็จอย่างเดียวก็ครบ")
+assert.equal(isDocSetComplete({ bill: { ...mark, checked: false } }), false, "checked=false ไม่นับ")
+// ค่าที่เคยติ๊ก DD/PO ไว้ยังอยู่ใน DB — ต้องไม่ถูกนับเป็นเอกสารการเงิน
+assert.equal(isDocSetComplete({ dd: mark, po: mark } as ApDocs), false, "ของเก่า DD+PO ไม่นับแล้ว")
 
 // --- สถานะ ---
 assert.equal(apStatusOf({}, ""), "รอประกบ")
-assert.equal(apStatusOf({ dd: mark, po: mark, bill: mark }, ""), "ครบชุด")
-assert.equal(apStatusOf({ dd: mark, po: mark, bill: mark }, "2026-08-13"), "ส่งบัญชีแล้ว")
+assert.equal(apStatusOf({ bill: mark }, ""), "ครบชุด")
+assert.equal(apStatusOf({ bill: mark }, "2026-08-13"), "ส่งบัญชีแล้ว")
 assert.equal(apStatusOf({}, "2026-08-13"), "ส่งบัญชีแล้ว", "ลงวันที่ส่งแล้วถือว่าจบ แม้ติ๊กไม่ครบ")
 
 // --- missingDocLabels (ข้อความบอกว่าขาดอะไร ต้องตรงกับ isDocSetComplete เสมอ) ---
-assert.deepEqual(missingDocLabels({}), ["DD (ใบรับของ)", "PO (ใบสั่งซื้อ)", "เอกสารการเงินอย่างน้อย 1 ใบ"])
-assert.deepEqual(missingDocLabels({ dd: mark, po: mark }), ["เอกสารการเงินอย่างน้อย 1 ใบ"])
-assert.deepEqual(missingDocLabels({ dd: mark, po: mark, receipt: mark }), [], "ครบชุดแล้วต้องไม่ขาดอะไร")
-assert.deepEqual(missingDocLabels({ po: mark, bill: mark }), ["DD (ใบรับของ)"])
-for (const docs of [{}, { dd: mark }, { dd: mark, po: mark }, { dd: mark, po: mark, bill: mark }]) {
+assert.deepEqual(missingDocLabels({}), ["เอกสารการเงินอย่างน้อย 1 ใบ"])
+assert.deepEqual(missingDocLabels({ receipt: mark }), [], "ครบชุดแล้วต้องไม่ขาดอะไร")
+assert.deepEqual(missingDocLabels({ dd: mark } as ApDocs), ["เอกสารการเงินอย่างน้อย 1 ใบ"])
+for (const docs of [{}, { bill: mark }, { dd: mark } as ApDocs, { taxInvoice: mark }]) {
   assert.equal(missingDocLabels(docs).length === 0, isDocSetComplete(docs), "สองฟังก์ชันต้องตัดสินตรงกัน")
 }
+
+// --- ป้ายชื่อช่องเอกสาร (ประวัติของเก่ายังอ้างถึง dd/po ต้องอ่านออก ไม่ใช่โชว์คีย์ดิบ) ---
+assert.equal(apDocLabel("bill"), "บิล/ใบส่งของ")
+assert.equal(apDocLabel("dd"), "DD (ใบรับของ)", "ช่องที่ถอดออกแล้วยังต้องมีป้ายไว้อ่านประวัติ")
+assert.equal(apDocLabel("po"), "PO (ใบสั่งซื้อ)")
+assert.equal(apDocLabel("ไม่รู้จัก"), "ไม่รู้จัก", "คีย์แปลกปลอมคืนค่าเดิม ไม่พัง")
+
+// --- คีย์ของรายการสินค้าในใบ (ติ๊กหลักฐานรายรายการ) ---
+// deposit_items ถูกลบ-เขียนใหม่ทุกครั้งที่ scrape → _id เปลี่ยนตลอด ใช้เป็นคีย์ไม่ได้
+// ต้องได้คีย์เดิมทุกครั้งจากรหัสสินค้าที่ต้นข้อความ และห้ามมี . หรือ $ (เป็นคีย์ sub-document ของ Mongo)
+assert.deepEqual(
+  apItemKeys([{ item: "S16CSE0021 : พัดลมแผงออยระบายความร้อน" }, { item: "S16CSE0020 : ออยระบายความร้อน" }]),
+  ["S16CSE0021", "S16CSE0020"],
+)
+assert.deepEqual(apItemKeys([{ item: "SKU-1 : ก" }, { item: "SKU-1 : ก" }]), ["SKU-1", "SKU-1__2"],
+  "รหัสซ้ำในใบเดียวกันต้องไม่ชนกัน")
+assert.deepEqual(apItemKeys([{ item: "" }, {}]), ["row1", "row2"], "ไม่มีชื่อรายการก็ยังต้องมีคีย์")
+assert.deepEqual(apItemKeys([{ item: "A.B$C : x" }]), ["A_B_C"], "ตัดอักขระที่ Mongo ห้ามใช้เป็นคีย์")
+assert.deepEqual(apItemKeys([{ item: "ยางนอก A1" }]), ["ยางนอก_A1"], "ไม่มี ':' ใช้ทั้งข้อความเป็นคีย์")
+
+// --- นับหลักฐานรายรายการ ---
+const items = { "S16CSE0021": mark, "S16CSE0020": { ...mark, checked: false } }
+assert.equal(apItemsDone(["S16CSE0021", "S16CSE0020"], items), 1)
+assert.equal(apItemsDone(["S16CSE0021"], items), 1)
+assert.equal(apItemsDone([], items), 0)
+assert.equal(apItemsDone(["ไม่มีในนี้"], items), 0)
+assert.equal(apItemsDone(["S16CSE0021"], undefined), 0, "ใบที่ยังไม่เคยติ๊กเลย = 0 ไม่ใช่พัง")
+
+// --- ไฟล์แนบแยกตามประเภทเอกสาร ---
+const f = (docType: string): ApFile =>
+  ({ mediaId: 1, batchId: "b", filename: "a.pdf", webpUrl: "u", thumbnailUrl: "t", docType } as ApFile)
+assert.deepEqual(apFilesByDoc([f("bill"), f("bill"), f("receipt")]), { bill: 2, receipt: 1 })
+assert.deepEqual(apFilesByDoc([f("")]), {}, "ไฟล์ที่ยังไม่ระบุประเภทไม่ถูกนับเข้าช่องไหน")
+assert.deepEqual(apFilesByDoc(undefined), {})
 
 // --- todayICT (ขึ้นกับนาฬิกาจริง → ตรวจ "รูปแบบ" กับ "ความสัมพันธ์กับ UTC" ไม่ใช่ค่าตายตัว) ---
 const ict = todayICT()

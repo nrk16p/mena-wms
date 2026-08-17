@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { AP_DOC_FIELDS, apStatusOf, isDocSetComplete, missingDocLabels, type ApDocKey, type ApDocs } from "@/lib/ap-tracking"
+import {
+  AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apStatusOf, isDocSetComplete, missingDocLabels,
+  type ApDocKey, type ApDocs, type ApFile,
+} from "@/lib/ap-tracking"
+import { normalizeImages } from "@/lib/media"
 
 export const dynamic = "force-dynamic"
 
@@ -13,6 +17,10 @@ const LOG_KEEP = 200            // เก็บ log ล่าสุดเท่�
 const DOC_KEYS = new Set<string>(AP_DOC_FIELDS.map((f) => f.key))
 const SENT_TYPES = new Set(["", "นอกรอบ", "ตามรอบ"])
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
+
+// คีย์รายการสินค้า (มาจาก apItemKeys ฝั่งหน้าเว็บ) — ห้ามมี "." หรือ "$" เพราะเขียนแบบ items.<key>
+// ถ้าปล่อยผ่าน จุดจะกลายเป็นการเจาะ sub-document ชั้นลึก และ $ จะถูกตีความเป็น operator
+const ITEM_KEY_RE = /^[^.$\s]{1,80}$/
 
 // ฐาน atms เป็นของ scraper อ่านอย่างเดียว · ถ้า MONGO_DB ถูกตั้งเป็น "atms" การเขียนของแอป
 // จะไปทับฐานนั้นทั้งหมด — ตายตั้งแต่ตอนขอ handle ดีกว่าปล่อยให้เขียนพลาดแล้วค่อยรู้
@@ -95,6 +103,80 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     }
   }
 
+  // ติ๊ก "หลักฐาน/ออกบิลแล้ว" รายรายการสินค้า — dotted path items.<key> เหมือนช่องเอกสาร
+  // (คนละคนเปิดคนละรายการพร้อมกันได้ ต้องไม่ทับกันทั้งก้อน)
+  if (body?.items && typeof body.items === "object") {
+    for (const [k, v] of Object.entries(body.items as Record<string, unknown>)) {
+      if (!ITEM_KEY_RE.test(k)) return NextResponse.json({ error: `คีย์รายการสินค้าไม่ถูกต้อง: ${k}` }, { status: 400 })
+      if (typeof v !== "boolean") return NextResponse.json({ error: `ค่าของรายการ ${k} ต้องเป็นจริง/เท็จ` }, { status: 400 })
+    }
+    for (const [k, v] of Object.entries(body.items as Record<string, boolean>)) {
+      set[`items.${k}`] = { checked: v, by, at }
+      log.push({ action: v ? "ติ๊กหลักฐานรายการ" : "ยกเลิกหลักฐานรายการ", field: `item:${k}`, by, byEmail, at })
+    }
+  }
+
+  // ไฟล์แนบ — ส่งมาทั้งชุด (แทนที่ทั้ง array) ต่างจากช่องติ๊กที่เขียนทีละ path
+  // เพราะการแนบ/ลบไฟล์เกิดนาน ๆ ครั้งและมาจากหน้าจอเดียว โอกาสชนกันต่ำกว่ามาก
+  // normalizeImages ต้องเรียกฝั่งเซิร์ฟเวอร์เสมอ (ชื่อไฟล์ที่มี # เคยทำ URL พัง — กันที่ชั้นนี้ชั้นเดียว)
+  if (body?.files !== undefined) {
+    if (!Array.isArray(body.files)) return NextResponse.json({ error: "files ต้องเป็น array" }, { status: 400 })
+    if (body.files.length > AP_FILES_MAX) {
+      return NextResponse.json({ error: `แนบไฟล์ได้ไม่เกิน ${AP_FILES_MAX} ไฟล์ต่อใบ` }, { status: 400 })
+    }
+    const clean: ApFile[] = []
+    for (const raw of normalizeImages(body.files)) {
+      const url = s(raw?.webpUrl)
+      const docType = s(raw?.docType)
+      if (!url) return NextResponse.json({ error: "ไฟล์แนบไม่มี URL" }, { status: 400 })
+      if (docType && !DOC_KEYS.has(docType)) {
+        return NextResponse.json({ error: `ประเภทเอกสารไม่ถูกต้อง: ${docType}` }, { status: 400 })
+      }
+      clean.push({
+        mediaId: typeof raw?.mediaId === "number" ? raw.mediaId : 0,
+        batchId: s(raw?.batchId),
+        filename: s(raw?.filename),
+        webpUrl: url,
+        thumbnailUrl: s(raw?.thumbnailUrl),
+        docType: docType as ApDocKey | "",
+        by: s(raw?.by) || by,
+        at: s(raw?.at) || at,
+      })
+    }
+
+    const before = new Map<string, ApFile>(
+      ((current?.files ?? []) as ApFile[]).map((f) => [s(f.webpUrl), f] as [string, ApFile]),
+    )
+    const added  = clean.filter((f) => !before.has(f.webpUrl))
+    for (const f of added) {
+      log.push({ action: "แนบไฟล์", field: "file", detail: `${f.filename}${f.docType ? ` (${apDocLabel(f.docType)})` : ""}`, by, byEmail, at })
+    }
+    const afterUrls = new Set(clean.map((f) => f.webpUrl))
+    for (const [url, f] of before) {
+      if (!afterUrls.has(url)) log.push({ action: "ลบไฟล์", field: "file", detail: s(f.filename), by, byEmail, at })
+    }
+    for (const f of clean) {
+      const old = before.get(f.webpUrl)
+      if (old && s(old.docType) !== f.docType) {
+        log.push({ action: "เปลี่ยนประเภทไฟล์", field: "file",
+          detail: `${f.filename}: ${apDocLabel(s(old.docType)) || "ไม่ระบุ"} → ${f.docType ? apDocLabel(f.docType) : "ไม่ระบุ"}`,
+          by, byEmail, at })
+      }
+    }
+    set.files = clean
+
+    // แนบไฟล์ประเภทไหนเข้ามาใหม่ = มีเอกสารตัวจริงแล้ว → ติ๊กช่องนั้นให้เลย (ถ้ายังไม่ติ๊ก)
+    // ทำเฉพาะไฟล์ที่ "เพิ่งเพิ่มในคำขอนี้" — ไม่งั้นคนที่ตั้งใจเอาติ๊กออกจะโดนติ๊กกลับทุกครั้งที่บันทึก
+    for (const f of added) {
+      const k = f.docType as ApDocKey
+      if (k && !nextDocs[k]?.checked) {
+        set[`docs.${k}`] = { checked: true, by, at }
+        nextDocs[k] = { checked: true, by, at }
+        log.push({ action: "ติ๊กอัตโนมัติจากไฟล์แนบ", field: k, by, byEmail, at })
+      }
+    }
+  }
+
   if (body?.sentType !== undefined || body?.sentDate !== undefined) {
     const bodySentType = body?.sentType !== undefined ? s(body.sentType) : undefined
     const sentType = s(bodySentType ?? current?.sentType)
@@ -149,6 +231,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   return NextResponse.json({
     ok: true,
     docs: docsOut,
+    items: (doc.items ?? {}) as Record<string, unknown>,
+    files: (doc.files ?? []) as ApFile[],
     sentType: s(doc.sentType),
     sentDate: sentDateOut,
     note: s(doc.note),

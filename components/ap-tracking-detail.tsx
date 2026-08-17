@@ -1,25 +1,27 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { X } from "lucide-react"
+import { X, Paperclip } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, apStatusMeta, apStatusOf, isDocSetComplete, missingDocLabels, thaiDate,
-  type ApDocKey, type ApDocs, type ApStatus,
+  AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apFilesByDoc, apItemKeys,
+  apStatusMeta, apStatusOf, isDocSetComplete, missingDocLabels, thaiDate,
+  type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApStatus,
 } from "@/lib/ap-tracking"
+import type { SkuImage } from "@/lib/media"
+import { ImageUpload } from "@/components/image-upload"
 import type { ApRow } from "@/components/ap-tracking-page"
 
 type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string }
 type LogEntry = { action?: string; field?: string; detail?: string; by?: string; at?: string }
 type Detail = {
-  tracking: { log?: LogEntry[] } | null
+  tracking: { log?: LogEntry[]; items?: ApItems; files?: ApFile[] } | null
   items: DepositItem[]
   po: Record<string, unknown> | null
 }
 type Draft = Record<ApDocKey, boolean>
 
 const mitr = { fontFamily: "var(--font-mitr), sans-serif" }
-const labelOf = (k: string) => AP_DOC_FIELDS.find((f) => f.key === k)?.label ?? k
 
 const draftOf = (docs: ApDocs): Draft =>
   Object.fromEntries(AP_DOC_FIELDS.map((f) => [f.key, Boolean(docs[f.key]?.checked)])) as Draft
@@ -28,6 +30,18 @@ const draftOf = (docs: ApDocs): Draft =>
 // (by/at เป็นค่าว่างได้ ฟังก์ชันพวกนั้นดูแค่ .checked)
 const docsOf = (d: Draft): ApDocs =>
   Object.fromEntries(AP_DOC_FIELDS.map((f) => [f.key, { checked: d[f.key], by: "", at: "" }])) as ApDocs
+
+// ประวัติ 1 บรรทัดอ้างถึงอะไร — ช่องเอกสาร (รวมช่องเก่าที่ถอดออกแล้ว), รายการสินค้า, หรือไม่มีหัวข้อ
+function logSubject(field?: string): string {
+  if (!field) return ""
+  if (field.startsWith("item:")) return `รายการ ${field.slice(5)}`
+  if (["sent", "note", "file"].includes(field)) return ""
+  return apDocLabel(field)
+}
+
+// เทียบไฟล์แนบว่าต่างจากที่บันทึกไว้ไหม — ดูทั้งชุดและประเภทของแต่ละไฟล์
+const filesKey = (files: ApFile[]) =>
+  files.map((f) => `${f.webpUrl}|${f.docType ?? ""}`).sort().join("\n")
 
 export function ApTrackingDetail({
   row, onClose, onSaved,
@@ -38,46 +52,77 @@ export function ApTrackingDetail({
 }) {
   const [data, setData]       = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
-  // baseline = สิ่งที่บันทึกไว้จริงในฐานข้อมูล · draft = สิ่งที่ผู้ใช้กำลังติ๊กค้างไว้
+  // baseline = สิ่งที่บันทึกไว้จริงในฐานข้อมูล · draft = สิ่งที่ผู้ใช้กำลังแก้ค้างไว้
   // เก็บ baseline เป็น state ของตัวเอง ไม่อ่านจาก prop ตรง ๆ เพราะหลังบันทึกสำเร็จ ค่าใหม่ต้องกลายเป็น
   // ฐานเทียบทันทีโดยไม่ต้องรอ parent ส่ง row ใหม่ลงมา (ไม่งั้นปุ่มบันทึกค้างสถานะ "มีของยังไม่บันทึก")
   const [saved, setSaved]     = useState<ApDocs>(row.docs)
   const [draft, setDraft]     = useState<Draft>(() => draftOf(row.docs))
+  const [savedItems, setSavedItems] = useState<ApItems>({})
+  const [itemDraft, setItemDraft]   = useState<Record<string, boolean>>({})
+  const [savedFiles, setSavedFiles] = useState<ApFile[]>([])
+  const [files, setFiles]           = useState<ApFile[]>([])
   const [saving, setSaving]   = useState(false)
 
   const changed = useMemo(
     () => AP_DOC_FIELDS.map((f) => f.key).filter((k) => draft[k] !== Boolean(saved[k]?.checked)),
     [draft, saved],
   )
-  const dirty = changed.length > 0
+  const itemsChanged = useMemo(
+    () => Object.keys(itemDraft).filter((k) => itemDraft[k] !== Boolean(savedItems[k]?.checked)),
+    [itemDraft, savedItems],
+  )
+  const filesChanged = filesKey(files) !== filesKey(savedFiles)
+  const dirtyCount = changed.length + itemsChanged.length + (filesChanged ? 1 : 0)
+  const dirty = dirtyCount > 0
 
   const draftDocs   = useMemo(() => docsOf(draft), [draft])
   const draftStatus = apStatusOf(draftDocs, row.sentDate)
   const missing     = missingDocLabels(draftDocs)
+  const fileCounts  = useMemo(() => apFilesByDoc(files), [files])
+
+  // คีย์ของรายการสินค้า (เสถียรข้ามการ scrape ใหม่ — ดู apItemKeys)
+  const depositItems = useMemo(() => data?.items ?? [], [data])
+  const itemKeys     = useMemo(() => apItemKeys(depositItems), [depositItems])
+  const itemsDone    = itemKeys.filter((k) => itemDraft[k]).length
 
   // ไม่ตั้ง loading=true ตรงนี้ — ค่าตั้งต้นเป็น true อยู่แล้วและ component เกิดใหม่ทุกใบ (key)
-  // การ setState ตอนเริ่ม effect ทำให้ render ซ้อนโดยเปล่าประโยชน์ · เรียกซ้ำหลังบันทึกก็แค่รีเฟรช log เงียบ ๆ
   const loadDetail = useCallback(async (code: string, alive: () => boolean) => {
     try {
       const res = await fetch(`/api/ap-tracking/${encodeURIComponent(code)}`)
       const d   = await res.json()
-      if (alive() && res.ok) setData(d)
+      if (!alive() || !res.ok) return
+      setData(d)
+      const t: ApItems  = d?.tracking?.items ?? {}
+      const fl: ApFile[] = Array.isArray(d?.tracking?.files) ? d.tracking.files : []
+      setSavedItems(t)
+      setItemDraft(Object.fromEntries(Object.entries(t).map(([k, v]) => [k, Boolean(v?.checked)])))
+      setSavedFiles(fl)
+      setFiles(fl)
     } finally { if (alive()) setLoading(false) }
   }, [])
 
   // fetch เมื่อเปิด — ธง alive กัน response ที่ตอบช้ามาทับ state หลังผู้ใช้ปิดโมดัลไปแล้ว
   // ไม่ต้องรีเซ็ต draft/baseline ตรงนี้: จุดเรียกใช้ใส่ key={depositCode} ให้ component เกิดใหม่ต่อใบ
-  // (state ตั้งต้นจาก useState เท่านั้น — setState ใน effect ทำให้ render ซ้อนโดยไม่จำเป็น)
   useEffect(() => {
     let ok = true
     loadDetail(row.depositCode, () => ok)
     return () => { ok = false }
   }, [row.depositCode, loadDetail])
 
-  // มีของติ๊กค้างแล้วจะปิด — ถามก่อนเสมอ (กดพื้นหลัง/กากบาท/ปุ่มปิด ใช้ทางเดียวกันหมด)
+  // ImageUpload คายรายการไฟล์ที่อัปโหลดเสร็จทุกครั้งที่ชุดเปลี่ยน (รวมตอน mount ที่ยังว่าง)
+  // — ก่อนโหลดข้อมูลเสร็จต้องไม่รับ ไม่งั้นไฟล์ที่บันทึกไว้จะถูกล้างเป็น [] ตั้งแต่ยังไม่ทันเห็น
+  const onUpload = useCallback((imgs: SkuImage[]) => {
+    if (loading) return
+    setFiles((prev) => {
+      const typeByUrl = new Map(prev.map((f) => [f.webpUrl, f.docType]))
+      return imgs.map((img) => ({ ...img, docType: typeByUrl.get(img.webpUrl) ?? "" }))
+    })
+  }, [loading])
+
+  // มีของค้างแล้วจะปิด — ถามก่อนเสมอ (กดพื้นหลัง/กากบาท/ปุ่มปิด ใช้ทางเดียวกันหมด)
   const requestClose = async () => {
     if (!dirty) return onClose()
-    const r = await swalConfirm("ปิดโดยไม่บันทึก?", `มีการติ๊กที่ยังไม่ได้บันทึก ${changed.length} ช่อง — ปิดแล้วจะหายไป`)
+    const r = await swalConfirm("ปิดโดยไม่บันทึก?", `มีการแก้ไขที่ยังไม่ได้บันทึก ${dirtyCount} รายการ — ปิดแล้วจะหายไป`)
     if (r.isConfirmed) onClose()
   }
 
@@ -85,21 +130,28 @@ export function ApTrackingDetail({
     if (!dirty || saving) return
     setSaving(true)
     try {
-      // ส่งเฉพาะช่องที่เปลี่ยนจริงในคำขอเดียว — เซิร์ฟเวอร์เขียนแบบ dotted path ต่อช่อง
-      // จึงไม่ทับการติ๊กช่องอื่นที่คนอื่นเพิ่งบันทึกระหว่างที่เราเปิดโมดัลค้างไว้
-      const body = Object.fromEntries(changed.map((k) => [k, draft[k]]))
-      const res  = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
+      // ส่งเฉพาะสิ่งที่เปลี่ยนจริง — ช่องติ๊ก/รายการเขียนแบบ dotted path ต่อคีย์ฝั่งเซิร์ฟเวอร์
+      // จึงไม่ทับของที่คนอื่นเพิ่งบันทึกระหว่างที่เราเปิดโมดัลค้างไว้
+      const body: Record<string, unknown> = {}
+      if (changed.length)      body.docs  = Object.fromEntries(changed.map((k) => [k, draft[k]]))
+      if (itemsChanged.length) body.items = Object.fromEntries(itemsChanged.map((k) => [k, itemDraft[k]]))
+      if (filesChanged)        body.files = files
+      const res = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docs: body }),
+        body: JSON.stringify(body),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
-      // ยึดผลจากเซิร์ฟเวอร์เป็นความจริง (มี by/at ของคนติ๊กจริง) ทั้ง baseline และ draft
-      setSaved(d.docs as ApDocs)
-      setDraft(draftOf(d.docs as ApDocs))
-      onSaved(row.depositCode, d.docs as ApDocs, d.status as ApStatus)
+      // ยึดผลจากเซิร์ฟเวอร์เป็นความจริง (มี by/at ของคนติ๊กจริง + ช่องที่ถูกติ๊กอัตโนมัติจากไฟล์แนบ)
+      const docsOut  = d.docs as ApDocs
+      const itemsOut = (d.items ?? {}) as ApItems
+      const filesOut = (d.files ?? []) as ApFile[]
+      setSaved(docsOut);      setDraft(draftOf(docsOut))
+      setSavedItems(itemsOut); setItemDraft(Object.fromEntries(Object.entries(itemsOut).map(([k, v]) => [k, Boolean(v?.checked)])))
+      setSavedFiles(filesOut); setFiles(filesOut)
+      onSaved(row.depositCode, docsOut, d.status as ApStatus)
       loadDetail(row.depositCode, () => true)   // ดึง log รอบใหม่มาแสดง
-      swalToast("success", `บันทึกแล้ว ${changed.length} ช่อง`)
+      swalToast("success", `บันทึกแล้ว ${dirtyCount} รายการ`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : ""
       swalError(msg ? `บันทึกไม่สำเร็จ: ${msg}` : "บันทึกไม่สำเร็จ")
@@ -134,8 +186,16 @@ export function ApTrackingDetail({
           </div>
         </section>
 
+        {/* รายการสินค้าในใบ DD + ติ๊กว่ารายการนั้นมีบิล/หลักฐานครบแล้ว */}
         <section>
-          <h3 className="text-sm font-bold mb-1" style={mitr}>รายการสินค้า</h3>
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-sm font-bold" style={mitr}>รายการสินค้า</h3>
+            {depositItems.length > 0 && (
+              <span className={`text-xs ${itemsDone === depositItems.length ? "text-green-700 dark:text-green-400" : "text-gray-500"}`}>
+                หลักฐานครบ {itemsDone}/{depositItems.length} รายการ
+              </span>
+            )}
+          </div>
           {loading ? <div className="text-sm text-gray-400">กำลังโหลด…</div> : (
             <div className="overflow-x-auto rounded-lg border dark:border-white/10">
               <table className="min-w-full text-xs">
@@ -145,19 +205,31 @@ export function ApTrackingDetail({
                     <th className="px-2 py-1.5 text-right">จำนวน</th>
                     <th className="px-2 py-1.5 text-right">ราคา/หน่วย</th>
                     <th className="px-2 py-1.5 text-right">รวม</th>
+                    <th className="px-2 py-1.5 text-center whitespace-nowrap" title="ออกบิล/มีหลักฐานครบสำหรับรายการนี้">หลักฐาน</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(data?.items ?? []).map((it, i) => (
-                    <tr key={i} className="border-t dark:border-white/10">
-                      <td className="px-2 py-1.5">{it.item}</td>
-                      <td className="px-2 py-1.5 text-right">{it.qty}</td>
-                      <td className="px-2 py-1.5 text-right">{it.unit_price}</td>
-                      <td className="px-2 py-1.5 text-right">{it.total}</td>
-                    </tr>
-                  ))}
-                  {(data?.items ?? []).length === 0 && (
-                    <tr><td colSpan={4} className="px-2 py-4 text-center text-gray-400">ไม่มีรายการสินค้าในระบบ</td></tr>
+                  {depositItems.map((it, i) => {
+                    const k = itemKeys[i]
+                    const mark = savedItems[k]
+                    const on = Boolean(itemDraft[k])
+                    return (
+                      <tr key={k} className="border-t dark:border-white/10">
+                        <td className="px-2 py-1.5">{it.item}</td>
+                        <td className="px-2 py-1.5 text-right">{it.qty}</td>
+                        <td className="px-2 py-1.5 text-right">{it.unit_price}</td>
+                        <td className="px-2 py-1.5 text-right">{it.total}</td>
+                        <td className="px-2 py-1.5 text-center">
+                          <input type="checkbox" checked={on}
+                            onChange={(e) => setItemDraft((d) => ({ ...d, [k]: e.target.checked }))}
+                            title={mark?.checked && mark.by ? `ติ๊กโดย ${mark.by} ${thaiDate((mark.at || "").slice(0, 10))}` : undefined}
+                            className={`w-4 h-4 accent-emerald-600 cursor-pointer ${on !== Boolean(mark?.checked) ? "ring-2 ring-amber-400 rounded" : ""}`} />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {depositItems.length === 0 && (
+                    <tr><td colSpan={5} className="px-2 py-4 text-center text-gray-400">ไม่มีรายการสินค้าในระบบ</td></tr>
                   )}
                 </tbody>
               </table>
@@ -172,12 +244,13 @@ export function ApTrackingDetail({
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${meta.cls}`}>
               {meta.emoji} {meta.value}
             </span>
-            {dirty && <span className="text-xs text-amber-600">● ยังไม่ได้บันทึก {changed.length} ช่อง</span>}
+            {dirty && <span className="text-xs text-amber-600">● ยังไม่ได้บันทึก {dirtyCount} รายการ</span>}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
             {AP_DOC_FIELDS.map((f) => {
               const mark = saved[f.key]
+              const n = fileCounts[f.key] ?? 0
               return (
                 <label key={f.key} className="flex items-center gap-2 text-sm cursor-pointer select-none">
                   <input type="checkbox" checked={draft[f.key]}
@@ -186,6 +259,7 @@ export function ApTrackingDetail({
                   <span className={draft[f.key] !== Boolean(mark?.checked) ? "font-medium text-amber-700 dark:text-amber-400" : ""}>
                     {f.label}
                   </span>
+                  {n > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400" title={`มีไฟล์แนบ ${n} ไฟล์`}>📎{n}</span>}
                   {mark?.checked && mark.by && (
                     <span className="text-[10px] text-gray-400" title={`${mark.by} · ${thaiDate((mark.at || "").slice(0, 10))}`}>
                       {mark.by.split(" ")[0]}
@@ -203,7 +277,8 @@ export function ApTrackingDetail({
                 : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
             </div>
             <div className="ml-auto flex gap-2">
-              <button onClick={() => setDraft(draftOf(saved))} disabled={!dirty || saving}
+              <button onClick={() => { setDraft(draftOf(saved)); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles) }}
+                disabled={!dirty || saving}
                 className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">
                 คืนค่า
               </button>
@@ -215,12 +290,43 @@ export function ApTrackingDetail({
           </div>
         </section>
 
+        {/* ไฟล์แนบ — เลือกประเภทเอกสารต่อไฟล์ · แนบประเภทไหนใหม่ ระบบติ๊กช่องนั้นให้อัตโนมัติ */}
+        <section className="rounded-xl border dark:border-white/10 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Paperclip className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-bold" style={mitr}>ไฟล์แนบ</h3>
+            <span className="text-xs text-gray-500">{files.length}/{AP_FILES_MAX} ไฟล์ · รูปหรือ PDF</span>
+          </div>
+
+          {/* key พลิกตอนโหลดเสร็จ → uploader เกิดใหม่พร้อมไฟล์ที่บันทึกไว้เป็นค่าตั้งต้น */}
+          <ImageUpload key={loading ? "up-loading" : "up-ready"} initial={savedFiles} onChange={onUpload} max={AP_FILES_MAX} />
+
+          {files.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-500">เลือกประเภทเอกสารของแต่ละไฟล์</div>
+              {files.map((f) => (
+                <div key={f.webpUrl} className="flex items-center gap-2 text-xs">
+                  <a href={f.webpUrl} target="_blank" rel="noreferrer"
+                    className="flex-1 truncate text-blue-600 hover:underline" title={f.filename}>{f.filename}</a>
+                  <select value={f.docType ?? ""}
+                    onChange={(e) => setFiles((prev) => prev.map((x) =>
+                      x.webpUrl === f.webpUrl ? { ...x, docType: e.target.value as ApDocKey | "" } : x))}
+                    className={`rounded-lg border px-2 py-1 bg-white dark:bg-white/5 ${f.docType ? "" : "border-amber-400 text-amber-700 dark:text-amber-400"}`}>
+                    <option value="">— เลือกประเภทเอกสาร —</option>
+                    {AP_DOC_FIELDS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         <section>
           <h3 className="text-sm font-bold mb-1" style={mitr}>ประวัติการติ๊ก/แก้ไข</h3>
           <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
             {(data?.tracking?.log ?? []).slice().reverse().map((l, i) => (
               <li key={i}>
-                {thaiDate((l.at ?? "").slice(0, 10))} · {l.action} {l.field && l.field !== "sent" && l.field !== "note" ? labelOf(l.field) : ""} {l.detail ?? ""} · โดย {l.by || "—"}
+                {thaiDate((l.at ?? "").slice(0, 10))} · {l.action} {logSubject(l.field)} {l.detail ?? ""} · โดย {l.by || "—"}
               </li>
             ))}
             {!loading && (data?.tracking?.log ?? []).length === 0 && <li className="text-gray-400">ยังไม่มีประวัติ</li>}

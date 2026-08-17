@@ -17,7 +17,7 @@ export type ApRow = {
   purchaseOrder: string; supplier: string; supplierRefNo: string
   amount: number; receivedAt: string; createdAt: string
   creditTerm: string; dueDate: string; overdue: number
-  docs: ApDocs; sentType: string; sentDate: string; note: string
+  docs: ApDocs; fileCount: number; sentType: string; sentDate: string; note: string
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }
@@ -418,6 +418,7 @@ export function ApTrackingPage() {
                     <button type="button" onClick={() => openDetail(r)} className="font-medium text-blue-600 hover:underline">{r.depositCode}</button>
                     <div className="text-xs text-gray-500">
                       {thaiDate(r.receivedAt)}{r.carryover && <span className="ml-1 text-amber-600">ค้างยกมา</span>}
+                      {r.fileCount > 0 && <span className="ml-1 text-blue-600 dark:text-blue-400" title={`ไฟล์แนบ ${r.fileCount} ไฟล์`}>📎{r.fileCount}</span>}
                     </div>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs">{r.purchaseOrder || "—"}</td>
@@ -473,7 +474,7 @@ export function ApTrackingPage() {
               )
             })}
             {!loading && shown.length === 0 && (
-              <tr><td colSpan={15} className="px-3 py-10 text-center text-gray-400">
+              <tr><td colSpan={5 + AP_DOC_FIELDS.length + 3} className="px-3 py-10 text-center text-gray-400">
                 {monthOutOfScope ? (
                   // เดือนก่อนเส้น go-live ว่างเพราะ "ไม่อยู่ในขอบเขตระบบ" ไม่ใช่เพราะหาไม่เจอ —
                   // ต้องบอกให้ชัด ไม่งั้นผู้ใช้เข้าใจว่าระบบพัง/ข้อมูลหาย แล้วเลิกเชื่อตัวเลขทั้งหน้า

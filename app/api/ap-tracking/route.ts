@@ -137,6 +137,8 @@ export async function GET(req: NextRequest) {
         creditTerm, dueDate,
         overdue:     sentDate ? 0 : overdueDays(dueDate, today),
         docs,
+        // ส่งแค่ "จำนวน" ไฟล์แนบ ไม่ส่งตัว object (ตารางใช้แค่ตัวเลข · โมดัลค่อยดึงของจริงรายใบ)
+        fileCount:   Array.isArray(t?.files) ? (t!.files as unknown[]).length : 0,
         sentType:    s(t?.sentType),
         sentDate,
         note:        s(t?.note),

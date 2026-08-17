@@ -2,17 +2,23 @@
 // ติดตามเจ้าหนี้ — logic ล้วน (ไม่แตะ DB/React) ทดสอบด้วย scripts/check-ap-tracking.ts
 //
 // กติกาหลัก: 1 แถว = 1 ใบ DD ต้อง "ประกบชุดเอกสาร" ให้ครบก่อนส่งบัญชี
-//   ครบชุด = ✓DD + ✓PO + อย่างน้อย 1 ใน 5 เอกสารการเงิน
+//   ครบชุด = มีเอกสารการเงินอย่างน้อย 1 ใน 5 ใบ
+//
+// เดิมนับ ✓DD + ✓PO ด้วย — ถอดออก 2026-08-17 ตามที่ผู้ใช้สั่ง: ตัวใบ DD กับ PO ระบบดึงมาจาก ATMS
+// อยู่แล้ว (ทุกแถวคือใบ DD และ PO ผูกมาให้เห็นในโมดัล) การให้คนติ๊กซ้ำไม่ได้เพิ่มข้อมูลอะไร
+// ผลพลอยได้: ใบที่ไม่มี PO ผูกใน ATMS เคยติดค้าง "รอประกบ" ตลอดกาลจนส่งบัญชีไม่ได้ — หายไปด้วย
 
-export type ApDocKey = "dd" | "po" | "bill" | "invoice" | "taxInvoice" | "receipt" | "billingNote"
+import type { SkuImage } from "@/lib/media"
+
+export type ApDocKey = "bill" | "invoice" | "taxInvoice" | "receipt" | "billingNote"
 export type ApDocMark = { checked: boolean; by: string; at: string }
 export type ApDocs = Partial<Record<ApDocKey, ApDocMark>>
+export type ApItems = Record<string, ApDocMark>          // คีย์ = apItemKeys() ของรายการสินค้าในใบ
+export type ApFile = SkuImage & { docType: ApDocKey | ""; by?: string; at?: string }
 export type ApSentType = "" | "นอกรอบ" | "ตามรอบ"
 export type ApStatus = "รอประกบ" | "ครบชุด" | "ส่งบัญชีแล้ว"
 
 export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = [
-  { key: "dd",          label: "DD (ใบรับของ)",        short: "DD" },
-  { key: "po",          label: "PO (ใบสั่งซื้อ)",       short: "PO" },
   { key: "bill",        label: "บิล/ใบส่งของ",          short: "บิล" },
   { key: "invoice",     label: "ใบแจ้งหนี้",            short: "แจ้งหนี้" },
   { key: "taxInvoice",  label: "ต้นฉบับใบกำกับภาษี",   short: "ใบกำกับ" },
@@ -20,23 +26,64 @@ export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = 
   { key: "billingNote", label: "ใบวางบิล",              short: "วางบิล" },
 ]
 
-// 5 ช่องการเงิน — ต้องมีอย่างน้อย 1 ช่องถึงจะครบชุด
-export const FINANCE_DOC_KEYS: ApDocKey[] = ["bill", "invoice", "taxInvoice", "receipt", "billingNote"]
+// ช่องที่ถอดออกแล้ว — เก็บป้ายไว้อ่านประวัติของเก่า (log ที่บันทึกไว้ก่อน 17/08/2026 ยังอ้างคีย์พวกนี้)
+const AP_RETIRED_DOC_LABELS: Record<string, string> = {
+  dd: "DD (ใบรับของ)",
+  po: "PO (ใบสั่งซื้อ)",
+}
+
+export function apDocLabel(key: string): string {
+  return AP_DOC_FIELDS.find((f) => f.key === key)?.label ?? AP_RETIRED_DOC_LABELS[key] ?? key
+}
+
+// ช่องการเงินทั้งหมด — ต้องมีอย่างน้อย 1 ช่องถึงจะครบชุด (ตอนนี้ = ทุกช่องที่เหลือ)
+export const FINANCE_DOC_KEYS: ApDocKey[] = AP_DOC_FIELDS.map((f) => f.key)
 
 const isOn = (m?: ApDocMark) => Boolean(m?.checked)
 
 export function isDocSetComplete(docs: ApDocs): boolean {
-  if (!isOn(docs.dd) || !isOn(docs.po)) return false
   return FINANCE_DOC_KEYS.some((k) => isOn(docs[k]))
 }
 
 // รายชื่อเอกสารที่ยังขาดก่อนจะครบชุด — ใช้ร่วมกันทั้ง API (ข้อความ 409) และปุ่มส่งบัญชีในตาราง
 // เพื่อไม่ให้กติกา "ครบชุด" ถูกเขียนซ้ำคนละที่แล้วเพี้ยนจากกัน
 export function missingDocLabels(docs: ApDocs): string[] {
-  const out: string[] = []
-  if (!isOn(docs.dd)) out.push("DD (ใบรับของ)")
-  if (!isOn(docs.po)) out.push("PO (ใบสั่งซื้อ)")
-  if (!FINANCE_DOC_KEYS.some((k) => isOn(docs[k]))) out.push("เอกสารการเงินอย่างน้อย 1 ใบ")
+  return isDocSetComplete(docs) ? [] : ["เอกสารการเงินอย่างน้อย 1 ใบ"]
+}
+
+// ── ติ๊กหลักฐานรายรายการสินค้า ────────────────────────────────────────────────
+// คีย์ต้องเสถียรข้ามการดึงข้อมูลใหม่: atms.deposit_items ถูก "ลบแล้วเขียนใหม่" ทุกครั้งที่ scrape
+// → _id เปลี่ยนทุกรอบ ใช้เป็นคีย์ไม่ได้ · ใช้รหัสสินค้าที่ต้นข้อความ ("S16CSE0021 : ชื่อสินค้า") แทน
+// และห้ามมี "." หรือ "$" เพราะเป็นคีย์ของ sub-document ใน Mongo (เขียนแบบ items.<key>)
+const sanitizeItemKey = (s: string) => s.replace(/[.$\s]+/g, "_").replace(/^_+|_+$/g, "")
+
+export function apItemKeys(items: { item?: string }[]): string[] {
+  const seen = new Map<string, number>()
+  return items.map((it, idx) => {
+    const raw  = String(it?.item ?? "").split(":")[0].trim()
+    const base = sanitizeItemKey(raw) || `row${idx + 1}`
+    const n    = (seen.get(base) ?? 0) + 1
+    seen.set(base, n)
+    // รหัสซ้ำในใบเดียวกัน (สินค้าเดิมคนละ serial) — ต่อลำดับกันชนกันเอง
+    return n === 1 ? base : `${base}__${n}`
+  })
+}
+
+export function apItemsDone(keys: string[], items: ApItems | undefined): number {
+  if (!items) return 0
+  return keys.filter((k) => isOn(items[k])).length
+}
+
+// ── ไฟล์แนบ ──────────────────────────────────────────────────────────────────
+export const AP_FILES_MAX = 30
+
+// จำนวนไฟล์แนบต่อประเภทเอกสาร — เอาไปโชว์ 📎N ข้างช่องติ๊ก
+export function apFilesByDoc(files: ApFile[] | undefined): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const f of files ?? []) {
+    const t = String(f?.docType ?? "")
+    if (t) out[t] = (out[t] ?? 0) + 1
+  }
   return out
 }
 
