@@ -8,11 +8,18 @@ const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
 type Params = { params: Promise<{ id: string; itemId: string }> }
 
-type Item = { _id: ObjectId; status?: string; appointmentDate?: Date | null }
+type Item = { _id: ObjectId; status?: string; appointmentDate?: Date | null; createdAt?: Date }
 
-// PATCH /api/tire-change-request/[id]/items/[itemId] — { action: "approve" | "reject" | "editJob" | "appointment", reason?, jobNo?, date? }
+/** ฟิลด์ระดับใบที่ต้องยกไปด้วยตอนแยกยางออกเป็นคำขอใบใหม่ (ดู action "split") */
+const CARRY_FIELDS = [
+  "branch", "driverName", "plate", "truckNumber", "currentOdometer", "odometerPhoto",
+  "fleet", "plant", "vehicleType", "requestedBy", "requestedByEmail", "source",
+] as const
+
+// PATCH /api/tire-change-request/[id]/items/[itemId] — { action: "approve" | "reject" | "editJob" | "appointment" | "split", reason?, jobNo?, date? }
 // อนุมัติ/ปฏิเสธยางรายเส้น แล้วคำนวณ status ของ request อัตโนมัติ — หรือแก้ไขเลข Job ของเส้นที่อนุมัติแล้ว (ไม่กระทบ status)
 // นัดหมายเป็นรายเส้น (แต่ละล้อนัดคนละวันได้) — request จะขึ้นเป็น appointment เมื่อยางที่อนุมัติมีวันนัดครบทุกเส้น
+// split = ย้ายยางเส้นที่ยังไม่ถูกตัดสินออกไปตั้งเป็นใบใหม่ ให้อนุมัติได้ เมื่อใบเดิมปิดไปแล้ว
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { id, itemId } = await params
   if (!ObjectId.isValid(id) || !ObjectId.isValid(itemId)) {
@@ -21,8 +28,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const body   = await req.json()
   const action = String(body.action ?? "")
-  if (action !== "approve" && action !== "reject" && action !== "editJob" && action !== "appointment") {
-    return NextResponse.json({ error: "action must be approve / reject / editJob / appointment" }, { status: 400 })
+  const ACTIONS = ["approve", "reject", "editJob", "appointment", "split"]
+  if (!ACTIONS.includes(action)) {
+    return NextResponse.json({ error: `action must be ${ACTIONS.join(" / ")}` }, { status: 400 })
   }
 
   const jobNo = String(body.jobNo ?? "").trim()
@@ -56,6 +64,81 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   const reqStatus: string = doc.status ?? "pending"
+
+  /**
+   * แยกยางเส้นนี้ออกไปตั้งเป็น "คำขอใบใหม่" — ทางออกของเส้นที่ค้างในใบที่ปิดไปแล้ว
+   *
+   * ใบเดิมไม่ถูกเปิดใหม่: ยางที่นัด/ปิดงานไปแล้วยังคงสถานะเดิมทุกเส้น สิ่งที่เกิดขึ้นคือ
+   * เส้นที่ยังไม่มีใครตัดสินย้ายไปอยู่ใบของตัวเอง แล้วอนุมัติ/ปฏิเสธได้ตามปกติ
+   *
+   * ลำดับ insert ก่อน pull ตั้งใจไว้แบบนี้ — ถ้าจังหวะใดจังหวะหนึ่งพลาด ผลที่ยอมรับได้คือ
+   * ยางเส้นเดียวโผล่สองใบ (แก้ตามได้) ไม่ใช่ยางหายไปจากระบบทั้งเส้น (กู้ไม่ได้)
+   */
+  if (action === "split") {
+    if ((target.status ?? "pending") !== "pending") {
+      return NextResponse.json({ error: "แยกได้เฉพาะยางเส้นที่ยังไม่ถูกอนุมัติหรือปฏิเสธ" }, { status: 409 })
+    }
+
+    // ค่าปกติ: ย้าย "ทุกเส้นที่ยังไม่ถูกตัดสิน" ในใบนี้ไปใบใหม่ใบเดียวกัน
+    // เพราะนัดหมาย/ปิดงานเป็นการกระทำระดับใบ — ถ้าแยกเส้นละใบ คนคลังต้องปิดงานหลายรอบตลอดไป
+    // ส่ง withSiblings: false มาถ้าอยากหยิบออกทีละเส้นจริง ๆ
+    const withSiblings = body.withSiblings !== false
+    const moving    = withSiblings ? items.filter((it) => (it.status ?? "pending") === "pending") : [target]
+    const movingIds = new Set(moving.map((it) => String(it._id)))
+    const remaining = items.filter((it) => !movingIds.has(String(it._id)))
+
+    if (!remaining.length) {
+      return NextResponse.json(
+        { error: "ทุกเส้นในคำขอนี้ยังไม่ถูกตัดสิน — แยกออกไปก็เหมือนเดิม อนุมัติหรือปฏิเสธได้เลย" },
+        { status: 409 },
+      )
+    }
+
+    const hasPending = remaining.some((it) => (it.status ?? "pending") === "pending")
+    const hasOk      = remaining.some((it) => it.status === "approved")
+    // ใบที่นัด/ปิดไปแล้วต้องคงสถานะนั้นไว้ — การหยิบเส้นที่ค้างออกไม่ใช่การรื้อใบเดิม
+    const keepTerminal = reqStatus === "appointment" || reqStatus === "done"
+    const newReqStatus = hasPending ? "pending" : hasOk ? (keepTerminal ? reqStatus : "approved") : "rejected"
+
+    const carried = Object.fromEntries(
+      CARRY_FIELDS.filter((f) => doc[f] !== undefined).map((f) => [f, doc[f]])
+    )
+    // คงวันที่คนขับยื่นไว้ (เส้นที่เก่าสุดในกลุ่มที่ย้าย) — "อายุคำขอ" บนหน้าติดตามต้องไม่ถูก
+    // รีเซ็ตเพราะการแยกใบ ไม่งั้นเส้นที่รอมา 10 วันจะกลายเป็นของใหม่วันนี้
+    const createdAt = moving
+      .map((it) => it.createdAt)
+      .filter((d): d is Date => d instanceof Date)
+      .sort((a, b) => a.getTime() - b.getTime())[0] ?? now
+
+    const fresh = {
+      ...carried,
+      status: "pending",
+      createdAt,
+      splitFromRequestId: doc._id,
+      splitBy: by,
+      splitAt: now,
+      items: moving,
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inserted = await col.insertOne(fresh as any)
+
+    await col.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        $pull: { items: { _id: { $in: moving.map((it) => new ObjectId(String(it._id))) } } } as any,
+        $set: { status: newReqStatus, updatedAt: now },
+      }
+    )
+
+    return NextResponse.json({
+      ok: true,
+      requestId: String(inserted.insertedId),
+      movedCount: moving.length,
+      requestStatus: newReqStatus,
+      previousRequestStatus: reqStatus,
+    })
+  }
 
   if (action === "appointment") {
     if (target.status !== "approved") {

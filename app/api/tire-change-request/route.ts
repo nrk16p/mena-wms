@@ -6,6 +6,12 @@ import clientPromise from "@/lib/mongo"
 const DB = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
 
+/**
+ * คำขอที่ยังไม่ลงวันนัดและเก่าไม่เกินกี่วัน จะถูกใช้รวมยางเส้นใหม่เข้าไป (ดู POST)
+ * เกินจากนี้ = ตั้งใบใหม่ เพราะไม่ใช่งานชุดเดียวกันอีกแล้ว
+ */
+const MERGE_WINDOW_DAYS = 7
+
 // GET /api/tire-change-request?branch=&status=&q=&page=1&limit=50&stats=1 — list requests (admin)
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -145,10 +151,24 @@ export async function POST(req: NextRequest) {
   const client = await clientPromise
   const col = client.db(DB).collection(COLL)
 
-  // ยางเส้นอื่นของรถคันเดียวกันที่ขอเปลี่ยนระหว่างที่ยังมีคำขอค้างอยู่ (ยังไม่ done/rejected)
-  // ให้รวมเข้าคำขอเดิม ไม่สร้างใบใหม่ — เพื่อให้นัดหมายเปลี่ยนยางทั้งคันในวันเดียวกันได้จากคำขอใบเดียว
+  // ยางเส้นอื่นของรถคันเดียวกันที่ขอเปลี่ยนระหว่างที่ยังมีคำขอค้างอยู่ ให้รวมเข้าคำขอเดิม
+  // ไม่สร้างใบใหม่ — เพื่อให้นัดหมายเปลี่ยนยางทั้งคันในวันเดียวกันได้จากคำขอใบเดียว
+  //
+  // แต่รวมได้เฉพาะใบที่ "ยังไม่ลงวันนัด" (pending / approved) เท่านั้น:
+  // ใบที่นัดวันแล้วถือเป็นงานของวันนั้นซึ่งปิดตัวเองได้ ถ้าเอาเส้นใหม่ยัดเข้าไปจะเกิดทางตัน —
+  // เคสจริง สบ.70-5556: ใบ 12 ส.ค. นัด 16 ส.ค. คนขับยื่น RB1/RB2 วันที่ 17 ส.ค. เวลา 07:46
+  // แล้วมีคนกดปิดงานใบนั้น 07:51 → RB1/RB2 ค้างในใบที่ปิดแล้ว อนุมัติไม่ได้อีกเลย
+  //
+  // และต้องเป็นใบที่ยังสด — ใบที่ค้างมาหลายสัปดาห์ไม่ใช่ "งานชุดเดียวกัน" อีกแล้ว
+  // (เคสจริง สบ.71-8636: ใบ 15 ก.ค. ถูกเอาเส้นของ 17 ส.ค. ยัดเข้าไป ห่างกัน 33 วัน)
+  const staleBefore = new Date(Date.now() - MERGE_WINDOW_DAYS * 86_400_000)
   const active = await col
-    .find({ branch, plate, status: { $in: ["pending", "approved", "appointment"] } })
+    .find({
+      branch,
+      plate,
+      status: { $in: ["pending", "approved"] },
+      createdAt: { $gte: staleBefore },
+    })
     .sort({ createdAt: -1 })
     .limit(1)
     .toArray()

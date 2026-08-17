@@ -38,9 +38,19 @@ export async function POST(req: NextRequest, { params }: Params) {
   const col = client.db(DB).collection(COLL)
 
   // ensure the parent request exists before uploading the photo
-  const parent = await col.findOne({ _id: new ObjectId(id) }, { projection: { _id: 1 } })
+  const parent = await col.findOne({ _id: new ObjectId(id) }, { projection: { _id: 1, status: 1 } })
   if (!parent) {
     return NextResponse.json({ error: "ไม่พบคำขอ — กรุณาส่งฟอร์มใหม่อีกครั้ง" }, { status: 404 })
+  }
+
+  // ใบที่ปิด/ปฏิเสธไปแล้วต้องรับยางเส้นใหม่ไม่ได้ — เส้นที่ยัดเข้าไปจะกลายเป็นเส้นที่
+  // อนุมัติไม่ได้ตลอดกาล (ฝั่ง PATCH items ปฏิเสธ 409 เพราะใบปิดแล้ว) = คนขับรอฟรี
+  const parentStatus: string = parent.status ?? "pending"
+  if (parentStatus === "done" || parentStatus === "rejected") {
+    return NextResponse.json(
+      { error: `คำขอใบนี้ปิดไปแล้ว (${parentStatus}) — กรุณาส่งฟอร์มใหม่เพื่อตั้งคำขอใบใหม่` },
+      { status: 409 },
+    )
   }
 
   const photoUrls: string[] = []
@@ -70,11 +80,17 @@ export async function POST(req: NextRequest, { params }: Params) {
     createdAt:    new Date(),
   }
 
+  // เส้นใหม่ยังไม่มีใครตัดสิน → สถานะใบต้องถอยกลับเป็น "รออนุมัติ" ตามกติกาเดิมของระบบ
+  // (ดู PATCH items: มีเส้น pending อยู่ = ใบเป็น pending) ไม่งั้นใบจะค้างเป็น approved/appointment
+  // แล้วถูกกดปิดงานทับเส้นที่ยังไม่ได้ตัดสิน — ต้นตอของทางตันที่เจอกับ สบ.70-5556
+  const reqSet: Record<string, unknown> = { updatedAt: new Date() }
+  if (parentStatus !== "pending") reqSet.status = "pending"
+
   await col.updateOne(
     { _id: new ObjectId(id) },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { $push: { items: item } } as any
+    { $push: { items: item }, $set: reqSet } as any
   )
 
-  return NextResponse.json({ ok: true, itemId: item._id, photoUrls }, { status: 201 })
+  return NextResponse.json({ ok: true, itemId: item._id, photoUrls, requestStatus: reqSet.status ?? parentStatus }, { status: 201 })
 }
