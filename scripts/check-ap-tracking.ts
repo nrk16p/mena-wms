@@ -8,6 +8,7 @@ import {
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
   apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, docsNeedingFile, upcomingThursdays,
   cleanTaxInvoiceNos, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
+  AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
 
@@ -95,6 +96,18 @@ assert.equal(apDocLabel("ไม่รู้จัก"), "ไม่รู้จ�
 assert.equal(apDocLabel("taxInvoiceNos"), "เลขที่ใบกำกับ", "ช่องเลขที่เอกสารก็ต้องมีป้ายไว้อ่าน log")
 assert.equal(apDocLabel("taxInvoiceNo"), "เลขที่ใบกำกับ", "ช่องเดี่ยวรุ่นแรกยังต้องอ่านออก")
 assert.equal(apDocLabel("invoiceNo"), "เลขที่ใบแจ้งหนี้/ใบวางบิล", "ช่องที่ถอดออกแล้วยังต้องอ่านออก")
+
+// --- บัญชีตรวจเอกสาร ---
+assert.deepEqual(AP_REVIEW_STATUSES, ["ผ่าน", "ไม่ผ่าน"])
+assert.equal(apReviewMeta("ผ่าน").emoji, "✅")
+assert.equal(apReviewMeta("ไม่ผ่าน").emoji, "❌")
+assert.equal(apReviewMeta("").label, "ยังไม่ตรวจ")
+assert.equal(apReviewMeta("อะไรไม่รู้").label, "ยังไม่ตรวจ", "ค่าแปลกปลอมต้องไม่พัง")
+assert.equal(reviewNeedsNote("ไม่ผ่าน", ""), true, "ตีกลับต้องบอกเหตุผล")
+assert.equal(reviewNeedsNote("ไม่ผ่าน", "   "), true, "ช่องว่างล้วนไม่นับว่าให้เหตุผล")
+assert.equal(reviewNeedsNote("ไม่ผ่าน", "ใบกำกับไม่ตรงยอด"), false)
+assert.equal(reviewNeedsNote("ผ่าน", ""), false, "ผ่านไม่ต้องบังคับเหตุผล")
+assert.equal(reviewNeedsNote("", ""), false)
 
 // --- เลขที่ใบกำกับ (หลายเลขต่อใบ) ---
 assert.deepEqual(cleanTaxInvoiceNos([" A1 ", "A2"]), ["A1", "A2"], "ตัดช่องว่างหัวท้าย")

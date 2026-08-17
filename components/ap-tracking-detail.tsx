@@ -1,14 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { X, Paperclip, CalendarClock } from "lucide-react"
+import { X, Paperclip, CalendarClock, ClipboardCheck } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, AP_FILES_MAX, AP_TAX_NO_MAX, AP_TAX_NOS_MAX, apDocLabel, apFilesByDoc, apItemKeys,
-  cleanTaxInvoiceNos,
+  AP_DOC_FIELDS, AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
+  apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, cleanTaxInvoiceNos, reviewNeedsNote,
   apStatusMeta, apStatusOf, docsNeedingFile, dueDateOf, isDocSetComplete, missingDocLabels,
   thaiDate, todayICT, upcomingThursdays,
-  type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApSentType, type ApStatus,
+  type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApReview, type ApReviewStatus,
+  type ApSentType, type ApStatus,
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
 import { ImageUpload } from "@/components/image-upload"
@@ -17,7 +18,7 @@ import type { ApRow } from "@/components/ap-tracking-page"
 type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string }
 type LogEntry = { action?: string; field?: string; detail?: string; by?: string; at?: string }
 type Detail = {
-  tracking: { log?: LogEntry[]; items?: ApItems; files?: ApFile[]; taxInvoiceNos?: string[] } | null
+  tracking: { log?: LogEntry[]; items?: ApItems; files?: ApFile[]; taxInvoiceNos?: string[]; review?: ApReview } | null
   items: DepositItem[]
   po: Record<string, unknown> | null
 }
@@ -68,6 +69,9 @@ export function ApTrackingDetail({
   // รอบการวางบิล — baseline มาจากแถว (ตารางกับโมดัลใช้ค่าเดียวกัน) แล้วอัปเดตหลังบันทึกสำเร็จ
   const [savedSent, setSavedSent] = useState({ type: row.sentType as ApSentType, date: row.sentDate })
   const [sent, setSent]           = useState({ type: row.sentType as ApSentType, date: row.sentDate })
+  // ผลตรวจของบัญชี — ผ่าน/ไม่ผ่าน + เหตุผล (บังคับเมื่อไม่ผ่าน)
+  const [savedReview, setSavedReview] = useState<ApReview>({ status: "", note: "" })
+  const [review, setReview]           = useState<ApReview>({ status: "", note: "" })
   // วันตั้งต้นของ "ตามรอบ" — ปกติคือวันที่ทำ DD แต่เลือกเองได้ (เช่น นับจากวันวางบิลจริง)
   // เก็บฝั่งหน้าเว็บอย่างเดียว ไม่บันทึกลงฐาน — สิ่งที่มีผลจริงคือวันครบกำหนดที่คำนวณออกมา
   const [baseDate, setBaseDate]   = useState(row.receivedAt)
@@ -85,8 +89,9 @@ export function ApTrackingDetail({
   const nosChanged = cleanTaxInvoiceNos(nos).join(" ") !== cleanTaxInvoiceNos(savedNos).join(" ")
   const filesChanged = filesKey(files) !== filesKey(savedFiles)
   const sentChanged  = sent.type !== savedSent.type || sent.date !== savedSent.date
+  const reviewChanged = review.status !== savedReview.status || review.note.trim() !== (savedReview.note ?? "").trim()
   const dirtyCount = changed.length + (nosChanged ? 1 : 0) + itemsChanged.length
-    + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0)
+    + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0) + (reviewChanged ? 1 : 0)
   const dirty = dirtyCount > 0
 
   // กฎ "ติ๊กแล้วต้องมีไฟล์" — ตรวจเฉพาะช่องที่เพิ่งติ๊กในรอบนี้ (เหมือนฝั่งเซิร์ฟเวอร์เป๊ะ)
@@ -123,7 +128,11 @@ export function ApTrackingDetail({
       const t: ApItems  = d?.tracking?.items ?? {}
       const fl: ApFile[] = Array.isArray(d?.tracking?.files) ? d.tracking.files : []
       const dn: string[] = cleanTaxInvoiceNos(d?.tracking?.taxInvoiceNos)
+      const rv: ApReview = { status: (d?.tracking?.review?.status ?? "") as ApReviewStatus,
+                             note: d?.tracking?.review?.note ?? "",
+                             by: d?.tracking?.review?.by, at: d?.tracking?.review?.at }
       setSavedNos(dn); setNos(dn)
+      setSavedReview(rv); setReview(rv)
       setSavedItems(t)
       setItemDraft(Object.fromEntries(Object.entries(t).map(([k, v]) => [k, Boolean(v?.checked)])))
       setSavedFiles(fl)
@@ -162,6 +171,10 @@ export function ApTrackingDetail({
       swalError(`ติ๊กแล้วต้องแนบไฟล์ของเอกสารนั้นด้วย — ยังไม่มีไฟล์: ${needFile.map(apDocLabel).join(", ")}`)
       return
     }
+    if (reviewNeedsNote(review.status, review.note)) {
+      swalError("ตีกลับต้องระบุเหตุผลว่าไม่ผ่านเพราะอะไร")
+      return
+    }
     // เลือกรอบไว้แต่ไม่มีวันที่ = เซิร์ฟเวอร์จะตีกลับ 400 อยู่ดี — บอกตรงนี้ให้รู้ว่าต้องเลือกวันไหน
     if (sent.type && !sent.date) {
       swalError(sent.type === "ตามรอบ"
@@ -176,6 +189,7 @@ export function ApTrackingDetail({
       const body: Record<string, unknown> = {}
       if (changed.length)      body.docs   = Object.fromEntries(changed.map((k) => [k, draft[k]]))
       if (nosChanged)          body.taxInvoiceNos = cleanTaxInvoiceNos(nos)
+      if (reviewChanged)       body.review = { status: review.status, note: review.note.trim() }
       if (itemsChanged.length) body.items = Object.fromEntries(itemsChanged.map((k) => [k, itemDraft[k]]))
       if (filesChanged)        body.files = files
       if (sentChanged)       { body.sentType = sent.type; body.sentDate = sent.date }
@@ -191,8 +205,10 @@ export function ApTrackingDetail({
       const filesOut = (d.files ?? []) as ApFile[]
       const sentOut = { type: (d.sentType ?? "") as ApSentType, date: String(d.sentDate ?? "") }
       const nosOut  = cleanTaxInvoiceNos(d.taxInvoiceNos)
+      const rvOut   = (d.review ?? { status: "", note: "" }) as ApReview
       setSaved(docsOut);      setDraft(draftOf(docsOut))
       setSavedNos(nosOut);    setNos(nosOut)
+      setSavedReview(rvOut);  setReview(rvOut)
       setSavedItems(itemsOut); setItemDraft(Object.fromEntries(Object.entries(itemsOut).map(([k, v]) => [k, Boolean(v?.checked)])))
       setSavedFiles(filesOut); setFiles(filesOut)
       setSavedSent(sentOut);   setSent(sentOut)
@@ -350,12 +366,12 @@ export function ApTrackingDetail({
                   : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
             </div>
             <div className="ml-auto flex gap-2">
-              <button onClick={() => { setDraft(draftOf(saved)); setNos(savedNos); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles); setSent(savedSent) }}
+              <button onClick={() => { setDraft(draftOf(saved)); setNos(savedNos); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles); setSent(savedSent); setReview(savedReview) }}
                 disabled={!dirty || saving}
                 className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">
                 คืนค่า
               </button>
-              <button onClick={save} disabled={!dirty || saving || needFile.length > 0}
+              <button onClick={save} disabled={!dirty || saving || needFile.length > 0 || reviewNeedsNote(review.status, review.note)}
                 title={needFile.length > 0 ? `ต้องแนบไฟล์ก่อน: ${needFile.map(apDocLabel).join(", ")}` : undefined}
                 className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40 hover:bg-emerald-700">
                 {saving ? "กำลังบันทึก…" : "บันทึก"}
@@ -448,6 +464,49 @@ export function ApTrackingDetail({
               </button>
             )}
           </div>
+        </section>
+
+        {/* บัญชีตรวจเอกสาร — ผ่าน/ไม่ผ่าน · ตีกลับต้องบอกเหตุผล (บังคับทั้งที่นี่และฝั่ง API) */}
+        <section className="rounded-xl border dark:border-white/10 p-3 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <ClipboardCheck className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-bold" style={mitr}>บัญชีตรวจเอกสาร</h3>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${apReviewMeta(savedReview.status).cls}`}>
+              {apReviewMeta(savedReview.status).emoji} {apReviewMeta(savedReview.status).label}
+            </span>
+            {savedReview.by && (
+              <span className="text-xs text-gray-400">
+                โดย {savedReview.by}{savedReview.at ? ` · ${thaiDate(savedReview.at.slice(0, 10))}` : ""}
+              </span>
+            )}
+            {reviewChanged && <span className="text-xs text-amber-600">● ยังไม่ได้บันทึก</span>}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {(["", ...AP_REVIEW_STATUSES] as ApReviewStatus[]).map((st) => {
+              const m = apReviewMeta(st)
+              const on = review.status === st
+              return (
+                <button key={st || "none"} onClick={() => setReview((r) => ({ ...r, status: st }))}
+                  className={`rounded-lg border px-3 py-1.5 text-xs ${on ? `${m.cls} ring-2 ring-offset-1` : "hover:bg-gray-50 dark:hover:bg-white/5"}`}>
+                  {m.emoji} {st || "ยังไม่ตรวจ"}
+                </button>
+              )
+            })}
+          </div>
+
+          <label className="block text-xs space-y-1">
+            <span className={review.status === "ไม่ผ่าน" ? "text-rose-600" : "text-gray-500"}>
+              {review.status === "ไม่ผ่าน" ? "เหตุผลที่ไม่ผ่าน (จำเป็น)" : "หมายเหตุจากบัญชี"}
+            </span>
+            <textarea value={review.note} rows={2} maxLength={AP_REVIEW_NOTE_MAX}
+              onChange={(e) => setReview((r) => ({ ...r, note: e.target.value }))}
+              className={`w-full rounded-lg border px-2 py-1 bg-white dark:bg-white/5 ${
+                reviewNeedsNote(review.status, review.note) ? "border-rose-400" : ""}`} />
+            {reviewNeedsNote(review.status, review.note) && (
+              <span className="text-rose-600">ตีกลับต้องบอกว่าไม่ผ่านเพราะอะไร ไม่งั้นคนจัดเอกสารไม่รู้ว่าต้องแก้อะไร</span>
+            )}
+          </label>
         </section>
 
         {/* ไฟล์แนบ — เลือกประเภทเอกสารต่อไฟล์ · แนบประเภทไหนใหม่ ระบบติ๊กช่องนั้นให้อัตโนมัติ */}

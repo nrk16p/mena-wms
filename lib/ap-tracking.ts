@@ -71,6 +71,28 @@ export function missingDocLabels(docs: ApDocs): string[] {
   return isDocSetComplete(docs) ? [] : ["เอกสารการเงินอย่างน้อย 1 ใบ"]
 }
 
+// ── บัญชีตรวจเอกสาร ──────────────────────────────────────────────────────────
+// ขั้นตอนหลังจากจัดชุดเอกสารเสร็จ: บัญชีตรวจแล้วชี้ขาดว่าผ่านหรือไม่ผ่าน
+// "ไม่ผ่าน" ต้องมีเหตุผลทุกครั้ง ไม่งั้นคนจัดเอกสารไม่รู้ว่าต้องแก้อะไร
+export type ApReviewStatus = "" | "ผ่าน" | "ไม่ผ่าน"
+export type ApReview = { status: ApReviewStatus; note: string; by?: string; at?: string }
+export const AP_REVIEW_STATUSES: ApReviewStatus[] = ["ผ่าน", "ไม่ผ่าน"]
+export const AP_REVIEW_NOTE_MAX = 500
+
+const AP_REVIEW_META: Record<string, { emoji: string; label: string; cls: string }> = {
+  "":         { emoji: "⏳", label: "ยังไม่ตรวจ", cls: "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300" },
+  "ผ่าน":     { emoji: "✅", label: "บัญชีตรวจผ่าน", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" },
+  "ไม่ผ่าน":  { emoji: "❌", label: "บัญชีตีกลับ",   cls: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300" },
+}
+export function apReviewMeta(status: string) {
+  return AP_REVIEW_META[status] ?? AP_REVIEW_META[""]
+}
+
+// ตีกลับต้องบอกเหตุผลเสมอ — กติกาเดียวใช้ทั้งปุ่มบันทึกฝั่งหน้าเว็บและ API
+export function reviewNeedsNote(status: string, note: string): boolean {
+  return status === "ไม่ผ่าน" && !String(note ?? "").trim()
+}
+
 // ── ติ๊กหลักฐานรายรายการสินค้า ────────────────────────────────────────────────
 // คีย์ต้องเสถียรข้ามการดึงข้อมูลใหม่: atms.deposit_items ถูก "ลบแล้วเขียนใหม่" ทุกครั้งที่ scrape
 // → _id เปลี่ยนทุกรอบ ใช้เป็นคีย์ไม่ได้ · ใช้รหัสสินค้าที่ต้นข้อความ ("S16CSE0021 : ชื่อสินค้า") แทน

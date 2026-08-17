@@ -139,6 +139,8 @@ export async function GET(req: NextRequest) {
         docs,
         // ส่งแค่ "จำนวน" ไฟล์แนบ ไม่ส่งตัว object (ตารางใช้แค่ตัวเลข · โมดัลค่อยดึงของจริงรายใบ)
         fileCount:   Array.isArray(t?.files) ? (t!.files as unknown[]).length : 0,
+        // ผลตรวจของบัญชี — ตารางโชว์เป็นป้าย (เหตุผลอยู่ใน tooltip) จึงส่งไปทั้งสถานะและหมายเหตุ
+        review:      (t?.review ?? { status: "", note: "" }) as { status: string; note: string },
         sentType:    s(t?.sentType),
         sentDate,
         note:        s(t?.note),

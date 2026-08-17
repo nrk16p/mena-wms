@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Banknote, RefreshCw, Search } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, AP_GO_LIVE, AP_STATUSES, apStatusMeta, isDocSetComplete, missingDocLabels,
+  AP_DOC_FIELDS, AP_GO_LIVE, AP_STATUSES, apReviewMeta, apStatusMeta, isDocSetComplete, missingDocLabels,
   monthInApScope, nextThursday, overdueDays, thaiDate, todayICT,
   type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
@@ -17,7 +17,8 @@ export type ApRow = {
   purchaseOrder: string; supplier: string; supplierRefNo: string
   amount: number; receivedAt: string; createdAt: string
   creditTerm: string; dueDate: string; overdue: number
-  docs: ApDocs; fileCount: number; sentType: string; sentDate: string; note: string
+  docs: ApDocs; fileCount: number; review?: { status: string; note: string }
+  sentType: string; sentDate: string; note: string
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }
@@ -460,6 +461,13 @@ export function ApTrackingPage() {
                       {meta.emoji} {meta.value}
                     </span>
                     {r.sentDate && <div className="text-xs text-gray-500 mt-0.5">{r.sentType} {thaiDate(r.sentDate)}</div>}
+                    {r.review?.status && (
+                      // ผลตรวจของบัญชี — เหตุผลที่ตีกลับอยู่ใน tooltip (รายละเอียดเต็มอยู่ในโมดัล)
+                      <div className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${apReviewMeta(r.review.status).cls}`}
+                        title={r.review.note || undefined}>
+                        {apReviewMeta(r.review.status).emoji} {apReviewMeta(r.review.status).label}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {(() => {
