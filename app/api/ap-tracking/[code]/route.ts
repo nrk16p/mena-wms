@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import {
-  AP_DOC_FIELDS, AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, apDocLabel,
+  AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_WRITABLE_DOC_KEYS, apDocLabel,
   apStatusOf, cleanTaxInvoiceNos, isDocSetComplete, missingDocLabels, reviewNeedsNote,
   type ApDocKey, type ApDocs, type ApFile, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic"
 const MD = process.env.MONGO_DB ?? "master_data"
 const COLL = "ap_tracking"
 const LOG_KEEP = 200            // เก็บ log ล่าสุดเท่านี้ต่อใบ — ไม่งั้น array โตไม่มีเพดาน
-const DOC_KEYS = new Set<string>(AP_DOC_FIELDS.map((f) => f.key))
+// รวมคีย์เก่า (billingNote) ไว้ด้วย — หน้าเว็บต้องล้างค่าที่ค้างจากยุคก่อนรวมช่องได้
+const DOC_KEYS = new Set<string>(AP_WRITABLE_DOC_KEYS)
 const SENT_TYPES = new Set(["", "นอกรอบ", "ตามรอบ"])
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 

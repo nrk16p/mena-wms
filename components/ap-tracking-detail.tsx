@@ -7,6 +7,7 @@ import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
   apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, cleanTaxInvoiceNos,
+  docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingThursdays,
   type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApReview, type ApReviewStatus,
@@ -34,8 +35,9 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "log",   label: "ประวัติ" },
 ]
 
+// ค่าตั้งต้นของช่องติ๊ก — ใช้ docChecked เพื่อให้ช่องรวม "ใบแจ้งหนี้/ใบวางบิล" ขึ้นถูกกับใบเก่า
 const draftOf = (docs: ApDocs): Draft =>
-  Object.fromEntries(AP_DOC_FIELDS.map((f) => [f.key, Boolean(docs[f.key]?.checked)])) as Draft
+  Object.fromEntries(AP_DOC_FIELDS.map((f) => [f.key, docChecked(docs, f.key)])) as Draft
 
 // draft (แค่ true/false) → รูปร่าง ApDocs เพื่อส่งให้กติกาตัวเดียวกับที่เซิร์ฟเวอร์ใช้ตรวจครบชุด
 const docsOf = (d: Draft): ApDocs =>
@@ -92,7 +94,7 @@ export function ApTrackingDetail({
   const [saving, setSaving]     = useState(false)
 
   const changed = useMemo(
-    () => AP_DOC_FIELDS.map((f) => f.key).filter((k) => draft[k] !== Boolean(saved[k]?.checked)),
+    () => AP_DOC_FIELDS.map((f) => f.key).filter((k) => draft[k] !== docChecked(saved, k)),
     [draft, saved],
   )
   const itemsChanged = useMemo(
@@ -195,7 +197,13 @@ export function ApTrackingDetail({
       // ส่งเฉพาะสิ่งที่เปลี่ยนจริง — ช่องติ๊ก/รายการเขียนแบบ dotted path ต่อคีย์ฝั่งเซิร์ฟเวอร์
       // จึงไม่ทับของที่คนอื่นเพิ่งบันทึกระหว่างที่เราเปิดโมดัลค้างไว้
       const body: Record<string, unknown> = {}
-      if (changed.length)      body.docs   = Object.fromEntries(changed.map((k) => [k, draft[k]]))
+      if (changed.length) {
+        const docsBody: Record<string, boolean> = Object.fromEntries(changed.map((k) => [k, draft[k]]))
+        // เอาติ๊กช่องรวมออก แต่ใบนี้ติ๊กค้างไว้ที่คีย์เก่า → ต้องล้างคีย์เก่าด้วย
+        // ไม่งั้นเหลือติ๊กผีที่มองไม่เห็นแต่ยังทำให้สถานะเป็น "ครบชุด"
+        if (changed.includes("invoice") && !draft.invoice && saved.billingNote?.checked) docsBody.billingNote = false
+        body.docs = docsBody
+      }
       if (itemsChanged.length) body.items  = Object.fromEntries(itemsChanged.map((k) => [k, itemDraft[k]]))
       if (nosChanged)          body.taxInvoiceNos = cleanTaxInvoiceNos(nos)
       if (filesChanged)        body.files  = files
@@ -359,14 +367,14 @@ export function ApTrackingDetail({
                 <h3 className="text-sm font-bold" style={mitr}>ชุดเอกสาร</h3>
                 <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
                   {AP_DOC_FIELDS.map((f) => {
-                    const mark = saved[f.key]
+                    const mark = f.key === "invoice" ? (saved.invoice ?? saved.billingNote) : saved[f.key]
                     const n = fileCounts[f.key] ?? 0
                     return (
                       <label key={f.key} className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-white/5">
                         <input type="checkbox" checked={draft[f.key]}
                           onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.checked }))}
                           className="h-4 w-4 cursor-pointer accent-emerald-600" />
-                        <span className={draft[f.key] !== Boolean(mark?.checked) ? "font-medium text-amber-700 dark:text-amber-400" : ""}>
+                        <span className={draft[f.key] !== docChecked(saved, f.key) ? "font-medium text-amber-700 dark:text-amber-400" : ""}>
                           {f.label}
                         </span>
                         {n > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400" title={`มีไฟล์แนบ ${n} ไฟล์`}>📎{n}</span>}

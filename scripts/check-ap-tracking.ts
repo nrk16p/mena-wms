@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, nextThursday,
-  isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
+  isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, docChecked, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS, thaiDateTime,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
   apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, addDays,
@@ -64,9 +64,18 @@ for (const d of upcomingThursdays("2026-08-11", 6)) {
 
 // --- โครงช่องเอกสาร (ถอด DD/PO ออก 2026-08-17: ระบบมีข้อมูลใบรับของ+PO อยู่แล้ว ไม่ต้องให้คนติ๊กซ้ำ
 //     และใบที่ไม่มี PO ผูกใน ATMS จะติดค้าง "รอประกบ" ตลอดไปจนส่งบัญชีไม่ได้) ---
-assert.equal(AP_DOC_FIELDS.length, 5)
-assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["bill","invoice","taxInvoice","receipt","billingNote"])
+assert.equal(AP_DOC_FIELDS.length, 4, "ใบวางบิลรวมกับใบแจ้งหนี้แล้ว")
+assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["bill","invoice","taxInvoice","receipt"])
+assert.equal(AP_DOC_FIELDS[1].label, "ใบแจ้งหนี้/ใบวางบิล")
+// คีย์เก่ายังต้องถูกนับ ไม่งั้นใบที่เคยติ๊กใบวางบิลไว้จะหลุดจากสถานะครบชุดเงียบ ๆ
 assert.deepEqual(FINANCE_DOC_KEYS, ["bill","invoice","taxInvoice","receipt","billingNote"])
+
+// --- docChecked: ช่องรวมต้องขึ้นติ๊กเมื่อใบเก่าติ๊กไว้ที่ billingNote ---
+assert.equal(docChecked({ invoice: mark }, "invoice"), true)
+assert.equal(docChecked({ billingNote: mark }, "invoice"), true, "ของเก่าที่ติ๊กใบวางบิลต้องยังเห็นว่าติ๊ก")
+assert.equal(docChecked({}, "invoice"), false)
+assert.equal(docChecked({ billingNote: mark }, "bill"), false, "ไม่ลามไปช่องอื่น")
+assert.equal(isDocSetComplete({ billingNote: mark }), true, "ใบเก่าที่มีแค่ใบวางบิลยังครบชุด")
 
 // --- เงื่อนไขครบชุด: มีเอกสารการเงินอย่างน้อย 1 ใน 5 ---
 assert.equal(isDocSetComplete({}), false)

@@ -18,13 +18,18 @@ export type ApFile = SkuImage & { docType: ApDocKey | ""; by?: string; at?: stri
 export type ApSentType = "" | "นอกรอบ" | "ตามรอบ"
 export type ApStatus = "รอประกบ" | "ครบชุด" | "ส่งบัญชีแล้ว"
 
+// ใบวางบิลรวมเข้ากับใบแจ้งหนี้ 2026-08-17 (ผู้ใช้สั่ง) — เจ้าหนี้ส่วนใหญ่ส่งมาเป็นชุดเดียวกัน
+// คีย์ที่ใช้เขียนคือ "invoice" ส่วน "billingNote" กลายเป็นคีย์เก่า (ไม่มีช่องติ๊กของตัวเองแล้ว)
 export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = [
-  { key: "bill",        label: "บิล/ใบส่งของ",          short: "บิล" },
-  { key: "invoice",     label: "ใบแจ้งหนี้",            short: "แจ้งหนี้" },
-  { key: "taxInvoice",  label: "ต้นฉบับใบกำกับภาษี",   short: "ใบกำกับ" },
-  { key: "receipt",     label: "ใบเสร็จรับเงิน",        short: "ใบเสร็จ" },
-  { key: "billingNote", label: "ใบวางบิล",              short: "วางบิล" },
+  { key: "bill",       label: "บิล/ใบส่งของ",          short: "บิล" },
+  { key: "invoice",    label: "ใบแจ้งหนี้/ใบวางบิล",   short: "แจ้งหนี้/วางบิล" },
+  { key: "taxInvoice", label: "ต้นฉบับใบกำกับภาษี",   short: "ใบกำกับ" },
+  { key: "receipt",    label: "ใบเสร็จรับเงิน",        short: "ใบเสร็จ" },
 ]
+
+// คีย์เก่าที่ยังต้อง "นับ" และ "เขียนได้": ใบที่เคยติ๊กใบวางบิลไว้ต้องไม่หลุดสถานะครบชุด
+// และต้องล้างค่าได้เมื่อผู้ใช้เอาติ๊กช่องรวมออก (ไม่งั้นจะเหลือติ๊กผีที่มองไม่เห็นแต่ทำให้ยังครบชุด)
+export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote"]
 
 // เลขที่ใบกำกับ — ATMS ไม่มีให้ ต้องคีย์เอง · ใบ DD ใบเดียวมีใบกำกับได้หลายใบ จึงเก็บเป็นลิสต์
 // (ช่อง "เลขที่ใบแจ้งหนี้/ใบวางบิล" เคยมีอยู่ช่วงสั้น ๆ วันที่ 17/08/2026 แล้วผู้ใช้สั่งเอาออก)
@@ -49,6 +54,7 @@ const AP_RETIRED_DOC_LABELS: Record<string, string> = {
   po: "PO (ใบสั่งซื้อ)",
   taxInvoiceNo: "เลขที่ใบกำกับ",              // ช่องเดี่ยวรุ่นแรก (ก่อนเปลี่ยนเป็นลิสต์)
   invoiceNo: "เลขที่ใบแจ้งหนี้/ใบวางบิล",     // ถอดออกแล้ว
+  billingNote: "ใบวางบิล (รวมกับใบแจ้งหนี้แล้ว)",
   taxInvoiceNos: "เลขที่ใบกำกับ",
 }
 
@@ -56,10 +62,19 @@ export function apDocLabel(key: string): string {
   return AP_DOC_FIELDS.find((f) => f.key === key)?.label ?? AP_RETIRED_DOC_LABELS[key] ?? key
 }
 
-// ช่องการเงินทั้งหมด — ต้องมีอย่างน้อย 1 ช่องถึงจะครบชุด (ตอนนี้ = ทุกช่องที่เหลือ)
-export const FINANCE_DOC_KEYS: ApDocKey[] = AP_DOC_FIELDS.map((f) => f.key)
+// ช่องการเงินทั้งหมดที่นับว่า "มีเอกสารแล้ว" = ช่องที่โชว์ + คีย์เก่าที่ยังมีข้อมูลค้างอยู่
+export const FINANCE_DOC_KEYS: ApDocKey[] = [...AP_DOC_FIELDS.map((f) => f.key), ...AP_LEGACY_DOC_KEYS]
+// คีย์ที่ API ยอมให้เขียน — รวมคีย์เก่าไว้ด้วยเพื่อล้างติ๊กผีได้
+export const AP_WRITABLE_DOC_KEYS: ApDocKey[] = FINANCE_DOC_KEYS
 
 const isOn = (m?: ApDocMark) => Boolean(m?.checked)
+
+// ค่าติ๊กที่ควรโชว์ในช่องหนึ่ง ๆ — ช่องรวม "ใบแจ้งหนี้/ใบวางบิล" ต้องขึ้นว่าติ๊กแล้วด้วย
+// ถ้าใบนั้นเคยติ๊กไว้ที่คีย์เก่า billingNote (ไม่งั้นเปิดใบเก่ามาจะเหมือนติ๊กหาย)
+export function docChecked(docs: ApDocs, key: ApDocKey): boolean {
+  if (key === "invoice") return Boolean(docs.invoice?.checked || docs.billingNote?.checked)
+  return Boolean(docs[key]?.checked)
+}
 
 export function isDocSetComplete(docs: ApDocs): boolean {
   return FINANCE_DOC_KEYS.some((k) => isOn(docs[k]))

@@ -3,7 +3,7 @@
 import { Fragment } from "react"
 import { Paperclip } from "lucide-react"
 import {
-  AP_DOC_FIELDS, apReviewMeta, apStatusMeta, apUrgency, isDocSetComplete, thaiDate, todayICT,
+  AP_DOC_FIELDS, apReviewMeta, apStatusMeta, apUrgency, docChecked, isDocSetComplete, thaiDate, todayICT,
 } from "@/lib/ap-tracking"
 import { NUM, URGENCY, baht } from "@/components/ap-style"
 import type { ApRow } from "@/components/ap-types"
@@ -17,13 +17,13 @@ function selectableReason(r: ApRow): string {
 
 // จุด 5 จุดแทนช่องติ๊ก 5 คอลัมน์ — กวาดสายตาแถวเดียวก็รู้ว่าขาดกี่ใบ รายละเอียดอยู่ใน tooltip
 function DocDots({ row }: { row: ApRow }) {
-  const on = AP_DOC_FIELDS.filter((f) => row.docs[f.key]?.checked)
+  const on = AP_DOC_FIELDS.filter((f) => docChecked(row.docs, f.key))
   const title = on.length ? `มีแล้ว: ${on.map((f) => f.label).join(", ")}` : "ยังไม่มีเอกสารการเงินสักใบ"
   return (
     <span className="inline-flex items-center gap-1" title={title}>
       {AP_DOC_FIELDS.map((f) => (
         <span key={f.key}
-          className={`h-2 w-2 rounded-full ${row.docs[f.key]?.checked ? "bg-emerald-500" : "bg-gray-200 dark:bg-white/15"}`} />
+          className={`h-2 w-2 rounded-full ${docChecked(row.docs, f.key) ? "bg-emerald-500" : "bg-gray-200 dark:bg-white/15"}`} />
       ))}
       {row.fileCount > 0 && (
         <span className="ml-1 inline-flex items-center text-[10px] text-gray-400">
