@@ -3,7 +3,7 @@
 import { Fragment } from "react"
 import { Paperclip } from "lucide-react"
 import {
-  AP_DOC_FIELDS, apReviewMeta, apStatusMeta, apUrgency, docChecked, isDocSetComplete, thaiDate, todayICT,
+  AP_DOC_FIELDS, apUrgency, docChecked, isDocSetComplete, thaiDate, todayICT,
 } from "@/lib/ap-tracking"
 import { NUM, URGENCY, baht } from "@/components/ap-style"
 import type { ApRow } from "@/components/ap-types"
@@ -63,7 +63,7 @@ export function ApTable({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-2xl border border-gray-200/80 dark:border-white/10">
+      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50/80 text-xs text-gray-500 dark:bg-white/5 dark:text-gray-400">
             <tr>
@@ -76,25 +76,22 @@ export function ApTable({
               <th className="px-3 py-2.5 text-right font-medium">ยอดเงิน</th>
               <th className="px-3 py-2.5 text-left font-medium">กำหนดชำระ</th>
               <th className="px-3 py-2.5 text-left font-medium">เอกสาร</th>
-              <th className="px-3 py-2.5 text-left font-medium">สถานะ</th>
-              <th className="px-3 py-2.5 text-right font-medium">ส่งบัญชี</th>
+              <th className="px-3 py-2.5 text-right font-medium">จัดการ</th>
             </tr>
           </thead>
           <tbody>
             {loading && rows.length === 0 && Array.from({ length: 6 }).map((_, i) => (
               // โครงแถวตอนโหลด — ตารางไม่กระพริบเป็นช่องว่างแล้วค่อยเด้งกลับมา
               <tr key={`sk-${i}`} className="border-t border-gray-100 dark:border-white/5">
-                <td colSpan={7} className="px-3 py-3">
+                <td colSpan={6} className="px-3 py-3">
                   <div className="h-4 w-full animate-pulse rounded bg-gray-100 dark:bg-white/5" />
                 </td>
               </tr>
             ))}
 
             {rows.map((r) => {
-              const meta = apStatusMeta(r.status)
-              const u    = apUrgency(r.dueDate, r.sentDate, today)
-              const why  = selectableReason(r)
-              const rv   = r.review?.status ? apReviewMeta(r.review.status) : null
+              const u   = apUrgency(r.dueDate, r.sentDate, today)
+              const why = selectableReason(r)
               // สีขอบบนกับสีแถบซ้ายตั้งแยกกัน (border-t-* / border-l-*) — ถ้าใช้ border-gray-100 รวม
               // จะไปทับสีแถบซ้ายตามลำดับ CSS ที่ Tailwind สร้าง แล้วแถบเตือนหายไปเงียบ ๆ
               return (
@@ -117,6 +114,18 @@ export function ApTable({
                       {r.purchaseOrder && <span>· {r.purchaseOrder}</span>}
                       {r.carryover && <span className="text-amber-600">· ค้างยกมา</span>}
                     </div>
+                    {/* ข้อมูลขั้นของงานที่คนอ่านต้องรู้ต่อจากเลขใบ — ไม่ต้องมีคอลัมน์สถานะแยก
+                        เพราะแท็บด้านบนบอกขั้นอยู่แล้ว */}
+                    {r.review?.status === "ไม่ผ่าน" ? (
+                      <div className="mt-0.5 truncate text-[11px] text-rose-600 dark:text-rose-400" title={r.review.note}>
+                        บัญชีตีกลับ{r.review.note ? ` · ${r.review.note}` : ""}
+                      </div>
+                    ) : r.sentDate ? (
+                      <div className="mt-0.5 text-[11px] text-gray-400">
+                        ส่งบัญชี {r.sentType} {thaiDate(r.sentDate)}
+                        {r.review?.status === "ผ่าน" ? " · บัญชีตรวจผ่าน" : ""}
+                      </div>
+                    ) : null}
                     {r.note && <div className="mt-0.5 truncate text-[11px] italic text-gray-400" title={r.note}>“{r.note}”</div>}
                   </td>
 
@@ -134,20 +143,6 @@ export function ApTable({
 
                   <td className="px-3 py-3 align-top"><DocDots row={r} /></td>
 
-                  <td className="px-3 py-3 align-top">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${meta.cls}`}>
-                      {meta.emoji} {meta.value}
-                    </span>
-                    {r.sentDate && (
-                      <div className="mt-0.5 text-[11px] text-gray-400">{r.sentType} {thaiDate(r.sentDate)}</div>
-                    )}
-                    {rv && (
-                      <div className={`mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${rv.cls}`}
-                        title={r.review?.note || undefined}>
-                        {rv.emoji} {rv.label}
-                      </div>
-                    )}
-                  </td>
 
                   <td className="px-3 py-3 text-right align-top">
                     <button onClick={() => onSend(r)} disabled={!r.sentDate && !isDocSetComplete(r.docs)}
@@ -165,7 +160,7 @@ export function ApTable({
             })}
 
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={7} className="px-3 py-16 text-center text-gray-400">{emptyNote}</td></tr>
+              <tr><td colSpan={6} className="px-3 py-16 text-center text-gray-400">{emptyNote}</td></tr>
             )}
           </tbody>
         </table>

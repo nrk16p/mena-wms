@@ -159,6 +159,36 @@ export function apStatusMeta(s: ApStatus) {
   return AP_STATUS_META[s] ?? AP_STATUS_META["รอประกบ"]
 }
 
+// ── ขั้นของงาน (แกนหลักของหน้า) ───────────────────────────────────────────────
+// 1 ใบอยู่ได้ขั้นเดียวเท่านั้น — เดิมใบหนึ่งเป็นได้หลายอย่างพร้อมกัน (ส่งบัญชีแล้ว + บัญชีตรวจผ่าน)
+// ทำให้ตัวเลขทับซ้อนกันจนบวกไม่ได้ · ลำดับข้างล่างคือลำดับความสำคัญ: "ไม่ผ่าน" ชนะทุกขั้น
+// เพราะตีกลับแล้วต้องแก้ ไม่ว่าจะส่งไปแล้วหรือยัง
+export type ApStage = "wait" | "ready" | "sent" | "passed" | "rejected"
+
+export const AP_STAGES: { key: ApStage; label: string; dot: string; hint: string }[] = [
+  { key: "wait",     label: "รอประกบ",       dot: "bg-rose-500",    hint: "เอกสารยังไม่ครบชุด" },
+  { key: "ready",    label: "ครบชุด",        dot: "bg-amber-400",   hint: "ครบแล้ว รอกดส่งบัญชี" },
+  { key: "sent",     label: "ส่งบัญชีแล้ว",  dot: "bg-sky-500",     hint: "ส่งแล้ว รอบัญชีตรวจ" },
+  { key: "passed",   label: "ผ่าน",          dot: "bg-emerald-500", hint: "บัญชีตรวจผ่าน" },
+  { key: "rejected", label: "ไม่ผ่าน",       dot: "bg-rose-600",    hint: "บัญชีตีกลับ ต้องแก้" },
+]
+
+export function apStageMeta(stage: ApStage) {
+  return AP_STAGES.find((s) => s.key === stage) ?? AP_STAGES[0]
+}
+
+export function apStage(o: {
+  docs: ApDocs
+  sentDate: string
+  review?: { status?: string } | null
+}): ApStage {
+  const rv = String(o.review?.status ?? "").trim()
+  if (rv === "ไม่ผ่าน") return "rejected"
+  if (rv === "ผ่าน") return "passed"
+  if (o.sentDate) return "sent"
+  return isDocSetComplete(o.docs) ? "ready" : "wait"
+}
+
 // วันเริ่มใช้ระบบ (go-live) — ใบรับของที่ "รับก่อนวันนี้" เป็นของกระบวนการ Excel เดิม
 // ปิดจบไปแล้วในไฟล์ เจ้าหนี้เดือน xx.xlsx ไม่ใช่ยอดค้างของระบบนี้ จึงตัดออกจากสโคปทั้งหมด
 // เหตุผล: ap_tracking ยังว่าง (ยังไม่มีใครติ๊ก) ทุกใบที่ scraper เคยเก็บมาจึงเข้าเงื่อนไข

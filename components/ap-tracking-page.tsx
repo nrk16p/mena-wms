@@ -3,15 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_GO_LIVE, apUrgency, isDocSetComplete, monthInApScope, needsAccountingReview,
+  AP_GO_LIVE, apStage, isDocSetComplete, monthInApScope,
   nextThursday, overdueDays, thaiDate, todayICT,
   type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
 import { CARD, NUM, baht, mitr } from "@/components/ap-style"
-import { ApSummaryBar } from "@/components/ap-summary"
+import { ApHeader } from "@/components/ap-summary"
 import { ApTable } from "@/components/ap-table"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
-import type { ApQuickView, ApRow, ApSummary } from "@/components/ap-types"
+import type { ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
 export type { ApRow } from "@/components/ap-types"
 
@@ -98,8 +98,7 @@ export function ApTrackingPage() {
   const [loading, setLoading] = useState(true)
   const [month, setMonth]     = useState(thisMonth())
   const [warehouse, setWarehouse] = useState("")
-  const [fStatus, setFStatus] = useState<ApStatus | "">("")
-  const [quick, setQuick]     = useState<ApQuickView>("")
+  const [tab, setTab]         = useState<ApTab>("")
   const [q, setQ]             = useState("")
   const [warehouses, setWarehouses] = useState<string[]>([])
   const [sentFor, setSentFor] = useState<ApRow | null>(null)
@@ -167,19 +166,15 @@ export function ApTrackingPage() {
 
   const shown = useMemo(() => {
     let out = rows
-    if (fStatus)   out = out.filter((r) => r.status === fStatus)
-    if (quick === "urgent") {
-      out = out.filter((r) => ["overdue", "due7"].includes(apUrgency(r.dueDate, r.sentDate, today)))
-    } else if (quick === "review") {
-      out = out.filter((r) => needsAccountingReview(r.status, r.review?.status))
-    }
+    // แท็บ = ขั้นของงาน (1 ใบอยู่ได้ขั้นเดียว ดู apStage) — ตัวกรองหลักของหน้า
+    if (tab) out = out.filter((r) => apStage(r) === tab)
     if (warehouse) out = out.filter((r) => r.warehouse === warehouse)
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
       out = out.filter((r) => matchQ(r, rx))
     }
     return out
-  }, [rows, fStatus, quick, warehouse, q, today])
+  }, [rows, tab, warehouse, q])
 
   const totalPages = perPage === 0 ? 1 : Math.max(1, Math.ceil(shown.length / perPage))
   // clamp ระหว่างที่จำนวนแถวลดลงก่อน state หน้าจะถูกตั้งใหม่ — ตารางจึงไม่กะพริบเป็นหน้าว่าง
@@ -287,15 +282,15 @@ export function ApTrackingPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <ApSummaryBar
+      <ApHeader
         summary={summary} loading={loading}
         month={month} onMonth={(v) => applyFilter(() => setMonth(v))}
         q={q} onQ={(v) => applyFilter(() => setQ(v))}
         onRefresh={load}
-        fStatus={fStatus} onStatus={(v) => applyFilter(() => setFStatus(v))}
-        quick={quick} onQuick={(v) => applyFilter(() => setQuick(v))}
+        tab={tab} onTab={(v) => applyFilter(() => setTab(v))}
         warehouse={warehouse} onWarehouse={(v) => applyFilter(() => setWarehouse(v))}
         warehouses={warehouses}
+        totalShown={shown.length}
       />
 
       {/* ผลลัพธ์ถูกตัดเพราะชนเพดานแถว — ยอดสรุปทุกตัวข้างบนยังไม่ครบ ต้องบอกให้ชัด ไม่ปล่อยให้เงียบ */}
@@ -306,7 +301,7 @@ export function ApTrackingPage() {
         </div>
       )}
 
-      {summary && summary.counted > summary.total && !fStatus && !quick && (
+      {summary && summary.counted > summary.total && !tab && (
         <div className="text-xs text-gray-400">
           ยอดสรุปรวมใบค้างยกมาที่ส่งบัญชีในเดือนนี้อีก {summary.counted - summary.total} ใบ (ไม่แสดงในตาราง)
         </div>
@@ -344,7 +339,7 @@ export function ApTrackingPage() {
             </div>
             <div className="text-xs">ใบรับของก่อนวันดังกล่าวจัดการในไฟล์ Excel ของกระบวนการเดิม จึงไม่ถูกดึงเข้ามา</div>
           </div>
-        ) : (quick || fStatus || q ? "ไม่มีใบที่ตรงกับตัวกรองนี้" : "ยังไม่มีใบรับของในเดือนนี้")}
+        ) : (tab || q ? "ไม่มีใบในขั้นนี้" : "ยังไม่มีใบรับของในเดือนนี้")}
       />
 
       {sentFor && <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />}

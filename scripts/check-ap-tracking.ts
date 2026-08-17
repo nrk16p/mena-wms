@@ -7,6 +7,7 @@ import {
   missingDocLabels, todayICT, ICT_OFFSET_MS, thaiDateTime,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
   apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, addDays,
+  apStage, apStageMeta, AP_STAGES,
   apUrgency, needsAccountingReview,
   cleanTaxInvoiceNos, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
@@ -230,6 +231,27 @@ assert.equal(isAccounting("narongkorn.a@menatransport.co.th", "IT"), true, "แ�
 for (const e of ACCOUNTING_EMAILS) {
   assert.equal(isAccounting(e, "อะไรก็ได้"), true, `${e} อยู่ในลิสต์ต้องผ่าน`)
 }
+
+// --- ขั้นของงาน (แกนหลักของหน้า — 1 ใบอยู่ได้ขั้นเดียว) ---
+assert.deepEqual(AP_STAGES.map((s) => s.key), ["wait", "ready", "sent", "passed", "rejected"])
+assert.equal(apStage({ docs: {}, sentDate: "" }), "wait")
+assert.equal(apStage({ docs: { bill: mark }, sentDate: "" }), "ready", "ครบชุดแล้วแต่ยังไม่ส่ง")
+assert.equal(apStage({ docs: { bill: mark }, sentDate: "2026-08-20" }), "sent")
+assert.equal(apStage({ docs: { bill: mark }, sentDate: "2026-08-20", review: { status: "ผ่าน" } }), "passed")
+assert.equal(
+  apStage({ docs: { bill: mark }, sentDate: "2026-08-20", review: { status: "ไม่ผ่าน" } }),
+  "rejected",
+  "ตีกลับชนะสถานะส่งแล้ว",
+)
+assert.equal(
+  apStage({ docs: {}, sentDate: "", review: { status: "ไม่ผ่าน" } }),
+  "rejected",
+  "ตีกลับชนะแม้เอกสารยังไม่ครบ",
+)
+assert.equal(apStage({ docs: {}, sentDate: "", review: { status: "" } }), "wait", "ยังไม่ตรวจ = ไม่เปลี่ยนขั้น")
+assert.equal(apStage({ docs: {}, sentDate: "", review: null }), "wait")
+assert.equal(apStageMeta("rejected").label, "ไม่ผ่าน")
+assert.equal(apStageMeta("wait").label, "รอประกบ")
 
 // --- thaiDate ---
 assert.equal(thaiDate("2026-08-13"), "13 ส.ค. 69")

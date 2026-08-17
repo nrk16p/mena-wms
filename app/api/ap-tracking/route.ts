@@ -2,9 +2,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
-  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apUrgency, nextThursday, todayICT,
+  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apUrgency, nextThursday, todayICT,
+  AP_STAGES,
   apSinceOf, inApScope, monthInApScope,
-  type ApDocs, type ApStatus,
+  type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
 
 export const dynamic = "force-dynamic"
@@ -182,10 +183,13 @@ export async function GET(req: NextRequest) {
     // noTerm = ยังไม่ส่งบัญชีและ "ไม่รู้กำหนดชำระ" เพราะซัพพลายเออร์ยังไม่มีเครดิตเทอมใน master
     // (วัดจริงเดือน ก.ค. 2026: ~35% ของชื่อไม่มีใน master) — เอาไปกองรวมกับ notDue จะกลายเป็นรายงานลวง
     const overdue = blank(), unsentAging = { notDue: blank(), due7: blank(), overdue: blank(), noTerm: blank() }
+    // นับต่อ "ขั้นของงาน" — แกนหลักของหน้า (แท็บ) · 1 ใบนับที่เดียว จึงบวกกันได้เท่ายอดรวม
+    const byStage = Object.fromEntries(AP_STAGES.map((s) => [s.key, blank()])) as Record<ApStage, { n: number; amount: number }>
     const thu = nextThursday(today)
     const thisThursday = { date: thu, n: 0, amount: 0 }
     for (const r of countRows) {
       const b = byStatus[r.status]; b.n++; b.amount += r.amount
+      const sb = byStage[apStage(r)]; sb.n++; sb.amount += r.amount
       if (r.status !== "ส่งบัญชีแล้ว") {
         // จัดกลุ่มด้วย apUrgency ตัวเดียวกับที่ตารางใช้ระบายสีแถบซ้าย — ไม่งั้นแถบสัดส่วนกับสีในตาราง
         // จะเล่าคนละเรื่องเวลาเกณฑ์ถูกแก้ที่ใดที่หนึ่ง
@@ -221,6 +225,7 @@ export async function GET(req: NextRequest) {
         limit,                          // เพดานแถวที่ใช้จริง — เอาไปบอกผู้ใช้ตอน truncated
         since,                          // เส้น go-live ที่ใช้จริง (ใบก่อนวันนี้ไม่อยู่ในระบบนี้)
         byStatus: byStatus as Record<ApStatus, { n: number; amount: number }>,
+        byStage,
         overdue, thisThursday, unsentAging, dataAsOf,
       },
     })
@@ -237,6 +242,7 @@ function emptySummary(limit: number, since: string, today: string) {
   return {
     total: 0, counted: 0, truncated: false, limit, since,
     byStatus: { "รอประกบ": blank(), "ครบชุด": blank(), "ส่งบัญชีแล้ว": blank() } as Record<ApStatus, { n: number; amount: number }>,
+    byStage: Object.fromEntries(AP_STAGES.map((s) => [s.key, blank()])) as Record<ApStage, { n: number; amount: number }>,
     overdue: blank(),
     thisThursday: { date: nextThursday(today), n: 0, amount: 0 },
     unsentAging: { notDue: blank(), due7: blank(), overdue: blank(), noTerm: blank() },
