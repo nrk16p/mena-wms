@@ -6,7 +6,7 @@ import {
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
-  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, docsNeedingFile, upcomingThursdays,
+  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, docsNeedingFile, upcomingThursdays, AP_DOC_NO_FIELDS,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
 
@@ -91,6 +91,9 @@ assert.equal(apDocLabel("bill"), "บิล/ใบส่งของ")
 assert.equal(apDocLabel("dd"), "DD (ใบรับของ)", "ช่องที่ถอดออกแล้วยังต้องมีป้ายไว้อ่านประวัติ")
 assert.equal(apDocLabel("po"), "PO (ใบสั่งซื้อ)")
 assert.equal(apDocLabel("ไม่รู้จัก"), "ไม่รู้จัก", "คีย์แปลกปลอมคืนค่าเดิม ไม่พัง")
+assert.equal(apDocLabel("taxInvoiceNo"), "เลขที่ใบกำกับ", "ช่องเลขที่เอกสารก็ต้องมีป้ายไว้อ่าน log")
+assert.equal(apDocLabel("invoiceNo"), "เลขที่ใบแจ้งหนี้/ใบวางบิล")
+assert.deepEqual(AP_DOC_NO_FIELDS.map((x) => x.key), ["taxInvoiceNo", "invoiceNo"])
 
 // --- คีย์ของรายการสินค้าในใบ (ติ๊กหลักฐานรายรายการ) ---
 // deposit_items ถูกลบ-เขียนใหม่ทุกครั้งที่ scrape → _id เปลี่ยนตลอด ใช้เป็นคีย์ไม่ได้

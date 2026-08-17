@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { X, Paperclip, CalendarClock } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apFilesByDoc, apItemKeys,
+  AP_DOC_FIELDS, AP_DOC_NO_FIELDS, AP_DOC_NO_MAX, AP_FILES_MAX, apDocLabel, apFilesByDoc, apItemKeys,
   apStatusMeta, apStatusOf, docsNeedingFile, dueDateOf, isDocSetComplete, missingDocLabels,
   thaiDate, todayICT, upcomingThursdays,
-  type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApSentType, type ApStatus,
+  type ApDocKey, type ApDocNos, type ApDocs, type ApFile, type ApItems, type ApSentType, type ApStatus,
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
 import { ImageUpload } from "@/components/image-upload"
@@ -16,7 +16,7 @@ import type { ApRow } from "@/components/ap-tracking-page"
 type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string }
 type LogEntry = { action?: string; field?: string; detail?: string; by?: string; at?: string }
 type Detail = {
-  tracking: { log?: LogEntry[]; items?: ApItems; files?: ApFile[] } | null
+  tracking: { log?: LogEntry[]; items?: ApItems; files?: ApFile[]; docNos?: ApDocNos } | null
   items: DepositItem[]
   po: Record<string, unknown> | null
 }
@@ -58,6 +58,8 @@ export function ApTrackingDetail({
   // ฐานเทียบทันทีโดยไม่ต้องรอ parent ส่ง row ใหม่ลงมา (ไม่งั้นปุ่มบันทึกค้างสถานะ "มีของยังไม่บันทึก")
   const [saved, setSaved]     = useState<ApDocs>(row.docs)
   const [draft, setDraft]     = useState<Draft>(() => draftOf(row.docs))
+  const [savedNos, setSavedNos]     = useState<ApDocNos>({})
+  const [nos, setNos]               = useState<ApDocNos>({})
   const [savedItems, setSavedItems] = useState<ApItems>({})
   const [itemDraft, setItemDraft]   = useState<Record<string, boolean>>({})
   const [savedFiles, setSavedFiles] = useState<ApFile[]>([])
@@ -78,9 +80,14 @@ export function ApTrackingDetail({
     () => Object.keys(itemDraft).filter((k) => itemDraft[k] !== Boolean(savedItems[k]?.checked)),
     [itemDraft, savedItems],
   )
+  const nosChanged = useMemo(
+    () => AP_DOC_NO_FIELDS.map((f) => f.key).filter((k) => (nos[k] ?? "") !== (savedNos[k] ?? "")),
+    [nos, savedNos],
+  )
   const filesChanged = filesKey(files) !== filesKey(savedFiles)
   const sentChanged  = sent.type !== savedSent.type || sent.date !== savedSent.date
-  const dirtyCount = changed.length + itemsChanged.length + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0)
+  const dirtyCount = changed.length + nosChanged.length + itemsChanged.length
+    + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0)
   const dirty = dirtyCount > 0
 
   // กฎ "ติ๊กแล้วต้องมีไฟล์" — ตรวจเฉพาะช่องที่เพิ่งติ๊กในรอบนี้ (เหมือนฝั่งเซิร์ฟเวอร์เป๊ะ)
@@ -116,6 +123,8 @@ export function ApTrackingDetail({
       setData(d)
       const t: ApItems  = d?.tracking?.items ?? {}
       const fl: ApFile[] = Array.isArray(d?.tracking?.files) ? d.tracking.files : []
+      const dn: ApDocNos = d?.tracking?.docNos ?? {}
+      setSavedNos(dn); setNos(dn)
       setSavedItems(t)
       setItemDraft(Object.fromEntries(Object.entries(t).map(([k, v]) => [k, Boolean(v?.checked)])))
       setSavedFiles(fl)
@@ -166,7 +175,8 @@ export function ApTrackingDetail({
       // ส่งเฉพาะสิ่งที่เปลี่ยนจริง — ช่องติ๊ก/รายการเขียนแบบ dotted path ต่อคีย์ฝั่งเซิร์ฟเวอร์
       // จึงไม่ทับของที่คนอื่นเพิ่งบันทึกระหว่างที่เราเปิดโมดัลค้างไว้
       const body: Record<string, unknown> = {}
-      if (changed.length)      body.docs  = Object.fromEntries(changed.map((k) => [k, draft[k]]))
+      if (changed.length)      body.docs   = Object.fromEntries(changed.map((k) => [k, draft[k]]))
+      if (nosChanged.length)   body.docNos = Object.fromEntries(nosChanged.map((k) => [k, (nos[k] ?? "").trim()]))
       if (itemsChanged.length) body.items = Object.fromEntries(itemsChanged.map((k) => [k, itemDraft[k]]))
       if (filesChanged)        body.files = files
       if (sentChanged)       { body.sentType = sent.type; body.sentDate = sent.date }
@@ -181,7 +191,9 @@ export function ApTrackingDetail({
       const itemsOut = (d.items ?? {}) as ApItems
       const filesOut = (d.files ?? []) as ApFile[]
       const sentOut = { type: (d.sentType ?? "") as ApSentType, date: String(d.sentDate ?? "") }
+      const nosOut  = (d.docNos ?? {}) as ApDocNos
       setSaved(docsOut);      setDraft(draftOf(docsOut))
+      setSavedNos(nosOut);    setNos(nosOut)
       setSavedItems(itemsOut); setItemDraft(Object.fromEntries(Object.entries(itemsOut).map(([k, v]) => [k, Boolean(v?.checked)])))
       setSavedFiles(filesOut); setFiles(filesOut)
       setSavedSent(sentOut);   setSent(sentOut)
@@ -307,6 +319,21 @@ export function ApTrackingDetail({
             })}
           </div>
 
+          {/* เลขที่เอกสารที่ต้องคีย์เอง — ATMS ไม่มีให้ · ใบแจ้งหนี้กับใบวางบิลใช้ช่องเดียวกัน */}
+          <div className="grid sm:grid-cols-2 gap-2 pt-1">
+            {AP_DOC_NO_FIELDS.map((f) => {
+              const changedNo = nosChanged.includes(f.key)
+              return (
+                <label key={f.key} className="block text-xs space-y-1">
+                  <span className={changedNo ? "font-medium text-amber-700 dark:text-amber-400" : "text-gray-500"}>{f.label}</span>
+                  <input value={nos[f.key] ?? ""} placeholder={f.placeholder} maxLength={AP_DOC_NO_MAX}
+                    onChange={(e) => setNos((p) => ({ ...p, [f.key]: e.target.value }))}
+                    className={`w-full rounded-lg border px-2 py-1 bg-white dark:bg-white/5 ${changedNo ? "border-amber-400" : ""}`} />
+                </label>
+              )
+            })}
+          </div>
+
           <div className="flex items-center gap-2 flex-wrap">
             <div className="text-xs">
               {needFile.length > 0
@@ -316,7 +343,7 @@ export function ApTrackingDetail({
                   : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
             </div>
             <div className="ml-auto flex gap-2">
-              <button onClick={() => { setDraft(draftOf(saved)); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles); setSent(savedSent) }}
+              <button onClick={() => { setDraft(draftOf(saved)); setNos(savedNos); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles); setSent(savedSent) }}
                 disabled={!dirty || saving}
                 className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">
                 คืนค่า

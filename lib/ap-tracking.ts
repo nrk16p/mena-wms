@@ -26,6 +26,16 @@ export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = 
   { key: "billingNote", label: "ใบวางบิล",              short: "วางบิล" },
 ]
 
+// เลขที่เอกสารที่ต้องคีย์เอง (ATMS ไม่มีให้) — ใบแจ้งหนี้กับใบวางบิลใช้ช่องเดียวกันตามที่ผู้ใช้สั่ง
+// เพราะเจ้าหนี้ส่วนใหญ่ออกเป็นเลขชุดเดียวกัน แยกช่องแล้วได้ค่าซ้ำกันเปล่า ๆ
+export type ApDocNoKey = "taxInvoiceNo" | "invoiceNo"
+export type ApDocNos = Partial<Record<ApDocNoKey, string>>
+export const AP_DOC_NO_MAX = 60
+export const AP_DOC_NO_FIELDS: { key: ApDocNoKey; label: string; placeholder: string }[] = [
+  { key: "taxInvoiceNo", label: "เลขที่ใบกำกับ",              placeholder: "เลขที่บนต้นฉบับใบกำกับภาษี" },
+  { key: "invoiceNo",    label: "เลขที่ใบแจ้งหนี้/ใบวางบิล",  placeholder: "ใช้ช่องเดียวกันทั้งใบแจ้งหนี้และใบวางบิล" },
+]
+
 // ช่องที่ถอดออกแล้ว — เก็บป้ายไว้อ่านประวัติของเก่า (log ที่บันทึกไว้ก่อน 17/08/2026 ยังอ้างคีย์พวกนี้)
 const AP_RETIRED_DOC_LABELS: Record<string, string> = {
   dd: "DD (ใบรับของ)",
@@ -33,7 +43,10 @@ const AP_RETIRED_DOC_LABELS: Record<string, string> = {
 }
 
 export function apDocLabel(key: string): string {
-  return AP_DOC_FIELDS.find((f) => f.key === key)?.label ?? AP_RETIRED_DOC_LABELS[key] ?? key
+  return AP_DOC_FIELDS.find((f) => f.key === key)?.label
+    ?? AP_DOC_NO_FIELDS.find((f) => f.key === key)?.label
+    ?? AP_RETIRED_DOC_LABELS[key]
+    ?? key
 }
 
 // ช่องการเงินทั้งหมด — ต้องมีอย่างน้อย 1 ช่องถึงจะครบชุด (ตอนนี้ = ทุกช่องที่เหลือ)

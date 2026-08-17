@@ -4,8 +4,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import {
-  AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apFilesByDoc, apStatusOf, docsNeedingFile,
-  isDocSetComplete, missingDocLabels,
+  AP_DOC_FIELDS, AP_DOC_NO_FIELDS, AP_DOC_NO_MAX, AP_FILES_MAX, apDocLabel, apFilesByDoc,
+  apStatusOf, docsNeedingFile, isDocSetComplete, missingDocLabels,
   type ApDocKey, type ApDocs, type ApFile,
 } from "@/lib/ap-tracking"
 import { normalizeImages } from "@/lib/media"
@@ -16,6 +16,7 @@ const MD = process.env.MONGO_DB ?? "master_data"
 const COLL = "ap_tracking"
 const LOG_KEEP = 200            // เก็บ log ล่าสุดเท่านี้ต่อใบ — ไม่งั้น array โตไม่มีเพดาน
 const DOC_KEYS = new Set<string>(AP_DOC_FIELDS.map((f) => f.key))
+const DOC_NO_KEYS = new Set<string>(AP_DOC_NO_FIELDS.map((f) => f.key))
 const SENT_TYPES = new Set(["", "นอกรอบ", "ตามรอบ"])
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 
@@ -105,6 +106,21 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
       set[`docs.${key}`] = { checked, by, at }
       nextDocs[key] = { checked, by, at }
       log.push({ action: checked ? "ติ๊ก" : "ยกเลิกติ๊ก", field: k, by, byEmail, at })
+    }
+  }
+
+  // เลขที่เอกสาร (คีย์เอง) — เก็บใน docNos.<key> เขียนทีละช่อง กันสองคนคีย์คนละช่องแล้วทับกัน
+  if (body?.docNos && typeof body.docNos === "object") {
+    for (const [k, v] of Object.entries(body.docNos as Record<string, unknown>)) {
+      if (!DOC_NO_KEYS.has(k)) return NextResponse.json({ error: `ช่องเลขที่เอกสารไม่ถูกต้อง: ${k}` }, { status: 400 })
+      if (typeof v !== "string") return NextResponse.json({ error: `ค่าของ ${k} ต้องเป็นข้อความ` }, { status: 400 })
+    }
+    const currentNos = (current?.docNos ?? {}) as Record<string, string>
+    for (const [k, v] of Object.entries(body.docNos as Record<string, string>)) {
+      const val = s(v).slice(0, AP_DOC_NO_MAX)
+      if (val === s(currentNos[k])) continue          // ไม่เปลี่ยน = ไม่ต้องเขียน ไม่ต้องลง log
+      set[`docNos.${k}`] = val
+      log.push({ action: "แก้เลขที่เอกสาร", field: k, detail: val || "(ล้างค่า)", by, byEmail, at })
     }
   }
 
@@ -266,6 +282,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   return NextResponse.json({
     ok: true,
     docs: docsOut,
+    docNos: (doc.docNos ?? {}) as Record<string, string>,
     items: (doc.items ?? {}) as Record<string, unknown>,
     files: (doc.files ?? []) as ApFile[],
     sentType: s(doc.sentType),
