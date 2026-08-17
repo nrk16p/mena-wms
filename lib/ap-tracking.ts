@@ -129,15 +129,6 @@ export function apFilesByDoc(files: ApFile[] | undefined): Record<string, number
   return out
 }
 
-// กฎ "ติ๊กแล้วต้องมีไฟล์": ช่องที่ติ๊กว่ามีเอกสาร ต้องมีไฟล์ของประเภทนั้นแนบอยู่จริง
-// คืนรายชื่อช่องที่ติ๊กแล้วแต่ยังไม่มีไฟล์ — ใช้ทั้งฝั่งหน้าเว็บ (กันปุ่มบันทึก) และ API (409)
-// ตรวจเฉพาะ "ช่องที่เพิ่งติ๊กในครั้งนี้" เท่านั้น ไม่ไล่บี้ของเก่า — ใบที่ติ๊กไว้ก่อนมีระบบไฟล์แนบ
-// จะแก้อย่างอื่นไม่ได้เลยถ้าบังคับย้อนหลัง
-export function docsNeedingFile(keys: ApDocKey[], files: ApFile[] | undefined): ApDocKey[] {
-  const counts = apFilesByDoc(files)
-  return keys.filter((k) => !(counts[k] > 0))
-}
-
 export function apStatusOf(docs: ApDocs, sentDate: string): ApStatus {
   if (sentDate) return "ส่งบัญชีแล้ว"
   return isDocSetComplete(docs) ? "ครบชุด" : "รอประกบ"

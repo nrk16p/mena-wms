@@ -6,7 +6,7 @@ import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
   apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, cleanTaxInvoiceNos, reviewNeedsNote,
-  apStatusMeta, apStatusOf, docsNeedingFile, dueDateOf, isDocSetComplete, missingDocLabels,
+  apStatusMeta, apStatusOf, dueDateOf, isDocSetComplete, missingDocLabels,
   thaiDate, todayICT, upcomingThursdays,
   type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApReview, type ApReviewStatus,
   type ApSentType, type ApStatus,
@@ -94,13 +94,6 @@ export function ApTrackingDetail({
     + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0) + (reviewChanged ? 1 : 0)
   const dirty = dirtyCount > 0
 
-  // กฎ "ติ๊กแล้วต้องมีไฟล์" — ตรวจเฉพาะช่องที่เพิ่งติ๊กในรอบนี้ (เหมือนฝั่งเซิร์ฟเวอร์เป๊ะ)
-  // ใบเก่าที่ติ๊กไว้ตั้งแต่ก่อนมีระบบไฟล์แนบจึงยังแก้อย่างอื่นได้ ไม่ถูกบังคับย้อนหลัง
-  const needFile = useMemo(
-    () => docsNeedingFile(changed.filter((k) => draft[k]), files),
-    [changed, draft, files],
-  )
-
   const draftDocs   = useMemo(() => docsOf(draft), [draft])
   const draftStatus = apStatusOf(draftDocs, sent.date)
   // ตัวเลือก "นอกรอบ" = วันพฤหัสที่กำลังจะถึง 4 ตัว (+ วันที่ที่บันทึกไว้เดิม เผื่อเป็นพฤหัสที่ผ่านมาแล้ว)
@@ -167,10 +160,6 @@ export function ApTrackingDetail({
 
   const save = async () => {
     if (!dirty || saving) return
-    if (needFile.length) {
-      swalError(`ติ๊กแล้วต้องแนบไฟล์ของเอกสารนั้นด้วย — ยังไม่มีไฟล์: ${needFile.map(apDocLabel).join(", ")}`)
-      return
-    }
     if (reviewNeedsNote(review.status, review.note)) {
       swalError("ตีกลับต้องระบุเหตุผลว่าไม่ผ่านเพราะอะไร")
       return
@@ -254,9 +243,12 @@ export function ApTrackingDetail({
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-sm font-bold" style={mitr}>รายการสินค้า</h3>
             {depositItems.length > 0 && (
-              <span className={`text-xs ${itemsDone === depositItems.length ? "text-green-700 dark:text-green-400" : "text-gray-500"}`}>
-                หลักฐานครบ {itemsDone}/{depositItems.length} รายการ
-              </span>
+              <>
+                <span className={`text-xs ${itemsDone === depositItems.length ? "text-green-700 dark:text-green-400" : "text-gray-500"}`}>
+                  หลักฐานครบ {itemsDone}/{depositItems.length} รายการ
+                </span>
+                <span className="text-[10px] text-gray-400">(ติ๊กได้เลย ไม่ต้องแนบไฟล์)</span>
+              </>
             )}
           </div>
           {loading ? <div className="text-sm text-gray-400">กำลังโหลด…</div> : (
@@ -268,7 +260,9 @@ export function ApTrackingDetail({
                     <th className="px-2 py-1.5 text-right">จำนวน</th>
                     <th className="px-2 py-1.5 text-right">ราคา/หน่วย</th>
                     <th className="px-2 py-1.5 text-right">รวม</th>
-                    <th className="px-2 py-1.5 text-center whitespace-nowrap" title="ออกบิล/มีหลักฐานครบสำหรับรายการนี้">หลักฐาน</th>
+                    {/* ติ๊กรายรายการเป็นการติดตามเฉย ๆ — ไม่ผูกกับกฎ "ติ๊กแล้วต้องแนบไฟล์" ของช่องเอกสาร */}
+                    <th className="px-2 py-1.5 text-center whitespace-nowrap"
+                      title="ออกบิล/มีหลักฐานครบสำหรับรายการนี้ — ติ๊กได้เลย ไม่ต้องแนบไฟล์">หลักฐาน</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -323,7 +317,6 @@ export function ApTrackingDetail({
                     {f.label}
                   </span>
                   {n > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400" title={`มีไฟล์แนบ ${n} ไฟล์`}>📎{n}</span>}
-                  {needFile.includes(f.key) && <span className="text-[10px] text-rose-600">ต้องแนบไฟล์</span>}
                   {mark?.checked && mark.by && (
                     <span className="text-[10px] text-gray-400" title={`${mark.by} · ${thaiDate((mark.at || "").slice(0, 10))}`}>
                       {mark.by.split(" ")[0]}
@@ -359,11 +352,9 @@ export function ApTrackingDetail({
 
           <div className="flex items-center gap-2 flex-wrap">
             <div className="text-xs">
-              {needFile.length > 0
-                ? <span className="text-rose-600">📎 ติ๊กแล้วต้องแนบไฟล์ด้วย — ยังไม่มีไฟล์: {needFile.map(apDocLabel).join(", ")}</span>
-                : isDocSetComplete(draftDocs)
-                  ? <span className="text-green-700 dark:text-green-400">✅ ครบชุด — ส่งบัญชีได้</span>
-                  : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
+              {isDocSetComplete(draftDocs)
+                ? <span className="text-green-700 dark:text-green-400">✅ ครบชุด — ส่งบัญชีได้</span>
+                : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
             </div>
             <div className="ml-auto flex gap-2">
               <button onClick={() => { setDraft(draftOf(saved)); setNos(savedNos); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles); setSent(savedSent); setReview(savedReview) }}
@@ -371,8 +362,7 @@ export function ApTrackingDetail({
                 className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">
                 คืนค่า
               </button>
-              <button onClick={save} disabled={!dirty || saving || needFile.length > 0 || reviewNeedsNote(review.status, review.note)}
-                title={needFile.length > 0 ? `ต้องแนบไฟล์ก่อน: ${needFile.map(apDocLabel).join(", ")}` : undefined}
+              <button onClick={save} disabled={!dirty || saving || reviewNeedsNote(review.status, review.note)}
                 className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40 hover:bg-emerald-700">
                 {saving ? "กำลังบันทึก…" : "บันทึก"}
               </button>
@@ -514,7 +504,7 @@ export function ApTrackingDetail({
           <div className="flex items-center gap-2">
             <Paperclip className="w-4 h-4 text-gray-500" />
             <h3 className="text-sm font-bold" style={mitr}>ไฟล์แนบ</h3>
-            <span className="text-xs text-gray-500">{files.length}/{AP_FILES_MAX} ไฟล์ · รูปหรือ PDF</span>
+            <span className="text-xs text-gray-500">{files.length}/{AP_FILES_MAX} ไฟล์ · รูปหรือ PDF · ไม่บังคับ</span>
           </div>
 
           {/* key พลิกตอนโหลดเสร็จ → uploader เกิดใหม่พร้อมไฟล์ที่บันทึกไว้เป็นค่าตั้งต้น */}
