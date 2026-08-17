@@ -5,7 +5,7 @@ import { X, Paperclip, CalendarClock } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apFilesByDoc, apItemKeys,
-  apStatusMeta, apStatusOf, docsNeedingFile, isDocSetComplete, missingDocLabels,
+  apStatusMeta, apStatusOf, docsNeedingFile, dueDateOf, isDocSetComplete, missingDocLabels,
   thaiDate, todayICT, upcomingThursdays,
   type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApSentType, type ApStatus,
 } from "@/lib/ap-tracking"
@@ -65,6 +65,9 @@ export function ApTrackingDetail({
   // รอบการวางบิล — baseline มาจากแถว (ตารางกับโมดัลใช้ค่าเดียวกัน) แล้วอัปเดตหลังบันทึกสำเร็จ
   const [savedSent, setSavedSent] = useState({ type: row.sentType as ApSentType, date: row.sentDate })
   const [sent, setSent]           = useState({ type: row.sentType as ApSentType, date: row.sentDate })
+  // วันตั้งต้นของ "ตามรอบ" — ปกติคือวันที่ทำ DD แต่เลือกเองได้ (เช่น นับจากวันวางบิลจริง)
+  // เก็บฝั่งหน้าเว็บอย่างเดียว ไม่บันทึกลงฐาน — สิ่งที่มีผลจริงคือวันครบกำหนดที่คำนวณออกมา
+  const [baseDate, setBaseDate]   = useState(row.receivedAt)
   const [saving, setSaving]   = useState(false)
 
   const changed = useMemo(
@@ -341,21 +344,49 @@ export function ApTrackingDetail({
             {sentChanged && <span className="text-xs text-amber-600">● ยังไม่ได้บันทึก</span>}
           </div>
 
-          <label className="flex flex-wrap items-center gap-2 text-sm">
-            <input type="radio" name="apSent" className="w-4 h-4 accent-emerald-600"
-              checked={sent.type === "ตามรอบ"}
-              onChange={() => setSent({ type: "ตามรอบ", date: sent.type === "ตามรอบ" ? sent.date : (row.dueDate || "") })} />
-            <span className="font-medium">📋 ตามรอบ</span>
-            <span className="text-xs text-gray-500">
-              {row.creditTerm
-                ? <>เครดิต {row.creditTerm} นับจากวันที่ทำ DD {thaiDate(row.receivedAt)} → ครบกำหนด {thaiDate(row.dueDate)}</>
-                : <span className="text-amber-700 dark:text-amber-400">ซัพพลายเออร์นี้ยังไม่ได้ตั้งเครดิตเทอม — ตั้งที่หน้า &ldquo;เครดิตเทอมเจ้าหนี้&rdquo; หรือระบุวันที่เอง</span>}
-            </span>
+          <div className="space-y-1">
+            <label className="flex flex-wrap items-center gap-2 text-sm">
+              <input type="radio" name="apSent" className="w-4 h-4 accent-emerald-600"
+                checked={sent.type === "ตามรอบ"}
+                onChange={() => setSent({
+                  type: "ตามรอบ",
+                  date: sent.type === "ตามรอบ" ? sent.date : (dueDateOf(baseDate, row.creditTerm) || row.dueDate || ""),
+                })} />
+              <span className="font-medium">📋 ตามรอบ</span>
+              <span className="text-xs text-gray-500">
+                {row.creditTerm
+                  ? <>เครดิต {row.creditTerm} นับจากวันที่ทำ DD {thaiDate(row.receivedAt)}</>
+                  : <span className="text-amber-700 dark:text-amber-400">ซัพพลายเออร์นี้ยังไม่ได้ตั้งเครดิตเทอม — ระบุวันครบกำหนดเอง</span>}
+              </span>
+            </label>
+
+            {/* เลือกวันตั้งต้นเองได้ · แก้วันตั้งต้น = คำนวณวันครบกำหนดใหม่ให้ทันทีตามเครดิตเทอม
+                แต่ยังพิมพ์ทับวันครบกำหนดเองได้ (เคสที่ตกลงกับเจ้าหนี้เป็นอย่างอื่น) */}
             {sent.type === "ตามรอบ" && (
-              <input type="date" value={sent.date} onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
-                className="rounded-lg border px-2 py-1 text-xs bg-white dark:bg-white/5" />
+              <div className="flex flex-wrap items-center gap-2 pl-6 text-xs">
+                <span className="text-gray-500">นับจาก</span>
+                <input type="date" value={baseDate}
+                  onChange={(e) => {
+                    const b = e.target.value
+                    setBaseDate(b)
+                    const d = dueDateOf(b, row.creditTerm)
+                    if (d) setSent({ type: "ตามรอบ", date: d })
+                  }}
+                  className="rounded-lg border px-2 py-1 bg-white dark:bg-white/5" />
+                {baseDate !== row.receivedAt && (
+                  <button onClick={() => {
+                    setBaseDate(row.receivedAt)
+                    const d = dueDateOf(row.receivedAt, row.creditTerm)
+                    if (d) setSent({ type: "ตามรอบ", date: d })
+                  }} className="text-blue-600 hover:underline">ใช้วันที่ทำ DD</button>
+                )}
+                <span className="text-gray-500">→ ครบกำหนด</span>
+                <input type="date" value={sent.date} onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
+                  className="rounded-lg border px-2 py-1 bg-white dark:bg-white/5" />
+                {sent.date && <span className="text-gray-400">({thaiDate(sent.date)})</span>}
+              </div>
             )}
-          </label>
+          </div>
 
           <label className="flex flex-wrap items-center gap-2 text-sm">
             <input type="radio" name="apSent" className="w-4 h-4 accent-emerald-600"
