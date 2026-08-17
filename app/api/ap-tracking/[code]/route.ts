@@ -9,6 +9,7 @@ import {
   type ApDocKey, type ApDocs, type ApFile, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
 import { normalizeImages } from "@/lib/media"
+import { isAccounting } from "@/lib/roles"
 
 export const dynamic = "force-dynamic"
 
@@ -123,8 +124,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     }
   }
 
-  // บัญชีตรวจเอกสาร — ผ่าน / ไม่ผ่าน (+ เหตุผลเมื่อไม่ผ่าน)
+  // บัญชีตรวจเอกสาร — ผ่าน / ไม่ผ่าน (+ เหตุผลเมื่อไม่ผ่าน) · เฉพาะฝ่ายบัญชีเท่านั้น
+  // ตรวจที่นี่ด้วย ไม่ใช่แค่ซ่อนปุ่มฝั่งหน้าเว็บ — ปุ่มที่ซ่อนไว้ไม่ได้กันการยิง API ตรง
   if (body?.review && typeof body.review === "object") {
+    if (!isAccounting(session?.user?.email, session?.user?.employee?.department)) {
+      return NextResponse.json({ error: "เฉพาะฝ่ายบัญชีเท่านั้นที่บันทึกผลตรวจเอกสารได้" }, { status: 403 })
+    }
     const rv = body.review as { status?: unknown; note?: unknown }
     const status = s(rv.status)
     const note   = s(rv.note).slice(0, AP_REVIEW_NOTE_MAX)

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSession } from "next-auth/react"
 import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
 import { ImageUpload } from "@/components/image-upload"
+import { isAccounting } from "@/lib/roles"
 import { NUM, baht, mitr } from "@/components/ap-style"
 import type { ApRow } from "@/components/ap-types"
 
@@ -60,6 +62,11 @@ export function ApTrackingDetail({
     note: string; review?: { status: string; note: string }
   }) => void
 }) {
+  // สิทธิ์แก้ผลตรวจ — ฝ่ายบัญชี (หรือแอดมิน) เท่านั้น · คนอื่นเห็นผลตรวจได้แต่กดไม่ได้
+  // เซิร์ฟเวอร์ตรวจซ้ำอีกชั้น (403) การซ่อนปุ่มอย่างเดียวไม่ใช่การกันสิทธิ์
+  const { data: session } = useSession()
+  const canReview = isAccounting(session?.user?.email, session?.user?.employee?.department)
+
   const [tab, setTab]         = useState<Tab>("docs")
   const [data, setData]       = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -511,6 +518,11 @@ export function ApTrackingDetail({
                       ล่าสุดโดย {savedReview.by}{savedReview.at ? ` · ${thaiDate(savedReview.at.slice(0, 10))}` : ""}
                     </span>
                   )}
+                  {!canReview && (
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-white/10 dark:text-gray-400">
+                      เฉพาะฝ่ายบัญชีแก้ไขได้
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {(["", ...AP_REVIEW_STATUSES] as ApReviewStatus[]).map((st) => {
@@ -518,7 +530,9 @@ export function ApTrackingDetail({
                     const on = review.status === st
                     return (
                       <button key={st || "none"} onClick={() => setReview((r) => ({ ...r, status: st }))}
-                        className={`rounded-lg border px-3 py-1.5 text-xs transition ${on ? `${m.cls} border-transparent ring-2 ring-offset-1 dark:ring-offset-[#161a23]` : "border-gray-200/80 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"}`}>
+                        disabled={!canReview}
+                        title={canReview ? undefined : "เฉพาะฝ่ายบัญชีแก้ไขได้"}
+                        className={`rounded-lg border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-50 ${on ? `${m.cls} border-transparent ring-2 ring-offset-1 dark:ring-offset-[#161a23]` : "border-gray-200/80 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"}`}>
                         {m.emoji} {st || "ยังไม่ตรวจ"}
                       </button>
                     )
@@ -529,7 +543,7 @@ export function ApTrackingDetail({
                     <span className={review.status === "ไม่ผ่าน" ? "text-rose-600" : "text-gray-500"}>
                       {review.status === "ไม่ผ่าน" ? "เหตุผลที่ไม่ผ่าน (จำเป็น)" : "หมายเหตุจากบัญชี"}
                     </span>
-                    <textarea value={review.note} rows={2} maxLength={AP_REVIEW_NOTE_MAX}
+                    <textarea value={review.note} rows={2} maxLength={AP_REVIEW_NOTE_MAX} disabled={!canReview}
                       onChange={(e) => setReview((r) => ({ ...r, note: e.target.value }))}
                       className={`w-full rounded-lg border px-2 py-1 dark:bg-white/5 ${reviewNeedsNote(review.status, review.note) ? "border-rose-400" : "border-gray-200/80 dark:border-white/10"}`} />
                   </label>

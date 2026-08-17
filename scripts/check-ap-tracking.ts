@@ -12,6 +12,7 @@ import {
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
+import { isAccounting, ACCOUNTING_EMAILS } from "../lib/roles"
 
 const mark = { checked: true, by: "test", at: "2026-08-13T00:00:00.000Z" }
 
@@ -209,6 +210,17 @@ assert.equal(needsAccountingReview("ส่งบัญชีแล้ว", undef
 assert.equal(needsAccountingReview("ครบชุด", "ผ่าน"), false)
 assert.equal(needsAccountingReview("ครบชุด", "ไม่ผ่าน"), false, "ตีกลับแล้ว = ตรวจแล้ว")
 assert.equal(needsAccountingReview("รอประกบ", ""), false, "เอกสารยังไม่ครบ ยังไม่ถึงคิวบัญชี")
+
+// --- สิทธิ์ฝ่ายบัญชี (ใครแก้ "บัญชีตรวจเอกสาร" ได้) ---
+assert.equal(isAccounting("someone@menatransport.co.th", "บัญชีและการเงิน"), true, "department มีคำว่าบัญชี = ผ่าน")
+assert.equal(isAccounting("someone@menatransport.co.th", "Accounting"), true, "ภาษาอังกฤษก็ต้องจับได้")
+assert.equal(isAccounting("someone@menatransport.co.th", "จัดซื้อ"), false)
+assert.equal(isAccounting("someone@menatransport.co.th", null), false, "ไม่มี department = ไม่ให้สิทธิ์")
+assert.equal(isAccounting(null, null), false)
+assert.equal(isAccounting("narongkorn.a@menatransport.co.th", "IT"), true, "แอดมินระบบแก้ได้เสมอ")
+for (const e of ACCOUNTING_EMAILS) {
+  assert.equal(isAccounting(e, "อะไรก็ได้"), true, `${e} อยู่ในลิสต์ต้องผ่าน`)
+}
 
 // --- thaiDate ---
 assert.equal(thaiDate("2026-08-13"), "13 ส.ค. 69")
