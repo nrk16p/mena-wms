@@ -201,10 +201,9 @@ const isDocField = (f: string) => FINANCE_DOC_KEYS.includes(f as ApDocKey)
 
 export function apTimeline(
   log: ApLogEntry[] | undefined,
-  o: { docs: ApDocs; sentDate: string; review?: { status?: string } | null },
+  o: { docs: ApDocs; sentDate: string; review?: { status?: string } | null; receivedAt?: string },
 ): ApTimelineStep[] {
   const entries = Array.isArray(log) ? log : []
-  const first   = entries[0]
   // ติ๊กครั้งล่าสุด = เวลาที่ชุดเอกสารครบ (ประมาณจาก log — ไม่ได้เก็บ "เวลาที่ครบชุด" เป็นฟิลด์แยก)
   const lastTick = [...entries].reverse().find((e) => isDocField(String(e.field)) && String(e.action).startsWith("ติ๊ก"))
   const sentAt   = [...entries].reverse().find((e) => e.field === "sent" && String(e.action).startsWith("ส่งบัญชี"))
@@ -218,9 +217,12 @@ export function apTimeline(
     ({ key, label, at: String(e?.at ?? ""), by: String(e?.by ?? ""), state })
 
   return [
-    step("start", "เริ่มประกบเอกสาร", first, first ? "done" : "current"),
+    // ช่วงแรกเริ่มนับจาก "วันที่ทำ DD" ไม่ใช่เวลาที่คนเริ่มติ๊ก — จะได้เห็นว่าใบนอนรอกี่วัน
+    // ก่อนมีใครแตะ (ถ้าใช้เวลาติ๊กครั้งแรก ใบที่ติ๊กรวดเดียวจะขึ้นเวลาเท่ากับช่วงถัดไปพอดี ไม่บอกอะไร)
+    { key: "received", label: "รอประกบ", at: String(o.receivedAt ?? ""), by: "",
+      state: (complete ? "done" : "current") as ApTimelineState },
     step("ready", "เอกสารครบชุด", complete ? lastTick : undefined,
-      complete ? "done" : first ? "current" : "todo"),
+      complete ? "done" : "todo"),
     step("sent", "ส่งบัญชี", sent ? sentAt : undefined,
       sent ? "done" : complete ? "current" : "todo"),
     step("review", rv === "ไม่ผ่าน" ? "บัญชีตีกลับ" : rv === "ผ่าน" ? "บัญชีตรวจผ่าน" : "รอบัญชีตรวจ",

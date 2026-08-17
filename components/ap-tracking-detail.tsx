@@ -78,7 +78,8 @@ function ApTimelineBar({ steps }: { steps: ApTimelineStep[] }) {
           <span className="leading-tight">
             <span className={`block text-[11px] ${STEP_TEXT[s.state]}`}>{s.label}</span>
             <span className="block text-[10px] text-gray-400" title={s.by ? `โดย ${s.by}` : undefined}>
-              {s.at ? thaiDateTime(s.at) : "—"}
+              {/* ช่วงแรกเป็นวันที่ทำ DD (YYYY-MM-DD) ไม่มีเวลา ช่วงอื่นเป็น timestamp จาก log */}
+              {s.at ? (s.at.length === 10 ? thaiDate(s.at) : thaiDateTime(s.at)) : "—"}
             </span>
           </span>
         </li>
@@ -158,8 +159,9 @@ export function ApTrackingDetail({
   }, [savedSent])
 
   const timeline = useMemo(
-    () => apTimeline(data?.tracking?.log, { docs: saved, sentDate: savedSent.date, review: savedReview }),
-    [data, saved, savedSent.date, savedReview],
+    () => apTimeline(data?.tracking?.log,
+      { docs: saved, sentDate: savedSent.date, review: savedReview, receivedAt: row.receivedAt }),
+    [data, saved, savedSent.date, savedReview, row.receivedAt],
   )
 
   const depositItems = useMemo(() => data?.items ?? [], [data])
