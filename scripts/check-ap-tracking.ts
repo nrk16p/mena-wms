@@ -6,7 +6,8 @@ import {
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
-  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, type ApDocs, type ApFile,
+  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, docsNeedingFile, upcomingThursdays,
+  type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
 
 const mark = { checked: true, by: "test", at: "2026-08-13T00:00:00.000Z" }
@@ -118,6 +119,14 @@ const f = (docType: string): ApFile =>
 assert.deepEqual(apFilesByDoc([f("bill"), f("bill"), f("receipt")]), { bill: 2, receipt: 1 })
 assert.deepEqual(apFilesByDoc([f("")]), {}, "ไฟล์ที่ยังไม่ระบุประเภทไม่ถูกนับเข้าช่องไหน")
 assert.deepEqual(apFilesByDoc(undefined), {})
+
+// --- ติ๊กแล้วต้องมีไฟล์ของประเภทนั้น ---
+assert.deepEqual(docsNeedingFile(["bill"], [f("bill")]), [], "มีไฟล์บิลแล้ว ติ๊กบิลได้")
+assert.deepEqual(docsNeedingFile(["bill"], []), ["bill"], "ติ๊กบิลแต่ไม่มีไฟล์ = ต้องแนบก่อน")
+assert.deepEqual(docsNeedingFile(["bill", "receipt"], [f("bill")]), ["receipt"])
+assert.deepEqual(docsNeedingFile([], [f("bill")]), [], "ไม่ได้ติ๊กอะไร = ไม่ต้องมีไฟล์")
+assert.deepEqual(docsNeedingFile(["bill"], undefined), ["bill"])
+assert.deepEqual(docsNeedingFile(["bill"], [f("")]), ["bill"], "ไฟล์ที่ยังไม่ระบุประเภทไม่นับให้ช่องไหน")
 
 // --- todayICT (ขึ้นกับนาฬิกาจริง → ตรวจ "รูปแบบ" กับ "ความสัมพันธ์กับ UTC" ไม่ใช่ค่าตายตัว) ---
 const ict = todayICT()

@@ -5,7 +5,8 @@ import { X, Paperclip, CalendarClock } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apFilesByDoc, apItemKeys,
-  apStatusMeta, apStatusOf, isDocSetComplete, missingDocLabels, thaiDate, todayICT, upcomingThursdays,
+  apStatusMeta, apStatusOf, docsNeedingFile, isDocSetComplete, missingDocLabels,
+  thaiDate, todayICT, upcomingThursdays,
   type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApSentType, type ApStatus,
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
@@ -79,6 +80,13 @@ export function ApTrackingDetail({
   const dirtyCount = changed.length + itemsChanged.length + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0)
   const dirty = dirtyCount > 0
 
+  // กฎ "ติ๊กแล้วต้องมีไฟล์" — ตรวจเฉพาะช่องที่เพิ่งติ๊กในรอบนี้ (เหมือนฝั่งเซิร์ฟเวอร์เป๊ะ)
+  // ใบเก่าที่ติ๊กไว้ตั้งแต่ก่อนมีระบบไฟล์แนบจึงยังแก้อย่างอื่นได้ ไม่ถูกบังคับย้อนหลัง
+  const needFile = useMemo(
+    () => docsNeedingFile(changed.filter((k) => draft[k]), files),
+    [changed, draft, files],
+  )
+
   const draftDocs   = useMemo(() => docsOf(draft), [draft])
   const draftStatus = apStatusOf(draftDocs, sent.date)
   // ตัวเลือก "นอกรอบ" = วันพฤหัสที่กำลังจะถึง 4 ตัว (+ วันที่ที่บันทึกไว้เดิม เผื่อเป็นพฤหัสที่ผ่านมาแล้ว)
@@ -139,6 +147,10 @@ export function ApTrackingDetail({
 
   const save = async () => {
     if (!dirty || saving) return
+    if (needFile.length) {
+      swalError(`ติ๊กแล้วต้องแนบไฟล์ของเอกสารนั้นด้วย — ยังไม่มีไฟล์: ${needFile.map(apDocLabel).join(", ")}`)
+      return
+    }
     // เลือกรอบไว้แต่ไม่มีวันที่ = เซิร์ฟเวอร์จะตีกลับ 400 อยู่ดี — บอกตรงนี้ให้รู้ว่าต้องเลือกวันไหน
     if (sent.type && !sent.date) {
       swalError(sent.type === "ตามรอบ"
@@ -281,6 +293,7 @@ export function ApTrackingDetail({
                     {f.label}
                   </span>
                   {n > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400" title={`มีไฟล์แนบ ${n} ไฟล์`}>📎{n}</span>}
+                  {needFile.includes(f.key) && <span className="text-[10px] text-rose-600">ต้องแนบไฟล์</span>}
                   {mark?.checked && mark.by && (
                     <span className="text-[10px] text-gray-400" title={`${mark.by} · ${thaiDate((mark.at || "").slice(0, 10))}`}>
                       {mark.by.split(" ")[0]}
@@ -293,9 +306,11 @@ export function ApTrackingDetail({
 
           <div className="flex items-center gap-2 flex-wrap">
             <div className="text-xs">
-              {isDocSetComplete(draftDocs)
-                ? <span className="text-green-700 dark:text-green-400">✅ ครบชุด — ส่งบัญชีได้</span>
-                : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
+              {needFile.length > 0
+                ? <span className="text-rose-600">📎 ติ๊กแล้วต้องแนบไฟล์ด้วย — ยังไม่มีไฟล์: {needFile.map(apDocLabel).join(", ")}</span>
+                : isDocSetComplete(draftDocs)
+                  ? <span className="text-green-700 dark:text-green-400">✅ ครบชุด — ส่งบัญชีได้</span>
+                  : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
             </div>
             <div className="ml-auto flex gap-2">
               <button onClick={() => { setDraft(draftOf(saved)); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles); setSent(savedSent) }}
@@ -303,7 +318,8 @@ export function ApTrackingDetail({
                 className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">
                 คืนค่า
               </button>
-              <button onClick={save} disabled={!dirty || saving}
+              <button onClick={save} disabled={!dirty || saving || needFile.length > 0}
+                title={needFile.length > 0 ? `ต้องแนบไฟล์ก่อน: ${needFile.map(apDocLabel).join(", ")}` : undefined}
                 className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40 hover:bg-emerald-700">
                 {saving ? "กำลังบันทึก…" : "บันทึก"}
               </button>

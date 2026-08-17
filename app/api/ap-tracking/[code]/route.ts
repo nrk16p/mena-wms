@@ -4,7 +4,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import {
-  AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apStatusOf, isDocSetComplete, missingDocLabels,
+  AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apFilesByDoc, apStatusOf, docsNeedingFile,
+  isDocSetComplete, missingDocLabels,
   type ApDocKey, type ApDocs, type ApFile,
 } from "@/lib/ap-tracking"
 import { normalizeImages } from "@/lib/media"
@@ -89,6 +90,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   // สถานะ "หลัง" การติ๊กของคำขอนี้ — คำขอเดียวอาจติ๊กช่องสุดท้ายพร้อมลงวันส่งบัญชีมาด้วยกัน
   // จึงต้องตรวจความครบชุดกับ nextDocs ไม่ใช่ของเดิมใน DB
   const nextDocs: ApDocs = { ...((current?.docs ?? {}) as ApDocs) }
+  const checkedNow: ApDocKey[] = []
 
   if (body?.docs && typeof body.docs === "object") {
     for (const [k, v] of Object.entries(body.docs as Record<string, unknown>)) {
@@ -97,8 +99,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     }
     for (const [k, v] of Object.entries(body.docs as Record<string, boolean>)) {
       const checked = v
-      set[`docs.${k as ApDocKey}`] = { checked, by, at }
-      nextDocs[k as ApDocKey] = { checked, by, at }
+      const key = k as ApDocKey
+      // ช่องที่ "เพิ่งติ๊กด้วยมือในคำขอนี้" — เอาไปตรวจกฎ ติ๊กแล้วต้องมีไฟล์ (ดูท้ายฟังก์ชัน)
+      if (checked && !(current?.docs as ApDocs | undefined)?.[key]?.checked) checkedNow.push(key)
+      set[`docs.${key}`] = { checked, by, at }
+      nextDocs[key] = { checked, by, at }
       log.push({ action: checked ? "ติ๊ก" : "ยกเลิกติ๊ก", field: k, by, byEmail, at })
     }
   }
@@ -175,6 +180,36 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
         log.push({ action: "ติ๊กอัตโนมัติจากไฟล์แนบ", field: k, by, byEmail, at })
       }
     }
+  }
+
+  // ── กฎ "ติ๊กแล้วต้องมีไฟล์" ────────────────────────────────────────────────
+  // ต้องตรวจ "หลัง" บล็อกไฟล์แนบ เพราะคำขอเดียวมักติ๊กช่องพร้อมแนบไฟล์ของช่องนั้นมาด้วยกัน
+  const effectiveFiles = (set.files as ApFile[] | undefined) ?? ((current?.files ?? []) as ApFile[])
+
+  // ไฟล์ประเภทไหนถูกลบจนไม่เหลือเลย → ปลดติ๊กช่องนั้นให้ (สมมาตรกับการติ๊กอัตโนมัติตอนแนบ)
+  // ไม่แตะช่องที่ผู้ใช้ระบุมาเองในคำขอนี้ — เจตนาของคนกดต้องชนะเสมอ
+  if (set.files) {
+    const beforeCounts = apFilesByDoc((current?.files ?? []) as ApFile[])
+    const afterCounts  = apFilesByDoc(effectiveFiles)
+    for (const f of AP_DOC_FIELDS) {
+      const k = f.key
+      const explicitly = Boolean(body?.docs && typeof body.docs === "object" && k in (body.docs as object))
+      if (!explicitly && beforeCounts[k] > 0 && !(afterCounts[k] > 0) && nextDocs[k]?.checked) {
+        set[`docs.${k}`] = { checked: false, by, at }
+        nextDocs[k] = { checked: false, by, at }
+        log.push({ action: "ยกเลิกติ๊กอัตโนมัติ (ไฟล์แนบถูกลบหมด)", field: k, by, byEmail, at })
+      }
+    }
+  }
+
+  // ติ๊กว่ามีเอกสารอะไร ต้องมีไฟล์ของเอกสารนั้นแนบจริง — ตรวจเฉพาะช่องที่เพิ่งติ๊กในคำขอนี้
+  // (ใบเก่าที่ติ๊กไว้ตั้งแต่ก่อนมีระบบไฟล์แนบ ยังแก้อย่างอื่นได้ตามปกติ)
+  const needFile = docsNeedingFile(checkedNow.filter((k) => nextDocs[k]?.checked), effectiveFiles)
+  if (needFile.length) {
+    return NextResponse.json(
+      { error: `ติ๊กแล้วต้องแนบไฟล์ของเอกสารนั้นด้วย — ยังไม่มีไฟล์: ${needFile.map(apDocLabel).join(", ")}` },
+      { status: 409 },
+    )
   }
 
   if (body?.sentType !== undefined || body?.sentDate !== undefined) {
