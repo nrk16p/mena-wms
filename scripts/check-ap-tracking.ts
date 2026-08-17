@@ -6,7 +6,8 @@ import {
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
-  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays,
+  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, addDays,
+  apUrgency, needsAccountingReview,
   cleanTaxInvoiceNos, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
@@ -188,6 +189,26 @@ assert.equal(apSinceOf("2026-2-1"), AP_GO_LIVE, "ต้องเติมศู�
 assert.equal(apSinceOf("ไม่ใช่วันที่"), AP_GO_LIVE)
 assert.equal(apSinceOf("2026-02-29"), AP_GO_LIVE, "2026 ไม่ใช่ปีอธิกสุรทิน 29 ก.พ. จึงไม่มีจริง")
 assert.equal(apSinceOf("2028-02-29"), "2028-02-29", "2028 เป็นปีอธิกสุรทิน 29 ก.พ. มีจริง")
+
+// --- apUrgency (สีแถบซ้ายในตาราง + ตัวกรอง "ต้องรีบ" ต้องตรงกับ aging ที่ API คิด) ---
+assert.equal(apUrgency("2026-08-20", "2026-08-14", "2026-08-17"), "sent", "ส่งบัญชีแล้วไม่ต้องเร่ง")
+assert.equal(apUrgency("", "", "2026-08-17"), "noTerm", "ไม่มีเครดิตเทอม = ไม่รู้กำหนด ไม่ใช่ยังไม่ถึง")
+assert.equal(apUrgency("2026-08-16", "", "2026-08-17"), "overdue")
+assert.equal(apUrgency("2026-08-17", "", "2026-08-17"), "due7", "ครบกำหนดวันนี้ = ต้องรีบ ยังไม่เกิน")
+assert.equal(apUrgency("2026-08-24", "", "2026-08-17"), "due7", "ครบใน 7 วัน")
+assert.equal(apUrgency("2026-08-25", "", "2026-08-17"), "ok", "เกิน 7 วันไปแล้วยังไม่ต้องรีบ")
+
+// --- addDays ---
+assert.equal(addDays("2026-08-17", 7), "2026-08-24")
+assert.equal(addDays("2026-12-30", 3), "2027-01-02", "ข้ามปีได้")
+assert.equal(addDays("", 7), "", "วันที่อ่านไม่ออก = คืนค่าว่าง")
+
+// --- needsAccountingReview (คิวงานฝ่ายบัญชี) ---
+assert.equal(needsAccountingReview("ครบชุด", ""), true)
+assert.equal(needsAccountingReview("ส่งบัญชีแล้ว", undefined), true, "ส่งแล้วแต่ยังไม่ตรวจ ก็ยังเป็นคิวบัญชี")
+assert.equal(needsAccountingReview("ครบชุด", "ผ่าน"), false)
+assert.equal(needsAccountingReview("ครบชุด", "ไม่ผ่าน"), false, "ตีกลับแล้ว = ตรวจแล้ว")
+assert.equal(needsAccountingReview("รอประกบ", ""), false, "เอกสารยังไม่ครบ ยังไม่ถึงคิวบัญชี")
 
 // --- thaiDate ---
 assert.equal(thaiDate("2026-08-13"), "13 ส.ค. 69")

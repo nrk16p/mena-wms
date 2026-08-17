@@ -226,6 +226,29 @@ export function dueDateOf(receivedISO: string, term: string): string {
   return fromUTC(base + days * DAY)
 }
 
+export function addDays(iso: string, n: number): string {
+  const base = toUTC(iso)
+  return Number.isNaN(base) ? "" : fromUTC(base + n * DAY)
+}
+
+// ความเร่งด่วนของใบหนึ่ง — ใช้จัดสีแถบซ้ายในตาราง ตัวกรอง "ต้องรีบ" และแถบสัดส่วนยอดค้าง
+// ให้ผลเดียวกับที่ API ใช้จัดกลุ่ม unsentAging เพื่อไม่ให้ตัวเลขบนแถบกับสีในตารางเล่าคนละเรื่อง
+export type ApUrgency = "sent" | "overdue" | "due7" | "noTerm" | "ok"
+export function apUrgency(dueISO: string, sentDate: string, todayISO: string): ApUrgency {
+  if (sentDate) return "sent"
+  if (!dueISO) return "noTerm"
+  if (overdueDays(dueISO, todayISO) > 0) return "overdue"
+  // นับ "อีกกี่วันถึงกำหนด" ตรง ๆ และรวมวันที่ 7 ด้วย ให้ตรงกับป้าย "≤7 วัน"
+  // (สูตรเดิมใน API เทียบ overdueDays(due, today+7) > 0 ซึ่งทำให้ใบที่ครบกำหนดอีก 7 วันพอดี
+  //  ตกไปอยู่กลุ่ม "ยังไม่ครบกำหนด" — ขัดกับป้ายของตัวเอง)
+  return overdueDays(todayISO, dueISO) <= 7 ? "due7" : "ok"
+}
+
+// ใบที่เอกสารพร้อมแล้วแต่บัญชียังไม่ได้ชี้ขาด — คิวงานของฝ่ายบัญชีโดยตรง
+export function needsAccountingReview(status: ApStatus, reviewStatus: string | undefined): boolean {
+  return status !== "รอประกบ" && !String(reviewStatus ?? "").trim()
+}
+
 export function overdueDays(dueISO: string, todayISO: string): number {
   const due = toUTC(dueISO), today = toUTC(todayISO)
   if (Number.isNaN(due) || Number.isNaN(today) || today <= due) return 0

@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
-  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, nextThursday, todayICT,
+  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apUrgency, nextThursday, todayICT,
   apSinceOf, inApScope, monthInApScope,
   type ApDocs, type ApStatus,
 } from "@/lib/ap-tracking"
@@ -187,9 +187,12 @@ export async function GET(req: NextRequest) {
     for (const r of countRows) {
       const b = byStatus[r.status]; b.n++; b.amount += r.amount
       if (r.status !== "ส่งบัญชีแล้ว") {
-        if (r.overdue > 0) { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
-        else if (!r.dueDate) { unsentAging.noTerm.n++; unsentAging.noTerm.amount += r.amount }
-        else if (overdueDays(r.dueDate, addDays(today, 7)) > 0) { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
+        // จัดกลุ่มด้วย apUrgency ตัวเดียวกับที่ตารางใช้ระบายสีแถบซ้าย — ไม่งั้นแถบสัดส่วนกับสีในตาราง
+        // จะเล่าคนละเรื่องเวลาเกณฑ์ถูกแก้ที่ใดที่หนึ่ง
+        const u = apUrgency(r.dueDate, r.sentDate, today)
+        if (u === "overdue") { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
+        else if (u === "noTerm") { unsentAging.noTerm.n++; unsentAging.noTerm.amount += r.amount }
+        else if (u === "due7") { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
         else { unsentAging.notDue.n++; unsentAging.notDue.amount += r.amount }
       }
       if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
@@ -241,7 +244,3 @@ function emptySummary(limit: number, since: string, today: string) {
   }
 }
 
-function addDays(iso: string, n: number): string {
-  const [y, m, d] = iso.split("-").map(Number)
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
-}
