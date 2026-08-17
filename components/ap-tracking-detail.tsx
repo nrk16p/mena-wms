@@ -1,12 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { X, Paperclip } from "lucide-react"
+import { X, Paperclip, CalendarClock } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, apDocLabel, apFilesByDoc, apItemKeys,
-  apStatusMeta, apStatusOf, isDocSetComplete, missingDocLabels, thaiDate,
-  type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApStatus,
+  apStatusMeta, apStatusOf, isDocSetComplete, missingDocLabels, thaiDate, todayICT, upcomingThursdays,
+  type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApSentType, type ApStatus,
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
 import { ImageUpload } from "@/components/image-upload"
@@ -48,7 +48,7 @@ export function ApTrackingDetail({
 }: {
   row: ApRow
   onClose: () => void
-  onSaved: (depositCode: string, docs: ApDocs, status: ApStatus) => void
+  onSaved: (depositCode: string, patch: { docs: ApDocs; status: ApStatus; sentType: string; sentDate: string }) => void
 }) {
   const [data, setData]       = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -61,6 +61,9 @@ export function ApTrackingDetail({
   const [itemDraft, setItemDraft]   = useState<Record<string, boolean>>({})
   const [savedFiles, setSavedFiles] = useState<ApFile[]>([])
   const [files, setFiles]           = useState<ApFile[]>([])
+  // รอบการวางบิล — baseline มาจากแถว (ตารางกับโมดัลใช้ค่าเดียวกัน) แล้วอัปเดตหลังบันทึกสำเร็จ
+  const [savedSent, setSavedSent] = useState({ type: row.sentType as ApSentType, date: row.sentDate })
+  const [sent, setSent]           = useState({ type: row.sentType as ApSentType, date: row.sentDate })
   const [saving, setSaving]   = useState(false)
 
   const changed = useMemo(
@@ -72,11 +75,19 @@ export function ApTrackingDetail({
     [itemDraft, savedItems],
   )
   const filesChanged = filesKey(files) !== filesKey(savedFiles)
-  const dirtyCount = changed.length + itemsChanged.length + (filesChanged ? 1 : 0)
+  const sentChanged  = sent.type !== savedSent.type || sent.date !== savedSent.date
+  const dirtyCount = changed.length + itemsChanged.length + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0)
   const dirty = dirtyCount > 0
 
   const draftDocs   = useMemo(() => docsOf(draft), [draft])
-  const draftStatus = apStatusOf(draftDocs, row.sentDate)
+  const draftStatus = apStatusOf(draftDocs, sent.date)
+  // ตัวเลือก "นอกรอบ" = วันพฤหัสที่กำลังจะถึง 4 ตัว (+ วันที่ที่บันทึกไว้เดิม เผื่อเป็นพฤหัสที่ผ่านมาแล้ว)
+  const thursdays = useMemo(() => {
+    const list = upcomingThursdays(todayICT(), 4)
+    return savedSent.type === "นอกรอบ" && savedSent.date && !list.includes(savedSent.date)
+      ? [savedSent.date, ...list]
+      : list
+  }, [savedSent])
   const missing     = missingDocLabels(draftDocs)
   const fileCounts  = useMemo(() => apFilesByDoc(files), [files])
 
@@ -128,6 +139,13 @@ export function ApTrackingDetail({
 
   const save = async () => {
     if (!dirty || saving) return
+    // เลือกรอบไว้แต่ไม่มีวันที่ = เซิร์ฟเวอร์จะตีกลับ 400 อยู่ดี — บอกตรงนี้ให้รู้ว่าต้องเลือกวันไหน
+    if (sent.type && !sent.date) {
+      swalError(sent.type === "ตามรอบ"
+        ? "ยังไม่มีวันครบกำหนด — ตั้งเครดิตเทอมของซัพพลายเออร์ก่อน หรือระบุวันที่เอง"
+        : "เลือกวันพฤหัสที่จะโอนก่อน")
+      return
+    }
     setSaving(true)
     try {
       // ส่งเฉพาะสิ่งที่เปลี่ยนจริง — ช่องติ๊ก/รายการเขียนแบบ dotted path ต่อคีย์ฝั่งเซิร์ฟเวอร์
@@ -136,6 +154,7 @@ export function ApTrackingDetail({
       if (changed.length)      body.docs  = Object.fromEntries(changed.map((k) => [k, draft[k]]))
       if (itemsChanged.length) body.items = Object.fromEntries(itemsChanged.map((k) => [k, itemDraft[k]]))
       if (filesChanged)        body.files = files
+      if (sentChanged)       { body.sentType = sent.type; body.sentDate = sent.date }
       const res = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -146,10 +165,12 @@ export function ApTrackingDetail({
       const docsOut  = d.docs as ApDocs
       const itemsOut = (d.items ?? {}) as ApItems
       const filesOut = (d.files ?? []) as ApFile[]
+      const sentOut = { type: (d.sentType ?? "") as ApSentType, date: String(d.sentDate ?? "") }
       setSaved(docsOut);      setDraft(draftOf(docsOut))
       setSavedItems(itemsOut); setItemDraft(Object.fromEntries(Object.entries(itemsOut).map(([k, v]) => [k, Boolean(v?.checked)])))
       setSavedFiles(filesOut); setFiles(filesOut)
-      onSaved(row.depositCode, docsOut, d.status as ApStatus)
+      setSavedSent(sentOut);   setSent(sentOut)
+      onSaved(row.depositCode, { docs: docsOut, status: d.status as ApStatus, sentType: sentOut.type, sentDate: sentOut.date })
       loadDetail(row.depositCode, () => true)   // ดึง log รอบใหม่มาแสดง
       swalToast("success", `บันทึกแล้ว ${dirtyCount} รายการ`)
     } catch (e) {
@@ -277,7 +298,7 @@ export function ApTrackingDetail({
                 : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
             </div>
             <div className="ml-auto flex gap-2">
-              <button onClick={() => { setDraft(draftOf(saved)); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles) }}
+              <button onClick={() => { setDraft(draftOf(saved)); setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)]))); setFiles(savedFiles); setSent(savedSent) }}
                 disabled={!dirty || saving}
                 className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-white/5">
                 คืนค่า
@@ -287,6 +308,64 @@ export function ApTrackingDetail({
                 {saving ? "กำลังบันทึก…" : "บันทึก"}
               </button>
             </div>
+          </div>
+        </section>
+
+        {/* รอบการวางบิล — 2 แบบเท่านั้น
+            ตามรอบ  = ครบกำหนดตามเครดิตเทอม นับจากวันที่ทำ DD (ค่าเดียวกับคอลัมน์ "ครบกำหนด")
+            นอกรอบ  = โอนวันพฤหัส เลือกได้เฉพาะพฤหัสที่กำลังจะถึง (ไม่ให้พิมพ์วันอื่นเอง)
+            ทั้งคู่บันทึกพร้อมปุ่ม "บันทึก" ด้านบน ไม่ save ทันทีที่กด — ผู้ใช้สั่งไว้ว่าต้องกดยืนยันเสมอ */}
+        <section className="rounded-xl border dark:border-white/10 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-bold" style={mitr}>รอบการวางบิล</h3>
+            {savedSent.date
+              ? <span className="text-xs text-green-700 dark:text-green-400">บันทึกไว้: {savedSent.type} {thaiDate(savedSent.date)}</span>
+              : <span className="text-xs text-gray-400">ยังไม่ได้ส่งบัญชี</span>}
+            {sentChanged && <span className="text-xs text-amber-600">● ยังไม่ได้บันทึก</span>}
+          </div>
+
+          <label className="flex flex-wrap items-center gap-2 text-sm">
+            <input type="radio" name="apSent" className="w-4 h-4 accent-emerald-600"
+              checked={sent.type === "ตามรอบ"}
+              onChange={() => setSent({ type: "ตามรอบ", date: sent.type === "ตามรอบ" ? sent.date : (row.dueDate || "") })} />
+            <span className="font-medium">📋 ตามรอบ</span>
+            <span className="text-xs text-gray-500">
+              {row.creditTerm
+                ? <>เครดิต {row.creditTerm} นับจากวันที่ทำ DD {thaiDate(row.receivedAt)} → ครบกำหนด {thaiDate(row.dueDate)}</>
+                : <span className="text-amber-700 dark:text-amber-400">ซัพพลายเออร์นี้ยังไม่ได้ตั้งเครดิตเทอม — ตั้งที่หน้า &ldquo;เครดิตเทอมเจ้าหนี้&rdquo; หรือระบุวันที่เอง</span>}
+            </span>
+            {sent.type === "ตามรอบ" && (
+              <input type="date" value={sent.date} onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
+                className="rounded-lg border px-2 py-1 text-xs bg-white dark:bg-white/5" />
+            )}
+          </label>
+
+          <label className="flex flex-wrap items-center gap-2 text-sm">
+            <input type="radio" name="apSent" className="w-4 h-4 accent-emerald-600"
+              checked={sent.type === "นอกรอบ"}
+              onChange={() => setSent({ type: "นอกรอบ", date: sent.type === "นอกรอบ" ? sent.date : (thursdays[0] ?? "") })} />
+            <span className="font-medium">💸 นอกรอบ</span>
+            <span className="text-xs text-gray-500">โอนทุกวันพฤหัส</span>
+            {sent.type === "นอกรอบ" && (
+              <select value={sent.date} onChange={(e) => setSent({ type: "นอกรอบ", date: e.target.value })}
+                className="rounded-lg border px-2 py-1 text-xs bg-white dark:bg-white/5">
+                {thursdays.map((d, i) => (
+                  <option key={d} value={d}>{thaiDate(d)}{i === 0 ? " (พฤหัสนี้)" : i === 1 ? " (พฤหัสหน้า)" : ""}</option>
+                ))}
+              </select>
+            )}
+          </label>
+
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            {!isDocSetComplete(draftDocs) && sent.type && (
+              <span className="text-rose-600">ส่งบัญชีไม่ได้จนกว่าเอกสารจะครบชุด — ยังขาด: {missing.join(", ")}</span>
+            )}
+            {sent.date && (
+              <button onClick={() => setSent({ type: "", date: "" })} className="ml-auto text-rose-600 hover:underline">
+                ยกเลิกการส่งบัญชี
+              </button>
+            )}
           </div>
         </section>
 

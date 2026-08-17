@@ -6,7 +6,7 @@ import {
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
-  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, type ApDocs, type ApFile,
+  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
 
 const mark = { checked: true, by: "test", at: "2026-08-13T00:00:00.000Z" }
@@ -46,6 +46,16 @@ assert.equal(overdueDays("", "2026-08-13"), 0)
 assert.equal(nextThursday("2026-08-13"), "2026-08-13", "วันพฤหัสอยู่แล้ว = วันนี้")
 assert.equal(nextThursday("2026-08-14"), "2026-08-20", "ศุกร์ → พฤหัสหน้า")
 assert.equal(nextThursday("2026-08-10"), "2026-08-13", "จันทร์ → พฤหัสสัปดาห์นี้")
+
+// --- upcomingThursdays (ตัวเลือกวันโอน "นอกรอบ" — ต้องเป็นวันพฤหัสล้วน) ---
+assert.deepEqual(upcomingThursdays("2026-08-13", 3), ["2026-08-13", "2026-08-20", "2026-08-27"])
+assert.deepEqual(upcomingThursdays("2026-08-14", 2), ["2026-08-20", "2026-08-27"], "ศุกร์ → เริ่มพฤหัสหน้า")
+assert.deepEqual(upcomingThursdays("2026-08-27", 2), ["2026-08-27", "2026-09-03"], "ข้ามเดือนได้")
+assert.deepEqual(upcomingThursdays("", 3), [], "วันที่อ่านไม่ออก = ไม่มีตัวเลือก")
+assert.equal(upcomingThursdays("2026-08-13", 4).length, 4)
+for (const d of upcomingThursdays("2026-08-11", 6)) {
+  assert.equal(new Date(`${d}T00:00:00Z`).getUTCDay(), 4, `${d} ต้องเป็นวันพฤหัส`)
+}
 
 // --- โครงช่องเอกสาร (ถอด DD/PO ออก 2026-08-17: ระบบมีข้อมูลใบรับของ+PO อยู่แล้ว ไม่ต้องให้คนติ๊กซ้ำ
 //     และใบที่ไม่มี PO ผูกใน ATMS จะติดค้าง "รอประกบ" ตลอดไปจนส่งบัญชีไม่ได้) ---

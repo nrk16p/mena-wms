@@ -83,7 +83,8 @@ function SendDialog({
   onClose: () => void
   onSent: (row: ApRow, type: "" | "นอกรอบ" | "ตามรอบ", date: string) => void
 }) {
-  const [roundDate, setRoundDate] = useState(() => todayICT())
+  // ตามรอบ = ครบกำหนดตามเครดิตเทอมนับจากวันที่ทำ DD (คอลัมน์ "ครบกำหนด") — ถอยไปใช้วันนี้เมื่อยังไม่ตั้งเครดิต
+  const [roundDate, setRoundDate] = useState(() => row.dueDate || todayICT())
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#161a23] p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -107,7 +108,9 @@ function SendDialog({
             </button>
           </div>
 
-          <div className="text-sm font-medium pt-2">📋 ตามรอบ (วันที่ส่งเอกสาร)</div>
+          <div className="text-sm font-medium pt-2">
+            📋 ตามรอบ {row.creditTerm ? `(เครดิต ${row.creditTerm} → ${thaiDate(row.dueDate)})` : "(ยังไม่ตั้งเครดิตเทอม)"}
+          </div>
           <div className="flex gap-2">
             <input type="date" value={roundDate}
               onChange={(e) => setRoundDate(e.target.value)}
@@ -205,12 +208,22 @@ export function ApTrackingPage() {
 
   // โมดัลรายละเอียดบันทึกการติ๊กสำเร็จ — เอาผลที่เซิร์ฟเวอร์ยืนยันกลับมาเสียบเข้าตาราง
   // (ตารางเป็นแบบดูอย่างเดียว การติ๊กทั้งหมดเกิดในโมดัลที่เห็นรายการสินค้า/PO ประกอบก่อนตัดสินใจ)
-  const onDocsSaved = (depositCode: string, docs: ApDocs, status: ApStatus) => {
+  const onDocsSaved = (
+    depositCode: string,
+    patch: { docs: ApDocs; status: ApStatus; sentType: string; sentDate: string },
+  ) => {
+    const { docs, status, sentType, sentDate } = patch
     const before = rows.find((r) => r.depositCode === depositCode)
-    setRows((rs) => rs.map((r) => r.depositCode === depositCode ? { ...r, docs, status } : r))
+    const sentMoved = Boolean(before) && (before!.sentDate !== sentDate || before!.sentType !== sentType)
+    const next = { docs, status, sentType, sentDate,
+      overdue: sentDate ? 0 : overdueDays(before?.dueDate ?? "", todayICT()) }
+    setRows((rs) => rs.map((r) => r.depositCode === depositCode ? { ...r, ...next } : r))
     // โมดัลถือ row เดิมไว้ตั้งแต่ตอนเปิด — อัปเดตด้วย ไม่งั้นปิดแล้วเปิดใบเดิมซ้ำจะเห็นค่าเก่า
-    setDetailFor((d) => d && d.depositCode === depositCode ? { ...d, docs, status } : d)
-    // ติ๊กทำให้ 1 แถวย้ายบัคเก็ตสถานะเท่านั้น (รอประกบ ↔ ครบชุด) และไม่กระทบยอดเงินกลุ่มอื่นเลย
+    setDetailFor((d) => d && d.depositCode === depositCode ? { ...d, ...next } : d)
+    // ส่ง/ยกเลิกส่งบัญชี กระทบยอดเงินหลายก้อนพร้อมกัน (โอนพฤหัส · เกินกำหนด · aging · ชิปสถานะ)
+    // → ดึงยอดสรุปจากเซิร์ฟเวอร์ใหม่ทั้งชุด ไม่คิดเดาเองฝั่ง client
+    if (sentMoved) { load(); return }
+    // ติ๊กเฉย ๆ ทำให้ 1 แถวย้ายบัคเก็ตสถานะเท่านั้น (รอประกบ ↔ ครบชุด) ไม่กระทบยอดเงินกลุ่มอื่น
     // — ขยับชิปตาม status ที่เซิร์ฟเวอร์ยืนยันกลับมา ไม่ได้คิดยอดสรุปใหม่เองฝั่ง client
     //   (ถ้าไม่ขยับ ชิปจะเพี้ยนจากตารางทุกครั้งที่บันทึก · ถ้ายิง load() ใหม่ = สแกนหนักทุกครั้ง)
     if (before) setSummary((sm) => moveStatusBucket(sm, before.status, status, before.amount))

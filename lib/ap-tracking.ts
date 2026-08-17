@@ -198,6 +198,15 @@ export function nextThursday(fromISO: string): string {
   return fromUTC(base + ((4 - dow + 7) % 7) * DAY)
 }
 
+// วันพฤหัสที่กำลังจะถึง n ตัวถัดไป (ตัวแรก = พฤหัสนี้ ถ้าวันนี้เป็นพฤหัสก็คือวันนี้)
+// ใช้เป็นตัวเลือกของ "นอกรอบ" — ผู้ใช้เลือกได้เฉพาะวันพฤหัสเท่านั้น ไม่ให้พิมพ์วันอื่นเอง
+export function upcomingThursdays(fromISO: string, n = 4): string[] {
+  const first = nextThursday(fromISO)
+  if (!first) return []
+  const base = toUTC(first)
+  return Array.from({ length: Math.max(0, n) }, (_, i) => fromUTC(base + i * 7 * DAY))
+}
+
 const TH_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
 export function thaiDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "")
