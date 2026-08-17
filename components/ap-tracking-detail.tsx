@@ -7,7 +7,8 @@ import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
   apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, cleanTaxInvoiceNos,
-  dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, todayICT, upcomingThursdays,
+  dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
+  upcomingThursdays,
   type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApReview, type ApReviewStatus,
   type ApSentType, type ApStatus,
 } from "@/lib/ap-tracking"
@@ -336,7 +337,7 @@ export function ApTrackingDetail({
                             <td className="px-2 py-2 text-center">
                               <input type="checkbox" checked={on}
                                 onChange={(e) => setItemDraft((d) => ({ ...d, [k]: e.target.checked }))}
-                                title={mark?.checked && mark.by ? `ติ๊กโดย ${mark.by} ${thaiDate((mark.at || "").slice(0, 10))}` : undefined}
+                                title={mark?.checked && mark.by ? `ติ๊กโดย ${mark.by} ${thaiDateTime(mark.at || "")}` : undefined}
                                 className={`h-4 w-4 cursor-pointer accent-emerald-600 ${on !== Boolean(mark?.checked) ? "rounded ring-2 ring-amber-400" : ""}`} />
                             </td>
                           </tr>
@@ -370,7 +371,7 @@ export function ApTrackingDetail({
                         </span>
                         {n > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400" title={`มีไฟล์แนบ ${n} ไฟล์`}>📎{n}</span>}
                         {mark?.checked && mark.by && (
-                          <span className="ml-auto text-[10px] text-gray-400" title={`${mark.by} · ${thaiDate((mark.at || "").slice(0, 10))}`}>
+                          <span className="ml-auto text-[10px] text-gray-400" title={`${mark.by} · ${thaiDateTime(mark.at || "")}`}>
                             {mark.by.split(" ")[0]}
                           </span>
                         )}
@@ -514,7 +515,7 @@ export function ApTrackingDetail({
                   <h3 className="text-sm font-bold" style={mitr}>บัญชีตรวจเอกสาร</h3>
                   {savedReview.by && (
                     <span className="text-xs text-gray-400">
-                      ล่าสุดโดย {savedReview.by}{savedReview.at ? ` · ${thaiDate(savedReview.at.slice(0, 10))}` : ""}
+                      ล่าสุดโดย {savedReview.by}{savedReview.at ? ` · ${thaiDateTime(savedReview.at)}` : ""}
                     </span>
                   )}
                   {!canReview && (
@@ -565,7 +566,7 @@ export function ApTrackingDetail({
               <ul className="space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
                 {(data?.tracking?.log ?? []).slice().reverse().map((l, i) => (
                   <li key={i} className="border-l-2 border-gray-200 pl-2 dark:border-white/10">
-                    <span className="text-gray-400">{thaiDate((l.at ?? "").slice(0, 10))}</span>{" "}
+                    <span className={`text-gray-400 ${NUM}`}>{thaiDateTime(l.at ?? "")}</span>{" "}
                     {l.action} {logSubject(l.field)} {l.detail ?? ""}
                     <span className="text-gray-400"> · โดย {l.by || "—"}</span>
                   </li>

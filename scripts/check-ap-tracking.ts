@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, nextThursday,
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
-  missingDocLabels, todayICT, ICT_OFFSET_MS,
+  missingDocLabels, todayICT, ICT_OFFSET_MS, thaiDateTime,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
   apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, addDays,
   apUrgency, needsAccountingReview,
@@ -226,5 +226,12 @@ for (const e of ACCOUNTING_EMAILS) {
 assert.equal(thaiDate("2026-08-13"), "13 ส.ค. 69")
 assert.equal(thaiDate(""), "—")
 assert.equal(thaiDate("ไม่ใช่วันที่"), "—")
+
+// --- thaiDateTime (ประวัติต้องโชว์เวลาไทย ไม่ใช่ UTC ที่เก็บไว้) ---
+assert.equal(thaiDateTime("2026-08-17T07:32:00.000Z"), "17 ส.ค. 69 14:32", "UTC+7")
+assert.equal(thaiDateTime("2026-08-16T18:30:00.000Z"), "17 ส.ค. 69 01:30", "ข้ามวันตอนดึกไทย")
+assert.equal(thaiDateTime("2026-08-17T17:05:00.000Z"), "18 ส.ค. 69 00:05", "เที่ยงคืนไทย = วันถัดไป")
+assert.equal(thaiDateTime(""), "—")
+assert.equal(thaiDateTime("ไม่ใช่เวลา"), "—")
 
 console.log("✅ ap-tracking logic ผ่านทั้งหมด")
