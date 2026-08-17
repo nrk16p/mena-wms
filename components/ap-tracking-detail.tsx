@@ -127,6 +127,13 @@ export function ApTrackingDetail({
   const depositItems = useMemo(() => data?.items ?? [], [data])
   const itemKeys     = useMemo(() => apItemKeys(depositItems), [depositItems])
   const itemsDone    = itemKeys.filter((k) => itemDraft[k]).length
+  const allItemsOn   = itemKeys.length > 0 && itemsDone === itemKeys.length
+  // ติ๊กทั้งใบทีเดียว — ใบที่มีสิบกว่ารายการแต่มาพร้อมบิลใบเดียว ไม่ควรต้องคลิกทีละแถว
+  const toggleAllItems = () => setItemDraft((d) => {
+    const next = { ...d }
+    for (const k of itemKeys) next[k] = !allItemsOn
+    return next
+  })
 
   const loadDetail = useCallback(async (code: string, alive: () => boolean) => {
     try {
@@ -328,7 +335,15 @@ export function ApTrackingDetail({
                         <th className="px-2 py-2 text-right font-medium">จำนวน</th>
                         <th className="px-2 py-2 text-right font-medium">ราคา/หน่วย</th>
                         <th className="px-2 py-2 text-right font-medium">รวม</th>
-                        <th className="px-2 py-2 text-center font-medium">หลักฐาน</th>
+                        <th className="px-2 py-2 text-center font-medium">
+                          <label className="inline-flex cursor-pointer items-center gap-1.5" title="ติ๊กหลักฐานทุกรายการในใบนี้">
+                            <input type="checkbox" checked={allItemsOn} onChange={toggleAllItems}
+                              disabled={itemKeys.length === 0}
+                              ref={(el) => { if (el) el.indeterminate = itemsDone > 0 && !allItemsOn }}
+                              className="h-3.5 w-3.5 cursor-pointer accent-emerald-600" />
+                            หลักฐาน
+                          </label>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
