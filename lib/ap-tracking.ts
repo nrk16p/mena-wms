@@ -26,27 +26,34 @@ export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = 
   { key: "billingNote", label: "ใบวางบิล",              short: "วางบิล" },
 ]
 
-// เลขที่เอกสารที่ต้องคีย์เอง (ATMS ไม่มีให้) — ใบแจ้งหนี้กับใบวางบิลใช้ช่องเดียวกันตามที่ผู้ใช้สั่ง
-// เพราะเจ้าหนี้ส่วนใหญ่ออกเป็นเลขชุดเดียวกัน แยกช่องแล้วได้ค่าซ้ำกันเปล่า ๆ
-export type ApDocNoKey = "taxInvoiceNo" | "invoiceNo"
-export type ApDocNos = Partial<Record<ApDocNoKey, string>>
-export const AP_DOC_NO_MAX = 60
-export const AP_DOC_NO_FIELDS: { key: ApDocNoKey; label: string; placeholder: string }[] = [
-  { key: "taxInvoiceNo", label: "เลขที่ใบกำกับ",              placeholder: "เลขที่บนต้นฉบับใบกำกับภาษี" },
-  { key: "invoiceNo",    label: "เลขที่ใบแจ้งหนี้/ใบวางบิล",  placeholder: "ใช้ช่องเดียวกันทั้งใบแจ้งหนี้และใบวางบิล" },
-]
+// เลขที่ใบกำกับ — ATMS ไม่มีให้ ต้องคีย์เอง · ใบ DD ใบเดียวมีใบกำกับได้หลายใบ จึงเก็บเป็นลิสต์
+// (ช่อง "เลขที่ใบแจ้งหนี้/ใบวางบิล" เคยมีอยู่ช่วงสั้น ๆ วันที่ 17/08/2026 แล้วผู้ใช้สั่งเอาออก)
+export const AP_TAX_NO_MAX  = 60      // ความยาวต่อเลข
+export const AP_TAX_NOS_MAX = 20      // จำนวนเลขต่อใบ
+
+// ทำความสะอาดลิสต์เลขใบกำกับ — ตัดช่องว่าง ทิ้งค่าว่าง ตัดซ้ำ (คีย์ผิดซ้ำกันบ่อย) และคุมเพดาน
+export function cleanTaxInvoiceNos(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  const out: string[] = []
+  for (const raw of v) {
+    const t = String(raw ?? "").trim().slice(0, AP_TAX_NO_MAX)
+    if (t && !out.includes(t)) out.push(t)
+    if (out.length >= AP_TAX_NOS_MAX) break
+  }
+  return out
+}
 
 // ช่องที่ถอดออกแล้ว — เก็บป้ายไว้อ่านประวัติของเก่า (log ที่บันทึกไว้ก่อน 17/08/2026 ยังอ้างคีย์พวกนี้)
 const AP_RETIRED_DOC_LABELS: Record<string, string> = {
   dd: "DD (ใบรับของ)",
   po: "PO (ใบสั่งซื้อ)",
+  taxInvoiceNo: "เลขที่ใบกำกับ",              // ช่องเดี่ยวรุ่นแรก (ก่อนเปลี่ยนเป็นลิสต์)
+  invoiceNo: "เลขที่ใบแจ้งหนี้/ใบวางบิล",     // ถอดออกแล้ว
+  taxInvoiceNos: "เลขที่ใบกำกับ",
 }
 
 export function apDocLabel(key: string): string {
-  return AP_DOC_FIELDS.find((f) => f.key === key)?.label
-    ?? AP_DOC_NO_FIELDS.find((f) => f.key === key)?.label
-    ?? AP_RETIRED_DOC_LABELS[key]
-    ?? key
+  return AP_DOC_FIELDS.find((f) => f.key === key)?.label ?? AP_RETIRED_DOC_LABELS[key] ?? key
 }
 
 // ช่องการเงินทั้งหมด — ต้องมีอย่างน้อย 1 ช่องถึงจะครบชุด (ตอนนี้ = ทุกช่องที่เหลือ)

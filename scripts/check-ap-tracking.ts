@@ -6,7 +6,8 @@ import {
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
-  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, docsNeedingFile, upcomingThursdays, AP_DOC_NO_FIELDS,
+  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, docsNeedingFile, upcomingThursdays,
+  cleanTaxInvoiceNos, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
 
@@ -91,9 +92,17 @@ assert.equal(apDocLabel("bill"), "บิล/ใบส่งของ")
 assert.equal(apDocLabel("dd"), "DD (ใบรับของ)", "ช่องที่ถอดออกแล้วยังต้องมีป้ายไว้อ่านประวัติ")
 assert.equal(apDocLabel("po"), "PO (ใบสั่งซื้อ)")
 assert.equal(apDocLabel("ไม่รู้จัก"), "ไม่รู้จัก", "คีย์แปลกปลอมคืนค่าเดิม ไม่พัง")
-assert.equal(apDocLabel("taxInvoiceNo"), "เลขที่ใบกำกับ", "ช่องเลขที่เอกสารก็ต้องมีป้ายไว้อ่าน log")
-assert.equal(apDocLabel("invoiceNo"), "เลขที่ใบแจ้งหนี้/ใบวางบิล")
-assert.deepEqual(AP_DOC_NO_FIELDS.map((x) => x.key), ["taxInvoiceNo", "invoiceNo"])
+assert.equal(apDocLabel("taxInvoiceNos"), "เลขที่ใบกำกับ", "ช่องเลขที่เอกสารก็ต้องมีป้ายไว้อ่าน log")
+assert.equal(apDocLabel("taxInvoiceNo"), "เลขที่ใบกำกับ", "ช่องเดี่ยวรุ่นแรกยังต้องอ่านออก")
+assert.equal(apDocLabel("invoiceNo"), "เลขที่ใบแจ้งหนี้/ใบวางบิล", "ช่องที่ถอดออกแล้วยังต้องอ่านออก")
+
+// --- เลขที่ใบกำกับ (หลายเลขต่อใบ) ---
+assert.deepEqual(cleanTaxInvoiceNos([" A1 ", "A2"]), ["A1", "A2"], "ตัดช่องว่างหัวท้าย")
+assert.deepEqual(cleanTaxInvoiceNos(["A1", "", "  ", "A1"]), ["A1"], "ทิ้งค่าว่างและตัวซ้ำ")
+assert.deepEqual(cleanTaxInvoiceNos("A1"), [], "ไม่ใช่ array = ไม่มีเลข")
+assert.deepEqual(cleanTaxInvoiceNos(undefined), [])
+assert.equal(cleanTaxInvoiceNos(Array.from({ length: 50 }, (_, i) => `N${i}`)).length, AP_TAX_NOS_MAX, "คุมเพดานจำนวน")
+assert.equal(cleanTaxInvoiceNos(["x".repeat(200)])[0].length, AP_TAX_NO_MAX, "คุมความยาวต่อเลข")
 
 // --- คีย์ของรายการสินค้าในใบ (ติ๊กหลักฐานรายรายการ) ---
 // deposit_items ถูกลบ-เขียนใหม่ทุกครั้งที่ scrape → _id เปลี่ยนตลอด ใช้เป็นคีย์ไม่ได้
