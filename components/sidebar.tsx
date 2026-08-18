@@ -37,6 +37,8 @@ import {
   PackageX,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
+import { useBranchScope } from "./use-branch-scope"
+import { canSeeBranch } from "@/lib/branch-scope"
 
 type NavItem  = {
   href: string
@@ -46,6 +48,8 @@ type NavItem  = {
   subheader?: boolean
   indent?: boolean
   adminOnly?: boolean
+  /** เมนูของสาขานี้เท่านั้น — ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขา (lib/branch-scope.ts) */
+  branch?: string
 }
 // visibleToEmails: จำกัดกลุ่มให้เห็นเฉพาะ email ที่ระบุ (ไม่ระบุ = เห็นทุกคน)
 type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean; visibleToEmails?: string[] }
@@ -80,8 +84,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/tire",                       label: "ศูนย์จัดการยางรถ", icon: ClipboardCheck, exact: true },
       { href: "/tire/master",                label: "สเปคยาง (Master)", icon: Database, exact: true },
       { href: "#stock",                      label: "สต็อกยาง",          icon: MapPin,  subheader: true },
-      { href: "/tire/latkrabang/stock-tire", label: "ลาดกระบัง",         icon: Disc3,   indent: true },
-      { href: "/tire/saraburi/stock-tire",   label: "สระบุรี",            icon: Disc3,   indent: true },
+      { href: "/tire/latkrabang/stock-tire", label: "ลาดกระบัง",         icon: Disc3,   indent: true, branch: "latkrabang" },
+      { href: "/tire/saraburi/stock-tire",   label: "สระบุรี",            icon: Disc3,   indent: true, branch: "saraburi" },
     ],
   },
   {
@@ -154,9 +158,11 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
   const userEmail = session?.user?.email ?? ""
+  // ผู้ใช้ที่ผูกกับสาขา (site_id 2/3) ไม่ต้องเห็นเมนูของอีกสาขา
+  const scope = useBranchScope()
   const visibleGroups = NAV_GROUPS.filter(
     (g) => !g.visibleToEmails || g.visibleToEmails.includes(userEmail),
-  )
+  ).map((g) => ({ ...g, items: g.items.filter((i) => !i.branch || canSeeBranch(scope, i.branch)) }))
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
 

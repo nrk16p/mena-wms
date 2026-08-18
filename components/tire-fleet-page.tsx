@@ -1,17 +1,21 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
-import { createPortal } from "react-dom"
-import { useSession } from "next-auth/react"
 import {
-  Truck, Search, ArrowLeft, RefreshCw, History, ClipboardCheck,
-  Check, X, Camera, ChevronDown, ChevronUp, Flag, CalendarClock, Gauge,
-  List, CalendarDays, ChevronLeft, ChevronRight,
+  Truck, Search, ArrowLeft, RefreshCw, History,
+  Check, X, Camera, ChevronDown, ChevronUp, CalendarClock, Gauge, ListChecks, MapPin,
 } from "lucide-react"
 import Swal from "sweetalert2"
-import { swalConfirm, swalToast, swalError } from "@/lib/swal"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Calendar } from "@/components/ui/calendar"
+import { swalToast, swalError } from "@/lib/swal"
+import {
+  AppointmentDialog, BRANCHES, STATUS_LABEL,
+  branchChipCls, branchLabel, branchesFor, btnPrimary, btnSmall, card,
+  fmtDate, fmtDateOnly, fmtNum, fontHead, fontThai, inp, statusChip,
+  tdCls, thCls, theadCls,
+  type AppointmentTarget,
+} from "@/components/tire-shared"
+import { TireTransactionTracking } from "@/components/tire-transaction-tracking"
+import { useBranchScope } from "@/components/use-branch-scope"
 
 // ===========================================================================
 // SECTION 1: Types
@@ -78,57 +82,12 @@ type VehicleDetailData = {
   history: TireRow[]
 }
 
-type RequestItem = {
-  _id:            string
-  tirePosition:   string
-  positionCode:   string
-  positionName:   string
-  serialNo:       string
-  product:        string
-  reason:         string
-  note?:          string
-  photoUrl?:      string
-  photoUrls?:     string[]
-  currentTreadMm: number
-  mileageStart:   number
-  usedDistance:   number
-  remainingPct:   number | null
-  bahtPerKm:      number | null
-  createdAt:      string
-  status?:        string
-  rejectReason?:  string
-  jobNo?:         string
-  appointmentDate?: string   // นัดหมายรายเส้น — แต่ละล้อนัดคนละวันได้
-}
-
-type TireRequest = {
-  _id:             string
-  branch:          string
-  driverName:      string
-  plate:           string
-  truckNumber:     string
-  currentOdometer: number
-  fleet?:          string
-  plant?:          string
-  status?:         string
-  createdAt:       string
-  items?:          RequestItem[]
-  rejectReason?:   string
-  appointmentDate?: string
-}
-
-type MrInfo = { mrId: string; status: string; note: string; updatedAt: string } | null
+// ชนิดข้อมูลคำขอ (RequestItem / TireRequest / MrInfo) + โทน/ตัวจัดรูปแบบร่วม
+// อยู่ที่ `components/tire-shared.tsx` — แท็บคำขอ/อนุมัติอ่านข้อมูลชุดเดียวกัน
 
 // ===========================================================================
 // SECTION 2: Constants + helpers
 // ===========================================================================
-
-const BRANCHES = [
-  { value: "latkrabang", label: "ลาดกระบัง" },
-  { value: "saraburi",   label: "สระบุรี" },
-]
-
-const branchLabel = (b: string) => BRANCHES.find((x) => x.value === b)?.label ?? b
 
 // Sync ดึงรวมสาขาย่อยจาก ATMS: ลาดกระบัง+ขอนแก่น / สระบุรี+DIST
 const SYNC_SCOPE: Record<string, string> = { latkrabang: "+ขอนแก่น", saraburi: "+DIST" }
@@ -152,23 +111,6 @@ const isTrailerTire = (t: TireRow) =>
   t.positionCode.toUpperCase().startsWith("RB") ||
   (t.positionName + " " + t.tirePosition).includes("หาง")
 
-const fmtDate = (s?: string | null) => {
-  if (!s) return "—"
-  const d = new Date(s)
-  if (isNaN(d.getTime())) return "—"
-  return d.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
-}
-
-// นัดหมาย ไม่มีการเลือกเวลา — แสดงเฉพาะวันที่
-const fmtDateOnly = (s?: string | null) => {
-  if (!s) return "—"
-  const d = new Date(s)
-  if (isNaN(d.getTime())) return "—"
-  return d.toLocaleDateString("th-TH", { day: "2-digit", month: "2-digit", year: "numeric" })
-}
-
-const fmtNum = (n?: number | null) => (n ?? 0).toLocaleString("th-TH")
-
 // สีล้อ: คำขอค้าง → ฟ้า / ประสิทธิภาพคงเหลือ → เขียว-เหลือง-แดง / ไม่มีข้อมูล → อายุยางแทน
 function wheelGradient(t: TireRow | undefined): string {
   if (!t) return "from-gray-400/60 to-transparent"
@@ -182,30 +124,11 @@ function wheelGradient(t: TireRow | undefined): string {
   return "from-gray-500/70 to-transparent"
 }
 
-function statusChip(status: string) {
-  switch (status) {
-    case "approved":    return "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
-    case "appointment": return "bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300"
-    case "done":        return "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
-    case "rejected":    return "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
-    default:            return "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
-  }
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: "รออนุมัติ", approved: "อนุมัติแล้ว", appointment: "นัดหมายแล้ว", done: "เสร็จสิ้น", rejected: "ปฏิเสธ",
-}
-
 const remainingChipCls = {
   red:   "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300",
   amber: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
   green: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
 }
-
-const branchChipCls = (b: string) =>
-  b === "saraburi"
-    ? "bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300"
-    : "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
 
 // resize photo to max 1280px JPEG before upload
 function resizeImage(file: File, maxSize = 1280): Promise<string> {
@@ -226,96 +149,40 @@ function resizeImage(file: File, maxSize = 1280): Promise<string> {
   })
 }
 
-// fetch ทั้ง 2 สาขาแล้ว merge (หรือสาขาเดียวตาม filter)
-function branchesFor(filter: string): string[] {
-  return filter ? [filter] : BRANCHES.map((b) => b.value)
-}
-
-// shared styles (WMS design tokens)
-const card = "rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]"
-const inp  = "rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] text-[#14271C] dark:text-white px-2.5 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#1B8C4B]/30 placeholder-[#9AA8A0]"
-const thCls = "px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider text-[#9AA8A0] whitespace-nowrap"
-const tdCls = "px-3 py-2 text-[12px] text-[#6B7C72] dark:text-gray-300 whitespace-nowrap"
-// แถวหัวตาราง — ทึบสี (ไม่โปร่งแสง) เพื่อให้บังแถวข้อมูลที่เลื่อนลอดใต้ header ตอน sticky
-const theadCls       = "sticky top-0 z-10 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#151a10]"
-const theadStaticCls = "border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#151a10]"
-// const scrollBoxCls   = "max-h-[65vh] overflow-auto"
-const btnPrimary = "rounded-[11px] bg-[#1B8C4B] text-white px-3.5 py-2 text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-const btnSmall = "rounded-[10px] px-2.5 py-1 text-[11px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
-const fontThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
-const fontHead = { fontFamily: "'Mitr', sans-serif", fontWeight: 500 }
-
-// ── Stat card — การ์ดสถิติแบบ minimal (กดเพื่อกรองได้ ถ้าส่ง onClick) ──
-type StatTone = "slate" | "amber" | "blue" | "purple" | "green" | "red"
-
-const STAT_TONE: Record<StatTone, { dot: string; num: string; active: string }> = {
-  slate:  { dot: "bg-[#9AA8A0]",   num: "text-[#14271C] dark:text-white",         active: "border-[#14271C]/25 bg-[#F6FAF7] dark:border-white/25 dark:bg-white/5" },
-  amber:  { dot: "bg-amber-500",   num: "text-amber-600 dark:text-amber-400",     active: "border-amber-400/60 bg-amber-50 dark:border-amber-400/40 dark:bg-amber-500/10" },
-  blue:   { dot: "bg-blue-500",    num: "text-blue-600 dark:text-blue-400",       active: "border-blue-400/60 bg-blue-50 dark:border-blue-400/40 dark:bg-blue-500/10" },
-  purple: { dot: "bg-purple-500",  num: "text-purple-600 dark:text-purple-400",   active: "border-purple-400/60 bg-purple-50 dark:border-purple-400/40 dark:bg-purple-500/10" },
-  green:  { dot: "bg-[#1B8C4B]",   num: "text-[#1B8C4B] dark:text-green-400",     active: "border-[#1B8C4B]/50 bg-[#F0FDF4] dark:border-green-400/40 dark:bg-green-500/10" },
-  red:    { dot: "bg-red-500",     num: "text-red-600 dark:text-red-400",         active: "border-red-400/60 bg-red-50 dark:border-red-400/40 dark:bg-red-500/10" },
-}
-
-function StatCard({ label, value, tone = "slate", caption, active, onClick }: {
-  label:    string
-  value:    string | number
-  tone?:    StatTone
-  caption?: string
-  active?:  boolean
-  onClick?: () => void
-}) {
-  const t = STAT_TONE[tone]
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        "rounded-[14px] border px-3.5 py-2.5 text-left transition-colors",
-        onClick ? "cursor-pointer" : "cursor-default",
-        active
-          ? t.active
-          : "border-[#EEF2F0] bg-white dark:border-white/8 dark:bg-[#151a10] " +
-            (onClick ? "hover:border-[#1B8C4B]/30 hover:bg-[#F6FAF7] dark:hover:bg-white/4" : ""),
-      ].join(" ")}
-    >
-      <span className="flex items-center gap-1.5">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.dot}`} />
-        <span className="truncate text-[11px] font-medium text-[#6B7C72] dark:text-gray-400" style={fontThai}>{label}</span>
-      </span>
-      <span className="mt-1.5 flex items-baseline gap-1">
-        <span className={`text-[20px] leading-none ${t.num}`} style={fontHead}>{value}</span>
-        {caption && <span className="text-[10px] text-[#9AA8A0]" style={fontThai}>{caption}</span>}
-      </span>
-    </button>
-  )
-}
-
 // ===========================================================================
 // SECTION 3: Main page — tab switcher
 // ===========================================================================
 
 export function TireFleetPage() {
-  const [tab, setTab] = useState<"fleet" | "requests" | "history">("fleet")
+  const [tab, setTab] = useState<"fleet" | "tracking" | "history">("fleet")
   const [branchFilter, setBranchFilter] = useState("")
   const [selected, setSelected] = useState<{ branch: string; plate: string } | null>(null)
   const [pendingBadge, setPendingBadge] = useState(0)
 
-  // badge จำนวนคำขอรออนุมัติรวม 2 สาขา
+  // พนักงานที่ผูกกับสาขา (site_id 2/3) เห็นได้สาขาเดียว — ล็อกตัวกรองไว้ที่สาขานั้น
+  const scope = useBranchScope()
+  const branchOptions = scope.all
+    ? [{ value: "", label: "ทุกสาขา" }, ...BRANCHES]
+    : BRANCHES.filter((b) => scope.branches.includes(b.value))
+  const activeBranch = scope.only ?? branchFilter
+
+  // badge จำนวนคำขอรออนุมัติ (เฉพาะสาขาที่เห็นได้)
   const loadBadge = useCallback(async () => {
+    if (!scope.ready) return
     const totals = await Promise.all(
-      BRANCHES.map((b) =>
-        fetch(`/api/tire-change-request?branch=${b.value}&status=pending&limit=1`)
+      scope.branches.map((b) =>
+        fetch(`/api/tire-change-request?branch=${b}&status=pending&limit=1`)
           .then((r) => r.json()).then((d) => d.total ?? 0).catch(() => 0)
       )
     )
-    setPendingBadge(totals.reduce((a, b) => a + b, 0))
-  }, [])
+    setPendingBadge(totals.reduce((a: number, b: number) => a + b, 0))
+  }, [scope.ready, scope.branches])
   useEffect(() => { loadBadge() }, [loadBadge])
 
   const TABS = [
     { value: "fleet"    as const, label: "รถทุกคัน",          icon: Truck },
-    { value: "requests" as const, label: "คำขอ / อนุมัติ",    icon: ClipboardCheck, badge: pendingBadge },
+    // แกนเป็น "รายการ" (1 แถว = ยาง 1 เส้น) ไม่ต้องกางหาเอง
+    { value: "tracking" as const, label: "คำขอ / อนุมัติ",    icon: ListChecks, badge: pendingBadge },
     { value: "history"  as const, label: "ประวัติการเปลี่ยน", icon: History },
   ]
 
@@ -327,7 +194,8 @@ export function TireFleetPage() {
         <h1 className="text-[22px] text-[#14271C] dark:text-white" style={fontHead}>ศูนย์จัดการยางรถ</h1>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-5" style={fontThai}>
-        รวมทุกคัน ทั้งลาดกระบังและสระบุรี — คลิกที่รถเพื่อดูสภาพยางรายล้อ ขอเปลี่ยน และอนุมัติในหน้าเดียว
+        {scope.only ? `รวมทุกคันของ${branchLabel(scope.only)}` : "รวมทุกคัน ทั้งลาดกระบังและสระบุรี"}
+        {" — คลิกที่รถเพื่อดูสภาพยางรายล้อ ขอเปลี่ยน และอนุมัติในหน้าเดียว"}
       </p>
 
       {/* Tabs + branch filter */}
@@ -358,30 +226,45 @@ export function TireFleetPage() {
           })}
         </div>
 
-        <div className="flex rounded-[13px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-1 ml-auto">
-          {[{ value: "", label: "ทุกสาขา" }, ...BRANCHES].map((b) => (
-            <button
-              key={b.value}
-              onClick={() => { setBranchFilter(b.value); setSelected(null) }}
-              className={[
-                "rounded-[10px] px-3 py-1.5 text-[12px] font-medium transition-colors",
-                branchFilter === b.value ? "bg-[#14271C] dark:bg-white text-white dark:text-gray-900" : "text-[#6B7C72] dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5",
-              ].join(" ")}
-              style={fontThai}
-            >
-              {b.label}
-            </button>
-          ))}
-        </div>
+        {/* ผูกสาขาเดียว = ไม่ต้องมีตัวเลือก โชว์เป็นป้ายบอกสาขาแทน */}
+        {branchOptions.length === 1 ? (
+          <div className="ml-auto flex items-center gap-1.5 rounded-[13px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] px-3 py-2">
+            <MapPin size={12} className="text-gray-400" />
+            <span className="text-[12px] font-medium text-[#14271C] dark:text-white" style={fontThai}>{branchOptions[0].label}</span>
+          </div>
+        ) : (
+          <div className="flex rounded-[13px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-1 ml-auto">
+            {branchOptions.map((b) => (
+              <button
+                key={b.value}
+                onClick={() => { setBranchFilter(b.value); setSelected(null) }}
+                className={[
+                  "rounded-[10px] px-3 py-1.5 text-[12px] font-medium transition-colors",
+                  branchFilter === b.value ? "bg-[#14271C] dark:bg-white text-white dark:text-gray-900" : "text-[#6B7C72] dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5",
+                ].join(" ")}
+                style={fontThai}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {tab === "fleet" && (
-        selected
-          ? <VehicleDetail branch={selected.branch} plate={selected.plate} onBack={() => setSelected(null)} onChanged={loadBadge} />
-          : <FleetGrid branchFilter={branchFilter} onSelect={(v) => setSelected(v)} />
+      {/* รอรู้สิทธิ์สาขาก่อนค่อยยิง API — กันข้อมูลสาขาอื่นโผล่แวบหนึ่ง */}
+      {!scope.ready ? (
+        <div className={card + " px-4 py-16 text-center text-sm text-gray-400"} style={fontThai}>กำลังโหลด...</div>
+      ) : (
+        <>
+          {tab === "fleet" && (
+            selected
+              ? <VehicleDetail branch={selected.branch} plate={selected.plate} onBack={() => setSelected(null)} onChanged={loadBadge} />
+              : <FleetGrid branchFilter={activeBranch} onSelect={(v) => setSelected(v)} />
+          )}
+          {tab === "tracking" && <TireTransactionTracking branchFilter={activeBranch} onChanged={loadBadge} />}
+          {tab === "history"  && <HistoryTab branchFilter={activeBranch} />}
+        </>
       )}
-      {tab === "requests" && <RequestsTab branchFilter={branchFilter} onChanged={loadBadge} />}
-      {tab === "history"  && <HistoryTab branchFilter={branchFilter} />}
     </div>
   )
 }
@@ -421,21 +304,8 @@ function FleetGrid({ branchFilter, onSelect }: {
     [items, unitFilter],
   )
 
-  const summary = useMemo(() => ({
-    total:    shown.length,
-    danger:   shown.filter((v) => v.danger > 0).length,
-    requests: shown.reduce((a, v) => a + v.activeRequests, 0),
-  }), [shown])
-
   return (
     <div>
-      {/* Summary stat cards */}
-      {/* <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
-        <StatCard label="รถทั้งหมด"   value={loading ? "—" : fmtNum(summary.total)}    caption="คัน"     tone="slate" />
-        <StatCard label="มียางอันตราย" value={loading ? "—" : fmtNum(summary.danger)}   caption="คัน"     tone="red" />
-        <StatCard label="คำขอค้าง"     value={loading ? "—" : fmtNum(summary.requests)} caption="รายการ" tone="blue" />
-      </div> */}
-
       {/* unit filter + search */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         {/* กรองทะเบียน หัว / หาง */}
@@ -1337,922 +1207,6 @@ function RequestModal({ branch, plate, tire, odometer, vehicle, onClose, onSaved
           </button>
         </div>
       </form>
-    </div>
-  )
-}
-
-// ===========================================================================
-// SECTION 8: Requests tab — คำขอ + อนุมัติ รวม 2 สาขา
-// ===========================================================================
-
-function PhotoThumb({ src, alt }: { src: string; alt: string }) {
-  const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
-  return (
-    <>
-      <img
-        src={src}
-        alt={alt}
-        onClick={() => window.open(src, "_blank")}
-        onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY })}
-        onMouseMove={(e) => setHover({ x: e.clientX, y: e.clientY })}
-        onMouseLeave={() => setHover(null)}
-        className="h-10 w-10 cursor-zoom-in rounded-md object-cover ring-1 ring-gray-200 dark:ring-white/10"
-      />
-      {hover && createPortal(
-        <img
-          src={src}
-          alt={alt}
-          className="pointer-events-none fixed z-50 rounded-lg object-cover shadow-2xl ring-2 ring-white dark:ring-white/20"
-          style={{ left: hover.x + 16, top: hover.y + 16, width: 480, height: 320 }}
-        />,
-        document.body,
-      )}
-    </>
-  )
-}
-
-const REQ_STATUS_TABS: { value: string; label: string; tone: StatTone }[] = [
-  { value: "",            label: "ทั้งหมด",     tone: "slate" },
-  { value: "pending",     label: "รออนุมัติ",   tone: "amber" },
-  { value: "approved",    label: "อนุมัติแล้ว", tone: "blue" },
-  { value: "appointment", label: "นัดหมาย",     tone: "purple" },
-  { value: "done",        label: "เสร็จสิ้น",   tone: "green" },
-  { value: "rejected",    label: "ปฏิเสธ",      tone: "red" },
-]
-
-function RequestsTab({ branchFilter, onChanged }: {
-  branchFilter: string
-  onChanged: () => void
-}) {
-  const { data: session } = useSession()
-  const [items, setItems]     = useState<TireRequest[]>([])
-  const [loading, setLoading] = useState(true)
-  const [statusTab, setStatusTab] = useState("")
-  const [q, setQ]             = useState("")
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [acting, setActing]   = useState(false)
-  const [mrMap, setMrMap]     = useState<Record<string, MrInfo | undefined>>({})
-  const [view, setView]       = useState<"list" | "calendar">("list")
-  // itemId ว่าง = นัดทั้งคำขอ (ยางที่อนุมัติทุกเส้นได้วันเดียวกัน) / มี itemId = นัดเฉพาะล้อนั้น
-  const [appointmentTarget, setAppointmentTarget] = useState<(AppointmentTarget & { request: TireRequest; itemId?: string }) | null>(null)
-  // จำนวนคำขอแยกตามสถานะ — นับจาก server โดยไม่สนใจ statusTab ตัวเลขจึงไม่หายตอนกรอง
-  const [counts, setCounts]   = useState<Record<string, number> | null>(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    const results = await Promise.all(
-      branchesFor(branchFilter).map((b) => {
-        const qs = new URLSearchParams({ branch: b, limit: "100", stats: "1" })
-        if (statusTab) qs.set("status", statusTab)
-        if (q)         qs.set("q", q)
-        return fetch(`/api/tire-change-request?${qs}`)
-          .then((r) => r.json())
-          .then((d) => ({
-            items:  (Array.isArray(d.items) ? d.items : []) as TireRequest[],
-            counts: (d.statusCounts ?? {}) as Record<string, number>,
-          }))
-          .catch(() => ({ items: [] as TireRequest[], counts: {} as Record<string, number> }))
-      })
-    )
-    const merged = results.flatMap((r) => r.items).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    const totals: Record<string, number> = {}
-    for (const r of results) {
-      for (const [k, n] of Object.entries(r.counts)) {
-        totals[k] = (totals[k] ?? 0) + n
-        totals[""] = (totals[""] ?? 0) + n
-      }
-    }
-    setItems(merged)
-    setCounts(totals)
-    setLoading(false)
-  }, [branchFilter, statusTab, q])
-
-  useEffect(() => { load() }, [load])
-
-  // group คำขอด้วยทะเบียนรถ — 1 แถว = 1 คัน, กางออกดูรายละเอียดยางแต่ละเส้นได้ (2 ชั้น)
-  const groups = useMemo(() => {
-    const map = new Map<string, {
-      key: string; branch: string; plate: string; truckNumber: string
-      driverNames: string[]; requests: TireRequest[]; totalItems: number
-      latestCreatedAt: string; statuses: string[]
-    }>()
-    for (const r of items) {
-      const key = `${r.branch}|${r.plate}`
-      let g = map.get(key)
-      if (!g) {
-        g = { key, branch: r.branch, plate: r.plate, truckNumber: r.truckNumber, driverNames: [], requests: [], totalItems: 0, latestCreatedAt: r.createdAt, statuses: [] }
-        map.set(key, g)
-      }
-      g.requests.push(r)
-      if (r.driverName && !g.driverNames.includes(r.driverName)) g.driverNames.push(r.driverName)
-      g.totalItems += (r.items ?? []).length
-      if (new Date(r.createdAt).getTime() > new Date(g.latestCreatedAt).getTime()) g.latestCreatedAt = r.createdAt
-      const st = r.status ?? "pending"
-      if (!g.statuses.includes(st)) g.statuses.push(st)
-    }
-    for (const g of map.values()) g.requests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    return Array.from(map.values()).sort((a, b) => new Date(b.latestCreatedAt).getTime() - new Date(a.latestCreatedAt).getTime())
-  }, [items])
-
-  // fetch MR เมื่อกางแถวที่มีรายการ "รถกินยาง"
-  useEffect(() => {
-    if (!expanded) return
-    const g = groups.find((x) => x.key === expanded)
-    if (!g || !g.requests.some((r) => (r.items ?? []).some((it) => it.reason === "รถกินยาง"))) return
-    fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(g.branch)}&plates=${encodeURIComponent(g.plate)}`)
-      .then((res) => res.json())
-      .then((data: Record<string, NonNullable<MrInfo>>) => setMrMap((prev) => ({ ...prev, [g.key]: data[g.plate] ?? null })))
-      .catch(() => {})
-  }, [expanded, groups])
-
-  function mrChip(status: string) {
-    if (status === "completed")   return { label: "ซ่อมเสร็จแล้ว", cls: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" }
-    if (status === "in_progress") return { label: "กำลังซ่อม",     cls: "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300" }
-    return { label: "รอดำเนินการ", cls: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" }
-  }
-
-  async function itemPatch(r: TireRequest, itemId: string, body: Record<string, unknown>, msg: string) {
-    setActing(true)
-    const res = await fetch(`/api/tire-change-request/${r._id}/items/${itemId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-    setActing(false)
-    if (!res.ok) { const d = await res.json().catch(() => ({})); swalError(d.error ?? "ดำเนินการไม่สำเร็จ"); return }
-    swalToast("success", msg)
-    load(); onChanged()
-  }
-
-  async function requestPatch(r: TireRequest, body: Record<string, unknown>, msg: string) {
-    setActing(true)
-    const res = await fetch(`/api/tire-change-request/${r._id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-    setActing(false)
-    if (!res.ok) { const d = await res.json().catch(() => ({})); swalError(d.error ?? "ดำเนินการไม่สำเร็จ"); return }
-    swalToast("success", msg)
-    load(); onChanged()
-  }
-
-  async function handleItemApprove(r: TireRequest, it: RequestItem) {
-    if (it.reason === "รถกินยาง") {
-      const mr = mrMap[`${r.branch}|${r.plate}`]
-      if (!mr || mr.status !== "completed") {
-        await Swal.fire({
-          icon: "warning",
-          title: "รอ MR ซ่อมเสร็จก่อน",
-          html: `ยางเส้นนี้สาเหตุ <b>รถกินยาง</b><br>ต้องปิด MR ก่อนจึงจะอนุมัติได้<br><br>สถานะ MR: <b>${mr ? mrChip(mr.status).label : "ยังไม่มี MR"}</b>`,
-          confirmButtonText: "รับทราบ",
-        })
-        return
-      }
-    }
-    const { value: jobNo, isConfirmed } = await Swal.fire<string>({
-      title: "อนุมัติยางเส้นนี้?",
-      html: `<div style="font-size:0.85rem;margin-bottom:6px">${r.driverName} · ${r.plate}<br>${it.positionCode} ${it.positionName} · ${it.serialNo}</div>`,
-      input: "text",
-      inputLabel: "เลข Job",
-      inputPlaceholder: "ระบุเลข Job",
-      inputValidator: (value) => (!value || !value.trim() ? "กรุณากรอกเลข Job" : undefined),
-      showCancelButton: true,
-      confirmButtonText: "อนุมัติ",
-      cancelButtonText: "ยกเลิก",
-      reverseButtons: true,
-    })
-    if (!isConfirmed || !jobNo) return
-    itemPatch(r, it._id, { action: "approve", jobNo: String(jobNo).trim() }, `อนุมัติ ${it.positionCode || it.serialNo} แล้ว`)
-  }
-
-  async function handleItemReject(r: TireRequest, it: RequestItem) {
-    const { value, isConfirmed } = await Swal.fire<string>({
-      title: "ปฏิเสธยางเส้นนี้?",
-      html: `<code style="font-size:0.8rem;opacity:0.65">${it.positionCode} ${it.positionName} · ${it.serialNo}</code>`,
-      input: "textarea",
-      inputLabel: "เหตุผลการปฏิเสธ (ไม่บังคับ)",
-      inputAttributes: { rows: "3" },
-      showCancelButton: true,
-      confirmButtonText: "ยืนยันปฏิเสธ",
-      confirmButtonColor: "#dc2626",
-      cancelButtonText: "ยกเลิก",
-      reverseButtons: true,
-    })
-    if (!isConfirmed) return
-    itemPatch(r, it._id, { action: "reject", reason: value ?? "" }, `ปฏิเสธ ${it.positionCode || it.serialNo} แล้ว`)
-  }
-
-  async function handleEditJob(r: TireRequest, it: RequestItem) {
-    const { value: jobNo, isConfirmed } = await Swal.fire<string>({
-      title: "แก้ไขเลข Job",
-      html: `<div style="font-size:0.85rem;margin-bottom:6px">${r.driverName} · ${r.plate}<br>${it.positionCode} ${it.positionName} · ${it.serialNo}</div>`,
-      input: "text",
-      inputLabel: "เลข Job",
-      inputValue: it.jobNo ?? "",
-      inputPlaceholder: "ระบุเลข Job",
-      inputValidator: (value) => (!value || !value.trim() ? "กรุณากรอกเลข Job" : undefined),
-      showCancelButton: true,
-      confirmButtonText: "บันทึก",
-      cancelButtonText: "ยกเลิก",
-      reverseButtons: true,
-    })
-    if (!isConfirmed || !jobNo) return
-    itemPatch(r, it._id, { action: "editJob", jobNo: String(jobNo).trim() }, `อัปเดตเลข Job ${it.positionCode || it.serialNo} แล้ว`)
-  }
-
-  function handleAppointment(r: TireRequest) {
-    setAppointmentTarget({ request: r, plate: r.plate, driverName: r.driverName, appointmentDate: r.appointmentDate })
-  }
-
-  function handleItemAppointment(r: TireRequest, it: RequestItem) {
-    setAppointmentTarget({
-      request:         r,
-      itemId:          it._id,
-      plate:           r.plate,
-      driverName:      r.driverName,
-      appointmentDate: it.appointmentDate ?? r.appointmentDate,
-      subtitle:        `${it.positionCode} ${it.positionName}${it.serialNo ? ` · ${it.serialNo}` : ""}`,
-    })
-  }
-
-  function confirmAppointment(dateIso: string) {
-    if (!appointmentTarget) return
-    const { request, itemId } = appointmentTarget
-    setAppointmentTarget(null)
-    if (itemId) {
-      itemPatch(request, itemId, { action: "appointment", date: dateIso }, "บันทึกนัดหมายแล้ว")
-    } else {
-      requestPatch(request, { action: "appointment", date: dateIso }, "บันทึกนัดหมายแล้ว")
-    }
-  }
-
-  async function handleDone(r: TireRequest) {
-    const result = await swalConfirm("ปิดงานเปลี่ยนยาง?", `${r.plate} · ${r.driverName}`)
-    if (!result.isConfirmed) return
-    requestPatch(r, { action: "done" }, "ปิดงานแล้ว")
-  }
-
-  async function handleCreateMr(r: TireRequest) {
-    const { value, isConfirmed } = await Swal.fire<string>({
-      title: "สร้าง MR",
-      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b></div>`,
-      input: "textarea",
-      inputLabel: "หมายเหตุ (ไม่บังคับ)",
-      inputAttributes: { rows: "3", placeholder: "ระบุรายละเอียดการซ่อม..." },
-      showCancelButton: true,
-      confirmButtonText: "สร้าง MR",
-      cancelButtonText: "ยกเลิก",
-      reverseButtons: true,
-    })
-    if (!isConfirmed) return
-    const res = await fetch("/api/tire-mr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch: r.branch, plate: r.plate, requestId: r._id, note: value ?? "", createdBy: session?.user?.name ?? "" }),
-    })
-    if (!res.ok) { swalError("สร้าง MR ไม่สำเร็จ"); return }
-    const data = await res.json()
-    setMrMap((prev) => ({ ...prev, [`${r.branch}|${r.plate}`]: { mrId: String(data._id), status: "pending", note: value ?? "", updatedAt: new Date().toISOString() } }))
-    swalToast("success", "สร้าง MR แล้ว")
-  }
-
-  async function handleMrStatusUpdate(r: TireRequest, nextStatus: string) {
-    const key = `${r.branch}|${r.plate}`
-    const mr = mrMap[key]
-    if (!mr) return
-    const label = nextStatus === "in_progress" ? "เริ่มดำเนินการซ่อม" : "ปิด MR — ซ่อมเสร็จแล้ว"
-    const { value, isConfirmed } = await Swal.fire<string>({
-      title: label,
-      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b></div>`,
-      input: "textarea",
-      inputLabel: "หมายเหตุ (ไม่บังคับ)",
-      inputAttributes: { rows: "2" },
-      showCancelButton: true,
-      confirmButtonText: "ยืนยัน",
-      cancelButtonText: "ยกเลิก",
-      reverseButtons: true,
-    })
-    if (!isConfirmed) return
-    const res = await fetch(`/api/tire-mr/${mr.mrId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus, note: value ?? "", updatedBy: session?.user?.name ?? "" }),
-    })
-    if (!res.ok) { swalError("อัปเดตไม่สำเร็จ"); return }
-    setMrMap((prev) => ({ ...prev, [key]: { ...mr, status: nextStatus, updatedAt: new Date().toISOString() } }))
-    swalToast("success", `อัปเดต MR เป็น "${mrChip(nextStatus).label}" แล้ว`)
-  }
-
-  return (
-    <div>
-      {/* stat cards — กดเพื่อกรองตามสถานะ */}
-      <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
-        {REQ_STATUS_TABS.map((t) => (
-          <StatCard
-            key={t.value}
-            label={t.label}
-            value={counts ? fmtNum(counts[t.value] ?? 0) : "—"}
-            tone={t.tone}
-            active={statusTab === t.value}
-            onClick={() => setStatusTab(t.value)}
-          />
-        ))}
-      </div>
-
-      {/* search + view toggle */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1 sm:max-w-sm">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียน / คนขับ / เบอร์รถ / เลข Job..." className={inp + " w-full pl-8"} />
-        </div>
-        <div className="ml-auto flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
-          {([
-            { key: "list" as const,     label: "รายการ", Icon: List },
-            { key: "calendar" as const, label: "ปฏิทิน",  Icon: CalendarDays },
-          ]).map(({ key, label, Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setView(key)}
-              className={[
-                "inline-flex items-center gap-1 rounded-[9px] px-3 py-1 text-[12px] font-medium transition-colors",
-                view === key
-                  ? "bg-[#1B8C4B] text-white"
-                  : "text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5",
-              ].join(" ")}
-              style={fontThai}
-            >
-              <Icon size={12} /> {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <p className="mb-1.5 text-[12px] text-gray-400" style={fontThai}>{loading ? "กำลังโหลด..." : `${fmtNum(groups.length)} ทะเบียน`}</p>
-
-      {view === "calendar" ? (
-        <AppointmentCalendarView
-          groups={groups}
-          onAppointment={handleAppointment}
-          onItemAppointment={handleItemAppointment}
-          onDone={handleDone}
-          acting={acting}
-        />
-      ) : (
-      <div className={card + " overflow-hidden"}>
-        <div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className={theadCls}>
-                <th className={thCls}>ทะเบียน</th>
-                <th className={thCls}>เบอร์รถ</th>
-                <th className={thCls}>สาขา</th>
-                <th className={thCls}>คนขับ</th>
-                <th className={thCls + " text-center"}>คำขอ</th>
-                <th className={thCls + " text-center"}>ยางที่ขอ</th>
-                <th className={thCls}>สถานะ</th>
-                <th className={thCls}>ล่าสุด</th>
-                <th className={thCls}>จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={9} className="px-4 py-14 text-center text-sm text-gray-400">
-                  <RefreshCw size={18} className="mx-auto mb-2 animate-spin text-gray-300 dark:text-gray-600" />
-                  กำลังโหลด...
-                </td></tr>
-              ) : groups.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
-                  <ClipboardCheck size={20} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                  ไม่พบคำขอ
-                </td></tr>
-              ) : groups.map((g, i) => {
-                const isOpen = expanded === g.key
-                const approvedReq    = g.requests.find((r) => (r.status ?? "pending") === "approved")
-                const appointmentReq = g.requests.find((r) => r.status === "appointment")
-                return (
-                  <React.Fragment key={g.key}>
-                    <tr
-                      onClick={() => setExpanded(isOpen ? null : g.key)}
-                      className={`cursor-pointer border-b border-gray-100 dark:border-white/5 ${i % 2 === 1 ? "bg-gray-50/50 dark:bg-white/1" : ""} hover:bg-[#F0FDF4] dark:hover:bg-white/4`}
-                    >
-                      <td className={tdCls + " font-mono font-semibold text-gray-900 dark:text-white"}>
-                        <span className="inline-flex items-center gap-1">
-                          {g.plate}
-                          {isOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                        </span>
-                      </td>
-                      <td className={tdCls}>{g.truckNumber || "—"}</td>
-                      <td className={tdCls}>
-                        <span className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-semibold ${branchChipCls(g.branch)}`} style={fontThai}>
-                          {branchLabel(g.branch)}
-                        </span>
-                      </td>
-                      <td className={tdCls} style={fontThai}>{g.driverNames.join(", ") || "—"}</td>
-                      <td className={tdCls + " text-center font-semibold"}>{g.requests.length}</td>
-                      <td className={tdCls + " text-center font-semibold"}>{g.totalItems}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex flex-wrap gap-1">
-                          {g.statuses.map((st) => (
-                            <span key={st} className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-medium ${statusChip(st)}`} style={fontThai}>
-                              {STATUS_LABEL[st] ?? st}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className={tdCls}>{fmtDate(g.latestCreatedAt)}</td>
-                      <td className="whitespace-nowrap px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                        {approvedReq || appointmentReq ? (
-                          <div className="flex items-center gap-1.5">
-                            {approvedReq && (
-                              <button disabled={acting} onClick={() => handleAppointment(approvedReq)}
-                                className={btnSmall + " cursor-pointer inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
-                                <CalendarClock size={11} /> นัดทั้งคำขอ
-                              </button>
-                            )}
-                            {appointmentReq && (
-                              <button disabled={acting} onClick={() => handleDone(appointmentReq)}
-                                className={btnSmall + " cursor-pointer inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
-                                <Flag size={11} /> เสร็จสิ้น
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-gray-300 dark:text-gray-600">—</span>
-                        )}
-                      </td>
-                    </tr>
-
-                    {/* expanded: คำขอของทะเบียนนี้ทั้งหมด แต่ละคำขอกางดูรายละเอียดยางแต่ละเส้นได้ */}
-                    {isOpen && (
-                      <tr className="border-b border-gray-100 bg-[#F6FAF7]/70 dark:border-white/5 dark:bg-white/2">
-                        <td colSpan={9} className="px-4 py-3">
-                          {g.requests.every((r) => (r.items ?? []).length === 0) ? (
-                            <p className="text-xs text-gray-400" style={fontThai}>ไม่มีรายการยาง</p>
-                          ) : (
-                            <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-white/8 dark:bg-[#0f1410]">
-                              <table className="w-full text-sm">
-                                <thead>
-                                  <tr className={theadStaticCls}>
-                                    <th className={thCls}>ล้อ</th>
-                                    <th className={thCls}>Product</th>
-                                    <th className={thCls}>Serial</th>
-                                    <th className={thCls}>สาเหตุ</th>
-                                    <th className={thCls + " text-right"}>มิลยาง</th>
-                                    <th className={thCls + " text-right"}>ใช้งาน (กม.)</th>
-                                    <th className={thCls}>รูป</th>
-                                    <th className={thCls}>หมายเหตุ</th>
-                                    <th className={thCls}>สถานะ</th>
-                                    <th className={thCls}>คำขอ</th>
-                                    <th className={thCls + " w-40"}></th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {g.requests.flatMap((r) => {
-                                    const status = r.status ?? "pending"
-                                    const mrKey = g.key
-                                    const mr = mrMap[mrKey]
-                                    const rItems = r.items ?? []
-                                    // คำขอเก่าที่นัดไว้ระดับคำขอยังโชว์วันเดิมได้ — แต่พอมีเส้นไหนนัดรายเส้นแล้วต้องไม่ fallback อีก
-                                    const legacyAppointment = rItems.some((it) => it.appointmentDate) ? undefined : r.appointmentDate
-                                    const reqInfoCell = (
-                                      <td rowSpan={Math.max(rItems.length, 1)} className="border-l border-[#EEF2F0] px-3 py-2 align-top dark:border-white/8">
-                                        <div className="flex flex-col gap-1.5">
-                                          <span className="text-xs text-gray-500 dark:text-gray-400">{fmtDate(r.createdAt)}</span>
-                                          {/* <span className={`inline-block w-fit rounded-md px-2 py-0.5 text-[11px] font-medium ${statusChip(status)}`} style={fontThai}>
-                                            {STATUS_LABEL[status] ?? status}
-                                          </span> */}
-                                          {rItems.some((it) => (it.status ?? "pending") === "approved") && (
-                                            <div className="flex flex-col gap-1">
-                                              {rItems.filter((it) => (it.status ?? "pending") === "approved").map((it) => (
-                                                <button key={it._id} type="button" onClick={() => handleEditJob(r, it)}
-                                                  className="text-left text-[10px] text-gray-500 dark:text-gray-400 underline decoration-dotted hover:text-[#1B8C4B] dark:hover:text-green-400">
-                                                  {it.positionCode}: {it.jobNo
-                                                    ? <span className="cursor-pointer font-mono font-medium text-gray-700 dark:text-gray-200">{it.jobNo}</span>
-                                                    : "+ ระบุเลข Job"}
-                                                </button>
-                                              ))}
-                                            </div>
-                                          )}
-                                          {r.rejectReason && <span className="text-[11px] text-red-500" style={fontThai}>เหตุผล: {r.rejectReason}</span>}
-                                        </div>
-                                      </td>
-                                    )
-
-                                    if (rItems.length === 0) {
-                                      return [
-                                        <tr key={`${r._id}-empty`} className="border-b border-gray-100 last:border-0 dark:border-white/5">
-                                          <td colSpan={9} className="px-3 py-2 text-xs text-gray-400" style={fontThai}>ไม่มีรายการยาง</td>
-                                          {reqInfoCell}
-                                          <td></td>
-                                        </tr>,
-                                      ]
-                                    }
-
-                                    return rItems.map((it, ii) => {
-                                      const urls = it.photoUrls?.length ? it.photoUrls : it.photoUrl ? [it.photoUrl] : []
-                                      const itStatus = it.status ?? "pending"
-                                      const itAppointment = it.appointmentDate ?? legacyAppointment
-                                      return (
-                                        <tr key={it._id} className="border-b border-gray-100 last:border-0 dark:border-white/5">
-                                          <td className={tdCls + " font-mono font-bold text-gray-900 dark:text-white"} title={it.positionName}>{it.positionCode || "—"}</td>
-                                          <td className={tdCls + " font-mono"}>{it.product || "—"}</td>
-                                          <td className={tdCls + " font-mono"}>{it.serialNo || "—"}</td>
-                                          <td className={tdCls + " font-medium"}>
-                                            <div className="flex flex-col gap-1">
-                                              <span style={fontThai}>{it.reason}</span>
-                                              {it.reason === "รถกินยาง" && (() => {
-                                                if (mr === undefined) return <span className="text-[10px] text-gray-400" style={fontThai}>กำลังตรวจ MR...</span>
-                                                if (mr === null) return (
-                                                  <button type="button" onClick={() => handleCreateMr(r)}
-                                                    className="inline-flex w-fit items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-90" style={fontThai}>
-                                                    + สร้าง MR
-                                                  </button>
-                                                )
-                                                const c = mrChip(mr.status)
-                                                return (
-                                                  <div className="flex flex-col gap-1">
-                                                    <span className={`inline-block w-fit rounded px-1.5 py-px text-[10px] font-semibold ${c.cls}`} style={fontThai}>MR: {c.label}</span>
-                                                    {mr.status === "pending" && (
-                                                      <button type="button" onClick={() => handleMrStatusUpdate(r, "in_progress")}
-                                                        className="inline-flex w-fit items-center rounded bg-orange-500 px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-90" style={fontThai}>
-                                                        เริ่มซ่อม
-                                                      </button>
-                                                    )}
-                                                    {mr.status === "in_progress" && (
-                                                      <button type="button" onClick={() => handleMrStatusUpdate(r, "completed")}
-                                                        className="inline-flex w-fit items-center rounded bg-green-600 px-2 py-0.5 text-[10px] font-semibold text-white transition-opacity hover:opacity-90" style={fontThai}>
-                                                        ซ่อมเสร็จ ✓
-                                                      </button>
-                                                    )}
-                                                  </div>
-                                                )
-                                              })()}
-                                            </div>
-                                          </td>
-                                          <td className={tdCls + " text-right"}>{it.currentTreadMm > 0 ? it.currentTreadMm : "—"}</td>
-                                          <td className={tdCls + " text-right font-mono"}>{it.usedDistance > 0 ? fmtNum(it.usedDistance) : "—"}</td>
-                
-                                          <td className="whitespace-nowrap px-3 py-1.5">
-                                            {urls.length === 0 ? <span className="text-xs text-gray-400">—</span> : (
-                                              <div className="flex gap-1.5">
-                                                {urls.map((u, ui) => (
-                                                   <PhotoThumb key={ui} src={u} alt={`รูปยาง ${ui + 1}`} />
-                                                ))}
-                                              </div>
-                                            )}
-                                          </td>
-                                          <td className="max-w-[160px] truncate px-3 py-2 text-xs text-gray-500 dark:text-gray-400" title={it.note || undefined} style={fontThai}>{it.note || "—"}</td>
-                                          <td className="whitespace-nowrap px-3 py-2">
-                                            <div className="flex flex-col items-start gap-0.5">
-                                              <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-medium ${statusChip(itStatus)}`}
-                                                title={it.rejectReason ? `เหตุผล: ${it.rejectReason}` : undefined} style={fontThai}>
-                                                {STATUS_LABEL[itStatus] ?? itStatus}
-                                              </span>
-                                              {itAppointment && (
-                                                <span className="text-[10px] text-purple-600 dark:text-purple-300" style={fontThai}>
-                                                  นัด {fmtDateOnly(itAppointment)}
-                                                </span>
-                                              )}
-                                            </div>
-                                          </td>
-                                          {ii === 0 && reqInfoCell}
-                                          <td className="whitespace-nowrap px-3 py-2">
-                                            {status !== "done" && (
-                                              <div className="flex flex-wrap items-center gap-1.5">
-                                                {itStatus !== "approved" && (
-                                                  <button disabled={acting} onClick={() => handleItemApprove(r, it)}
-                                                    className={btnSmall + "cursor-pointer inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
-                                                    <Check size={11} /> อนุมัติ
-                                                  </button>
-                                                )}
-                                                {itStatus !== "rejected" && (
-                                                  <button disabled={acting} onClick={() => handleItemReject(r, it)}
-                                                    className={btnSmall + "cursor-pointer inline-flex items-center gap-1 bg-red-600 text-white"} style={fontThai}>
-                                                    <X size={11} /> ปฏิเสธ
-                                                  </button>
-                                                )}
-                                                {/* นัดวันเปลี่ยนเฉพาะล้อนี้ — บางตำแหน่งส่งเปลี่ยนก่อนได้ ไม่ต้องรอเบิกครบ */}
-                                                {itStatus === "approved" && (
-                                                  <button disabled={acting} onClick={() => handleItemAppointment(r, it)}
-                                                    className={btnSmall + "cursor-pointer inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
-                                                    <CalendarClock size={11} /> {itAppointment ? "แก้ไขนัด" : "นัดหมาย"}
-                                                  </button>
-                                                )}
-                                              </div>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      )
-                                    })
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      )}
-
-      <AppointmentDialog
-        target={appointmentTarget}
-        onClose={() => setAppointmentTarget(null)}
-        onConfirm={confirmAppointment}
-      />
-    </div>
-  )
-}
-
-// ===========================================================================
-// SECTION 8b: Appointment dialog (shadcn Calendar) + Calendar view ของแท็บคำขอ
-// ===========================================================================
-
-// ใช้ร่วมกันทั้งแท็บคำขอ (ส่ง TireRequest) และหน้ารายละเอียดรถ (ส่งข้อมูลย่อจากล้อที่เลือก)
-type AppointmentTarget = {
-  plate:            string
-  driverName?:      string
-  appointmentDate?: string | null
-  subtitle?:        string   // ระบุล้อที่กำลังนัด — ว่างไว้ = นัดทั้งคำขอ
-}
-
-function AppointmentDialog({ target, onClose, onConfirm }: {
-  target: AppointmentTarget | null
-  onClose: () => void
-  onConfirm: (dateIso: string) => void
-}) {
-  const [date, setDate] = useState<Date | undefined>(undefined)
-
-  useEffect(() => {
-    if (!target) return
-    const existing = target.appointmentDate ? new Date(target.appointmentDate) : null
-    const valid = existing && !isNaN(existing.getTime()) ? existing : null
-    setDate(valid ?? new Date())
-  }, [target])
-
-  function handleConfirm() {
-    if (!date) return
-    const combined = new Date(date)
-    combined.setHours(0, 0, 0, 0)
-    onConfirm(combined.toISOString())
-  }
-
-  return (
-    <Dialog open={!!target} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle style={fontHead}>นัดหมายเปลี่ยนยาง</DialogTitle>
-        </DialogHeader>
-        {target && (
-          <>
-            <p className="text-[13px] text-[#6B7C72] dark:text-gray-400" style={fontThai}>
-              ทะเบียน <span className="font-mono font-semibold text-[#14271C] dark:text-white">{target.plate}</span>
-              {target.driverName ? ` · ${target.driverName}` : ""}
-              {target.subtitle && (
-                <span className="mt-0.5 block font-medium text-purple-600 dark:text-purple-300">{target.subtitle}</span>
-              )}
-            </p>
-            <div className="flex justify-center">
-              <Calendar
-                mode="single"
-                selected={date}
-                onSelect={setDate}
-                className="rounded-lg border border-[#EEF2F0] dark:border-white/10"
-              />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button type="button" disabled={!date} onClick={handleConfirm} className={btnPrimary + " flex-1"} style={fontThai}>
-                บันทึกนัดหมาย
-              </button>
-              <button type="button" onClick={onClose}
-                className="rounded-[11px] border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:border-white/10 dark:text-gray-400 dark:hover:bg-white/8" style={fontThai}>
-                ยกเลิก
-              </button>
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-type ReqGroup = {
-  key: string; branch: string; plate: string; truckNumber: string
-  driverNames: string[]; requests: TireRequest[]; totalItems: number
-  latestCreatedAt: string; statuses: string[]
-}
-
-// 1 การ์ด = คำขอเดียว + วันเดียว — ยางคนละล้อที่นัดคนละวันจึงแยกการ์ดกันเอง
-type AppointmentEvent = {
-  key:        string
-  requestId:  string
-  plate:      string
-  branch:     string
-  driverName: string
-  status:     string
-  date:       Date
-  items:      RequestItem[]   // ล้อที่นัดวันนี้ (ว่าง = คำขอเก่าที่นัดไว้ระดับคำขอ)
-}
-
-const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"]
-const MONTH_LABELS = [
-  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
-]
-
-const dayKey = (d: Date) => d.toDateString()
-
-function AppointmentCalendarView({ groups, onAppointment, onItemAppointment, onDone, acting }: {
-  groups: ReqGroup[]
-  onAppointment: (r: TireRequest) => void
-  onItemAppointment: (r: TireRequest, it: RequestItem) => void
-  onDone: (r: TireRequest) => void
-  acting: boolean
-}) {
-  const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d })
-  const [selectedDay, setSelectedDay] = useState<string | null>(dayKey(new Date()))
-
-  const eventsByDay = useMemo(() => {
-    const map = new Map<string, AppointmentEvent[]>()
-    const push = (d: Date, r: TireRequest, g: ReqGroup, it: RequestItem | null) => {
-      if (isNaN(d.getTime())) return
-      const k = dayKey(d)
-      const arr = map.get(k) ?? []
-      // ยางหลายเส้นของคำขอเดียวกันที่นัดวันเดียวกัน → รวมเป็นการ์ดเดียว
-      let ev = arr.find((e) => e.requestId === r._id)
-      if (!ev) {
-        ev = { key: `${r._id}|${k}`, requestId: r._id, plate: g.plate, branch: g.branch, driverName: r.driverName, status: r.status ?? "pending", date: d, items: [] }
-        arr.push(ev)
-        map.set(k, arr)
-      }
-      if (it) ev.items.push(it)
-    }
-    for (const g of groups) {
-      for (const r of g.requests) {
-        const approved = (r.items ?? []).filter((it) => (it.status ?? "pending") === "approved")
-        // fallback ไปวันระดับคำขอได้เฉพาะคำขอเก่าที่ยังไม่มีเส้นไหนนัดรายเส้น
-        const legacy = approved.some((it) => it.appointmentDate) ? undefined : r.appointmentDate
-        const scheduled = approved.filter((it) => it.appointmentDate ?? legacy)
-        if (scheduled.length > 0) {
-          for (const it of scheduled) push(new Date((it.appointmentDate ?? legacy)!), r, g, it)
-        } else if (r.appointmentDate) {
-          push(new Date(r.appointmentDate), r, g, null)
-        }
-      }
-    }
-    for (const arr of map.values()) arr.sort((a, b) => a.plate.localeCompare(b.plate))
-    return map
-  }, [groups])
-
-  const gridDays = useMemo(() => {
-    const year = monthCursor.getFullYear()
-    const month = monthCursor.getMonth()
-    const startOffset = new Date(year, month, 1).getDay()
-    const gridStart = new Date(year, month, 1 - startOffset)
-    return Array.from({ length: 42 }, (_, i) => {
-      const d = new Date(gridStart)
-      d.setDate(gridStart.getDate() + i)
-      return d
-    })
-  }, [monthCursor])
-
-  const todayKey = dayKey(new Date())
-  const selectedEvents = selectedDay ? eventsByDay.get(selectedDay) ?? [] : []
-
-  function shiftMonth(delta: number) {
-    setMonthCursor((prev) => { const d = new Date(prev); d.setMonth(d.getMonth() + delta); return d })
-  }
-
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
-      <div className={card + " p-4"}>
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => shiftMonth(-1)} className="rounded-lg border border-[#EEF2F0] dark:border-white/10 p-1.5 hover:bg-[#F0FDF4] dark:hover:bg-white/5">
-              <ChevronLeft size={14} />
-            </button>
-            <button type="button" onClick={() => shiftMonth(1)} className="rounded-lg border border-[#EEF2F0] dark:border-white/10 p-1.5 hover:bg-[#F0FDF4] dark:hover:bg-white/5">
-              <ChevronRight size={14} />
-            </button>
-            <h3 className="text-[15px] text-[#14271C] dark:text-white" style={fontHead}>
-              {MONTH_LABELS[monthCursor.getMonth()]} {monthCursor.getFullYear() + 543}
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); setMonthCursor(d); setSelectedDay(dayKey(new Date())) }}
-            className="rounded-lg border border-[#EEF2F0] dark:border-white/10 px-2.5 py-1 text-[12px] text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5"
-            style={fontThai}
-          >
-            วันนี้
-          </button>
-        </div>
-
-        <div className="mb-1 grid grid-cols-7 gap-1">
-          {WEEKDAY_LABELS.map((w) => (
-            <div key={w} className="py-1 text-center text-[11px] font-semibold text-[#9AA8A0]" style={fontThai}>{w}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {gridDays.map((d) => {
-            const k = dayKey(d)
-            const inMonth = d.getMonth() === monthCursor.getMonth()
-            const dayEvents = eventsByDay.get(k) ?? []
-            const isToday = k === todayKey
-            const isSelected = k === selectedDay
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setSelectedDay(k)}
-                className={[
-                  "min-h-[64px] rounded-lg border p-1.5 text-left align-top transition-colors",
-                  isSelected ? "border-[#1B8C4B] bg-[#F0FDF4] dark:bg-[#1B8C4B]/10" : "border-[#EEF2F0] dark:border-white/8 hover:bg-[#F6FAF7] dark:hover:bg-white/4",
-                  !inMonth ? "opacity-40" : "",
-                ].join(" ")}
-              >
-                <span className={isToday
-                  ? "inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#1B8C4B] text-[11px] font-semibold text-white"
-                  : "text-[11px] font-semibold text-[#14271C] dark:text-white"}>
-                  {d.getDate()}
-                </span>
-                <div className="mt-1 flex flex-col gap-0.5">
-                  {dayEvents.slice(0, 2).map((e) => (
-                    <span key={e.key} className={`truncate rounded px-1 py-px text-[9px] font-medium ${statusChip(e.status)}`} style={fontThai}>
-                      {e.plate}
-                    </span>
-                  ))}
-                  {dayEvents.length > 2 && (
-                    <span className="text-[9px] text-[#9AA8A0]" style={fontThai}>+{dayEvents.length - 2} อื่นๆ</span>
-                  )}
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className={card + " p-4"}>
-        <h4 className="mb-2 text-[13px] font-semibold text-[#14271C] dark:text-white" style={fontThai}>
-          {selectedDay ? new Date(selectedDay).toLocaleDateString("th-TH", { day: "2-digit", month: "long", year: "numeric" }) : "เลือกวันที่เพื่อดูรายละเอียด"}
-        </h4>
-        {selectedDay && selectedEvents.length === 0 && (
-          <p className="text-[12px] text-gray-400" style={fontThai}>ไม่มีนัดหมายวันนี้</p>
-        )}
-        <div className="flex flex-col gap-2">
-          {selectedEvents.map((e) => {
-            const g = groups.find((gr) => gr.key === `${e.branch}|${e.plate}`)
-            const r = g?.requests.find((rr) => rr._id === e.requestId)
-            return (
-              <div key={e.key} className="rounded-[12px] border border-[#EEF2F0] dark:border-white/8 p-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[13px] font-semibold text-[#14271C] dark:text-white">{e.plate}</span>
-                  <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${branchChipCls(e.branch)}`} style={fontThai}>{branchLabel(e.branch)}</span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-[#6B7C72] dark:text-gray-400" style={fontThai}>{e.driverName || "—"}</p>
-                <span className={`mt-1 inline-block rounded-md px-2 py-0.5 text-[10px] font-medium ${statusChip(e.status)}`} style={fontThai}>
-                  {STATUS_LABEL[e.status] ?? e.status}
-                </span>
-                {e.items.length > 0 && (
-                  <p className="mt-1 text-[11px] text-[#6B7C72] dark:text-gray-400" style={fontThai}>
-                    ล้อที่นัด: <span className="font-mono font-semibold text-[#14271C] dark:text-white">{e.items.map((it) => it.positionCode || "—").join(", ")}</span>
-                  </p>
-                )}
-                {r && e.status !== "done" && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {e.items.length > 0 ? (
-                      // แก้ทีละล้อ — กันไม่ให้การแก้วันเดียวไปทับวันนัดของล้ออื่น
-                      e.items.map((it) => (
-                        <button key={it._id} disabled={acting} onClick={() => onItemAppointment(r, it)}
-                          className={btnSmall + " inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
-                          <CalendarClock size={11} /> แก้ไขนัด {it.positionCode}
-                        </button>
-                      ))
-                    ) : (
-                      <button disabled={acting} onClick={() => onAppointment(r)} className={btnSmall + " inline-flex items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
-                        <CalendarClock size={11} /> แก้ไขนัดหมาย
-                      </button>
-                    )}
-                    {e.status === "appointment" && (
-                      <button disabled={acting} onClick={() => onDone(r)} className={btnSmall + " inline-flex items-center gap-1 bg-green-600 text-white"} style={fontThai}>
-                        <Flag size={11} /> เสร็จสิ้น
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
     </div>
   )
 }

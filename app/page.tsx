@@ -11,11 +11,14 @@ import {
 } from "lucide-react"
 import { WelcomePopup } from "@/components/welcome-popup"
 import { Mascot } from "@/components/mascot"
+import { useBranchScope } from "@/components/use-branch-scope"
+import { canSeeBranch } from "@/lib/branch-scope"
 
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const mitr = { fontFamily: "'Mitr', sans-serif" }
 
-type PageLink = { href: string; label: string; desc: string; icon: React.ElementType }
+// branch = ลิงก์ของสาขานั้นโดยเฉพาะ — ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขา (lib/branch-scope.ts)
+type PageLink = { href: string; label: string; desc: string; icon: React.ElementType; branch?: string }
 type Module = {
   key: string
   title: string
@@ -65,8 +68,8 @@ const MODULES: Module[] = [
     links: [
       { href: "/tire",                       label: "ศูนย์จัดการยางรถ",  desc: "ภาพรวมยางทุกคัน ทุกสาขา",  icon: ClipboardCheck },
       { href: "/tire/master",                label: "สเปคยาง (Master)",  desc: "ขนาด / ยี่ห้อ / รุ่นยาง",   icon: Database },
-      { href: "/tire/latkrabang/stock-tire", label: "สต็อกยาง ลาดกระบัง", desc: "คลังยางสาขา ศลบ",          icon: Disc3 },
-      { href: "/tire/saraburi/stock-tire",   label: "สต็อกยาง สระบุรี",   desc: "คลังยางสาขา สสบ",          icon: Disc3 },
+      { href: "/tire/latkrabang/stock-tire", label: "สต็อกยาง ลาดกระบัง", desc: "คลังยางสาขา ศลบ",          icon: Disc3, branch: "latkrabang" },
+      { href: "/tire/saraburi/stock-tire",   label: "สต็อกยาง สระบุรี",   desc: "คลังยางสาขา สสบ",          icon: Disc3, branch: "saraburi" },
     ],
   },
   {
@@ -95,6 +98,12 @@ const MODULES: Module[] = [
 
 export default function Home() {
   const { data: session } = useSession()
+  // ผู้ใช้ที่ผูกกับสาขา (site_id 2/3) เห็นเฉพาะเมนูสาขาตัวเอง
+  const scope = useBranchScope()
+  const modules = MODULES.map((m) => ({
+    ...m,
+    links: m.links.filter((l) => !l.branch || canSeeBranch(scope, l.branch)),
+  }))
   const hour = new Date().getHours()
   const greeting = hour < 12 ? "สวัสดีตอนเช้า" : hour < 17 ? "สวัสดีตอนบ่าย" : "สวัสดีตอนเย็น"
   const userName = session?.user?.name ?? "คุณ"
@@ -129,7 +138,7 @@ export default function Home() {
       </div>
 
       {/* ── โมดูลทั้งหมด — Accordion: กดหัวข้อเพื่อกาง/พับ (อันแรกกางไว้) ── */}
-      {MODULES.map((m, mi) => {
+      {modules.map((m, mi) => {
         const MIcon = m.icon
         const isOpen = openKeys.has(m.key)
         return (
