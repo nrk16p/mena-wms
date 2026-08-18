@@ -11,7 +11,7 @@ import { CARD, NUM, baht, mitr } from "@/components/ap-style"
 import { ApHeader } from "@/components/ap-summary"
 import { ApTable } from "@/components/ap-table"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
-import type { ApRow, ApSummary, ApTab } from "@/components/ap-types"
+import type { ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
 export type { ApRow } from "@/components/ap-types"
 
@@ -291,12 +291,13 @@ export function ApTrackingPage() {
 
   const onDetailSaved = (
     depositCode: string,
-    patch: { docs: ApDocs; status: ApStatus; sentType: string; sentDate: string; note: string; review?: { status: string; note: string } },
+    patch: { docs: ApDocs; status: ApStatus; sentType: string; sentDate: string; note: string
+      review?: { status: string; note: string }; pay?: ApPay | null },
   ) => {
-    const { docs, status, sentType, sentDate, note, review } = patch
+    const { docs, status, sentType, sentDate, note, review, pay } = patch
     const before = rows.find((r) => r.depositCode === depositCode)
     const sentMoved = Boolean(before) && (before!.sentDate !== sentDate || before!.sentType !== sentType)
-    const next = { docs, status, sentType, sentDate, note, review,
+    const next = { docs, status, sentType, sentDate, note, review, pay: pay ?? undefined,
       overdue: sentDate ? 0 : overdueDays(before?.dueDate ?? "", todayICT()) }
     setRows((rs) => rs.map((r) => r.depositCode === depositCode ? { ...r, ...next } : r))
     setDetailFor((d) => d && d.depositCode === depositCode ? { ...d, ...next } : d)

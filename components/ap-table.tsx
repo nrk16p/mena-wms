@@ -80,6 +80,8 @@ function ApDepositRow({
           <div className="mt-0.5 text-[11px] text-gray-400">
             ส่งบัญชี {r.sentType} {thaiDate(r.sentDate)}
             {r.review?.status === "ผ่าน" ? " · บัญชีตรวจผ่าน" : ""}
+            {/* วันจ่ายที่บัญชียืนยันตอนกดผ่าน — ใบที่ผ่านแล้วคนถามต่อทันทีว่าเงินออกวันไหน */}
+            {r.pay?.payDate ? <span className="text-emerald-600 dark:text-emerald-400"> · 💰 จ่าย {thaiDate(r.pay.payDate)}</span> : ""}
           </div>
         ) : null}
         {r.note && <div className="mt-0.5 truncate text-[11px] italic text-gray-400" title={r.note}>“{r.note}”</div>}

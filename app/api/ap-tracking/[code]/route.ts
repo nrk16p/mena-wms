@@ -4,9 +4,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import {
-  AP_FILES_MAX, AP_NO_FIELDS, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_WRITABLE_DOC_KEYS, apDocLabel,
-  apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote,
-  type ApDocKey, type ApDocs, type ApFile, type ApReview, type ApReviewStatus,
+  AP_FILES_MAX, AP_NO_FIELDS, AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
+  AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate,
+  apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate,
+  type ApDocKey, type ApDocs, type ApFile, type ApPayType, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
 import { normalizeImages } from "@/lib/media"
 import { isAccounting } from "@/lib/roles"
@@ -151,6 +152,63 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
         action: status ? `บัญชีตรวจเอกสาร: ${status}` : "ล้างผลตรวจเอกสาร",
         field: "review", detail: note, by, byEmail, at,
       })
+
+      // ── กดผ่าน = เริ่มกระบวนการจ่ายเงิน (กติกาผู้ใช้ 18/08/2026) ──
+      // จุดตั้งต้นคือ "วันที่กดผ่าน" (เวลาไทยของ at) · สิ่งที่จัดซื้อเลือกตอนส่งบัญชีเป็นแค่คำขอ
+      // ตัวจริงคือ payType ที่บัญชียืนยันในกล่องนี้ — จึงบังคับส่งมา ไม่เดาจาก sentType เอง
+      if (status === "ผ่าน") {
+        const payType = s(body.payType) as ApPayType
+        if (!AP_PAY_TYPES.includes(payType)) {
+          return NextResponse.json({ error: "ต้องยืนยันประเภทการจ่าย (ตามรอบ หรือ นอกรอบ) ตอนกดผ่าน" }, { status: 400 })
+        }
+        // เครดิตเทอม: ใช้ที่ส่งมาก่อน (กรอกในกล่องยืนยันได้ — จะถูกบันทึกกลับเข้า master ด้วย)
+        // ไม่ส่งมาก็ถอยไปอ่านจาก ap_supplier ของซัพพลายเออร์ใบนี้
+        let creditTerm = s(body.payCreditTerm)
+        if (creditTerm && !(CREDIT_TERMS as readonly string[]).includes(creditTerm)) {
+          return NextResponse.json({ error: `เครดิตเทอมไม่ถูกต้อง: ${creditTerm}` }, { status: 400 })
+        }
+        const head = await client.db("atms").collection("deposit_header")
+          .findOne({ deposit_code: depositCode }, { projection: { _id: 0, supplier: 1 } })
+        const supplier = s(head?.supplier)
+        const md = writeDb(client)
+        if (payType === "ตามรอบ" && !creditTerm && supplier) {
+          const sup = await md.collection("ap_supplier").findOne({ name: supplier }, { projection: { _id: 0, creditTerm: 1 } })
+          creditTerm = s(sup?.creditTerm)
+        }
+        const schedule = apPaySchedule(ictDate(at), payType, creditTerm)
+        if (!schedule) {
+          // ตามรอบแต่ไม่มีเครดิตเทอมจากทั้งสองทาง — ห้ามเดา ให้กรอกมาในกล่องยืนยัน
+          return NextResponse.json(
+            { error: "คำนวณกำหนดจ่ายไม่ได้ — ซัพพลายเออร์ยังไม่มีเครดิตเทอม ระบุมาพร้อมการยืนยันผ่าน" },
+            { status: 409 },
+          )
+        }
+        // เก็บทั้งผลลัพธ์และตัวตั้ง (basis) — ย้อนตรวจได้เสมอว่าเลขนี้คิดจากอะไร
+        set.pay = { ...schedule, basis: { passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType) }, by, at }
+        log.push({
+          action: "กำหนดจ่ายเงิน", field: "pay",
+          detail: payType === "ตามรอบ"
+            ? `ตามรอบ · ครบกำหนด ${thaiDate(schedule.dueDate)} · ตัดรอบ ${thaiDate(schedule.cutoff)} · จ่าย ${thaiDate(schedule.payDate)}`
+            : `นอกรอบ · โอนพฤหัส ${thaiDate(schedule.payDate)}`,
+          by, byEmail, at,
+        })
+        // กรอกเทอมมากับกล่องยืนยัน → บันทึกกลับเข้า master ให้ใบต่อไปของเจ้านี้ไม่ต้องกรอกอีก
+        if (s(body.payCreditTerm) && supplier) {
+          await md.collection("ap_supplier").updateOne(
+            { name: supplier },
+            { $set: { name: supplier, creditTerm, updatedBy: by, updatedAt: at } },
+            { upsert: true },
+          )
+          log.push({ action: "ตั้งเครดิตเทอมซัพพลายเออร์", field: "pay", detail: `${supplier} = ${creditTerm}`, by, byEmail, at })
+        }
+      } else {
+        // ถอยออกจาก "ผ่าน" (ตีกลับ/ล้างผล) — กำหนดจ่ายที่คิดไว้ใช้ไม่ได้แล้ว ต้องล้างตาม
+        // ไม่งั้นใบที่ถูกตีกลับจะยังโชว์วันจ่ายค้างเหมือนกระบวนการยังเดินอยู่
+        if (current?.pay) {
+          set.pay = null
+          log.push({ action: "ยกเลิกกำหนดจ่ายเงิน", field: "pay", detail: "ผลตรวจถูกเปลี่ยนจากผ่าน", by, byEmail, at })
+        }
+      }
     }
   }
 
@@ -296,6 +354,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     files: (doc.files ?? []) as ApFile[],
     sentType: s(doc.sentType),
     sentDate: sentDateOut,
+    pay: doc.pay ?? null,
     note: s(doc.note),
     status: apStatusOf(docsOut, sentDateOut),
   })

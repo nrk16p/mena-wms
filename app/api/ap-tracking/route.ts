@@ -169,6 +169,8 @@ export async function GET(req: NextRequest) {
         // sentMarkedDate คือวันเดียวกันในเวลาไทย — ใช้เป็นคีย์จัดกลุ่ม/กรองฝั่งหน้าเว็บ
         // ใส่เฉพาะใบที่กดส่งแล้ว (ส่วนน้อยของทั้งชุด) — 3 คีย์ว่างคูณหมื่นแถวคือ payload เปล่า ๆ ~0.7MB
         ...sentMarkedOf(s(t?.sentMarkedAt), s(t?.sentMarkedBy)),
+        // กำหนดจ่ายที่บัญชียืนยันตอนกดผ่าน — ส่งเฉพาะใบที่มี (ส่วนน้อย) ไม่แบกคีย์ว่างทั้งตาราง
+        ...(t?.pay ? { pay: t.pay } : {}),
         note:        s(t?.note),
         status:      apStatusOf(docs, sentDate),
         carryover:   receivedAt.slice(0, 7) !== monthPrefix,

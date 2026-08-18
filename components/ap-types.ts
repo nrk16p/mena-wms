@@ -1,6 +1,12 @@
 // รูปร่างข้อมูลที่ /api/ap-tracking ส่งกลับมา — แยกออกจาก component เพื่อให้ตาราง/แถบสรุป/โมดัล
 // อ้างถึงชนิดเดียวกันได้โดยไม่ import วนกันเอง
-import type { ApDocNos, ApDocs, ApStage, ApStatus } from "@/lib/ap-tracking"
+import type { ApDocNos, ApDocs, ApPaySchedule, ApStage, ApStatus } from "@/lib/ap-tracking"
+
+// กำหนดจ่ายที่บัญชียืนยันตอนกดผ่าน — basis คือตัวตั้งที่ใช้คิด เก็บไว้ย้อนตรวจ
+export type ApPay = ApPaySchedule & {
+  basis?: { passedAt: string; passedDate: string; creditTerm: string; requestedType: string }
+  by?: string; at?: string
+}
 
 export type ApRow = {
   depositCode: string; depositId: number | null; warehouse: string
@@ -15,6 +21,8 @@ export type ApRow = {
   // (คนละตัวกับ sentDate ซึ่งคือวันที่เงินจะออก) · ใบที่ยังไม่เคยกดส่ง — และใบเก่าก่อนมีฟิลด์นี้
   // ที่ยังไม่ backfill — จะไม่มีคีย์นี้เลย ไม่ใช่ "" (API ตัดทิ้งเพื่อลดขนาด payload)
   sentMarkedAt?: string; sentMarkedDate?: string; sentMarkedBy?: string
+  // มีเฉพาะใบที่บัญชีกดผ่านแล้ว (API ตัดคีย์ว่างทิ้งเพื่อลดขนาด payload)
+  pay?: ApPay
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }

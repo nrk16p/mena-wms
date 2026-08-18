@@ -6,25 +6,25 @@ import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
-  AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
+  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule,
   apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingThursdays,
   type ApDocKey, type ApDocNos, type ApDocs, type ApFile, type ApItems, type ApNoKey,
-  type ApReview, type ApReviewStatus,
+  type ApPayType, type ApReview, type ApReviewStatus,
   type ApSentType, type ApStatus, type ApTimelineStep,
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
 import { ImageUpload } from "@/components/image-upload"
 import { isAccounting } from "@/lib/roles"
 import { NUM, baht, mitr } from "@/components/ap-style"
-import type { ApRow } from "@/components/ap-types"
+import type { ApPay, ApRow } from "@/components/ap-types"
 
 type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string }
 type LogEntry = { action?: string; field?: string; detail?: string; by?: string; at?: string }
 type Detail = {
-  tracking: ({ log?: LogEntry[]; items?: ApItems; files?: ApFile[]; review?: ApReview; note?: string }
+  tracking: ({ log?: LogEntry[]; items?: ApItems; files?: ApFile[]; review?: ApReview; note?: string; pay?: ApPay | null }
     & Partial<ApDocNos>) | null
   items: DepositItem[]
   po: Record<string, unknown> | null
@@ -98,7 +98,7 @@ export function ApTrackingDetail({
   onClose: () => void
   onSaved: (depositCode: string, patch: {
     docs: ApDocs; status: ApStatus; sentType: string; sentDate: string
-    note: string; review?: { status: string; note: string }
+    note: string; review?: { status: string; note: string }; pay?: ApPay | null
   }) => void
 }) {
   // สิทธิ์แก้ผลตรวจ — ฝ่ายบัญชี (หรือแอดมิน) เท่านั้น · คนอื่นเห็นผลตรวจได้แต่กดไม่ได้
@@ -121,6 +121,9 @@ export function ApTrackingDetail({
   const [savedFiles, setSavedFiles] = useState<ApFile[]>([])
   const [files, setFiles]           = useState<ApFile[]>([])
   const [savedReview, setSavedReview] = useState<ApReview>({ status: "", note: "" })
+  const [savedPay, setSavedPay] = useState<ApPay | null>(null)
+  // กล่องยืนยันตอนกดผ่าน — null = ไม่เปิด · เปิดพร้อมค่าตั้งต้น: คำขอจากจัดซื้อ + เทอมจาก master
+  const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string } | null>(null)
   const [review, setReview]           = useState<ApReview>({ status: "", note: "" })
   const [savedNote, setSavedNote] = useState(row.note ?? "")
   const [note, setNote]           = useState(row.note ?? "")
@@ -205,6 +208,7 @@ export function ApTrackingDetail({
         by: d?.tracking?.review?.by, at: d?.tracking?.review?.at,
       }
       const nt = String(d?.tracking?.note ?? "")
+      setSavedPay((d?.tracking?.pay ?? null) as ApPay | null)
       setSavedNos(dn);    setNos(dn)
       setSavedReview(rv); setReview(rv)
       setSavedNote(nt);   setNote(nt)
@@ -242,7 +246,21 @@ export function ApTrackingDetail({
     setSent(savedSent); setReview(savedReview); setNote(savedNote)
   }
 
-  const save = async () => {
+  // กดบันทึกโดยมีการเปลี่ยนผลตรวจเป็น "ผ่าน" → ต้องผ่านกล่องยืนยันกำหนดจ่ายก่อนเสมอ
+  // (กติกาผู้ใช้: กดผ่าน = เริ่มกระบวนการจ่ายเงิน ต้องเห็นวันจ่ายก่อนยืนยัน)
+  const requestSave = () => {
+    if (reviewChanged && review.status === "ผ่าน") {
+      setTab("money")
+      setPassConfirm({
+        payType: (AP_PAY_TYPES as string[]).includes(sent.type) ? (sent.type as ApPayType) : "ตามรอบ",
+        creditTerm: row.creditTerm ?? "",
+      })
+      return
+    }
+    save()
+  }
+
+  const save = async (passOpts?: { payType: ApPayType; creditTerm: string }) => {
     if (!dirty || saving) return
     if (reviewNeedsNote(review.status, review.note)) {
       setTab("money"); swalError("ตีกลับต้องระบุเหตุผลว่าไม่ผ่านเพราะอะไร"); return
@@ -270,6 +288,12 @@ export function ApTrackingDetail({
       for (const k of nosChangedKeys) body[k] = cleanDocNos(nos[k])
       if (filesChanged)        body.files  = files
       if (reviewChanged)       body.review = { status: review.status, note: review.note.trim() }
+      // ค่าที่ยืนยันในกล่องกำหนดจ่าย — เซิร์ฟเวอร์คิดวันจ่ายเองอีกรอบจากนาฬิกาของมัน (ตัวจริง)
+      if (passOpts) {
+        body.payType = passOpts.payType
+        // ส่งเทอมเฉพาะตอนที่ต่างจาก master — ฝั่งเซิร์ฟเวอร์จะบันทึกกลับเข้า ap_supplier ให้ด้วย
+        if (passOpts.creditTerm && passOpts.creditTerm !== (row.creditTerm ?? "")) body.payCreditTerm = passOpts.creditTerm
+      }
       if (noteChanged)         body.note   = note.trim()
       if (sentChanged)       { body.sentType = sent.type; body.sentDate = sent.date }
 
@@ -286,6 +310,7 @@ export function ApTrackingDetail({
       const filesOut = (d.files ?? []) as ApFile[]
       const nosOut   = readDocNos(d)
       const rvOut    = (d.review ?? { status: "", note: "" }) as ApReview
+      const payOut   = (d.pay ?? null) as ApPay | null
       const noteOut  = String(d.note ?? "")
       const sentOut  = { type: (d.sentType ?? "") as ApSentType, date: String(d.sentDate ?? "") }
       setSaved(docsOut);       setDraft(draftOf(docsOut))
@@ -293,11 +318,12 @@ export function ApTrackingDetail({
       setSavedFiles(filesOut); setFiles(filesOut)
       setSavedNos(nosOut);     setNos(nosOut)
       setSavedReview(rvOut);   setReview(rvOut)
+      setSavedPay(payOut);     setPassConfirm(null)
       setSavedNote(noteOut);   setNote(noteOut)
       setSavedSent(sentOut);   setSent(sentOut)
       onSaved(row.depositCode, {
         docs: docsOut, status: d.status as ApStatus, sentType: sentOut.type, sentDate: sentOut.date,
-        note: noteOut, review: { status: rvOut.status, note: rvOut.note },
+        note: noteOut, review: { status: rvOut.status, note: rvOut.note }, pay: payOut,
       })
       loadDetail(row.depositCode, () => true)   // ดึง log รอบใหม่มาแสดง
       swalToast("success", `บันทึกแล้ว ${dirtyCount} รายการ`)
@@ -313,7 +339,7 @@ export function ApTrackingDetail({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={requestClose}>
-      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white dark:bg-[#161a23] sm:rounded-2xl"
+      <div className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white dark:bg-[#161a23] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}>
 
         {/* หัวติดบน — เลขใบ ยอดเงิน สถานะ อยู่ในสายตาตลอดเวลาที่เลื่อนดูข้างล่าง */}
@@ -631,6 +657,15 @@ export function ApTrackingDetail({
                     )
                   })}
                 </div>
+                {/* กำหนดจ่ายที่ยืนยันไว้ตอนกดผ่าน — โชว์ค้างไว้ให้ทุกคนเห็นว่าเงินจะออกวันไหน */}
+                {savedPay && savedReview.status === "ผ่าน" && (
+                  <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
+                    💰 {savedPay.type === "ตามรอบ"
+                      ? <>ตามรอบ · ครบกำหนด {thaiDate(savedPay.dueDate)} · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
+                      : <>นอกรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>}
+                    {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
+                  </div>
+                )}
                 {(review.status === "ไม่ผ่าน" || review.note) && (
                   <label className="block space-y-1 text-xs">
                     <span className={review.status === "ไม่ผ่าน" ? "text-rose-600" : "text-gray-500"}>
@@ -670,6 +705,79 @@ export function ApTrackingDetail({
           )}
         </div>
 
+        {/* กล่องยืนยันตอนกดผ่าน — เห็นวันจ่ายที่คิดตามกติกาก่อน แล้วค่อยยืนยัน
+            พรีวิวฝั่งนี้คิดจากวันนี้ (เวลาไทย) — เซิร์ฟเวอร์คิดซ้ำจากนาฬิกาตัวเองเป็นตัวจริง */}
+        {passConfirm && (() => {
+          const preview = apPaySchedule(todayICT(), passConfirm.payType, passConfirm.creditTerm)
+          const needTerm = passConfirm.payType === "ตามรอบ" && !passConfirm.creditTerm
+          return (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-4"
+              onClick={() => setPassConfirm(null)}>
+              <div className="w-full max-w-sm space-y-3 rounded-2xl border border-gray-200/80 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#161a23]"
+                onClick={(e) => e.stopPropagation()}>
+                <div className="font-bold" style={mitr}>✅ ยืนยันผ่าน · {row.depositCode}</div>
+                <div className="text-xs text-gray-500">{row.supplier} · <span className={NUM}>{baht(row.amount)}</span> บาท</div>
+
+                <div className="flex gap-2">
+                  {AP_PAY_TYPES.map((t) => (
+                    <button key={t} onClick={() => setPassConfirm((p) => p && { ...p, payType: t })}
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-sm transition ${passConfirm.payType === t
+                        ? "border-emerald-500 bg-emerald-50 font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                        : "border-gray-200/80 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"}`}>
+                      {t === "ตามรอบ" ? "📋 ตามรอบ" : "💸 นอกรอบ"}
+                    </button>
+                  ))}
+                </div>
+                {sent.type && sent.type !== passConfirm.payType && (
+                  <div className="text-[11px] text-amber-600">จัดซื้อขอมาเป็น “{sent.type}” — ค่าที่ยืนยันตรงนี้คือตัวจริง</div>
+                )}
+
+                {passConfirm.payType === "ตามรอบ" && (
+                  <label className="block space-y-1 text-xs">
+                    <span className={needTerm ? "text-rose-600" : "text-gray-500"}>
+                      เครดิตเทอม{needTerm ? " (จำเป็น — ยังไม่ตั้งใน master จะบันทึกให้เลย)" : ""}
+                    </span>
+                    <select value={passConfirm.creditTerm}
+                      onChange={(e) => setPassConfirm((p) => p && { ...p, creditTerm: e.target.value })}
+                      className={`w-full rounded-lg border bg-white px-2 py-1.5 text-sm dark:bg-white/5 ${needTerm ? "border-rose-400" : "border-gray-200/80 dark:border-white/10"}`}>
+                      <option value="">— เลือกเครดิตเทอม —</option>
+                      {CREDIT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </label>
+                )}
+
+                <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm dark:bg-white/5">
+                  {preview ? (
+                    preview.type === "ตามรอบ" ? (
+                      <div className="space-y-0.5 text-xs">
+                        <div>ครบกำหนด <b>{thaiDate(preview.dueDate)}</b></div>
+                        <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b></div>
+                        <div className="text-emerald-700 dark:text-emerald-400">💰 จ่าย <b>{thaiDate(preview.payDate)}</b></div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-emerald-700 dark:text-emerald-400">💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b> (กดผ่านไม่เกินวันพุธ)</div>
+                    )
+                  ) : (
+                    <div className="text-xs text-gray-400">เลือกเครดิตเทอมก่อน จึงจะคำนวณวันจ่ายได้</div>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setPassConfirm(null)}
+                    className="rounded-lg border border-gray-200/80 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
+                    ยกเลิก
+                  </button>
+                  <button disabled={!preview || saving}
+                    onClick={() => save({ payType: passConfirm.payType, creditTerm: passConfirm.creditTerm })}
+                    className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40">
+                    {saving ? "กำลังบันทึก…" : "ยืนยันผ่าน"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
         {/* ปุ่มบันทึกติดล่างเสมอ — ไม่ว่าจะอยู่แท็บไหนหรือเลื่อนไปไหน กดบันทึกได้ทันที */}
         <div className="flex items-center gap-2 border-t border-gray-100 px-5 py-3 dark:border-white/10">
           <span className="text-xs text-amber-600">{dirty ? `ยังไม่ได้บันทึก ${dirtyCount} รายการ` : ""}</span>
@@ -682,7 +790,7 @@ export function ApTrackingDetail({
               className="rounded-lg border border-gray-200/80 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
               ปิด
             </button>
-            <button onClick={save} disabled={!dirty || saving}
+            <button onClick={requestSave} disabled={!dirty || saving}
               className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40">
               {saving ? "กำลังบันทึก…" : "บันทึก"}
             </button>

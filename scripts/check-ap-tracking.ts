@@ -11,6 +11,7 @@ import {
   apUrgency, needsAccountingReview,
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
+  payThursday, payFromCutoff, apPaySchedule, AP_PAY_TYPES,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
@@ -193,6 +194,44 @@ assert.deepEqual(apRangeOf("7d", "2026-09-03"), { from: "2026-08-28", to: "2026-
   const days = (Date.parse(`${r.to}T00:00:00Z`) - Date.parse(`${r.from}T00:00:00Z`)) / 86_400_000 + 1
   assert.equal(days, 7)
 }
+
+// --- กำหนดจ่ายเงิน (คิดตอนบัญชีกดผ่าน — กติกาผู้ใช้ยืนยัน 18/08/2026) ---
+assert.deepEqual(AP_PAY_TYPES, ["ตามรอบ", "นอกรอบ"])
+
+// นอกรอบ: เส้นตายวันพุธ — ต่างจาก nextThursday ที่นับพฤหัสวันนี้ว่ายังทัน
+assert.equal(payThursday("2026-08-18"), "2026-08-20", "กดอังคาร → พฤหัสสัปดาห์นี้")
+assert.equal(payThursday("2026-08-19"), "2026-08-20", "กดพุธ (วันสุดท้ายที่ทัน) → พฤหัสพรุ่งนี้")
+assert.equal(payThursday("2026-08-20"), "2026-08-27", "กดพฤหัสเอง = ไม่ทันแล้ว → พฤหัสหน้า")
+assert.equal(payThursday("2026-08-21"), "2026-08-27", "กดศุกร์ → พฤหัสหน้า")
+assert.equal(payThursday("2026-08-22"), "2026-08-27", "กดเสาร์ → พฤหัสหน้า")
+assert.equal(payThursday("2026-08-23"), "2026-08-27", "กดอาทิตย์ → พฤหัสสัปดาห์ถัดไป")
+assert.equal(payThursday(""), "", "วันที่อ่านไม่ออก = คิดไม่ได้")
+for (const d of ["2026-08-18", "2026-08-20", "2026-12-31"]) {
+  assert.equal(new Date(`${payThursday(d)}T00:00:00Z`).getUTCDay(), 4, `ผลของ ${d} ต้องเป็นวันพฤหัสเสมอ`)
+}
+
+// ตามรอบ: ตัดรอบ 25 นับถึงสิ้นวัน → จ่าย 5 เดือนถัดไป · ไม่เลื่อนแม้ตรงเสาร์-อาทิตย์
+assert.deepEqual(payFromCutoff("2026-09-17"), { cutoff: "2026-09-25", payDate: "2026-10-05" })
+assert.deepEqual(payFromCutoff("2026-08-25"), { cutoff: "2026-08-25", payDate: "2026-09-05" }, "ครบวันที่ 25 พอดี = ทันรอบ (สิ้นวัน)")
+assert.deepEqual(payFromCutoff("2026-08-26"), { cutoff: "2026-09-25", payDate: "2026-10-05" }, "เลย 25 วันเดียว = ตกไปทั้งเดือน")
+assert.deepEqual(payFromCutoff("2026-12-26"), { cutoff: "2027-01-25", payDate: "2027-02-05" }, "ข้ามปีที่ตัดรอบ")
+assert.deepEqual(payFromCutoff("2026-11-30"), { cutoff: "2026-12-25", payDate: "2027-01-05" }, "ข้ามปีที่วันจ่าย")
+assert.equal(new Date("2026-09-05T00:00:00Z").getUTCDay(), 6, "5 ก.ย. 69 เป็นวันเสาร์ — ยืนยันว่าเทสต์นี้ครอบเคสไม่เลื่อน")
+assert.deepEqual(payFromCutoff(""), { cutoff: "", payDate: "" })
+
+// ทั้งใบ: ตารางตัวอย่างที่ใช้คุยกับผู้ใช้ (กดผ่าน 18/08/2026)
+assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "30D"),
+  { type: "ตามรอบ", dueDate: "2026-09-17", cutoff: "2026-09-25", payDate: "2026-10-05" })
+assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "7D"),
+  { type: "ตามรอบ", dueDate: "2026-08-25", cutoff: "2026-08-25", payDate: "2026-09-05" })
+assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "60D"),
+  { type: "ตามรอบ", dueDate: "2026-10-17", cutoff: "2026-10-25", payDate: "2026-11-05" })
+assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "Immediate"),
+  { type: "ตามรอบ", dueDate: "2026-08-18", cutoff: "2026-08-25", payDate: "2026-09-05" })
+assert.deepEqual(apPaySchedule("2026-08-18", "นอกรอบ", ""),
+  { type: "นอกรอบ", dueDate: "", cutoff: "", payDate: "2026-08-20" }, "นอกรอบไม่ต้องมีเครดิตเทอม")
+assert.equal(apPaySchedule("2026-08-18", "ตามรอบ", ""), null, "ตามรอบแต่ไม่มีเครดิตเทอม = คิดไม่ได้ (ให้ UI บังคับกรอก)")
+assert.equal(apPaySchedule("", "นอกรอบ", ""), null)
 
 // --- ชื่อวันในสัปดาห์ (หัวกลุ่ม) ---
 assert.equal(thaiDow("2026-08-13"), "พฤหัสบดี", "13/08/2026 เป็นวันพฤหัส (วันที่บัญชีโอนนอกรอบ)")
