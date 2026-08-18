@@ -9,10 +9,12 @@ export type ApRow = {
   creditTerm: string; dueDate: string; overdue: number
   docs: ApDocs; fileCount: number; review?: { status: string; note: string }
   sentType: string; sentDate: string; note: string
-  docNos: ApDocNos
+  // ตารางส่งมาเฉพาะช่องที่มีเลขจริง (ดู compactDocNos) — ช่องที่ไม่มีจะหายไปเลย ไม่ใช่ []
+  docNos: Partial<ApDocNos>
   // เวลาที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" · sentMarkedDate = วันเดียวกันในเวลาไทย
-  // (คนละตัวกับ sentDate ซึ่งคือวันที่เงินจะออก) — ใบเก่าก่อนมีฟิลด์นี้จะเป็น ""
-  sentMarkedAt: string; sentMarkedDate: string; sentMarkedBy: string
+  // (คนละตัวกับ sentDate ซึ่งคือวันที่เงินจะออก) · ใบที่ยังไม่เคยกดส่ง — และใบเก่าก่อนมีฟิลด์นี้
+  // ที่ยังไม่ backfill — จะไม่มีคีย์นี้เลย ไม่ใช่ "" (API ตัดทิ้งเพื่อลดขนาด payload)
+  sentMarkedAt?: string; sentMarkedDate?: string; sentMarkedBy?: string
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }

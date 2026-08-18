@@ -68,6 +68,18 @@ export function readDocNos(src: Record<string, unknown> | null | undefined): ApD
   ) as ApDocNos
 }
 
+// เหมือน readDocNos แต่ตัดช่องที่ว่างทิ้ง — ใช้กับ payload ของตารางที่ส่งทีละหมื่นแถว
+// ส่งคีย์ว่างครบ 4 ช่องทุกแถวกินไปราว 90 bytes/แถว (~1.2MB ที่ 13,000 แถว) โดยไม่ได้ข้อมูลอะไรเลย
+// ฝั่งอ่านต้องทนคีย์ที่หายไปได้ — docNosText กับ ApRow["docNos"] เป็น Partial ด้วยเหตุนี้
+export function compactDocNos(src: Record<string, unknown> | null | undefined): Partial<ApDocNos> {
+  const out: Partial<ApDocNos> = {}
+  for (const f of AP_NO_FIELDS) {
+    const v = cleanDocNos(src?.[f.key])
+    if (v.length) out[f.key] = v
+  }
+  return out
+}
+
 // เลขทุกช่องรวมเป็นสายเดียวสำหรับค้นหา — ใช้ตัวเดียวกันทั้งฝั่ง API และฝั่งหน้าเว็บ
 // ไม่งั้นค้นด้วยเลขใบวางบิลแล้วยอดสรุปกับตารางจะกรองคนละชุด
 export function docNosText(src: Record<string, unknown> | null | undefined): string {
@@ -258,13 +270,19 @@ export function apTimeline(
   ]
 }
 
-// วันเริ่มใช้ระบบ (go-live) — ใบรับของที่ "รับก่อนวันนี้" เป็นของกระบวนการ Excel เดิม
-// ปิดจบไปแล้วในไฟล์ เจ้าหนี้เดือน xx.xlsx ไม่ใช่ยอดค้างของระบบนี้ จึงตัดออกจากสโคปทั้งหมด
-// เหตุผล: ap_tracking ยังว่าง (ยังไม่มีใครติ๊ก) ทุกใบที่ scraper เคยเก็บมาจึงเข้าเงื่อนไข
-// "ยังไม่ส่งบัญชี" = ค้างยกมาหมด · วัดจริงก่อนใส่ cutoff: เปิดเดือน ส.ค. ได้ 11,203 แถว
-// ฿155,807,603 ใช้เวลา 8.4 วินาที และเดือน ก.ค. ชนเพดาน 12,000 แถวจนข้อมูลถูกตัด
-// แก้ที่เดียวตรงนี้ที่เดียว (ฝั่ง API อ่านค่านี้ไปใช้) · เปิดดูย้อนหลังได้ด้วย ?since=YYYY-MM-DD
-export const AP_GO_LIVE = "2026-08-01"
+// วันเริ่มใช้ระบบ (go-live) — ใบรับของก่อนวันนี้ไม่อยู่ในสโคป · แก้ที่เดียวตรงนี้ที่เดียว
+// (ฝั่ง API อ่านค่านี้ไปใช้) · เปิดดูย้อนหลังกว่านี้ได้ด้วย ?since=YYYY-MM-DD
+//
+// เดิม 2026-08-01: ใบก่อนหน้านั้นปิดจบใน เจ้าหนี้เดือน xx.xlsx ไปแล้ว และ ap_tracking ยังว่าง
+// ทุกใบเก่าจึงเข้าเงื่อนไข "ยังไม่ส่งบัญชี" = ค้างยกมาหมด
+// ย้ายมา 2026-01-01 เมื่อ 18/08/2026 ตามที่ผู้ใช้สั่ง — รับผลที่ตามมาแล้ว: เปิดเดือน ส.ค.
+// จะเห็นใบ ก.พ.–ก.ค. โผล่เป็น "ค้างยกมา · รอประกบ" หลักหมื่นใบ และยอดค้างในแถบสรุปพุ่งขึ้น
+//
+// วัดจริง 18/08/2026: deposit_header มี 16,099 ใบ และเป็นเดือน ม.ค.–ส.ค. 69 ทั้งหมด
+// (ตัดแถวคืนสต๊อกภายในแล้วเหลือ 13,017) → เส้นนี้เท่ากับดึงทั้ง collection เข้าสโคป
+// หน้าต่างที่หนักสุดคือเปิดเดือน ก.ค. = ม.ค.–ก.ค. 12,018 แถว ซึ่งชนเพดานเดิม 12,000 พอดี
+// จึงต้องขยายเพดานใน route.ts พร้อมกัน ไม่งั้นข้อมูลถูกตัดเงียบ ๆ
+export const AP_GO_LIVE = "2026-01-01"
 
 // "YYYY-MM-DD" ที่เป็นวันที่จริง (ปฏิเสธ 2026-13-01 / 2026-02-30) — ไม่ใช่แค่รูปแบบถูก
 function isValidYmd(v: string): boolean {
@@ -413,7 +431,8 @@ export function ictDate(iso: string): string {
 // อยู่ในช่วงวันที่ไหม — ปลายไหนว่าง = ไม่จำกัดด้านนั้น (ทุกค่าเป็น YYYY-MM-DD เทียบ string ตรง ๆ ได้)
 // ไม่ได้ตั้งช่วงเลย = ผ่านหมด รวมถึงแถวที่ยังไม่มีวันที่ · ตั้งช่วงเมื่อไหร่ แถวที่ไม่มีวันที่ตกทันที
 // (วางบนเส้นเวลาไม่ได้ = ตอบไม่ได้ว่าอยู่ในช่วงหรือเปล่า — กติกาเดียวกับ inApScope)
-export function inDateRange(ymd: string, from: string, to: string): boolean {
+// ymd รับ undefined ได้ — แถวที่ยังไม่เคยกดส่งไม่มีคีย์นี้มาเลย (API ตัดคีย์ว่างทิ้ง) ไม่ใช่ ""
+export function inDateRange(ymd: string | undefined, from: string, to: string): boolean {
   if (!from && !to) return true
   if (!ymd) return false
   if (from && ymd < from) return false
@@ -432,7 +451,7 @@ export function apRangeOf(preset: ApRangePreset, todayISO: string): { from: stri
 
 // จัดกลุ่มแถวตามวัน เรียงวันใหม่ → เก่า · แถวที่ไม่มีวันที่ ("") ไปกองท้ายสุดเป็นกลุ่มเดียว
 // ลำดับแถวภายในกลุ่มคงตามที่รับมา (ตารางเรียงมาแล้ว) — ไม่เรียงซ้ำให้เพี้ยนจากมุมมองรายการ
-export function groupByDate<T>(rows: T[], dateOf: (r: T) => string): { date: string; rows: T[] }[] {
+export function groupByDate<T>(rows: T[], dateOf: (r: T) => string | undefined): { date: string; rows: T[] }[] {
   const by = new Map<string, T[]>()
   for (const r of rows) {
     const d = dateOf(r) || ""

@@ -9,7 +9,7 @@ import {
   apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, addDays,
   apStage, apStageMeta, AP_STAGES, apTimeline,
   apUrgency, needsAccountingReview,
-  cleanDocNos, readDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
+  cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
@@ -146,12 +146,20 @@ assert.deepEqual(readDocNos(null),
   { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], vatInvoiceNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
 assert.deepEqual(readDocNos({ taxInvoiceNos: "IV1" }), readDocNos(null), "ค่าเสียรูปใน DB = ถือว่าไม่มีเลข")
 
+// compactDocNos — payload ของตารางส่งเฉพาะช่องที่มีเลขจริง (หมื่นแถว × คีย์เปล่า 4 ตัว = เปลืองเปล่า)
+assert.deepEqual(compactDocNos({ taxInvoiceNos: ["IV1"], cashBillNos: [] }), { taxInvoiceNos: ["IV1"] })
+assert.deepEqual(compactDocNos(null), {}, "ใบที่ไม่มีเลขเลย = object ว่าง")
+assert.deepEqual(Object.keys(compactDocNos({ billingNoteNos: ["BN1"] })), ["billingNoteNos"], "ไม่งอกคีย์ที่ว่าง")
+
 // สายค้นหา — ต้องรวมทุกช่อง ไม่งั้นค้นด้วยเลขใบวางบิลแล้วเหมือนไม่เจอ
 const nosDoc = { taxInvoiceNos: ["IV6808-0231"], billingNoteNos: ["BN-2569/0814"], vatInvoiceNos: ["TX1187"] }
 for (const needle of ["IV6808-0231", "BN-2569/0814", "TX1187"]) {
   assert.ok(docNosText(nosDoc).includes(needle), `ค้นหาต้องเจอ ${needle}`)
 }
 assert.equal(docNosText(null), "", "ใบที่ไม่มีเลขเลย = สายว่าง ไม่ใช่ undefined")
+// ตารางส่ง docNos แบบตัดคีย์ว่าง — ค้นหาต้องยังทำงานกับรูปนั้นเหมือนกับรูปเต็ม
+assert.equal(docNosText(compactDocNos(nosDoc)), docNosText(readDocNos(nosDoc)),
+  "ค้นหาต้องให้ผลเท่ากันทั้งรูปเต็มและรูปตัดคีย์ว่าง")
 
 // --- วันที่กดส่งบัญชี: ICT (บั๊กเดิมของทั้งระบบคือลืมบวก +7 ก่อนตัดวัน) ---
 assert.equal(ictDate("2026-08-14T09:41:00.000Z"), "2026-08-14")
@@ -164,6 +172,8 @@ assert.equal(ictDate("ไม่ใช่เวลา"), "")
 // --- ช่วงวันที่ของตัวกรอง ---
 assert.equal(inDateRange("2026-08-14", "", ""), true, "ไม่ตั้งช่วง = ผ่านหมด")
 assert.equal(inDateRange("", "", ""), true, "ไม่ตั้งช่วง แถวที่ยังไม่มีวันก็ยังอยู่")
+assert.equal(inDateRange(undefined, "", ""), true, "แถวที่ไม่มีคีย์วันที่มาเลย (API ตัดทิ้ง) ต้องไม่พัง")
+assert.equal(inDateRange(undefined, "2026-08-11", ""), false, "ตั้งช่วงแล้ว แถวที่ไม่มีคีย์ต้องตก")
 assert.equal(inDateRange("", "2026-08-11", ""), false, "ตั้งช่วงแล้ว แถวที่ไม่มีวันต้องตก")
 assert.equal(inDateRange("2026-08-11", "2026-08-11", "2026-08-18"), true, "ขอบล่างนับรวม")
 assert.equal(inDateRange("2026-08-18", "2026-08-11", "2026-08-18"), true, "ขอบบนนับรวม")
@@ -201,6 +211,9 @@ assert.equal(thaiDow("ไม่ใช่วันที่"), "")
   assert.deepEqual(g[1].rows.map((r) => r.c), ["A", "C"], "ลำดับในกลุ่มคงเดิมตามที่รับมา")
   assert.equal(g.reduce((n, x) => n + x.rows.length, 0), rs.length, "ห้ามมีแถวหายหรือถูกนับซ้ำ")
   assert.deepEqual(groupByDate([], (r: { d: string }) => r.d), [], "ไม่มีแถว = ไม่มีกลุ่ม")
+  // แถวที่ API ตัดคีย์วันที่ทิ้ง (ยังไม่เคยกดส่ง) ต้องไปกองกลุ่มเดียวกับแถวที่วันที่ว่าง
+  const gu = groupByDate([{ d: undefined }, { d: "2026-08-14" }], (r: { d?: string }) => r.d)
+  assert.deepEqual(gu.map((x) => x.date), ["2026-08-14", ""])
 }
 
 // --- คีย์ของรายการสินค้าในใบ (ติ๊กหลักฐานรายรายการ) ---
@@ -244,12 +257,13 @@ assert.equal(ICT_OFFSET_MS, 7 * 60 * 60 * 1000, "ไทยเป็น UTC+7 ต
 const ictHour = Number(new Date(Date.now() + ICT_OFFSET_MS).toISOString().slice(11, 13))
 assert.equal(dayGap, ictHour < 7 ? 1 : 0, `ชั่วโมงไทย ${ictHour} → ต้องต่างจาก UTC ${ictHour < 7 ? 1 : 0} วัน`)
 
-// --- go-live cutoff (ใบก่อนวันเริ่มใช้ระบบเป็นของ Excel เดิม ไม่ใช่ยอดค้างของระบบนี้) ---
-assert.equal(AP_GO_LIVE, "2026-08-01")
-assert.equal(inApScope("2026-07-31"), false, "ก่อน cutoff = นอกสโคป")
-assert.equal(inApScope("2026-08-01"), true, "ตรงวัน cutoff = อยู่ในสโคป (>= ไม่ใช่ >)")
+// --- go-live cutoff (ย้ายมา 01/01/2026 เมื่อ 18/08/2026 — ดึงทั้ง collection เข้าสโคป) ---
+assert.equal(AP_GO_LIVE, "2026-01-01")
+assert.equal(inApScope("2025-12-31"), false, "ก่อน cutoff = นอกสโคป")
+assert.equal(inApScope("2026-01-01"), true, "ตรงวัน cutoff = อยู่ในสโคป (>= ไม่ใช่ >)")
 assert.equal(inApScope("2026-08-13"), true, "หลัง cutoff = อยู่ในสโคป")
-assert.equal(inApScope("2026-02-15"), false, "ย้อนไปไกล ๆ ก็ยังนอกสโคป")
+assert.equal(inApScope("2026-02-15"), true, "เดือนที่เคยถูกตัด (ก่อนย้ายเส้น) ต้องเข้าสโคปแล้ว")
+assert.equal(inApScope("2026-07-31"), true, "ก.ค. เคยอยู่นอกสโคป ตอนนี้ต้องเข้า")
 assert.equal(inApScope(""), false, "ไม่มีวันรับของที่อ่านได้ = วางบนเส้นเวลาไม่ได้ = นอกสโคป")
 // override ด้วย since — ใช้เส้นใหม่แทน AP_GO_LIVE ทั้งหมด
 assert.equal(inApScope("2026-07-31", "2026-07-01"), true, "ขยับเส้นแล้วใบเดือน ก.ค. ต้องเข้า")
@@ -258,11 +272,12 @@ assert.equal(inApScope("2026-08-14", "2026-08-15"), false, "cutoff กลาง�
 assert.equal(inApScope("2026-08-15", "2026-08-15"), true)
 
 // เดือนที่จบก่อน cutoff ทั้งเดือน = ไม่ต้องยิงคิวรีหาเลย
-assert.equal(monthInApScope("2026-07"), false, "ก.ค. จบก่อน 01/08 ทั้งเดือน")
-assert.equal(monthInApScope("2026-08"), true, "เดือนที่มี cutoff อยู่ ต้องดึงมากรองรายแถวต่อ")
+assert.equal(monthInApScope("2025-12"), false, "ธ.ค. 68 จบก่อน 01/01/2026 ทั้งเดือน")
+assert.equal(monthInApScope("2026-01"), true, "เดือนที่มี cutoff อยู่ ต้องดึงมากรองรายแถวต่อ")
+assert.equal(monthInApScope("2026-07"), true, "ก.ค. เข้าสโคปแล้วหลังย้ายเส้น")
 assert.equal(monthInApScope("2026-09"), true)
-assert.equal(monthInApScope("2026-02"), false)
 assert.equal(monthInApScope("2026-07", "2026-07-15"), true, "เดือนที่คร่อม cutoff ต้องไม่ถูกตัดทั้งเดือน")
+assert.equal(monthInApScope("2026-06", "2026-07-15"), false, "เดือนก่อน cutoff ที่ override มา ยังต้องถูกตัด")
 
 // since จาก query — ต้องเป็นวันที่จริงเท่านั้น
 assert.equal(apSinceOf(null), AP_GO_LIVE, "ไม่ส่งมา = ใช้ go-live")

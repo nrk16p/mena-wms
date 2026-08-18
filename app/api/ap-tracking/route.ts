@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apUrgency, nextThursday, todayICT,
-  AP_STAGES, docNosText, ictDate, readDocNos,
+  AP_STAGES, compactDocNos, docNosText, ictDate,
   apSinceOf, inApScope, monthInApScope,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
@@ -13,6 +13,12 @@ export const dynamic = "force-dynamic"
 const MD = process.env.MONGO_DB ?? "master_data"
 type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
+
+// เวลากดส่งบัญชีของแถวหนึ่ง — คืน object ว่างเมื่อยังไม่เคยกดส่ง เพื่อไม่ให้คีย์เปล่าไปกิน payload
+// (ฝั่งหน้าเว็บอ่านเป็น optional อยู่แล้ว — ดู ApRow)
+function sentMarkedOf(at: string, by: string) {
+  return at ? { sentMarkedAt: at, sentMarkedBy: by, sentMarkedDate: ictDate(at) } : {}
+}
 
 // regex จับ received_at รูป "DD/MM/YYYY" หรือ "DD/MM/YYYY HH:mm" ของเดือนที่ต้องการ
 // (ฟิลด์เป็น string ใน ATMS และแทบทุกแถวมีเวลาต่อท้ายวันที่ — ต้องยอมรับ suffix เวลาแบบมีขอบเขต
@@ -32,21 +38,32 @@ const prevMonths = (ym: string, n: number) => {
 }
 
 // GET /api/ap-tracking?month=YYYY-MM&carryover=1&carryoverMonths=6&warehouse=&supplier=&status=&q=&limit=&includeInternal=
+//
+// carryover ปิดเป็นค่าตั้งต้นตั้งแต่ 18/08/2026 — หน้าโหลด "ทีละเดือน" ตามที่ผู้ใช้สั่ง
+// เหตุผล: พอย้าย go-live มา 01/01/2026 ทุกเดือนเข้าสโคปหมด การลากใบค้างยกมา 6 เดือนทำให้
+// เปิดเดือน ก.ค. ได้ 12,018 แถว = response ~7.2MB ซึ่งเกินเพดาน 4.5MB ของ Vercel Function
+// (วัดจริง: แถวละ 628 bytes) → หน้าพังทั้งหน้า ไม่ใช่แค่ช้า
+// ทีละเดือนแล้วเดือนใหญ่สุด (มิ.ย. 1,827 แถว) เหลือ ~1.1MB · ข้อมูลยังมีครบทุกเดือน เปิดดูได้ทุกเดือน
+// แลกกับ: ใบค้างของเดือนก่อนไม่โผล่ในเดือนที่เปิดอยู่ ต้องเปิดเดือนของมันเอง
+// ขอแบบเดิมได้ด้วย ?carryover=1 (ระวังขนาด response ถ้าช่วงกว้าง)
 export async function GET(req: NextRequest) {
   try {
     const sp        = req.nextUrl.searchParams
     const today     = todayICT()
     const rawMonth  = sp.get("month")?.trim() || today.slice(0, 7)
     const month     = /^\d{4}-(0[1-9]|1[0-2])$/.test(rawMonth) ? rawMonth : today.slice(0, 7)
-    const carryover = sp.get("carryover") !== "0"
+    const carryover = sp.get("carryover") === "1"
     const warehouse = sp.get("warehouse")?.trim() ?? ""
     const supplier  = sp.get("supplier")?.trim()  ?? ""
     const status    = sp.get("status")?.trim()    ?? ""
     const q         = sp.get("q")?.trim()         ?? ""
     const includeInternal = sp.get("includeInternal") === "1"
     const limitRaw  = parseInt(sp.get("limit") || "", 10)
-    // ทั้ง collection มี ~15,700 ใบ และยังถูกบีบด้วยตัวกรองเดือนอีกชั้น — เพดานนี้จึงยัง bounded
-    const limit     = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 20000) : 12000
+    // เพดานแถว — วัดจริง 18/08/2026: deposit_header มี 16,099 ใบ (ตัดคืนสต๊อกภายในแล้ว 13,017)
+    // และเป็นเดือน ม.ค.–ส.ค. 69 ทั้งหมด · โหลดทีละเดือนแล้วเดือนใหญ่สุดคือ มิ.ย. 1,827 แถว
+    // เพดานนี้จึงเหลือเฟือมากสำหรับการใช้งานปกติ และยังกันไว้เผื่อ ?carryover=1 ที่ช่วงกว้างกว่า
+    // ยังเป็นเพดานจริง ไม่ใช่ unbounded — และแถบเตือน truncated ยังทำงานถ้าวันหนึ่งชนขึ้นมา
+    const limit     = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 25000) : 20000
     // ใบค้างที่เก่ากว่าหน้าต่างนี้จะไม่โผล่ในทุก view (UI ไม่มีทางเปิดเดือนของมันเอง) — ให้ปรับได้ 1–12 เดือน
     const cmRaw     = parseInt(sp.get("carryoverMonths") || "", 10)
     const carryoverMonths = Number.isInteger(cmRaw) && cmRaw >= 1 && cmRaw <= 12 ? cmRaw : 6
@@ -146,12 +163,12 @@ export async function GET(req: NextRequest) {
         sentDate,
         // เลขที่เอกสารทั้ง 4 ช่อง — อยู่ใน doc ที่ดึงมาแล้ว (projection ตัดแค่ log) ไม่มีคิวรีเพิ่ม
         // ส่งมาด้วยเพื่อให้ค้นหาด้วยเลขบิล/ใบกำกับเจอโดยไม่ต้องเปิดโมดัลทีละใบ
-        docNos:      readDocNos(t),
+        // ตัดช่องที่ว่างทิ้ง — payload ระดับหมื่นแถวไม่ควรแบกคีย์เปล่า 4 ตัวต่อแถว
+        docNos:      compactDocNos(t),
         // เวลาที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" (คนละตัวกับ sentDate = วันเงินออก)
         // sentMarkedDate คือวันเดียวกันในเวลาไทย — ใช้เป็นคีย์จัดกลุ่ม/กรองฝั่งหน้าเว็บ
-        sentMarkedAt:   s(t?.sentMarkedAt),
-        sentMarkedBy:   s(t?.sentMarkedBy),
-        sentMarkedDate: ictDate(s(t?.sentMarkedAt)),
+        // ใส่เฉพาะใบที่กดส่งแล้ว (ส่วนน้อยของทั้งชุด) — 3 คีย์ว่างคูณหมื่นแถวคือ payload เปล่า ๆ ~0.7MB
+        ...sentMarkedOf(s(t?.sentMarkedAt), s(t?.sentMarkedBy)),
         note:        s(t?.note),
         status:      apStatusOf(docs, sentDate),
         carryover:   receivedAt.slice(0, 7) !== monthPrefix,

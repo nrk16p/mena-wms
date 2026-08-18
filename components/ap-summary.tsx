@@ -116,7 +116,9 @@ export function ApHeader({
           )
         })}
         <span className={`ml-auto pb-2 pr-1 text-xs text-gray-400 ${NUM}`}>
-          {tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้` : `ทั้งหมด ${totalShown.toLocaleString("th-TH")} ใบ`}
+          {/* "ทั้งหมด" เคยหมายถึงเดือนนี้ + ใบค้างยกมา — ตั้งแต่โหลดทีละเดือนแล้วมันคือเดือนนี้ล้วน
+              ต้องเขียนให้ตรง ไม่งั้นคนจะนึกว่าใบค้างเดือนก่อนถูกนับรวมอยู่ด้วย */}
+          {tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้` : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
         </span>
       </div>
 
