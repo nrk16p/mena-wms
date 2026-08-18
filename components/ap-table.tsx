@@ -107,7 +107,7 @@ function ApDepositRow({
           {r.sentMarkedAt ? (
             <>
               <div className={NUM}>{thaiDateTime(r.sentMarkedAt)}</div>
-              <div className="text-gray-400">{r.sentType}</div>
+              <div className="truncate text-gray-400" title={r.sentMarkedBy}>{r.sentMarkedBy || r.sentType}</div>
             </>
           ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
         </td>

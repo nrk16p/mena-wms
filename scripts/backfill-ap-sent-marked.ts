@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { MongoClient } from "mongodb"
 
-type LogEntry = { action?: string; field?: string; at?: string }
+type LogEntry = { action?: string; field?: string; at?: string; by?: string }
 
 async function main() {
   const write = process.argv.includes("--write")
@@ -38,9 +38,10 @@ async function main() {
     const log = Array.isArray(d.log) ? (d.log as LogEntry[]) : []
     const hit = [...log].reverse().find((e) => e.field === "sent" && String(e.action ?? "").startsWith("ส่งบัญชี"))
     const at  = String(hit?.at ?? "")
+    const who = String(hit?.by ?? "")
     if (!at) { noLog++; console.log(`  – ${d.depositCode}: ไม่มี log การกดส่ง ปล่อยว่างไว้`); continue }
-    console.log(`  ✓ ${d.depositCode}: กดส่ง ${at} (วันโอน ${d.sentDate})`)
-    if (write) await col.updateOne({ depositCode: d.depositCode }, { $set: { sentMarkedAt: at } })
+    console.log(`  ✓ ${d.depositCode}: กดส่ง ${at} โดย ${who || "(ไม่ทราบ)"} (วันโอน ${d.sentDate})`)
+    if (write) await col.updateOne({ depositCode: d.depositCode }, { $set: { sentMarkedAt: at, sentMarkedBy: who } })
     filled++
   }
 

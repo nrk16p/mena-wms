@@ -12,7 +12,7 @@ export type ApRow = {
   docNos: ApDocNos
   // เวลาที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" · sentMarkedDate = วันเดียวกันในเวลาไทย
   // (คนละตัวกับ sentDate ซึ่งคือวันที่เงินจะออก) — ใบเก่าก่อนมีฟิลด์นี้จะเป็น ""
-  sentMarkedAt: string; sentMarkedDate: string
+  sentMarkedAt: string; sentMarkedDate: string; sentMarkedBy: string
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }

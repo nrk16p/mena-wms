@@ -254,10 +254,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     // เก็บเป็นฟิลด์เพราะ API ตารางตัด log ทิ้ง (projection log:0) จึงอ่านจาก log ไม่ได้
     // แก้วันโอนของใบที่ส่งไปแล้วต้องไม่รีเซ็ตเวลากดส่งเดิม — ไม่งั้นใบเก่าจะเด้งมากองวันนี้ทั้งหมด
     if (sentDate) {
-      if (!hadSentDate) set.sentMarkedAt = at
+      if (!hadSentDate) { set.sentMarkedAt = at; set.sentMarkedBy = by }
       log.push({ action: `ส่งบัญชี (${sentType})`, field: "sent", detail: sentDate, by, byEmail, at })
     } else if (hadSentDate) {
       set.sentMarkedAt = ""
+      set.sentMarkedBy = ""
       // ยกเลิกจริง (เคยมี sentDate มาก่อน) เท่านั้นถึงจะลง log — ล้างค่าที่ว่างอยู่แล้วไม่ควรลง log หลอกๆ
       log.push({ action: "ยกเลิกส่งบัญชี", field: "sent", detail: sentDate, by, byEmail, at })
     }
@@ -289,6 +290,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     docs: docsOut,
     ...readDocNos(doc),
     sentMarkedAt: s(doc.sentMarkedAt),
+    sentMarkedBy: s(doc.sentMarkedBy),
     review: (doc.review ?? { status: "", note: "" }) as ApReview,
     items: (doc.items ?? {}) as Record<string, unknown>,
     files: (doc.files ?? []) as ApFile[],

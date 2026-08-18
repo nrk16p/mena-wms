@@ -150,6 +150,7 @@ export async function GET(req: NextRequest) {
         // เวลาที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" (คนละตัวกับ sentDate = วันเงินออก)
         // sentMarkedDate คือวันเดียวกันในเวลาไทย — ใช้เป็นคีย์จัดกลุ่ม/กรองฝั่งหน้าเว็บ
         sentMarkedAt:   s(t?.sentMarkedAt),
+        sentMarkedBy:   s(t?.sentMarkedBy),
         sentMarkedDate: ictDate(s(t?.sentMarkedAt)),
         note:        s(t?.note),
         status:      apStatusOf(docs, sentDate),
