@@ -17,11 +17,12 @@
 //   ไม่มีทั้งคู่ → ยังไม่ได้ส่งบัญชี (ไม่เขียน sentDate) สถานะไปตามติ๊กเอกสารเอง
 //
 // ปลอดภัย: ใบที่ "มีคนแตะในระบบใหม่แล้ว" จะถูกข้ามเสมอ ไม่ทับงานที่ทำสดในเว็บ
-import { readFileSync, readdirSync } from "node:fs"
+import { readFileSync, readdirSync, realpathSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { MongoClient } from "mongodb"
 import * as XLSX from "xlsx"
-import { apStatusOf, type ApDocKey, type ApDocs } from "../lib/ap-tracking"
+import { apStatusOf, parseDmy, type ApDocKey, type ApDocs } from "../lib/ap-tracking"
 
 const DEFAULT_DIR = path.join(process.env.HOME ?? "", "Documents/project/detb")
 const DD_RE = /^[A-Z]{2,4}DD\d+$/          // กัน "ผู้จัดทำ" / ชื่อคน ในแถวลงนามท้ายชีตหลุดเข้ามา
@@ -39,6 +40,25 @@ type Rec = {
 }
 
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
+
+// ปีที่พิมพ์ผิดในไฟล์ต้นทาง — เจอจริง 8 ใบตอนนำเข้ารอบแรก (18/08/2026):
+//   "0206-06-25" (ตกเลข 2 ตัว) และ "2025-01-07" ของใบที่รับ 07/01/2026
+// แก้เฉพาะ "ปี" และเฉพาะเมื่อมั่นใจว่าผิดจริงเท่านั้น — วัน/เดือนไม่แตะ เพราะเดาแทนไม่ได้:
+//   ก) ปีน้อยกว่า 2000 = เป็นไปไม่ได้
+//   ข) วันส่งบัญชีอยู่ก่อนวันรับของ = เป็นไปไม่ได้ (ส่งเอกสารก่อนของมาถึง)
+// เคสที่ "เป็นไปได้แต่แปลก" เช่นวันโอน พ.ย. ของใบเดือน ก.ค. ปล่อยไว้ตามไฟล์ ให้คนตรวจเอง
+export function fixTypoYear(sent: string, receivedISO: string): { date: string; why: string } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sent)
+  if (!m) return null
+  const year = Number(m[1])
+  const rYear = Number(receivedISO.slice(0, 4)) || 0
+  if (year < 2000 && rYear) return { date: `${rYear}-${m[2]}-${m[3]}`, why: `ปี ${m[1]} เป็นไปไม่ได้` }
+  if (receivedISO && sent < receivedISO && rYear && year < rYear) {
+    const fixed = `${rYear}-${m[2]}-${m[3]}`
+    if (fixed >= receivedISO) return { date: fixed, why: `วันส่งอยู่ก่อนวันรับของ (${receivedISO})` }
+  }
+  return null
+}
 // ติ๊กในไฟล์ A เป็น "/" ส่วนไฟล์ B เป็น boolean — ช่องที่มีชื่อคน (แถวลงนาม) ถูกกันด้วย DD_RE อยู่แล้ว
 const ticked = (v: unknown) => v === true || (typeof v === "string" && s(v) !== "" && s(v) !== "-")
 
@@ -129,24 +149,26 @@ async function main() {
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15_000 })
   await client.connect()
   const codes = [...recs.keys()]
-  const known = new Set<string>()
+  const known = new Map<string, string>()          // deposit_code → วันรับของ (YYYY-MM-DD)
   for (let i = 0; i < codes.length; i += 2000) {
     const chunk = codes.slice(i, i + 2000)
     for (const d of await client.db("atms").collection("deposit_header")
-      .find({ deposit_code: { $in: chunk } }, { projection: { _id: 0, deposit_code: 1 } }).toArray()) {
-      known.add(String(d.deposit_code))
+      .find({ deposit_code: { $in: chunk } }, { projection: { _id: 0, deposit_code: 1, received_at: 1 } }).toArray()) {
+      known.set(String(d.deposit_code), parseDmy(d.received_at))
     }
   }
   const col = client.db(mdName).collection("ap_tracking")
   const touched = new Set((await col.find({}, { projection: { _id: 0, depositCode: 1 } }).toArray()).map((d) => String(d.depositCode)))
 
   const at = new Date().toISOString()
-  let willWrite = 0, noHeader = 0, skipTouched = 0, conflicts = 0, sentNoDocs = 0, noSendDate = 0
+  let willWrite = 0, noHeader = 0, skipTouched = 0, conflicts = 0, sentNoDocs = 0, noSendDate = 0, typoFixed = 0
   const byStatus: Record<string, number> = {}
   const ops: Parameters<typeof col.bulkWrite>[0] = []
 
   for (const [code, r] of recs) {
     if (!known.has(code)) { noHeader++; continue }
+    const fix = r.sentDate ? fixTypoYear(r.sentDate, known.get(code) ?? "") : null
+    if (fix) { console.log(`  แก้ปีที่พิมพ์ผิด ${code}: ${r.sentDate} → ${fix.date} (${fix.why})`); r.sentDate = fix.date; typoFixed++ }
     if (touched.has(code)) { skipTouched++; continue }
     if (r.sentConflict) conflicts++
     const docs: ApDocs = {}
@@ -194,6 +216,7 @@ async function main() {
   console.log(`  ข้าม: ไม่มีใบนี้ใน ATMS        ${noHeader}`)
   console.log(`  ข้าม: มีคนแตะในระบบใหม่แล้ว    ${skipTouched}`)
   console.log(`  ⚠️ วันส่งขัดกันเองในไฟล์        ${conflicts}  (ยึด "นอกรอบ")`)
+  console.log(`  แก้ปีที่พิมพ์ผิดในไฟล์          ${typoFixed}`)
   console.log(`  ⚠️ มีวันส่งแต่ไม่ติ๊กเอกสารเลย  ${sentNoDocs}`)
   console.log(`  ส่งบัญชีแล้วแต่ไม่มี "วันที่ส่ง"  ${noSendDate}  (มีแต่วันโอนนอกรอบ → คอลัมน์ "กดส่งเมื่อ" จะขึ้น —)`)
   console.log("  สถานะปลายทาง:", Object.entries(byStatus).map(([k, v]) => `${k} ${v.toLocaleString("th-TH")}`).join(" · "))
@@ -220,4 +243,8 @@ async function main() {
   await client.close()
 }
 
-main().catch((e) => { console.error(e); process.exit(1) })
+// รันเฉพาะตอนถูกเรียกเป็นสคริปต์หลักเท่านั้น — สคริปต์อื่น import fixTypoYear ไปใช้ได้
+// โดยไม่เผลอสั่งนำเข้าทั้งชุดซ้ำ (เคยเกือบพลาดตอนเขียนตัวแก้ปีที่พิมพ์ผิด)
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
+  main().catch((e) => { console.error(e); process.exit(1) })
+}
