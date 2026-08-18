@@ -5,12 +5,14 @@ import { useSession } from "next-auth/react"
 import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
-  apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline, cleanTaxInvoiceNos,
-  docChecked,
+  AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
+  AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
+  apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
+  cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingThursdays,
-  type ApDocKey, type ApDocs, type ApFile, type ApItems, type ApReview, type ApReviewStatus,
+  type ApDocKey, type ApDocNos, type ApDocs, type ApFile, type ApItems, type ApNoKey,
+  type ApReview, type ApReviewStatus,
   type ApSentType, type ApStatus, type ApTimelineStep,
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
@@ -22,7 +24,8 @@ import type { ApRow } from "@/components/ap-types"
 type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string }
 type LogEntry = { action?: string; field?: string; detail?: string; by?: string; at?: string }
 type Detail = {
-  tracking: { log?: LogEntry[]; items?: ApItems; files?: ApFile[]; taxInvoiceNos?: string[]; review?: ApReview; note?: string } | null
+  tracking: ({ log?: LogEntry[]; items?: ApItems; files?: ApFile[]; review?: ApReview; note?: string }
+    & Partial<ApDocNos>) | null
   items: DepositItem[]
   po: Record<string, unknown> | null
 }
@@ -110,8 +113,9 @@ export function ApTrackingDetail({
   // เก็บ baseline เป็น state เอง เพื่อให้หลังบันทึกสำเร็จค่าใหม่กลายเป็นฐานเทียบทันที
   const [saved, setSaved]     = useState<ApDocs>(row.docs)
   const [draft, setDraft]     = useState<Draft>(() => draftOf(row.docs))
-  const [savedNos, setSavedNos]     = useState<string[]>([])
-  const [nos, setNos]               = useState<string[]>([])
+  // เลขที่เอกสารเก็บเป็นชุดต่อช่อง (4 ช่อง) — ช่องไหนไม่เคยกรอกก็ยังมีคีย์เป็น [] เสมอ
+  const [savedNos, setSavedNos]     = useState<ApDocNos>(() => readDocNos(null))
+  const [nos, setNos]               = useState<ApDocNos>(() => readDocNos(null))
   const [savedItems, setSavedItems] = useState<ApItems>({})
   const [itemDraft, setItemDraft]   = useState<Record<string, boolean>>({})
   const [savedFiles, setSavedFiles] = useState<ApFile[]>([])
@@ -135,13 +139,17 @@ export function ApTrackingDetail({
     () => Object.keys(itemDraft).filter((k) => itemDraft[k] !== Boolean(savedItems[k]?.checked)),
     [itemDraft, savedItems],
   )
-  // เทียบหลังทำความสะอาด — พิมพ์แล้วลบจนเหลือค่าเดิมต้องไม่นับว่าแก้
-  const nosChanged    = cleanTaxInvoiceNos(nos).join("|") !== cleanTaxInvoiceNos(savedNos).join("|")
+  // เทียบหลังทำความสะอาด — พิมพ์แล้วลบจนเหลือค่าเดิมต้องไม่นับว่าแก้ · นับแยกทีละช่อง
+  const nosChangedKeys = useMemo(
+    () => AP_NO_FIELDS.map((f) => f.key)
+      .filter((k) => cleanDocNos(nos[k]).join("|") !== cleanDocNos(savedNos[k]).join("|")),
+    [nos, savedNos],
+  )
   const filesChanged  = filesKey(files) !== filesKey(savedFiles)
   const sentChanged   = sent.type !== savedSent.type || sent.date !== savedSent.date
   const reviewChanged = review.status !== savedReview.status || review.note.trim() !== (savedReview.note ?? "").trim()
   const noteChanged   = note.trim() !== savedNote.trim()
-  const dirtyCount = changed.length + itemsChanged.length + (nosChanged ? 1 : 0)
+  const dirtyCount = changed.length + itemsChanged.length + nosChangedKeys.length
     + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0) + (reviewChanged ? 1 : 0) + (noteChanged ? 1 : 0)
   const dirty = dirtyCount > 0
 
@@ -175,6 +183,13 @@ export function ApTrackingDetail({
     return next
   })
 
+  // แก้ลิสต์เลขที่ทีละช่อง — ทุกตัวคืน object ใหม่ทั้งชุด ไม่แก้ของเดิมในที่ (React ต้องเห็นว่าเปลี่ยน)
+  const setNoAt   = (key: ApNoKey, i: number, v: string) =>
+    setNos((p) => ({ ...p, [key]: p[key].map((x, j) => (j === i ? v : x)) }))
+  const addNo     = (key: ApNoKey) => setNos((p) => ({ ...p, [key]: [...p[key], ""] }))
+  const removeNo  = (key: ApNoKey, i: number) =>
+    setNos((p) => ({ ...p, [key]: p[key].filter((_, j) => j !== i) }))
+
   const loadDetail = useCallback(async (code: string, alive: () => boolean) => {
     try {
       const res = await fetch(`/api/ap-tracking/${encodeURIComponent(code)}`)
@@ -183,7 +198,7 @@ export function ApTrackingDetail({
       setData(d)
       const t: ApItems   = d?.tracking?.items ?? {}
       const fl: ApFile[] = Array.isArray(d?.tracking?.files) ? d.tracking.files : []
-      const dn: string[] = cleanTaxInvoiceNos(d?.tracking?.taxInvoiceNos)
+      const dn: ApDocNos = readDocNos(d?.tracking)
       const rv: ApReview = {
         status: (d?.tracking?.review?.status ?? "") as ApReviewStatus,
         note: d?.tracking?.review?.note ?? "",
@@ -252,7 +267,7 @@ export function ApTrackingDetail({
         body.docs = docsBody
       }
       if (itemsChanged.length) body.items  = Object.fromEntries(itemsChanged.map((k) => [k, itemDraft[k]]))
-      if (nosChanged)          body.taxInvoiceNos = cleanTaxInvoiceNos(nos)
+      for (const k of nosChangedKeys) body[k] = cleanDocNos(nos[k])
       if (filesChanged)        body.files  = files
       if (reviewChanged)       body.review = { status: review.status, note: review.note.trim() }
       if (noteChanged)         body.note   = note.trim()
@@ -269,7 +284,7 @@ export function ApTrackingDetail({
       const docsOut  = d.docs as ApDocs
       const itemsOut = (d.items ?? {}) as ApItems
       const filesOut = (d.files ?? []) as ApFile[]
-      const nosOut   = cleanTaxInvoiceNos(d.taxInvoiceNos)
+      const nosOut   = readDocNos(d)
       const rvOut    = (d.review ?? { status: "", note: "" }) as ApReview
       const noteOut  = String(d.note ?? "")
       const sentOut  = { type: (d.sentType ?? "") as ApSentType, date: String(d.sentDate ?? "") }
@@ -451,25 +466,38 @@ export function ApTrackingDetail({
                 </div>
               </section>
 
-              <section className="space-y-1">
-                <div className="text-sm font-bold" style={mitr}>
-                  เลขที่ใบกำกับ{nos.length > 1 ? ` (${nos.length})` : ""}
+              {/* เลขที่เอกสาร — ATMS ไม่มีให้ ต้องคีย์เอง · ช่องหนึ่งใส่ได้หลายเลข (ใบ DD ใบเดียว
+                  อาจมีใบกำกับหลายใบ) · โครงช่องมาจาก AP_NO_FIELDS ที่เดียว เพิ่มช่องใหม่ไม่ต้องแก้ตรงนี้ */}
+              <section className="space-y-2">
+                <h3 className="text-sm font-bold" style={mitr}>เลขที่เอกสาร</h3>
+                <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+                  {AP_NO_FIELDS.map((f) => {
+                    const list = nos[f.key]
+                    const edited = nosChangedKeys.includes(f.key)
+                    return (
+                      <div key={f.key} className="space-y-1">
+                        <div className={`text-xs font-medium ${edited ? "text-amber-700 dark:text-amber-400" : "text-gray-600 dark:text-gray-300"}`}>
+                          {f.label}{list.length > 1 ? ` (${list.length})` : ""}
+                        </div>
+                        {list.map((v, i) => (
+                          <div key={i} className="flex items-center gap-1">
+                            <input value={v} maxLength={AP_NO_MAX} placeholder={f.label}
+                              onChange={(e) => setNoAt(f.key, i, e.target.value)}
+                              className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm dark:bg-white/5 ${edited ? "border-amber-400" : "border-gray-200/80 dark:border-white/10"}`} />
+                            <button onClick={() => removeNo(f.key, i)} title={`ลบ${f.label}นี้`}
+                              className="shrink-0 rounded-lg border border-gray-200/80 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-white/10 dark:hover:bg-rose-900/20">✕</button>
+                          </div>
+                        ))}
+                        {list.length < AP_NOS_MAX && (
+                          <button onClick={() => addNo(f.key)}
+                            className="rounded-lg border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-white/20 dark:text-gray-300 dark:hover:bg-white/5">
+                            + เพิ่ม{f.short}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-                {nos.map((v, i) => (
-                  <div key={i} className="flex items-center gap-1">
-                    <input value={v} maxLength={AP_TAX_NO_MAX}
-                      onChange={(e) => setNos((p) => p.map((x, j) => (j === i ? e.target.value : x)))}
-                      className={`flex-1 rounded-lg border px-2 py-1 text-sm dark:bg-white/5 ${nosChanged ? "border-amber-400" : "border-gray-200/80 dark:border-white/10"}`} />
-                    <button onClick={() => setNos((p) => p.filter((_, j) => j !== i))} title="ลบเลขนี้"
-                      className="rounded-lg border border-gray-200/80 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-white/10 dark:hover:bg-rose-900/20">✕</button>
-                  </div>
-                ))}
-                {nos.length < AP_TAX_NOS_MAX && (
-                  <button onClick={() => setNos((p) => [...p, ""])}
-                    className="rounded-lg border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-white/20 dark:text-gray-300 dark:hover:bg-white/5">
-                    + เพิ่มเลขที่ใบกำกับ
-                  </button>
-                )}
               </section>
 
               <section className="space-y-2">

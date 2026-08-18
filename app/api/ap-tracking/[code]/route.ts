@@ -4,8 +4,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import {
-  AP_FILES_MAX, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_WRITABLE_DOC_KEYS, apDocLabel,
-  apStatusOf, cleanTaxInvoiceNos, isDocSetComplete, missingDocLabels, reviewNeedsNote,
+  AP_FILES_MAX, AP_NO_FIELDS, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, AP_WRITABLE_DOC_KEYS, apDocLabel,
+  apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote,
   type ApDocKey, type ApDocs, type ApFile, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
 import { normalizeImages } from "@/lib/media"
@@ -107,20 +107,23 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     }
   }
 
-  // เลขที่ใบกำกับ — ใบเดียวมีได้หลายเลข ส่งมาทั้งลิสต์แล้วแทนที่ทั้งชุด
+  // เลขที่เอกสาร 4 ช่อง — ช่องหนึ่งมีได้หลายเลข ส่งมาทั้งลิสต์แล้วแทนที่ทั้งชุดของช่องนั้น
   // (ลิสต์สั้นและแก้จากหน้าจอเดียว การเขียนทีละ index จะยุ่งกว่าโดยไม่ได้อะไร)
-  if (body?.taxInvoiceNos !== undefined) {
-    if (!Array.isArray(body.taxInvoiceNos)) {
-      return NextResponse.json({ error: "taxInvoiceNos ต้องเป็น array" }, { status: 400 })
+  // แต่ละช่องเขียนแยกคีย์ — ส่งมาเฉพาะช่องที่แก้ ช่องที่ไม่ได้ส่งมาไม่ถูกแตะ
+  for (const f of AP_NO_FIELDS) {
+    const raw = body?.[f.key]
+    if (raw === undefined) continue
+    if (!Array.isArray(raw)) {
+      return NextResponse.json({ error: `${f.key} ต้องเป็น array` }, { status: 400 })
     }
-    if (body.taxInvoiceNos.some((x: unknown) => typeof x !== "string")) {
-      return NextResponse.json({ error: "เลขที่ใบกำกับต้องเป็นข้อความ" }, { status: 400 })
+    if (raw.some((x: unknown) => typeof x !== "string")) {
+      return NextResponse.json({ error: `${f.label}ต้องเป็นข้อความ` }, { status: 400 })
     }
-    const nos = cleanTaxInvoiceNos(body.taxInvoiceNos)
-    const old = cleanTaxInvoiceNos(current?.taxInvoiceNos)
-    if (nos.join("|") !== old.join("|")) {   // ไม่เปลี่ยน = ไม่เขียน ไม่ลง log
-      set.taxInvoiceNos = nos
-      log.push({ action: "แก้เลขที่ใบกำกับ", field: "taxInvoiceNos",
+    const nos = cleanDocNos(raw)
+    const prev = cleanDocNos(current?.[f.key])
+    if (nos.join("|") !== prev.join("|")) {   // ไม่เปลี่ยน = ไม่เขียน ไม่ลง log
+      set[f.key] = nos
+      log.push({ action: `แก้${f.label}`, field: f.key,
         detail: nos.length ? nos.join(", ") : "(ล้างค่า)", by, byEmail, at })
     }
   }
@@ -247,9 +250,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     const hadSentDate = Boolean(s(current?.sentDate))
     set.sentType = sentDate ? sentType : ""
     set.sentDate = sentDate
+    // เวลาที่ "คนกดส่ง" — ต่างจาก sentDate ซึ่งคือวันที่เงินจะออก (พฤหัสนอกรอบ/วันครบกำหนด)
+    // เก็บเป็นฟิลด์เพราะ API ตารางตัด log ทิ้ง (projection log:0) จึงอ่านจาก log ไม่ได้
+    // แก้วันโอนของใบที่ส่งไปแล้วต้องไม่รีเซ็ตเวลากดส่งเดิม — ไม่งั้นใบเก่าจะเด้งมากองวันนี้ทั้งหมด
     if (sentDate) {
+      if (!hadSentDate) set.sentMarkedAt = at
       log.push({ action: `ส่งบัญชี (${sentType})`, field: "sent", detail: sentDate, by, byEmail, at })
     } else if (hadSentDate) {
+      set.sentMarkedAt = ""
       // ยกเลิกจริง (เคยมี sentDate มาก่อน) เท่านั้นถึงจะลง log — ล้างค่าที่ว่างอยู่แล้วไม่ควรลง log หลอกๆ
       log.push({ action: "ยกเลิกส่งบัญชี", field: "sent", detail: sentDate, by, byEmail, at })
     }
@@ -279,7 +287,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   return NextResponse.json({
     ok: true,
     docs: docsOut,
-    taxInvoiceNos: cleanTaxInvoiceNos(doc.taxInvoiceNos),
+    ...readDocNos(doc),
+    sentMarkedAt: s(doc.sentMarkedAt),
     review: (doc.review ?? { status: "", note: "" }) as ApReview,
     items: (doc.items ?? {}) as Record<string, unknown>,
     files: (doc.files ?? []) as ApFile[],

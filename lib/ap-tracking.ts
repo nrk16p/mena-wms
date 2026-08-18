@@ -31,21 +31,47 @@ export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = 
 // และต้องล้างค่าได้เมื่อผู้ใช้เอาติ๊กช่องรวมออก (ไม่งั้นจะเหลือติ๊กผีที่มองไม่เห็นแต่ทำให้ยังครบชุด)
 export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote"]
 
-// เลขที่ใบกำกับ — ATMS ไม่มีให้ ต้องคีย์เอง · ใบ DD ใบเดียวมีใบกำกับได้หลายใบ จึงเก็บเป็นลิสต์
+// เลขที่เอกสาร — ATMS ไม่มีให้ ต้องคีย์เอง · ใบ DD ใบเดียวมีเอกสารชนิดเดียวกันได้หลายใบ จึงเก็บเป็นลิสต์
+// เดิมมีช่องเดียว (taxInvoiceNos) — เพิ่มอีก 3 ช่องวันที่ 18/08/2026 ตามที่ผู้ใช้สั่ง
+// เพิ่มช่องที่ 5 ในอนาคต = เติมบรรทัดเดียวที่นี่ ทั้ง UI/API/ค้นหา วนจากตารางนี้ตัวเดียว
 // (ช่อง "เลขที่ใบแจ้งหนี้/ใบวางบิล" เคยมีอยู่ช่วงสั้น ๆ วันที่ 17/08/2026 แล้วผู้ใช้สั่งเอาออก)
-export const AP_TAX_NO_MAX  = 60      // ความยาวต่อเลข
-export const AP_TAX_NOS_MAX = 20      // จำนวนเลขต่อใบ
+export type ApNoKey = "taxInvoiceNos" | "billingNoteNos" | "cashBillNos" | "vatInvoiceNos"
+export type ApDocNos = Record<ApNoKey, string[]>
 
-// ทำความสะอาดลิสต์เลขใบกำกับ — ตัดช่องว่าง ทิ้งค่าว่าง ตัดซ้ำ (คีย์ผิดซ้ำกันบ่อย) และคุมเพดาน
-export function cleanTaxInvoiceNos(v: unknown): string[] {
+export const AP_NO_FIELDS: { key: ApNoKey; label: string; short: string }[] = [
+  { key: "taxInvoiceNos",  label: "เลขที่ใบกำกับ",      short: "ใบกำกับ" },
+  { key: "billingNoteNos", label: "เลขที่ใบวางบิล",     short: "ใบวางบิล" },
+  { key: "cashBillNos",    label: "เลขที่บิลเงินสด",    short: "บิลเงินสด" },
+  { key: "vatInvoiceNos",  label: "เลขที่ใบกำกับภาษี",  short: "ใบกำกับภาษี" },
+]
+
+export const AP_NO_MAX  = 60      // ความยาวต่อเลข
+export const AP_NOS_MAX = 20      // จำนวนเลขต่อช่องต่อใบ
+
+// ทำความสะอาดลิสต์เลขเอกสาร — ตัดช่องว่าง ทิ้งค่าว่าง ตัดซ้ำ (คีย์ผิดซ้ำกันบ่อย) และคุมเพดาน
+export function cleanDocNos(v: unknown): string[] {
   if (!Array.isArray(v)) return []
   const out: string[] = []
   for (const raw of v) {
-    const t = String(raw ?? "").trim().slice(0, AP_TAX_NO_MAX)
+    const t = String(raw ?? "").trim().slice(0, AP_NO_MAX)
     if (t && !out.includes(t)) out.push(t)
-    if (out.length >= AP_TAX_NOS_MAX) break
+    if (out.length >= AP_NOS_MAX) break
   }
   return out
+}
+
+// อ่านเลขทุกช่องจาก document เดียว — คืนครบทุกคีย์เสมอ (ช่องที่ยังไม่มีข้อมูล = [])
+// เพื่อให้ทั้ง API และหน้าเว็บไม่ต้องเช็ค undefined ทีละช่อง
+export function readDocNos(src: Record<string, unknown> | null | undefined): ApDocNos {
+  return Object.fromEntries(
+    AP_NO_FIELDS.map((f) => [f.key, cleanDocNos(src?.[f.key])]),
+  ) as ApDocNos
+}
+
+// เลขทุกช่องรวมเป็นสายเดียวสำหรับค้นหา — ใช้ตัวเดียวกันทั้งฝั่ง API และฝั่งหน้าเว็บ
+// ไม่งั้นค้นด้วยเลขใบวางบิลแล้วยอดสรุปกับตารางจะกรองคนละชุด
+export function docNosText(src: Record<string, unknown> | null | undefined): string {
+  return AP_NO_FIELDS.map((f) => cleanDocNos(src?.[f.key]).join(" ")).filter(Boolean).join(" ")
 }
 
 // ช่องที่ถอดออกแล้ว — เก็บป้ายไว้อ่านประวัติของเก่า (log ที่บันทึกไว้ก่อน 17/08/2026 ยังอ้างคีย์พวกนี้)
@@ -55,11 +81,12 @@ const AP_RETIRED_DOC_LABELS: Record<string, string> = {
   taxInvoiceNo: "เลขที่ใบกำกับ",              // ช่องเดี่ยวรุ่นแรก (ก่อนเปลี่ยนเป็นลิสต์)
   invoiceNo: "เลขที่ใบแจ้งหนี้/ใบวางบิล",     // ถอดออกแล้ว
   billingNote: "ใบวางบิล (รวมกับใบแจ้งหนี้แล้ว)",
-  taxInvoiceNos: "เลขที่ใบกำกับ",
 }
 
 export function apDocLabel(key: string): string {
-  return AP_DOC_FIELDS.find((f) => f.key === key)?.label ?? AP_RETIRED_DOC_LABELS[key] ?? key
+  return AP_DOC_FIELDS.find((f) => f.key === key)?.label
+    ?? AP_NO_FIELDS.find((f) => f.key === key)?.label
+    ?? AP_RETIRED_DOC_LABELS[key] ?? key
 }
 
 // ช่องการเงินทั้งหมดที่นับว่า "มีเอกสารแล้ว" = ช่องที่โชว์ + คีย์เก่าที่ยังมีข้อมูลค้างอยู่
@@ -370,6 +397,59 @@ export function thaiDateTime(iso: string): string {
   const hh = String(d.getUTCHours()).padStart(2, "0")
   const mm = String(d.getUTCMinutes()).padStart(2, "0")
   return `${thaiDate(d.toISOString().slice(0, 10))} ${hh}:${mm}`
+}
+
+// ── วันที่กดส่งบัญชี (จัดซื้อเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว") ────────────────
+// คนละตัวกับ sentDate ซึ่งคือ "วันที่เงินจะออก" (พฤหัสนอกรอบ/วันครบกำหนด) — เวลาที่คนกดปุ่ม
+// เคยอยู่ใน log อย่างเดียว ซึ่ง API ตารางตัดทิ้ง (projection log:0) จึงเก็บเป็นฟิลด์ sentMarkedAt
+
+// timestamp ISO (UTC) → "YYYY-MM-DD" ตามเวลาไทย · อ่านไม่ออก → ""
+// ต้องบวก ICT ก่อนตัด ไม่งั้นงานที่กดตอนเช้าไทย (ก่อน 07:00) จะไปกองอยู่กลุ่มของเมื่อวาน
+export function ictDate(iso: string): string {
+  const ms = Date.parse(String(iso ?? ""))
+  return Number.isNaN(ms) ? "" : new Date(ms + ICT_OFFSET_MS).toISOString().slice(0, 10)
+}
+
+// อยู่ในช่วงวันที่ไหม — ปลายไหนว่าง = ไม่จำกัดด้านนั้น (ทุกค่าเป็น YYYY-MM-DD เทียบ string ตรง ๆ ได้)
+// ไม่ได้ตั้งช่วงเลย = ผ่านหมด รวมถึงแถวที่ยังไม่มีวันที่ · ตั้งช่วงเมื่อไหร่ แถวที่ไม่มีวันที่ตกทันที
+// (วางบนเส้นเวลาไม่ได้ = ตอบไม่ได้ว่าอยู่ในช่วงหรือเปล่า — กติกาเดียวกับ inApScope)
+export function inDateRange(ymd: string, from: string, to: string): boolean {
+  if (!from && !to) return true
+  if (!ymd) return false
+  if (from && ymd < from) return false
+  if (to && ymd > to) return false
+  return true
+}
+
+// ปุ่มลัดของแถบกรอง — คิดจาก "วันนี้" ที่ส่งเข้ามา ไม่อ่านนาฬิกาเอง (เทสต์ได้ + ตรงกับ todayICT ที่หน้าใช้)
+export type ApRangePreset = "today" | "7d" | "month"
+export function apRangeOf(preset: ApRangePreset, todayISO: string): { from: string; to: string } {
+  if (preset === "today") return { from: todayISO, to: todayISO }
+  // "7 วันล่าสุด" นับรวมวันนี้ = ย้อนหลัง 6 วัน (ไม่ใช่ 7) ไม่งั้นจะได้ 8 วันตามป้ายที่เขียนไว้
+  if (preset === "7d")   return { from: addDays(todayISO, -6), to: todayISO }
+  return { from: `${todayISO.slice(0, 7)}-01`, to: todayISO }
+}
+
+// จัดกลุ่มแถวตามวัน เรียงวันใหม่ → เก่า · แถวที่ไม่มีวันที่ ("") ไปกองท้ายสุดเป็นกลุ่มเดียว
+// ลำดับแถวภายในกลุ่มคงตามที่รับมา (ตารางเรียงมาแล้ว) — ไม่เรียงซ้ำให้เพี้ยนจากมุมมองรายการ
+export function groupByDate<T>(rows: T[], dateOf: (r: T) => string): { date: string; rows: T[] }[] {
+  const by = new Map<string, T[]>()
+  for (const r of rows) {
+    const d = dateOf(r) || ""
+    const g = by.get(d)
+    if (g) g.push(r)
+    else by.set(d, [r])
+  }
+  return [...by.entries()]
+    .map(([date, rs]) => ({ date, rows: rs }))
+    .sort((a, b) => (a.date && b.date ? b.date.localeCompare(a.date) : a.date ? -1 : 1))
+}
+
+// ชื่อวันในสัปดาห์ — หัวกลุ่มของมุมมอง "จัดกลุ่มตามวันที่กดส่ง" (บัญชีโอนวันพฤหัส วันจึงมีความหมาย)
+const TH_DOW = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"]
+export function thaiDow(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "")
+  return m ? TH_DOW[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()] : ""
 }
 
 export function thaiDate(iso: string): string {

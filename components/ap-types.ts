@@ -1,6 +1,6 @@
 // รูปร่างข้อมูลที่ /api/ap-tracking ส่งกลับมา — แยกออกจาก component เพื่อให้ตาราง/แถบสรุป/โมดัล
 // อ้างถึงชนิดเดียวกันได้โดยไม่ import วนกันเอง
-import type { ApDocs, ApStage, ApStatus } from "@/lib/ap-tracking"
+import type { ApDocNos, ApDocs, ApStage, ApStatus } from "@/lib/ap-tracking"
 
 export type ApRow = {
   depositCode: string; depositId: number | null; warehouse: string
@@ -9,6 +9,10 @@ export type ApRow = {
   creditTerm: string; dueDate: string; overdue: number
   docs: ApDocs; fileCount: number; review?: { status: string; note: string }
   sentType: string; sentDate: string; note: string
+  docNos: ApDocNos
+  // เวลาที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" · sentMarkedDate = วันเดียวกันในเวลาไทย
+  // (คนละตัวกับ sentDate ซึ่งคือวันที่เงินจะออก) — ใบเก่าก่อนมีฟิลด์นี้จะเป็น ""
+  sentMarkedAt: string; sentMarkedDate: string
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }

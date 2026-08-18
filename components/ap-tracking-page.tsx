@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_GO_LIVE, apStage, isDocSetComplete, monthInApScope,
+  AP_GO_LIVE, apStage, docNosText, groupByDate, inDateRange, isDocSetComplete, monthInApScope,
   nextThursday, overdueDays, thaiDate, todayICT,
-  type ApDocs, type ApStatus,
+  type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
 import { CARD, NUM, baht, mitr } from "@/components/ap-style"
 import { ApHeader } from "@/components/ap-summary"
@@ -18,6 +18,9 @@ export type { ApRow } from "@/components/ap-types"
 // 0 = ทั้งหมด (ไว้ใช้ตอนอยากกด Ctrl+F หาทั้งเดือน หรือปรินต์) — แถวทั้งชุดโหลดมาอยู่ในหน่วยความจำแล้ว
 // การแบ่งหน้าเป็นแค่การตัดชิ้นตอนแสดงผล ไม่ยิงคิวรีใหม่ ยอดสรุปด้านบนจึงยังคิดจากทั้งช่วงเหมือนเดิม
 const PER_PAGE_OPTIONS = [25, 50, 100, 0] as const
+// ตัวกรอง/จัดกลุ่ม "วันที่กดส่งบัญชี" มีความหมายเฉพาะใบที่ผ่านการกดส่งมาแล้วเท่านั้น
+// แท็บรอประกบ/ครบชุดยังไม่มีวันกดส่ง — โชว์แถบนี้ไปก็มีแต่ทำให้ตารางว่างโดยไม่มีเหตุผล
+const SENT_STAGES: ApStage[] = ["sent", "passed", "rejected"]
 // วันนี้ตามเวลาไทยเสมอ (เครื่องผู้ใช้อาจตั้ง TZ อื่น / เซิร์ฟเวอร์รัน UTC) — กันวันเลื่อนช่วง 00:00–07:00
 const thisMonth = () => todayICT().slice(0, 7)
 
@@ -31,9 +34,11 @@ const moveStatusBucket = (sm: ApSummary | null, from: ApStatus, to: ApStatus, am
   return { ...sm, byStatus }
 }
 
-// ค้นหาให้ครอบคลุมเท่าฝั่ง API (รวมเลขที่บิลของซัพพลายเออร์) ไม่งั้นค้นด้วยเลขบิลแล้วเหมือนไม่เจอ
+// ค้นหาให้ครอบคลุมเท่าฝั่ง API (เลขบิลซัพพลายเออร์ + เลขที่เอกสารทั้ง 4 ช่อง)
+// ไม่งั้นค้นด้วยเลขใบวางบิลแล้วยอดสรุปกับตารางจะกรองคนละชุด
 const matchQ = (r: ApRow, rx: RegExp) =>
-  rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier) || rx.test(r.supplierRefNo)
+  rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
+  || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos))
 
 // กล่องเลือกวันส่งบัญชีของใบเดียว — เปิด/ปิดคือ mount/unmount ค่าจึงเริ่มใหม่ทุกครั้ง
 function SendDialog({
@@ -100,6 +105,10 @@ export function ApTrackingPage() {
   const [warehouse, setWarehouse] = useState("")
   const [tab, setTab]         = useState<ApTab>("")
   const [q, setQ]             = useState("")
+  // ช่วง "วันที่จัดซื้อกดส่งบัญชี" (YYYY-MM-DD, ว่าง = ไม่จำกัดด้านนั้น) + มุมมองจัดกลุ่มรายวัน
+  const [sentFrom, setSentFrom] = useState("")
+  const [sentTo, setSentTo]     = useState("")
+  const [groupSent, setGroupSent] = useState(true)
   const [warehouses, setWarehouses] = useState<string[]>([])
   const [sentFor, setSentFor] = useState<ApRow | null>(null)
   const [detailFor, setDetailFor] = useState<ApRow | null>(null)
@@ -164,7 +173,13 @@ export function ApTrackingPage() {
 
   const today = todayICT()
 
-  const shown = useMemo(() => {
+  // แถบ "วันที่กดส่งบัญชี" โผล่เฉพาะแท็บที่ใบผ่านการกดส่งมาแล้ว
+  const sentView = SENT_STAGES.includes(tab as ApStage)
+  const grouped  = sentView && groupSent
+
+  // แยกสองชั้น: ตัวกรองประจำหน้า แล้วค่อยช่วงวันที่กดส่ง — เพื่อบอกได้ว่าตารางว่าง
+  // "เพราะช่วงวันที่" หรือ "เพราะไม่มีใบในแท็บนี้ตั้งแต่แรก" (ข้อความบอกคนละเรื่องกัน)
+  const beforeSentRange = useMemo(() => {
     let out = rows
     // แท็บ = ขั้นของงาน (1 ใบอยู่ได้ขั้นเดียว ดู apStage) — ตัวกรองหลักของหน้า
     if (tab) out = out.filter((r) => apStage(r) === tab)
@@ -176,15 +191,37 @@ export function ApTrackingPage() {
     return out
   }, [rows, tab, warehouse, q])
 
-  const totalPages = perPage === 0 ? 1 : Math.max(1, Math.ceil(shown.length / perPage))
+  // กรองด้วยวันที่กดส่งเฉพาะตอนที่แถบนั้นโชว์อยู่ — สลับไปแท็บอื่นแล้วค่าเดิมต้องไม่แอบกรองต่อ
+  const rangeOn = sentView && Boolean(sentFrom || sentTo)
+  const shown = useMemo(
+    () => (rangeOn ? beforeSentRange.filter((r) => inDateRange(r.sentMarkedDate, sentFrom, sentTo)) : beforeSentRange),
+    [beforeSentRange, rangeOn, sentFrom, sentTo],
+  )
+
+  // มุมมองจัดกลุ่มแบ่งหน้าเป็น "รายวัน" ไม่ใช่รายแถว — ไม่งั้นวันเดียวจะถูกหั่นคาหน้า
+  // แล้วยอดรวมบนหัวกลุ่ม (คิดจากแถวที่โชว์) จะไม่ตรงกับยอดจริงของวันนั้น
+  const dayGroups = useMemo(
+    () => (grouped ? groupByDate(shown, (r) => r.sentMarkedDate) : []),
+    [grouped, shown],
+  )
+  const units = grouped ? dayGroups.length : shown.length
+
+  const totalPages = perPage === 0 ? 1 : Math.max(1, Math.ceil(units / perPage))
   // clamp ระหว่างที่จำนวนแถวลดลงก่อน state หน้าจะถูกตั้งใหม่ — ตารางจึงไม่กะพริบเป็นหน้าว่าง
   const safePage = Math.min(page, totalPages)
-  const paged = useMemo(
-    () => (perPage === 0 ? shown : shown.slice((safePage - 1) * perPage, safePage * perPage)),
-    [shown, safePage, perPage],
+  const slice = <T,>(xs: T[]) => (perPage === 0 ? xs : xs.slice((safePage - 1) * perPage, safePage * perPage))
+  const pagedGroups = useMemo(
+    () => (grouped ? slice(dayGroups) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grouped, dayGroups, safePage, perPage],
   )
-  const firstIdx = shown.length === 0 ? 0 : perPage === 0 ? 1 : (safePage - 1) * perPage + 1
-  const lastIdx  = perPage === 0 ? shown.length : Math.min(safePage * perPage, shown.length)
+  const paged = useMemo(
+    () => (pagedGroups ? pagedGroups.flatMap((g) => g.rows) : slice(shown)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pagedGroups, shown, safePage, perPage],
+  )
+  const firstIdx = units === 0 ? 0 : perPage === 0 ? 1 : (safePage - 1) * perPage + 1
+  const lastIdx  = perPage === 0 ? units : Math.min(safePage * perPage, units)
   const pageNumbers = useMemo(() => {
     const win = new Set<number>([1, totalPages, safePage])
     for (let d = 1; d <= 2; d++) {
@@ -291,6 +328,12 @@ export function ApTrackingPage() {
         warehouse={warehouse} onWarehouse={(v) => applyFilter(() => setWarehouse(v))}
         warehouses={warehouses}
         totalShown={shown.length}
+        sentView={sentView}
+        sentFrom={sentFrom} sentTo={sentTo}
+        onSentRange={(from, to) => applyFilter(() => { setSentFrom(from); setSentTo(to) })}
+        groupSent={groupSent} onGroupSent={(v) => applyFilter(() => setGroupSent(v))}
+        sentDays={dayGroups.length}
+        today={today}
       />
 
       {/* ผลลัพธ์ถูกตัดเพราะชนเพดานแถว — ยอดสรุปทุกตัวข้างบนยังไม่ครบ ต้องบอกให้ชัด ไม่ปล่อยให้เงียบ */}
@@ -324,14 +367,21 @@ export function ApTrackingPage() {
       )}
 
       <ApTable
-        rows={paged} loading={loading}
+        rows={paged} groups={pagedGroups} showSentMarked={sentView} unit={grouped ? "วัน" : "ใบ"}
+        loading={loading}
         selected={selected} onToggle={toggle} onToggleAll={toggleAll}
         onOpen={openDetail} onSend={openSent}
         page={safePage} totalPages={totalPages} pageNumbers={pageNumbers}
-        firstIdx={firstIdx} lastIdx={lastIdx} totalRows={shown.length}
+        firstIdx={firstIdx} lastIdx={lastIdx} totalRows={units}
         perPage={perPage} perPageOptions={PER_PAGE_OPTIONS}
         onPage={setPage} onPerPage={(n) => { setPerPage(n); setPage(1) }}
-        emptyNote={monthOutOfScope ? (
+        emptyNote={rangeOn && beforeSentRange.length > 0 ? (
+          // ตารางว่างเพราะช่วงวันที่ที่เลือก ไม่ใช่เพราะไม่มีใบในแท็บนี้ — ต้องบอกให้ชัด ไม่งั้นคนจะคิดว่าข้อมูลหาย
+          <div className="space-y-1">
+            <div className="font-medium text-gray-500 dark:text-gray-400">ไม่มีใบที่กดส่งบัญชีในช่วงวันที่ที่เลือก</div>
+            <div className="text-xs">แท็บนี้มีใบอยู่ แต่ถูกกรองออกด้วยช่วงวันที่ — กด “ล้างช่วงวันที่” เพื่อดูทั้งหมด</div>
+          </div>
+        ) : monthOutOfScope ? (
           // เดือนก่อนเส้น go-live ว่างเพราะ "ไม่อยู่ในขอบเขตระบบ" ไม่ใช่เพราะหาไม่เจอ — ต้องบอกให้ชัด
           <div className="space-y-1">
             <div className="font-medium text-gray-500 dark:text-gray-400">

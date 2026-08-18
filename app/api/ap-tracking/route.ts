@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apUrgency, nextThursday, todayICT,
-  AP_STAGES,
+  AP_STAGES, docNosText, ictDate, readDocNos,
   apSinceOf, inApScope, monthInApScope,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
@@ -144,6 +144,13 @@ export async function GET(req: NextRequest) {
         review:      (t?.review ?? { status: "", note: "" }) as { status: string; note: string },
         sentType:    s(t?.sentType),
         sentDate,
+        // เลขที่เอกสารทั้ง 4 ช่อง — อยู่ใน doc ที่ดึงมาแล้ว (projection ตัดแค่ log) ไม่มีคิวรีเพิ่ม
+        // ส่งมาด้วยเพื่อให้ค้นหาด้วยเลขบิล/ใบกำกับเจอโดยไม่ต้องเปิดโมดัลทีละใบ
+        docNos:      readDocNos(t),
+        // เวลาที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" (คนละตัวกับ sentDate = วันเงินออก)
+        // sentMarkedDate คือวันเดียวกันในเวลาไทย — ใช้เป็นคีย์จัดกลุ่ม/กรองฝั่งหน้าเว็บ
+        sentMarkedAt:   s(t?.sentMarkedAt),
+        sentMarkedDate: ictDate(s(t?.sentMarkedAt)),
         note:        s(t?.note),
         status:      apStatusOf(docs, sentDate),
         carryover:   receivedAt.slice(0, 7) !== monthPrefix,
@@ -161,7 +168,8 @@ export async function GET(req: NextRequest) {
     // — ยอดสรุปต้องคิดจาก "ชุดเดียวกับที่ผู้ใช้กำลังมอง" ไม่งั้นตัวเลขบนแถบสรุปขัดกับตารางข้างล่าง
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
-      rows = rows.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier) || rx.test(r.supplierRefNo))
+      rows = rows.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
+        || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos)))
     }
     rows.sort((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || "") || b.depositCode.localeCompare(a.depositCode))
 

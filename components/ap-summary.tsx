@@ -1,7 +1,7 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, RefreshCw, Search } from "lucide-react"
-import { AP_STAGES, thaiDate } from "@/lib/ap-tracking"
+import { CalendarRange, ChevronLeft, ChevronRight, RefreshCw, Search } from "lucide-react"
+import { AP_STAGES, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
 import { NUM, mitr } from "@/components/ap-style"
 import type { ApSummary, ApTab } from "@/components/ap-types"
 
@@ -17,9 +17,17 @@ function monthLabel(ym: string): string {
   return `${TH_MONTHS[(m || 1) - 1]} ${((y || 0) + 543) % 100}`
 }
 
+// ปุ่มลัดของแถบวันที่กดส่ง — ป้ายกับช่วงที่คำนวณต้องมาจากที่เดียวกัน (apRangeOf) ไม่งั้นป้ายกับผลลัพธ์เพี้ยนกัน
+const SENT_PRESETS: { key: ApRangePreset; label: string }[] = [
+  { key: "today", label: "วันนี้" },
+  { key: "7d",    label: "7 วันล่าสุด" },
+  { key: "month", label: "เดือนนี้" },
+]
+
 export function ApHeader({
   summary, loading, month, onMonth, q, onQ, onRefresh,
   tab, onTab, warehouse, onWarehouse, warehouses, totalShown,
+  sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today,
 }: {
   summary: ApSummary | null
   loading: boolean
@@ -34,7 +42,22 @@ export function ApHeader({
   onWarehouse: (v: string) => void
   warehouses: string[]
   totalShown: number
+  // แถบ "วันที่จัดซื้อกดส่งบัญชี" — โผล่เฉพาะแท็บที่ใบผ่านการกดส่งมาแล้ว (sent/passed/rejected)
+  sentView: boolean
+  sentFrom: string
+  sentTo: string
+  onSentRange: (from: string, to: string) => void
+  groupSent: boolean
+  onGroupSent: (v: boolean) => void
+  sentDays: number
+  today: string
 }) {
+  const rangeOn = Boolean(sentFrom || sentTo)
+  // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
+  const activePreset = SENT_PRESETS.find((p) => {
+    const r = apRangeOf(p.key, today)
+    return r.from === sentFrom && r.to === sentTo
+  })?.key
   return (
     <div>
       {/* แถบหัวเรื่อง — ชื่อหน้า วันที่ข้อมูล และตัวกรองทั้งหมดอยู่บรรทัดเดียว */}
@@ -96,6 +119,58 @@ export function ApHeader({
           {tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้` : `ทั้งหมด ${totalShown.toLocaleString("th-TH")} ใบ`}
         </span>
       </div>
+
+      {/* วันที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" — คนละตัวกับวันโอนเงิน (sentDate)
+          ใบที่กดส่งก่อนระบบเก็บฟิลด์นี้จะไม่มีวัน จึงตกช่วงเสมอเมื่อตั้งช่วง (ดู inDateRange) */}
+      {sentView && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2 dark:border-white/10 dark:bg-white/5">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-300">
+            <CalendarRange className="h-4 w-4" />วันที่กดส่งบัญชี
+          </span>
+
+          <input type="date" value={sentFrom} max={sentTo || undefined} aria-label="ตั้งแต่วันที่กดส่ง"
+            onChange={(e) => onSentRange(e.target.value, sentTo)}
+            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5" />
+          <span className="text-xs text-gray-400">ถึง</span>
+          <input type="date" value={sentTo} min={sentFrom || undefined} aria-label="ถึงวันที่กดส่ง"
+            onChange={(e) => onSentRange(sentFrom, e.target.value)}
+            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5" />
+
+          {SENT_PRESETS.map((p) => {
+            const on = activePreset === p.key
+            return (
+              <button key={p.key} onClick={() => { const r = apRangeOf(p.key, today); onSentRange(r.from, r.to) }}
+                className={`rounded-full border px-2.5 py-1 text-xs transition ${on
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                  : "border-gray-200 hover:bg-white dark:border-white/10 dark:hover:bg-white/10"}`}>
+                {p.label}
+              </button>
+            )
+          })}
+
+          {rangeOn && (
+            <button onClick={() => onSentRange("", "")} className="text-xs text-gray-500 underline underline-offset-2 hover:text-gray-800 dark:hover:text-gray-200">
+              ล้างช่วงวันที่
+            </button>
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            {groupSent && (
+              <span className={`text-xs text-gray-400 ${NUM}`}>{sentDays.toLocaleString("th-TH")} วันที่กดส่ง</span>
+            )}
+            <div className="inline-flex overflow-hidden rounded-lg border border-gray-200 dark:border-white/10">
+              {[{ v: false, label: "รายการ" }, { v: true, label: "จัดกลุ่มรายวัน" }].map((o) => (
+                <button key={o.label} onClick={() => onGroupSent(o.v)}
+                  className={`px-2.5 py-1 text-xs transition ${groupSent === o.v
+                    ? "bg-[#14271C] text-white dark:bg-white dark:text-[#14271C]"
+                    : "hover:bg-gray-50 dark:hover:bg-white/10"}`}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

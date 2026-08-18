@@ -9,7 +9,8 @@ import {
   apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, addDays,
   apStage, apStageMeta, AP_STAGES, apTimeline,
   apUrgency, needsAccountingReview,
-  cleanTaxInvoiceNos, AP_TAX_NO_MAX, AP_TAX_NOS_MAX,
+  cleanDocNos, readDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
+  ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
@@ -105,7 +106,9 @@ assert.equal(apDocLabel("bill"), "บิล/ใบส่งของ")
 assert.equal(apDocLabel("dd"), "DD (ใบรับของ)", "ช่องที่ถอดออกแล้วยังต้องมีป้ายไว้อ่านประวัติ")
 assert.equal(apDocLabel("po"), "PO (ใบสั่งซื้อ)")
 assert.equal(apDocLabel("ไม่รู้จัก"), "ไม่รู้จัก", "คีย์แปลกปลอมคืนค่าเดิม ไม่พัง")
-assert.equal(apDocLabel("taxInvoiceNos"), "เลขที่ใบกำกับ", "ช่องเลขที่เอกสารก็ต้องมีป้ายไว้อ่าน log")
+for (const f of AP_NO_FIELDS) {
+  assert.equal(apDocLabel(f.key), f.label, `ช่องเลขที่ ${f.key} ต้องมีป้ายไว้อ่าน log`)
+}
 assert.equal(apDocLabel("taxInvoiceNo"), "เลขที่ใบกำกับ", "ช่องเดี่ยวรุ่นแรกยังต้องอ่านออก")
 assert.equal(apDocLabel("invoiceNo"), "เลขที่ใบแจ้งหนี้/ใบวางบิล", "ช่องที่ถอดออกแล้วยังต้องอ่านออก")
 
@@ -121,13 +124,84 @@ assert.equal(reviewNeedsNote("ไม่ผ่าน", "ใบกำกับไ�
 assert.equal(reviewNeedsNote("ผ่าน", ""), false, "ผ่านไม่ต้องบังคับเหตุผล")
 assert.equal(reviewNeedsNote("", ""), false)
 
-// --- เลขที่ใบกำกับ (หลายเลขต่อใบ) ---
-assert.deepEqual(cleanTaxInvoiceNos([" A1 ", "A2"]), ["A1", "A2"], "ตัดช่องว่างหัวท้าย")
-assert.deepEqual(cleanTaxInvoiceNos(["A1", "", "  ", "A1"]), ["A1"], "ทิ้งค่าว่างและตัวซ้ำ")
-assert.deepEqual(cleanTaxInvoiceNos("A1"), [], "ไม่ใช่ array = ไม่มีเลข")
-assert.deepEqual(cleanTaxInvoiceNos(undefined), [])
-assert.equal(cleanTaxInvoiceNos(Array.from({ length: 50 }, (_, i) => `N${i}`)).length, AP_TAX_NOS_MAX, "คุมเพดานจำนวน")
-assert.equal(cleanTaxInvoiceNos(["x".repeat(200)])[0].length, AP_TAX_NO_MAX, "คุมความยาวต่อเลข")
+// --- เลขที่เอกสาร (4 ช่อง · หลายเลขต่อช่องต่อใบ) ---
+assert.deepEqual(cleanDocNos([" A1 ", "A2"]), ["A1", "A2"], "ตัดช่องว่างหัวท้าย")
+assert.deepEqual(cleanDocNos(["A1", "", "  ", "A1"]), ["A1"], "ทิ้งค่าว่างและตัวซ้ำ")
+assert.deepEqual(cleanDocNos("A1"), [], "ไม่ใช่ array = ไม่มีเลข")
+assert.deepEqual(cleanDocNos(undefined), [])
+assert.equal(cleanDocNos(Array.from({ length: 50 }, (_, i) => `N${i}`)).length, AP_NOS_MAX, "คุมเพดานจำนวน")
+assert.equal(cleanDocNos(["x".repeat(200)])[0].length, AP_NO_MAX, "คุมความยาวต่อเลข")
+
+// โครงช่องเลขที่ — เพิ่ม 3 ช่องวันที่ 18/08/2026 · คีย์เดิม taxInvoiceNos ต้องอยู่ที่เดิม
+// (ถ้าคีย์เดิมถูกเปลี่ยนชื่อ เลขที่คนกรอกไว้แล้วทุกใบจะหายไปเงียบ ๆ)
+assert.deepEqual(AP_NO_FIELDS.map((f) => f.key), ["taxInvoiceNos", "billingNoteNos", "cashBillNos", "vatInvoiceNos"])
+assert.deepEqual(AP_NO_FIELDS.map((f) => f.label),
+  ["เลขที่ใบกำกับ", "เลขที่ใบวางบิล", "เลขที่บิลเงินสด", "เลขที่ใบกำกับภาษี"])
+assert.equal(new Set(AP_NO_FIELDS.map((f) => f.key)).size, AP_NO_FIELDS.length, "คีย์ห้ามซ้ำ")
+
+// readDocNos ต้องคืนครบทุกคีย์เสมอ — ฝั่งเรียกใช้จะได้ไม่ต้องเช็ค undefined ทีละช่อง
+assert.deepEqual(readDocNos({ taxInvoiceNos: ["IV1"], cashBillNos: ["CB1", "CB1"] }),
+  { taxInvoiceNos: ["IV1"], billingNoteNos: [], cashBillNos: ["CB1"], vatInvoiceNos: [] })
+assert.deepEqual(readDocNos(null),
+  { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], vatInvoiceNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
+assert.deepEqual(readDocNos({ taxInvoiceNos: "IV1" }), readDocNos(null), "ค่าเสียรูปใน DB = ถือว่าไม่มีเลข")
+
+// สายค้นหา — ต้องรวมทุกช่อง ไม่งั้นค้นด้วยเลขใบวางบิลแล้วเหมือนไม่เจอ
+const nosDoc = { taxInvoiceNos: ["IV6808-0231"], billingNoteNos: ["BN-2569/0814"], vatInvoiceNos: ["TX1187"] }
+for (const needle of ["IV6808-0231", "BN-2569/0814", "TX1187"]) {
+  assert.ok(docNosText(nosDoc).includes(needle), `ค้นหาต้องเจอ ${needle}`)
+}
+assert.equal(docNosText(null), "", "ใบที่ไม่มีเลขเลย = สายว่าง ไม่ใช่ undefined")
+
+// --- วันที่กดส่งบัญชี: ICT (บั๊กเดิมของทั้งระบบคือลืมบวก +7 ก่อนตัดวัน) ---
+assert.equal(ictDate("2026-08-14T09:41:00.000Z"), "2026-08-14")
+assert.equal(ictDate("2026-08-13T18:30:00.000Z"), "2026-08-14", "18:30 UTC = 01:30 ของวันถัดไปตามเวลาไทย")
+assert.equal(ictDate("2026-08-14T16:59:00.000Z"), "2026-08-14", "23:59 ไทย ยังเป็นวันเดิม")
+assert.equal(ictDate("2026-08-14T17:00:00.000Z"), "2026-08-15", "00:00 ไทย = ขึ้นวันใหม่")
+assert.equal(ictDate(""), "", "ไม่มี timestamp = ไม่มีวัน")
+assert.equal(ictDate("ไม่ใช่เวลา"), "")
+
+// --- ช่วงวันที่ของตัวกรอง ---
+assert.equal(inDateRange("2026-08-14", "", ""), true, "ไม่ตั้งช่วง = ผ่านหมด")
+assert.equal(inDateRange("", "", ""), true, "ไม่ตั้งช่วง แถวที่ยังไม่มีวันก็ยังอยู่")
+assert.equal(inDateRange("", "2026-08-11", ""), false, "ตั้งช่วงแล้ว แถวที่ไม่มีวันต้องตก")
+assert.equal(inDateRange("2026-08-11", "2026-08-11", "2026-08-18"), true, "ขอบล่างนับรวม")
+assert.equal(inDateRange("2026-08-18", "2026-08-11", "2026-08-18"), true, "ขอบบนนับรวม")
+assert.equal(inDateRange("2026-08-10", "2026-08-11", "2026-08-18"), false)
+assert.equal(inDateRange("2026-08-19", "2026-08-11", "2026-08-18"), false)
+assert.equal(inDateRange("2026-08-19", "2026-08-11", ""), true, "เปิดปลายบน")
+assert.equal(inDateRange("2026-08-01", "", "2026-08-18"), true, "เปิดปลายล่าง")
+
+// --- ปุ่มลัดช่วงวันที่ ---
+assert.deepEqual(apRangeOf("today", "2026-08-18"), { from: "2026-08-18", to: "2026-08-18" })
+assert.deepEqual(apRangeOf("7d", "2026-08-18"), { from: "2026-08-12", to: "2026-08-18" })
+assert.deepEqual(apRangeOf("month", "2026-08-18"), { from: "2026-08-01", to: "2026-08-18" })
+assert.deepEqual(apRangeOf("7d", "2026-09-03"), { from: "2026-08-28", to: "2026-09-03" }, "ข้ามเดือนได้")
+{
+  // "7 วันล่าสุด" ต้องได้ 7 วันพอดี รวมวันนี้ — ไม่ใช่ 8
+  const r = apRangeOf("7d", "2026-08-18")
+  const days = (Date.parse(`${r.to}T00:00:00Z`) - Date.parse(`${r.from}T00:00:00Z`)) / 86_400_000 + 1
+  assert.equal(days, 7)
+}
+
+// --- ชื่อวันในสัปดาห์ (หัวกลุ่ม) ---
+assert.equal(thaiDow("2026-08-13"), "พฤหัสบดี", "13/08/2026 เป็นวันพฤหัส (วันที่บัญชีโอนนอกรอบ)")
+assert.equal(thaiDow("2026-08-16"), "อาทิตย์")
+assert.equal(thaiDow(""), "", "ไม่มีวันที่ = ไม่มีชื่อวัน ไม่ใช่พัง")
+assert.equal(thaiDow("ไม่ใช่วันที่"), "")
+
+// --- จัดกลุ่มตามวัน (มุมมอง "จัดกลุ่มตามวันที่กดส่ง") ---
+{
+  const rs = [
+    { c: "A", d: "2026-08-14" }, { c: "B", d: "2026-08-15" },
+    { c: "C", d: "2026-08-14" }, { c: "D", d: "" },
+  ]
+  const g = groupByDate(rs, (r) => r.d)
+  assert.deepEqual(g.map((x) => x.date), ["2026-08-15", "2026-08-14", ""], "วันใหม่ก่อน · ไม่มีวันไปท้ายสุด")
+  assert.deepEqual(g[1].rows.map((r) => r.c), ["A", "C"], "ลำดับในกลุ่มคงเดิมตามที่รับมา")
+  assert.equal(g.reduce((n, x) => n + x.rows.length, 0), rs.length, "ห้ามมีแถวหายหรือถูกนับซ้ำ")
+  assert.deepEqual(groupByDate([], (r: { d: string }) => r.d), [], "ไม่มีแถว = ไม่มีกลุ่ม")
+}
 
 // --- คีย์ของรายการสินค้าในใบ (ติ๊กหลักฐานรายรายการ) ---
 // deposit_items ถูกลบ-เขียนใหม่ทุกครั้งที่ scrape → _id เปลี่ยนตลอด ใช้เป็นคีย์ไม่ได้
