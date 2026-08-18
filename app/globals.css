@@ -159,6 +159,30 @@
 .m-float { animation: floaty 3.4s ease-in-out infinite; }
 .m-wave  { transform-box: fill-box; transform-origin: 50% 95%; animation: wave 1.7s ease-in-out infinite; }
 
+/* ── แถบคืบหน้าแบบไม่รู้เวลาจบ (indeterminate) ──
+   ใช้ตอนรอข้อมูลที่ไม่รู้ว่าจะนานแค่ไหน เช่นสลับเดือนในหน้าติดตามเจ้าหนี้
+   แถบวิ่งจากซ้ายไปขวาแล้ววนใหม่ — บอกว่า "ยังทำงานอยู่" โดยไม่โกหกว่าเหลืออีกกี่ %
+   prefers-reduced-motion: เปลี่ยนเป็นจาง-เข้มอยู่กับที่แทนการเลื่อน */
+@keyframes bar-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.bar-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 25%;
+  border-radius: inherit;
+  background: currentColor;
+  animation: bar-slide 1.15s cubic-bezier(.45,.05,.55,.95) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar-indeterminate::after {
+    width: 100%;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+}
+
 /* ── Dark mode overrides for hardcoded utility classes ── */
 .dark .bg-white {
   background-color: oklch(0.2 0 0) !important;

@@ -65,7 +65,7 @@ export function ApHeader({
         <div>
           <h1 className="text-lg font-bold tracking-tight text-[#14271C] dark:text-white" style={mitr}>ติดตามเจ้าหนี้</h1>
           <div className="text-[11px] text-gray-400">
-            {summary?.dataAsOf ? `ข้อมูล ATMS ล่าสุด ${thaiDate(summary.dataAsOf)}` : " "}
+            {loading && !summary ? "กำลังโหลด…" : summary?.dataAsOf ? `ข้อมูล ATMS ล่าสุด ${thaiDate(summary.dataAsOf)}` : " "}
           </div>
         </div>
 
@@ -109,16 +109,23 @@ export function ApHeader({
                 : "border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
               {s.label}
-              <span className={`text-xs ${on ? "text-gray-500 dark:text-gray-300" : "text-gray-400"} ${NUM}`}>
-                {v ? v.n.toLocaleString("th-TH") : 0}
-              </span>
+              {/* ยังไม่ได้ยอดของเดือนใหม่ = ห้ามโชว์ 0 เพราะอ่านผิดว่า "เดือนนี้ไม่มีใบ"
+                  โชว์เป็นโครงกำลังโหลดแทน แล้วค่อยแทนที่ด้วยตัวเลขจริง */}
+              {loading && !summary ? (
+                <span className="inline-block h-3 w-6 animate-pulse rounded bg-gray-200 dark:bg-white/10" />
+              ) : (
+                <span className={`text-xs ${on ? "text-gray-500 dark:text-gray-300" : "text-gray-400"} ${NUM}`}>
+                  {v ? v.n.toLocaleString("th-TH") : 0}
+                </span>
+              )}
             </button>
           )
         })}
         <span className={`ml-auto pb-2 pr-1 text-xs text-gray-400 ${NUM}`}>
           {/* "ทั้งหมด" เคยหมายถึงเดือนนี้ + ใบค้างยกมา — ตั้งแต่โหลดทีละเดือนแล้วมันคือเดือนนี้ล้วน
               ต้องเขียนให้ตรง ไม่งั้นคนจะนึกว่าใบค้างเดือนก่อนถูกนับรวมอยู่ด้วย */}
-          {tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้` : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
+          {loading && !summary ? `กำลังโหลด ${monthLabel(month)}…`
+            : tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้` : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
         </span>
       </div>
 

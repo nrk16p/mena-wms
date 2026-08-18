@@ -116,10 +116,20 @@ export function ApTrackingPage() {
   const [perPage, setPerPage] = useState<number>(50)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRunning, setBulkRunning] = useState(false)
+  // ระหว่าง "กดเปลี่ยนเดือน" กับ "คิวรีเริ่มจริง" มี debounce 400ms คั่น — ถ้าดูแต่ loading
+  // ช่วงนั้นตารางจะว่างพร้อมข้อความ "ยังไม่มีใบรับของในเดือนนี้" ทั้งที่แค่ยังไม่เริ่มโหลด
+  const [pending, setPending] = useState(false)
 
   // ทุกตัวกรองต้องพากลับหน้า 1 และล้างการเลือกค้าง (ใบที่เลือกไว้อาจหลุดจากผลลัพธ์ใหม่ไปแล้ว)
   // ทำที่ตัวจัดการเหตุการณ์ ไม่ใช่ใน useEffect — setState ใน effect ทำให้ render ซ้อนโดยไม่จำเป็น
   const applyFilter = (fn: () => void) => { fn(); setPage(1); setSelected(new Set()) }
+
+  // เปลี่ยนเดือน = ข้อมูลทั้งหน้าใช้ไม่ได้แล้ว — ล้างทิ้งทันทีให้เห็นเป็นโครงกำลังโหลด
+  // ไม่ปล่อยให้ตัวเลขเดือนเก่าค้างอยู่จนคนอ่านผิดว่าเป็นของเดือนใหม่
+  // (ตัวกรองอื่นอย่างคำค้นไม่ล้าง เพราะพิมพ์ทีละตัวอักษรแล้วตารางกะพริบทุกครั้งจะแย่กว่า)
+  const changeMonth = (v: string) => applyFilter(() => {
+    setMonth(v); setRows([]); setSummary(null); setPending(true)
+  })
 
   const openSent = (row: ApRow) => { setDetailFor(null); setSentFor(row) }
   const openDetail = (row: ApRow) => { setSentFor(null); setDetailFor(row) }
@@ -157,7 +167,7 @@ export function ApTrackingPage() {
       const msg = e instanceof Error ? e.message : ""
       swalError(msg ? `โหลดข้อมูลไม่สำเร็จ: ${msg}` : "โหลดข้อมูลไม่สำเร็จ")
     } finally {
-      if (seq === loadSeq.current) setLoading(false)
+      if (seq === loadSeq.current) { setLoading(false); setPending(false) }
     }
   }, [month, warehouse, q])
 
@@ -171,6 +181,8 @@ export function ApTrackingPage() {
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
+  // "ยังไม่ได้ข้อมูลของเดือนที่เลือก" — ครอบทั้งช่วง debounce และช่วงที่คิวรีวิ่งอยู่
+  const busy = loading || pending
   const today = todayICT()
 
   // แถบ "วันที่กดส่งบัญชี" โผล่เฉพาะแท็บที่ใบผ่านการกดส่งมาแล้ว
@@ -319,9 +331,15 @@ export function ApTrackingPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
+      {/* แถบคืบหน้าบนสุด — สัญญาณเดียวที่เห็นได้แน่นอนไม่ว่าจะเลื่อนอยู่ตรงไหนของหน้า
+          กันที่ไว้เสมอ (h-0.5) ไม่ให้เนื้อหาขยับขึ้นลงตอนโหลดเสร็จ */}
+      <div className="relative h-0.5 overflow-hidden rounded-full" aria-hidden="true">
+        {busy && <div className="bar-indeterminate absolute inset-0 rounded-full bg-emerald-500/15 text-emerald-500" />}
+      </div>
+
       <ApHeader
-        summary={summary} loading={loading}
-        month={month} onMonth={(v) => applyFilter(() => setMonth(v))}
+        summary={summary} loading={busy}
+        month={month} onMonth={changeMonth}
         q={q} onQ={(v) => applyFilter(() => setQ(v))}
         onRefresh={load}
         tab={tab} onTab={(v) => applyFilter(() => setTab(v))}
@@ -368,7 +386,7 @@ export function ApTrackingPage() {
 
       <ApTable
         rows={paged} groups={pagedGroups} showSentMarked={sentView} unit={grouped ? "วัน" : "ใบ"}
-        loading={loading}
+        loading={busy}
         selected={selected} onToggle={toggle} onToggleAll={toggleAll}
         onOpen={openDetail} onSend={openSent}
         page={safePage} totalPages={totalPages} pageNumbers={pageNumbers}
