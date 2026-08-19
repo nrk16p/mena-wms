@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getToken } from "next-auth/jwt"
 import { getSafetyStock } from "@/lib/safety-stock"
 import { INVENTORY_ID } from "@/lib/safety-stock-core"
 
@@ -7,7 +8,18 @@ export const dynamic = "force-dynamic" // cache จัดการเองใ�
 export async function GET(req: NextRequest) {
   try {
     const inventoryId = req.nextUrl.searchParams.get("inventory") ?? INVENTORY_ID
-    const data = await getSafetyStock(inventoryId, req.nextUrl.searchParams.get("refresh") === "1")
+
+    // middleware บังคับแค่ต้อง login — ผู้ใช้ที่ login แล้วทุกคนเรียก ?refresh=1 ซ้ำๆ ได้ไม่จำกัด แต่ละครั้งคือ
+    // find ~4,100 doc + findOne อีก 2 ครั้ง เจาะ TTL cache 1 ชม.ทิ้งไปเปล่าๆ ต้องเช็คสิทธิ์แอดมินซ้ำที่นี่
+    // (ปุ่ม "ดึงข้อมูลใหม่" ใน UI ซ่อนไว้แล้วสำหรับ non-admin แต่การกัน UI อย่างเดียวไม่พอ ต้องกันที่ API ด้วย)
+    // non-admin ที่ขอ refresh มา — เงียบๆ คืน cache แทนการฟ้อง error ผู้ใช้ทั่วไปไม่ควรรู้สึกว่าปุ่มพัง
+    let forceRefresh = false
+    if (req.nextUrl.searchParams.get("refresh") === "1") {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
+      forceRefresh = token?.role === "admin"
+    }
+
+    const data = await getSafetyStock(inventoryId, forceRefresh)
     return NextResponse.json(data)
   } catch (e) {
     console.error("[safety-stock] ", e)
