@@ -8,10 +8,35 @@ import { Plus, X, ChevronLeft, ChevronRight, Trash2, ArrowRight, History, Search
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 import { GarageCombobox, inputCls, type Garage } from "@/components/garage-combobox"
 import { PLAN_STATUSES, PLAN_CONVERTED, planStatusMeta, type RepairPlan } from "@/lib/repair-plan"
-import { jobTypeOf, JOB_TYPE_GARAGE, REPAIR_STATUSES, REPAIR_DONE_STATUS, statusMeta, type RepairExternal } from "@/lib/repair-external"
-import { bkkToday } from "@/lib/bkk-time"
+import { jobTypeOf, JOB_TYPE_GARAGE, REPAIR_STATUSES, REPAIR_DONE_STATUS, jobStartDate, statusMeta, type RepairExternal } from "@/lib/repair-external"
+import { bkkToday, bkkDate } from "@/lib/bkk-time"
 
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+
+// สีแท่ง "เส้นทางสถานะ" — ต่อ 1 คัน 1 เส้น หลายสีตามช่วงเวลาที่อยู่ในแต่ละสถานะ (จาก log statusChange)
+// คนละชุดกับสีแท่งแผน (PLAN_STATUSES.bar) เพื่อแยกสายตาว่าอันไหนคือ "แผน" อันไหนคือ "ประวัติจริง"
+const JOB_STATUS_BAR: Record<string, string> = {
+  "รอรถเข้า":         "bg-gray-400 dark:bg-gray-500",
+  "รถเข้าอู่ซ่อม":     "bg-blue-500",
+  "รอ PR":            "bg-amber-500",
+  "ซ่อมไม่มีกำหนด":    "bg-orange-500",
+  "ซ่อมมีกำหนดเสร็จ":  "bg-teal-500",
+  "รถเสร็จ(ไม่มี PR)": "bg-lime-500",
+  "รถเสร็จ":          "bg-green-600",
+}
+const jobStatusBar = (status: string) => JOB_STATUS_BAR[status] ?? "bg-gray-300 dark:bg-gray-600"
+
+// ประวัติสถานะ → ช่วงเวลาแต่ละสี — จุดเริ่มเส้นยึด jobStartDate (min รับแจ้ง/เข้าอู่ ตามหน้าตารางหลัก)
+// ไม่ใช่เวลา log แรกเพราะงานคีย์ย้อนหลังจะมี log ช้ากว่าวันจริงมาก; จุดต่อ ๆ ไปยึดเวลา log จริง
+function jobStatusSegments(job: RepairExternal, events: { to: string; at: string }[], today: string) {
+  const start0 = jobStartDate(job) || (events[0] ? bkkDate(events[0].at) : today)
+  if (events.length === 0) return [{ status: job.status, start: start0, end: today }]
+  return events.map((e, i) => {
+    const segStart = i === 0 ? start0 : bkkDate(e.at)
+    const segEndRaw = i + 1 < events.length ? bkkDate(events[i + 1].at) : today
+    return { status: e.to, start: segStart, end: segEndRaw < segStart ? segStart : segEndRaw }
+  })
+}
 
 // ── วันที่แบบ YYYY-MM-DD ล้วน (เลี่ยง timezone โดยคิดเป็นวันปฏิทิน) ──
 const toDate = (s: string) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d) }
@@ -26,10 +51,11 @@ const EMPTY_PLAN: PlanForm = {
   plannedInDate: "", plannedOutDate: "", planStatus: PLAN_STATUSES[0].value, note: "",
 }
 
-// แท่งบน gantt — แผน หรือ ช่วงซ่อมจริง (overlay อ่านอย่างเดียว)
-type Bar = { key: string; start: string; end: string; label: string; title: string; cls: string; plan?: RepairPlan }
+// แท่งบน gantt — แผน (คลิกแก้ได้) หรือ ช่วงสถานะจริง (อ่านอย่างเดียว, หลายชิ้นรวมเป็น 1 เส้น)
+// lane = ตำแหน่งแถวย่อยในบรรทัดนั้น (แผนแต่ละใบคนละ lane, ช่วงสถานะทุกชิ้นแชร์ lane เดียวกัน)
+type Bar = { key: string; start: string; end: string; label: string; title: string; cls: string; lane: number; plan?: RepairPlan }
 // แถว = ใบงาน 1 ใบ (หรือกลุ่มแผนลอยของทะเบียนที่ไม่มีใบงาน)
-type Row = { key: string; plate: string; fleetNo: string; job?: RepairExternal; bars: Bar[] }
+type Row = { key: string; plate: string; fleetNo: string; job?: RepairExternal; bars: Bar[]; lanes: number }
 
 export function RepairPlanTab({
   garages, onConvert, refreshKey,
@@ -42,6 +68,8 @@ export function RepairPlanTab({
   const [plans, setPlans]     = useState<RepairPlan[]>([])
   // ใบงาน active ดึงตรงจาก API (ไม่ใช้ rows ของหน้าใบงาน — อันนั้นถูกตัวกรองหน้าตารางกรองไว้)
   const [activeRepairs, setActiveRepairs] = useState<RepairExternal[]>([])
+  // ประวัติเปลี่ยนสถานะต่อใบงาน (repairId → [{to, at}] เก่า→ใหม่) — ใช้วาดเส้นทางสถานะหลายสี
+  const [historyByJob, setHistoryByJob] = useState<Record<string, { to: string; at: string }[]>>({})
   const [loading, setLoading] = useState(true)
   const [start, setStart]     = useState(addDays(today, -3))
   const [span, setSpan]       = useState<14 | 28>(14)
@@ -55,9 +83,16 @@ export function RepairPlanTab({
         fetch("/api/repair-external?scope=active"),
       ])
       const plansData = await plansRes.json()
-      const jobsData  = await jobsRes.json()
+      const jobsData: RepairExternal[] = await jobsRes.json()
       setPlans(Array.isArray(plansData) ? plansData : [])
-      setActiveRepairs(Array.isArray(jobsData) ? jobsData : [])
+      const jobs = Array.isArray(jobsData) ? jobsData : []
+      setActiveRepairs(jobs)
+      const garageIds = jobs.filter((j) => jobTypeOf(j) === JOB_TYPE_GARAGE).map((j) => j._id)
+      if (garageIds.length) {
+        const hRes  = await fetch(`/api/repair-external/status-history?ids=${garageIds.join(",")}`)
+        const hData = await hRes.json()
+        setHistoryByJob(hData && typeof hData === "object" ? hData : {})
+      } else setHistoryByJob({})
     } catch { swalError("โหลดแผนซ่อมไม่สำเร็จ") } finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load, refreshKey])
@@ -151,14 +186,14 @@ export function RepairPlanTab({
   const days = Array.from({ length: span }, (_, i) => addDays(start, i))
   const planEnd = (p: RepairPlan) => p.plannedOutDate || p.plannedInDate
 
-  const planBar = (p: RepairPlan): Bar => {
+  const planBar = (p: RepairPlan, lane: number): Bar => {
     const meta = planStatusMeta(p.planStatus)
     return {
-      key: `plan-${p._id}`,
+      key: `plan-${p._id}`, lane,
       start: p.plannedInDate, end: planEnd(p),
       label: `${meta.emoji} ${p.garage}: ${p.repairItems.split("\n")[0]}`,
       title: `แผน: ${p.planStatus} · ${p.garage}\n${p.repairItems}\n${fmtShort(p.plannedInDate)}${p.plannedOutDate ? ` → ${fmtShort(p.plannedOutDate)}` : ""}`,
-      cls: `${meta.bar} text-white cursor-pointer hover:opacity-85`,
+      cls: `${meta.bar} text-white cursor-pointer hover:opacity-85 rounded-md`,
       plan: p,
     }
   }
@@ -175,22 +210,25 @@ export function RepairPlanTab({
   }
 
   const jobRow = (job: RepairExternal): Row => {
-    const bars = (plansByJob.get(job._id) ?? []).map(planBar)
-    if (showActual && job.garageInDate) {
-      bars.push({
-        key: `job-${job._id}`,
-        start: job.garageInDate,
-        end: job.dueDate && job.dueDate >= job.garageInDate ? job.dueDate : today,
-        label: `🔧 ซ่อมจริง · ${job.garage || "ไม่ระบุอู่"}`,
-        title: `งานจริง: ${job.status} · ${job.garage || "ไม่ระบุอู่"}\n${job.symptom}`,
-        cls: "bg-[#14271C] dark:bg-[#0b0e08] text-white/90 cursor-default border border-white/20",
-      })
-    }
-    return { key: job._id, plate: job.plate, fleetNo: job.fleetNo, job, bars: bars.sort((a, b) => a.start.localeCompare(b.start)) }
+    const planBars = (plansByJob.get(job._id) ?? []).map((p, i) => planBar(p, i))
+    const historyLane = planBars.length
+    // เส้นทางสถานะจริง — หลายชิ้นสี ต่อกันเป็นเส้นเดียวใน lane เดียวกัน (ไม่ใช่คนละแถว)
+    const segments = showActual ? jobStatusSegments(job, historyByJob[job._id] ?? [], today) : []
+    const historyBars: Bar[] = segments.map((seg, i) => ({
+      key: `hist-${job._id}-${i}`, lane: historyLane,
+      start: seg.start, end: seg.end,
+      label: i === 0 ? `${statusMeta(seg.status).emoji} ${seg.status}` : statusMeta(seg.status).emoji,
+      title: `${seg.status}\n${fmtShort(seg.start)} → ${fmtShort(seg.end)}`,
+      // ต่อกันเป็นเส้นเดียว — โค้งมนแค่ปลายซ้ายสุด/ขวาสุดของเส้น ไม่ใช่ทุกชิ้น
+      cls: `${jobStatusBar(seg.status)} text-white cursor-default ${i === 0 ? "rounded-l-md" : ""} ${i === segments.length - 1 ? "rounded-r-md" : ""}`,
+    }))
+    const bars = [...planBars, ...historyBars]
+    return { key: job._id, plate: job.plate, fleetNo: job.fleetNo, job, bars, lanes: historyLane + (historyBars.length ? 1 : 0) }
   }
 
-  const sortRows = (a: Row, b: Row) =>
-    (a.bars[0]?.start ?? "9999").localeCompare(b.bars[0]?.start ?? "9999") || a.plate.localeCompare(b.plate)
+  // เรียงตามวันเริ่มเร็วสุดของแท่งในแถว (bars ไม่ได้เรียงตามเวลาแล้ว — ต้องหา min เอง)
+  const earliestStart = (r: Row) => r.bars.reduce((min, b) => (b.start < min ? b.start : min), "9999")
+  const sortRows = (a: Row, b: Row) => earliestStart(a).localeCompare(earliestStart(b)) || a.plate.localeCompare(b.plate)
 
   // ลำดับกลุ่ม = workflow อู่นอก (ตัดสถานะปิดงาน "รถเสร็จ" — ไม่อยู่ใน scope active อยู่แล้ว)
   const sections = REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS).map((s) => ({
@@ -200,12 +238,15 @@ export function RepairPlanTab({
 
   // แผนลอย (ทะเบียนไม่มีใบงาน active) — กลุ่มท้ายสุด รวมแผนของทะเบียนเดียวกันไว้แถวเดียว
   const floatingRows: Row[] = (() => {
-    const m = new Map<string, Row>()
+    const m = new Map<string, { plate: string; fleetNo: string; plans: RepairPlan[] }>()
     for (const p of floating) {
-      if (!m.has(p.plate)) m.set(p.plate, { key: `float-${p.plate}`, plate: p.plate, fleetNo: p.fleetNo, bars: [] })
-      m.get(p.plate)!.bars.push(planBar(p))
+      if (!m.has(p.plate)) m.set(p.plate, { plate: p.plate, fleetNo: p.fleetNo, plans: [] })
+      m.get(p.plate)!.plans.push(p)
     }
-    return [...m.values()].map((r) => ({ ...r, bars: r.bars.sort((a, b) => a.start.localeCompare(b.start)) })).sort(sortRows)
+    return [...m.values()].map((v) => {
+      const bars = v.plans.map((p, i) => planBar(p, i))
+      return { key: `float-${v.plate}`, plate: v.plate, fleetNo: v.fleetNo, bars, lanes: bars.length }
+    }).sort(sortRows)
   })()
 
   const monthLabel = toDate(start).toLocaleDateString("th-TH", { month: "long", year: "numeric" }) +
@@ -218,7 +259,7 @@ export function RepairPlanTab({
   }
 
   const renderRow = (row: Row) => {
-    const rowH = Math.max(row.bars.length, 1) * 30 + 8
+    const rowH = Math.max(row.lanes, 1) * 30 + 8
     const planCount = row.bars.filter((b) => b.plan).length
     return (
       <div key={row.key} className="flex border-b border-[#F1F5F2] dark:border-white/5 last:border-b-0">
@@ -244,14 +285,14 @@ export function RepairPlanTab({
               ＋ วางแผนนัดเข้าอู่…
             </button>
           )}
-          {row.bars.map((b, i) => {
+          {row.bars.map((b) => {
             // แท่งอยู่นอกช่วงที่แสดงทั้งแท่ง → ป้ายเล็กชิดขอบบอกวันที่ (คลิกได้ถ้าเป็นแผน)
             if (b.end < start || b.start > endDate) {
               const before = b.end < start
               return (
                 <button key={b.key} onClick={b.plan ? () => openEdit(b.plan!) : undefined} title={b.title}
                   className={`absolute flex items-center gap-0.5 rounded px-1 text-[9px] text-gray-400 dark:text-gray-500 ${b.plan ? "hover:text-[#1B8C4B] cursor-pointer" : "cursor-default"}`}
-                  style={{ top: 8 + i * 30, ...(before ? { left: 2 } : { right: 2 }) }}>
+                  style={{ top: 8 + b.lane * 30, ...(before ? { left: 2 } : { right: 2 }) }}>
                   {before ? `◀ ${fmtShort(b.end)}` : `${fmtShort(b.start)} ▶`}
                 </button>
               )
@@ -260,8 +301,8 @@ export function RepairPlanTab({
             const eIdx = Math.min(span - 1, dayDiff(start, b.end))
             return (
               <div key={b.key} onClick={b.plan ? () => openEdit(b.plan!) : undefined} title={b.title}
-                className={`absolute flex items-center gap-1 overflow-hidden rounded-md px-1.5 text-[10px] font-medium ${b.cls}`}
-                style={{ left: `${(sIdx / span) * 100}%`, width: `${((eIdx - sIdx + 1) / span) * 100}%`, top: 4 + i * 30, height: 26 }}>
+                className={`absolute flex items-center gap-1 overflow-hidden px-1.5 text-[10px] font-medium ${b.cls}`}
+                style={{ left: `${(sIdx / span) * 100}%`, width: `${((eIdx - sIdx + 1) / span) * 100}%`, top: 4 + b.lane * 30, height: 26 }}>
                 {b.start < start && <span className="shrink-0">◀</span>}
                 <span className="truncate">{b.label}</span>
                 {b.end > endDate && <span className="ml-auto shrink-0">▶</span>}
@@ -273,8 +314,9 @@ export function RepairPlanTab({
     )
   }
 
-  const sectionHeader = (emoji: string, name: string, count: number, cls: string) => (
+  const sectionHeader = (emoji: string, name: string, count: number, cls: string, barCls?: string) => (
     <div className="sticky left-0 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] px-3 py-2">
+      {barCls && <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm ${barCls}`} title="สีเส้นทางสถานะของกลุ่มนี้" />}
       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-bold ${cls}`}>{emoji} {name}</span>
       <span className="text-[11px] font-semibold text-[#5B7568] dark:text-gray-400">{count} คัน</span>
     </div>
@@ -297,15 +339,15 @@ export function RepairPlanTab({
         </div>
         <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
           <input type="checkbox" checked={showActual} onChange={(e) => setShowActual(e.target.checked)} className="accent-[#1B8C4B]" />
-          แสดงช่วงซ่อมจริง
+          แสดงเส้นทางสถานะ (สีตามหัวข้อกลุ่มด้านล่าง)
         </label>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <span className="text-[10.5px] text-gray-400">สีแผน:</span>
           {PLAN_STATUSES.filter((s) => s.value !== "ยกเลิก").map((s) => (
             <span key={s.value} className="inline-flex items-center gap-1 text-[10.5px] text-gray-500 dark:text-gray-400">
               <span className={`inline-block h-2.5 w-2.5 rounded-sm ${s.bar}`} /> {s.value}
             </span>
           ))}
-          {showActual && <span className="inline-flex items-center gap-1 text-[10.5px] text-gray-500 dark:text-gray-400"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#14271C] dark:bg-black border border-gray-400" /> ซ่อมจริง</span>}
           <button onClick={openAdd} className="ml-1 inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#0F6A3C] transition-colors">
             <Plus size={14} /> เพิ่มแผน
           </button>
@@ -343,7 +385,7 @@ export function RepairPlanTab({
             <>
               {sections.map((sec) => (
                 <div key={sec.meta.value}>
-                  {sectionHeader(sec.meta.emoji, sec.meta.value, sec.rows.length, sec.meta.cls)}
+                  {sectionHeader(sec.meta.emoji, sec.meta.value, sec.rows.length, sec.meta.cls, jobStatusBar(sec.meta.value))}
                   {sec.rows.map(renderRow)}
                 </div>
               ))}
