@@ -19,6 +19,10 @@ export const maxDuration = 300
 //   • refreshes current + previous month counts in atms_new_sku_monthly
 // Protected by Authorization: Bearer <CRON_SECRET>
 export async function GET(req: NextRequest) {
+  // จับเวลาไว้ตั้งแต่บรรทัดแรก — budget ของ chain ด้านล่างต้องหักเวลาที่งาน atms-sku-report เดิม (ด้านล่าง) ใช้ไปด้วย
+  // ไม่ใช่แค่เวลาของ chain เอง ไม่งั้น sync+build รวมกับงานเดิมอาจเกิน maxDuration 300s แล้วโดน Vercel ฆ่ากลางคัน
+  const startedAt = Date.now()
+
   const secret = process.env.CRON_SECRET
   if (secret) {
     if (req.headers.get("authorization") !== `Bearer ${secret}`) {
@@ -114,12 +118,29 @@ export async function GET(req: NextRequest) {
   // Vercel Hobby จำกัด cron ไว้แค่ 2 รายการ (ใช้เต็มแล้วโดย tire-sync + งานด้านบนของไฟล์นี้) และการยิง ATMS
   // ด้วยหลาย cron พร้อมกันคือสิ่งที่ทำให้ ATMS ล่ม — จึงต่อ sku-sync + safety-stock build ท้ายสล็อตนี้แทนแยก cron ใหม่
   // ต้อง catch ทุกอย่างในนี้ ห้าม throw ออกไปทับผลลัพธ์/สถานะ HTTP ของงาน atms-sku-report ด้านบนซึ่งทำสำเร็จไปแล้วก่อนหน้านี้
-  const chain: { skuSync: SkuSyncResult | null; build: BuildResult | null; error: string | null } = {
-    skuSync: null, build: null, error: null,
-  }
+  //
+  // ทั้ง 3 งาน (atms-sku-report เดิม + sku-sync 4 คลัง + build 4 คลัง) ต้องแบ่งกันอยู่ใน maxDuration 300s เดียว
+  // sync มี pacing ≥3s ต่อหน้า/ต่อคลัง บวก backoff ที่ยาวขึ้นตอน ATMS แย่ (attempt × 2) — เคสที่ควรกลัวที่สุดคือ
+  // ATMS ช้าพอดีตอนนั้น ให้ budget 240s (เหลือ 60s กันชนสำหรับเขียน log/คืนค่า) แล้วให้ runSkuSync/runSafetyStockBuild
+  // เช็คเอง "ระหว่างคลัง" ว่ายังพอเวลาไหม ถ้าไม่พอให้ข้ามคลังที่เหลือแบบบันทึกไว้ชัดเจน (ok=false, error ไม่ null)
+  // ดีกว่าปล่อยให้ Vercel ฆ่ากลางคันซึ่งจะทำให้ log ของคลังที่กำลังทำค้างไม่มีการบันทึกอะไรเลย
+  const CHAIN_BUDGET_MS = 240_000
+  const deadline = startedAt + CHAIN_BUDGET_MS
+
+  const chain: {
+    skuSync: SkuSyncResult | null
+    build: BuildResult | null
+    buildSkipped: string | null
+    error: string | null
+  } = { skuSync: null, build: null, buildSkipped: null, error: null }
   try {
-    chain.skuSync = await runSkuSync(null)
-    chain.build = await runSafetyStockBuild(null)
+    chain.skuSync = await runSkuSync(null, deadline)
+    if (Date.now() >= deadline) {
+      // เกิน budget ไปแล้วทันทีที่ sync จบ (ไม่ว่า sync เองจะข้ามคลังไปแล้วหรือไม่) — ข้าม build ทั้งหมด ไม่เริ่มเลย
+      chain.buildSkipped = "ข้าม build ทั้งหมด — เกิน time budget (240s) ตั้งแต่ก่อนเริ่ม build จะรันในรอบถัดไป"
+    } else {
+      chain.build = await runSafetyStockBuild(null, deadline)
+    }
   } catch (err) {
     chain.error = err instanceof Error ? err.message : "Unknown error"
   }

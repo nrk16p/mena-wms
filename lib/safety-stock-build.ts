@@ -257,6 +257,9 @@ export type BuildWarehouseResult = {
   stats: BuildStats | null
   months: string[]
   error: string | null
+  /** true เฉพาะแถวที่ถูกข้ามเพราะ deadline — ไม่ใส่ (undefined) เมื่อรันจนจบตามปกติ
+   *  เพื่อไม่ให้ response shape ของ route แบบไม่มี deadline เปลี่ยนไปจากเดิมแม้แต่ field เดียว */
+  skipped?: boolean
 }
 
 export type BuildResult = {
@@ -268,10 +271,18 @@ export type BuildResult = {
   syncedAt: Date
 }
 
+/** ใช้เมื่อ /api/cron/atms-sku-report ส่ง deadline มา (chain ต่อท้ายในสล็อตเดียวกับงานเดิม) แล้วเวลาหมดก่อนถึงคลังนี้
+ *  ตั้งใจให้ error ไม่ใช่ null — ทำให้ ok คำนวณเป็น false อัตโนมัติ ไม่ต้องเขียนโค้ดแยกเพื่อบังคับ ok=false */
+const DEADLINE_SKIP_MSG = "ข้ามคลังนี้ — เกิน time budget ของรอบนี้แล้ว จะ build ในรอบถัดไป"
+
 /** สร้าง safety_stock_snapshot จาก atms_sku_master + v5 + PR — ต้องรันหลัง runSkuSync()
  *  เดินทุกคลังใน WAREHOUSES ตามลำดับ (ทีละคลัง กันโหลด Mongo พร้อมกัน) — inventoryParam ไม่ null จำกัดคลังเดียว
- *  เขียน log ไปที่ safety_stock_sync_log (trigger: "build") เหมือน route เดิมทุกประการ */
-export async function runSafetyStockBuild(inventoryParam: string | null): Promise<BuildResult> {
+ *  เขียน log ไปที่ safety_stock_sync_log (trigger: "build") เหมือน route เดิมทุกประการ
+ *
+ *  `deadline` เป็น epoch ms — ไม่ใส่ (undefined) เมื่อเรียกจาก route ของตัวเอง (พฤติกรรมเดิมทุกประการ ไม่มี time budget)
+ *  ใส่เฉพาะตอนที่ /api/cron/atms-sku-report เรียก chain ต่อท้ายงานเดิมในสล็อตเดียวกัน ซึ่งต้องแบ่งเวลากับงานอื่นด้วย
+ *  เช็คเฉพาะ "ระหว่างคลัง" เท่านั้น (ก่อนเริ่มคลังถัดไป) ไม่มีทางตัดกลางคลังที่กำลัง build อยู่ */
+export async function runSafetyStockBuild(inventoryParam: string | null, deadline?: number): Promise<BuildResult> {
   const targets = inventoryParam ? [inventoryParam] : WAREHOUSES.map((w) => w.id)
 
   const client = await clientPromise
@@ -322,8 +333,20 @@ export async function runSafetyStockBuild(inventoryParam: string | null): Promis
   }
 
   const results: BuildWarehouseResult[] = []
-  for (const inventoryId of targets) {
-    results.push(await buildOneWarehouse(inventoryId))
+  const deadlinePassed = () => deadline !== undefined && Date.now() >= deadline
+
+  for (let i = 0; i < targets.length; i++) {
+    // เช็คก่อนเริ่มคลังถัดไปเท่านั้น — ไม่มีทางตัดกลางคลังที่กำลัง build อยู่ (ครึ่งๆ กลางๆ แย่กว่าข้ามไปเลย)
+    if (deadlinePassed()) {
+      for (let j = i; j < targets.length; j++) {
+        results.push({
+          inventoryId: targets[j], written: 0, latestMovementDate: null, stats: null, months: [],
+          error: DEADLINE_SKIP_MSG, skipped: true,
+        })
+      }
+      break
+    }
+    results.push(await buildOneWarehouse(targets[i]))
   }
 
   // สร้าง index ครั้งเดียวหลังจบทุกคลัง — collection เดียวใช้ร่วมกัน 4 คลัง ต้อง prefix ด้วย inventoryId
