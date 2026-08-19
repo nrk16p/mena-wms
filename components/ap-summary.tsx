@@ -3,6 +3,7 @@
 import { CalendarRange, ChevronLeft, ChevronRight, CloudDownload, RefreshCw, Search } from "lucide-react"
 import { AP_STAGES, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
 import { NUM, mitr } from "@/components/ap-style"
+import { WarehouseCombobox } from "@/components/warehouse-combobox"
 import type { ApSummary, ApTab } from "@/components/ap-types"
 
 // เลื่อนเดือนทีละก้าว — ผู้ใช้ทำงานเป็นรายเดือน กดลูกศรเร็วกว่าเปิด date picker ทุกครั้ง
@@ -91,11 +92,7 @@ export function ApHeader({
               className="w-56 rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/10 dark:bg-white/5" />
           </div>
 
-          <select value={warehouse} onChange={(e) => onWarehouse(e.target.value)}
-            className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-white/10 dark:bg-white/5">
-            <option value="">ทุกคลัง</option>
-            {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
-          </select>
+          <WarehouseCombobox options={warehouses} value={warehouse} onChange={onWarehouse} />
 
           {canPull && (
             <button onClick={onPull} disabled={pulling}
