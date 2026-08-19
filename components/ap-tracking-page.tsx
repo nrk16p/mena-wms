@@ -119,6 +119,9 @@ export function ApTrackingPage() {
   // ระหว่าง "กดเปลี่ยนเดือน" กับ "คิวรีเริ่มจริง" มี debounce 400ms คั่น — ถ้าดูแต่ loading
   // ช่วงนั้นตารางจะว่างพร้อมข้อความ "ยังไม่มีใบรับของในเดือนนี้" ทั้งที่แค่ยังไม่เริ่มโหลด
   const [pending, setPending] = useState(false)
+  // ดึงข้อมูลสดจาก ATMS (pipeline light 30 วัน ~11-12 นาที) — สถานะแยกจาก loading ของตาราง
+  const [pulling, setPulling] = useState(false)
+  const [pullProgress, setPullProgress] = useState(0)
 
   // ทุกตัวกรองต้องพากลับหน้า 1 และล้างการเลือกค้าง (ใบที่เลือกไว้อาจหลุดจากผลลัพธ์ใหม่ไปแล้ว)
   // ทำที่ตัวจัดการเหตุการณ์ ไม่ใช่ใน useEffect — setState ใน effect ทำให้ render ซ้อนโดยไม่จำเป็น
@@ -326,6 +329,38 @@ export function ApTrackingPage() {
     }
   }
 
+  // ดึงข้อมูลสดจาก ATMS — ใช้ endpoint เดียวกับปุ่มรีเฟรชหน้า /pr (pipeline light ตัวเดียวกัน
+  // rate-limit ร่วมกัน 1 ครั้ง/ชม.) · จบแล้วโหลดตารางใหม่ให้เอง
+  const pullAtms = async () => {
+    if (pulling) return
+    setPulling(true); setPullProgress(2)
+    try {
+      const base = await fetch("/api/pr/refresh/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({}))
+      const baseFinished = base?.last_run?.finished_at ?? null
+      const res = await fetch("/api/pr/refresh", { method: "POST" })
+      const d = await res.json().catch(() => ({}))
+      if (res.status === 429) { swalError(`เพิ่งดึงข้อมูลไป · ดึงใหม่ได้อีกใน ${d.retry_after_min} นาที`); return }
+      if (!res.ok && d.status !== "already_running") { swalError("สั่งดึงข้อมูลไม่สำเร็จ"); return }
+
+      const eta = (d.eta_sec || 720) * 1000
+      const start = Date.now()
+      const timer = setInterval(() => setPullProgress(Math.min(95, 3 + ((Date.now() - start) / eta) * 92)), 500)
+      let done = false
+      for (let i = 0; i < 200 && !done; i++) {
+        await new Promise((r) => setTimeout(r, 6000))
+        const st = await fetch("/api/pr/refresh/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({}))
+        const fin = st?.last_run?.finished_at ?? null
+        if (fin && fin !== baseFinished) done = true
+      }
+      clearInterval(timer)
+      setPullProgress(100)
+      await load()
+      swalToast("success", done ? "ดึงข้อมูล ATMS แล้ว" : "กำลังดึงอยู่ — รีเฟรชอีกครั้งภายหลัง")
+    } finally {
+      setTimeout(() => { setPulling(false); setPullProgress(0) }, 800)
+    }
+  }
+
   // เดือนที่เลือกอยู่ก่อนเส้น go-live ทั้งเดือนหรือไม่ — ใช้ helper ตัวเดียวกับที่ API ใช้ตัดเดือน
   const scopeSince = summary?.since || AP_GO_LIVE
   const monthOutOfScope = !monthInApScope(month, scopeSince)
@@ -353,6 +388,8 @@ export function ApTrackingPage() {
         groupSent={groupSent} onGroupSent={(v) => applyFilter(() => setGroupSent(v))}
         sentDays={dayGroups.length}
         today={today}
+        canPull={month === thisMonth()}
+        pulling={pulling} pullProgress={pullProgress} onPull={pullAtms}
       />
 
       {/* ผลลัพธ์ถูกตัดเพราะชนเพดานแถว — ยอดสรุปทุกตัวข้างบนยังไม่ครบ ต้องบอกให้ชัด ไม่ปล่อยให้เงียบ */}

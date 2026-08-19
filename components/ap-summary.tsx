@@ -1,6 +1,6 @@
 "use client"
 
-import { CalendarRange, ChevronLeft, ChevronRight, RefreshCw, Search } from "lucide-react"
+import { CalendarRange, ChevronLeft, ChevronRight, CloudDownload, RefreshCw, Search } from "lucide-react"
 import { AP_STAGES, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
 import { NUM, mitr } from "@/components/ap-style"
 import type { ApSummary, ApTab } from "@/components/ap-types"
@@ -28,6 +28,7 @@ export function ApHeader({
   summary, loading, month, onMonth, q, onQ, onRefresh,
   tab, onTab, warehouse, onWarehouse, warehouses, totalShown,
   sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today,
+  canPull, pulling, pullProgress, onPull,
 }: {
   summary: ApSummary | null
   loading: boolean
@@ -51,6 +52,12 @@ export function ApHeader({
   onGroupSent: (v: boolean) => void
   sentDays: number
   today: string
+  // ปุ่มดึงข้อมูลสดจาก ATMS — โชว์เฉพาะเดือนปัจจุบัน (pipeline ดึง 30 วันล่าสุด
+  // กดตอนเปิดเดือนเก่าแล้วข้อมูลเดือนนั้นไม่เปลี่ยน จะเข้าใจผิดว่าระบบพัง)
+  canPull: boolean
+  pulling: boolean
+  pullProgress: number
+  onPull: () => void
 }) {
   const rangeOn = Boolean(sentFrom || sentTo)
   // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
@@ -90,7 +97,15 @@ export function ApHeader({
             {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
           </select>
 
-          <button onClick={onRefresh} aria-label="รีเฟรช"
+          {canPull && (
+            <button onClick={onPull} disabled={pulling}
+              title="ดึงข้อมูล 30 วันล่าสุดจาก ATMS (ใช้เวลา ~12 นาที · ดึงได้ 1 ครั้ง/ชม.)"
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60 dark:border-white/10 dark:hover:bg-white/5">
+              <CloudDownload className={`h-4 w-4 ${pulling ? "animate-pulse" : ""}`} />
+              {pulling ? `กำลังดึง ${Math.round(pullProgress)}%` : "ดึงข้อมูล ATMS"}
+            </button>
+          )}
+          <button onClick={onRefresh} aria-label="รีเฟรช" title="โหลดตารางใหม่จากข้อมูลที่มีอยู่"
             className="rounded-lg border border-gray-200 p-2 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
