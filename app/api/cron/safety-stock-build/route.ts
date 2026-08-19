@@ -14,6 +14,7 @@ type WarehouseResult = {
   written: number
   latestMovementDate: string | null
   stats: BuildStats | null
+  months: string[]
   error: string | null
 }
 
@@ -40,11 +41,13 @@ export async function GET(req: NextRequest) {
     let written = 0
     let latestMovementDate: string | null = null
     let stats: BuildStats | null = null
+    let months: string[] = []
 
     try {
       const built = await buildSnapshotRows(inventoryId, syncedAt)
       latestMovementDate = built.latestMovementDate
       stats = built.stats
+      months = built.months
 
       if (built.rows.length > 0) {
         await col.bulkWrite(
@@ -66,11 +69,11 @@ export async function GET(req: NextRequest) {
         await col.deleteMany({ inventoryId, updatedAt: { $lt: syncedAt } })
       }
 
-      return { inventoryId, written, latestMovementDate, stats, error: null }
+      return { inventoryId, written, latestMovementDate, stats, months, error: null }
     } catch (err) {
       const error = err instanceof Error ? err.message : "Unknown error"
-      // written/latestMovementDate/stats อาจไม่ใช่ 0/null แล้ว ณ จุดนี้ — เช่น bulkWrite สำเร็จแต่ deleteMany พังทีหลัง
-      return { inventoryId, written, latestMovementDate, stats, error }
+      // written/latestMovementDate/stats/months อาจไม่ใช่ค่าว่างแล้ว ณ จุดนี้ — เช่น bulkWrite สำเร็จแต่ deleteMany พังทีหลัง
+      return { inventoryId, written, latestMovementDate, stats, months, error }
     }
   }
 

@@ -42,7 +42,7 @@ type RecvDoc = { i: string | null; d: Date | null; note: string | null; c: numbe
 export async function buildSnapshotRows(
   inventoryId: string,
   asOf: Date
-): Promise<{ rows: SnapshotRow[]; latestMovementDate: string | null; stats: BuildStats }> {
+): Promise<{ rows: SnapshotRow[]; latestMovementDate: string | null; stats: BuildStats; months: string[] }> {
   const client = await clientPromise
   const atms = client.db(ATMS_DB)
   const move = atms.collection(MOVE_COLL)
@@ -209,6 +209,10 @@ export async function buildSnapshotRows(
     const cost = costBySku.get(code) ?? 0
     const stockQty = Number(m.stockQty ?? 0)
 
+    // ยอดเบิกรายเดือน 12 เดือน เก่า→ใหม่ ตรงตำแหน่งกับ months12 ที่คืนออกไปเป็น SafetyStockPayload.months
+    // เติมเดือนที่ไม่มีการเบิกเป็น 0 เหมือนกับที่ sdDailyFrom ใช้อยู่แล้ว (perMonth ไม่มี key ของเดือนนั้น)
+    const monthly = months12.map((ym) => Math.round((perMonth.get(ym)?.q ?? 0) * 100) / 100)
+
     return {
       code,
       name: String(m.name ?? ""),
@@ -222,7 +226,7 @@ export async function buildSnapshotRows(
       stockQty,
       fifoRemaining: fifo?.remaining ?? 0,
       oldestAgeDays: fifo?.oldestAgeDays ?? 0,
-      usage, issueCounts, adu, sdDaily,
+      usage, issueCounts, adu, sdDaily, monthly,
       leadTimeDays: Math.round(leadTimeDays * 10) / 10,
       leadTimeSource,
       leadTimeSamples: skuSamples.length,
@@ -241,5 +245,5 @@ export async function buildSnapshotRows(
     .toArray()
   const latestMovementDate = latest[0]?.["วันที่"] ? new Date(latest[0]["วันที่"] as Date).toISOString() : null
 
-  return { rows, latestMovementDate, stats }
+  return { rows, latestMovementDate, stats, months: months12 }
 }

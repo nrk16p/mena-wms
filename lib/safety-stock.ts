@@ -34,13 +34,16 @@ export async function getSafetyStock(
     db.collection("safety_stock_sync_log").findOne({ trigger: "sku-sync" }),
   ])
 
-  // Resolve latestMovementDate from build log results array, normalize to ISO string
+  // Resolve latestMovementDate + months (สำหรับกราฟยอดเบิกรายเดือน) from build log results array
   let latestMovementDate: string | null = null
+  let months: string[] = []
   if (buildLog?.results && Array.isArray(buildLog.results)) {
     const buildResult = buildLog.results.find((r: any) => r.inventoryId === inventoryId)
     if (buildResult?.latestMovementDate) {
       latestMovementDate = new Date(buildResult.latestMovementDate as Date).toISOString()
     }
+    // log เก่าก่อนมี months (แถวที่ build ไว้ก่อนหน้านี้) จะไม่มี field นี้ — default [] แล้วให้หน้าเว็บกันเอง
+    if (Array.isArray(buildResult?.months)) months = buildResult.months
   }
 
   // Resolve skuSyncedAt from sku-sync log results array
@@ -61,6 +64,7 @@ export async function getSafetyStock(
     inventoryId,
     latestMovementDate,
     skuSyncedAt,
+    months,
     rows,
   }
 

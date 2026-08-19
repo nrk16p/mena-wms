@@ -61,6 +61,9 @@ export type SnapshotRow = {
   fifoRemaining: number; oldestAgeDays: number
   usage: WindowStat; issueCounts: WindowStat
   adu: WindowStat; sdDaily: WindowStat
+  /** ยอดเบิกรายเดือน 12 เดือน เรียงเก่า→ใหม่ ตำแหน่งอิงตาม SafetyStockPayload.months (ไม่เก็บป้ายเดือนซ้ำรายแถว
+   *  เพราะทุกแถวใช้หน้าต่างเดียวกัน — เก็บ label ซ้ำ 4,100 แถวจะเพิ่มขนาด payload ~1-2 MB โดยไม่จำเป็น) */
+  monthly: number[]
   leadTimeDays: number; leadTimeSource: LeadTimeSource; leadTimeSamples: number
   cost: number; value: number
 }
@@ -80,6 +83,8 @@ export type SafetyStockPayload = {
   latestMovementDate: string | null
   /** เวลาที่ sync min/max จาก ATMS สำเร็จครั้งล่าสุด */
   skuSyncedAt: string | null
+  /** ป้ายเดือน "YYYY-MM" 12 ค่า เก่า→ใหม่ — ตำแหน่งเดียวกับ SnapshotRow.monthly ของทุกแถว (เก็บครั้งเดียวระดับ payload) */
+  months: string[]
   rows: SnapshotRow[]
 }
 

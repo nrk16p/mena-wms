@@ -1,13 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { ChevronDown, ChevronUp, Download, RefreshCw, Search, TriangleAlert, X } from "lucide-react"
 import * as XLSX from "xlsx"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
+import { bkkToday } from "@/lib/bkk-time"
 import {
-  derive, STATUS_META, MIN_VERDICT_META, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES,
+  derive, STATUS_META, MIN_VERDICT_META, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID,
   DEFAULT_WINDOW, DEFAULT_Z,
   type SafetyStockPayload, type SnapshotRow, type WindowKey, type Status,
   type Derived, type MinVerdict, type LeadTimeSource,
@@ -105,7 +106,9 @@ type SortKey =
   | "code" | "name" | "group" | "stockQty" | "minQty" | "maxQty" | "adu" | "leadTimeDays"
   | "rop" | "ss" | "dos" | "status" | "minVerdict" | "suggestQty" | "orderValue"
 
-function sortValue(row: EnrichedRow, key: SortKey): number | string {
+// daysOfSupply เป็น null สำหรับแถวไม่มีการเบิก (ADU=0 หารไม่ได้) — คืน null ตรงๆ แล้วให้ตัวเปรียบเทียบใน `sorted`
+// ดันไปท้ายลิสต์เสมอไม่ว่าจะเรียงขึ้นหรือลง (ข้อ C) ห้าม map เป็นเลข sentinel เพราะการสลับทิศจะพลิกตำแหน่งไปอยู่หัวลิสต์แทน
+function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
   switch (key) {
     case "code": return row.r.code
     case "name": return row.r.name
@@ -117,7 +120,7 @@ function sortValue(row: EnrichedRow, key: SortKey): number | string {
     case "leadTimeDays": return row.r.leadTimeDays
     case "rop": return row.d.reorderPoint
     case "ss": return row.d.safetyStock
-    case "dos": return row.d.daysOfSupply ?? -1
+    case "dos": return row.d.daysOfSupply
     case "status": return STATUS_META.findIndex((s) => s.key === row.d.status)
     case "minVerdict": return row.d.minVerdict
     case "suggestQty": return row.d.suggestQty
@@ -164,47 +167,53 @@ function SortableTh({
   )
 }
 
-/** กราฟแท่ง SVG เขียนเอง — ระบบเก็บยอดเบิกสะสมแบบหน้าต่าง 3/6/12 เดือนเท่านั้น ไม่มีรายเดือนละเอียดกว่านี้
- *  จึงแยกเป็น 3 ช่วงไม่ทับกัน (ล่าสุด 3 / 3 ก่อนหน้า / 6 ก่อนหน้านั้น) แล้วแปลงเป็นค่าเฉลี่ยต่อเดือนเพื่อเทียบเทรนด์ */
-function UsageMiniChart({ r }: { r: SnapshotRow }) {
-  const bars = [
-    { label: "ล่าสุด 3 เดือน", value: Math.max(0, r.usage.m3 / 3) },
-    { label: "3 เดือนก่อนหน้า", value: Math.max(0, (r.usage.m6 - r.usage.m3) / 3) },
-    { label: "6 เดือนก่อนหน้านั้น", value: Math.max(0, (r.usage.m12 - r.usage.m6) / 6) },
-  ]
+const THAI_MONTH_ABBR = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+
+/** "2026-08" → "ส.ค." — ย่อให้ป้าย 12 เดือนพอดีความกว้างกราฟ */
+function monthLabel(ym: string): string {
+  const m = Number(ym.slice(5, 7))
+  return THAI_MONTH_ABBR[m - 1] ?? ym
+}
+
+/** กราฟแท่ง SVG เขียนเอง — ยอดเบิกรายเดือนจริง 12 เดือนจาก row.monthly (เก่า→ใหม่ ตรงตำแหน่งกับ SafetyStockPayload.months)
+ *  แถวที่ snapshot ยังไม่ผ่าน build รอบที่เพิ่ม field นี้จะไม่มี monthly (หรือความยาวไม่ตรงกับ months) — กันพังด้วยข้อความแทนกราฟ */
+function UsageMiniChart({ r, months }: { r: SnapshotRow; months: string[] }) {
+  if (!Array.isArray(r.monthly) || r.monthly.length === 0 || r.monthly.length !== months.length) {
+    return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>ไม่มีข้อมูลรายเดือน — แถวนี้ยังไม่ได้ผ่านการ build รอบล่าสุด</p>
+  }
+
+  const bars = r.monthly.map((value, i) => ({ ym: months[i], label: monthLabel(months[i]), value: Math.max(0, value) }))
   const max = Math.max(...bars.map((b) => b.value), 0.0001)
-  const H = 96, barW = 64, gap = 26, x0 = 16
+  const H = 90, barW = 26, gap = 6, x0 = 8
+  const width = x0 * 2 + bars.length * barW + (bars.length - 1) * gap
 
   return (
-    <div>
-      <svg width={x0 * 2 + barW * 3 + gap * 2} height={H + 30} role="img" aria-label="กราฟยอดเบิกเฉลี่ยต่อเดือน">
+    <div style={{ overflowX: "auto" }}>
+      <svg width={width} height={H + 24} role="img" aria-label="กราฟยอดเบิกรายเดือน 12 เดือน">
         {bars.map((b, i) => {
           const h = (b.value / max) * H
           const x = x0 + i * (barW + gap)
           return (
-            <g key={b.label}>
-              <rect x={x} y={H - h} width={barW} height={Math.max(h, 1)} rx={4} fill="#1B8C4B" />
-              <text x={x + barW / 2} y={H - h - 6} textAnchor="middle" fontSize="11" fontWeight={700} fill="#374151">
-                {num(b.value)}
-              </text>
-              <text x={x + barW / 2} y={H + 16} textAnchor="middle" fontSize="9.5" fill="#6B7280">
+            <g key={b.ym}>
+              <title>{`${b.label} (${b.ym}) — ${num(b.value)} ${r.unit}`}</title>
+              <rect x={x} y={H - h} width={barW} height={Math.max(h, 1)} rx={3} fill="#1B8C4B" />
+              <text x={x + barW / 2} y={H + 14} textAnchor="middle" fontSize="9" fill="#6B7280">
                 {b.label}
               </text>
             </g>
           )
         })}
       </svg>
-      <p style={{ fontSize: 11, color: "#9CA3AF", margin: "4px 0 0" }}>
-        * หน่วยเฉลี่ย/เดือน — ระบบเก็บยอดเบิกสะสมแบบหน้าต่าง 3/6/12 เดือน ไม่มีข้อมูลรายเดือนละเอียดกว่านี้
-      </p>
     </div>
   )
 }
 
 /** dialog รายรหัส — กราฟยอดเบิก · ล็อต FIFO ที่ค้าง · min/max/ROP/SS เทียบกัน · ที่มา lead time (ข้อ 7) */
-function RowDialog({ row, win, z, onClose }: { row: SnapshotRow; win: WindowKey; z: number; onClose: () => void }) {
+function RowDialog({
+  row, win, z, months, onClose,
+}: { row: SnapshotRow; win: WindowKey; z: number; months: string[]; onClose: () => void }) {
   const d = useMemo(() => derive(row, win, z), [row, win, z])
-  const isLB = row.inventoryId === "4"
+  const isLB = row.inventoryId === INVENTORY_ID
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose() }
@@ -219,6 +228,9 @@ function RowDialog({ row, win, z, onClose }: { row: SnapshotRow; win: WindowKey;
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`รายละเอียด ${row.code} ${row.name}`}
         style={{ background: "#fff", borderRadius: 14, maxWidth: 640, width: "100%", maxHeight: "88vh", overflowY: "auto", padding: "20px 22px" }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 4 }}>
@@ -227,7 +239,7 @@ function RowDialog({ row, win, z, onClose }: { row: SnapshotRow; win: WindowKey;
             <h3 style={{ ...mitr, fontSize: 17, fontWeight: 700, margin: "2px 0 0" }}>{row.name}</h3>
             <p style={{ fontSize: 12, color: "#9CA3AF", margin: "2px 0 0" }}>{row.group} · {row.unit} · {row.brand || "ไม่ระบุยี่ห้อ"}</p>
           </div>
-          <button onClick={onClose} style={{ border: "none", background: "#F3F4F6", borderRadius: 8, width: 28, height: 28, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <button onClick={onClose} aria-label="ปิด" style={{ border: "none", background: "#F3F4F6", borderRadius: 8, width: 28, height: 28, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <X size={15} />
           </button>
         </div>
@@ -237,8 +249,8 @@ function RowDialog({ row, win, z, onClose }: { row: SnapshotRow; win: WindowKey;
           <VerdictBadge verdict={d.minVerdict} />
         </div>
 
-        <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>ยอดเบิก</h4>
-        <UsageMiniChart r={row} />
+        <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>ยอดเบิกรายเดือน (12 เดือน)</h4>
+        <UsageMiniChart r={row} months={months} />
 
         <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>min / max / ROP / SS เทียบกัน</h4>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8 }}>
@@ -283,7 +295,10 @@ export default function SafetyStockPage() {
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
 
-  const [warehouseId, setWarehouseId] = useState<string>(WAREHOUSES[0]?.id ?? "4")
+  const [warehouseId, setWarehouseId] = useState<string>(WAREHOUSES[0]?.id ?? INVENTORY_ID)
+  // ref กระจกค่า warehouseId — ใช้เทียบ ณ เวลา request แก้เสร็จ (ไม่ใช่ ณ ตอนสร้าง closure) กัน race ตอนดึงข้อมูลใหม่ (ข้อ A)
+  const warehouseIdRef = useRef(warehouseId)
+  useEffect(() => { warehouseIdRef.current = warehouseId }, [warehouseId])
   const [data, setData] = useState<SafetyStockPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -322,16 +337,23 @@ export default function SafetyStockPage() {
   }
 
   async function doRefresh() {
+    // เก็บคลังที่กำลังกดตอนนี้ไว้ — ถ้าผู้ใช้สลับคลังก่อน request นี้เสร็จ ต้องไม่เอาผลลัพธ์คลังเก่ามาทับคลังใหม่ (ข้อ A)
+    const requestedWarehouse = warehouseId
     setRefreshing(true)
     try {
-      const res = await fetch(`/api/safety-stock?inventory=${warehouseId}&refresh=1`)
+      const res = await fetch(`/api/safety-stock?inventory=${requestedWarehouse}&refresh=1`)
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
-      setData(json)
-      swalToast("success", "ดึงข้อมูลใหม่แล้ว")
+      // ยังอยู่คลังเดิมที่กดรีเฟรชหรือไม่ — เทียบกับ ref ที่ตามค่าปัจจุบันจริง ไม่ใช่ closure ตอนกดปุ่ม
+      if (warehouseIdRef.current === requestedWarehouse) {
+        setData(json)
+        swalToast("success", "ดึงข้อมูลใหม่แล้ว")
+      }
+      // ถ้าสลับคลังไปแล้ว — ทิ้งผลลัพธ์นี้เงียบๆ ไม่ต้องแจ้ง (คลังเดิมจะดึงใหม่เองถ้าสลับกลับไป)
     } catch (e) {
       swalError(`ดึงข้อมูลใหม่ไม่สำเร็จ: ${e instanceof Error ? e.message : e}`)
     } finally {
+      // ปุ่มรีเฟรชมีอันเดียว ไม่ผูกกับคลัง — ต้องปลดสถานะ loading เสมอ ไม่งั้นถ้าสลับคลังระหว่างรอ ปุ่มจะค้าง disabled ตลอดไป
       setRefreshing(false)
     }
   }
@@ -379,6 +401,10 @@ export default function SafetyStockPage() {
     copy.sort((a, b) => {
       const av = sortValue(a, sortKey)
       const bv = sortValue(b, sortKey)
+      // null (เช่น "พอใช้อีกกี่วัน" ของแถวไม่มีการเบิก) ต้องอยู่ท้ายลิสต์เสมอ ไม่ว่าจะเรียงขึ้นหรือลง — เช็คก่อนกลับทิศ
+      if (av === null && bv === null) return a.r.code.localeCompare(b.r.code, "th")
+      if (av === null) return 1
+      if (bv === null) return -1
       let cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv, "th") : (av as number) - (bv as number)
       if (cmp === 0) cmp = a.r.code.localeCompare(b.r.code, "th") // กันเรียงดูสุ่มเมื่อค่าเท่ากัน (เช่น cost=0 จำนวนมาก)
       return sortDir === "asc" ? cmp : -cmp
@@ -442,7 +468,8 @@ export default function SafetyStockPage() {
     )
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Safety Stock")
-    XLSX.writeFile(wb, `safety-stock-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    // ห้ามใช้ toISOString().slice(0,10) — เป็นวันที่ UTC ช่วง 00:00-07:00 เวลาไทยจะได้ชื่อไฟล์ของ "เมื่อวาน" (lib/bkk-time.ts)
+    XLSX.writeFile(wb, `safety-stock-${bkkToday()}.xlsx`)
   }
 
   const CODE_W = 96
@@ -487,6 +514,7 @@ export default function SafetyStockPage() {
                 key={w.id}
                 onClick={() => selectWarehouse(w.id)}
                 disabled={loading}
+                aria-current={active ? "true" : undefined}
                 style={{
                   padding: "7px 16px", borderRadius: 999, fontSize: 13, fontWeight: 700, border: "none",
                   cursor: loading ? "wait" : "pointer",
@@ -610,6 +638,7 @@ export default function SafetyStockPage() {
                     key={s.key}
                     onClick={() => toggleStatus(s.key)}
                     title={s.hint}
+                    aria-pressed={active}
                     style={{
                       padding: "6px 12px", borderRadius: 999, fontSize: 12.5, cursor: "pointer",
                       fontWeight: active ? 700 : 600,
@@ -688,7 +717,9 @@ export default function SafetyStockPage() {
           </div>
         )}
 
-        {selectedRow && <RowDialog row={selectedRow} win={win} z={z} onClose={() => setSelectedRow(null)} />}
+        {selectedRow && (
+          <RowDialog row={selectedRow} win={win} z={z} months={data?.months ?? []} onClose={() => setSelectedRow(null)} />
+        )}
       </div>
     </div>
   )
