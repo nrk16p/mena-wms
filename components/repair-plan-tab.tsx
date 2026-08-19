@@ -230,13 +230,7 @@ export function RepairPlanTab({
   const earliestStart = (r: Row) => r.bars.reduce((min, b) => (b.start < min ? b.start : min), "9999")
   const sortRows = (a: Row, b: Row) => earliestStart(a).localeCompare(earliestStart(b)) || a.plate.localeCompare(b.plate)
 
-  // ลำดับกลุ่ม = workflow อู่นอก (ตัดสถานะปิดงาน "รถเสร็จ" — ไม่อยู่ใน scope active อยู่แล้ว)
-  const sections = REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS).map((s) => ({
-    meta: s,
-    rows: garageJobs.filter((j) => j.status === s.value).map(jobRow).sort(sortRows),
-  }))
-
-  // แผนลอย (ทะเบียนไม่มีใบงาน active) — กลุ่มท้ายสุด รวมแผนของทะเบียนเดียวกันไว้แถวเดียว
+  // แผนลอย (ทะเบียนไม่มีใบงาน active) — รวมแผนของทะเบียนเดียวกันไว้แถวเดียว
   const floatingRows: Row[] = (() => {
     const m = new Map<string, { plate: string; fleetNo: string; plans: RepairPlan[] }>()
     for (const p of floating) {
@@ -246,8 +240,11 @@ export function RepairPlanTab({
     return [...m.values()].map((v) => {
       const bars = v.plans.map((p, i) => planBar(p, i))
       return { key: `float-${v.plate}`, plate: v.plate, fleetNo: v.fleetNo, bars, lanes: bars.length }
-    }).sort(sortRows)
+    })
   })()
+
+  // แถวเดียวกันหมด ไม่แยกกลุ่มตามสถานะ — เรียงตามเวลาที่เข้าสู่ระบบ (เส้นทางสถานะในแท่งบอกสถานะเองอยู่แล้ว)
+  const allRows: Row[] = [...garageJobs.map(jobRow), ...floatingRows].sort(sortRows)
 
   const monthLabel = toDate(start).toLocaleDateString("th-TH", { month: "long", year: "numeric" }) +
     (toDate(start).getMonth() !== toDate(endDate).getMonth() ? ` – ${toDate(endDate).toLocaleDateString("th-TH", { month: "long", year: "numeric" })}` : "")
@@ -314,14 +311,6 @@ export function RepairPlanTab({
     )
   }
 
-  const sectionHeader = (emoji: string, name: string, count: number, cls: string, barCls?: string) => (
-    <div className="sticky left-0 flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] px-3 py-2">
-      {barCls && <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm ${barCls}`} title="สีเส้นทางสถานะของกลุ่มนี้" />}
-      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-bold ${cls}`}>{emoji} {name}</span>
-      <span className="text-[11px] font-semibold text-[#5B7568] dark:text-gray-400">{count} คัน</span>
-    </div>
-  )
-
   return (
     <div>
       {/* แถบควบคุมช่วงวัน + legend */}
@@ -339,19 +328,30 @@ export function RepairPlanTab({
         </div>
         <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
           <input type="checkbox" checked={showActual} onChange={(e) => setShowActual(e.target.checked)} className="accent-[#1B8C4B]" />
-          แสดงเส้นทางสถานะ (สีตามหัวข้อกลุ่มด้านล่าง)
+          แสดงเส้นทางสถานะ
         </label>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <span className="text-[10.5px] text-gray-400">สีแผน:</span>
+        <span className="text-[13px] font-semibold text-[#5B7568] dark:text-gray-400">{allRows.length} คัน</span>
+        <button onClick={openAdd} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#0F6A3C] transition-colors">
+          <Plus size={14} /> เพิ่มแผน
+        </button>
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10.5px] text-gray-400">สถานะ:</span>
+          {REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS).map((s) => (
+            <span key={s.value} className="inline-flex items-center gap-1 text-[10.5px] text-gray-500 dark:text-gray-400">
+              <span className={`inline-block h-2.5 w-2.5 rounded-sm ${jobStatusBar(s.value)}`} /> {s.value}
+            </span>
+          ))}
+        </span>
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10.5px] text-gray-400">แผน:</span>
           {PLAN_STATUSES.filter((s) => s.value !== "ยกเลิก").map((s) => (
             <span key={s.value} className="inline-flex items-center gap-1 text-[10.5px] text-gray-500 dark:text-gray-400">
               <span className={`inline-block h-2.5 w-2.5 rounded-sm ${s.bar}`} /> {s.value}
             </span>
           ))}
-          <button onClick={openAdd} className="ml-1 inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#0F6A3C] transition-colors">
-            <Plus size={14} /> เพิ่มแผน
-          </button>
-        </div>
+        </span>
       </div>
 
       {/* Gantt — กลุ่มตามสถานะใบงาน เรียงลำดับ workflow */}
@@ -376,26 +376,13 @@ export function RepairPlanTab({
             <div className="space-y-2 p-4">
               {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-gray-100 dark:bg-white/5" />)}
             </div>
-          ) : garageJobs.length === 0 && floatingRows.length === 0 ? (
+          ) : allRows.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-4 py-14 text-center">
               <p className="text-sm font-semibold text-[#14271C] dark:text-white">ไม่มีใบงานอู่นอกที่กำลังดำเนินการ</p>
               <p className="text-xs text-gray-400">กด “เพิ่มแผน” เพื่อวางแผนรถเข้าอู่ล่วงหน้าได้</p>
             </div>
           ) : (
-            <>
-              {sections.map((sec) => (
-                <div key={sec.meta.value}>
-                  {sectionHeader(sec.meta.emoji, sec.meta.value, sec.rows.length, sec.meta.cls, jobStatusBar(sec.meta.value))}
-                  {sec.rows.map(renderRow)}
-                </div>
-              ))}
-              {floatingRows.length > 0 && (
-                <div>
-                  {sectionHeader("📋", "แผนที่ยังไม่มีใบแจ้งซ่อม", floatingRows.length, "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300")}
-                  {floatingRows.map(renderRow)}
-                </div>
-              )}
-            </>
+            allRows.map(renderRow)
           )}
         </div>
       </div>
