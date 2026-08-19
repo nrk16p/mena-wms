@@ -1,6 +1,6 @@
 "use client"
 
-import { CalendarRange, ChevronLeft, ChevronRight, CloudDownload, RefreshCw, Search } from "lucide-react"
+import { CalendarRange, ChevronLeft, ChevronRight, CloudDownload, FileDown, RefreshCw, Search } from "lucide-react"
 import { AP_STAGES, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
 import { NUM as NUMCLS } from "@/components/ap-style"
 import type { ApCrossHit } from "@/components/ap-types"
@@ -34,6 +34,7 @@ export function ApHeader({
   canPull, pulling, pullProgress, onPull,
   crossHits, onGotoHit,
   viewBy, onViewBy,
+  payTypeFilter, onPayTypeFilter, onExport,
 }: {
   summary: ApSummary | null
   loading: boolean
@@ -69,6 +70,10 @@ export function ApHeader({
   // มุมมองตาราง: รายใบ / รายเจ้าหนี้ — สลับที่ปลายแถบแท็บเพราะเป็นแกนการมองของตารางเดียวกัน
   viewBy: "invoice" | "supplier"
   onViewBy: (v: "invoice" | "supplier") => void
+  // filter ย่อยของแท็บ "ผ่าน" (ตามรอบ/นอกรอบ) + ส่งออกแถวที่กรองอยู่เป็น Excel
+  payTypeFilter: "" | "ตามรอบ" | "นอกรอบ"
+  onPayTypeFilter: (v: "" | "ตามรอบ" | "นอกรอบ") => void
+  onExport: () => void
 }) {
   const rangeOn = Boolean(sentFrom || sentTo)
   // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
@@ -216,6 +221,24 @@ export function ApHeader({
             <button onClick={() => onSentRange("", "")} className="text-xs text-gray-500 underline underline-offset-2 hover:text-gray-800 dark:hover:text-gray-200">
               ล้างช่วงวันที่
             </button>
+          )}
+
+          {/* filter ย่อยเฉพาะแท็บ "ผ่าน" — ใบกดผ่านในเว็บใช้ค่าที่บัญชียืนยัน ใบนำเข้าใช้คำขอจัดซื้อ */}
+          {tab === "passed" && (
+            <div className="flex items-center gap-1.5 border-l border-gray-200 pl-3 dark:border-white/10">
+              {([["", "ทั้งหมด"], ["ตามรอบ", "📋 ตามรอบ"], ["นอกรอบ", "💸 นอกรอบ"]] as const).map(([v, label]) => (
+                <button key={label} onClick={() => onPayTypeFilter(v)}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition ${payTypeFilter === v
+                    ? "border-emerald-500 bg-emerald-50 font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                    : "border-gray-200 hover:bg-white dark:border-white/10 dark:hover:bg-white/10"}`}>
+                  {label}
+                </button>
+              ))}
+              <button onClick={onExport} title="ส่งออกแถวที่กรองอยู่เป็นไฟล์ Excel"
+                className="flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs hover:bg-white dark:border-white/10 dark:hover:bg-white/10">
+                <FileDown className="h-3.5 w-3.5" />Excel
+              </button>
+            </div>
           )}
 
           <div className="ml-auto flex items-center gap-2">

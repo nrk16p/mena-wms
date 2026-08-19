@@ -111,6 +111,9 @@ export function ApTrackingPage() {
   const [sentFrom, setSentFrom] = useState("")
   const [sentTo, setSentTo]     = useState("")
   const [groupSent, setGroupSent] = useState(true)
+  // filter ย่อยของแท็บ "ผ่าน" — ตามรอบ/นอกรอบ · ใบที่กดผ่านในเว็บใช้ค่าที่บัญชียืนยัน (pay.type)
+  // ใบนำเข้าจาก Excel ไม่มี pay ถอยไปใช้คำขอจากจัดซื้อ (sentType)
+  const [payTypeFilter, setPayTypeFilter] = useState<"" | "ตามรอบ" | "นอกรอบ">("")
   // มุมมองหลักของตาราง: รายใบ (ปกติ) หรือยุบเป็นรายเจ้าหนี้ — สรุป DD/PO/ขั้นของแต่ละเจ้า
   const [viewBy, setViewBy] = useState<"invoice" | "supplier">("invoice")
   const [warehouses, setWarehouses] = useState<string[]>([])
@@ -230,10 +233,43 @@ export function ApTrackingPage() {
 
   // กรองด้วยวันที่กดส่งเฉพาะตอนที่แถบนั้นโชว์อยู่ — สลับไปแท็บอื่นแล้วค่าเดิมต้องไม่แอบกรองต่อ
   const rangeOn = sentView && Boolean(sentFrom || sentTo)
-  const shown = useMemo(
-    () => (rangeOn ? beforeSentRange.filter((r) => inDateRange(r.sentMarkedDate, sentFrom, sentTo)) : beforeSentRange),
-    [beforeSentRange, rangeOn, sentFrom, sentTo],
-  )
+  const shown = useMemo(() => {
+    let out = rangeOn ? beforeSentRange.filter((r) => inDateRange(r.sentMarkedDate, sentFrom, sentTo)) : beforeSentRange
+    // filter ย่อย ตามรอบ/นอกรอบ ใช้เฉพาะแท็บ "ผ่าน" — แท็บอื่นค่าค้างต้องไม่แอบกรอง
+    if (tab === "passed" && payTypeFilter) {
+      out = out.filter((r) => (r.pay?.type || r.sentType) === payTypeFilter)
+    }
+    return out
+  }, [beforeSentRange, rangeOn, sentFrom, sentTo, tab, payTypeFilter])
+
+  // ส่งออกแถวที่กรองอยู่เป็น Excel — โหลด xlsx ตอนกดเท่านั้น (ก้อนใหญ่ ~400KB ไม่ควรถ่วงตอนเปิดหน้า)
+  const exportExcel = async () => {
+    const XLSX = await import("xlsx")
+    const data = shown.map((r) => ({
+      "เลขใบรับของ": r.depositCode,
+      "วันที่รับของ": r.receivedAt,
+      "คลัง": r.warehouse,
+      "ซัพพลายเออร์": r.supplier,
+      "PO": r.purchaseOrder,
+      "ทะเบียนรถ": r.vehicle ?? "",
+      "ยอดเงิน": r.amount,
+      "เครดิตเทอม": r.creditTerm,
+      "ประเภทการส่ง": r.pay?.type || r.sentType,
+      "วันโอน/ครบกำหนด": r.sentDate,
+      "กดส่งเมื่อ": r.sentMarkedDate ?? "",
+      "ผ่านเมื่อ": (r.review?.at ?? "").slice(0, 10),
+      "ตรวจโดย": r.review?.by ?? "",
+      "วันจ่าย": r.pay?.payDate ?? "",
+      "เลขที่ Voucher": (r.docNos.voucherNos ?? []).join(", "),
+      "เลขที่ใบวางบิล": (r.docNos.billingNoteNos ?? []).join(", "),
+      "หมายเหตุ": r.note,
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    ws["!cols"] = [14, 11, 16, 30, 13, 12, 12, 10, 11, 13, 11, 11, 22, 11, 18, 18, 24].map((w) => ({ wch: w }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "ผ่าน")
+    XLSX.writeFile(wb, `เจ้าหนี้ผ่าน_${month}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
+  }
 
   // มุมมองจัดกลุ่มแบ่งหน้าเป็น "รายวัน" ไม่ใช่รายแถว — ไม่งั้นวันเดียวจะถูกหั่นคาหน้า
   // แล้วยอดรวมบนหัวกลุ่ม (คิดจากแถวที่โชว์) จะไม่ตรงกับยอดจริงของวันนั้น
@@ -445,6 +481,8 @@ export function ApTrackingPage() {
         canPull={month === thisMonth()}
         pulling={pulling} pullProgress={pullProgress} onPull={pullAtms}
         crossHits={crossHits} onGotoHit={gotoHit}
+        payTypeFilter={payTypeFilter} onPayTypeFilter={(v) => applyFilter(() => setPayTypeFilter(v))}
+        onExport={exportExcel}
       />
 
       {/* ผลลัพธ์ถูกตัดเพราะชนเพดานแถว — ยอดสรุปทุกตัวข้างบนยังไม่ครบ ต้องบอกให้ชัด ไม่ปล่อยให้เงียบ */}

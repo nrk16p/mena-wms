@@ -14,7 +14,8 @@ export type ApRow = {
   purchaseOrder: string; supplier: string; supplierRefNo: string
   amount: number; receivedAt: string; createdAt: string
   creditTerm: string; dueDate: string; overdue: number
-  docs: ApDocs; fileCount: number; review?: { status: string; note: string }
+  docs: ApDocs; fileCount: number
+  review?: { status: string; note: string; by?: string; at?: string }
   sentType: string; sentDate: string; note: string
   // ตารางส่งมาเฉพาะช่องที่มีเลขจริง (ดู compactDocNos) — ช่องที่ไม่มีจะหายไปเลย ไม่ใช่ []
   docNos: Partial<ApDocNos>
