@@ -96,6 +96,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/pr", label: "ติดตาม PR / รับสินค้า", icon: FileText, exact: true },
       { href: "/order-tracking", label: "ติดตามคำขอเปิด PO", icon: ClipboardCheck, exact: true },
       { href: "/ap-tracking", label: "ติดตามเจ้าหนี้", icon: Banknote, exact: true },
+      { href: "/ap-tracking/dashboard", label: "แดชบอร์ดเจ้าหนี้", icon: LayoutDashboard },
       { href: "/ap-tracking/suppliers", label: "เครดิตเทอมเจ้าหนี้", icon: Landmark },
       { href: "/ap-tracking/audit", label: "ตรวจความครบถ้วนข้อมูล", icon: ShieldCheck },
       { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen },
