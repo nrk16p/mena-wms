@@ -175,8 +175,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
           const sup = await md.collection("ap_supplier").findOne({ name: supplier }, { projection: { _id: 0, creditTerm: 1 } })
           creditTerm = s(sup?.creditTerm)
         }
-        const schedule = apPaySchedule(ictDate(at), payType, creditTerm)
+        // นอกรอบเลือกวันโอนได้ (พฤหัสนี้ถ้ายังทันเส้นตายอังคาร / พฤหัสหน้า) — เซิร์ฟเวอร์
+        // ตรวจกับตัวเลือกที่คิดจากนาฬิกาตัวเองอีกชั้น ค่าที่หลุดมานอกตัวเลือกต้องไม่ผ่าน
+        const chosenPayDate = payType === "นอกรอบ" ? s(body.payDate) || undefined : undefined
+        const schedule = apPaySchedule(ictDate(at), payType, creditTerm, chosenPayDate)
         if (!schedule) {
+          if (chosenPayDate) {
+            return NextResponse.json(
+              { error: "วันโอนที่เลือกไม่ทันรอบแล้ว (เส้นตายวันอังคาร) — เปิดกล่องยืนยันใหม่อีกครั้ง" },
+              { status: 409 },
+            )
+          }
           // ตามรอบแต่ไม่มีเครดิตเทอมจากทั้งสองทาง — ห้ามเดา ให้กรอกมาในกล่องยืนยัน
           return NextResponse.json(
             { error: "คำนวณกำหนดจ่ายไม่ได้ — ซัพพลายเออร์ยังไม่มีเครดิตเทอม ระบุมาพร้อมการยืนยันผ่าน" },

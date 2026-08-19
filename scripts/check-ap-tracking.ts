@@ -11,7 +11,7 @@ import {
   apUrgency, needsAccountingReview,
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
-  payThursday, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
+  payThursday, payThursdayChoices, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
@@ -198,14 +198,22 @@ assert.deepEqual(apRangeOf("7d", "2026-09-03"), { from: "2026-08-28", to: "2026-
 // --- กำหนดจ่ายเงิน (คิดตอนบัญชีกดผ่าน — กติกาผู้ใช้ยืนยัน 18/08/2026) ---
 assert.deepEqual(AP_PAY_TYPES, ["ตามรอบ", "นอกรอบ"])
 
-// นอกรอบ: เส้นตายวันพุธ — ต่างจาก nextThursday ที่นับพฤหัสวันนี้ว่ายังทัน
-assert.equal(payThursday("2026-08-18"), "2026-08-20", "กดอังคาร → พฤหัสสัปดาห์นี้")
-assert.equal(payThursday("2026-08-19"), "2026-08-20", "กดพุธ (วันสุดท้ายที่ทัน) → พฤหัสพรุ่งนี้")
-assert.equal(payThursday("2026-08-20"), "2026-08-27", "กดพฤหัสเอง = ไม่ทันแล้ว → พฤหัสหน้า")
+// นอกรอบ: เส้นตายวันอังคาร (แก้จากพุธ 19/08/2026) — พุธเป็นต้นไปตกไปพฤหัสหน้า
+assert.equal(payThursday("2026-08-17"), "2026-08-20", "กดจันทร์ → ยังทันพฤหัสสัปดาห์นี้")
+assert.equal(payThursday("2026-08-18"), "2026-08-20", "กดอังคาร (วันสุดท้ายที่ทัน) → พฤหัสสัปดาห์นี้")
+assert.equal(payThursday("2026-08-19"), "2026-08-27", "กดพุธ = เลยเส้นตายแล้ว → พฤหัสหน้า")
+assert.equal(payThursday("2026-08-20"), "2026-08-27", "กดพฤหัสเอง → พฤหัสหน้า")
 assert.equal(payThursday("2026-08-21"), "2026-08-27", "กดศุกร์ → พฤหัสหน้า")
 assert.equal(payThursday("2026-08-22"), "2026-08-27", "กดเสาร์ → พฤหัสหน้า")
 assert.equal(payThursday("2026-08-23"), "2026-08-27", "กดอาทิตย์ → พฤหัสสัปดาห์ถัดไป")
 assert.equal(payThursday(""), "", "วันที่อ่านไม่ออก = คิดไม่ได้")
+
+// ตัวเลือกวันโอน: default พฤหัสหน้าเสมอ · พฤหัสนี้เก็บไว้ให้เลือกเฉพาะตอนยังทัน (≤ อังคาร)
+assert.deepEqual(payThursdayChoices("2026-08-17"), { options: ["2026-08-20", "2026-08-27"], def: "2026-08-27" }, "จันทร์: เลือกได้สอง default พฤหน้า")
+assert.deepEqual(payThursdayChoices("2026-08-18"), { options: ["2026-08-20", "2026-08-27"], def: "2026-08-27" }, "อังคาร: ยังทันพฤนี้")
+assert.deepEqual(payThursdayChoices("2026-08-19"), { options: ["2026-08-27"], def: "2026-08-27" }, "พุธ: เหลือพฤหน้าทางเดียว")
+assert.deepEqual(payThursdayChoices("2026-08-20"), { options: ["2026-08-27"], def: "2026-08-27" }, "พฤหัสเอง: พฤหน้า")
+assert.deepEqual(payThursdayChoices(""), { options: [], def: "" })
 for (const d of ["2026-08-18", "2026-08-20", "2026-12-31"]) {
   assert.equal(new Date(`${payThursday(d)}T00:00:00Z`).getUTCDay(), 4, `ผลของ ${d} ต้องเป็นวันพฤหัสเสมอ`)
 }
@@ -229,7 +237,11 @@ assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "60D"),
 assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "Immediate"),
   { type: "ตามรอบ", dueDate: "2026-08-18", cutoff: "2026-08-25", payDate: "2026-09-05" })
 assert.deepEqual(apPaySchedule("2026-08-18", "นอกรอบ", ""),
-  { type: "นอกรอบ", dueDate: "", cutoff: "", payDate: "2026-08-20" }, "นอกรอบไม่ต้องมีเครดิตเทอม")
+  { type: "นอกรอบ", dueDate: "", cutoff: "", payDate: "2026-08-27" }, "นอกรอบ default = พฤหัสหน้า ไม่ใช่เร็วสุด")
+assert.deepEqual(apPaySchedule("2026-08-18", "นอกรอบ", "", "2026-08-20"),
+  { type: "นอกรอบ", dueDate: "", cutoff: "", payDate: "2026-08-20" }, "เลือกพฤหัสนี้เองได้ถ้ายังทัน (กด ≤ อังคาร)")
+assert.equal(apPaySchedule("2026-08-19", "นอกรอบ", "", "2026-08-20"), null, "กดพุธแล้วขอพฤนี้ = ไม่ทัน ต้องปฏิเสธ")
+assert.equal(apPaySchedule("2026-08-18", "นอกรอบ", "", "2026-08-21"), null, "วันที่ไม่ใช่ตัวเลือก (ไม่ใช่พฤหัส) = ปฏิเสธ")
 assert.equal(apPaySchedule("2026-08-18", "ตามรอบ", ""), null, "ตามรอบแต่ไม่มีเครดิตเทอม = คิดไม่ได้ (ให้ UI บังคับกรอก)")
 assert.equal(apPaySchedule("", "นอกรอบ", ""), null)
 

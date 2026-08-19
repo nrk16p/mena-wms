@@ -402,7 +402,9 @@ export function overdueDays(dueISO: string, todayISO: string): number {
 //   ตามรอบ: ครบกำหนด = วันกดผ่าน + เครดิตเทอม · ตัดรอบวันที่ 25 นับถึงสิ้นวัน
 //           (ครบวันที่ 25 พอดี = ทันรอบนั้น) · จ่ายวันที่ 5 ของเดือนถัดจากเดือนที่ตัดรอบ
 //           วันที่ 5/25 ตรงเสาร์-อาทิตย์ไม่เลื่อน — จ่ายตามวันที่ตรง ๆ
-//   นอกรอบ: โอนทุกวันพฤหัส · ต้องกดผ่านไม่เกินวันพุธ — กดวันพฤหัสถือว่าไม่ทันรอบวันนั้นแล้ว
+//   นอกรอบ: โอนทุกวันพฤหัส · เส้นตายคือวันอังคาร (แก้จากวันพุธ 19/08/2026 ตามผู้ใช้)
+//           กดผ่าน อา.–อังคาร = พฤหัสสัปดาห์นั้นยังทัน · พุธเป็นต้นไป = พฤหัสหน้า
+//           ค่าตั้งต้นที่เสนอคือ "พฤหัสหน้า" เสมอ — พฤหัสที่ใกล้กว่ายังเก็บไว้ให้เลือกถ้าทัน
 //           (ต่างจาก nextThursday ของฝั่งจัดซื้อที่นับวันพฤหัสวันนี้ว่ายังทัน)
 // สิ่งที่จัดซื้อเลือกตอนส่งบัญชีเป็นแค่ "คำขอ" — ตัวจริงคือค่าที่บัญชียืนยันตอนกดผ่าน
 export type ApPayType = "ตามรอบ" | "นอกรอบ"
@@ -416,13 +418,26 @@ export const AP_PAY_TYPES: ApPayType[] = ["ตามรอบ", "นอกรอ
 
 const pad2 = (n: number) => String(n).padStart(2, "0")
 
-// นอกรอบ: พฤหัสที่จะได้เงินเมื่อกดผ่านวันนั้น — เส้นตายคือวันพุธ
-// อา.–พุธ → พฤหัสสัปดาห์นี้ · พฤ.–เสาร์ → พฤหัสหน้า
+// นอกรอบ: พฤหัสเร็วสุดที่ยังทันเมื่อกดผ่านวันนั้น — เส้นตายคือวันอังคาร
+// อา.–อังคาร → พฤหัสสัปดาห์นี้ · พุธ–เสาร์ → พฤหัสหน้า
 export function payThursday(passedISO: string): string {
   const base = toUTC(passedISO)
   if (Number.isNaN(base)) return ""
-  const dow = new Date(base).getUTCDay()          // 0=อา … 4=พฤ
-  return fromUTC(base + (dow <= 3 ? 4 - dow : 11 - dow) * DAY)
+  const dow = new Date(base).getUTCDay()          // 0=อา … 2=อังคาร … 4=พฤ
+  return fromUTC(base + (dow <= 2 ? 4 - dow : 11 - dow) * DAY)
+}
+
+// ตัวเลือกวันโอนนอกรอบตอนกดผ่าน — ค่าตั้งต้นคือ "พฤหัสหน้า" เสมอ (ผู้ใช้สั่ง 19/08/2026:
+// อย่าดันเงินออกเร็วสุดโดยอัตโนมัติ) แต่ถ้ากดผ่านทันเส้นตายอังคาร พฤหัสสัปดาห์นี้ยังเลือกได้
+export function payThursdayChoices(passedISO: string): { options: string[]; def: string } {
+  const first = payThursday(passedISO)
+  if (!first) return { options: [], def: "" }
+  const dow = new Date(toUTC(passedISO)).getUTCDay()
+  if (dow <= 2) {
+    const next = addDays(first, 7)
+    return { options: [first, next], def: next }    // ทันพฤหัสนี้ — ให้เลือกได้ แต่ default พฤหน้า
+  }
+  return { options: [first], def: first }           // เลยอังคารแล้ว — เหลือพฤหัสหน้าทางเดียว
 }
 
 // ตามรอบ: วันครบกำหนด → (วันตัดรอบ 25, วันจ่าย 5 เดือนถัดไป)
@@ -436,12 +451,16 @@ export function payFromCutoff(dueISO: string): { cutoff: string; payDate: string
   return { cutoff, payDate: `${y}-${pad2(mo)}-05` }
 }
 
-// คิดกำหนดจ่ายทั้งใบ — คืน null เมื่อคิดไม่ได้ (วันที่เพี้ยน หรือตามรอบแต่ไม่มีเครดิตเทอม)
-// ให้ null ไปตัดสินใจที่ผู้เรียก: ฝั่ง UI ใช้บังคับกรอกเทอมก่อนยืนยัน ฝั่ง API ใช้ตอบ 400
-export function apPaySchedule(passedISO: string, type: ApPayType, creditTerm: string): ApPaySchedule | null {
+// คิดกำหนดจ่ายทั้งใบ — คืน null เมื่อคิดไม่ได้ (วันที่เพี้ยน · ตามรอบแต่ไม่มีเครดิตเทอม
+// · หรือนอกรอบที่เลือกวันโอนนอกตัวเลือกที่ทันรอบ — เซิร์ฟเวอร์ใช้แยกตอบ 400)
+export function apPaySchedule(
+  passedISO: string, type: ApPayType, creditTerm: string, chosenPayDate?: string,
+): ApPaySchedule | null {
   if (type === "นอกรอบ") {
-    const payDate = payThursday(passedISO)
-    return payDate ? { type, dueDate: "", cutoff: "", payDate } : null
+    const { options, def } = payThursdayChoices(passedISO)
+    if (!def) return null
+    if (chosenPayDate && !options.includes(chosenPayDate)) return null
+    return { type, dueDate: "", cutoff: "", payDate: chosenPayDate || def }
   }
   const dueDate = dueDateOf(passedISO, creditTerm)
   if (!dueDate) return null

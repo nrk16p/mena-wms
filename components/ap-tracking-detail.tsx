@@ -6,7 +6,7 @@ import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
-  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule,
+  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
@@ -123,7 +123,7 @@ export function ApTrackingDetail({
   const [savedReview, setSavedReview] = useState<ApReview>({ status: "", note: "" })
   const [savedPay, setSavedPay] = useState<ApPay | null>(null)
   // กล่องยืนยันตอนกดผ่าน — null = ไม่เปิด · เปิดพร้อมค่าตั้งต้น: คำขอจากจัดซื้อ + เทอมจาก master
-  const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string } | null>(null)
+  const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string } | null>(null)
   const [review, setReview]           = useState<ApReview>({ status: "", note: "" })
   const [savedNote, setSavedNote] = useState(row.note ?? "")
   const [note, setNote]           = useState(row.note ?? "")
@@ -254,13 +254,14 @@ export function ApTrackingDetail({
       setPassConfirm({
         payType: (AP_PAY_TYPES as string[]).includes(sent.type) ? (sent.type as ApPayType) : "ตามรอบ",
         creditTerm: row.creditTerm ?? "",
+        payDate: payThursdayChoices(todayICT()).def,     // default = พฤหัสหน้า (ผู้ใช้สั่ง)
       })
       return
     }
     save()
   }
 
-  const save = async (passOpts?: { payType: ApPayType; creditTerm: string }) => {
+  const save = async (passOpts?: { payType: ApPayType; creditTerm: string; payDate: string }) => {
     if (!dirty || saving) return
     if (reviewNeedsNote(review.status, review.note)) {
       setTab("money"); swalError("ตีกลับต้องระบุเหตุผลว่าไม่ผ่านเพราะอะไร"); return
@@ -293,6 +294,8 @@ export function ApTrackingDetail({
         body.payType = passOpts.payType
         // ส่งเทอมเฉพาะตอนที่ต่างจาก master — ฝั่งเซิร์ฟเวอร์จะบันทึกกลับเข้า ap_supplier ให้ด้วย
         if (passOpts.creditTerm && passOpts.creditTerm !== (row.creditTerm ?? "")) body.payCreditTerm = passOpts.creditTerm
+        // นอกรอบ: วันพฤหัสที่เลือก — เซิร์ฟเวอร์ตรวจกับตัวเลือกที่ทันรอบอีกชั้น
+        if (passOpts.payType === "นอกรอบ" && passOpts.payDate) body.payDate = passOpts.payDate
       }
       if (noteChanged)         body.note   = note.trim()
       if (sentChanged)       { body.sentType = sent.type; body.sentDate = sent.date }
@@ -709,7 +712,9 @@ export function ApTrackingDetail({
         {/* กล่องยืนยันตอนกดผ่าน — เห็นวันจ่ายที่คิดตามกติกาก่อน แล้วค่อยยืนยัน
             พรีวิวฝั่งนี้คิดจากวันนี้ (เวลาไทย) — เซิร์ฟเวอร์คิดซ้ำจากนาฬิกาตัวเองเป็นตัวจริง */}
         {passConfirm && (() => {
-          const preview = apPaySchedule(todayICT(), passConfirm.payType, passConfirm.creditTerm)
+          const thuChoices = payThursdayChoices(todayICT())
+          const preview = apPaySchedule(todayICT(), passConfirm.payType, passConfirm.creditTerm,
+            passConfirm.payType === "นอกรอบ" ? passConfirm.payDate || undefined : undefined)
           const needTerm = passConfirm.payType === "ตามรอบ" && !passConfirm.creditTerm
           return (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-4"
@@ -731,6 +736,23 @@ export function ApTrackingDetail({
                 </div>
                 {sent.type && sent.type !== passConfirm.payType && (
                   <div className="text-[11px] text-amber-600">จัดซื้อขอมาเป็น “{sent.type}” — ค่าที่ยืนยันตรงนี้คือตัวจริง</div>
+                )}
+
+                {/* นอกรอบ: เลือกวันพฤหัส — default พฤหัสหน้า · พฤหัสนี้โผล่เฉพาะตอนยังทัน (≤ อังคาร) */}
+                {passConfirm.payType === "นอกรอบ" && thuChoices.options.length > 0 && (
+                  <div className="space-y-1 text-xs">
+                    <span className="text-gray-500">วันพฤหัสที่จะโอน</span>
+                    <div className="flex flex-wrap gap-2">
+                      {thuChoices.options.map((d) => (
+                        <button key={d} onClick={() => setPassConfirm((p) => p && { ...p, payDate: d })}
+                          className={`rounded-lg border px-3 py-1.5 text-sm transition ${(passConfirm.payDate || thuChoices.def) === d
+                            ? "border-emerald-500 bg-emerald-50 font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                            : "border-gray-200/80 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"}`}>
+                          {thaiDate(d)}{d === thuChoices.def ? " · พฤหัสหน้า" : " · พฤหัสนี้"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
                 {passConfirm.payType === "ตามรอบ" && (
@@ -756,7 +778,7 @@ export function ApTrackingDetail({
                         <div className="text-emerald-700 dark:text-emerald-400">💰 จ่าย <b>{thaiDate(preview.payDate)}</b></div>
                       </div>
                     ) : (
-                      <div className="text-xs text-emerald-700 dark:text-emerald-400">💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b> (กดผ่านไม่เกินวันพุธ)</div>
+                      <div className="text-xs text-emerald-700 dark:text-emerald-400">💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b></div>
                     )
                   ) : (
                     <div className="text-xs text-gray-400">เลือกเครดิตเทอมก่อน จึงจะคำนวณวันจ่ายได้</div>
@@ -769,7 +791,7 @@ export function ApTrackingDetail({
                     ยกเลิก
                   </button>
                   <button disabled={!preview || saving}
-                    onClick={() => save({ payType: passConfirm.payType, creditTerm: passConfirm.creditTerm })}
+                    onClick={() => save({ payType: passConfirm.payType, creditTerm: passConfirm.creditTerm, payDate: passConfirm.payDate || thuChoices.def })}
                     className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40">
                     {saving ? "กำลังบันทึก…" : "ยืนยันผ่าน"}
                   </button>
