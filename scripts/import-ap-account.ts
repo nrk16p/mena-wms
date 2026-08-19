@@ -3,8 +3,9 @@
 // รัน (เขียนจริง):     npx tsx scripts/import-ap-account.ts [ไฟล์] --write
 //
 // นำเข้าผลตรวจของบัญชีจากไฟล์ "สรุปDD จาก ATMS ปี2569.xlsx" (สมุดงานของฝ่ายบัญชี)
-// กติกาจากผู้ใช้ 19/08/2026: ใบ DD ที่มี "วันที่ส่งเอกสารเข้าสกท" = บัญชีผ่านแล้ว
-// → review = ผ่าน (at = วันที่นั้น) · VoucherNo.เลขตั้งหนี้เก็บเข้า voucherNos (ค้นหาได้)
+// กติกาจากผู้ใช้ 19/08/2026 (สองรอบ): ใบ DD ที่มี "วันที่ส่งเอกสารเข้าสกท" = บัญชีผ่านแล้ว
+// และรอบสอง — ใบที่มีเลขตั้งหนี้ (VoucherNo) แต่ช่องวันส่งว่าง ก็นับผ่านด้วย (กรอกตกในไฟล์)
+// → review = ผ่าน (at = วันส่งเข้าสกทล่าสุด · ไม่มีก็ใช้เวลานำเข้า) · voucher เก็บเข้า voucherNos
 // · เลขใบวางบิลจริงรวมเข้า billingNoteNos · ช่อง Taxinvoice/Receipt ที่ขีด "/" = ติ๊กว่ามีเอกสาร
 //
 // ปลอดภัย: ตั้งผ่านเฉพาะใบที่ "ยังไม่ตรวจ" และ "อยู่ในระบบติดตามแล้ว" — ใบสระบุรีไม่มี
@@ -75,8 +76,9 @@ async function main() {
       recs.set(code, r)
     }
   }
-  const passed = [...recs.entries()].filter(([, r]) => r.sent.length > 0)
-  console.log(`ใบ DD ในไฟล์: ${recs.size.toLocaleString("th-TH")} · มีวันส่งเข้าสกท (= ผ่าน): ${passed.length.toLocaleString("th-TH")}`)
+  const passed = [...recs.entries()].filter(([, r]) => r.sent.length > 0 || r.vouchers.size > 0)
+  const voucherOnly = passed.filter(([, r]) => r.sent.length === 0).length
+  console.log(`ใบ DD ในไฟล์: ${recs.size.toLocaleString("th-TH")} · ผ่าน (วันส่งเข้าสกท/เลขตั้งหนี้): ${passed.length.toLocaleString("th-TH")} (เลขตั้งหนี้อย่างเดียว ${voucherOnly})`)
 
   const env = readFileSync(path.join(process.cwd(), ".env"), "utf8")
   const uri = env.match(/^MONGO_URI=(.+)$/m)![1].trim().replace(/^["']|["']$/g, "")
@@ -111,8 +113,9 @@ async function main() {
     if (!c) { skipNoTracking++; continue }                 // ไม่อยู่ในระบบติดตาม (สระบุรี) — ให้กดในเว็บเอง
     const status = s((c.review as { status?: string } | undefined)?.status)
     if (status) { skipReviewed++; continue }               // มีผลตรวจแล้ว (เว็บหรือรอบก่อน) — ไม่ทับ
-    // วันผ่าน = วันส่งเข้าสกทล่าสุด · ไฟล์ไม่มีเวลา ใช้เที่ยงวันไทยกันวันเลื่อน
-    const at = `${r.sent.sort().at(-1)}T05:00:00.000Z`
+    // วันผ่าน = วันส่งเข้าสกทล่าสุด (ไฟล์ไม่มีเวลา ใช้เที่ยงวันไทยกันวันเลื่อน)
+    // ใบที่มีแต่เลขตั้งหนี้ไม่มีวันส่ง — ใช้เวลานำเข้าแทน เพราะไม่มีวันจริงให้อ้าง
+    const at = r.sent.length ? `${r.sent.sort().at(-1)}T05:00:00.000Z` : now
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const set: Record<string, any> = {
       depositCode: code, updatedAt: now, updatedBy: IMPORT_BY,
@@ -146,7 +149,7 @@ async function main() {
   console.log(`  ข้าม: มีผลตรวจอยู่แล้ว          ${skipReviewed.toLocaleString("th-TH")}  (รันซ้ำ/คนกดในเว็บ — ไม่ทับ)`)
   console.log(`  ข้าม: ไม่มีใบนี้ใน ATMS         ${noHeader}`)
   const ex = passed.find(([c]) => cur.has(c) && !s((cur.get(c)?.review as { status?: string } | undefined)?.status))
-  if (ex) console.log(`  ตัวอย่าง ${ex[0]}: ผ่าน ${ex[1].sent.sort().at(-1)} · Voucher [${[...ex[1].vouchers].join(",")}]`)
+  if (ex) console.log(`  ตัวอย่าง ${ex[0]}: ผ่าน ${ex[1].sent.sort().at(-1) ?? "(ใช้เวลานำเข้า)"} · Voucher [${[...ex[1].vouchers].join(",")}]`)
 
   if (!write) console.log("\nโหมดดูอย่างเดียว — ใส่ --write เพื่อเขียนจริง")
   else if (ops.length) {
