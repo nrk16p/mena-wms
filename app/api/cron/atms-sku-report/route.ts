@@ -5,6 +5,8 @@ import {
   fetchLogInput, fetchSkuByCode, INVENTORY_NAMES,
 } from "@/lib/atms-sku-log"
 import clientPromise from "@/lib/mongo"
+import { runSkuSync, type SkuSyncResult } from "@/lib/safety-stock-sync"
+import { runSafetyStockBuild, type BuildResult } from "@/lib/safety-stock-build"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
@@ -109,5 +111,18 @@ export async function GET(req: NextRequest) {
     { upsert: true }
   )
 
-  return NextResponse.json({ ok, eventsUpserted, enriched, months, error }, { status: ok ? 200 : 500 })
+  // Vercel Hobby จำกัด cron ไว้แค่ 2 รายการ (ใช้เต็มแล้วโดย tire-sync + งานด้านบนของไฟล์นี้) และการยิง ATMS
+  // ด้วยหลาย cron พร้อมกันคือสิ่งที่ทำให้ ATMS ล่ม — จึงต่อ sku-sync + safety-stock build ท้ายสล็อตนี้แทนแยก cron ใหม่
+  // ต้อง catch ทุกอย่างในนี้ ห้าม throw ออกไปทับผลลัพธ์/สถานะ HTTP ของงาน atms-sku-report ด้านบนซึ่งทำสำเร็จไปแล้วก่อนหน้านี้
+  const chain: { skuSync: SkuSyncResult | null; build: BuildResult | null; error: string | null } = {
+    skuSync: null, build: null, error: null,
+  }
+  try {
+    chain.skuSync = await runSkuSync(null)
+    chain.build = await runSafetyStockBuild(null)
+  } catch (err) {
+    chain.error = err instanceof Error ? err.message : "Unknown error"
+  }
+
+  return NextResponse.json({ ok, eventsUpserted, enriched, months, error, chain }, { status: ok ? 200 : 500 })
 }
