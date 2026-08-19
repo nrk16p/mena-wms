@@ -472,15 +472,34 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setOpen(true)
   }
 
-  // สร้างใบงานจริงจาก "แผนเข้าซ่อม" — prefill จากแผน · หลังบันทึกสำเร็จ save() จะ PATCH
-  // ผูก linkedRepairId กลับไปที่แผนและเปลี่ยนสถานะแผนเป็น "เข้าอู่แล้ว" ผ่าน planLinkRef
-  function openAddFromPlan(p: RepairPlan) {
+  // "รถเข้าอู่แล้ว" จากแผนเข้าซ่อม — หลังบันทึกสำเร็จ save() จะ PATCH ผูก linkedRepairId
+  // กลับไปที่แผนและเปลี่ยนสถานะแผนเป็น "เข้าอู่แล้ว" ผ่าน planLinkRef
+  // · แผนที่ผูกใบงานเดิม → เปิดแก้ใบงานนั้น (สร้างใหม่ไม่ได้ — ติดกฎกันซ้ำ 1 งาน active/คัน)
+  // · แผนลอย → สร้างใบงานใหม่ prefill จากแผน
+  async function openAddFromPlan(p: RepairPlan) {
+    const today = bkkToday()
+    if (p.linkedRepairId) {
+      try {
+        const res = await fetch(`/api/repair-external/${p.linkedRepairId}`)
+        if (!res.ok) throw new Error()
+        const job: RepairExternal = await res.json()
+        if (isDoneStatus(job.status)) { swalError("ใบงานที่ผูกกับแผนนี้ปิดงานไปแล้ว"); return }
+        openEdit(job, true)
+        planLinkRef.current = p._id  // ต้องตั้งหลัง openEdit (openEdit ล้างค่า ref)
+        setForm((f) => ({
+          ...f,
+          status: f.status === REPAIR_STATUS_VALUES[0] ? "รถเข้าอู่ซ่อม" : f.status,
+          garageInDate: f.garageInDate || today,
+          garage: f.garage || p.garage,
+        }))
+      } catch { swalError("ไม่พบใบงานที่ผูกกับแผนนี้") }
+      return
+    }
     planLinkRef.current = p._id
     setEditId(null)
     setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
-    const today = bkkToday()
     setForm({
       ...EMPTY,
       jobType: JOB_TYPE_GARAGE,
@@ -849,14 +868,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || "บันทึกไม่สำเร็จ")
       }
-      // สร้างใบงานจากแผนเข้าซ่อม → ผูก linkedRepairId กลับไปที่แผน + สถานะแผนเป็น "เข้าอู่แล้ว"
-      if (!editId && planLinkRef.current) {
-        const created = await res.json().catch(() => null)
-        if (created?._id) {
+      // บันทึกจากแผนเข้าซ่อม (สร้างใหม่หรืออัพเดทใบงานที่ผูกไว้) → ผูก linkedRepairId
+      // กลับไปที่แผน + สถานะแผนเป็น "เข้าอู่แล้ว"
+      if (planLinkRef.current) {
+        let linkedId: string | null = editId
+        if (!linkedId) {
+          const created = await res.json().catch(() => null)
+          linkedId = created?._id ?? null
+        }
+        if (linkedId) {
           await fetch(`/api/repair-plans/${planLinkRef.current}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ planStatus: "เข้าอู่แล้ว", linkedRepairId: created._id }),
+            body: JSON.stringify({ planStatus: "เข้าอู่แล้ว", linkedRepairId: linkedId }),
           }).catch(() => null)
           setPlanRefreshKey((k) => k + 1)
         }

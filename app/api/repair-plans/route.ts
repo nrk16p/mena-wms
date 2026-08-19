@@ -46,6 +46,8 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/repair-plans — เพิ่มแผนใหม่ (ไม่กันซ้ำต่อทะเบียน — หลายแผนต่อคันคือจุดประสงค์หลัก)
+// linkedRepairId มาตอนสร้างได้เลย (แผนที่ดึงจากใบแจ้งซ่อมเดิม) — ไม่อยู่ใน buildPlanDoc
+// เพราะ PUT ใช้ buildPlanDoc แก้ฟอร์มทั้งใบ ถ้ารวมไว้จะโดนฟอร์มที่ไม่มี field นี้ล้างค่าทิ้ง
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const doc  = buildPlanDoc(body)
@@ -56,7 +58,8 @@ export async function POST(req: NextRequest) {
   const by      = session?.user?.name || session?.user?.email || ""
   const now     = new Date()
   const client  = await clientPromise
+  const linkedRepairId = String(body.linkedRepairId ?? "").trim()
   const result  = await client.db(DB).collection(COLL)
-    .insertOne({ ...doc, linkedRepairId: "", dateHistory: [], createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
-  return NextResponse.json({ ...doc, _id: result.insertedId }, { status: 201 })
+    .insertOne({ ...doc, linkedRepairId, dateHistory: [], createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
+  return NextResponse.json({ ...doc, linkedRepairId, _id: result.insertedId }, { status: 201 })
 }
