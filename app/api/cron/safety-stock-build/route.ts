@@ -36,35 +36,41 @@ export async function GET(req: NextRequest) {
 
   // คลังเดียวพังไม่กระทบคลังอื่น — คืน error ในผลลัพธ์แทนการ throw เพื่อให้คลังถัดไปสร้างต่อได้
   async function buildOneWarehouse(inventoryId: string): Promise<WarehouseResult> {
+    // เก็บนอก try เพื่อให้ catch (เช่น deleteMany พังทีหลัง) ยังรายงานค่าที่เขียนสำเร็จจริงได้ ไม่ใช่ 0 เสมอ
+    let written = 0
+    let latestMovementDate: string | null = null
+    let stats: BuildStats | null = null
+
     try {
       const built = await buildSnapshotRows(inventoryId, syncedAt)
+      latestMovementDate = built.latestMovementDate
+      stats = built.stats
 
       if (built.rows.length > 0) {
         await col.bulkWrite(
           built.rows.map((r) => ({
             updateOne: {
               filter: { _id: `${inventoryId}|${r.code}` as unknown as never },
-              update: { $set: { ...r, ...derive(r, DEFAULT_WINDOW, DEFAULT_Z), updatedAt: syncedAt } },
+              // ลำดับ spread ตรงนี้ load-bearing: r ต้องมาทีหลัง derive() เสมอ
+              // derive() คืน adu/sdDaily เป็นตัวเลขของ window เดียว ถ้าทับ r.adu/r.sdDaily (object {m3,m6,m12})
+              // window switcher ฝั่ง client (Task 8, derive(row, win) อ่าน r.adu[win]) จะพังเป็น NaN ทันที
+              update: { $set: { ...derive(r, DEFAULT_WINDOW, DEFAULT_Z), ...r, updatedAt: syncedAt } },
               upsert: true,
             },
           })),
           { ordered: false }
         )
+        written = built.rows.length
+        // ลบของที่หลุดออกจากเงื่อนไขแล้ว (store ถอด min/max ออก) — ทำเฉพาะตอนที่เขียนแถวจริงสำเร็จเท่านั้น
+        // build ว่าง (0 แถว) ต้องไม่ลบของเดิมทิ้ง ไม่งั้น build ว่างเปล่าๆ (เช่น query พลาด) จะเท่ากับลบทั้งคลัง
+        await col.deleteMany({ inventoryId, updatedAt: { $lt: syncedAt } })
       }
-      // ลบของที่หลุดออกจากเงื่อนไขแล้ว (store ถอด min/max ออก) — ทำหลังเขียนสำเร็จเท่านั้น
-      // ไม่ทำในบล็อก catch เพื่อไม่ให้ลบของเดิมทิ้งเมื่อ build คลังนี้พังกลางทาง
-      await col.deleteMany({ inventoryId, updatedAt: { $lt: syncedAt } })
 
-      return {
-        inventoryId,
-        written: built.rows.length,
-        latestMovementDate: built.latestMovementDate,
-        stats: built.stats,
-        error: null,
-      }
+      return { inventoryId, written, latestMovementDate, stats, error: null }
     } catch (err) {
       const error = err instanceof Error ? err.message : "Unknown error"
-      return { inventoryId, written: 0, latestMovementDate: null, stats: null, error }
+      // written/latestMovementDate/stats อาจไม่ใช่ 0/null แล้ว ณ จุดนี้ — เช่น bulkWrite สำเร็จแต่ deleteMany พังทีหลัง
+      return { inventoryId, written, latestMovementDate, stats, error }
     }
   }
 
