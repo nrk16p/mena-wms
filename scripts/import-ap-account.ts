@@ -8,8 +8,9 @@
 // → review = ผ่าน (at = วันส่งเข้าสกทล่าสุด · ไม่มีก็ใช้เวลานำเข้า) · voucher เก็บเข้า voucherNos
 // · เลขใบวางบิลจริงรวมเข้า billingNoteNos · ช่อง Taxinvoice/Receipt ที่ขีด "/" = ติ๊กว่ามีเอกสาร
 //
-// ปลอดภัย: ตั้งผ่านเฉพาะใบที่ "ยังไม่ตรวจ" และ "อยู่ในระบบติดตามแล้ว" — ใบสระบุรีไม่มี
-// tracking เพราะสระบุรีใช้เว็บโดยตรง (ผู้ใช้สั่ง 19/08/2026: ไม่ต้องมีสระบุรี ให้บัญชีกดในเว็บเอง)
+// ปลอดภัย: ตั้งผ่านเฉพาะใบที่ "ยังไม่ตรวจ" · ใบที่ไม่มี tracking สร้างให้ได้ (จัดซื้อตกหล่น
+// จากไฟล์ตัวเอง ~400 ใบ ส่วนใหญ่ลาดกระบัง) ยกเว้นคลังตระกูลสระบุรี — สระบุรีใช้เว็บโดยตรง
+// ให้บัญชีกดในเว็บเอง (ผู้ใช้สั่ง 19/08/2026 สองรอบ: เพิ่มให้ครบ ยกเว้นสระบุรี)
 // · ไม่ทับผลที่คนกดในเว็บ · ไม่สร้างกำหนดจ่าย
 // ย้อนหลัง (pay ใช้กับการกดผ่านใหม่ในเว็บเท่านั้น ของเก่าบัญชีจ่ายตามระบบเดิมไปแล้ว)
 // · รันซ้ำได้ — ใบที่ผ่านแล้วถูกข้าม เลขเอกสารรวมแบบ union ไม่เขียนทับ
@@ -88,13 +89,17 @@ async function main() {
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15_000 })
   await client.connect()
   const codes = passed.map(([c]) => c)
-  const known = new Set<string>()
+  const whBy = new Map<string, string>()          // deposit_code → คลัง (ใช้ตัดสระบุรี)
   for (let i = 0; i < codes.length; i += 2000) {
     for (const d of await client.db("atms").collection("deposit_header")
-      .find({ deposit_code: { $in: codes.slice(i, i + 2000) } }, { projection: { _id: 0, deposit_code: 1 } }).toArray()) {
-      known.add(String(d.deposit_code))
+      .find({ deposit_code: { $in: codes.slice(i, i + 2000) } }, { projection: { _id: 0, deposit_code: 1, warehouse: 1 } }).toArray()) {
+      whBy.set(String(d.deposit_code), s(d.warehouse))
     }
   }
+  const known = new Set(whBy.keys())
+  // คลังตระกูลสระบุรีแท้ = ขึ้นต้นด้วย "คลัง" และมีคำว่าสระบุรี แต่ไม่ใช่สาย DIST
+  // ("คลัง DIST จป.สระบุรี" อยู่ในระบบมาตั้งแต่ import จัดซื้อ — ไม่ใช่กลุ่มที่สั่งตัด)
+  const isSaraburi = (w: string) => w.includes("สระบุรี") && !w.includes("DIST")
   const col = client.db(mdName).collection("ap_tracking")
   const cur = new Map<string, Record<string, unknown>>()
   for (let i = 0; i < codes.length; i += 2000) {
@@ -105,13 +110,14 @@ async function main() {
   }
 
   const now = new Date().toISOString()
-  let willWrite = 0, skipReviewed = 0, noHeader = 0, skipNoTracking = 0
+  let willWrite = 0, skipReviewed = 0, noHeader = 0, skipSaraburi = 0, newDocs = 0
   const ops: Parameters<typeof col.bulkWrite>[0] = []
   for (const [code, r] of passed) {
     if (!known.has(code)) { noHeader++; continue }
     const c = cur.get(code)
-    if (!c) { skipNoTracking++; continue }                 // ไม่อยู่ในระบบติดตาม (สระบุรี) — ให้กดในเว็บเอง
-    const status = s((c.review as { status?: string } | undefined)?.status)
+    if (!c && isSaraburi(whBy.get(code) ?? "")) { skipSaraburi++; continue }   // สระบุรี — กดในเว็บเอง
+    if (!c) newDocs++
+    const status = s((c?.review as { status?: string } | undefined)?.status)
     if (status) { skipReviewed++; continue }               // มีผลตรวจแล้ว (เว็บหรือรอบก่อน) — ไม่ทับ
     // วันผ่าน = วันส่งเข้าสกทล่าสุด (ไฟล์ไม่มีเวลา ใช้เที่ยงวันไทยกันวันเลื่อน)
     // ใบที่มีแต่เลขตั้งหนี้ไม่มีวันส่ง — ใช้เวลานำเข้าแทน เพราะไม่มีวันจริงให้อ้าง
@@ -138,14 +144,15 @@ async function main() {
                           detail: r.vouchers.size ? `Voucher ${[...r.vouchers].join(", ")}` : "", by: IMPORT_BY, at } },
           $setOnInsert: { createdAt: now, createdBy: IMPORT_BY },
         },
-        upsert: false,          // เขียนเฉพาะใบที่มี tracking อยู่แล้ว — ห้ามงอกใบสระบุรี
+        upsert: true,           // สร้างให้ใบที่จัดซื้อตกหล่นได้ — สระบุรีถูกกรองไปก่อนหน้าแล้ว
       },
     })
   }
 
   console.log(`\n── สรุป ──────────────────────────────`)
   console.log(`  จะตั้งผ่าน                     ${willWrite.toLocaleString("th-TH")} ใบ`)
-  console.log(`  ข้าม: ไม่อยู่ในระบบติดตาม        ${skipNoTracking}  (สระบุรี — บัญชีกดในเว็บเอง)`)
+  console.log(`  ในนั้นสร้าง tracking ใหม่        ${newDocs}  (จัดซื้อตกหล่นจากไฟล์ตัวเอง)`)
+  console.log(`  ข้าม: คลังสระบุรี               ${skipSaraburi}  (บัญชีกดในเว็บเอง)`)
   console.log(`  ข้าม: มีผลตรวจอยู่แล้ว          ${skipReviewed.toLocaleString("th-TH")}  (รันซ้ำ/คนกดในเว็บ — ไม่ทับ)`)
   console.log(`  ข้าม: ไม่มีใบนี้ใน ATMS         ${noHeader}`)
   const ex = passed.find(([c]) => cur.has(c) && !s((cur.get(c)?.review as { status?: string } | undefined)?.status))
