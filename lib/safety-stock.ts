@@ -13,6 +13,15 @@ declare global {
   var _safetyStockCache: Record<string, { at: number; data: SafetyStockPayload } | undefined> | undefined
 }
 
+/** รูปร่างที่พอต้องใช้ของ 1 แถวใน `results[]` ของ safety_stock_sync_log — ทั้ง trigger "build" และ "sku-sync"
+ *  เก็บ field อื่นเพิ่มเติมได้ (Mongo ไม่บังคับ schema) จึงไม่ import type เต็มจาก route/lib ฝั่งเขียน ตรงนี้อ่านแค่เท่าที่ใช้จริง */
+type SyncLogResultEntry = {
+  inventoryId: string
+  latestMovementDate?: string | Date | null
+  months?: string[]
+  error: string | null
+}
+
 export async function getSafetyStock(
   inventoryId: string = INVENTORY_ID,
   force = false
@@ -38,7 +47,7 @@ export async function getSafetyStock(
   let latestMovementDate: string | null = null
   let months: string[] = []
   if (buildLog?.results && Array.isArray(buildLog.results)) {
-    const buildResult = buildLog.results.find((r: any) => r.inventoryId === inventoryId)
+    const buildResult = (buildLog.results as SyncLogResultEntry[]).find((r) => r.inventoryId === inventoryId)
     if (buildResult?.latestMovementDate) {
       latestMovementDate = new Date(buildResult.latestMovementDate as Date).toISOString()
     }
@@ -49,7 +58,7 @@ export async function getSafetyStock(
   // Resolve skuSyncedAt from sku-sync log results array
   let skuSyncedAt: string | null = null
   if (skuLog?.results && Array.isArray(skuLog.results)) {
-    const skuResult = skuLog.results.find((r: any) => r.inventoryId === inventoryId)
+    const skuResult = (skuLog.results as SyncLogResultEntry[]).find((r) => r.inventoryId === inventoryId)
     if (skuResult && skuResult.error === null && skuLog.syncedAt) {
       skuSyncedAt = new Date(skuLog.syncedAt as Date).toISOString()
     }
