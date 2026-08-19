@@ -268,14 +268,15 @@ assert.equal(monthFromCode(""), "")
 // --- ข้อความแจ้งการเงินขอจ่ายนอกรอบ ---
 {
   const { subject, body } = apFinanceRequestText([
-    { depositCode: "LBDD26080101", supplier: "มิตซุย บุซซัน", amount: 14810.51, billingNos: ["BL-SVCB2026-0395"] },
+    { depositCode: "LBDD26080101", supplier: "มิตซุย บุซซัน", amount: 14810.51, purchaseOrder: "LBPO26080001", billingNos: ["BL-SVCB2026-0395"] },
     { depositCode: "LBDD26080102", supplier: "มิตซุย บุซซัน", amount: 1000, billingNos: [] },
     { depositCode: "SBDD26080050", supplier: "หจก.หงส์ดำ", amount: 500 },
   ], "2026-08-20", "เอกสารแก้ไขล่าช้า")
   assert.ok(subject.includes("20 ส.ค. 69") && subject.includes("2 ราย"), subject)
   assert.ok(body.includes("เจ้าหนี้ มิตซุย บุซซัน"), "จัดกลุ่มตามเจ้าหนี้")
-  assert.ok(body.includes("1. BL-SVCB2026-0395 = 14,810.51"), "มีเลขใบวางบิลใช้เลขนั้น")
-  assert.ok(body.includes("2. LBDD26080102 = 1,000.00"), "ไม่มีเลขใบวางบิลถอยไปใช้เลขใบ DD")
+  assert.ok(body.includes("1. LBDD26080101 · PO LBPO26080001 · ใบวางบิล BL-SVCB2026-0395 = 14,810.51"),
+    "อ้างครบ DD · PO · เลขใบวางบิล (ผู้ใช้สั่ง 19/08/2026)")
+  assert.ok(body.includes("2. LBDD26080102 = 1,000.00"), "ไม่มี PO/ใบวางบิล เหลือเลขใบ DD อย่างเดียว")
   assert.ok(body.includes("รวมทั้งสิ้น 16,310.51 บาท (3 ใบ)"), "ยอดรวมต้องถูก")
   assert.ok(body.includes("สาเหตุ: เอกสารแก้ไขล่าช้า"))
   const blank = apFinanceRequestText([{ depositCode: "X", supplier: "ก", amount: 1 }], "2026-08-20", "  ")
