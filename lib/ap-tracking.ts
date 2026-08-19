@@ -37,7 +37,7 @@ export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote"]
 // เดิมมีช่องเดียว (taxInvoiceNos) — เพิ่มอีก 3 ช่องวันที่ 18/08/2026 ตามที่ผู้ใช้สั่ง
 // เพิ่มช่องที่ 5 ในอนาคต = เติมบรรทัดเดียวที่นี่ ทั้ง UI/API/ค้นหา วนจากตารางนี้ตัวเดียว
 // (ช่อง "เลขที่ใบแจ้งหนี้/ใบวางบิล" เคยมีอยู่ช่วงสั้น ๆ วันที่ 17/08/2026 แล้วผู้ใช้สั่งเอาออก)
-export type ApNoKey = "taxInvoiceNos" | "billingNoteNos" | "cashBillNos" | "vatInvoiceNos" | "ncAcNos"
+export type ApNoKey = "taxInvoiceNos" | "billingNoteNos" | "cashBillNos" | "vatInvoiceNos" | "ncAcNos" | "voucherNos"
 export type ApDocNos = Record<ApNoKey, string[]>
 
 export const AP_NO_FIELDS: { key: ApNoKey; label: string; short: string }[] = [
@@ -46,6 +46,8 @@ export const AP_NO_FIELDS: { key: ApNoKey; label: string; short: string }[] = [
   { key: "cashBillNos",    label: "เลขที่บิลเงินสด",    short: "บิลเงินสด" },
   { key: "vatInvoiceNos",  label: "เลขที่ใบกำกับภาษี",  short: "ใบกำกับภาษี" },
   { key: "ncAcNos",        label: "เลขที่ NC/AC",       short: "NC/AC" },      // เพิ่ม 19/08/2026
+  // เลขตั้งหนี้ที่บัญชีออกตอนผ่าน (VoucherNo. จากไฟล์บัญชี เช่น LAPO26080130) — เพิ่ม 19/08/2026
+  { key: "voucherNos",     label: "เลขที่ Voucher/ตั้งหนี้", short: "Voucher" },
 ]
 
 export const AP_NO_MAX  = 60      // ความยาวต่อเลข

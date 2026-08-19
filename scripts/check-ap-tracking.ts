@@ -137,16 +137,17 @@ assert.equal(cleanDocNos(["x".repeat(200)])[0].length, AP_NO_MAX, "คุมค�
 
 // โครงช่องเลขที่ — เพิ่ม 3 ช่องวันที่ 18/08/2026 · คีย์เดิม taxInvoiceNos ต้องอยู่ที่เดิม
 // (ถ้าคีย์เดิมถูกเปลี่ยนชื่อ เลขที่คนกรอกไว้แล้วทุกใบจะหายไปเงียบ ๆ)
-assert.deepEqual(AP_NO_FIELDS.map((f) => f.key), ["taxInvoiceNos", "billingNoteNos", "cashBillNos", "vatInvoiceNos", "ncAcNos"])
+assert.deepEqual(AP_NO_FIELDS.map((f) => f.key),
+  ["taxInvoiceNos", "billingNoteNos", "cashBillNos", "vatInvoiceNos", "ncAcNos", "voucherNos"])
 assert.deepEqual(AP_NO_FIELDS.map((f) => f.label),
-  ["เลขที่ใบกำกับ", "เลขที่ใบวางบิล", "เลขที่บิลเงินสด", "เลขที่ใบกำกับภาษี", "เลขที่ NC/AC"])
+  ["เลขที่ใบกำกับ", "เลขที่ใบวางบิล", "เลขที่บิลเงินสด", "เลขที่ใบกำกับภาษี", "เลขที่ NC/AC", "เลขที่ Voucher/ตั้งหนี้"])
 assert.equal(new Set(AP_NO_FIELDS.map((f) => f.key)).size, AP_NO_FIELDS.length, "คีย์ห้ามซ้ำ")
 
 // readDocNos ต้องคืนครบทุกคีย์เสมอ — ฝั่งเรียกใช้จะได้ไม่ต้องเช็ค undefined ทีละช่อง
 assert.deepEqual(readDocNos({ taxInvoiceNos: ["IV1"], cashBillNos: ["CB1", "CB1"] }),
-  { taxInvoiceNos: ["IV1"], billingNoteNos: [], cashBillNos: ["CB1"], vatInvoiceNos: [], ncAcNos: [] })
+  { taxInvoiceNos: ["IV1"], billingNoteNos: [], cashBillNos: ["CB1"], vatInvoiceNos: [], ncAcNos: [], voucherNos: [] })
 assert.deepEqual(readDocNos(null),
-  { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], vatInvoiceNos: [], ncAcNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
+  { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], vatInvoiceNos: [], ncAcNos: [], voucherNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
 assert.deepEqual(readDocNos({ taxInvoiceNos: "IV1" }), readDocNos(null), "ค่าเสียรูปใน DB = ถือว่าไม่มีเลข")
 
 // compactDocNos — payload ของตารางส่งเฉพาะช่องที่มีเลขจริง (หมื่นแถว × คีย์เปล่า 4 ตัว = เปลืองเปล่า)
