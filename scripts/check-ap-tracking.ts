@@ -67,11 +67,13 @@ for (const d of upcomingThursdays("2026-08-11", 6)) {
 
 // --- โครงช่องเอกสาร (ถอด DD/PO ออก 2026-08-17: ระบบมีข้อมูลใบรับของ+PO อยู่แล้ว ไม่ต้องให้คนติ๊กซ้ำ
 //     และใบที่ไม่มี PO ผูกใน ATMS จะติดค้าง "รอประกบ" ตลอดไปจนส่งบัญชีไม่ได้) ---
-assert.equal(AP_DOC_FIELDS.length, 4, "ใบวางบิลรวมกับใบแจ้งหนี้แล้ว")
-assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["bill","invoice","taxInvoice","receipt"])
+assert.equal(AP_DOC_FIELDS.length, 5, "ใบวางบิลรวมกับใบแจ้งหนี้แล้ว + ใบรับสภาพหนี้ (19/08/2026)")
+assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["bill","invoice","taxInvoice","receipt","debtAck"])
+assert.equal(AP_DOC_FIELDS[4].label, "ใบรับสภาพหนี้")
 assert.equal(AP_DOC_FIELDS[1].label, "ใบแจ้งหนี้/ใบวางบิล")
 // คีย์เก่ายังต้องถูกนับ ไม่งั้นใบที่เคยติ๊กใบวางบิลไว้จะหลุดจากสถานะครบชุดเงียบ ๆ
-assert.deepEqual(FINANCE_DOC_KEYS, ["bill","invoice","taxInvoice","receipt","billingNote"])
+assert.deepEqual(FINANCE_DOC_KEYS, ["bill","invoice","taxInvoice","receipt","debtAck","billingNote"])
+assert.equal(isDocSetComplete({ debtAck: mark }), true, "ใบรับสภาพหนี้ใบเดียวก็นับว่าครบชุด")
 
 // --- docChecked: ช่องรวมต้องขึ้นติ๊กเมื่อใบเก่าติ๊กไว้ที่ billingNote ---
 assert.equal(docChecked({ invoice: mark }, "invoice"), true)
@@ -135,16 +137,16 @@ assert.equal(cleanDocNos(["x".repeat(200)])[0].length, AP_NO_MAX, "คุมค�
 
 // โครงช่องเลขที่ — เพิ่ม 3 ช่องวันที่ 18/08/2026 · คีย์เดิม taxInvoiceNos ต้องอยู่ที่เดิม
 // (ถ้าคีย์เดิมถูกเปลี่ยนชื่อ เลขที่คนกรอกไว้แล้วทุกใบจะหายไปเงียบ ๆ)
-assert.deepEqual(AP_NO_FIELDS.map((f) => f.key), ["taxInvoiceNos", "billingNoteNos", "cashBillNos", "vatInvoiceNos"])
+assert.deepEqual(AP_NO_FIELDS.map((f) => f.key), ["taxInvoiceNos", "billingNoteNos", "cashBillNos", "vatInvoiceNos", "ncAcNos"])
 assert.deepEqual(AP_NO_FIELDS.map((f) => f.label),
-  ["เลขที่ใบกำกับ", "เลขที่ใบวางบิล", "เลขที่บิลเงินสด", "เลขที่ใบกำกับภาษี"])
+  ["เลขที่ใบกำกับ", "เลขที่ใบวางบิล", "เลขที่บิลเงินสด", "เลขที่ใบกำกับภาษี", "เลขที่ NC/AC"])
 assert.equal(new Set(AP_NO_FIELDS.map((f) => f.key)).size, AP_NO_FIELDS.length, "คีย์ห้ามซ้ำ")
 
 // readDocNos ต้องคืนครบทุกคีย์เสมอ — ฝั่งเรียกใช้จะได้ไม่ต้องเช็ค undefined ทีละช่อง
 assert.deepEqual(readDocNos({ taxInvoiceNos: ["IV1"], cashBillNos: ["CB1", "CB1"] }),
-  { taxInvoiceNos: ["IV1"], billingNoteNos: [], cashBillNos: ["CB1"], vatInvoiceNos: [] })
+  { taxInvoiceNos: ["IV1"], billingNoteNos: [], cashBillNos: ["CB1"], vatInvoiceNos: [], ncAcNos: [] })
 assert.deepEqual(readDocNos(null),
-  { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], vatInvoiceNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
+  { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], vatInvoiceNos: [], ncAcNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
 assert.deepEqual(readDocNos({ taxInvoiceNos: "IV1" }), readDocNos(null), "ค่าเสียรูปใน DB = ถือว่าไม่มีเลข")
 
 // compactDocNos — payload ของตารางส่งเฉพาะช่องที่มีเลขจริง (หมื่นแถว × คีย์เปล่า 4 ตัว = เปลืองเปล่า)
@@ -153,8 +155,8 @@ assert.deepEqual(compactDocNos(null), {}, "ใบที่ไม่มีเล�
 assert.deepEqual(Object.keys(compactDocNos({ billingNoteNos: ["BN1"] })), ["billingNoteNos"], "ไม่งอกคีย์ที่ว่าง")
 
 // สายค้นหา — ต้องรวมทุกช่อง ไม่งั้นค้นด้วยเลขใบวางบิลแล้วเหมือนไม่เจอ
-const nosDoc = { taxInvoiceNos: ["IV6808-0231"], billingNoteNos: ["BN-2569/0814"], vatInvoiceNos: ["TX1187"] }
-for (const needle of ["IV6808-0231", "BN-2569/0814", "TX1187"]) {
+const nosDoc = { taxInvoiceNos: ["IV6808-0231"], billingNoteNos: ["BN-2569/0814"], vatInvoiceNos: ["TX1187"], ncAcNos: ["SBAD26080007"] }
+for (const needle of ["IV6808-0231", "BN-2569/0814", "TX1187", "SBAD26080007"]) {
   assert.ok(docNosText(nosDoc).includes(needle), `ค้นหาต้องเจอ ${needle}`)
 }
 assert.equal(docNosText(null), "", "ใบที่ไม่มีเลขเลย = สายว่าง ไม่ใช่ undefined")

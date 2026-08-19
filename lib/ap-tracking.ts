@@ -2,7 +2,7 @@
 // ติดตามเจ้าหนี้ — logic ล้วน (ไม่แตะ DB/React) ทดสอบด้วย scripts/check-ap-tracking.ts
 //
 // กติกาหลัก: 1 แถว = 1 ใบ DD ต้อง "ประกบชุดเอกสาร" ให้ครบก่อนส่งบัญชี
-//   ครบชุด = มีเอกสารการเงินอย่างน้อย 1 ใน 5 ใบ
+//   ครบชุด = มีเอกสารการเงินอย่างน้อย 1 ใบ (ชนิดเอกสารดู AP_DOC_FIELDS)
 //
 // เดิมนับ ✓DD + ✓PO ด้วย — ถอดออก 2026-08-17 ตามที่ผู้ใช้สั่ง: ตัวใบ DD กับ PO ระบบดึงมาจาก ATMS
 // อยู่แล้ว (ทุกแถวคือใบ DD และ PO ผูกมาให้เห็นในโมดัล) การให้คนติ๊กซ้ำไม่ได้เพิ่มข้อมูลอะไร
@@ -10,7 +10,7 @@
 
 import type { SkuImage } from "@/lib/media"
 
-export type ApDocKey = "bill" | "invoice" | "taxInvoice" | "receipt" | "billingNote"
+export type ApDocKey = "bill" | "invoice" | "taxInvoice" | "receipt" | "debtAck" | "billingNote"
 export type ApDocMark = { checked: boolean; by: string; at: string }
 export type ApDocs = Partial<Record<ApDocKey, ApDocMark>>
 export type ApItems = Record<string, ApDocMark>          // คีย์ = apItemKeys() ของรายการสินค้าในใบ
@@ -25,6 +25,8 @@ export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = 
   { key: "invoice",    label: "ใบแจ้งหนี้/ใบวางบิล",   short: "แจ้งหนี้/วางบิล" },
   { key: "taxInvoice", label: "ต้นฉบับใบกำกับภาษี",   short: "ใบกำกับ" },
   { key: "receipt",    label: "ใบเสร็จรับเงิน",        short: "ใบเสร็จ" },
+  // เพิ่ม 19/08/2026 — รถร่วม/เจ้าหนี้บางรายวางบิลเป็นใบรับสภาพหนี้ (เช่น SBAD26080007)
+  { key: "debtAck",    label: "ใบรับสภาพหนี้",         short: "รับสภาพหนี้" },
 ]
 
 // คีย์เก่าที่ยังต้อง "นับ" และ "เขียนได้": ใบที่เคยติ๊กใบวางบิลไว้ต้องไม่หลุดสถานะครบชุด
@@ -35,7 +37,7 @@ export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote"]
 // เดิมมีช่องเดียว (taxInvoiceNos) — เพิ่มอีก 3 ช่องวันที่ 18/08/2026 ตามที่ผู้ใช้สั่ง
 // เพิ่มช่องที่ 5 ในอนาคต = เติมบรรทัดเดียวที่นี่ ทั้ง UI/API/ค้นหา วนจากตารางนี้ตัวเดียว
 // (ช่อง "เลขที่ใบแจ้งหนี้/ใบวางบิล" เคยมีอยู่ช่วงสั้น ๆ วันที่ 17/08/2026 แล้วผู้ใช้สั่งเอาออก)
-export type ApNoKey = "taxInvoiceNos" | "billingNoteNos" | "cashBillNos" | "vatInvoiceNos"
+export type ApNoKey = "taxInvoiceNos" | "billingNoteNos" | "cashBillNos" | "vatInvoiceNos" | "ncAcNos"
 export type ApDocNos = Record<ApNoKey, string[]>
 
 export const AP_NO_FIELDS: { key: ApNoKey; label: string; short: string }[] = [
@@ -43,6 +45,7 @@ export const AP_NO_FIELDS: { key: ApNoKey; label: string; short: string }[] = [
   { key: "billingNoteNos", label: "เลขที่ใบวางบิล",     short: "ใบวางบิล" },
   { key: "cashBillNos",    label: "เลขที่บิลเงินสด",    short: "บิลเงินสด" },
   { key: "vatInvoiceNos",  label: "เลขที่ใบกำกับภาษี",  short: "ใบกำกับภาษี" },
+  { key: "ncAcNos",        label: "เลขที่ NC/AC",       short: "NC/AC" },      // เพิ่ม 19/08/2026
 ]
 
 export const AP_NO_MAX  = 60      // ความยาวต่อเลข
