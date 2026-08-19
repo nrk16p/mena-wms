@@ -23,6 +23,10 @@ export type ApRow = {
   sentMarkedAt?: string; sentMarkedDate?: string; sentMarkedBy?: string
   // มีเฉพาะใบที่บัญชีกดผ่านแล้ว (API ตัดคีย์ว่างทิ้งเพื่อลดขนาด payload)
   pay?: ApPay
+  // ทะเบียนรถ (จาก PO) + หมายเหตุ (จาก PR — มีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง)
+  // มีเฉพาะแถวที่ข้อมูลต้นทางมีจริง
+  vehicle?: string
+  prNote?: string
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string
 }

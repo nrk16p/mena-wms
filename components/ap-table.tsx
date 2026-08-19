@@ -68,6 +68,8 @@ function ApDepositRow({
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-400">
           <span>รับ {thaiDate(r.receivedAt)}</span>
           {r.purchaseOrder && <span>· {r.purchaseOrder}</span>}
+          {/* ทะเบียนรถจาก PO — คนหน้างานจำงานด้วยทะเบียน ไม่ใช่เลขใบ */}
+          {r.vehicle && <span className="text-sky-700 dark:text-sky-400">· 🚚 {r.vehicle}</span>}
           {r.carryover && <span className="text-amber-600">· ค้างยกมา</span>}
         </div>
         {/* ข้อมูลขั้นของงานที่คนอ่านต้องรู้ต่อจากเลขใบ — ไม่ต้องมีคอลัมน์สถานะแยก
@@ -84,6 +86,8 @@ function ApDepositRow({
             {r.pay?.payDate ? <span className="text-emerald-600 dark:text-emerald-400"> · 💰 จ่าย {thaiDate(r.pay.payDate)}</span> : ""}
           </div>
         ) : null}
+        {/* หมายเหตุจาก PR (เลขใบแจ้งซ่อม/ทะเบียน/ช่าง) — ตัวเต็มอ่านได้จาก tooltip */}
+        {r.prNote && <div className="mt-0.5 truncate text-[11px] text-gray-400" title={r.prNote}>{r.prNote}</div>}
         {r.note && <div className="mt-0.5 truncate text-[11px] italic text-gray-400" title={r.note}>“{r.note}”</div>}
       </td>
 

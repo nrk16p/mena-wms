@@ -397,7 +397,8 @@ export function ApTrackingDetail({
             <section className="space-y-2">
               <div className="text-xs text-gray-500">
                 {row.purchaseOrder
-                  ? <>PO {row.purchaseOrder} · ยอด <span className={NUM}>{row.poTotal.toLocaleString("th-TH")}</span> · กำหนดส่ง {thaiDate(row.poDue)} · {row.poStatus || "—"}</>
+                  ? <>PO {row.purchaseOrder} · ยอด <span className={NUM}>{row.poTotal.toLocaleString("th-TH")}</span> · กำหนดส่ง {thaiDate(row.poDue)} · {row.poStatus || "—"}{row.vehicle ? <> · 🚚 {row.vehicle}</> : null}
+                    {row.prNote ? <div className="mt-0.5 text-[11px] text-gray-400">หมายเหตุ PR: {row.prNote}</div> : null}</>
                   : "ไม่มี PO ผูกกับใบนี้ในระบบ ATMS"}
               </div>
               <div className="flex items-center gap-2">

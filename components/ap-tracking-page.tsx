@@ -40,6 +40,7 @@ const moveStatusBucket = (sm: ApSummary | null, from: ApStatus, to: ApStatus, am
 const matchQ = (r: ApRow, rx: RegExp) =>
   rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
   || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos))
+  || rx.test(r.vehicle ?? "") || rx.test(r.prNote ?? "")
 
 // กล่องเลือกวันส่งบัญชีของใบเดียว — เปิด/ปิดคือ mount/unmount ค่าจึงเริ่มใหม่ทุกครั้ง
 function SendDialog({

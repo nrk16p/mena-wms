@@ -125,8 +125,18 @@ export async function GET(req: NextRequest) {
     const [tracks, sups, pos] = await Promise.all([
       codes.length ? md.collection("ap_tracking").find({ depositCode: { $in: codes } }, { projection: { _id: 0, log: 0 } }).toArray() as Promise<Doc[]> : [],
       supNames.length ? md.collection("ap_supplier").find({ name: { $in: supNames } }, { projection: { _id: 0, name: 1, creditTerm: 1 } }).toArray() as Promise<Doc[]> : [],
-      poCodes.length ? atms.collection("purchase_orders").find({ "รหัส": { $in: poCodes } }, { projection: { _id: 0, "รหัส": 1, "รวม": 1, "กำหนดส่งสินค้า": 1, "สถานะการรับสินค้า": 1 } }).toArray() as Promise<Doc[]> : [],
+      poCodes.length ? atms.collection("purchase_orders").find({ "รหัส": { $in: poCodes } }, { projection: { _id: 0, "รหัส": 1, "รวม": 1, "กำหนดส่งสินค้า": 1, "สถานะการรับสินค้า": 1, "ยานพาหนะ": 1, "ใบขอสั่งซื้อ (PR)": 1 } }).toArray() as Promise<Doc[]> : [],
     ])
+    // หมายเหตุอยู่บน PR (ATMS ไม่ใส่มากับ PO/DD) — เชื่อมอีกฮ็อป: DD → PO → PR
+    // ในหมายเหตุมีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง ซึ่งคือสิ่งที่คนใช้ค้นหางานจริง
+    const prCodes = [...new Set(pos.map((p) => s(p["ใบขอสั่งซื้อ (PR)"])).filter(Boolean))]
+    const prs = prCodes.length
+      ? await atms.collection("purchase_requests").find(
+          { "ใบขอสั่งซื้อ (PR)": { $in: prCodes } },
+          { projection: { _id: 0, "ใบขอสั่งซื้อ (PR)": 1, "หมายเหตุ": 1 } },
+        ).toArray() as Doc[]
+      : []
+    const prNoteBy = new Map(prs.map((x) => [s(x["ใบขอสั่งซื้อ (PR)"]), s(x["หมายเหตุ"])]))
     const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
     const termBy  = new Map(sups.map((x) => [s(x.name), s(x.creditTerm)]))
     const poBy    = new Map(pos.map((p) => [s(p["รหัส"]), p]))
@@ -177,6 +187,10 @@ export async function GET(req: NextRequest) {
         poTotal:     parseAmount(po?.["รวม"]),
         poDue:       parseDmy(po?.["กำหนดส่งสินค้า"]),
         poStatus:    s(po?.["สถานะการรับสินค้า"]),
+        // ทะเบียนรถจาก PO + หมายเหตุจาก PR — ใส่เฉพาะแถวที่มีจริง ไม่แบกคีย์ว่างทั้งตาราง
+        // หมายเหตุตัดที่ 300 ตัวอักษร (ของจริงยาวได้มาก) — พอให้ค้นเจอและอ่าน tooltip รู้เรื่อง
+        ...(s(po?.["ยานพาหนะ"]) ? { vehicle: s(po?.["ยานพาหนะ"]) } : {}),
+        ...(prNoteBy.get(s(po?.["ใบขอสั่งซื้อ (PR)"])) ? { prNote: prNoteBy.get(s(po?.["ใบขอสั่งซื้อ (PR)"]))!.slice(0, 300) } : {}),
       }
     })
 
@@ -189,7 +203,8 @@ export async function GET(req: NextRequest) {
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
       rows = rows.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
-        || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos)))
+        || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos))
+        || rx.test(r.vehicle ?? "") || rx.test(r.prNote ?? ""))
     }
     rows.sort((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || "") || b.depositCode.localeCompare(a.depositCode))
 

@@ -27,12 +27,32 @@ export async function GET(req: NextRequest) {
     .limit(40).maxTimeMS(10_000).toArray()
   const docNoCodes = byDocNo.map((d) => s(d.depositCode)).filter(Boolean)
 
+  // ทะเบียนรถอยู่บน PO · หมายเหตุ (เลขใบแจ้งซ่อม/ทะเบียน/ช่าง) อยู่บน PR
+  // — ไล่กลับมาเป็นเลข PO เพื่อชี้ไปหาใบ DD (DD ผูก PO ไว้ที่ purchase_order)
+  const atms = client.db("atms")
+  const [poByVehicle, prByNote] = await Promise.all([
+    atms.collection("purchase_orders")
+      .find({ "ยานพาหนะ": rx }, { projection: { _id: 0, "รหัส": 1 } })
+      .limit(60).maxTimeMS(10_000).toArray(),
+    atms.collection("purchase_requests")
+      .find({ "หมายเหตุ": rx }, { projection: { _id: 0, "ใบขอสั่งซื้อ (PR)": 1 } })
+      .limit(60).maxTimeMS(10_000).toArray(),
+  ])
+  const prCodes = prByNote.map((x) => s(x["ใบขอสั่งซื้อ (PR)"])).filter(Boolean)
+  const poFromPr = prCodes.length
+    ? await atms.collection("purchase_orders")
+        .find({ "ใบขอสั่งซื้อ (PR)": { $in: prCodes } }, { projection: { _id: 0, "รหัส": 1 } })
+        .limit(60).maxTimeMS(10_000).toArray()
+    : []
+  const poCodes = [...new Set([...poByVehicle, ...poFromPr].map((x) => s(x["รหัส"])).filter(Boolean))]
+
   const or: Record<string, unknown>[] = [
     { deposit_code: rx }, { purchase_order: rx }, { supplier_ref_no: rx }, { supplier: rx },
   ]
   if (docNoCodes.length) or.push({ deposit_code: { $in: docNoCodes } })
+  if (poCodes.length) or.push({ purchase_order: { $in: poCodes } })
 
-  const heads = await client.db("atms").collection("deposit_header")
+  const heads = await atms.collection("deposit_header")
     .find({ $or: or, $nor: [{ supplier: "", purchase_order: "" }] },   // ตัดแถวคืนสต๊อกภายในเหมือนหน้าหลัก
       { projection: { _id: 0, deposit_code: 1, purchase_order: 1, supplier: 1, warehouse: 1, amount: 1, received_at: 1 } })
     .limit(LIMIT * 3).maxTimeMS(10_000).toArray()
