@@ -8,14 +8,18 @@ import {
 } from "lucide-react"
 import {
   DAYS_PER_MONTH, USAGE_LOOKBACK_MONTHS, LT_LOOKBACK_MONTHS, LT_MAX_DAYS,
-  DEFAULT_WINDOW, WINDOW_MONTHS, Z_BY_SERVICE, DEFAULT_Z, WAREHOUSES, INVENTORY_ID,
+  DEFAULT_WINDOW, WINDOW_MONTHS, Z_BY_SERVICE, DEFAULT_Z, WAREHOUSES, WAREHOUSE, INVENTORY_ID,
   STATUS_META, MIN_VERDICT_META, derive,
   type SafetyStockPayload, type Status,
 } from "@/lib/safety-stock-core"
 
-/** ความครอบคลุมของ min/max ต่อคลัง — ตัวเลขจริงจากรอบซิงก์ล่าสุดที่ตรวจสอบตอนเขียนเอกสารนี้ (19 ส.ค. 2569)
+/** วันที่ตรวจสอบตัวเลขใน COVERAGE ด้านล่าง — ต้อง "แสดงคู่กับตัวเลขเสมอ" ไม่ใช่แค่เขียนไว้ในคอมเมนต์
+ *  เพราะเป็นภาพนิ่ง (ข้อจำกัดข้อ 1 ของหน้านี้) ต่างจากแถบวันที่ความสดด้านบนซึ่งเป็นค่าสดจริง — ต้องแยกให้ผู้อ่านเห็นชัด */
+const COVERAGE_AS_OF = "19 ส.ค. 2569"
+
+/** ความครอบคลุมของ min/max ต่อคลัง — ตัวเลขจริงจากรอบซิงก์ล่าสุดที่ตรวจสอบตอนเขียนเอกสารนี้ (ดู COVERAGE_AS_OF)
  *  ไม่มี endpoint ที่คืนจำนวน SKU "ทั้งหมด" ต่อคลัง (เฉพาะที่ตั้ง min/max เท่านั้นที่เข้า safety_stock_snapshot)
- *  จึงบันทึกไว้ตรงนี้เป็นภาพนิ่ง แทนที่จะคำนวณสดจาก payload — ต้องอัปเดตเลขนี้เองถ้าอยากได้ค่าล่าสุดเป๊ะ */
+ *  จึงบันทึกไว้ตรงนี้เป็นภาพนิ่ง แทนที่จะคำนวณสดจาก payload — ต้องอัปเดตเลขนี้ (และ COVERAGE_AS_OF) เองถ้าอยากได้ค่าล่าสุดเป๊ะ */
 const COVERAGE: { inventoryId: string; withMinMax: number; total: number }[] = [
   { inventoryId: "4", withMinMax: 4100, total: 9796 }, // ลาดกระบัง
   { inventoryId: "3", withMinMax: 497, total: 4998 },  // สระบุรี
@@ -148,11 +152,11 @@ export default function SafetyStockBaselinePage() {
         และข้อจำกัดที่ต้องรู้ก่อนใช้ตัดสินใจสั่งของ
       </p>
 
-      {/* แถบความสด — ใช้ข้อมูลจริงจากคลังลาดกระบัง ให้เห็นของจริงว่าต้องเช็คแถบนี้เสมอ (ข้อจำกัด 4) */}
+      {/* แถบความสด — ใช้ข้อมูลจริงจาก WAREHOUSE (คลังเริ่มต้นที่หน้านี้ fetch) ให้เห็นของจริงว่าต้องเช็คแถบนี้เสมอ (ข้อจำกัด 4) */}
       {isStale && data && (
         <div className="mb-5 flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-[12.5px] font-semibold text-white">
           <TriangleAlert size={15} className="shrink-0" />
-          ข้อมูลการเคลื่อนไหวล่าสุด (คลังลาดกระบัง) คือ {thaiDateTime(data.latestMovementDate)} ({staleDays} วันที่แล้ว) — ก่อนตัดสินใจสั่งของ ให้ตรวจแถบนี้ที่หน้า
+          ข้อมูลการเคลื่อนไหวล่าสุด ({WAREHOUSE}) คือ {thaiDateTime(data.latestMovementDate)} ({staleDays} วันที่แล้ว) — ก่อนตัดสินใจสั่งของ ให้ตรวจแถบนี้ที่หน้า
           {" "}<Link href="/safety-stock" className="underline">/safety-stock</Link> ก่อนเสมอ
         </div>
       )}
@@ -193,6 +197,9 @@ export default function SafetyStockBaselinePage() {
             ครอบคลุม <span className="font-semibold text-gray-800 dark:text-gray-200">{COVERAGE_WITH.toLocaleString()} จาก {COVERAGE_TOTAL.toLocaleString()} SKU
             ทั้ง 4 คลัง ({pct(COVERAGE_WITH, COVERAGE_TOTAL)}%)</span> — เฉพาะรหัสที่ตั้ง min หรือ max ไว้ใน ATMS แล้วเท่านั้น
           </p>
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold !mt-0.5">
+            ข้อมูล ณ {COVERAGE_AS_OF} — เป็นภาพนิ่ง ไม่ได้อัปเดตสดเหมือนตัวเลขอื่นในหน้านี้
+          </p>
           <div className="space-y-1 text-[12.5px]">
             {COVERAGE.map((c) => {
               const w = WAREHOUSES.find((x) => x.id === c.inventoryId)
@@ -228,7 +235,7 @@ export default function SafetyStockBaselinePage() {
           <p className="text-sm font-bold text-gray-900 dark:text-white">สูตรทั้ง 6 ตัว พร้อมตัวอย่างคำนวณจริง</p>
         </div>
         <p className="text-xs text-gray-500 mb-4 pl-[42px]">
-          เดินสูตรทีละขั้นด้วยรหัสจริงจากคลังลาดกระบัง หน้าต่างเวลา {WINDOW_MONTHS[win]} เดือน (ค่าเริ่มต้น) service level 95%
+          เดินสูตรทีละขั้นด้วยรหัสจริงจาก{WAREHOUSE} หน้าต่างเวลา {WINDOW_MONTHS[win]} เดือน (ค่าเริ่มต้น) service level 95%
           (z = {Z_BY_SERVICE[95]}) — ตัวเลขทุกตัวคำนวณสดจากฟังก์ชันเดียวกับที่หน้า /safety-stock ใช้จริง
         </p>
 
@@ -387,10 +394,19 @@ export default function SafetyStockBaselinePage() {
         </div>
         <ul className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed space-y-3 list-disc pl-5">
           <li>
-            <span className="font-semibold">min/max ครอบคลุมเฉพาะบางส่วนของ SKU แต่ละคลัง</span> — รวมทั้ง 4 คลัง {COVERAGE_WITH.toLocaleString()}
-            {" "}จาก {COVERAGE_TOTAL.toLocaleString()} SKU (≈{pct(COVERAGE_WITH, COVERAGE_TOTAL)}%): ลาดกระบัง 4,100/9,796 (≈42%) ·
-            สระบุรี 497/4,998 (≈10%) · ขอนแก่น 1,596/1,867 (≈85%) · DIST 447/775 (≈58%) — ส่วนที่เหลือยังไม่ได้ตั้ง min/max
-            จึง<span className="font-semibold">ไม่ปรากฏในหน้านี้เลย</span> ไม่ใช่ว่าไม่มีปัญหา
+            <span className="font-semibold">min/max ครอบคลุมเฉพาะบางส่วนของ SKU แต่ละคลัง</span>{" "}
+            (<span className="font-semibold">ข้อมูล ณ {COVERAGE_AS_OF}</span> — เป็นภาพนิ่ง ไม่ใช่ตัวเลขสด) — รวมทั้ง 4 คลัง{" "}
+            {COVERAGE_WITH.toLocaleString()} จาก {COVERAGE_TOTAL.toLocaleString()} SKU (≈{pct(COVERAGE_WITH, COVERAGE_TOTAL)}%):{" "}
+            {COVERAGE.map((c, i) => {
+              const w = WAREHOUSES.find((x) => x.id === c.inventoryId)
+              return (
+                <span key={c.inventoryId}>
+                  {i > 0 && " · "}
+                  {w?.name ?? c.inventoryId} {c.withMinMax.toLocaleString()}/{c.total.toLocaleString()} ({pct(c.withMinMax, c.total)}%)
+                </span>
+              )
+            })}{" "}
+            — ส่วนที่เหลือยังไม่ได้ตั้ง min/max จึง<span className="font-semibold">ไม่ปรากฏในหน้านี้เลย</span> ไม่ใช่ว่าไม่มีปัญหา
           </li>
           <li>
             <span className="font-semibold">Lead Time ที่มาจาก &quot;ค่ากลางทั้งคลัง&quot; เป็นการเดา</span> — ใช้ตอนไม่มีข้อมูล PR→รับของ
