@@ -218,24 +218,26 @@ for (const d of ["2026-08-18", "2026-08-20", "2026-12-31"]) {
   assert.equal(new Date(`${payThursday(d)}T00:00:00Z`).getUTCDay(), 4, `ผลของ ${d} ต้องเป็นวันพฤหัสเสมอ`)
 }
 
-// ตามรอบ: ตัดรอบ 25 นับถึงสิ้นวัน → จ่าย 5 เดือนถัดไป · ไม่เลื่อนแม้ตรงเสาร์-อาทิตย์
-assert.deepEqual(payFromCutoff("2026-09-17"), { cutoff: "2026-09-25", payDate: "2026-10-05" })
-assert.deepEqual(payFromCutoff("2026-08-25"), { cutoff: "2026-08-25", payDate: "2026-09-05" }, "ครบวันที่ 25 พอดี = ทันรอบ (สิ้นวัน)")
-assert.deepEqual(payFromCutoff("2026-08-26"), { cutoff: "2026-09-25", payDate: "2026-10-05" }, "เลย 25 วันเดียว = ตกไปทั้งเดือน")
-assert.deepEqual(payFromCutoff("2026-12-26"), { cutoff: "2027-01-25", payDate: "2027-02-05" }, "ข้ามปีที่ตัดรอบ")
-assert.deepEqual(payFromCutoff("2026-11-30"), { cutoff: "2026-12-25", payDate: "2027-01-05" }, "ข้ามปีที่วันจ่าย")
-assert.equal(new Date("2026-09-05T00:00:00Z").getUTCDay(), 6, "5 ก.ย. 69 เป็นวันเสาร์ — ยืนยันว่าเทสต์นี้ครอบเคสไม่เลื่อน")
+// ตามรอบ: ตัดรอบ 25 นับถึงสิ้นวัน → จ่ายวันที่ 5 ของเดือนที่ 2 ถัดไป (แก้ 19/08/2026
+// จากเดิมเดือนถัดไป — "not next month but next 2 month") · ไม่เลื่อนแม้ตรงเสาร์-อาทิตย์
+assert.deepEqual(payFromCutoff("2026-09-17"), { cutoff: "2026-09-25", payDate: "2026-11-05" })
+assert.deepEqual(payFromCutoff("2026-08-25"), { cutoff: "2026-08-25", payDate: "2026-10-05" }, "ครบวันที่ 25 พอดี = ทันรอบ (สิ้นวัน)")
+assert.deepEqual(payFromCutoff("2026-08-26"), { cutoff: "2026-09-25", payDate: "2026-11-05" }, "เลย 25 วันเดียว = ตกไปทั้งเดือน")
+assert.deepEqual(payFromCutoff("2026-12-26"), { cutoff: "2027-01-25", payDate: "2027-03-05" }, "ข้ามปีที่ตัดรอบ")
+assert.deepEqual(payFromCutoff("2026-11-30"), { cutoff: "2026-12-25", payDate: "2027-02-05" }, "ข้ามปีที่วันจ่าย")
+assert.deepEqual(payFromCutoff("2026-10-20"), { cutoff: "2026-10-25", payDate: "2026-12-05" }, "ตัด ต.ค. → จ่าย ธ.ค. (ปีเดียวกัน)")
+assert.equal(new Date("2026-12-05T00:00:00Z").getUTCDay(), 6, "5 ธ.ค. 69 เป็นวันเสาร์ — ยืนยันว่าเทสต์นี้ครอบเคสไม่เลื่อน")
 assert.deepEqual(payFromCutoff(""), { cutoff: "", payDate: "" })
 
 // ทั้งใบ: ตารางตัวอย่างที่ใช้คุยกับผู้ใช้ (กดผ่าน 18/08/2026)
 assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "30D"),
-  { type: "ตามรอบ", dueDate: "2026-09-17", cutoff: "2026-09-25", payDate: "2026-10-05" })
+  { type: "ตามรอบ", dueDate: "2026-09-17", cutoff: "2026-09-25", payDate: "2026-11-05" })
 assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "7D"),
-  { type: "ตามรอบ", dueDate: "2026-08-25", cutoff: "2026-08-25", payDate: "2026-09-05" })
+  { type: "ตามรอบ", dueDate: "2026-08-25", cutoff: "2026-08-25", payDate: "2026-10-05" })
 assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "60D"),
-  { type: "ตามรอบ", dueDate: "2026-10-17", cutoff: "2026-10-25", payDate: "2026-11-05" })
+  { type: "ตามรอบ", dueDate: "2026-10-17", cutoff: "2026-10-25", payDate: "2026-12-05" })
 assert.deepEqual(apPaySchedule("2026-08-18", "ตามรอบ", "Immediate"),
-  { type: "ตามรอบ", dueDate: "2026-08-18", cutoff: "2026-08-25", payDate: "2026-09-05" })
+  { type: "ตามรอบ", dueDate: "2026-08-18", cutoff: "2026-08-25", payDate: "2026-10-05" })
 assert.deepEqual(apPaySchedule("2026-08-18", "นอกรอบ", ""),
   { type: "นอกรอบ", dueDate: "", cutoff: "", payDate: "2026-08-27" }, "นอกรอบ default = พฤหัสหน้า ไม่ใช่เร็วสุด")
 assert.deepEqual(apPaySchedule("2026-08-18", "นอกรอบ", "", "2026-08-20"),
