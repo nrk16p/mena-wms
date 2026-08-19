@@ -114,6 +114,14 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "จุดสั่งซื้อ (Safety Stock)",
+    collapsible: true,
+    items: [
+      { href: "/safety-stock", label: "Safety Stock", icon: PackageSearch, exact: true },
+      { href: "/safety-stock/baseline", label: "นิยามตัวชี้วัด", icon: BookOpen, exact: true },
+    ],
+  },
+  {
     label: "จัดการอู่นอกและสั่งซื้ออะไหล่ลงคัน",
     collapsible: true,
     items: [
