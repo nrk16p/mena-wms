@@ -173,6 +173,29 @@ export async function fetchLogInput(logId: string, phpsessid: string): Promise<L
 export type SkuMasterRow = {
   skuPk: number; code: string; name: string; group: string
   warehouse: string; oracleCode: string; brand: string; unit: string
+  /** คอลัมน์ 6-8 ของตาราง SKU index — ยืนยันลำดับด้วย scripts/probe-atms-sku-index.mjs แล้ว */
+  stockQty: number; minQty: number; maxQty: number
+}
+
+/** "1,234.00" → 1234 · ช่องว่าง/ขีด → 0 */
+function num(s: string | undefined): number {
+  const n = Number((s ?? "").replace(/,/g, "").trim())
+  return Number.isFinite(n) ? n : 0
+}
+
+/** แกะหนึ่ง <tr> ของตาราง SKU index — ใช้ร่วมกันทั้ง fetchSkuByCode และ fetchSkuIndexPage
+ *  คืน null เมื่อแถวไม่ครบคอลัมน์หรือหา pk ไม่เจอ (แถวหัว/แถวสรุป) */
+function parseSkuRow(trInner: string): SkuMasterRow | null {
+  const raw = [...trInner.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+  if (raw.length < 15) return null
+  const tds = raw.map((m) => stripTags(m[1]))
+  const pk = raw[14][1].match(/\/inv\/sku\/view\/id\/(\d+)/)
+  if (!pk) return null
+  return {
+    skuPk: Number(pk[1]), code: tds[0], name: tds[1], group: tds[2],
+    warehouse: tds[3], oracleCode: tds[4], brand: tds[5], unit: tds[9],
+    stockQty: num(tds[6]), minQty: num(tds[7]), maxQty: num(tds[8]),
+  }
 }
 
 /** Look a SKU up on the index by exact code — gives group/warehouse display names. */
@@ -186,16 +209,37 @@ export async function fetchSkuByCode(code: string, phpsessid: string): Promise<S
   const tbody = html.match(/<tbody[\s\S]*?<\/tbody>/)
   if (!tbody) return null
   for (const tr of tbody[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
-    const raw = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
-    if (raw.length < 15) continue
-    const tds = raw.map((m) => stripTags(m[1]))
-    if (tds[0].toLowerCase() !== code.toLowerCase()) continue
-    const pk = raw[14][1].match(/\/inv\/sku\/view\/id\/(\d+)/)
-    if (!pk) continue
-    return {
-      skuPk: Number(pk[1]), code: tds[0], name: tds[1], group: tds[2],
-      warehouse: tds[3], oracleCode: tds[4], brand: tds[5], unit: tds[9],
-    }
+    const row = parseSkuRow(tr[1])
+    if (!row) continue
+    if (row.code.toLowerCase() !== code.toLowerCase()) continue
+    return row
   }
   return null
+}
+
+/** สร้าง URL ของตาราง SKU index — พารามิเตอร์ชุดเดียวกับที่ fetchSkuByCode ใช้
+ *  ต่างกันแค่ปล่อย code ว่างและระบุคลัง + เลขหน้า */
+function skuIndexUrl(inventoryId: string, page: number): string {
+  const qs = new URLSearchParams({
+    code: "", name: "", remark: "", type: "", inventory_id: inventoryId, sku_tag_id: "",
+    stock_unit_id: "", brand_id: "", is_tire: "", trackable: "", has_serial_no: "",
+    no_gl_code: "0", submit: "ค้นหา", order_by: "s.code asc", page: String(page),
+  })
+  return `https://www.mena-atms.com/inv/sku/index?${qs}`
+}
+
+/** ดึง SKU หนึ่งหน้าของคลังที่ระบุ พร้อมยอดรวมจากแถบแบ่งหน้า
+ *  ต้องเรียก ensureRowsPerPage() ก่อน ไม่งั้นได้หน้าละ 20 แถวและต้องยิงเป็นร้อยครั้ง */
+export async function fetchSkuIndexPage(
+  inventoryId: string, page: number, phpsessid: string
+): Promise<{ rows: SkuMasterRow[]; total: number | null }> {
+  const html = await fetchHtml(skuIndexUrl(inventoryId, page), phpsessid)
+  const tbody = html.match(/<tbody[\s\S]*?<\/tbody>/)
+  if (!tbody) return { rows: [], total: parseTotal(html) }
+  const rows: SkuMasterRow[] = []
+  for (const tr of tbody[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const row = parseSkuRow(tr[1])
+    if (row) rows.push(row)
+  }
+  return { rows, total: parseTotal(html) }
 }
