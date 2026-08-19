@@ -4,7 +4,7 @@
 import assert from "node:assert/strict"
 import {
   median, stdev, aduFrom, sdDailyFrom, safetyStockOf, reorderPointOf,
-  daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive,
+  daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW,
   type SnapshotRow,
@@ -151,6 +151,56 @@ const ROW: SnapshotRow = {
   const d = derive({ ...ROW, minQty: 0, maxQty: 0 }, DEFAULT_WINDOW, DEFAULT_Z)
   assert.equal(d.minVerdict, "unknown")
   assert.ok(d.suggestQty >= 0)
+}
+
+// --- mergeWarehouseResults: log doc เป็น singleton ถือ results[] ของ 4 คลังรวมกัน ห้ามทับทั้งก้อน ---
+type R = { inventoryId: string; upserted: number; error: string | null; skipped?: boolean }
+
+// คลังที่รอบนี้ไม่แตะเลย (?inventory= จำกัดคลังเดียว) ต้องคงของเดิมไว้เป๊ะๆ ไม่หาย
+{
+  const existing: R[] = [
+    { inventoryId: "4", upserted: 100, error: null },
+    { inventoryId: "3", upserted: 50, error: null },
+    { inventoryId: "11", upserted: 30, error: null },
+    { inventoryId: "24", upserted: 20, error: null },
+  ]
+  const thisRun: R[] = [{ inventoryId: "24", upserted: 999, error: null }] // ?inventory=24 อย่างเดียว
+  const merged = mergeWarehouseResults(existing, thisRun)
+  assert.equal(merged.length, 4, "3 คลังที่ไม่ถูกแตะต้องไม่หายไปจาก array")
+  assert.deepEqual(merged.find((r) => r.inventoryId === "4"), existing[0], "คลังที่ไม่แตะต้องคงเดิมทุก field")
+  assert.deepEqual(merged.find((r) => r.inventoryId === "3"), existing[1])
+  assert.deepEqual(merged.find((r) => r.inventoryId === "11"), existing[2])
+  assert.equal(merged.find((r) => r.inventoryId === "24")?.upserted, 999, "คลังที่รันจริงรอบนี้ต้องถูกแทนที่")
+}
+
+// คลังที่ถูกข้ามเพราะ deadline ต้องคงข้อมูลเนื้อหาของเดิมไว้ (freshness ต้องยังจริง ไม่ใช่ null/0) แล้วปะ error/skipped ทับ
+{
+  const existing: R[] = [{ inventoryId: "4", upserted: 4100, error: null }]
+  const thisRun: R[] = [{ inventoryId: "4", upserted: 0, error: "DEADLINE", skipped: true }]
+  const merged = mergeWarehouseResults(existing, thisRun)
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].upserted, 4100, "ถูกข้าม — ต้องคงตัวเลขของจริงรอบก่อนไว้ ไม่ใช่ทับเป็น 0")
+  assert.equal(merged[0].error, "DEADLINE", "ต้องปะ error ของการข้ามทับ ให้ ok คำนวณเป็น false ได้")
+  assert.equal(merged[0].skipped, true)
+}
+
+// ถูกข้ามแต่ไม่เคยมีของเดิมมาก่อนเลย (ไม่เคยรันคลังนี้สำเร็จ) — ไม่มีอะไรให้ merge ต้องใช้ค่าที่คำนวณไว้ตรงๆ
+{
+  const merged = mergeWarehouseResults<R>(undefined, [{ inventoryId: "24", upserted: 0, error: "DEADLINE", skipped: true }])
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].upserted, 0)
+  assert.equal(merged[0].skipped, true)
+}
+
+// รันซ้ำหลายครั้งต้องไม่ทำให้ array บวมโต (กันซ้ำด้วย inventoryId) และคลังใหม่ที่ไม่เคยมีมาก่อนต้องต่อท้ายได้
+{
+  const existing: R[] = [{ inventoryId: "4", upserted: 1, error: null }]
+  const thisRun: R[] = [{ inventoryId: "4", upserted: 2, error: null }, { inventoryId: "3", upserted: 5, error: null }]
+  const merged = mergeWarehouseResults(existing, thisRun)
+  assert.equal(merged.length, 2, "คลังใหม่ (3) ต้องถูกเติมต่อท้าย ไม่ใช่ซ้ำคลังเดิม (4)")
+  assert.equal(merged[0].inventoryId, "4", "ลำดับเดิมต้องคงที่ — คลัง 4 ต้องยังอยู่ตำแหน่งแรก")
+  assert.equal(merged[0].upserted, 2)
+  assert.equal(merged[1].inventoryId, "3")
 }
 
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")

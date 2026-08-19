@@ -5,7 +5,7 @@
 import clientPromise from "@/lib/mongo"
 import { getDeadstock } from "@/lib/deadstock"
 import {
-  aduFrom, sdDailyFrom, median, prCodeFromNote, leadTimeDaysBetween, derive,
+  aduFrom, sdDailyFrom, median, prCodeFromNote, leadTimeDaysBetween, derive, mergeWarehouseResults,
   LT_MIN_SAMPLES, LT_LOOKBACK_MONTHS, USAGE_LOOKBACK_MONTHS, DEFAULT_WINDOW, DEFAULT_Z, WAREHOUSES,
   type SnapshotRow, type LeadTimeSource,
 } from "@/lib/safety-stock-core"
@@ -353,13 +353,21 @@ export async function runSafetyStockBuild(inventoryParam: string | null, deadlin
   await col.createIndex({ inventoryId: 1, status: 1, value: -1 })
   await col.createIndex({ inventoryId: 1, code: 1 })
 
+  // ok/error/written วัดจากผลของ "รอบนี้" เท่านั้น (ตาม targets) — ต้องไม่ถูกลากด้วยของเก่าที่ merge เข้ามาแค่เพื่อกันข้อมูลหาย
+  // ห้ามให้แถวที่ preserve มาจากรอบก่อนทำให้ ok ดูเหมือนสำเร็จทั้งที่รอบนี้จริงๆ มีการข้าม/error
   const written = results.reduce((sum, r) => sum + r.written, 0)
   const ok = results.every((r) => r.error === null)
   const error = results.find((r) => r.error !== null)?.error ?? null
 
+  // doc เป็น singleton ถือ results[] ของ 4 คลังรวมกัน — ต้องอ่านของเดิมมา merge ก่อนเขียน ห้ามทับทั้งก้อน
+  // สำคัญกว่าฝั่ง sync อีก: คลังที่ถูกข้ามแล้วเขียน latestMovementDate:null ทับ จะทำให้แถบเตือน "ข้อมูลไม่สด"
+  // ที่ควรยิ่งเข้มขึ้นกลับเงียบไปแทน (isStale = staleDays !== null && staleDays > 2 — null ทำให้เงื่อนไขเป็นเท็จ)
+  const existingDoc = await db.collection("safety_stock_sync_log").findOne({ trigger: "build" })
+  const mergedResults = mergeWarehouseResults(existingDoc?.results as BuildWarehouseResult[] | undefined, results)
+
   await db.collection("safety_stock_sync_log").updateOne(
     { trigger: "build" },
-    { $set: { trigger: "build", ok, results, written, error, syncedAt } },
+    { $set: { trigger: "build", ok, results: mergedResults, written, error, syncedAt } },
     { upsert: true }
   )
 

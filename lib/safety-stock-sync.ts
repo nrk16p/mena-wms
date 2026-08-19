@@ -3,7 +3,7 @@
 // และจาก /api/cron/atms-sku-report ที่ chain ต่อท้ายในสล็อตเดียวกัน (ดู route.ts ทั้งสองไฟล์)
 import { AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
 import { atmsSkuSession, ensureRowsPerPage, fetchSkuIndexPage } from "@/lib/atms-sku-log"
-import { WAREHOUSES } from "@/lib/safety-stock-core"
+import { WAREHOUSES, mergeWarehouseResults } from "@/lib/safety-stock-core"
 import clientPromise from "@/lib/mongo"
 
 const DB = process.env.MONGO_DB ?? "master_data"
@@ -150,13 +150,20 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
     }
   }
 
+  // ok/error/upserted วัดจากผลของ "รอบนี้" เท่านั้น (ตาม targets) — ต้องไม่ถูกลากด้วยของเก่าที่ merge เข้ามาแค่เพื่อกันข้อมูลหาย
+  // ห้ามให้แถวที่ preserve มาจากรอบก่อนทำให้ ok ดูเหมือนสำเร็จทั้งที่รอบนี้จริงๆ มีการข้าม/error
   const upserted = results.reduce((sum, r) => sum + r.upserted, 0)
   const ok = results.length === targets.length && results.every((r) => r.error === null)
   const error = results.find((r) => r.error !== null)?.error ?? null
 
+  // doc เป็น singleton ถือ results[] ของ 4 คลังรวมกัน — ต้องอ่านของเดิมมา merge ก่อนเขียน ห้ามทับทั้งก้อน
+  // (คลังที่รอบนี้ไม่แตะ/ถูกข้ามเพราะ deadline ต้องไม่หาย ดู mergeWarehouseResults ใน safety-stock-core.ts)
+  const existingDoc = await db.collection("safety_stock_sync_log").findOne({ trigger: "sku-sync" })
+  const mergedResults = mergeWarehouseResults(existingDoc?.results as SkuSyncWarehouseResult[] | undefined, results)
+
   await db.collection("safety_stock_sync_log").updateOne(
     { trigger: "sku-sync" },
-    { $set: { trigger: "sku-sync", ok, results, upserted, error, syncedAt } },
+    { $set: { trigger: "sku-sync", ok, results: mergedResults, upserted, error, syncedAt } },
     { upsert: true }
   )
 

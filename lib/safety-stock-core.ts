@@ -195,6 +195,41 @@ export function leadTimeDaysBetween(prDate: string, receiveDate: string | Date):
   return days
 }
 
+// ── รวม results[] ของ log ซิงก์/build ต่อคลัง — ห้ามทับทั้งก้อน ──────────────
+// safety_stock_sync_log เป็น singleton ต่อ trigger เดียว ถือ results[] ของ "ทั้ง 4 คลังรวมกัน"
+// ถ้าเขียนทับทั้งก้อนทุกครั้ง (เช่น $set: { results }) คลังที่รอบนี้ไม่ได้แตะ (?inventory= จำกัดคลังเดียว)
+// จะหายไปจาก doc และคลังที่ถูกข้ามเพราะ deadline จะเขียนทับข้อมูล freshness ของจริงด้วยค่าว่าง —
+// ทำให้แถบเตือน "ข้อมูลไม่สด" ที่ควรยิ่งเข้มขึ้นกลับเงียบไปแทน (ตรงข้ามกับที่ควรเป็น)
+/** รวม results[] ของรอบนี้ (thisRun) เข้ากับของเดิมใน doc (existing) แทนการทับทั้งก้อน
+ *  - คลังที่รอบนี้ไม่แตะเลย (ไม่อยู่ใน thisRun): คงของเดิมไว้เป๊ะๆ ห้ามหาย
+ *  - คลังที่ถูกข้ามเพราะ deadline (thisRun entry มี skipped=true): คงข้อมูลเนื้อหาของเดิมไว้ (freshness ต้องยังจริงและแก่ขึ้นเรื่อยๆ)
+ *    แล้วปะแค่ error/skipped ทับ — ถ้าไม่มีของเดิมให้ merge (ไม่เคยรันคลังนี้มาก่อน) ใช้ค่าที่ thisRun คำนวณไว้ตรงๆ
+ *  - คลังที่รันจริงรอบนี้ (สำเร็จหรือ error จริงจาก ATMS ไม่ใช่ deadline): แทนที่ของเดิมตามปกติ
+ *  เรียงลำดับตาม doc เดิมก่อนเสมอแล้วค่อยเติมคลังใหม่ต่อท้าย + กันซ้ำด้วย inventoryId ไม่ให้ array บวมโตเมื่อรันซ้ำ */
+export function mergeWarehouseResults<T extends { inventoryId: string; error: string | null; skipped?: boolean }>(
+  existing: T[] | undefined,
+  thisRun: T[]
+): T[] {
+  const thisRunByWarehouse = new Map(thisRun.map((r) => [r.inventoryId, r]))
+  const seen = new Set<string>()
+  const merged: T[] = []
+
+  for (const old of existing ?? []) {
+    if (seen.has(old.inventoryId)) continue // กันซ้ำถ้า doc เดิมมี inventoryId ซ้ำมาก่อนด้วยเหตุใดก็ตาม
+    seen.add(old.inventoryId)
+    const fresh = thisRunByWarehouse.get(old.inventoryId)
+    if (!fresh) merged.push(old)
+    else if (fresh.skipped) merged.push({ ...old, error: fresh.error, skipped: true })
+    else merged.push(fresh)
+  }
+  for (const fresh of thisRun) {
+    if (seen.has(fresh.inventoryId)) continue
+    seen.add(fresh.inventoryId)
+    merged.push(fresh)
+  }
+  return merged
+}
+
 // ── ตัวรวม — job และเบราว์เซอร์เรียกตัวนี้ตัวเดียวกัน ──────────────────────
 export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: number = DEFAULT_Z): Derived {
   const adu = r.adu[win]
