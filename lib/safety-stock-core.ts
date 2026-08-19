@@ -1,0 +1,203 @@
+// lib/safety-stock-core.ts
+// ตรรกะล้วนของหน้า /safety-stock — ห้าม import อะไรทั้งสิ้น เพื่อให้ทดสอบตรงๆ ด้วย tsx
+// และเพื่อให้เบราว์เซอร์เรียกใช้สูตรตัวเดียวกับที่ cron ใช้ได้ (สูตรมีที่เดียว ไม่มีทางเพี้ยนคนละทาง)
+
+export const INVENTORY_ID = "4"
+export const WAREHOUSE = "คลังลาดกระบัง"
+
+/** 365/12 — ใช้แปลงหน่วยเดือน↔วัน ให้ตรงกันทุกที่ */
+export const DAYS_PER_MONTH = 365 / 12
+
+export const USAGE_LOOKBACK_MONTHS = 12
+export const LT_LOOKBACK_MONTHS = 24
+/** ต้องมีอย่างน้อยกี่ครั้งถึงจะเชื่อ lead time รายรหัส — น้อยกว่านี้ใช้ค่ากลางของกลุ่มแทน */
+export const LT_MIN_SAMPLES = 3
+/** เกินเท่านี้ถือว่าข้อมูลเพี้ยน (PR ค้างในระบบ / จับคู่ผิดใบ) */
+export const LT_MAX_DAYS = 365
+
+export type WindowKey = "m3" | "m6" | "m12"
+export const DEFAULT_WINDOW: WindowKey = "m6"
+export const WINDOW_MONTHS: Record<WindowKey, number> = { m3: 3, m6: 6, m12: 12 }
+
+/** ค่า z ของ service level — 95% เป็นค่าเริ่มต้นที่ตำราคลังสินค้าใช้ทั่วไป */
+export const Z_BY_SERVICE: Record<number, number> = { 90: 1.28, 95: 1.65, 99: 2.33 }
+export const DEFAULT_Z = Z_BY_SERVICE[95]
+
+export type WindowStat = { m3: number; m6: number; m12: number }
+export type LeadTimeSource = "sku" | "group" | "warehouse"
+export type Status = "no_usage" | "out" | "below_rop" | "below_min" | "over_max" | "ok"
+export type MinVerdict = "too_low" | "too_high" | "ok" | "unknown"
+
+/** เรียงตามความเร่งด่วนที่ทีม store ต้องลงมือ — ใช้ลำดับนี้ทั้งตาราง ตัวกรอง และการ์ด */
+export const STATUS_META: { key: Status; th: string; hint: string; tone: string }[] = [
+  { key: "out",       th: "ของหมด",          hint: "ไม่มีของในคลังแล้วแต่ยังมีการเบิก", tone: "zinc" },
+  { key: "below_rop", th: "ต้องสั่งวันนี้",   hint: "คงเหลือต่ำกว่าจุดสั่งซื้อ ของจะขาดก่อนของใหม่มาถึง", tone: "orange" },
+  { key: "below_min", th: "ต่ำกว่า min",     hint: "ต่ำกว่า min ที่ตั้งไว้ใน ATMS แต่ยังไม่ถึงจุดสั่งซื้อ", tone: "amber" },
+  { key: "over_max",  th: "เกิน max",        hint: "มีของเกินเพดานที่ตั้งไว้ = จมเงิน", tone: "blue" },
+  { key: "no_usage",  th: "ตั้งไว้แต่ไม่ใช้", hint: "ตั้ง min/max ไว้แต่ไม่มีการเบิกเลยตลอด 12 เดือน ควรทบทวน", tone: "violet" },
+  { key: "ok",        th: "ปกติ",            hint: "อยู่ในช่วงที่เหมาะสม", tone: "emerald" },
+]
+
+export const MIN_VERDICT_META: Record<MinVerdict, { th: string; hint: string }> = {
+  too_low:  { th: "min ต่ำไป",  hint: "min ที่ตั้งไว้ต่ำกว่าจุดสั่งซื้อที่คำนวณได้ ของจะขาดก่อนของใหม่มาถึง" },
+  too_high: { th: "min สูงไป",  hint: "min ที่ตั้งไว้เกินสองเท่าของจุดสั่งซื้อ เก็บของมากเกินจำเป็น" },
+  ok:       { th: "เหมาะสม",    hint: "min ที่ตั้งไว้สอดคล้องกับการใช้จริงและเวลารอของ" },
+  unknown:  { th: "ประเมินไม่ได้", hint: "ข้อมูลไม่พอ — ไม่ได้ตั้ง min, ไม่มีการเบิก, หรือ lead time เป็นค่ากลางทั้งคลัง" },
+}
+
+export type SnapshotRow = {
+  code: string; name: string; group: string; unit: string
+  brand: string; oracleCode: string; inventoryId: string
+  minQty: number; maxQty: number; stockQty: number
+  /** จาก FIFO ของหน้า /deadstock — ข้อมูลประกอบ ไม่ใช่ตัวหลัก */
+  fifoRemaining: number; oldestAgeDays: number
+  usage: WindowStat; issueCounts: WindowStat
+  adu: WindowStat; sdDaily: WindowStat
+  leadTimeDays: number; leadTimeSource: LeadTimeSource; leadTimeSamples: number
+  cost: number; value: number
+}
+
+export type Derived = {
+  adu: number; sdDaily: number
+  safetyStock: number; reorderPoint: number
+  daysOfSupply: number | null
+  status: Status; minVerdict: MinVerdict; suggestQty: number
+}
+
+export type SafetyStockPayload = {
+  asOf: string
+  warehouse: string
+  inventoryId: string
+  /** วันที่เคลื่อนไหวล่าสุดใน stockmovement_v5 — ใช้เตือนเมื่อ pipeline ต้นทางตายเงียบ */
+  latestMovementDate: string | null
+  /** เวลาที่ sync min/max จาก ATMS สำเร็จครั้งล่าสุด */
+  skuSyncedAt: string | null
+  rows: SnapshotRow[]
+}
+
+// ── สถิติพื้นฐาน ────────────────────────────────────────────────────────────
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+export function median(xs: number[]): number {
+  if (xs.length === 0) return 0
+  const s = [...xs].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
+
+/** SD แบบ sample (หาร n-1) — ตัวอย่างเดียววัดความผันผวนไม่ได้ คืน 0 ไม่ใช่ NaN */
+export function stdev(xs: number[]): number {
+  if (xs.length < 2) return 0
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length
+  const v = xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (xs.length - 1)
+  return Math.sqrt(v)
+}
+
+// ── สูตรคลังสินค้า ──────────────────────────────────────────────────────────
+
+export function aduFrom(totalQty: number, months: number): number {
+  if (months <= 0) return 0
+  return totalQty / (months * DAYS_PER_MONTH)
+}
+
+/** ใช้ SD ของยอด**รายเดือน** แล้วแปลงเป็นรายวัน
+ *  ถ้าใช้รายวันตรงๆ วันที่ไม่มีการเบิกจะเป็น 0 เต็มไปหมด ทำให้ SD บวมและ ADU ต่ำจนสูตรเพี้ยน
+ *  — อะไหล่เบิกเป็นครั้งคราว ไม่ใช่ของที่ใช้ทุกวัน */
+export function sdDailyFrom(monthlyQty: number[]): number {
+  return stdev(monthlyQty) / Math.sqrt(DAYS_PER_MONTH)
+}
+
+/** SS = z × SD_daily × √LT */
+export function safetyStockOf(sdDaily: number, leadTimeDays: number, z: number): number {
+  if (sdDaily <= 0 || leadTimeDays <= 0) return 0
+  return z * sdDaily * Math.sqrt(leadTimeDays)
+}
+
+/** ROP = ADU × LT + SS */
+export function reorderPointOf(adu: number, leadTimeDays: number, ss: number): number {
+  return Math.max(0, adu * Math.max(0, leadTimeDays)) + Math.max(0, ss)
+}
+
+export function daysOfSupplyOf(onHand: number, adu: number): number | null {
+  if (adu <= 0) return null
+  return r2(Math.max(0, onHand) / adu)
+}
+
+/** ลำดับสำคัญ: no_usage ต้องคัดออกก่อนเสมอ
+ *  ADU/SD/SS/ROP ล้วนคำนวณจากยอดเบิก ถ้าไม่มีการเบิกเลยตัวเลขที่ตามมาเป็นศูนย์หมด
+ *  ปล่อยให้ตกไปติด below_min จะทำให้ของที่ควร "เลิกตั้ง min/max"
+ *  ไปปนกับของที่ "ต้องสั่งเพิ่ม" ซึ่งเป็นการกระทำคนละทางกัน */
+export function statusOf(i: {
+  usage12: number; onHand: number; rop: number; minQty: number; maxQty: number
+}): Status {
+  if (i.usage12 <= 0) return "no_usage"
+  if (i.onHand <= 0) return "out"
+  if (i.onHand < i.rop) return "below_rop"
+  if (i.minQty > 0 && i.onHand < i.minQty) return "below_min"
+  if (i.maxQty > 0 && i.onHand > i.maxQty) return "over_max"
+  return "ok"
+}
+
+/** ห้ามตัดสิน min จาก lead time ที่เป็นค่ากลางทั้งคลัง — ไม่มีข้อมูลรายรหัสเลยแปลว่าเดา */
+export function minVerdictOf(minQty: number, rop: number, source: LeadTimeSource): MinVerdict {
+  if (source === "warehouse") return "unknown"
+  if (minQty <= 0 || rop <= 0) return "unknown"
+  if (minQty < rop) return "too_low"
+  if (minQty > rop * 2) return "too_high"
+  return "ok"
+}
+
+/** เติมให้ถึง max ถ้าตั้งไว้ ไม่ได้ตั้งก็เติมถึง ROP บวกของที่จะใช้ระหว่างรอของรอบถัดไป
+ *  ปัดขึ้นเสมอ — สั่งของเป็นเศษไม่ได้ */
+export function suggestQtyOf(
+  onHand: number, maxQty: number, rop: number, adu: number, lt: number
+): number {
+  const target = maxQty > 0 ? maxQty : rop + adu * Math.max(0, lt)
+  return Math.max(0, Math.ceil(target - onHand))
+}
+
+// ── การแกะข้อมูลต้นทาง ──────────────────────────────────────────────────────
+
+/** เลข PR ฝังอยู่ต้น `หมายเหตุ` ของแถวรับ เช่น "LBPR26050758/71-5742/153/โม่ใหญ่"
+ *  รูปแบบคือ อักษรคลัง 2 ตัว + "PR" + ตัวเลข — "LBMR..." เป็นใบเบิกวัสดุ ไม่ใช่ใบขอซื้อ */
+const PR_RE = /^([A-Z]{2}PR\d+)/
+
+export function prCodeFromNote(note: string | null | undefined): string | null {
+  const head = (note ?? "").trim().split("/")[0].trim()
+  const m = PR_RE.exec(head)
+  return m ? m[1] : null
+}
+
+/** วันที่ PR มาจาก ATMS เป็น string "DD/MM/YYYY" ส่วนวันที่รับเป็น Date จริงใน v5
+ *  คืน null เมื่อข้อมูลเพี้ยน (รับก่อนขอซื้อ / เกิน LT_MAX_DAYS) เพื่อให้ผู้เรียกทิ้งได้เลย */
+export function leadTimeDaysBetween(prDate: string, receiveDate: string | Date): number | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((prDate ?? "").trim())
+  if (!m) return null
+  const from = Date.UTC(+m[3], +m[2] - 1, +m[1])
+  const rd = new Date(receiveDate)
+  if (Number.isNaN(rd.getTime())) return null
+  const to = Date.UTC(rd.getUTCFullYear(), rd.getUTCMonth(), rd.getUTCDate())
+  const days = Math.round((to - from) / 86_400_000)
+  if (days < 0 || days > LT_MAX_DAYS) return null
+  return days
+}
+
+// ── ตัวรวม — job และเบราว์เซอร์เรียกตัวนี้ตัวเดียวกัน ──────────────────────
+export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: number = DEFAULT_Z): Derived {
+  const adu = r.adu[win]
+  const sdDaily = r.sdDaily[win]
+  const lt = r.leadTimeDays
+  const ss = safetyStockOf(sdDaily, lt, z)
+  const rop = reorderPointOf(adu, lt, ss)
+  const onHand = r.stockQty
+  return {
+    adu,
+    sdDaily,
+    safetyStock: r2(ss),
+    reorderPoint: r2(rop),
+    daysOfSupply: daysOfSupplyOf(onHand, adu),
+    status: statusOf({ usage12: r.usage.m12, onHand, rop, minQty: r.minQty, maxQty: r.maxQty }),
+    minVerdict: minVerdictOf(r.minQty, rop, r.leadTimeSource),
+    suggestQty: suggestQtyOf(onHand, r.maxQty, rop, adu, lt),
+  }
+}
