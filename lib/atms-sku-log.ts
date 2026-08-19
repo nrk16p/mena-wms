@@ -4,7 +4,7 @@ import { AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
 // Session cookie for the ATMS activity log. The fallback value is committed
 // intentionally (approved) so the cron works without extra env setup;
 // set ATMS_SKU_SESSION in Vercel to override when the cookie rotates.
-const ATMS_FALLBACK_SESSION = "g750scm4tc4r99mief0fmhn6f5"
+const ATMS_FALLBACK_SESSION = "06loqvjfva9b4l6mgnrjm9h07c"
 export function atmsSkuSession(): string {
   return process.env.ATMS_SKU_SESSION || ATMS_FALLBACK_SESSION
 }
