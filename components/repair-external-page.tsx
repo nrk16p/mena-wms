@@ -1,7 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, MessageSquare, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, CalendarDays, MessageSquare, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
+import { GarageCombobox, type Garage } from "@/components/garage-combobox"
+import { RepairPlanTab } from "@/components/repair-plan-tab"
+import type { RepairPlan } from "@/lib/repair-plan"
 import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
@@ -143,8 +146,6 @@ const slaInfo = (r: RepairExternal): { hours: number; limitH: number; over: bool
   const limitH = limitDays * 24
   return { hours, limitH, over: hours > limitH }
 }
-
-type Garage = { _id: string; name: string }
 
 const EMPTY: Omit<RepairExternal, "_id"> = {
   jobType: JOB_TYPE_GARAGE,
@@ -334,7 +335,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [showFieldLog, setShowFieldLog] = useState(false)  // การแก้ field อื่น — พับไว้ (โฟกัสที่สถานะ)
 
   // view + สรุปสถานะ
-  const [view, setView]   = useState<"table" | "board">("table")
+  const [view, setView]   = useState<"table" | "board" | "plan">("table")
+  // แผนซ่อม: bump เพื่อให้แท็บแผนโหลดใหม่หลังผูกใบงาน · ref เก็บ id แผนที่กำลังแปลงเป็นใบงาน
+  const [planRefreshKey, setPlanRefreshKey] = useState(0)
+  const planLinkRef = useRef<string | null>(null)
   const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [], garageDist: [], garageDupes: [] })
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
@@ -452,6 +456,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   }
 
   function openAdd() {
+    planLinkRef.current = null
     setEditId(null)
     setViewOnly(false)
     setEditRow(null)
@@ -467,8 +472,34 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setOpen(true)
   }
 
+  // สร้างใบงานจริงจาก "แผนเข้าซ่อม" — prefill จากแผน · หลังบันทึกสำเร็จ save() จะ PATCH
+  // ผูก linkedRepairId กลับไปที่แผนและเปลี่ยนสถานะแผนเป็น "เข้าอู่แล้ว" ผ่าน planLinkRef
+  function openAddFromPlan(p: RepairPlan) {
+    planLinkRef.current = p._id
+    setEditId(null)
+    setViewOnly(false)
+    setEditRow(null)
+    setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
+    const today = bkkToday()
+    setForm({
+      ...EMPTY,
+      jobType: JOB_TYPE_GARAGE,
+      plate: p.plate,
+      fleetNo: p.fleetNo,
+      symptom: p.repairItems,
+      garage: p.garage,
+      note: p.note,
+      receivedDate: today,
+      garageInDate: today,
+      dueDate: p.plannedOutDate || "",
+      status: "รถเข้าอู่ซ่อม",
+    })
+    setOpen(true)
+  }
+
   // สร้างรายการใหม่จากงานอู่นอกใน ATMS ที่ยังไม่มีในระบบ — prefill จากข้อมูลจริง (คนตรวจแล้วกดบันทึกเอง)
   function openAddFromAtms(m: AtmsPending) {
+    planLinkRef.current = null
     setEditId(null)
     setViewOnly(false)
     setEditRow(null)
@@ -516,6 +547,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setForm((f) => ({ ...f, jobType: jt, status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value }))
   }
   function openEdit(r: RepairExternal, startEditing = false) {
+    planLinkRef.current = null
     setEditId(r._id)
     setViewOnly(!startEditing)
     setEditRow(r)
@@ -817,6 +849,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || "บันทึกไม่สำเร็จ")
       }
+      // สร้างใบงานจากแผนเข้าซ่อม → ผูก linkedRepairId กลับไปที่แผน + สถานะแผนเป็น "เข้าอู่แล้ว"
+      if (!editId && planLinkRef.current) {
+        const created = await res.json().catch(() => null)
+        if (created?._id) {
+          await fetch(`/api/repair-plans/${planLinkRef.current}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ planStatus: "เข้าอู่แล้ว", linkedRepairId: created._id }),
+          }).catch(() => null)
+          setPlanRefreshKey((k) => k + 1)
+        }
+        planLinkRef.current = null
+      }
       setOpen(false)
       swalToast("success", editId ? "แก้ไขแล้ว" : "เพิ่มรายการแล้ว")
       load(); loadStats(); loadAtmsBoard()
@@ -1051,6 +1096,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${view === "board" ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
               >
                 <Columns3 size={14} /> บอร์ด
+              </button>
+              <button
+                onClick={() => setView("plan")}
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${view === "plan" ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              >
+                <CalendarDays size={14} /> แผนซ่อม
               </button>
             </div>
           )}
@@ -1287,7 +1338,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         )
       })()}
 
-      {/* Search + filter bar (1a) — แนวตั้ง บนลงล่าง */}
+      {/* Search + filter bar (1a) — แนวตั้ง บนลงล่าง (ตัวกรองของใบงาน — ซ่อนในมุมมองแผนซ่อม) */}
+      {(isDone || view !== "plan") && (
       <div className="mb-3 flex flex-col gap-2">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1312,9 +1364,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           )}
         </div>
       </div>
+      )}
 
       {/* Type filter tabs — อู่นอก / อะไหล่ลงคัน */}
-      {!isDone && (
+      {!isDone && view !== "plan" && (
         <div className="mb-3 flex w-full flex-wrap items-center gap-1.5">
           <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">ประเภท:</span>
           {[
@@ -1928,6 +1981,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
         )
       })}
+
+      {/* แผนซ่อม — gantt วางแผนรถเข้าอู่นอกล่วงหน้า (หลายแผนต่อทะเบียนได้) */}
+      {view === "plan" && !isDone && (
+        <RepairPlanTab garages={garages} onConvert={openAddFromPlan} refreshKey={planRefreshKey} />
+      )}
 
       {/* Modal — ฟอร์มหน้าเดียว (บนลงล่าง) header/footer ตรึง เนื้อหาเลื่อน */}
       {open && (
@@ -2987,111 +3045,3 @@ function FilterCombobox({
   )
 }
 
-/* ── อู่ combobox: เลือกจาก master หรือพิมพ์ชื่อใหม่แล้วกดเพิ่ม ── */
-function GarageCombobox({
-  value, garages, onChange, onCreated, filterMode, placeholder,
-}: {
-  value: string
-  garages: Garage[]
-  onChange: (name: string) => void
-  onCreated?: (g: Garage) => void
-  filterMode?: boolean   // โหมดตัวกรอง: ไม่มีปุ่มเพิ่มอู่ใหม่
-  placeholder?: string
-}) {
-  const [open, setOpen]     = useState(false)
-  const [text, setText]     = useState("")
-  const [adding, setAdding] = useState(false)
-  const boxRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", onDoc)
-    return () => document.removeEventListener("mousedown", onDoc)
-  }, [])
-
-  const filtered = garages.filter((g) => g.name.toLowerCase().includes(text.trim().toLowerCase()))
-  const exactMatch = garages.some((g) => g.name.toLowerCase() === text.trim().toLowerCase())
-  const canCreate = !filterMode && text.trim().length > 0 && !exactMatch
-
-  async function createGarage() {
-    const name = text.trim()
-    if (!name) return
-    setAdding(true)
-    try {
-      const res = await fetch("/api/garage-master", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      })
-      const g = await res.json()
-      if (g?._id) onCreated?.(g)
-      onChange(g?.name ?? name)
-      setText("")
-      setOpen(false)
-    } catch {
-      swalError("เพิ่มอู่ไม่สำเร็จ")
-    } finally {
-      setAdding(false)
-    }
-  }
-
-  return (
-    <div ref={boxRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={inputCls + " flex items-center justify-between text-left"}
-      >
-        <span className={"truncate " + (value ? "text-gray-900 dark:text-white" : "text-gray-400")}>{value || placeholder || "เลือกอู่..."}</span>
-        <ChevronDown size={15} className="shrink-0 text-gray-400" />
-      </button>
-      {open && (
-        <div className="absolute z-[60] mt-1 w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-lg">
-          <div className="p-2">
-            <input
-              autoFocus
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && canCreate) { e.preventDefault(); createGarage() } }}
-              placeholder={filterMode ? "ค้นหาอู่..." : "ค้นหา หรือพิมพ์ชื่ออู่ใหม่..."}
-              className="w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#151a10] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none"
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto pb-1">
-            {(value || filterMode) && (
-              <button type="button" onClick={() => { onChange(""); setText(""); setOpen(false) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5">
-                <X size={12} /> {filterMode ? "ทุกอู่" : "ล้างค่า"}
-              </button>
-            )}
-            {filtered.map((g) => (
-              <button
-                key={g._id}
-                type="button"
-                onClick={() => { onChange(g.name); setText(""); setOpen(false) }}
-                className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-[#F0FDF4] dark:hover:bg-white/5"
-              >
-                {g.name}
-                {value === g.name && <Check size={14} className="text-[#1B8C4B]" />}
-              </button>
-            ))}
-            {canCreate && (
-              <button
-                type="button"
-                onClick={createGarage}
-                disabled={adding}
-                className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/5 disabled:opacity-60"
-              >
-                <Plus size={14} /> เพิ่มอู่ “{text.trim()}”
-              </button>
-            )}
-            {!canCreate && filtered.length === 0 && (
-              <p className="px-3 py-2 text-xs text-gray-400">ไม่พบอู่</p>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
