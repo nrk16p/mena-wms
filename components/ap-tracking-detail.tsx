@@ -17,6 +17,7 @@ import {
 } from "@/lib/ap-tracking"
 import type { SkuImage } from "@/lib/media"
 import { ImageUpload } from "@/components/image-upload"
+import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
 import { isAccounting } from "@/lib/roles"
 import { NUM, baht, mitr } from "@/components/ap-style"
 import type { ApPay, ApRow } from "@/components/ap-types"
@@ -124,6 +125,7 @@ export function ApTrackingDetail({
   const [savedPay, setSavedPay] = useState<ApPay | null>(null)
   // กล่องยืนยันตอนกดผ่าน — null = ไม่เปิด · เปิดพร้อมค่าตั้งต้น: คำขอจากจัดซื้อ + เทอมจาก master
   const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string } | null>(null)
+  const [financeOpen, setFinanceOpen] = useState(false)    // กล่องแจ้งการเงินขอนอกรอบ (ใบนี้ใบเดียว)
   const [review, setReview]           = useState<ApReview>({ status: "", note: "" })
   const [savedNote, setSavedNote] = useState(row.note ?? "")
   const [note, setNote]           = useState(row.note ?? "")
@@ -633,6 +635,13 @@ export function ApTrackingDetail({
                   {!isDocSetComplete(draftDocs) && sent.type && (
                     <span className="text-rose-600">ส่งบัญชีไม่ได้จนกว่าเอกสารจะครบชุด — ยังขาด: {missing.join(", ")}</span>
                   )}
+                  {/* ขอนอกรอบต้องอีเมลแจ้งการเงินด้วยทุกครั้ง — สร้างข้อความให้จากใบนี้เลย */}
+                  {sent.type === "นอกรอบ" && (
+                    <button onClick={() => setFinanceOpen(true)}
+                      className="rounded-lg border border-emerald-300 px-2.5 py-1 text-xs text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20">
+                      ✉️ แจ้งการเงิน
+                    </button>
+                  )}
                   {sent.date && (
                     <button onClick={() => setSent({ type: "", date: "" })} className="ml-auto text-rose-600 hover:underline">
                       ยกเลิกการส่งบัญชี
@@ -809,6 +818,12 @@ export function ApTrackingDetail({
             </div>
           )
         })()}
+
+        {financeOpen && (
+          <ApFinanceRequestDialog onClose={() => setFinanceOpen(false)}
+            items={[{ depositCode: row.depositCode, supplier: row.supplier, amount: row.amount,
+              billingNos: cleanDocNos(nos.billingNoteNos) }]} />
+        )}
 
         {/* ปุ่มบันทึกติดล่างเสมอ — ไม่ว่าจะอยู่แท็บไหนหรือเลื่อนไปไหน กดบันทึกได้ทันที */}
         <div className="flex items-center gap-2 border-t border-gray-100 px-5 py-3 dark:border-white/10">

@@ -12,6 +12,7 @@ import {
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
   payThursday, payThursdayChoices, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
+  apFinanceRequestText,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
@@ -263,6 +264,23 @@ assert.equal(monthFromCode("LBDD260"), "", "เลขเดือนยังไ
 assert.equal(monthFromCode("ซุปเปอร์พาร์ท"), "", "ชื่อซัพพลายเออร์ไม่ใช่เลขเอกสาร")
 assert.equal(monthFromCode("IV6808-0231"), "", "เลขใบกำกับไม่ได้ฝังเดือนตามรูปแบบนี้")
 assert.equal(monthFromCode(""), "")
+
+// --- ข้อความแจ้งการเงินขอจ่ายนอกรอบ ---
+{
+  const { subject, body } = apFinanceRequestText([
+    { depositCode: "LBDD26080101", supplier: "มิตซุย บุซซัน", amount: 14810.51, billingNos: ["BL-SVCB2026-0395"] },
+    { depositCode: "LBDD26080102", supplier: "มิตซุย บุซซัน", amount: 1000, billingNos: [] },
+    { depositCode: "SBDD26080050", supplier: "หจก.หงส์ดำ", amount: 500 },
+  ], "2026-08-20", "เอกสารแก้ไขล่าช้า")
+  assert.ok(subject.includes("20 ส.ค. 69") && subject.includes("2 ราย"), subject)
+  assert.ok(body.includes("เจ้าหนี้ มิตซุย บุซซัน"), "จัดกลุ่มตามเจ้าหนี้")
+  assert.ok(body.includes("1. BL-SVCB2026-0395 = 14,810.51"), "มีเลขใบวางบิลใช้เลขนั้น")
+  assert.ok(body.includes("2. LBDD26080102 = 1,000.00"), "ไม่มีเลขใบวางบิลถอยไปใช้เลขใบ DD")
+  assert.ok(body.includes("รวมทั้งสิ้น 16,310.51 บาท (3 ใบ)"), "ยอดรวมต้องถูก")
+  assert.ok(body.includes("สาเหตุ: เอกสารแก้ไขล่าช้า"))
+  const blank = apFinanceRequestText([{ depositCode: "X", supplier: "ก", amount: 1 }], "2026-08-20", "  ")
+  assert.ok(blank.body.includes("สาเหตุ: ....."), "ไม่กรอกสาเหตุ = เว้นช่องไว้ ไม่เดาแทน")
+}
 
 // --- ชื่อวันในสัปดาห์ (หัวกลุ่ม) ---
 assert.equal(thaiDow("2026-08-13"), "พฤหัสบดี", "13/08/2026 เป็นวันพฤหัส (วันที่บัญชีโอนนอกรอบ)")

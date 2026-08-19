@@ -332,6 +332,44 @@ export const ATMS_BASE = "https://www.mena-atms.com"
 export const atmsDepositUrl = (id: number) => `${ATMS_BASE}/inv/deposit/view/id/${id}`
 export const atmsPoUrl = (id: number) => `${ATMS_BASE}/inv/purchase.order/view/id/${id}`
 
+// ── ข้อความแจ้งการเงินขอจ่ายนอกรอบ ─────────────────────────────────────────────
+// จัดซื้อต้องอีเมลแจ้งผู้จัดการฝ่ายบัญชี/การเงินทุกครั้งที่มีใบตกรอบ — เดิมพิมพ์มือ
+// สร้างจากข้อมูลที่มีอยู่แล้ว: ราย DD (เลือกหลายใบได้) จัดกลุ่มตามเจ้าหนี้
+// สาเหตุเป็นช่องให้กรอก — ไม่ใส่ค่าเดาแทน เว้นบรรทัดไว้ถ้ายังไม่กรอก
+export type ApFinanceItem = { depositCode: string; supplier: string; amount: number; billingNos?: string[] }
+
+export function apFinanceRequestText(
+  items: ApFinanceItem[], payThursdayISO: string, reason: string,
+): { subject: string; body: string } {
+  const bySup = new Map<string, ApFinanceItem[]>()
+  for (const it of items) {
+    const k = it.supplier || "(ไม่ระบุเจ้าหนี้)"
+    bySup.set(k, [...(bySup.get(k) ?? []), it])
+  }
+  const total = items.reduce((n, it) => n + it.amount, 0)
+  const thb = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const lines: string[] = []
+  lines.push("เรียน ผู้จัดการฝ่ายบัญชีและการเงิน", "")
+  lines.push(`เนื่องด้วยมีเจ้าหนี้จำนวน ${bySup.size} ราย ตกรอบการจ่าย`)
+  lines.push(`สาเหตุ: ${reason.trim() || "................................................................"}`)
+  lines.push(`จึงขอพิจารณาจ่ายนอกรอบ ในรอบวันพฤหัสบดีที่ ${thaiDate(payThursdayISO)}`, "")
+  lines.push("รายละเอียดตามรายการด้านล่าง", "")
+  for (const [sup, its] of bySup) {
+    lines.push(`เจ้าหนี้ ${sup}`)
+    its.forEach((it, i) => {
+      const ref = it.billingNos?.length ? it.billingNos.join(", ") : it.depositCode
+      lines.push(`  ${i + 1}. ${ref} = ${thb(it.amount)}`)
+    })
+    lines.push("")
+  }
+  lines.push(`รวมทั้งสิ้น ${thb(total)} บาท (${items.length} ใบ)`, "")
+  lines.push("จึงเรียนมาเพื่อโปรดพิจารณา", "ขอขอบคุณ")
+  return {
+    subject: `ขออนุมัติจ่ายนอกรอบ พฤหัสที่ ${thaiDate(payThursdayISO)} · ${bySup.size} ราย · ${thb(total)} บาท`,
+    body: lines.join("\n"),
+  }
+}
+
 export const CREDIT_TERMS = ["Immediate", "7D", "15D", "30D", "60D"] as const
 const TERM_DAYS: Record<string, number> = { Immediate: 0, "7D": 7, "15D": 15, "30D": 30, "60D": 60 }
 

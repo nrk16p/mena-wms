@@ -12,6 +12,8 @@ import { ApHeader } from "@/components/ap-summary"
 import { ApTable } from "@/components/ap-table"
 import { ApSupplierTable } from "@/components/ap-supplier-table"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
+import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
+import type { ApFinanceItem } from "@/lib/ap-tracking"
 import type { ApCrossHit, ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
 export type { ApRow } from "@/components/ap-types"
@@ -123,6 +125,8 @@ export function ApTrackingPage() {
   const [perPage, setPerPage] = useState<number>(50)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRunning, setBulkRunning] = useState(false)
+  // กล่องแจ้งการเงินขอนอกรอบ — เปิดจากแถบเลือกหลายใบ หรือรายใบจากโมดัล
+  const [financeItems, setFinanceItems] = useState<ApFinanceItem[] | null>(null)
   // ระหว่าง "กดเปลี่ยนเดือน" กับ "คิวรีเริ่มจริง" มี debounce 400ms คั่น — ถ้าดูแต่ loading
   // ช่วงนั้นตารางจะว่างพร้อมข้อความ "ยังไม่มีใบรับของในเดือนนี้" ทั้งที่แค่ยังไม่เริ่มโหลด
   const [pending, setPending] = useState(false)
@@ -509,6 +513,14 @@ export function ApTrackingPage() {
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
             {bulkRunning ? "กำลังส่ง…" : `💸 ส่งบัญชีนอกรอบ · พฤหัสนี้ ${thaiDate(nextThursday(today))}`}
           </button>
+          {/* แจ้งการเงินจากใบที่เลือก — ราย DD เลือกหลายใบได้ (ผู้ใช้สั่ง 19/08/2026) */}
+          <button onClick={() => setFinanceItems(selectedRows.map((r) => ({
+              depositCode: r.depositCode, supplier: r.supplier, amount: r.amount,
+              billingNos: r.docNos.billingNoteNos ?? [],
+            })))}
+            className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/30">
+            ✉️ แจ้งการเงิน (นอกรอบ)
+          </button>
           <button onClick={() => setSelected(new Set())} className="text-xs text-emerald-800 hover:underline dark:text-emerald-300">
             ล้างการเลือก
           </button>
@@ -546,6 +558,7 @@ export function ApTrackingPage() {
       )}
 
       {sentFor && <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />}
+      {financeItems && <ApFinanceRequestDialog items={financeItems} onClose={() => setFinanceItems(null)} />}
       {/* key = เลขใบ · เปลี่ยนใบแล้ว component เกิดใหม่ ทำให้ draft เริ่มจากใบใหม่เสมอ */}
       {detailFor && (
         <ApTrackingDetail key={detailFor.depositCode} row={detailFor} onClose={() => setDetailFor(null)} onSaved={onDetailSaved} />
