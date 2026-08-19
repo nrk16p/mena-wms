@@ -10,6 +10,7 @@ import {
 import { CARD, NUM, baht, mitr } from "@/components/ap-style"
 import { ApHeader } from "@/components/ap-summary"
 import { ApTable } from "@/components/ap-table"
+import { ApSupplierTable } from "@/components/ap-supplier-table"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 import type { ApCrossHit, ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
@@ -109,6 +110,8 @@ export function ApTrackingPage() {
   const [sentFrom, setSentFrom] = useState("")
   const [sentTo, setSentTo]     = useState("")
   const [groupSent, setGroupSent] = useState(true)
+  // มุมมองหลักของตาราง: รายใบ (ปกติ) หรือยุบเป็นรายเจ้าหนี้ — สรุป DD/PO/ขั้นของแต่ละเจ้า
+  const [viewBy, setViewBy] = useState<"invoice" | "supplier">("invoice")
   const [warehouses, setWarehouses] = useState<string[]>([])
   const [sentFor, setSentFor] = useState<ApRow | null>(null)
   const [detailFor, setDetailFor] = useState<ApRow | null>(null)
@@ -189,6 +192,22 @@ export function ApTrackingPage() {
   // "ยังไม่ได้ข้อมูลของเดือนที่เลือก" — ครอบทั้งช่วง debounce และช่วงที่คิวรีวิ่งอยู่
   const busy = loading || pending
   const today = todayICT()
+
+  // มุมมองรายเจ้าหนี้เคารพคลัง+คำค้น แต่ไม่สนแท็บขั้น — คอลัมน์ของมันแจกแจงทุกขั้นอยู่แล้ว
+  // ถ้ากรองด้วยแท็บอีกชั้น ตัวเลขขั้นอื่นจะเป็นศูนย์หมดแล้วอ่านผิดว่าเจ้านั้นไม่มีงานขั้นอื่น
+  const supplierRows = useMemo(() => {
+    if (viewBy !== "supplier") return []
+    let out = rows
+    if (warehouse) out = out.filter((r) => r.warehouse === warehouse)
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+      out = out.filter((r) => matchQ(r, rx))
+    }
+    return out
+  }, [viewBy, rows, warehouse, q])
+
+  // เลือกเจ้าจากตารางสรุป → กลับมุมมองรายใบพร้อมกรองชื่อเจ้านั้นให้เลย
+  const pickSupplier = (name: string) => applyFilter(() => { setViewBy("invoice"); setQ(name) })
 
   // แถบ "วันที่กดส่งบัญชี" โผล่เฉพาะแท็บที่ใบผ่านการกดส่งมาแล้ว
   const sentView = SENT_STAGES.includes(tab as ApStage)
@@ -411,7 +430,8 @@ export function ApTrackingPage() {
         month={month} onMonth={changeMonth}
         q={q} onQ={(v) => applyFilter(() => setQ(v))}
         onRefresh={load}
-        tab={tab} onTab={(v) => applyFilter(() => setTab(v))}
+        tab={tab} onTab={(v) => applyFilter(() => { setTab(v); setViewBy("invoice") })}
+        viewBy={viewBy} onViewBy={(v) => applyFilter(() => setViewBy(v))}
         warehouse={warehouse} onWarehouse={(v) => applyFilter(() => setWarehouse(v))}
         warehouses={warehouses}
         totalShown={shown.length}
@@ -456,6 +476,9 @@ export function ApTrackingPage() {
         </div>
       )}
 
+      {viewBy === "supplier" ? (
+        <ApSupplierTable rows={supplierRows} loading={busy} onPick={pickSupplier} />
+      ) : (
       <ApTable
         rows={paged} groups={pagedGroups} showSentMarked={sentView} unit={grouped ? "วัน" : "ใบ"}
         loading={busy}
@@ -481,6 +504,7 @@ export function ApTrackingPage() {
           </div>
         ) : (tab || q ? "ไม่มีใบในขั้นนี้" : "ยังไม่มีใบรับของในเดือนนี้")}
       />
+      )}
 
       {sentFor && <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />}
       {/* key = เลขใบ · เปลี่ยนใบแล้ว component เกิดใหม่ ทำให้ draft เริ่มจากใบใหม่เสมอ */}

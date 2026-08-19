@@ -33,6 +33,7 @@ export function ApHeader({
   sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today,
   canPull, pulling, pullProgress, onPull,
   crossHits, onGotoHit,
+  viewBy, onViewBy,
 }: {
   summary: ApSummary | null
   loading: boolean
@@ -65,6 +66,9 @@ export function ApHeader({
   // ผลค้นข้ามเดือน (โผล่เมื่อเดือนที่เปิดอยู่หาไม่เจอ) — กดแล้วกระโดดไปเดือนของใบนั้น
   crossHits: ApCrossHit[] | null
   onGotoHit: (hit: ApCrossHit) => void
+  // มุมมองตาราง: รายใบ / รายเจ้าหนี้ — สลับที่ปลายแถบแท็บเพราะเป็นแกนการมองของตารางเดียวกัน
+  viewBy: "invoice" | "supplier"
+  onViewBy: (v: "invoice" | "supplier") => void
 }) {
   const rangeOn = Boolean(sentFrom || sentTo)
   // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
@@ -160,12 +164,24 @@ export function ApHeader({
             </button>
           )
         })}
-        <span className={`ml-auto pb-2 pr-1 text-xs text-gray-400 ${NUM}`}>
+        <div className="ml-auto flex items-center gap-2 pb-1.5">
+          <div className="inline-flex overflow-hidden rounded-lg border border-gray-200 text-xs dark:border-white/10">
+            {([["invoice", "รายใบ"], ["supplier", "รายเจ้าหนี้"]] as const).map(([v, label]) => (
+              <button key={v} onClick={() => onViewBy(v)}
+                className={`px-2.5 py-1 transition ${viewBy === v
+                  ? "bg-[#14271C] text-white dark:bg-white dark:text-[#14271C]"
+                  : "hover:bg-gray-50 dark:hover:bg-white/10"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        <span className={`pb-0.5 pr-1 text-xs text-gray-400 ${NUM}`}>
           {/* "ทั้งหมด" เคยหมายถึงเดือนนี้ + ใบค้างยกมา — ตั้งแต่โหลดทีละเดือนแล้วมันคือเดือนนี้ล้วน
               ต้องเขียนให้ตรง ไม่งั้นคนจะนึกว่าใบค้างเดือนก่อนถูกนับรวมอยู่ด้วย */}
           {loading && !summary ? `กำลังโหลด ${monthLabel(month)}…`
             : tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้` : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
         </span>
+        </div>
       </div>
 
       {/* วันที่จัดซื้อกดเปลี่ยนสถานะเป็น "ส่งบัญชีแล้ว" — คนละตัวกับวันโอนเงิน (sentDate)
