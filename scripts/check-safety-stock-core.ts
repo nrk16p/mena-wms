@@ -75,10 +75,27 @@ assert.equal(minVerdictOf(20, 10, "sku"), "ok", "เท่ากับ 2 เท�
 assert.equal(minVerdictOf(10, 10, "group"), "ok")
 
 // --- suggestQtyOf: เติมให้ถึง max ถ้ามี ไม่มีก็เติมถึง ROP + ของที่ใช้ระหว่างรอ ---
+// เคสเดิม (usage12 ไม่ส่ง → default 1 > 0) ต้องได้ผลเหมือนก่อนแก้ทุกประการ
 assert.equal(suggestQtyOf(3, 10, 5, 0.2, 20), 7)
 assert.equal(suggestQtyOf(12, 10, 5, 0.2, 20), 0, "เกิน max แล้ว ต้องไม่แนะนำให้สั่งเพิ่ม")
 assert.equal(suggestQtyOf(2, 0, 5, 0.2, 20), 7, "ไม่มี max → ROP(5) + ADU×LT(4) − onHand(2) = 7")
 assert.equal(suggestQtyOf(3, 10, 5, 0.2, 20) % 1, 0, "ต้องปัดขึ้นเป็นจำนวนเต็ม สั่งของเศษไม่ได้")
+
+// เคสใหม่ 4 แบบตามรีวิว — no_usage ต้องเป็น 0, max<rop ต้องไปถึง rop, onHand ติดลบต้อง clamp, max≥rop ต้องเหมือนเดิม
+assert.equal(suggestQtyOf(2, 10, 5, 0.2, 20, 0), 0, "usage12<=0 (no_usage) ห้ามแนะนำให้ซื้อเพิ่มเด็ดขาด ไม่ว่า ROP/ADU จะเท่าไหร่")
+assert.equal(suggestQtyOf(2, 10, 5, 0.2, 20, -3), 0, "usage12 ติดลบก็ต้องนับเป็น no_usage เหมือนกัน")
+assert.equal(
+  suggestQtyOf(3, 10, 15, 0.5, 20, 1), 12,
+  "max(10) ต่ำกว่า ROP(15) — ต้องเติมถึง ROP ไม่ใช่แค่ max ไม่งั้นพรุ่งนี้ก็ยัง below_rop เหมือนเดิม: 15−3=12"
+)
+assert.equal(
+  suggestQtyOf(-50, 10, 5, 0.2, 20, 1), 10,
+  "onHand ติดลบ (book balance ผิดปกติ) ต้อง clamp เป็น 0 ก่อนคำนวณ ไม่ใช่เอาไปลบตรงๆ (ไม่งั้นได้ 60 ไม่ใช่ 10)"
+)
+assert.equal(
+  suggestQtyOf(2, 20, 5, 0.2, 20, 1), 18,
+  "max(20) ≥ ROP(5) แล้ว พฤติกรรมต้องเหมือนเดิมทุกประการ — เติมให้ถึง max: 20−2=18"
+)
 
 // --- prCodeFromNote: เลข PR ฝังใน หมายเหตุ ของแถวรับ ---
 assert.equal(prCodeFromNote("LBPR26050758/71-5742/153/โม่ใหญ่"), "LBPR26050758")
@@ -145,6 +162,7 @@ const ROW: SnapshotRow = {
   assert.equal(d.status, "no_usage")
   assert.equal(d.daysOfSupply, null)
   assert.equal(d.minVerdict, "unknown")
+  assert.equal(d.suggestQty, 0, "no_usage ต้องไม่แนะนำให้ซื้อเพิ่มเลย แม้ maxQty ที่สืบทอดมาจาก ROW จะเป็น 15 ก็ตาม")
 }
 // เคสขอบ: min = max = 0 ต้องไม่ระเบิด (ถึงจะถูกกรองออกตั้งแต่ตอน build ก็ตาม)
 {

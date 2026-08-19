@@ -220,7 +220,7 @@ export default function SafetyStockBaselinePage() {
             SS = z × SD วัน × √LT<br />
             ROP = ADU × LT + SS<br />
             คงเหลือพอกี่วัน = คงเหลือ ÷ ADU<br />
-            แนะนำสั่ง = ปัดขึ้น(เป้าหมาย − คงเหลือ)
+            แนะนำสั่ง = 0 ถ้าไม่มีการเบิกเลย ไม่งั้นปัดขึ้น(เป้าหมาย−max(0,คงเหลือ))
           </p>
           <p className="text-[11.5px]">ดูรายละเอียดพร้อมตัวอย่างคำนวณจริงด้านล่าง</p>
         </Card>
@@ -291,9 +291,10 @@ export default function SafetyStockBaselinePage() {
               <FormulaStep
                 no={6}
                 title="ปริมาณแนะนำให้สั่ง"
-                formula="แนะนำสั่ง = ปัดขึ้น(เป้าหมาย − คงเหลือ), เป้าหมาย = max ถ้าตั้งไว้ ไม่งั้น ROP + ADU×LT"
-                plug={`เป้าหมาย ${num(example.row.maxQty > 0 ? example.row.maxQty : example.d.reorderPoint + example.d.adu * example.row.leadTimeDays)} − คงเหลือ ${num(example.row.stockQty)}`}
+                formula="แนะนำสั่ง = 0 ถ้าไม่มีการเบิกเลย · ไม่งั้น ปัดขึ้น(เป้าหมาย − max(0,คงเหลือ)), เป้าหมาย = max(max ที่ตั้งไว้, ROP) ถ้าตั้ง max ไว้ ไม่งั้น ROP + ADU×LT"
+                plug={`เป้าหมาย ${num(example.row.maxQty > 0 ? Math.max(example.row.maxQty, example.d.reorderPoint) : example.d.reorderPoint + example.d.adu * example.row.leadTimeDays)} − คงเหลือ ${num(Math.max(0, example.row.stockQty))}`}
                 result={`${num(example.d.suggestQty)} ${example.row.unit}`}
+                note="ไม่มีการเบิกใน 12 เดือน (no_usage) ต้องเป็น 0 เสมอ ไม่ว่า ROP จะคำนวณออกมาเท่าไหร่ · ถ้า max ที่ตั้งไว้ต่ำกว่า ROP ที่คำนวณได้จริง ใช้ ROP เป็นเป้าหมายแทน max — ไม่งั้นสั่งแค่ถึง max ก็ยังต่ำกว่าจุดสั่งซื้ออยู่ดี พรุ่งนี้ก็ต้องสั่งซ้ำ"
               />
             </div>
 

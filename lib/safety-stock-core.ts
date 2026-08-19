@@ -161,12 +161,25 @@ export function minVerdictOf(minQty: number, rop: number, source: LeadTimeSource
 }
 
 /** เติมให้ถึง max ถ้าตั้งไว้ ไม่ได้ตั้งก็เติมถึง ROP บวกของที่จะใช้ระหว่างรอของรอบถัดไป
- *  ปัดขึ้นเสมอ — สั่งของเป็นเศษไม่ได้ */
+ *  ปัดขึ้นเสมอ — สั่งของเป็นเศษไม่ได้
+ *
+ *  usage12 <= 0 (รหัสไม่มีการเบิกเลยใน 12 เดือน — no_usage) ต้องคืน 0 เสมอ ไม่ว่า ROP/ADU จะคำนวณออกมาเท่าไหร่ —
+ *  ห้ามแนะนำให้ซื้อของที่ไม่มีความต้องการจริงเด็ดขาด (ค่า default = 1 เพื่อไม่ให้ผู้เรียกเดิม/เทสต์เดิมที่ไม่ได้ส่ง
+ *  พารามิเตอร์นี้มาพังพฤติกรรม — เฉพาะ derive() เท่านั้นที่ส่ง r.usage.m12 ของจริงเข้ามา)
+ *
+ *  onHand ต้อง clamp เป็น 0 ก่อนใช้เสมอ — book balance ติดลบไม่ใช่ "มีของเกินความจำเป็นเผื่อไว้" ทำเหมือนไม่มีของเลย
+ *
+ *  เมื่อมี max ตั้งไว้ ใช้ Math.max(maxQty, rop) เป็นเป้าหมาย ไม่ใช่ maxQty เพียวๆ — max ที่ตั้งไว้ต่ำกว่า ROP
+ *  ที่คำนวณได้จริงมักเป็นค่าเก่าที่ไม่ทันการเบิกที่เปลี่ยนไป สั่งแค่ถึง max จะไม่ถึง ROP เลย รับประกันขาดซ้ำทันที
+ *  รอบถัดไป (พรุ่งนี้ก็ยัง below_rop เหมือนเดิม) — ให้ ROP ชนะเมื่อขัดกัน ส่วนความเบี่ยงนี้เองคือสิ่งที่คอลัมน์
+ *  "ตรวจ min" ของหน้านี้มีไว้ชี้ให้เห็นอยู่แล้ว (มักขึ้น "min ต่ำไป" คู่กับ max ที่ต่ำกว่า ROP พร้อมกัน) */
 export function suggestQtyOf(
-  onHand: number, maxQty: number, rop: number, adu: number, lt: number
+  onHand: number, maxQty: number, rop: number, adu: number, lt: number, usage12 = 1
 ): number {
-  const target = maxQty > 0 ? maxQty : rop + adu * Math.max(0, lt)
-  return Math.max(0, Math.ceil(target - onHand))
+  if (usage12 <= 0) return 0
+  const clampedOnHand = Math.max(0, onHand)
+  const target = maxQty > 0 ? Math.max(maxQty, rop) : rop + adu * Math.max(0, lt)
+  return Math.max(0, Math.ceil(target - clampedOnHand))
 }
 
 // ── การแกะข้อมูลต้นทาง ──────────────────────────────────────────────────────
@@ -246,6 +259,6 @@ export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: numbe
     daysOfSupply: daysOfSupplyOf(onHand, adu),
     status: statusOf({ usage12: r.usage.m12, onHand, rop, minQty: r.minQty, maxQty: r.maxQty }),
     minVerdict: minVerdictOf(r.minQty, rop, r.leadTimeSource),
-    suggestQty: suggestQtyOf(onHand, r.maxQty, rop, adu, lt),
+    suggestQty: suggestQtyOf(onHand, r.maxQty, rop, adu, lt, r.usage.m12),
   }
 }
