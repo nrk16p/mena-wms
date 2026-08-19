@@ -324,6 +324,12 @@ export function monthFromCode(q: string): string {
   return mo >= 1 && mo <= 12 ? `20${m[1]}-${m[2]}` : ""
 }
 
+// ลิงก์เปิดหน้า ATMS ตรง ๆ — ผู้ใช้ล็อกอิน ATMS ในเบราว์เซอร์อยู่แล้ว (ระบบเดียวกับที่ scrape)
+// path เดียวกับที่ scraper ใช้ · id เป็นเลขภายในของ ATMS ไม่ใช่เลขเอกสาร
+export const ATMS_BASE = "https://www.mena-atms.com"
+export const atmsDepositUrl = (id: number) => `${ATMS_BASE}/inv/deposit/view/id/${id}`
+export const atmsPoUrl = (id: number) => `${ATMS_BASE}/inv/purchase.order/view/id/${id}`
+
 export const CREDIT_TERMS = ["Immediate", "7D", "15D", "30D", "60D"] as const
 const TERM_DAYS: Record<string, number> = { Immediate: 0, "7D": 7, "15D": 15, "30D": 30, "60D": 60 }
 

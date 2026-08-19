@@ -10,6 +10,7 @@ export type ApPay = ApPaySchedule & {
 
 export type ApRow = {
   depositCode: string; depositId: number | null; warehouse: string
+  poId?: number          // id ภายในของ PO ใน ATMS — ไว้ทำลิงก์ (มีเฉพาะแถวที่ ATMS ผูก PO ไว้)
   purchaseOrder: string; supplier: string; supplierRefNo: string
   amount: number; receivedAt: string; createdAt: string
   creditTerm: string; dueDate: string; overdue: number

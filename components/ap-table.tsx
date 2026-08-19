@@ -3,7 +3,7 @@
 import { Fragment } from "react"
 import { Paperclip } from "lucide-react"
 import {
-  AP_DOC_FIELDS, apUrgency, docChecked, isDocSetComplete, thaiDate, thaiDateTime, thaiDow, todayICT,
+  AP_DOC_FIELDS, apUrgency, atmsPoUrl, docChecked, isDocSetComplete, thaiDate, thaiDateTime, thaiDow, todayICT,
 } from "@/lib/ap-tracking"
 import { NUM, URGENCY, baht, mitr } from "@/components/ap-style"
 import type { ApRow } from "@/components/ap-types"
@@ -67,7 +67,11 @@ function ApDepositRow({
         <div className="truncate text-xs text-gray-600 dark:text-gray-300" title={r.supplier}>{r.supplier}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-400">
           <span>รับ {thaiDate(r.receivedAt)}</span>
-          {r.purchaseOrder && <span>· {r.purchaseOrder}</span>}
+          {/* เลข PO กดเปิดหน้า PO ใน ATMS ได้เลย (ต้องล็อกอิน ATMS ในเบราว์เซอร์อยู่) */}
+          {r.purchaseOrder && (r.poId
+            ? <a href={atmsPoUrl(r.poId)} target="_blank" rel="noreferrer" title="เปิด PO ใน ATMS"
+                className="text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">· {r.purchaseOrder} ↗</a>
+            : <span>· {r.purchaseOrder}</span>)}
           {/* ทะเบียนรถจาก PO — คนหน้างานจำงานด้วยทะเบียน ไม่ใช่เลขใบ */}
           {r.vehicle && <span className="text-sky-700 dark:text-sky-400">· 🚚 {r.vehicle}</span>}
           {r.carryover && <span className="text-amber-600">· ค้างยกมา</span>}

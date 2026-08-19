@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
       { $limit: limit },
       { $unset: "_sortDate" },
       { $project: {
-        _id: 0, deposit_id: 1, deposit_code: 1, warehouse: 1, purchase_order: 1,
+        _id: 0, deposit_id: 1, deposit_code: 1, warehouse: 1, purchase_order: 1, purchase_order_id: 1,
         supplier: 1, supplier_ref_no: 1, amount: 1, created_at: 1, received_at: 1,
       } },
     ]).toArray() as Doc[]
@@ -155,6 +155,8 @@ export async function GET(req: NextRequest) {
       return {
         depositCode: code,
         depositId:   typeof h.deposit_id === "number" ? h.deposit_id : null,
+        // id ภายในของ PO ใน ATMS — ใช้ทำลิงก์เปิดหน้า PO ตรง ๆ (ส่งเฉพาะแถวที่มี)
+        ...(typeof h.purchase_order_id === "number" ? { poId: h.purchase_order_id } : {}),
         warehouse:   s(h.warehouse),
         purchaseOrder: s(h.purchase_order),
         supplier:    s(h.supplier),

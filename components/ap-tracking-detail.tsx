@@ -8,7 +8,7 @@ import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
-  cleanDocNos, readDocNos, docChecked,
+  atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingThursdays,
   type ApDocKey, type ApDocNos, type ApDocs, type ApFile, type ApItems, type ApNoKey,
@@ -364,6 +364,15 @@ export function ApTrackingDetail({
               <div className="text-xs text-gray-400">
                 {row.warehouse} · รับของ {thaiDate(row.receivedAt)}
                 {row.creditTerm ? ` · เครดิต ${row.creditTerm} ครบกำหนด ${thaiDate(row.dueDate)}` : " · ยังไม่ตั้งเครดิตเทอม"}
+                {/* เปิดหน้าเอกสารตัวจริงใน ATMS — เช็คกับต้นทางได้โดยไม่ต้องไปค้นเอง */}
+                {row.depositId != null && (
+                  <> · <a href={atmsDepositUrl(row.depositId)} target="_blank" rel="noreferrer"
+                    className="text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">DD ใน ATMS ↗</a></>
+                )}
+                {row.poId != null && (
+                  <> · <a href={atmsPoUrl(row.poId)} target="_blank" rel="noreferrer"
+                    className="text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">PO ใน ATMS ↗</a></>
+                )}
               </div>
             </div>
             <div className="ml-auto text-right">
