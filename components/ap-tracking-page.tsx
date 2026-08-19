@@ -239,8 +239,9 @@ export function ApTrackingPage() {
   const rangeOn = sentView && Boolean(sentFrom || sentTo)
   const shown = useMemo(() => {
     let out = rangeOn ? beforeSentRange.filter((r) => inDateRange(r.sentMarkedDate, sentFrom, sentTo)) : beforeSentRange
-    // filter ย่อย ตามรอบ/นอกรอบ ใช้เฉพาะแท็บ "ผ่าน" — แท็บอื่นค่าค้างต้องไม่แอบกรอง
-    if (tab === "passed" && payTypeFilter) {
+    // filter ย่อย ตามรอบ/นอกรอบ ใช้กับแท็บ "ส่งบัญชีแล้ว" และ "ผ่าน" — แท็บอื่นค่าค้างต้องไม่แอบกรอง
+    // (ใบที่ผ่านแล้วใช้ค่าที่บัญชียืนยัน · ใบที่แค่ส่งแล้วยังไม่มี pay ใช้คำขอจากจัดซื้อ)
+    if ((tab === "sent" || tab === "passed") && payTypeFilter) {
       out = out.filter((r) => (r.pay?.type || r.sentType) === payTypeFilter)
     }
     return out
@@ -271,8 +272,9 @@ export function ApTrackingPage() {
     const ws = XLSX.utils.json_to_sheet(data)
     ws["!cols"] = [14, 11, 16, 30, 13, 12, 12, 10, 11, 13, 11, 11, 22, 11, 18, 18, 24].map((w) => ({ wch: w }))
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "ผ่าน")
-    XLSX.writeFile(wb, `เจ้าหนี้ผ่าน_${month}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
+    const label = tab === "sent" ? "ส่งบัญชีแล้ว" : "ผ่าน"
+    XLSX.utils.book_append_sheet(wb, ws, label)
+    XLSX.writeFile(wb, `เจ้าหนี้${label}_${month}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
   }
 
   // มุมมองจัดกลุ่มแบ่งหน้าเป็น "รายวัน" ไม่ใช่รายแถว — ไม่งั้นวันเดียวจะถูกหั่นคาหน้า
