@@ -37,7 +37,14 @@ export async function getSafetyStock(
   const [rows, buildLog, skuLog] = await Promise.all([
     db.collection("safety_stock_snapshot")
       .find({ inventoryId })
-      .project({ _id: 0, updatedAt: 0 })
+      // safetyStock/reorderPoint/daysOfSupply/status/minVerdict/suggestQty ยัง "เก็บ" ไว้เสมอ (ต้องมีต่อไป —
+      // ดัชนี {inventoryId,status,value} ข้างล่างใช้ status) แต่เบราว์เซอร์ไม่เคยอ่านทั้ง 6 ฟิลด์นี้จาก payload เลย
+      // เพราะ derive() คำนวณใหม่ฝั่ง client ทุกครั้งอยู่แล้ว (ตาม service level/window ที่ผู้ใช้เลือก) — ตัดออกจาก
+      // การอ่านเพื่อลดขนาด payload โดยไม่กระทบอะไร ลาดกระบัง ~4,100 แถวใกล้เพดาน response 4.5 MB ของ Vercel
+      .project({
+        _id: 0, updatedAt: 0,
+        safetyStock: 0, reorderPoint: 0, daysOfSupply: 0, status: 0, minVerdict: 0, suggestQty: 0,
+      })
       .toArray() as unknown as Promise<SnapshotRow[]>,
     db.collection("safety_stock_sync_log").findOne({ trigger: "build" }),
     db.collection("safety_stock_sync_log").findOne({ trigger: "sku-sync" }),
