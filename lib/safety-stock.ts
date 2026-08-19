@@ -19,7 +19,8 @@ export async function getSafetyStock(
 ): Promise<SafetyStockPayload> {
   globalThis._safetyStockCache ??= {}
   const hit = globalThis._safetyStockCache[inventoryId]
-  if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.data
+  // ผู้เรียกอาจ sort/mutate ได้ ห้ามคืนตัวเดียวกับที่ cache ไว้
+  if (!force && hit && Date.now() - hit.at < TTL_MS) return structuredClone(hit.data)
 
   const client = await clientPromise
   const db = client.db(DB)
@@ -33,12 +34,12 @@ export async function getSafetyStock(
     db.collection("safety_stock_sync_log").findOne({ trigger: "sku-sync" }),
   ])
 
-  // Resolve latestMovementDate from build log results array
+  // Resolve latestMovementDate from build log results array, normalize to ISO string
   let latestMovementDate: string | null = null
   if (buildLog?.results && Array.isArray(buildLog.results)) {
     const buildResult = buildLog.results.find((r: any) => r.inventoryId === inventoryId)
     if (buildResult?.latestMovementDate) {
-      latestMovementDate = buildResult.latestMovementDate
+      latestMovementDate = new Date(buildResult.latestMovementDate as Date).toISOString()
     }
   }
 
@@ -64,5 +65,6 @@ export async function getSafetyStock(
   }
 
   globalThis._safetyStockCache[inventoryId] = { at: Date.now(), data }
-  return data
+  // ผู้เรียกอาจ sort/mutate ได้ ห้ามคืนตัวเดียวกับที่ cache ไว้
+  return structuredClone(data)
 }
