@@ -15,6 +15,9 @@ const ATMS_DB = "atms"
 const MOVE_COLL = "stockmovement_v5"
 const PR_KEY = "ใบขอสั่งซื้อ (PR)"
 
+/** ปัด 6 ตำแหน่งทศนิยม — ใช้กับ adu/sdDaily ก่อนเก็บลง Mongo (ดูจุดที่ใช้ด้านล่าง) */
+const r6 = (n: number) => Math.round(n * 1e6) / 1e6
+
 export type BuildStats = {
   skuTotal: number; withMinMax: number
   ltFromSku: number; ltFromGroup: number; ltFromWarehouse: number
@@ -144,7 +147,9 @@ export async function buildSnapshotRows(
     allLt.push(days)
   }
 
-  const warehouseLt = allLt.length ? median(allLt) : 30 // ไม่มีข้อมูลเลย ใช้ 30 วันเป็นค่าตั้งต้น
+  // ใช้ floor เดียวกับรายรหัส/รายกลุ่ม (LT_MIN_SAMPLES) — ตัวอย่างเดียวก็ยึดเป็นค่ากลางทั้งคลังไม่ได้
+  // ค่าผิดปกติตัวเดียว (เช่น PR ค้าง 200 วัน) ในคลังเล็กจะลาก ROP ของทุกรหัสที่ fallback มาที่นี่ให้พองทั้งคลัง
+  const warehouseLt = allLt.length >= LT_MIN_SAMPLES ? median(allLt) : 30 // ตัวอย่างไม่พอ (หรือไม่มีเลย) ใช้ 30 วันเป็นค่าตั้งต้น
   const groupLt = new Map<string, number>()
   for (const [g, xs] of ltByGroup) if (xs.length >= LT_MIN_SAMPLES) groupLt.set(g, median(xs))
 
@@ -192,8 +197,10 @@ export async function buildSnapshotRows(
       const totalQ = qs.reduce((a, b) => a + b, 0)
       usage[w.key] = Math.round(totalQ * 100) / 100
       issueCounts[w.key] = ns.reduce((a, b) => a + b, 0)
-      adu[w.key] = aduFrom(totalQ, w.months.length)
-      sdDaily[w.key] = sdDailyFrom(qs)
+      // ปัด 6 ตำแหน่งทศนิยม — ค่าดิบจากการหารมี ~17 หลักนัยสำคัญ ละเอียดเกินความจริงของอัตราเบิกใดๆ
+      // ลดขนาด payload ที่หน้า /safety-stock ต้องส่งออกเบราว์เซอร์โดยไม่กระทบความแม่นยำที่ใช้จริง
+      adu[w.key] = r6(aduFrom(totalQ, w.months.length))
+      sdDaily[w.key] = r6(sdDailyFrom(qs))
     }
 
     const skuSamples = ltBySku.get(code) ?? []
@@ -350,8 +357,10 @@ export async function runSafetyStockBuild(inventoryParam: string | null, deadlin
   }
 
   // สร้าง index ครั้งเดียวหลังจบทุกคลัง — collection เดียวใช้ร่วมกัน 4 คลัง ต้อง prefix ด้วย inventoryId
-  await col.createIndex({ inventoryId: 1, status: 1, value: -1 })
-  await col.createIndex({ inventoryId: 1, code: 1 })
+  // wrap catch ไว้ — ถ้า createIndex พังจะได้ไม่ข้ามการเขียน safety_stock_sync_log ด้านล่างไปเลยทั้งที่ snapshot
+  // เขียนสำเร็จแล้ว (ไม่งั้นหน้าเว็บจะอ่านแถวใหม่คู่กับ months[] ของรอบก่อนหน้า ป้ายเดือนกราฟจะเลื่อนผิดแบบเงียบๆ)
+  await col.createIndex({ inventoryId: 1, status: 1, value: -1 }).catch(() => {})
+  await col.createIndex({ inventoryId: 1, code: 1 }).catch(() => {})
 
   // ok/error/written วัดจากผลของ "รอบนี้" เท่านั้น (ตาม targets) — ต้องไม่ถูกลากด้วยของเก่าที่ merge เข้ามาแค่เพื่อกันข้อมูลหาย
   // ห้ามให้แถวที่ preserve มาจากรอบก่อนทำให้ ok ดูเหมือนสำเร็จทั้งที่รอบนี้จริงๆ มีการข้าม/error
