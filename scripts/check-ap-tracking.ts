@@ -11,7 +11,7 @@ import {
   apUrgency, needsAccountingReview,
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
-  payThursday, payFromCutoff, apPaySchedule, AP_PAY_TYPES,
+  payThursday, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
@@ -232,6 +232,20 @@ assert.deepEqual(apPaySchedule("2026-08-18", "นอกรอบ", ""),
   { type: "นอกรอบ", dueDate: "", cutoff: "", payDate: "2026-08-20" }, "นอกรอบไม่ต้องมีเครดิตเทอม")
 assert.equal(apPaySchedule("2026-08-18", "ตามรอบ", ""), null, "ตามรอบแต่ไม่มีเครดิตเทอม = คิดไม่ได้ (ให้ UI บังคับกรอก)")
 assert.equal(apPaySchedule("", "นอกรอบ", ""), null)
+
+// --- เดือนที่ฝังในเลขเอกสาร (ทางลัดค้นข้ามเดือน) ---
+assert.equal(monthFromCode("LBDD26020004"), "2026-02")
+assert.equal(monthFromCode("SBPO26071234"), "2026-07")
+assert.equal(monthFromCode("KKPR25120028"), "2025-12")
+assert.equal(monthFromCode("BPKDD26080009"), "2026-08", "prefix 3 ตัวอักษรก็ต้องจับได้")
+assert.equal(monthFromCode("lbdd26020004"), "2026-02", "ตัวพิมพ์เล็กต้องจับได้ — คนพิมพ์มือไม่กด shift")
+assert.equal(monthFromCode(" LBDD26020004 "), "2026-02", "ช่องว่างหัวท้ายไม่ทำให้พลาด")
+assert.equal(monthFromCode("LBDD2602"), "2026-02", "พิมพ์แค่ถึงเดือนก็รู้เดือนแล้ว")
+assert.equal(monthFromCode("LBDD26130004"), "", "เดือน 13 ไม่มีจริง")
+assert.equal(monthFromCode("LBDD260"), "", "เลขเดือนยังไม่ครบ = ยังบอกไม่ได้")
+assert.equal(monthFromCode("ซุปเปอร์พาร์ท"), "", "ชื่อซัพพลายเออร์ไม่ใช่เลขเอกสาร")
+assert.equal(monthFromCode("IV6808-0231"), "", "เลขใบกำกับไม่ได้ฝังเดือนตามรูปแบบนี้")
+assert.equal(monthFromCode(""), "")
 
 // --- ชื่อวันในสัปดาห์ (หัวกลุ่ม) ---
 assert.equal(thaiDow("2026-08-13"), "พฤหัสบดี", "13/08/2026 เป็นวันพฤหัส (วันที่บัญชีโอนนอกรอบ)")

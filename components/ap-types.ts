@@ -43,5 +43,11 @@ export type ApSummary = {
   dataAsOf: string
 }
 
+// ผลจาก /api/ap-tracking/search — ค้นข้ามเดือนตอนเดือนที่เปิดอยู่หาไม่เจอ
+export type ApCrossHit = {
+  depositCode: string; purchaseOrder: string; supplier: string
+  warehouse: string; amount: number; receivedAt: string; month: string
+}
+
 // แท็บของหน้า = ขั้นของงาน (ดู apStage ใน lib) · "" = ทุกใบ
 export type ApTab = "" | ApStage

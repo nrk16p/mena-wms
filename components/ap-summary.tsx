@@ -2,6 +2,8 @@
 
 import { CalendarRange, ChevronLeft, ChevronRight, CloudDownload, RefreshCw, Search } from "lucide-react"
 import { AP_STAGES, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
+import { NUM as NUMCLS } from "@/components/ap-style"
+import type { ApCrossHit } from "@/components/ap-types"
 import { NUM, mitr } from "@/components/ap-style"
 import { WarehouseCombobox } from "@/components/warehouse-combobox"
 import type { ApSummary, ApTab } from "@/components/ap-types"
@@ -30,6 +32,7 @@ export function ApHeader({
   tab, onTab, warehouse, onWarehouse, warehouses, totalShown,
   sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today,
   canPull, pulling, pullProgress, onPull,
+  crossHits, onGotoHit,
 }: {
   summary: ApSummary | null
   loading: boolean
@@ -59,6 +62,9 @@ export function ApHeader({
   pulling: boolean
   pullProgress: number
   onPull: () => void
+  // ผลค้นข้ามเดือน (โผล่เมื่อเดือนที่เปิดอยู่หาไม่เจอ) — กดแล้วกระโดดไปเดือนของใบนั้น
+  crossHits: ApCrossHit[] | null
+  onGotoHit: (hit: ApCrossHit) => void
 }) {
   const rangeOn = Boolean(sentFrom || sentTo)
   // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
@@ -88,8 +94,29 @@ export function ApHeader({
 
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-            <input value={q} onChange={(e) => onQ(e.target.value)} placeholder="ค้นหา DD / PO / เจ้าหนี้"
-              className="w-56 rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/10 dark:bg-white/5" />
+            <input value={q} onChange={(e) => onQ(e.target.value)} placeholder="ค้นหา DD / PO / เจ้าหนี้ / เลขเอกสาร"
+              className="w-60 rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/10 dark:bg-white/5" />
+            {/* ผลค้นข้ามเดือน — เดือนนี้ไม่เจอแต่ฐานมี · กดรายการ = สลับเดือน + คงคำค้นไว้กรองต่อ */}
+            {crossHits !== null && (
+              <div className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-xl border border-gray-200/80 bg-white shadow-lg dark:border-white/10 dark:bg-[#1b202b]">
+                <div className="border-b border-gray-100 px-3 py-1.5 text-[11px] text-gray-400 dark:border-white/10">
+                  {crossHits.length ? "ไม่พบในเดือนนี้ — พบในเดือนอื่น:" : "ไม่พบในฐานข้อมูลเลย"}
+                </div>
+                {crossHits.slice(0, 6).map((h) => (
+                  <button key={h.depositCode} onClick={() => onGotoHit(h)}
+                    className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+                    <span className={`font-medium ${NUMCLS}`}>{h.depositCode}</span>
+                    <span className="rounded bg-gray-100 px-1.5 text-[10px] text-gray-600 dark:bg-white/10 dark:text-gray-300">
+                      {thaiDate(h.receivedAt)}
+                    </span>
+                    <span className="flex-1 truncate text-gray-500 dark:text-gray-400">{h.supplier}</span>
+                  </button>
+                ))}
+                {crossHits.length > 6 && (
+                  <div className="px-3 py-1 text-[10px] text-gray-400">และอีก {crossHits.length - 6} ใบ — พิมพ์ให้เจาะจงขึ้น</div>
+                )}
+              </div>
+            )}
           </div>
 
           <WarehouseCombobox options={warehouses} value={warehouse} onChange={onWarehouse} />

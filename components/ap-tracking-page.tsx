@@ -11,7 +11,7 @@ import { CARD, NUM, baht, mitr } from "@/components/ap-style"
 import { ApHeader } from "@/components/ap-summary"
 import { ApTable } from "@/components/ap-table"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
-import type { ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
+import type { ApCrossHit, ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
 export type { ApRow } from "@/components/ap-types"
 
@@ -122,6 +122,8 @@ export function ApTrackingPage() {
   // ดึงข้อมูลสดจาก ATMS (pipeline light 30 วัน ~11-12 นาที) — สถานะแยกจาก loading ของตาราง
   const [pulling, setPulling] = useState(false)
   const [pullProgress, setPullProgress] = useState(0)
+  // ผลค้นข้ามเดือน — null = ยังไม่ได้ค้น/ไม่เข้าเงื่อนไข · [] = ค้นแล้วไม่เจอที่ไหนเลย
+  const [crossHits, setCrossHits] = useState<ApCrossHit[] | null>(null)
 
   // ทุกตัวกรองต้องพากลับหน้า 1 และล้างการเลือกค้าง (ใบที่เลือกไว้อาจหลุดจากผลลัพธ์ใหม่ไปแล้ว)
   // ทำที่ตัวจัดการเหตุการณ์ ไม่ใช่ใน useEffect — setState ใน effect ทำให้ render ซ้อนโดยไม่จำเป็น
@@ -361,6 +363,37 @@ export function ApTrackingPage() {
     }
   }
 
+  // ค้นข้ามเดือน — ยิงเฉพาะตอน "พิมพ์คำค้นแล้วเดือนนี้ไม่เจอสักใบ" (ไม่เจอ = สัญญาณว่า
+  // ของอาจอยู่เดือนอื่น) · debounce 350ms กันยิงระหว่างพิมพ์ · ยกเลิกคำขอเก่าเมื่อพิมพ์ต่อ
+  const qTrim = q.trim()
+  const qHasLocalHit = useMemo(() => {
+    if (!qTrim) return true
+    const rx = new RegExp(qTrim.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+    return rows.some((r) => matchQ(r, rx))
+  }, [rows, qTrim])
+  useEffect(() => {
+    if (qTrim.length < 3 || busy || qHasLocalHit) {
+      // ตั้งค่าใน timeout เพื่อไม่ setState แบบ synchronous ใน effect (กติกา lint ของรีโป)
+      const t = setTimeout(() => setCrossHits(null), 0)
+      return () => clearTimeout(t)
+    }
+    const ac = new AbortController()
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/ap-tracking/search?q=${encodeURIComponent(qTrim)}`, { signal: ac.signal })
+        const d = await res.json()
+        if (!ac.signal.aborted && res.ok) setCrossHits((d.hits ?? []) as ApCrossHit[])
+      } catch { /* ถูกยกเลิกหรือเน็ตพัง — เงียบไว้ ช่องค้นหลักยังทำงานปกติ */ }
+    }, 350)
+    return () => { clearTimeout(t); ac.abort() }
+  }, [qTrim, busy, qHasLocalHit])
+
+  // กระโดดไปเดือนของใบที่เจอ — คงคำค้นไว้ให้กรองต่อในเดือนปลายทางเลย
+  const gotoHit = (hit: ApCrossHit) => {
+    changeMonth(hit.month)
+    setCrossHits(null)
+  }
+
   // เดือนที่เลือกอยู่ก่อนเส้น go-live ทั้งเดือนหรือไม่ — ใช้ helper ตัวเดียวกับที่ API ใช้ตัดเดือน
   const scopeSince = summary?.since || AP_GO_LIVE
   const monthOutOfScope = !monthInApScope(month, scopeSince)
@@ -390,6 +423,7 @@ export function ApTrackingPage() {
         today={today}
         canPull={month === thisMonth()}
         pulling={pulling} pullProgress={pullProgress} onPull={pullAtms}
+        crossHits={crossHits} onGotoHit={gotoHit}
       />
 
       {/* ผลลัพธ์ถูกตัดเพราะชนเพดานแถว — ยอดสรุปทุกตัวข้างบนยังไม่ครบ ต้องบอกให้ชัด ไม่ปล่อยให้เงียบ */}

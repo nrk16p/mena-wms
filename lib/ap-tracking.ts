@@ -311,6 +311,16 @@ export function apSinceOf(raw: string | null | undefined): string {
   return isValidYmd(v) ? v : AP_GO_LIVE
 }
 
+// เลข DD/PO/PR ของ ATMS ฝังเดือนไว้ในตัว: LBDD26020004 → ปี 26 เดือน 02 → "2026-02"
+// ใช้เป็นทางลัดตอนค้นข้ามเดือน — รู้เดือนได้ทันทีโดยไม่ต้องถามฐานข้อมูล
+// คืน "" เมื่อไม่ใช่รูปแบบเลขเอกสาร หรือเดือนไม่มีจริง (เลข 13 ขึ้นไป)
+export function monthFromCode(q: string): string {
+  const m = /^[A-Z]{2,4}(?:DD|PO|PR)(\d{2})(\d{2})\d*$/.exec(q.trim().toUpperCase())
+  if (!m) return ""
+  const mo = Number(m[2])
+  return mo >= 1 && mo <= 12 ? `20${m[1]}-${m[2]}` : ""
+}
+
 export const CREDIT_TERMS = ["Immediate", "7D", "15D", "30D", "60D"] as const
 const TERM_DAYS: Record<string, number> = { Immediate: 0, "7D": 7, "15D": 15, "30D": 30, "60D": 60 }
 
