@@ -103,13 +103,30 @@ export async function buildSnapshotRows(
   const ltByGroup = new Map<string, number[]>()
   const allLt: number[] = []
   const costBySku = new Map<string, number>()
+  // วันที่ (epoch ms) ของแถวที่ใช้ตั้งค่า costBySku ล่าสุด — ข้อมูลนี้ back-date/backfill บ่อย
+  // ลำดับที่ Mongo คืนมาจึงไม่ตรงกับ วันที่ จริง ต้องเทียบวันที่ฝั่ง client เอง
+  // (ไม่เพิ่ม $sort ในฝั่ง aggregation เพื่อไม่เพิ่มภาระ Mongo)
+  const costDateBySku = new Map<string, number>()
   let prMatched = 0
   let prMissed = 0
 
   for (const r of receipts) {
     const code = r.i ?? ""
     if (!code) continue
-    if (r.c != null && r.c > 0) costBySku.set(code, r.c) // ราคาทุนล่าสุดที่เจอ
+    if (r.c != null && r.c > 0) {
+      // ราคาทุนล่าสุดที่เจอ — ยึดตาม วันที่ จริง ไม่ใช่ลำดับที่ Mongo คืนมา
+      const t = r.d ? new Date(r.d).getTime() : NaN
+      if (Number.isFinite(t)) {
+        const prevT = costDateBySku.get(code)
+        if (prevT === undefined || t >= prevT) {
+          costBySku.set(code, r.c)
+          costDateBySku.set(code, t)
+        }
+      } else if (!costDateBySku.has(code)) {
+        // ไม่มีวันที่ใช้ได้ — seed ไว้ก่อนเฉพาะตอนยังไม่เคยเจอแถวที่มีวันที่ ห้ามทับค่าที่มีวันที่แล้ว
+        costBySku.set(code, r.c)
+      }
+    }
     const pr = prCodeFromNote(r.note)
     if (!pr) continue
     const pd = prDate.get(pr)
@@ -215,8 +232,10 @@ export async function buildSnapshotRows(
   })
 
   const latest = await move
-    .find({ inventory_id: inventoryId })
-    .sort({ วันที่: -1 })   // ใช้ index วันที่_1 ที่มีอยู่แล้ว
+    .find({ inventory_id: inventoryId }, { maxTimeMS: 60_000 })
+    // ใช้ index วันที่_1 ที่มีอยู่แล้ว — ตั้งใจไม่กรอง year_month เพราะ query นี้มีไว้จับ
+    // pipeline ที่ตายเงียบ ยิ่งข้อมูลเก่าที่สุดยิ่งต้องเห็น กรองช่วงเวลาจะพลาดจุดประสงค์นี้ไปเลย
+    .sort({ วันที่: -1 })
     .limit(1)
     .project({ _id: 0, "วันที่": 1 })
     .toArray()
