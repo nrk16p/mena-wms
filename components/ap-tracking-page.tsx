@@ -516,7 +516,7 @@ export function ApTrackingPage() {
           {/* แจ้งการเงินจากใบที่เลือก — ราย DD เลือกหลายใบได้ (ผู้ใช้สั่ง 19/08/2026) */}
           <button onClick={() => setFinanceItems(selectedRows.map((r) => ({
               depositCode: r.depositCode, supplier: r.supplier, amount: r.amount,
-              purchaseOrder: r.purchaseOrder, billingNos: r.docNos.billingNoteNos ?? [],
+              purchaseOrder: r.purchaseOrder, docNos: r.docNos,
             })))}
             className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/30">
             ✉️ แจ้งการเงิน (นอกรอบ)

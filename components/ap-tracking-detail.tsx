@@ -822,7 +822,7 @@ export function ApTrackingDetail({
         {financeOpen && (
           <ApFinanceRequestDialog onClose={() => setFinanceOpen(false)}
             items={[{ depositCode: row.depositCode, supplier: row.supplier, amount: row.amount,
-              purchaseOrder: row.purchaseOrder, billingNos: cleanDocNos(nos.billingNoteNos) }]} />
+              purchaseOrder: row.purchaseOrder, docNos: nos }]} />
         )}
 
         {/* ปุ่มบันทึกติดล่างเสมอ — ไม่ว่าจะอยู่แท็บไหนหรือเลื่อนไปไหน กดบันทึกได้ทันที */}

@@ -336,7 +336,10 @@ export const atmsPoUrl = (id: number) => `${ATMS_BASE}/inv/purchase.order/view/i
 // จัดซื้อต้องอีเมลแจ้งผู้จัดการฝ่ายบัญชี/การเงินทุกครั้งที่มีใบตกรอบ — เดิมพิมพ์มือ
 // สร้างจากข้อมูลที่มีอยู่แล้ว: ราย DD (เลือกหลายใบได้) จัดกลุ่มตามเจ้าหนี้
 // สาเหตุเป็นช่องให้กรอก — ไม่ใส่ค่าเดาแทน เว้นบรรทัดไว้ถ้ายังไม่กรอก
-export type ApFinanceItem = { depositCode: string; supplier: string; amount: number; purchaseOrder?: string; billingNos?: string[] }
+export type ApFinanceItem = {
+  depositCode: string; supplier: string; amount: number; purchaseOrder?: string
+  docNos?: Partial<ApDocNos>       // เลขที่เอกสารทุกช่องที่กรอกไว้ — โชว์พร้อมป้ายชนิด
+}
 
 export function apFinanceRequestText(
   items: ApFinanceItem[], payThursdayISO: string, reason: string,
@@ -357,11 +360,18 @@ export function apFinanceRequestText(
   for (const [sup, its] of bySup) {
     lines.push(`เจ้าหนี้ ${sup}`)
     its.forEach((it, i) => {
-      // อ้างอิงครบทั้งสาม: DD · PO · เลขใบวางบิล — การเงินตามหาเอกสารได้จากเลขไหนก็ได้
+      // อ้างอิง DD · PO · เลขที่เอกสารทุกช่องที่กรอกไว้ (พร้อมป้ายชนิด) — การเงินตามหา
+      // เอกสารได้จากเลขไหนก็ได้ · ช่องที่ไม่ได้กรอกไม่โผล่ (ผู้ใช้สั่ง 19/08/2026: ใช้เลขจากที่กรอก)
+      const docRefs = AP_NO_FIELDS
+        .map((f) => {
+          const vals = cleanDocNos(it.docNos?.[f.key])
+          return vals.length ? `${f.short} ${vals.join(", ")}` : ""
+        })
+        .filter(Boolean)
       const ref = [
         it.depositCode,
         it.purchaseOrder ? `PO ${it.purchaseOrder}` : "",
-        it.billingNos?.length ? `ใบวางบิล ${it.billingNos.join(", ")}` : "",
+        ...docRefs,
       ].filter(Boolean).join(" · ")
       lines.push(`  ${i + 1}. ${ref} = ${thb(it.amount)}`)
     })
