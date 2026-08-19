@@ -1,0 +1,68 @@
+// lib/safety-stock.ts
+// ชั้นคุย MongoDB ฝั่งอ่านของหน้า /safety-stock — snapshot สร้างไว้แล้วโดย cron จึงแค่อ่านออกมา
+import clientPromise from "@/lib/mongo"
+import { INVENTORY_ID, WAREHOUSES, type SafetyStockPayload, type SnapshotRow } from "@/lib/safety-stock-core"
+
+const DB = process.env.MONGO_DB ?? "master_data"
+
+// snapshot เปลี่ยนวันละครั้ง ไม่มีเหตุให้ยิง DB ทุก request
+// เก็บบน globalThis เพื่อให้รอดข้าม hot-reload ตอน dev และข้าม warm invocation บน Vercel
+const TTL_MS = 60 * 60 * 1000
+
+declare global {
+  var _safetyStockCache: Record<string, { at: number; data: SafetyStockPayload } | undefined> | undefined
+}
+
+export async function getSafetyStock(
+  inventoryId: string = INVENTORY_ID,
+  force = false
+): Promise<SafetyStockPayload> {
+  globalThis._safetyStockCache ??= {}
+  const hit = globalThis._safetyStockCache[inventoryId]
+  if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.data
+
+  const client = await clientPromise
+  const db = client.db(DB)
+
+  const [rows, buildLog, skuLog] = await Promise.all([
+    db.collection("safety_stock_snapshot")
+      .find({ inventoryId })
+      .project({ _id: 0, updatedAt: 0 })
+      .toArray() as unknown as Promise<SnapshotRow[]>,
+    db.collection("safety_stock_sync_log").findOne({ trigger: "build" }),
+    db.collection("safety_stock_sync_log").findOne({ trigger: "sku-sync" }),
+  ])
+
+  // Resolve latestMovementDate from build log results array
+  let latestMovementDate: string | null = null
+  if (buildLog?.results && Array.isArray(buildLog.results)) {
+    const buildResult = buildLog.results.find((r: any) => r.inventoryId === inventoryId)
+    if (buildResult?.latestMovementDate) {
+      latestMovementDate = buildResult.latestMovementDate
+    }
+  }
+
+  // Resolve skuSyncedAt from sku-sync log results array
+  let skuSyncedAt: string | null = null
+  if (skuLog?.results && Array.isArray(skuLog.results)) {
+    const skuResult = skuLog.results.find((r: any) => r.inventoryId === inventoryId)
+    if (skuResult && skuResult.error === null && skuLog.syncedAt) {
+      skuSyncedAt = new Date(skuLog.syncedAt as Date).toISOString()
+    }
+  }
+
+  // Resolve warehouse name from WAREHOUSES array
+  const warehouseName = WAREHOUSES.find((w) => w.id === inventoryId)?.name ?? inventoryId
+
+  const data: SafetyStockPayload = {
+    asOf: new Date().toISOString(),
+    warehouse: warehouseName,
+    inventoryId,
+    latestMovementDate,
+    skuSyncedAt,
+    rows,
+  }
+
+  globalThis._safetyStockCache[inventoryId] = { at: Date.now(), data }
+  return data
+}
