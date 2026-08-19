@@ -5,6 +5,14 @@
 export const INVENTORY_ID = "4"
 export const WAREHOUSE = "คลังลาดกระบัง"
 
+/** คลังที่ระบบครอบคลุม — id คือ inventory_id ใน ATMS/stockmovement_v5 */
+export const WAREHOUSES: { id: string; name: string }[] = [
+  { id: "4", name: "คลังลาดกระบัง" },
+  { id: "3", name: "คลังสระบุรี" },
+  { id: "11", name: "คลังขอนแก่น" },
+  { id: "24", name: "คลัง DIST" },
+]
+
 /** 365/12 — ใช้แปลงหน่วยเดือน↔วัน ให้ตรงกันทุกที่ */
 export const DAYS_PER_MONTH = 365 / 12
 
