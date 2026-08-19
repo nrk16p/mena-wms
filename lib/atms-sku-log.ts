@@ -52,7 +52,17 @@ function fetchHtml(url: string, phpsessid: string): Promise<string> {
       }
       const chunks: Buffer[] = []
       res.on("data", (c: Buffer) => chunks.push(c))
-      res.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")))
+      res.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf-8")
+        // คุกกี้บางกรณีตายแบบเงียบ — ATMS ตอบ HTTP 200 พร้อมหน้า login แทนที่จะ redirect (ไม่เข้า path ด้านบนเลย)
+        // เช็คในเนื้อ body ตรงนี้ที่เดียว ผู้เรียก fetchHtml ทุกตัว (ensureRowsPerPage, fetchAddEvents, fetchSkuIndexPage ฯลฯ)
+        // จึงได้ป้องกันร่วมกันหมด — แพตเทิร์นเดียวกับ scripts/probe-atms-sku-index.mjs ที่ตรวจแบบนี้อยู่แล้ว
+        if (/name=["']LoginForm/i.test(body) || /เข้าสู่ระบบ/.test(body)) {
+          reject(new AtmsSessionError())
+          return
+        }
+        resolve(body)
+      })
       res.on("error", reject)
     })
     req.on("timeout", () => { req.destroy(); reject(new AtmsNetworkError("Request timed out")) })

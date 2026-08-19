@@ -59,6 +59,11 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
   const col = db.collection("atms_sku_master")
   const syncedAt = new Date()
 
+  // ต้องมี index บน skuPk ก่อนเริ่ม bulkWrite — คืนนี้ต่อคืน upsert ~17,400 doc ด้วย filter:{skuPk} ถ้าไม่มี index
+  // จะ collscan ทั้ง collection ทุกแถวทุกครั้ง ภายใน time budget 240s กระทบ Mongo โดยตรง (มีกฎห้ามโหลด DB หนักจากเหตุ
+  // CPU 100% มาก่อน) createIndex() เป็น no-op เร็วถ้ามีอยู่แล้ว — wrap catch ไว้กันพังทั้งรอบถ้าสร้างไม่สำเร็จ
+  await col.createIndex({ skuPk: 1 }, { unique: true }).catch(() => {})
+
   // ซิงก์คลังเดียว — คืน error ในผลลัพธ์แทนการ throw เพื่อให้คลังอื่นซิงก์ต่อได้
   // ยกเว้น session ตาย ซึ่งกระทบทุกคลังเท่ากัน ผู้เรียก (loop ด้านล่าง) จะเห็นจาก error ที่ตรงกับ SESSION_EXPIRED_MSG แล้วหยุดทั้งรอบ
   async function syncOneWarehouse(inventoryId: string): Promise<SkuSyncWarehouseResult> {
@@ -84,7 +89,17 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
         if (!res) break
         pages = page
         if (total === null) total = res.total
-        if (res.rows.length === 0) break
+        if (res.rows.length === 0) {
+          // หน้า 1 ว่าง = ผิดปกติ ไม่ใช่จบการแบ่งหน้าตามปกติ — fetchSkuIndexPage คืน rows:[] เมื่อ <tbody> regex
+          // จับไม่ได้เลย ซึ่งเกิดได้จากหน้า error/maintenance ของ ATMS หรือหน้า login ที่ render มาพร้อม HTTP 200
+          // (ไม่ redirect ให้จับได้ทาง location header) ถ้าปล่อยผ่านไปเงียบๆ atms_sku_master จะค้างค่าของเมื่อวาน
+          // ทั้งที่ log บันทึกว่า ok — ต้องถือเป็น error ของคลังนี้ ห้ามเขียนอะไรทับข้อมูลเดิม (หน้าอื่นที่ไม่ใช่หน้า 1
+          // ว่างยังถือเป็นจบการแบ่งหน้าปกติได้ เพราะหน้า 1 พิสูจน์แล้วว่าตารางจริงมาถูกต้อง)
+          if (page === 1) {
+            throw new Error("หน้าแรกไม่มีข้อมูล (0 แถว) — อาจเป็นหน้า error/login ของ ATMS ไม่ใช่ตารางสินค้าจริง")
+          }
+          break
+        }
 
         await col.bulkWrite(
           res.rows.map((r) => ({
@@ -101,6 +116,13 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
         if (res.rows.length < ROWS_PER_PAGE) break
         if (total !== null && upserted >= total) break
         await sleep(PACE_MS)
+      }
+
+      // ตรวจหลังจบลูปเสมอ ไม่ว่าจะจบเพราะครบ total, ครบ MAX_PAGES, หรือหน้าสุดท้ายสั้นกว่า ROWS_PER_PAGE —
+      // จับเคส ensureRowsPerPage ถูก no-op แบบเงียบ (เช่น คุกกี้มีปัญหาบางส่วน) แล้วได้แค่หน้าละ 20 แถว
+      // MAX_PAGES × 20 ยังไงก็ไม่มีทางครบคลังใหญ่ๆ ได้ — ต้องรู้ตัวว่าซิงก์ไม่ครบ ไม่ใช่ปล่อยให้ log ขึ้น ok เงียบๆ
+      if (total !== null && upserted < total) {
+        throw new Error(`ซิงก์ไม่ครบ — ได้ ${upserted} จาก total ${total} ที่ ATMS รายงาน (ตรวจ ensureRowsPerPage หรือหน้าที่ถูกตัดกลางทาง)`)
       }
     } catch (err) {
       // ไม่เขียนทับข้อมูลเดิมเมื่อพัง — ของเก่าที่ถูกต้องดีกว่าตารางว่าง
