@@ -288,3 +288,75 @@ export function buildRepairSummary(r: RepairSummaryInput): string {
 
   return lines.join("\n")
 }
+
+/* ── เทียบขั้นตอนงานกับ Mena-Next (ATMS) ─────────────────────────────────────
+ * คำสองระบบไม่ใช่ชุดเดียวกัน: Mena-Next มี 15 สถานะที่ครอบคลุมงาน "อู่ใน" ด้วย
+ * (รอเข้าช่อง / ซ่อมเสร็จภายในอู่ / รอทำความสะอาด / รอตรวจสภาพ / ยาง / แย็กโม่)
+ * ส่วน WMS หน้านี้ดูเฉพาะ "อู่นอก" — จึงยุบทั้งสองฝั่งลงเป็นขั้นกลางแล้วเทียบขั้น
+ * แทนการเทียบข้อความ ทำให้ทนต่อการที่ Mena-Next เพิ่ม/เปลี่ยน label ในอนาคต
+ * (ระบบต้นทางเราแก้ไม่ได้ — ถ้าเจอ label ใหม่จะกลายเป็น "เทียบไม่ได้" ไม่ใช่ "ไม่ตรง")
+ * ขั้น 4 ไม่ได้อยู่ในลำดับ 3→5 — เป็นงานที่ถูกแขวนไว้ จับคู่กับตัวเองเท่านั้น
+ */
+export const REPAIR_STAGES: Record<number, string> = {
+  1: "รอเข้าซ่อม",
+  2: "รอราคา/อนุมัติ/ของ",
+  3: "กำลังซ่อม",
+  4: "ชะลอ/ไม่มีกำหนด",
+  5: "เสร็จ/รอปิด",
+}
+
+/** step ของ Mena-Next (current_step.step.label_th) → ขั้น */
+const NEXT_STEP_STAGE: Record<string, number> = {
+  "ยังไม่มีสถานะ": 1,
+  "รอประเมินการซ่อม": 1,
+  "รอคนขับ": 1,
+  "รอเข้าช่อง": 1,
+  "รอราคา": 2,
+  "รออนุมัติ": 2,
+  "รออะไหล่": 2,
+  "รถซ่อม": 3,
+  "ยาง": 3,
+  "แย็กโม่": 3,
+  "รถที่ชะลอการซ่อม": 4,
+  "ซ่อมเสร็จภายในอู่": 5,
+  "รอทำความสะอาด": 5,
+  "รอตรวจสภาพ": 5,
+  "รถซ่อมเสร็จสิ้น": 5,
+}
+
+/** สถานะงานอู่นอกใน WMS → ขั้น (อะไหล่ลงคันไม่เทียบ — Mena-Next ไม่มี workflow นั้น) */
+const WMS_STATUS_STAGE: Record<string, number> = {
+  "รอรถเข้า": 1,
+  "รอ PR": 2,
+  "รถเข้าอู่ซ่อม": 3,
+  "ซ่อมมีกำหนดเสร็จ": 3,
+  "ซ่อมไม่มีกำหนด": 4,
+  "รถเสร็จ(ไม่มี PR)": 5,
+  "รถเสร็จ": 5,
+}
+
+/** 0 = ไม่รู้จัก/เทียบไม่ได้ */
+export const stageOfNextStep = (step: string) => NEXT_STEP_STAGE[(step ?? "").trim()] ?? 0
+
+/** ขั้นของงานอู่นอกใน WMS — tickbox "รอใบเสนอราคา" (waitingQuote) นับเป็นขั้นรอราคา
+ *  เพราะถูกถอดออกจาก workflow ไปเป็น flag แล้ว (2026-08-11) ไม่งั้นรถที่ติ๊กรอราคา
+ *  จะขึ้นว่าไม่ตรงทั้งที่ Mena-Next ก็อยู่ขั้น "รอราคา" เหมือนกัน */
+export function stageOfRepair(r: { status?: string; waitingQuote?: string; jobType?: string }): number {
+  if (jobTypeOf(r) === JOB_TYPE_PARTS) return 0
+  const base = WMS_STATUS_STAGE[String(r.status ?? "").trim()] ?? 0
+  // แทนที่เฉพาะขั้นที่งานยังเดินอยู่จริง — งานที่ชะลอ/เสร็จแล้ว flag ไม่ควรทับ
+  if ((base === 1 || base === 3) && String(r.waitingQuote ?? "").trim()) return 2
+  return base
+}
+
+export type StageCompare = "same" | "diff" | "unknown"
+
+/** เทียบขั้นของงาน WMS กับ step ของ Mena-Next — unknown = ฝั่งใดฝั่งหนึ่งไม่รู้จัก */
+export function compareStage(
+  r: { status?: string; waitingQuote?: string; jobType?: string },
+  step: string,
+): StageCompare {
+  const a = stageOfRepair(r), b = stageOfNextStep(step)
+  if (!a || !b) return "unknown"
+  return a === b ? "same" : "diff"
+}

@@ -28,6 +28,10 @@ import {
   statusMeta,
   buildRepairSummary,
   mapUrl,
+  compareStage,
+  stageOfRepair,
+  stageOfNextStep,
+  REPAIR_STAGES,
   type RepairExternal,
   type RepairField,
 } from "@/lib/repair-external"
@@ -264,8 +268,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     () => new Set((atms?.pending ?? []).map((p) => p.wms?.id).filter(Boolean) as string[]),
     [atms],
   )
-  // "" = ไม่กรอง | matched = เฉพาะคันที่ตรงกัน 2 ระบบ | unmatched = อู่นอกใน WMS ที่ Mena-Next ไม่มี
-  const [nextFilter, setNextFilter] = useState<"" | "matched" | "unmatched">("")
+  // "" = ไม่กรอง | matched/unmatched = มีคู่ใน Mena-Next มั้ย | same/diff = ขั้นตอนงานตรงกันมั้ย
+  const [nextFilter, setNextFilter] = useState<"" | "matched" | "unmatched" | "same" | "diff">("")
+  // เทียบขั้นตอนงานกับ Mena-Next — "" = เทียบไม่ได้ (ไม่มีคู่ / step ที่ยังไม่รู้จัก / งานอะไหล่ลงคัน)
+  const stageCmpOf = (r: RepairExternal): "same" | "diff" | "" => {
+    const step = atmsOf(r)?.step ?? ""
+    if (!step) return ""
+    const c = compareStage(r, step)
+    return c === "unknown" ? "" : c
+  }
   // เทียบได้เฉพาะงานอู่นอก — atms-board ไม่ครอบคลุมงานอะไหล่ลงคัน
   const nextComparable = (r: RepairExternal) => jobTypeOf(r) !== JOB_TYPE_PARTS
 
@@ -1118,6 +1129,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   if (conflictOnly) displayRows = displayRows.filter((r) => jobAlertOf(r)?.kind === "update_needed")
   if (nextFilter === "matched")   displayRows = displayRows.filter((r) => nextMatchedIds.has(r._id))
   if (nextFilter === "unmatched") displayRows = displayRows.filter((r) => nextComparable(r) && !nextMatchedIds.has(r._id))
+  if (nextFilter === "same")      displayRows = displayRows.filter((r) => stageCmpOf(r) === "same")
+  if (nextFilter === "diff")      displayRows = displayRows.filter((r) => stageCmpOf(r) === "diff")
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
   const { isDup, dupList } = (() => {
@@ -1596,6 +1609,20 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   >
                     ⚠️ ไม่พบใน Mena-Next <span className="opacity-80">{rows.filter((r) => nextComparable(r) && !nextMatchedIds.has(r._id)).length} คัน</span>
                   </button>
+                  <button
+                    onClick={() => setNextFilter((v) => (v === "same" ? "" : "same"))}
+                    title="ขั้นตอนงานใน WMS ตรงกับ Mena-Next (เทียบเป็นขั้น ไม่ได้เทียบข้อความ — คำสองระบบไม่เหมือนกัน)"
+                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "same" ? "bg-[#1B8C4B] text-white" : "border border-[#BFE3CD] text-[#1B8C4B] hover:bg-[#F0FDF4] dark:border-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-950/20"}`}
+                  >
+                    ✅ สถานะตรง <span className="opacity-80">{rows.filter((r) => stageCmpOf(r) === "same").length} คัน</span>
+                  </button>
+                  <button
+                    onClick={() => setNextFilter((v) => (v === "diff" ? "" : "diff"))}
+                    title="ขั้นตอนงานคนละขั้นกับ Mena-Next — ฝั่งใดฝั่งหนึ่งยังไม่อัปเดต"
+                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "diff" ? "bg-[#B07D12] text-white" : "border border-[#FDE9BE] text-[#B07D12] hover:bg-[#FDF3DD] dark:border-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-950/20"}`}
+                  >
+                    ⚠️ สถานะไม่ตรง <span className="opacity-80">{rows.filter((r) => stageCmpOf(r) === "diff").length} คัน</span>
+                  </button>
                 </>
               )}
             </div>
@@ -1841,12 +1868,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     {(() => {
                       const a = atmsOf(r)
                       if (!a || jobTypeOf(r) === JOB_TYPE_PARTS) return null
+                      // ขั้นตอนไม่ตรง = เปลี่ยนเป็นสีเหลือง พร้อมบอกว่าแต่ละฝั่งอยู่ขั้นไหน
+                      const cmp   = stageCmpOf(r)
+                      const stageNote = cmp
+                        ? ` · WMS "${r.status}" = ขั้น ${REPAIR_STAGES[stageOfRepair(r)]} · Mena-Next "${a.step}" = ขั้น ${REPAIR_STAGES[stageOfNextStep(a.step)]}${cmp === "diff" ? " (คนละขั้น)" : " (ตรงกัน)"}`
+                        : ""
                       return (
                         <div
-                          className="mt-1 inline-flex flex-wrap items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-900/25 dark:text-indigo-300"
-                          title={`Mena-Next: ${a.mrCode || "-"}${a.vendor ? " · อู่ " + a.vendor : ""}${a.stepAt ? " · อัพเดท " + a.stepAt : ""}${a.since ? " · จอดตั้งแต่ " + a.since : ""}`}
+                          className={`mt-1 inline-flex flex-wrap items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold ${cmp === "diff" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" : "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/25 dark:text-indigo-300"}`}
+                          title={`Mena-Next: ${a.mrCode || "-"}${a.vendor ? " · อู่ " + a.vendor : ""}${a.stepAt ? " · อัพเดท " + a.stepAt : ""}${a.since ? " · จอดตั้งแต่ " + a.since : ""}${stageNote}`}
                         >
-                          🛠 {a.step || "Mena-Next"}
+                          {cmp === "diff" ? "⚠️" : "🛠"} {a.step || "Mena-Next"}
                           {a.parkedDays !== null && <span className="font-semibold">· จอดจริง {a.parkedDays} วัน</span>}
                         </div>
                       )
