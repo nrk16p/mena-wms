@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Search, Plus, Pencil, Trash2, Disc3, Download, FileBarChart2, X, Link2, TrendingUp, ChevronDown, ChevronRight } from "lucide-react"
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
+import { mrChip, type MrSummary } from "@/lib/tire-mr"
 import * as XLSX from "xlsx"
 
 type TireStock = {
@@ -45,13 +46,6 @@ const fmtDate = (s: string | Date | null | undefined) => {
   const d = new Date(s as string)
   if (isNaN(d.getTime())) return "—"
   return d.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
-}
-
-type MrStatus = {
-  mrId: string
-  status: string
-  note: string
-  updatedAt: string
 }
 
 type TirePerf = {
@@ -132,7 +126,7 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
 
   // MR status (internal)
-  const [mrStatusMap, setMrStatusMap] = useState<Record<string, MrStatus>>({})
+  const [mrStatusMap, setMrStatusMap] = useState<Record<string, MrSummary>>({})
 
   // PR dropdown search
   const [prSearch, setPrSearch]     = useState("")
@@ -235,7 +229,7 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
     if (plates.length > 0) {
       fetch(`/api/tire-mr/latest?branch=${branch}&plates=${encodeURIComponent(plates.join(","))}`)
         .then((r) => r.json())
-        .then((data: Record<string, MrStatus>) => setMrStatusMap(data))
+        .then((data: Record<string, MrSummary>) => setMrStatusMap(data))
         .catch(() => {})
     }
   }
@@ -387,15 +381,6 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
       </div>
     </div>
   )
-
-  function mrChip(status: string) {
-    switch (status) {
-      case "completed":   return { label: "ซ่อมเสร็จ",     cls: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" }
-      case "in_progress": return { label: "กำลังซ่อม",     cls: "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300" }
-      case "pending":     return { label: "รอดำเนินการ",   cls: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" }
-      default:            return { label: status,            cls: "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400" }
-    }
-  }
 
   const th = "px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#9AA8A0] whitespace-nowrap"
   // First column of each column group gets a left border separator
@@ -734,9 +719,13 @@ export function TireStockPage({ branch, branchLabel }: { branch: string; branchL
                           <td className={tdGroup + " font-mono font-semibold text-gray-900 dark:text-white"}>
                             <div>{rq.plate}</div>
                             {mrStatusMap[rq.plate] && (() => {
-                              const { label, cls } = mrChip(mrStatusMap[rq.plate].status)
+                              const mr = mrStatusMap[rq.plate]
+                              const { label, cls } = mrChip(mr.status)
+                              // hover ดูหมายเหตุล่าสุด + คนอัปเดต (รายละเอียดเต็มอยู่ที่แท็บคำขอ/อนุมัติ)
+                              const tip = [mr.note, [fmtDate(mr.updatedAt), mr.updatedBy].filter(Boolean).join(" · ")]
+                                .filter(Boolean).join("\n")
                               return (
-                                <span className={`mt-0.5 inline-block rounded px-1.5 py-px text-[9px] font-medium ${cls}`}>
+                                <span title={tip || undefined} className={`mt-0.5 inline-block rounded px-1.5 py-px text-[9px] font-medium ${cls}`}>
                                   MR · {label}
                                 </span>
                               )
