@@ -8,6 +8,7 @@ import { bkkToday, bkkTimestamps } from "@/lib/bkk-time"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
+const COMMENT_COLL = "repair_external_comment"
 // field เวลาที่ต้องแปลงเป็นเวลาไทยก่อนส่งออก
 const TIME_FIELDS = ["createdAt", "updatedAt", "statusSinceAt", "lastCheckedAt"]
 
@@ -88,6 +89,28 @@ export async function GET(req: NextRequest) {
     out = items.map((i) => ({ ...i, history: byId.get(String(i._id)) ?? [] }))
   }
 
+  // ── ความคิดเห็น/โน้ตในรายการ (repair_external_comment) แนบต่อรายการ — เรียงเก่า→ใหม่ ──
+  // ปิดได้ด้วย ?comments=0 · ไม่ส่ง byEmail ออก เพราะ GET นี้เปิด public
+  const withComments = searchParams.get("comments") !== "0"
+  if (withComments && items.length) {
+    const ids = items.map((i) => String(i._id))
+    const comments = await client.db(DB).collection(COMMENT_COLL)
+      .find({ repairId: { $in: ids } })
+      .project({ repairId: 1, parentId: 1, text: 1, by: 1, at: 1 })
+      .sort({ at: 1 })
+      .limit(2000)
+      .toArray()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cById = new Map<string, any[]>()
+    for (const c of comments) {
+      const k = String(c.repairId)
+      if (!cById.has(k)) cById.set(k, [])
+      // id ส่งออกด้วย เพราะ reply อ้างถึงกันผ่าน parentId
+      cById.get(k)!.push({ id: String(c._id), parentId: c.parentId ?? null, text: c.text ?? "", by: c.by ?? "", at: c.at })
+    }
+    out = out.map((i) => ({ ...i, comments: cById.get(String(i._id)) ?? [] }))
+  }
+
   // เวลาทั้งหมดที่ส่งออกเป็นเวลาไทย (+07:00) — เดิมเป็น UTC (…Z) อ่านแล้วสับสน
   out = out.map((i) => ({
     ...bkkTimestamps(i, TIME_FIELDS),
@@ -95,6 +118,8 @@ export async function GET(req: NextRequest) {
     ...(i.history ? { history: i.history.map((h: any) => bkkTimestamps(h, ["at"])) } : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ...(i.dailyChecks ? { dailyChecks: i.dailyChecks.map((c: any) => bkkTimestamps(c, ["at"])) } : {}),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(i.comments ? { comments: i.comments.map((c: any) => bkkTimestamps(c, ["at"])) } : {}),
   }))
 
   return NextResponse.json({ ok: true, vehicle, scope: scope || "default", type: type || "all", count: out.length, timezone: "Asia/Bangkok (+07:00)", items: out })

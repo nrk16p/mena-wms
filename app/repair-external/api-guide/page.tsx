@@ -80,6 +80,9 @@ export default function Page() {
             <Param name="history">
               ประวัติการแก้ไขต่อรายการ — ค่าเริ่มต้น<b>แนบมาให้เสมอ</b> (field <code>history</code>) · ส่ง <code>history=0</code> ถ้าต้องการ payload เบา
             </Param>
+            <Param name="comments">
+              ความคิดเห็น/โน้ตในรายการ — ค่าเริ่มต้น<b>แนบมาให้เสมอ</b> (field <code>comments</code>) · ส่ง <code>comments=0</code> ถ้าต้องการ payload เบา
+            </Param>
           </ul>
         </Section>
 
@@ -139,13 +142,29 @@ console.log(data.count, data.items)`}</CodeBlock>
           "statusChange": { "from": "รอรถเข้า", "to": "รถเข้าอู่ซ่อม" },
           "changes": [ { "field": "garageInDate", "label": "วันที่รถเข้าอู่ซ่อม", "from": "", "to": "2026-07-19" } ]
         }
+      ],
+      "comments": [              // ความคิดเห็น/โน้ตในรายการ (เก่า → ใหม่) · ปิดด้วย ?comments=0
+        {
+          "id": "66a2f1...",     // ใช้อ้างเป็น parentId ของข้อความตอบกลับ
+          "parentId": null,      // null = ความคิดเห็นหลัก · มีค่า = ตอบกลับความคิดเห็น id นั้น
+          "text": "อู่แจ้งว่ารออะไหล่อีก 3 วัน",
+          "by": "Nopparut",
+          "at": "2026-07-19T16:05:11.000+07:00"
+        },
+        {
+          "id": "66a2f5...",
+          "parentId": "66a2f1...",   // ตอบกลับความคิดเห็นด้านบน
+          "text": "รับทราบ แจ้งฝ่ายเดินรถแล้ว",
+          "by": "Plug",
+          "at": "2026-07-19T16:40:00.000+07:00"
+        }
       ]
     }
   ]
 }`}</CodeBlock>
-          <p className="text-[#9AA8A0]">หมายเหตุ: ไม่รวมรูปภาพ (images) เพื่อให้ payload เล็กและเร็ว · ถ้าไม่ส่ง <code>vehicle</code> จะได้ <code>400</code> พร้อมข้อความอธิบาย</p>
+          <p className="text-[#9AA8A0]">หมายเหตุ: ไม่รวมรูปภาพ (images) เพื่อให้ payload เล็กและเร็ว · ความคิดเห็นส่งเฉพาะชื่อผู้เขียน (<code>by</code>) ไม่ส่งอีเมล · ถ้าไม่ส่ง <code>vehicle</code> จะได้ <code>400</code> พร้อมข้อความอธิบาย</p>
           <p className="text-[#9AA8A0]">
-            🕒 <b className="text-[#37473E] dark:text-gray-200">เขตเวลา:</b> ทุก field ที่เป็นวัน-เวลา (<code>createdAt</code>, <code>updatedAt</code>, <code>statusSinceAt</code>, <code>history[].at</code>)
+            🕒 <b className="text-[#37473E] dark:text-gray-200">เขตเวลา:</b> ทุก field ที่เป็นวัน-เวลา (<code>createdAt</code>, <code>updatedAt</code>, <code>statusSinceAt</code>, <code>history[].at</code>, <code>comments[].at</code>)
             ส่งออกเป็น<b>เวลาไทย</b> รูปแบบ ISO 8601 พร้อม offset <code>+07:00</code> — นำไปแสดงผลได้ตรง ๆ และ parse ได้ทุกภาษา ส่วน field ที่เป็นวันที่ล้วน (<code>receivedDate</code>, <code>dueDate</code> ฯลฯ) เป็นวันไทยอยู่แล้วในรูปแบบ <code>YYYY-MM-DD</code>
           </p>
         </Section>
