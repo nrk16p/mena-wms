@@ -20,6 +20,7 @@ export const REPAIR_FIELD_LABELS: Record<string, string> = {
   drivableStatus: "สภาพรถ (วิ่งได้/ไม่ได้)",
   garage:        "อู่",
   status:        "สถานะ",
+  stageEta:      "วันคาดว่าจะพ้นสถานะ",
   waitingQuote:  "รอใบเสนอราคา",
   prCode:        "รหัส PR",
   poCode:        "รหัส PO",

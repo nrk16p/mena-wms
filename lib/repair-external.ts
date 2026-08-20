@@ -182,6 +182,7 @@ export type RepairExternal = {
   quotationDetail: string           // รายละเอียดใบเสนอราคา (free text)
   quotationImages?: RepairImage[]   // ไฟล์ใบเสนอราคา (PDF/รูป)
   statusSince:  string  // YYYY-MM-DD วันที่เข้าสู่สถานะปัจจุบัน (ระบบตั้งเมื่อเปลี่ยนสถานะ)
+  stageEta:     string  // YYYY-MM-DD คาดว่าจะพ้น "สถานะปัจจุบัน" เมื่อไหร่ — ผูกกับขั้น ไม่ใช่กับงานทั้งใบ (คนละตัวกับ dueDate)
   statusSinceAt?: string // ISO datetime เวลาที่เข้าสถานะ (สำหรับ SLA รายชั่วโมง เช่น รอ PR 24 ชม.)
   createdBy?:   string  // ผู้สร้าง (ระบบตั้งจาก session)
   editedBy?:    string  // ผู้แก้ไขล่าสุด (ระบบตั้งจาก session)
@@ -361,6 +362,34 @@ export function stageOfRepair(r: { status?: string; waitingQuote?: string; jobTy
   // แทนที่เฉพาะขั้นที่งานยังเดินอยู่จริง — งานที่ชะลอ/เสร็จแล้ว flag ไม่ควรทับ
   if ((base === 1 || base === 3) && String(r.waitingQuote ?? "").trim()) return 2
   return base
+}
+
+/* ── วันคาดพ้นขั้น (stageEta) ────────────────────────────────────────────────
+ * ทุกครั้งที่เปลี่ยนสถานะ ผู้ใช้ต้องบอกว่าคาดจะพ้นขั้นใหม่นั้นเมื่อไหร่
+ * ต่างจาก dueDate (วันกำหนดเสร็จของงานทั้งใบ) — งานหนึ่งใบมีวันคาดได้หลายค่า ค่าละขั้น
+ * ค่าเดิมทุกค่าถูกเก็บไว้ใน repair_external_log จึงย้อนดูได้ว่าแต่ละขั้นเคยสัญญาอะไรไว้
+ */
+
+/** สถานะปิดงานไม่ต้องมีวันคาด — ไม่มีขั้นถัดไปให้คาดแล้ว */
+export const stageEtaRequired = (status: string) => !!status && !isDoneStatus(status)
+
+/** ข้อความ error ถ้าไม่ผ่าน (null = ผ่าน) — ใช้ตอนเปลี่ยนสถานะเท่านั้น */
+export function validateStageEta(status: string, stageEta: string): string | null {
+  if (!stageEtaRequired(status)) return null
+  return String(stageEta ?? "").trim()
+    ? null
+    : `กรุณาระบุวันที่คาดว่าจะพ้นสถานะ "${status}"`
+}
+
+/** เลยวันคาดมากี่วัน — 0 = ยังไม่เลย/ไม่มีวันคาด/ปิดงานแล้ว */
+export function stageEtaOverdueDays(
+  r: { status?: string; stageEta?: string },
+  today: string,
+): number {
+  const eta = String(r.stageEta ?? "").trim()
+  if (!eta || !stageEtaRequired(String(r.status ?? "")) || eta >= today) return 0
+  const d = Math.floor((Date.parse(today) - Date.parse(eta)) / 86400000)
+  return d > 0 ? d : 0
 }
 
 export type StageCompare = "same" | "diff" | "unknown"

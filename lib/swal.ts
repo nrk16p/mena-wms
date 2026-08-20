@@ -41,6 +41,25 @@ export function swalError(text: string) {
   })
 }
 
+/** ถามวันที่ (YYYY-MM-DD) — ใช้ตอนลากการ์ดเปลี่ยนสถานะ ต้องบอกวันคาดพ้นขั้นใหม่
+ *  min = วันนี้ กันเผลอใส่วันที่ผ่านไปแล้ว · ยกเลิก = ไม่เปลี่ยนสถานะ */
+export function swalStageEtaInput(status: string, today: string, preset: string) {
+  return Swal.fire<string>({
+    title: "คาดว่าจะพ้นเมื่อไหร่?",
+    html: `เปลี่ยนเป็นสถานะ <b>${status}</b><br><span style="font-size:.85rem;opacity:.7">ระบุวันที่คาดว่าจะพ้นขั้นนี้ไปขั้นถัดไป</span>`,
+    input: "date",
+    inputValue: preset,
+    inputAttributes: { min: today },
+    showCancelButton: true,
+    confirmButtonText: "เปลี่ยนสถานะ",
+    cancelButtonText: "ยกเลิก",
+    confirmButtonColor: "#1B8C4B",
+    reverseButtons: true,
+    inputValidator: (v) => (v ? null : "กรุณาระบุวันที่"),
+    ...darkOpts(),
+  })
+}
+
 export function swalRejectInput(sku: string) {
   return Swal.fire<string>({
     title: "ปฏิเสธ SKU",

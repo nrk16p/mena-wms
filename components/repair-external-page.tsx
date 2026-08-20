@@ -5,7 +5,7 @@ import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Hist
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
-import { swalDeleteConfirm, swalConfirm, swalToast, swalError } from "@/lib/swal"
+import { swalDeleteConfirm, swalConfirm, swalToast, swalError, swalStageEtaInput } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
 import {
@@ -29,6 +29,9 @@ import {
   buildRepairSummary,
   mapUrl,
   compareStage,
+  stageEtaRequired,
+  validateStageEta,
+  stageEtaOverdueDays,
   stageOfRepair,
   stageOfNextStep,
   REPAIR_STAGES,
@@ -164,6 +167,7 @@ const EMPTY: Omit<RepairExternal, "_id"> = {
   negotiationScope: "ทั้งหมด", negotiationItem: "",
   offerPrice: 0, negotiatedPrice: 0, offerWarranty: "",
   statusSince: "",
+  stageEta: "",
 }
 
 const fmtNum = (n: number) =>
@@ -270,6 +274,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   )
   // "" = ไม่กรอง | matched/unmatched = มีคู่ใน Mena-Next มั้ย | same/diff = ขั้นตอนงานตรงกันมั้ย
   const [nextFilter, setNextFilter] = useState<"" | "matched" | "unmatched" | "same" | "diff">("")
+  // เฉพาะงานที่เลยวันคาดพ้นขั้นแล้วยังไม่ขยับสถานะ
+  const [etaOverdueOnly, setEtaOverdueOnly] = useState(false)
+  const etaOverdueOf = (r: RepairExternal) => stageEtaOverdueDays(r, bkkDate())
   // เทียบขั้นตอนงานกับ Mena-Next — "" = เทียบไม่ได้ (ไม่มีคู่ / step ที่ยังไม่รู้จัก / งานอะไหล่ลงคัน)
   const stageCmpOf = (r: RepairExternal): "same" | "diff" | "" => {
     const step = atmsOf(r)?.step ?? ""
@@ -923,6 +930,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   async function save() {
     if (!form.plate.trim())  { swalError("กรุณาระบุทะเบียนรถ"); return }
     if (!form.status)        { swalError("กรุณาเลือกสถานะ"); return }
+    // ทุกครั้งที่เข้าสถานะใหม่ ต้องบอกว่าคาดจะพ้นขั้นนั้นเมื่อไหร่ (สถานะปิดงานไม่ต้อง)
+    // ไม่บังคับตอนแก้ field อื่นโดยไม่แตะสถานะ — จะกวนคนที่แค่มาเติมเลข PR
+    if (form.status !== origStatus) {
+      const etaErr = validateStageEta(form.status, form.stageEta)
+      if (etaErr) { swalError(etaErr); return }
+    }
     // บังคับกรอกให้ครบ "เฉพาะตอนปิดงาน" (รถเสร็จ/ลงคันเสร็จ — สถานะกลางไม่มี PR/PO ได้)
     if (form.status === doneStatusFor(jobTypeOf(form))) {
       const missing = requiredFieldsFor(form.status, jobTypeOf(form)).filter((r) => !String(form[r.field] ?? "").trim())
@@ -990,14 +1003,23 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       setOpen(true)
       return
     }
-    // ไม่ต้องกรอกอะไรเพิ่ม → PUT เปลี่ยนสถานะทันที
+    // เข้าสถานะใหม่ = ต้องบอกวันคาดพ้นขั้นด้วย (สถานะปิดงานไม่ต้อง) — ถามสั้น ๆ ตรงนี้
+    // เพื่อไม่ให้ต้องเปิดฟอร์มทุกครั้งที่ลากการ์ด
+    let stageEta = ""
+    if (stageEtaRequired(newStatus)) {
+      const today   = bkkDate()
+      const preset  = new Date(Date.parse(today) + 3 * 86400000).toISOString().slice(0, 10)
+      const picked  = await swalStageEtaInput(newStatus, today, preset)
+      if (!picked.isConfirmed || !picked.value) return
+      stageEta = String(picked.value)
+    }
     try {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { _id, ...rest } = r
       const res = await fetch(`/api/repair-external/${r._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...rest, status: newStatus }),
+        body: JSON.stringify({ ...rest, status: newStatus, stageEta }),
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "เปลี่ยนสถานะไม่สำเร็จ") }
       swalToast("success", `ย้ายเป็น “${newStatus}”`)
@@ -1058,9 +1080,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || conflictOnly || nextFilter || dateFrom || dateTo
+  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || conflictOnly || nextFilter || etaOverdueOnly || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setNextFilter(""); setDateFrom(""); setDateTo("")
+    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setNextFilter(""); setEtaOverdueOnly(false); setDateFrom(""); setDateTo("")
   }
 
   // วิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง (เฉพาะงานอู่นอกที่ยังไม่ปิด)
@@ -1131,6 +1153,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   if (nextFilter === "unmatched") displayRows = displayRows.filter((r) => nextComparable(r) && !nextMatchedIds.has(r._id))
   if (nextFilter === "same")      displayRows = displayRows.filter((r) => stageCmpOf(r) === "same")
   if (nextFilter === "diff")      displayRows = displayRows.filter((r) => stageCmpOf(r) === "diff")
+  if (etaOverdueOnly) displayRows = displayRows.filter((r) => etaOverdueOf(r) > 0)
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
   const { isDup, dupList } = (() => {
@@ -1155,6 +1178,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const formJobType  = jobTypeOf(form)
   const isParts      = formJobType === JOB_TYPE_PARTS
   const statusLocked = isDoneStatus(origStatus)  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
+
+  // เปลี่ยนสถานะ = ต้องให้คำสัญญาใหม่ ล้างวันคาดของขั้นเดิมทิ้งกันเผลอใช้ค่าเก่า
+  // กลับไปสถานะเดิม = คืนค่าที่บันทึกไว้ ไม่ต้องกรอกซ้ำ
+  function changeStatus(next: string) {
+    setForm((f) => ({
+      ...f,
+      status: next,
+      stageEta: next === origStatus ? (editRow?.stageEta ?? "") : "",
+    }))
+  }
+  // วันคาดที่ยังไม่ได้ตอบ — ใช้ทั้งไฮไลต์ช่องกรอกและกันบันทึก
+  const stageEtaMissing = stageEtaRequired(form.status) && !form.stageEta.trim()
   // บังคับกรอกข้อมูลครบ "เฉพาะตอนจะปิดงาน" — สถานะกลางไม่บังคับ (ไม่มี PR/PO ได้)
   const reqFields    = form.status === doneStatusFor(formJobType) ? requiredFieldsFor(form.status, formJobType) : []
   const reqFieldSet  = new Set(reqFields.map((r) => r.field))
@@ -1593,6 +1628,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               >
                 ☑️ ยังไม่เช็ควันนี้ <span className="opacity-80">{rows.filter((r) => needsDailyCheck(r) && !checkedToday(r)).length} คัน</span>
               </button>
+              <button
+                onClick={() => setEtaOverdueOnly((v) => !v)}
+                title="เลยวันที่เคยบอกไว้ว่าจะพ้นสถานะนี้ แต่สถานะยังไม่ขยับ"
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${etaOverdueOnly ? "bg-[#7C3AED] text-white" : "border border-[#E4D5FB] text-[#7C3AED] hover:bg-[#FAF5FF] dark:border-violet-500/40 dark:text-violet-300 dark:hover:bg-violet-950/20"}`}
+              >
+                ⏰ เลยวันคาด <span className="opacity-80">{rows.filter((r) => etaOverdueOf(r) > 0).length} คัน</span>
+              </button>
               {atms && (
                 <>
                   <button
@@ -1970,6 +2012,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           </button>
                         )}
                       </div>
+                    )}
+                    {etaOverdueOf(r) > 0 && (
+                      <div className="mt-1.5 mr-1 inline-flex items-center gap-1 rounded bg-[#F3E8FF] px-1.5 py-0.5 text-[11px] font-bold text-[#7C3AED] dark:bg-violet-900/25 dark:text-violet-300" title={`เคยบอกว่าจะพ้นสถานะ "${r.status}" ภายใน ${fmtDateShort(r.stageEta)}`}>⏰ เลยคาด {etaOverdueOf(r)} วัน</div>
                     )}
                     {!r.prCode?.trim() && (
                       <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[11px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
@@ -2386,7 +2431,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
-                    <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
+                    <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
                       {statusesFor(formJobType).map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
                     </select>
                     {/* tickbox รอใบเสนอราคา (เฉพาะอู่นอก) — แทนสถานะเดิมที่ถูกถอดจาก workflow */}
@@ -2402,6 +2447,53 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </label>
                     )}
                     {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
+
+                    {/* 🎯 วันคาดว่าจะพ้นสถานะนี้ — ผูกกับ "ขั้น" คนละตัวกับวันกำหนดเสร็จของงานทั้งใบ */}
+                    {stageEtaRequired(form.status) && (() => {
+                      const overdue = stageEtaOverdueDays(form, bkkDate())
+                      const addDays = (n: number) => {
+                        const d = new Date(Date.parse(bkkDate()) + n * 86400000)
+                        return d.toISOString().slice(0, 10)
+                      }
+                      const tone = stageEtaMissing
+                        ? "border-[#F7CFCF] bg-[#FEECEC] dark:border-red-900/40 dark:bg-red-950/20"
+                        : "border-[#E4D5FB] bg-[#FAF5FF] dark:border-violet-500/30 dark:bg-violet-500/10"
+                      return (
+                        <div className={`mt-2 rounded-xl border p-3 ${tone}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <label className="text-[12.5px] font-semibold text-[#7C3AED] dark:text-violet-300">
+                              🎯 คาดว่าจะพ้นสถานะ “{form.status}” เมื่อไหร่ <span className="text-[#DC2626]">*</span>
+                            </label>
+                            {overdue > 0 && (
+                              <span className="rounded-full bg-[#DC2626] px-2 py-0.5 text-[11px] font-bold text-white">เลยคาดมา {overdue} วัน</span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            {[{ n: 1, l: "พรุ่งนี้" }, { n: 3, l: "อีก 3 วัน" }, { n: 7, l: "อีก 7 วัน" }].map((p) => (
+                              <button
+                                key={p.n}
+                                type="button"
+                                onClick={() => setForm((f) => ({ ...f, stageEta: addDays(p.n) }))}
+                                className={`rounded-lg border px-2.5 py-1 text-[11.5px] font-semibold transition ${form.stageEta === addDays(p.n) ? "border-[#7C3AED] bg-[#EDE9FE] text-[#7C3AED] dark:bg-violet-500/20" : "border-[#E2E8E4] dark:border-white/10 text-[#5B7568] dark:text-gray-300 hover:bg-white dark:hover:bg-white/5"}`}
+                              >
+                                {p.l}
+                              </button>
+                            ))}
+                            <input
+                              type="date"
+                              value={form.stageEta}
+                              onChange={(e) => setForm({ ...form, stageEta: e.target.value })}
+                              className="ml-auto rounded-lg border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-[12.5px] text-gray-900 dark:text-white focus:border-[#1B8C4B] focus:outline-none"
+                            />
+                          </div>
+                          <p className="mt-1.5 text-[11px] leading-relaxed text-[#7C3AED]/75 dark:text-violet-300/70">
+                            {stageEtaMissing
+                              ? "ยังไม่ได้ระบุ — บันทึกไม่ได้จนกว่าจะตอบ"
+                              : "เก็บติดกับขั้นนี้ ไม่ใช่งานทั้งใบ · เปลี่ยนสถานะครั้งหน้าต้องตั้งใหม่ · ค่าเดิมเก็บไว้ในประวัติ"}
+                          </p>
+                        </div>
+                      )
+                    })()}
                     {/* ปฏิทินตรวจเช็คประจำวัน — ย้อนหลังตั้งแต่วันรับแจ้ง กดได้เฉพาะช่อง "วันนี้" */}
                     {editId && editRow && needsDailyCheck(editRow) && (() => {
                       const today = bkkDate()

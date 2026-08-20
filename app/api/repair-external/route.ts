@@ -42,6 +42,8 @@ export function buildDoc(body: Record<string, unknown>) {
     garage:       s(body.garage),
     // แปลงชื่อสถานะเดิมเป็นชื่อปัจจุบัน — ทีมภายนอกที่ยังส่ง "รอรถเข้า" มาจะไม่โดน 400
     status:       normalizeStatus(s(body.status)),
+    // วันคาดว่าจะพ้นสถานะปัจจุบัน — ผูกกับขั้น เปลี่ยนสถานะทีไรต้องตั้งใหม่
+    stageEta:     s(body.stageEta),
     // tickbox รอใบเสนอราคา — ใช้กับงานอู่นอกเท่านั้น (อะไหล่ลงคันมีสถานะ รอใบเสนอราคา ใน workflow อยู่แล้ว)
     waitingQuote: s(body.jobType) !== JOB_TYPE_PARTS && body.waitingQuote ? "รอใบเสนอราคา" : "",
     prCode:       s(body.prCode),
