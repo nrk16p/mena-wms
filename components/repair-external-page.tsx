@@ -678,6 +678,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setAtmsTl(null); setAtmsTlErr("")
     loadComments(r._id)
     loadLog(r)
+    // ดึง Mena-Next ให้เลย ไม่ต้องรอกดปุ่ม — fail-soft ถ้า ATMS ล่มก็ยังเปิดฟอร์มได้ปกติ
+    if (jobTypeOf(r) !== JOB_TYPE_PARTS) loadAtmsTimeline(r)
     setOpen(true)
   }
 
@@ -692,12 +694,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   }
 
   // โหลด timeline ATMS ของคันนี้ (ปีปัจจุบัน + mr_id ถ้ารู้)
-  async function loadAtmsTimeline() {
-    if (!form.plate.trim()) return
+  // รับ record มาได้ เพราะตอนเรียกจาก openEdit ค่าใน form ยังไม่ทันอัปเดต
+  async function loadAtmsTimeline(rec?: RepairExternal) {
+    const plate = (rec?.plate ?? form.plate).trim()
+    if (!plate) return
     setAtmsTlLoading(true); setAtmsTlErr("")
     try {
-      const a = editRow ? atmsOf(editRow) : undefined
-      const p = new URLSearchParams({ plate: form.plate.trim() })
+      const src = rec ?? editRow
+      const a = src ? atmsOf(src) : undefined
+      const p = new URLSearchParams({ plate })
       if (a?.mrId) p.set("mr", String(a.mrId))
       const res = await fetch(`/api/repair-external/atms-timeline?${p.toString()}`)
       const d = await res.json()
@@ -2736,11 +2741,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
                   <div className="min-h-[220px] flex-1 space-y-3.5 overflow-y-auto p-4">
                     {/* Mena-Next โหลดเมื่อกด — ยิง API ภายนอกทุกครั้งที่เปิดฟอร์มจะช้าเกินไป */}
-                    {!isParts && atmsTl === null && (
+                    {!isParts && (atmsTl === null || atmsTlLoading) && (
                       <div className="flex items-center justify-between gap-2 rounded-lg border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/60 dark:bg-indigo-900/15 px-3 py-2">
-                        <span className="text-[11.5px] text-indigo-700 dark:text-indigo-300">ยังไม่ได้ดึงเหตุการณ์จาก Mena-Next</span>
-                        <button type="button" onClick={loadAtmsTimeline} disabled={atmsTlLoading || !form.plate.trim()} className="shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
-                          {atmsTlLoading ? "กำลังโหลด..." : "โหลด"}
+                        <span className="text-[11.5px] text-indigo-700 dark:text-indigo-300">
+                          {atmsTlLoading ? "กำลังดึงเหตุการณ์จาก Mena-Next..." : "ยังไม่มีเหตุการณ์จาก Mena-Next"}
+                        </span>
+                        <button type="button" onClick={() => loadAtmsTimeline()} disabled={atmsTlLoading || !form.plate.trim()} className="shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
+                          {atmsTlLoading ? "กำลังโหลด..." : "ลองใหม่"}
                         </button>
                       </div>
                     )}
