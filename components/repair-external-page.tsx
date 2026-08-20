@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, CalendarDays, MessageSquare, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
@@ -253,6 +253,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // key เทียบทะเบียน/เบอร์รถ — ตัดช่องว่างและจุด (ให้ตรงกับ normKey ฝั่ง server)
   const atmsOf = (r: RepairExternal) =>
     atms?.byKey[atmsKey(r.plate)] ?? (r.fleetNo ? atms?.byKey[atmsKey(r.fleetNo)] : undefined)
+
+  // ── กรองตามการ์ด "🔧 อู่นอก WMS / Mena-Next" (เช่น 38 / 39) ──
+  // 39 = คันที่จอดซ่อมจริง + มีงานอู่นอกเปิดใน Mena-Next · 38 = ในนั้นที่จับคู่กับรายการ WMS ได้
+  // ใช้ p.wms.id (= _id ของแถวนี้) ที่ฝั่ง server จับคู่ไว้แล้ว (ทะเบียนก่อน ไม่เจอค่อยเบอร์รถ)
+  const nextMatchedIds = useMemo(
+    () => new Set((atms?.pending ?? []).map((p) => p.wms?.id).filter(Boolean) as string[]),
+    [atms],
+  )
+  // "" = ไม่กรอง | matched = เฉพาะคันที่ตรงกัน 2 ระบบ | unmatched = อู่นอกใน WMS ที่ Mena-Next ไม่มี
+  const [nextFilter, setNextFilter] = useState<"" | "matched" | "unmatched">("")
+  // เทียบได้เฉพาะงานอู่นอก — atms-board ไม่ครอบคลุมงานอะไหล่ลงคัน
+  const nextComparable = (r: RepairExternal) => jobTypeOf(r) !== JOB_TYPE_PARTS
 
   // ── ยืนยันตรวจเช็คประจำวัน — จดเวลา+ผู้เช็คต่อรายการ badge เขียวเมื่อเช็คแล้ววันนี้ ──
   // วันเวลาไทย (+7) — ใช้ helper กลางจาก lib/bkk-time
@@ -982,9 +994,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || conflictOnly || dateFrom || dateTo
+  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || conflictOnly || nextFilter || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setDateFrom(""); setDateTo("")
+    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setNextFilter(""); setDateFrom(""); setDateTo("")
   }
 
   // วิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง (เฉพาะงานอู่นอกที่ยังไม่ปิด)
@@ -1051,6 +1063,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
   if (uncheckedOnly) displayRows = displayRows.filter((r) => needsDailyCheck(r) && !checkedToday(r))
   if (conflictOnly) displayRows = displayRows.filter((r) => jobAlertOf(r)?.kind === "update_needed")
+  if (nextFilter === "matched")   displayRows = displayRows.filter((r) => nextMatchedIds.has(r._id))
+  if (nextFilter === "unmatched") displayRows = displayRows.filter((r) => nextComparable(r) && !nextMatchedIds.has(r._id))
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
   const { isDup, dupList } = (() => {
@@ -1170,18 +1184,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 {breachedPlates.length ? breachedPlates.join(", ") : "ไม่มีรายการค้างเกินกำหนด"}
               </p>
             </button>
-            {/* อู่นอก WMS เทียบ Mena-Next (รถจอดซ่อมจริง) — คลิกเพื่อดูรายการที่ขาด */}
-            <button
-              onClick={() => {
-                setAtmsOpen(true)
-                setTimeout(() => document.getElementById("atms-compare")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50)
-              }}
-              disabled={!atms}
-              title={atms ? "คลิกเพื่อดูรายการที่ขาดในแถบเทียบ Mena-Next" : "กำลังโหลดข้อมูล Mena-Next..."}
-              className={`rounded-2xl border p-4 text-left transition ${atms && atms.missing.length > 0 ? "border-indigo-300 bg-indigo-50/70 dark:border-indigo-500/40 dark:bg-indigo-900/15" : "border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]"} disabled:cursor-default`}
+            {/* อู่นอก WMS เทียบ Mena-Next (รถจอดซ่อมจริง) — คลิกตัวเลขเพื่อกรองเฉพาะคันที่ตรงกัน · คลิกบรรทัดล่างเพื่อดูรายการที่ขาด */}
+            <div
+              className={`rounded-2xl border p-4 text-left transition ${
+                nextFilter === "matched"
+                  ? "border-indigo-500 ring-2 ring-indigo-500/30 bg-indigo-50/70 dark:border-indigo-400 dark:bg-indigo-900/20"
+                  : atms && atms.missing.length > 0
+                    ? "border-indigo-300 bg-indigo-50/70 dark:border-indigo-500/40 dark:bg-indigo-900/15"
+                    : "border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10]"
+              }`}
             >
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">🔧 อู่นอก WMS / Mena-Next</p>
-              <div className="mt-1.5 flex items-baseline gap-1.5">
+              <button
+                type="button"
+                onClick={() => setNextFilter((v) => (v === "matched" ? "" : "matched"))}
+                disabled={!atms}
+                title={atms ? "คลิกเพื่อกรองเฉพาะคันที่มีทั้งใน WMS และ Mena-Next" : "กำลังโหลดข้อมูล Mena-Next..."}
+                className="mt-1.5 flex items-baseline gap-1.5 disabled:cursor-default"
+              >
                 {atms ? (
                   <>
                     <span className="text-[34px] font-semibold leading-none text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{atms.pending.filter((p) => p.wms).length}</span>
@@ -1191,13 +1211,26 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 ) : (
                   <span className="text-[34px] font-semibold leading-none text-gray-300 dark:text-gray-600" style={{ fontFamily: "'Mitr', sans-serif" }}>…</span>
                 )}
-              </div>
+              </button>
               {atms && (
-                atms.missing.length > 0
-                  ? <p className="mt-1.5 text-[11px] font-bold text-rose-600 dark:text-rose-300">ขาดในระบบ {atms.missing.length} คัน — คลิกดูรายการ</p>
-                  : <p className="mt-1.5 text-[11px] text-[#1B8C4B]">ครบทุกคันตามรถจอดซ่อมจริง ✓</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAtmsOpen(true)
+                    setTimeout(() => document.getElementById("atms-compare")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50)
+                  }}
+                  title="เปิดแถบเทียบ Mena-Next"
+                  className="mt-1.5 block text-left text-[11px] hover:underline"
+                >
+                  {atms.missing.length > 0
+                    ? <span className="font-bold text-rose-600 dark:text-rose-300">ขาดในระบบ {atms.missing.length} คัน — คลิกดูรายการ</span>
+                    : <span className="text-[#1B8C4B]">ครบทุกคันตามรถจอดซ่อมจริง ✓</span>}
+                </button>
               )}
-            </button>
+              {nextFilter === "matched" && (
+                <p className="mt-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-300">กำลังกรอง: เฉพาะคันที่ตรงกับ Mena-Next</p>
+              )}
+            </div>
             {/* การกระจายตามอายุงาน */}
             <div className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
               <div className="flex items-center justify-between">
@@ -1494,6 +1527,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               >
                 ☑️ ยังไม่เช็ควันนี้ <span className="opacity-80">{rows.filter((r) => needsDailyCheck(r) && !checkedToday(r)).length} คัน</span>
               </button>
+              {atms && (
+                <>
+                  <button
+                    onClick={() => setNextFilter((v) => (v === "matched" ? "" : "matched"))}
+                    title="เฉพาะคันที่มีทั้งใน WMS และ Mena-Next (รถจอดซ่อมจริง + มีงานอู่นอกเปิด) — ตัวเลขซ้ายของการ์ด 🔧 อู่นอก WMS / Mena-Next"
+                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "matched" ? "bg-indigo-600 text-white" : "border border-indigo-200 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-950/30"}`}
+                  >
+                    🔗 ตรงกับ Mena-Next <span className="opacity-80">{rows.filter((r) => nextMatchedIds.has(r._id)).length} คัน</span>
+                  </button>
+                  <button
+                    onClick={() => setNextFilter((v) => (v === "unmatched" ? "" : "unmatched"))}
+                    title="งานอู่นอกใน WMS ที่ Mena-Next ไม่มี (รถไม่ได้จอดซ่อมแล้ว หรือไม่มีงานเปิด) — ตรวจว่าปิดงานได้หรือยัง"
+                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "unmatched" ? "bg-rose-600 text-white" : "border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/30"}`}
+                  >
+                    ⚠️ ไม่พบใน Mena-Next <span className="opacity-80">{rows.filter((r) => nextComparable(r) && !nextMatchedIds.has(r._id)).length} คัน</span>
+                  </button>
+                </>
+              )}
             </div>
             {/* แถวอู่นอก + แถวอะไหล่ลงคัน (ซ่อนแถวที่ไม่เกี่ยวเมื่อกรองประเภทอยู่) */}
             {(fType === "" || fType === JOB_TYPE_GARAGE) && chipRow(JOB_TYPE_GARAGE, "🔧", ACTIVE_STATUSES)}
