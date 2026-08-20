@@ -131,7 +131,7 @@ const showVal = (v: string) => (v === "" || v == null ? "(ว่าง)" : v)
 
 /* ── ไทม์ไลน์รวม: ประวัติสถานะ · Mena-Next · ความคิดเห็น อยู่เส้นเดียวกัน ──
  * เดิมเป็น 3 กล่องแยก ทำให้ปะติดปะต่อลำดับเหตุการณ์ข้ามระบบไม่ได้
- * เรียงเก่า→ใหม่ให้ตรงกับที่ทีมอ่านอยู่เดิม ช่องเขียนอยู่ท้ายสุดติดกับเหตุการณ์ล่าสุด */
+ * เรียงใหม่→เก่า (ข้อความตอบกลับยังเรียงเก่า→ใหม่ใต้ความคิดเห็นหลัก เพราะเป็นบทสนทนา) */
 type FeedKind = "status" | "next" | "note"
 const FEED_TABS: { id: "all" | FeedKind; label: string }[] = [
   { id: "all",    label: "ทั้งหมด" },
@@ -1111,7 +1111,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
     // ตอบกลับแสดงซ้อนใต้ความคิดเห็นหลัก ไม่แยกเป็นรายการในสาย
     for (const c of comments) if (!c.parentId) out.push({ kind: "note", key: `c-${c._id}`, at: c.at, by: "", c })
-    return out.sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0))
+    // ใหม่→เก่า — เหตุการณ์ล่าสุดอยู่บนสุด ไม่ต้องเลื่อนหา
+    return out.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0))
   })()
   const feedShown = feedTab === "all" ? feedItems : feedItems.filter((f) => feedKindOf(f) === feedTab)
 
