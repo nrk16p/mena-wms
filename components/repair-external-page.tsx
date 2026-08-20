@@ -2545,7 +2545,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
 
                   {/* ── การต่อรอง ── */}
-                  <div className="sm:col-span-2 rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] p-3">
+                  <div className="col-span-6 rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] p-3">
                     <div className="mb-2.5 flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">💬 การต่อรอง</p>
                       <div className="inline-flex rounded-lg border border-[#E2E8E4] dark:border-white/10 p-0.5">
@@ -2567,7 +2567,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         <TagInput value={form.negotiationItem} onChange={(v) => setForm({ ...form, negotiationItem: v })} placeholder="พิมพ์สินค้า/บริการ แล้วกด Enter" />
                       </div>
                     )}
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-3">
                       <div>
                         <label className={labelCls}>ราคาเสนอครั้งแรก (บาท)</label>
                         <input type="number" min={0} step="0.01" value={form.offerPrice || ""} onChange={(e) => setForm({ ...form, offerPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
