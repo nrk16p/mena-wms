@@ -5,7 +5,7 @@ import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Tabl
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
-import { swalDeleteConfirm, swalConfirm, swalToast, swalError, swalStageEtaInput } from "@/lib/swal"
+import { swalDeleteConfirm, swalToast, swalError, swalStageEtaInput } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
 import {
@@ -1043,28 +1043,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       load(); loadStats(); loadAtmsBoard()
     } catch (e) {
       swalError(e instanceof Error ? e.message : "เปลี่ยนสถานะไม่สำเร็จ")
-    }
-  }
-
-  // ย้อนสถานะกลับ (จาก log drawer) — รถเสร็จแล้วย้อนไม่ได้
-  async function revertStatus(record: RepairExternal, toStatus: string) {
-    if (isDoneStatus(record.status)) { swalError("รายการที่ปิดงานแล้ว ย้อนสถานะไม่ได้"); return }
-    const ok = await swalConfirm("ย้อนสถานะกลับ?", `จาก “${record.status}” → “${toStatus}”`)
-    if (!ok.isConfirmed) return
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { _id, ...rest } = record
-      const res = await fetch(`/api/repair-external/${record._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...rest, status: toStatus }),
-      })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "ย้อนไม่สำเร็จ") }
-      swalToast("success", `ย้อนสถานะเป็น “${toStatus}”`)
-      setOpen(false)   // ย้อนจากในฟอร์ม — ปิดฟอร์มให้โหลดข้อมูลใหม่
-      load(); loadStats(); loadAtmsBoard()
-    } catch (e) {
-      swalError(e instanceof Error ? e.message : "ย้อนไม่สำเร็จ")
     }
   }
 
@@ -2793,17 +2771,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                                 <span className="ml-1.5 text-[11.5px] text-[#5B7568] dark:text-gray-400">
                                   {f.e.action === "create" ? "เปิดรายการ" : `จาก ${showVal(f.e.statusChange?.from ?? "")}`}
                                 </span>
-                                {/* ย้อนกลับมาสถานะนี้ — เฉพาะสถานะเก่าที่ไม่ใช่อันปัจจุบัน และงานยังไม่ปิด */}
-                                {editRow && !isDoneStatus(editRow.status) && f.e.statusChange?.to && f.e.statusChange.to !== editRow.status && (
-                                  <button
-                                    type="button"
-                                    onClick={() => revertStatus(editRow, f.e.statusChange!.to)}
-                                    title={`ย้อนสถานะกลับเป็น “${f.e.statusChange.to}”`}
-                                    className="ml-1.5 rounded border border-[#E2E8E4] dark:border-white/10 px-1.5 py-0.5 text-[10.5px] font-medium text-[#5B7568] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
-                                  >
-                                    ย้อนกลับมาที่นี่
-                                  </button>
-                                )}
                                 {f.eta && (
                                   <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#F3E8FF] px-1.5 py-0.5 text-[10.5px] font-bold text-[#7C3AED] dark:bg-violet-900/25 dark:text-violet-300">
                                     🎯 คาดพ้นขั้นนี้ {fmtDateShort(f.eta)}
