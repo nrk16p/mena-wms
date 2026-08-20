@@ -104,24 +104,21 @@
 3. Take odometer photo with phone camera
 4. Tap "บันทึกคำขอ & ดูประวัติยาง"
 5. System shows all tires currently fitted on the truck with health status
-6. Also shows current **MR status** for that truck (e.g. รอประเมิน / ซ่อมเสร็จ) — driver knows if the truck already has an open repair job
-7. Tap "ขอเปลี่ยนยาง" on the problematic tire
-8. Fill in: สาเหตุ (required), มิลยาง, หมายเหตุ, up to 3 tire photos
-9. Odometer photo auto-appears in the modal as confirmation
-10. Tap "ส่งคำขอ"
+6. Tap "ขอเปลี่ยนยาง" on the problematic tire
+7. Fill in: สาเหตุ (required), มิลยาง, หมายเหตุ, up to 3 tire photos
+8. Odometer photo auto-appears in the modal as confirmation
+9. Tap "ส่งคำขอ"
 
 **Special case — รถกินยาง:**
-- System auto-creates a Maintenance Request (MR) in the external repair system
-- MR fields: truck plate, status = `estimate_pending`, remark = position + serial no, today's date
-- Success toast: "ส่งคำขอเปลี่ยนยาง สำเร็จ — สร้าง MR แล้ว"
-- If MR fails: warning toast, tire request still saved, staff must create MR manually
+- The tire request is saved like any other reason; **no MR is created automatically**
+- An admin opens the MR by hand from แท็บ "คำขอ / อนุมัติ" (see MR section below)
+- The tire cannot be approved until that MR is closed (`completed`)
 
 **Acceptance criteria:**
 - [ ] Form requires: ชื่อคนขับ, ทะเบียน, เบอร์รถ, เลขไมล์, สาเหตุ
 - [ ] Up to 3 tire condition photos per tire
 - [ ] 1 odometer photo per request (shared across all tire items)
-- [ ] MR auto-created only when reason = "รถกินยาง"
-- [ ] MR failure does not block the tire request from saving
+- [ ] Approval of a "รถกินยาง" item is blocked while its MR is not `completed`
 
 ---
 
@@ -325,41 +322,46 @@ pending → approved → appointment → done
 
 ---
 
-## External API Integration — Maintenance Request (MR)
+## Maintenance Request (MR) — internal, for reason "รถกินยาง" only
 
-**Base URL:** `https://fastapinextjs-548129382487.asia-southeast3.run.app`
+MR lives in this system (Mongo `tire_mr`), **not** in the external repair API.
+One MR = one truck plate. Status rules live in [`lib/tire-mr.ts`](../lib/tire-mr.ts) and are shared by API + UI.
 
-All calls proxied through Next.js API routes to keep the external URL server-side.
+### Endpoints
 
-### Endpoints used
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/api/tire-mr?branch=&plate=` | GET | any signed-in | MR history of a plate (newest first, max 100, includes `logs`) |
+| `/api/tire-mr/latest?branch=&plates=a,b` | GET | any signed-in | Latest MR per plate → `MrSummary` map (used by chips + approve gate) |
+| `/api/tire-mr/[id]` | GET | any signed-in | One MR + full timeline (`logs`) |
+| `/api/tire-mr` | POST | signed-in | Open an MR (rejects 409 if the plate already has one that is not `completed`) |
+| `/api/tire-mr/[id]` | PATCH | signed-in | Advance status + append a log entry |
+| `/api/tire-mr/[id]` | DELETE | **admin** | Remove an MR (whole doc + timeline) |
 
-| Internal route | Method | External endpoint | When called |
-|----------------|--------|-------------------|-------------|
-| `/api/maintenance-request` | POST | `/maintenancerequest/pending-status` | Auto on รถกินยาง submit |
-| `/api/maintenance-request/latest` | POST | `/maintenancerequest/pending-status/latest` | Report tab + change-request page after search |
-| `/api/maintenance-request/logs` | GET | `/maintenancerequest/pending-status/{plate}/logs` | MR log modal open |
+Create/advance sit at the same permission level as approving a tire (any signed-in user),
+because the staff who approve tires are the ones who chase the repair. Only the destructive
+delete is admin-only.
 
-### Status values (confirmed from live data)
+### Status values
 
 | Value | Display (TH) | Chip colour |
 |-------|-------------|-------------|
-| `estimate_pending` | รอประเมิน | Amber |
-| `completed` | ซ่อมเสร็จ | Green |
-| `In Maintenance` | กำลังซ่อม | Red |
+| `pending` | รอดำเนินการ | Amber |
+| `in_progress` | กำลังซ่อม | Orange |
+| `completed` | ซ่อมเสร็จแล้ว | Green |
 
-### Auto-create MR payload (reason = รถกินยาง)
+Transitions are **forward-only, one step at a time**: `pending → in_progress → completed`.
+Anything else (repeat, skip, rewind) is rejected with 409. The PATCH also matches on the
+current status, so two admins pressing at once cannot double-apply.
 
-```json
-{
-  "truckplate": "<plate>",
-  "status": "In Maintenance",
-  "useradd": "<session user name>",
-  "remark": "รถกินยาง — ตำแหน่ง <positionCode> (<serialNo>)",
-  "date_log": "<YYYY-MM-DD today>"
-}
-```
+### Notes & timeline
 
-> ⚠️ `"In Maintenance"` has not been confirmed as a valid status in live data. Consider switching to `"estimate_pending"` if the external system rejects it.
+- Every create/status change appends `{ status, note, updatedBy, updatedAt }` to `logs[]`
+- `note` on the doc head = the most recent **non-empty** note (an empty note does not wipe the previous one)
+- `updatedBy` / `createdBy` come from the session — the client cannot spoof them
+- UI: แท็บ "คำขอ / อนุมัติ" (`/tire`) shows the MR chip + next-step button right under the สาเหตุ cell,
+  and the row's detail modal carries the full panel (status, latest note, who/when, **ไทม์ไลน์** modal reading `/api/tire-mr/[id]`).
+  The per-request admin page (`/tire/<branch>/requests`) has the same controls inside its expanded row.
 
 ---
 
@@ -371,6 +373,7 @@ All calls proxied through Next.js API routes to keep the external URL server-sid
 | `tire_change` | master_data | Synced from ATMS — one doc per position per truck (isLatest flag) |
 | `tire_change_request` | master_data | Driver requests + embedded items array |
 | `tire_spec_master` | master_data | Global tire spec catalog (brand+size+model → distance) |
+| `tire_mr` | master_data | Internal MR per plate for reason "รถกินยาง" (+ `logs[]` timeline) |
 
 ---
 
@@ -379,7 +382,7 @@ All calls proxied through Next.js API routes to keep the external URL server-sid
 1. **Serial No is unique per branch** — duplicate rejected on add
 2. **Distance comes from Tire Spec Master** — staff never types it manually when specs are set up
 3. **Odometer photo is per-request** — one photo shared across all tire items in the same submission
-4. **MR is only auto-created for "รถกินยาง"** — all other reasons are tire-only, no MR
-5. **MR failure is non-blocking** — tire request saves regardless; warning toast tells staff to create MR manually
+4. **MR applies only to "รถกินยาง"** — all other reasons are tire-only, no MR; the MR is opened by an admin, never automatically
+5. **A "รถกินยาง" tire cannot be approved until its MR is `completed`** — enforced in all three approve screens (fleet detail, คำขอ/อนุมัติ, tracking V.2)
 6. **ATMS is the source of truth for tire history** — web system only stores stock + requests; actual change records come from ATMS sync
 7. **PR Report efficiency** — ฿/กม. in red = actual cost exceeded the tire's rated cost per km (worn out before rated distance)
