@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
-import { ClipboardCheck, Search, ChevronDown, ChevronUp, Check, X, Flag, History } from "lucide-react"
+import { ClipboardCheck, Search, ChevronDown, ChevronUp, Check, X, Flag, History, Clock } from "lucide-react"
 import Swal from "sweetalert2"
 import { swalConfirm, swalToast, swalError } from "@/lib/swal"
+import { mrChip, MR_LABEL, type MrStatus, type MrSummary } from "@/lib/tire-mr"
+import { MrTimelineDialog } from "@/components/mr-timeline"
 
 type RequestItem = {
   _id:            string
@@ -119,9 +121,10 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
   const [q, setQ]             = useState("")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [acting, setActing]       = useState(false)
-  // internal MR: plate → { mrId, status, note, updatedAt } | null (null = no MR created yet)
-  const [mrMap, setMrMap] = useState<Record<string, { mrId: string; status: string; note: string; updatedAt: string } | null>>({})
+  // internal MR: plate → MrSummary | null (null = no MR created yet, undefined = ยังไม่ได้เช็ค)
+  const [mrMap, setMrMap] = useState<Record<string, MrSummary | null>>({})
   const [repairPlate, setRepairPlate] = useState<string | null>(null)
+  const [timelineMr, setTimelineMr] = useState<{ mrId: string; plate: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -164,7 +167,7 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
     const plate = req.plate
     fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(req.branch)}&plates=${encodeURIComponent(plate)}`)
       .then((r) => r.json())
-      .then((data: Record<string, { mrId: string; status: string; note: string; updatedAt: string }>) => {
+      .then((data: Record<string, MrSummary>) => {
         setMrMap((prev) => ({ ...prev, [plate]: data[plate] ?? null }))
       })
       .catch(() => {})
@@ -205,19 +208,21 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
     load()
   }
 
-  function mrChip(status: string) {
-    if (status === "completed")  return { label: "ซ่อมเสร็จแล้ว", cls: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300" }
-    if (status === "in_progress") return { label: "กำลังซ่อม",     cls: "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300" }
-    return { label: "รอดำเนินการ",    cls: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" }
+  /** โหลด MR ล่าสุดของทะเบียนใหม่ — ใช้หลังอัปเดตชนกัน (409) เพื่อดึงสถานะจริงมาแสดง */
+  async function reloadMr(r: TireRequest) {
+    const data: Record<string, MrSummary> = await fetch(
+      `/api/tire-mr/latest?branch=${encodeURIComponent(r.branch)}&plates=${encodeURIComponent(r.plate)}`
+    ).then((res) => res.json()).catch(() => ({}))
+    setMrMap((prev) => ({ ...prev, [r.plate]: data[r.plate] ?? null }))
   }
 
   async function handleCreateMr(r: TireRequest) {
     const { value, isConfirmed } = await Swal.fire<string>({
       title: "สร้าง MR",
-      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b></div>`,
+      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b> · สาเหตุ <b>รถกินยาง</b></div>`,
       input: "textarea",
       inputLabel: "หมายเหตุ (ไม่บังคับ)",
-      inputAttributes: { rows: "3", placeholder: "ระบุรายละเอียดการซ่อม..." },
+      inputAttributes: { rows: "3", placeholder: "ระบุอาการ / สิ่งที่ต้องซ่อม..." },
       showCancelButton: true,
       confirmButtonText: "สร้าง MR",
       cancelButtonText: "ยกเลิก",
@@ -227,24 +232,36 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
     const res = await fetch("/api/tire-mr", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch: r.branch, plate: r.plate, requestId: r._id, note: value ?? "", createdBy: session?.user?.name ?? "" }),
+      body: JSON.stringify({ branch: r.branch, plate: r.plate, requestId: r._id, note: value ?? "" }),
     })
-    if (!res.ok) { swalError("สร้าง MR ไม่สำเร็จ"); return }
-    const data = await res.json()
-    setMrMap((prev) => ({ ...prev, [r.plate]: { mrId: String(data._id), status: "pending", note: value ?? "", updatedAt: new Date().toISOString() } }))
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      swalError(data.error ?? "สร้าง MR ไม่สำเร็จ")
+      if (res.status === 409) reloadMr(r)   // มีใบค้างอยู่แล้ว — ดึงใบจริงมาโชว์
+      return
+    }
+    const now  = new Date().toISOString()
+    const user = session?.user?.name ?? ""
+    setMrMap((prev) => ({
+      ...prev,
+      [r.plate]: {
+        mrId: String(data._id), status: "pending", note: (value ?? "").trim(),
+        updatedBy: user, updatedAt: now, createdBy: user, createdAt: now, logsCount: 1,
+      },
+    }))
     swalToast("success", "สร้าง MR แล้ว")
   }
 
-  async function handleMrStatusUpdate(r: TireRequest, nextStatus: string) {
+  async function handleMrStatusUpdate(r: TireRequest, nextStatus: MrStatus) {
     const mr = mrMap[r.plate]
     if (!mr) return
-    const label = nextStatus === "in_progress" ? "เริ่มดำเนินการซ่อม" : "ปิด MR — ซ่อมเสร็จแล้ว"
+    const closing = nextStatus === "completed"
     const { value, isConfirmed } = await Swal.fire<string>({
-      title: label,
-      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b></div>`,
+      title: closing ? "ปิด MR — ซ่อมเสร็จแล้ว" : "เริ่มดำเนินการซ่อม",
+      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${r.plate}</b> · ${MR_LABEL[mr.status as MrStatus] ?? mr.status} → <b>${MR_LABEL[nextStatus]}</b></div>`,
       input: "textarea",
       inputLabel: "หมายเหตุ (ไม่บังคับ)",
-      inputAttributes: { rows: "2" },
+      inputAttributes: { rows: "2", placeholder: closing ? "สรุปงานที่ซ่อม..." : "รายละเอียดการซ่อม / ผู้รับผิดชอบ..." },
       showCancelButton: true,
       confirmButtonText: "ยืนยัน",
       cancelButtonText: "ยกเลิก",
@@ -254,11 +271,19 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
     const res = await fetch(`/api/tire-mr/${mr.mrId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus, note: value ?? "", updatedBy: session?.user?.name ?? "" }),
+      body: JSON.stringify({ status: nextStatus, note: value ?? "" }),
     })
-    if (!res.ok) { swalError("อัปเดตไม่สำเร็จ"); return }
-    setMrMap((prev) => ({ ...prev, [r.plate]: { ...mr, status: nextStatus, updatedAt: new Date().toISOString() } }))
-    swalToast("success", `อัปเดต MR เป็น "${mrChip(nextStatus).label}" แล้ว`)
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      swalError(data.error ?? "อัปเดตไม่สำเร็จ")
+      if (res.status === 409) reloadMr(r)   // คนอื่นอัปเดตไปแล้ว — ซิงก์สถานะจริง
+      return
+    }
+    setMrMap((prev) => ({
+      ...prev,
+      [r.plate]: { ...mr, status: data.status, note: data.note, updatedBy: data.updatedBy, updatedAt: data.updatedAt, logsCount: data.logsCount },
+    }))
+    swalToast("success", `อัปเดต MR เป็น "${MR_LABEL[nextStatus]}" แล้ว`)
   }
 
   async function handleItemApprove(r: TireRequest, it: RequestItem) {
@@ -490,20 +515,35 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                                             )
                                             const { label, cls } = mrChip(mr.status)
                                             return (
-                                              <div className="flex flex-col gap-1">
+                                              <div className="flex flex-col items-start gap-1">
                                                 <span className={`inline-block rounded px-1.5 py-px text-[10px] font-semibold ${cls}`}>MR: {label}</span>
-                                                {mr.status === "pending" && (
-                                                  <button type="button" onClick={() => handleMrStatusUpdate(r, "in_progress")}
-                                                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-orange-500 text-white hover:opacity-90 transition-opacity">
-                                                    เริ่มซ่อม
-                                                  </button>
+                                                {/* หมายเหตุล่าสุด + คนอัปเดต — เดิมพิมพ์ไว้แล้วไม่โผล่ที่ไหนเลย */}
+                                                {mr.note && (
+                                                  <span className="max-w-[200px] truncate text-[10px] text-gray-500 dark:text-gray-400" title={mr.note}>
+                                                    “{mr.note}”
+                                                  </span>
                                                 )}
-                                                {mr.status === "in_progress" && (
-                                                  <button type="button" onClick={() => handleMrStatusUpdate(r, "completed")}
-                                                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-green-600 text-white hover:opacity-90 transition-opacity">
-                                                    ซ่อมเสร็จ ✓
+                                                <span className="text-[9px] text-gray-400">
+                                                  {fmtDate(mr.updatedAt)}{mr.updatedBy ? ` · ${mr.updatedBy}` : ""}
+                                                </span>
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                  {mr.status === "pending" && (
+                                                    <button type="button" onClick={() => handleMrStatusUpdate(r, "in_progress")}
+                                                      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-orange-500 text-white hover:opacity-90 transition-opacity">
+                                                      เริ่มซ่อม
+                                                    </button>
+                                                  )}
+                                                  {mr.status === "in_progress" && (
+                                                    <button type="button" onClick={() => handleMrStatusUpdate(r, "completed")}
+                                                      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-green-600 text-white hover:opacity-90 transition-opacity">
+                                                      ซ่อมเสร็จ ✓
+                                                    </button>
+                                                  )}
+                                                  <button type="button" onClick={() => setTimelineMr({ mrId: mr.mrId, plate: r.plate })}
+                                                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 hover:opacity-90 transition-opacity">
+                                                    <Clock size={9} /> ไทม์ไลน์{mr.logsCount ? ` (${mr.logsCount})` : ""}
                                                   </button>
-                                                )}
+                                                </div>
                                               </div>
                                             )
                                           })()}
@@ -628,6 +668,10 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
 
       {repairPlate && (
         <RepairHistoryDialog plate={repairPlate} onClose={() => setRepairPlate(null)} />
+      )}
+
+      {timelineMr && (
+        <MrTimelineDialog mrId={timelineMr.mrId} plate={timelineMr.plate} onClose={() => setTimelineMr(null)} />
       )}
     </div>
   )

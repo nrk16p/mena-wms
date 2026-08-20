@@ -12,13 +12,19 @@
 // ข้อมูลมาจาก endpoint เดิม (`/api/tire-change-request`) ทั้งก้อน แล้วกรอง/นับฝั่งหน้าเว็บ
 // ตัวเลขบนการ์ดกับชิปจึงตรงกับสิ่งที่กดแล้วจะเห็นเสมอ ไม่ใช่เลขจากคิวรีอีกชุด
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
 import Swal from "sweetalert2"
 import {
-  ArrowDown, ArrowUp, CalendarClock, Check, ChevronLeft, ChevronRight, FilePlus2, Flag,
-  Inbox, ListFilter, Lock, RefreshCw, Search, X,
+  ArrowDown, ArrowUp, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
+  Clock, Copy, FilePlus2, FileSpreadsheet, Flag, Inbox, ListFilter, Lock, RefreshCw, Search, X,
 } from "lucide-react"
+import { bkkToday } from "@/lib/bkk-time"
+import {
+  downloadExcelTable, xlsDate, XLS_DATE_FMT, XLS_DATETIME_FMT, type ExcelCol,
+} from "@/lib/excel-table"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
+import { MR_LABEL, MR_NEXT, mrChip, type MrStatus, type MrSummary } from "@/lib/tire-mr"
+import { MrTimelineList } from "@/components/mr-timeline"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -249,14 +255,26 @@ const matchesQuery = (row: TxRow, q: string) => {
 
 // ── เรียง / กรอง รายคอลัมน์ (แบบ Excel) ─────────────────────────────────────
 
-type SortKey = "age" | "plate" | "position" | "reason" | "tread" | "stage" | "last"
+type SortKey = "age" | "plate" | "truck" | "position" | "reason" | "tread" | "stage" | "last"
 type SortDir = "asc" | "desc"
 type SortState = { key: SortKey; dir: SortDir } | null
+
+/** เบอร์รถที่ยังไม่กรอก ต้องไปกองท้ายสุดเสมอ ไม่ว่าจะเรียงขึ้นหรือลง */
+const NO_TRUCK_SORT = "￿"
+
+function truckSortValue(no?: string) {
+  const t = (no ?? "").trim()
+  if (!t) return NO_TRUCK_SORT
+  return /^\d+$/.test(t) ? t.padStart(10, "0") : t
+}
 
 /** ค่าที่ใช้เทียบเวลาเรียง — ตัวเลขเทียบด้วยตัวเลข ข้อความเทียบตามลำดับพจนานุกรมไทย */
 const SORT_VALUE: Record<SortKey, (r: TxRow) => number | string> = {
   age:      (r) => r.ageDays,
   plate:    (r) => r.plate || "",
+  // เบอร์รถส่วนใหญ่เป็นตัวเลขล้วน — เทียบดิบ ๆ แบบข้อความจะได้ 10 มาก่อน 9
+  // เติมศูนย์หน้าให้ยาวเท่ากันก่อนเทียบ ส่วนเบอร์ที่มีตัวอักษรปนก็ยังเรียงตามพจนานุกรมได้
+  truck:    (r) => truckSortValue(r.request.truckNumber),
   position: (r) => r.item.positionCode || r.item.positionName || "",
   reason:   (r) => r.item.reason || "",
   tread:    (r) => r.item.currentTreadMm || 0,
@@ -264,9 +282,9 @@ const SORT_VALUE: Record<SortKey, (r: TxRow) => number | string> = {
   last:     (r) => timeOf(r.last.at) || 0,
 }
 
-type FacetKey = "plate" | "position" | "reason" | "stage"
+type FacetKey = "plate" | "truck" | "position" | "reason" | "stage"
 
-const FACET_KEYS = ["plate", "position", "reason", "stage"] as const
+const FACET_KEYS = ["plate", "truck", "position", "reason", "stage"] as const
 
 /**
  * ค่าที่โผล่ในรายการติ๊กของแต่ละคอลัมน์ — ต้องเป็น "ข้อความเดียวกับที่เห็นในเซลล์"
@@ -274,6 +292,7 @@ const FACET_KEYS = ["plate", "position", "reason", "stage"] as const
  */
 const FACET_VALUE: Record<FacetKey, (r: TxRow) => string> = {
   plate:    (r) => r.plate || "—",
+  truck:    (r) => (r.request.truckNumber || "").trim() || "ไม่ระบุเบอร์รถ",
   position: (r) => r.item.positionName || r.item.positionCode || "ไม่ระบุตำแหน่ง",
   reason:   (r) => r.item.reason || "ไม่ระบุสาเหตุ",
   stage:    (r) => STATUS_LABEL[r.stage] ?? r.stage,
@@ -283,7 +302,7 @@ type FacetState = Record<FacetKey, string[]>
 type FacetOption = { value: string; count: number }
 
 /** ค่าเริ่มต้น: ไม่ติ๊กอะไรเลย = ไม่กรอง (ไม่ใช่ติ๊กครบแบบ Excel — ไม่ต้องมาไล่เอาติ๊กออก) */
-const NO_FACETS: FacetState = { plate: [], position: [], reason: [], stage: [] }
+const NO_FACETS: FacetState = { plate: [], truck: [], position: [], reason: [], stage: [] }
 
 const hasFacet = (f: FacetState) => FACET_KEYS.some((k) => f[k].length > 0)
 
@@ -309,6 +328,62 @@ type HeadCtx = {
 // ตัวหน้า
 // ===========================================================================
 
+// ── หน้าตาไฟล์ Excel ที่ส่งออก ───────────────────────────────────────────────
+// เรียงคอลัมน์ตามลำดับที่คนไล่อ่านจริงบนหน้าเว็บ แล้วรวบเป็นกลุ่ม: ใบนี้เก่าแค่ไหน →
+// ของรถคันไหน → ยางเส้นไหน → สภาพเป็นยังไง → ตอนนี้ถึงไหนแล้ว
+// 5 คอลัมน์แรกถูกตรึงไว้ (freezeCols) — เลื่อนไปขวาสุดก็ยังรู้ว่าแถวนี้ของรถคันไหน
+
+const TX_EXPORT_COLS: ExcelCol[] = [
+  { key: "age",         header: "อายุ\n(วัน)",          width: 8,  group: "คำขอ", align: "center", numFmt: "0" },
+  { key: "createdAt",   header: "วันที่แจ้ง",             width: 12, group: "คำขอ", align: "center", numFmt: XLS_DATE_FMT },
+  { key: "branch",      header: "สาขา",                 width: 11, group: "คำขอ", align: "center" },
+
+  { key: "plate",       header: "ทะเบียน",               width: 13, group: "รถ / ผู้แจ้ง" },
+  { key: "truck",       header: "เบอร์รถ",               width: 10, group: "รถ / ผู้แจ้ง", align: "center" },
+  { key: "driver",      header: "คนขับ",                 width: 19, group: "รถ / ผู้แจ้ง" },
+  { key: "requestedBy", header: "ผู้แจ้ง",                width: 19, group: "รถ / ผู้แจ้ง" },
+
+  { key: "pos",         header: "ตำแหน่ง",               width: 10, group: "ยางที่ขอเปลี่ยน", align: "center" },
+  { key: "posName",     header: "ชื่อตำแหน่ง",            width: 16, group: "ยางที่ขอเปลี่ยน" },
+  { key: "reason",      header: "สาเหตุ",                width: 15, group: "ยางที่ขอเปลี่ยน" },
+  { key: "serial",      header: "Serial",               width: 16, group: "ยางที่ขอเปลี่ยน" },
+  { key: "product",     header: "รุ่นยาง",                width: 20, group: "ยางที่ขอเปลี่ยน" },
+  { key: "job",         header: "ใบแจ้งซ่อม\nATMS",      width: 16, group: "ยางที่ขอเปลี่ยน", align: "center" },
+
+  { key: "tread",       header: "มิลยาง\n(มม.)",         width: 10, group: "สภาพยาง / ระยะทาง", align: "right", numFmt: "0.0" },
+  { key: "pct",         header: "คงเหลือ\n(%)",          width: 10, group: "สภาพยาง / ระยะทาง", align: "right", numFmt: "0" },
+  { key: "odo",         header: "ไมล์ตอนขอ\n(กม.)",      width: 14, group: "สภาพยาง / ระยะทาง", align: "right", numFmt: "#,##0" },
+  { key: "mileStart",   header: "ไมล์ตอนใส่ยาง\n(กม.)",   width: 15, group: "สภาพยาง / ระยะทาง", align: "right", numFmt: "#,##0" },
+  { key: "used",        header: "ระยะใช้งาน\n(กม.)",      width: 14, group: "สภาพยาง / ระยะทาง", align: "right", numFmt: "#,##0" },
+
+  { key: "status",      header: "สถานะ",                width: 13, group: "ตอนนี้ถึงไหนแล้ว", align: "center" },
+  { key: "stuck",       header: "งานค้าง",               width: 13, group: "ตอนนี้ถึงไหนแล้ว", align: "center" },
+  { key: "blocked",     header: "ทำต่อไม่ได้",            width: 12, group: "ตอนนี้ถึงไหนแล้ว", align: "center" },
+  { key: "appt",        header: "วันนัดหมาย",             width: 12, group: "ตอนนี้ถึงไหนแล้ว", align: "center", numFmt: XLS_DATE_FMT },
+  { key: "last",        header: "ความเคลื่อนไหว\nล่าสุด",  width: 16, group: "ตอนนี้ถึงไหนแล้ว" },
+  { key: "lastAt",      header: "เมื่อ",                  width: 16, group: "ตอนนี้ถึงไหนแล้ว", align: "center", numFmt: XLS_DATETIME_FMT },
+  { key: "lastBy",      header: "โดย",                   width: 18, group: "ตอนนี้ถึงไหนแล้ว" },
+  { key: "photos",      header: "รูป",                   width: 7,  group: "ตอนนี้ถึงไหนแล้ว", align: "center", numFmt: "0" },
+  { key: "note",        header: "หมายเหตุ",              width: 34, group: "ตอนนี้ถึงไหนแล้ว", wrap: true },
+]
+
+/** สีตัวอักษรช่องสถานะในไฟล์ — โทนเดียวกับชิปบนหน้าเว็บ อ่านไฟล์แล้วนึกภาพหน้าจอออก */
+const STAGE_INK: Record<TxStage, string> = {
+  pending:     "FFB45309",
+  approved:    "FF1D4ED8",
+  appointment: "FF7E22CE",
+  done:        "FF15803D",
+  rejected:    "FFB91C1C",
+}
+
+/** ชื่อคอลัมน์ที่เอาไปเขียนสรุปตัวกรองในไฟล์ */
+const FACET_LABEL: Record<FacetKey, string> = {
+  plate: "ทะเบียน", truck: "เบอร์รถ", position: "ตำแหน่ง", reason: "สาเหตุ", stage: "สถานะ",
+}
+
+/** คีย์ของ MR ในหน่วยความจำ — ทะเบียนเดียวกันอยู่คนละสาขาได้ ต้องแยกใบกัน */
+const mrKey = (branch: string, plate: string) => `${branch}|${plate}`
+
 export function TireTransactionTracking({ branchFilter, onChanged }: {
   branchFilter: string
   onChanged: () => void
@@ -331,6 +406,11 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
 
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [appointTarget, setAppointTarget] = useState<{ row: TxRow } | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  // MR ของยางสาเหตุ "รถกินยาง" — key = "สาขา|ทะเบียน" (ทะเบียนซ้ำข้ามสาขาได้)
+  // undefined = ยังไม่ได้เช็ค, null = ยังไม่มีใบ
+  const [mrMap, setMrMap] = useState<Record<string, MrSummary | null>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -428,6 +508,46 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   const sliceFrom = (current - 1) * perPage
   const pageRows = rows.slice(sliceFrom, sliceFrom + perPage)
 
+  /**
+   * โหลดสถานะ MR ของแถว "รถกินยาง" ที่อยู่ในหน้าปัจจุบัน — ยิงรวมทีเดียวต่อสาขา
+   * (ไม่ใช่รายแถว) และข้ามทะเบียนที่รู้แล้ว หน้าหนึ่งจึงเพิ่มไม่เกิน 1–2 request
+   */
+  // คิดรายชื่อที่ "ยังไม่รู้สถานะ" ตอน render — พอโหลดเสร็จคีย์นี้กลายเป็นว่าง effect จึงไม่วนซ้ำ
+  const mrMissingKey = [...new Set(
+    pageRows
+      .filter((r) => r.item.reason === "รถกินยาง")
+      .map((r) => mrKey(r.branch, r.plate))
+      .filter((k) => !(k in mrMap))
+  )].sort().join(",")
+
+  useEffect(() => {
+    if (!mrMissingKey) return
+    const missing = new Map<string, Set<string>>()   // สาขา → ทะเบียนที่ยังไม่รู้สถานะ
+    for (const k of mrMissingKey.split(",")) {
+      const [branch, plate] = k.split("|")
+      if (!missing.has(branch)) missing.set(branch, new Set())
+      missing.get(branch)!.add(plate)
+    }
+
+    let cancelled = false
+    Promise.all([...missing].map(([branch, plates]) =>
+      fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(branch)}&plates=${encodeURIComponent([...plates].join(","))}`)
+        .then((r) => r.json())
+        .then((d: Record<string, MrSummary>) => ({ branch, plates: [...plates], data: d }))
+        .catch(() => ({ branch, plates: [...plates], data: {} as Record<string, MrSummary> }))
+    )).then((results) => {
+      if (cancelled) return
+      setMrMap((prev) => {
+        const next = { ...prev }
+        for (const { branch, plates, data } of results) {
+          for (const p of plates) next[mrKey(branch, p)] = data[p] ?? null
+        }
+        return next
+      })
+    })
+    return () => { cancelled = true }
+  }, [mrMissingKey])
+
   // เปลี่ยนตัวกรองแล้วกลับหน้า 1 — ปรับ state ตอน render (กฎ react-hooks ห้ามย้ายไปไว้ใน effect)
   // การเรียงไม่นับ: จำนวนแถวเท่าเดิม อยู่หน้าไหนก็ยังมีของ ไม่ต้องเด้งกลับหน้าแรก
   const facetKey = FACET_KEYS.map((k) => k + ":" + facets[k].join(",")).join(";")
@@ -436,6 +556,88 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   if (lastKey !== filterKey) {
     setLastKey(filterKey)
     setPage(1)
+  }
+
+  /* ------------------------------------------------------------- ส่งออก Excel */
+
+  /** บรรทัดใต้หัวเรื่องในไฟล์ — คนเปิดไฟล์ทีหลังต้องรู้ว่าเลขชุดนี้กรองอะไรมา ไม่ใช่ยอดทั้งคลัง */
+  function filterSummary() {
+    const parts: string[] = []
+    if (q) parts.push(`ค้นหา “${q}”`)
+    if (stage !== "all") parts.push(`สถานะ ${STAGE_CHIPS.find((c) => c.value === stage)?.label ?? stage}`)
+    if (stuckOnly) parts.push(`เฉพาะค้างเกิน ${STUCK_DAYS} วัน`)
+    if (blockedOnly) parts.push("เฉพาะที่ทำต่อไม่ได้")
+    for (const k of FACET_KEYS) {
+      const picked = facets[k]
+      if (!picked.length) continue
+      parts.push(`${FACET_LABEL[k]}: ${picked.slice(0, 3).join(", ")}${picked.length > 3 ? ` +${picked.length - 3}` : ""}`)
+    }
+    return parts.length ? `กรอง: ${parts.join(" · ")}` : "ไม่ได้กรอง — ทุกรายการที่โหลดมา"
+  }
+
+  /**
+   * ส่งออก "ทุกแถวที่กรอง/เรียงอยู่ตอนนี้" ไม่ใช่แค่หน้าที่เปิดอยู่ —
+   * คนกดปุ่มนี้หลังคัดของเสร็จแล้ว ถ้าได้แค่ 20 แถวของหน้าปัจจุบันจะเป็นกับดักเงียบ ๆ
+   */
+  async function exportExcel() {
+    if (exporting || rows.length === 0) return
+    setExporting(true)
+    try {
+      const scope = branchFilter ? branchLabel(branchFilter) : "ทุกสาขา"
+      // ลิงก์ใบแจ้งซ่อมต้องเป็น URL เต็ม — ไฟล์ถูกเปิดนอกเว็บ พาธสั้น ๆ จะกดไม่ติด
+      const origin = typeof window === "undefined" ? "" : window.location.origin
+
+      await downloadExcelTable({
+        fileName: `คำขอเปลี่ยนยาง_${scope}_${bkkToday()}.xlsx`,
+        sheetName: "คำขอเปลี่ยนยาง",
+        title: `คำขอเปลี่ยนยาง — ${scope}`,
+        subtitle: `ส่งออก ${fmtNum(rows.length)} รายการ · ${filterSummary()} · เมื่อ ${fmtDate(new Date().toISOString())} โดยระบบ MENA WMS`,
+        freezeCols: 5,
+        columns: TX_EXPORT_COLS,
+        rows: rows.map((r) => ({
+          // ติดทางตันมาก่อนงานค้าง — เป็นปัญหาที่ต้องแก้ที่ใบคำขอ ไม่ใช่แค่เตือนว่านาน
+          tone: r.blocked ? "warn" : r.stuck ? "danger" : undefined,
+          ink: { status: STAGE_INK[r.stage] },
+          cells: {
+            age:        r.ageDays,
+            createdAt:  xlsDate(r.createdAt),
+            branch:     branchLabel(r.branch),
+            plate:      r.plate,
+            truck:      r.request.truckNumber || "",
+            driver:     r.request.driverName || "",
+            requestedBy: r.request.requestedBy || "",
+            pos:        r.item.positionCode || "",
+            posName:    r.item.positionName || "",
+            reason:     r.item.reason || "",
+            serial:     r.item.serialNo || "",
+            product:    r.item.product || "",
+            job: r.item.jobNo
+              ? { text: r.item.jobNo, hyperlink: `${origin}/api/atms/maintenance-request/by-code/${encodeURIComponent(r.item.jobNo)}?go=1` }
+              : "",
+            // ค่าที่ยังไม่ได้บันทึกปล่อยว่าง ไม่ใส่ 0 — เลข 0 ในไฟล์จะถูกเอาไปเฉลี่ยผิด
+            tread:      r.item.currentTreadMm || "",
+            pct:        r.item.remainingPct ?? "",
+            odo:        r.request.currentOdometer || "",
+            mileStart:  r.item.mileageStart || "",
+            used:       r.item.usedDistance || "",
+            status:     STATUS_LABEL[r.stage] ?? r.stage,
+            stuck:      r.stuck ? `ค้าง ${r.ageDays} วัน` : "",
+            blocked:    r.blocked ? "ติดทางตัน" : "",
+            appt:       xlsDate(r.appointment),
+            last:       r.last.label,
+            lastAt:     xlsDate(r.last.at, true),
+            lastBy:     r.last.by || "",
+            photos:     r.photos.length || "",
+            note:       r.item.note || "",
+          },
+        })),
+      })
+      swalToast("success", `ส่งออก ${fmtNum(rows.length)} รายการแล้ว`)
+    } catch {
+      swalError("ส่งออกไม่สำเร็จ — ลองใหม่อีกครั้ง")
+    } finally {
+      setExporting(false)
+    }
   }
 
   const filtered = Boolean(q) || stage !== "all" || stuckOnly || blockedOnly || hasFacet(facets)
@@ -465,19 +667,78 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   const tireLabel = (row: TxRow) =>
     `${row.item.positionCode} ${row.item.positionName}${row.item.serialNo ? ` · ${row.item.serialNo}` : ""}`
 
+  /** ดึงสถานะ MR ล่าสุดของทะเบียนหนึ่ง แล้วเก็บลง cache ให้ชิปในตารางอัปเดตตาม */
+  async function reloadMr(branch: string, plate: string): Promise<MrSummary | null> {
+    const mr: MrSummary | null = await fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(branch)}&plates=${encodeURIComponent(plate)}`)
+      .then((r) => r.json()).then((d) => d[plate] ?? null).catch(() => null)
+    setMrMap((prev) => ({ ...prev, [mrKey(branch, plate)]: mr }))
+    return mr
+  }
+
+  /**
+   * สร้าง MR / เดินสถานะถัดไป — ปุ่มเดียวทำทั้งสามขั้น เพราะขั้นถัดไปมีทางเดียวเสมอ
+   * (ยังไม่มีใบ → สร้าง, รอดำเนินการ → เริ่มซ่อม, กำลังซ่อม → ปิดใบ)
+   */
+  async function mrAdvance(row: TxRow) {
+    const key  = mrKey(row.branch, row.plate)
+    const mr   = mrMap[key]
+    const next = mr ? MR_NEXT[mr.status as MrStatus] : null
+    if (mr && !next) return   // ปิดไปแล้ว ไม่มีอะไรให้กดต่อ
+
+    const creating = !mr
+    const { value, isConfirmed } = await Swal.fire<string>({
+      title: creating ? "โน๊ต MR" : next === "in_progress" ? "เริ่มดำเนินการซ่อม" : "ปิด MR — ซ่อมเสร็จแล้ว",
+      html: `<div style="font-size:0.85rem;margin-bottom:6px">ทะเบียน <b>${row.plate}</b> · สาเหตุ <b>รถกินยาง</b>`
+        + (creating ? "" : `<br>${MR_LABEL[mr!.status as MrStatus] ?? mr!.status} → <b>${MR_LABEL[next!]}</b>`)
+        + `</div>`,
+      input: "textarea",
+      inputLabel: "หมายเหตุ (ไม่บังคับ)",
+      inputAttributes: { rows: "3", placeholder: creating ? "ระบุอาการ / สิ่งที่ต้องซ่อม..." : next === "completed" ? "สรุปงานที่ซ่อม..." : "รายละเอียดการซ่อม / ผู้รับผิดชอบ..." },
+      showCancelButton: true,
+      confirmButtonText: creating ? "โน๊ต MR" : "ยืนยัน",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    })
+    if (!isConfirmed) return
+
+    setActing(true)
+    const res = creating
+      ? await fetch("/api/tire-mr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ branch: row.branch, plate: row.plate, requestId: row.request._id, note: value ?? "" }),
+        })
+      : await fetch(`/api/tire-mr/${mr!.mrId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: next, note: value ?? "" }),
+        })
+    setActing(false)
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      swalError(data.error ?? (creating ? "สร้าง MR ไม่สำเร็จ" : "อัปเดตไม่สำเร็จ"))
+      if (res.status === 409) reloadMr(row.branch, row.plate)   // ชนกับคนอื่น — ดึงสถานะจริงมาแสดง
+      return
+    }
+    await reloadMr(row.branch, row.plate)
+    swalToast("success", creating ? "สร้าง MR แล้ว" : `อัปเดต MR เป็น "${MR_LABEL[next!]}" แล้ว`)
+  }
+
   /**
    * อนุมัติ — ยางที่สาเหตุ "รถกินยาง" ต้องปิด MR ก่อน (กติกาเดียวกับหน้ารายละเอียดรถ)
-   * เช็ค MR ตอนกด ไม่ใช่โหลดล่วงหน้าทุกแถว — หน้านี้เป็นตารางยาว จะยิงเปล่าเยอะเกินจำเป็น
+   * เช็คสถานะสด ๆ ตอนกดเสมอ ไม่เชื่อ cache ในหน้า เพราะอีกคนอาจเพิ่งปิด/เปิดใบไป
    */
   async function approve(row: TxRow) {
     if (row.item.reason === "รถกินยาง") {
-      const mr = await fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(row.branch)}&plates=${encodeURIComponent(row.plate)}`)
-        .then((r) => r.json()).then((d) => d[row.plate] ?? null).catch(() => null)
+      const mr = await reloadMr(row.branch, row.plate)
       if (!mr || mr.status !== "completed") {
         await Swal.fire({
           icon: "warning",
           title: "รอ MR ซ่อมเสร็จก่อน",
-          html: `ยางเส้นนี้สาเหตุ <b>รถกินยาง</b><br>ต้องปิด MR ก่อนจึงจะอนุมัติได้ — สร้าง/ปิด MR ได้ที่แท็บ "คำขอ / อนุมัติ"`,
+          html: `ยางเส้นนี้สาเหตุ <b>รถกินยาง</b><br>ต้องปิด MR ก่อนจึงจะอนุมัติได้`
+            + `<br><br>สถานะ MR ปัจจุบัน: <b>${mr ? MR_LABEL[mr.status as MrStatus] ?? mr.status : "ยังไม่มี MR"}</b>`
+            + `<br><span style="font-size:0.8rem;opacity:0.7">กดปุ่ม MR ในคอลัมน์ "สาเหตุ" หรือเปิดรายละเอียดแถวนี้เพื่อจัดการ</span>`,
           confirmButtonText: "รับทราบ",
         })
         return
@@ -626,7 +887,7 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="ค้นหาทะเบียน / คนขับ / ล้อ / Serial / เลข Job..."
+            placeholder="ค้นหาทะเบียน / เบอร์รถ / คนขับ / ล้อ / Serial / เลข Job..."
             className={inp + " w-full pl-8"}
             style={fontThai}
           />
@@ -654,15 +915,44 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          className="ml-auto inline-flex items-center gap-1 rounded-[10px] border border-[#EEF2F0] px-2.5 py-1.5 text-[12px] text-[#6B7C72] transition-colors hover:bg-[#F0FDF4] disabled:opacity-50 dark:border-white/10 dark:text-gray-400 dark:hover:bg-white/5"
-          style={fontThai}
-        >
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> รีเฟรช
-        </button>
+        {/* ── มุมขวาบนตาราง: รีเฟรชเป็นปุ่มเงียบ ๆ ส่งออกเป็นปุ่มหลัก ── */}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="inline-flex items-center gap-1 rounded-[10px] border border-[#EEF2F0] px-2.5 py-1.5 text-[12px] text-[#6B7C72] transition-colors hover:bg-[#F0FDF4] disabled:opacity-50 dark:border-white/10 dark:text-gray-400 dark:hover:bg-white/5"
+            style={fontThai}
+          >
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> รีเฟรช
+          </button>
+
+          {/* เลขบนปุ่มคือจำนวนแถวที่จะได้จริง — กดแล้วไม่ต้องลุ้นว่าไฟล์จะมีแค่หน้าที่เปิดอยู่ไหม */}
+          <button
+            type="button"
+            onClick={exportExcel}
+            disabled={exporting || loading || rows.length === 0}
+            title={rows.length ? `ส่งออก ${fmtNum(rows.length)} รายการที่กรองอยู่เป็นไฟล์ Excel` : "ไม่มีรายการให้ส่งออก"}
+            className={
+              "group inline-flex items-center gap-1.5 rounded-[10px] bg-linear-to-b from-[#22A25B] to-[#1B8C4B] px-3 py-1.5 text-[12px] font-semibold text-white " +
+              "shadow-[0_1px_2px_rgba(20,39,28,0.18),inset_0_1px_0_rgba(255,255,255,0.22)] transition-all " +
+              "hover:from-[#26AF63] hover:to-[#177A41] hover:shadow-[0_3px_10px_rgba(27,140,75,0.32)] " +
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1B8C4B] " +
+              "active:translate-y-px disabled:pointer-events-none disabled:opacity-40"
+            }
+            style={fontThai}
+          >
+            {exporting
+              ? <RefreshCw size={13} className="animate-spin" />
+              : <FileSpreadsheet size={13} className="transition-transform group-hover:-translate-y-px" />}
+            {exporting ? "กำลังส่งออก..." : "ส่งออก Excel"}
+            {!exporting && rows.length > 0 && (
+              <span className="rounded-full bg-white/20 px-1.5 py-px font-mono text-[10.5px] font-bold tabular-nums">
+                {fmtNum(rows.length)}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* ── ชิปขั้นของงาน — ตัวเลขคือยอดของทั้งชุดที่โหลดมา ไม่ใช่แค่หน้านี้ ── */}
@@ -689,6 +979,8 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                 sortKey="age" sortLabels={["ใหม่สุดก่อน", "ค้างนานสุดก่อน"]} />
               <ColHead ctx={headCtx} label="ผู้แจ้ง / ทะเบียน" width="w-42"
                 sortKey="plate" sortLabels={["ทะเบียน ก → ฮ", "ทะเบียน ฮ → ก"]} facetKey="plate" />
+              <ColHead ctx={headCtx} label="เบอร์รถ" width="w-28"
+                sortKey="truck" sortLabels={["เบอร์รถ น้อย → มาก", "เบอร์รถ มาก → น้อย"]} facetKey="truck" />
               <ColHead ctx={headCtx} label="ตำแหน่งยาง" width="w-44"
                 sortKey="position" sortLabels={["ตำแหน่ง ก → ฮ", "ตำแหน่ง ฮ → ก"]} facetKey="position" />
               <ColHead ctx={headCtx} label="สาเหตุ" width="w-34"
@@ -705,12 +997,12 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
+              <tr><td colSpan={10} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
                 <RefreshCw size={18} className="mx-auto mb-2 animate-spin text-gray-300 dark:text-gray-600" />
                 กำลังโหลด...
               </td></tr>
             ) : pageRows.length === 0 ? (
-              <tr><td colSpan={9}>
+              <tr><td colSpan={10}>
                 <Empty
                   hint={filtered ? "ลองปรับคำค้นหรือล้างตัวกรอง" : "ยังไม่มีคำขอเปลี่ยนยางในระบบ"}
                   onClear={filtered ? clearFilters : undefined}
@@ -738,21 +1030,15 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                   <span className="mt-1 block text-[10.5px] text-[#9AA8A0]" style={fontThai}>{fmtDateOnly(row.createdAt)}</span>
                 </td>
 
-                {/* ── ใครแจ้ง: ทะเบียนเป็นพระเอก แล้วไล่ลงมาเป็นสาขา/เบอร์รถ → คนขับ ── */}
+                {/* ── ใครแจ้ง: ทะเบียนเป็นพระเอก แล้วสาขา → คนขับ (เบอร์รถแยกไปคอลัมน์ของตัวเอง) ── */}
                 <td className={txTdCls}>
                   <span className="flex flex-wrap items-center gap-1.5">
                     <span className="font-mono text-[13.5px] font-bold text-[#14271C] dark:text-white">{row.plate}</span>
-                    <span className="mt-1 flex flex-wrap items-center gap-1.5">
                     <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${branchChipCls(row.branch)}`} style={fontThai}>
                       {branchLabel(row.branch)}
                     </span>
-                   
                   </span>
-                   {row.request.truckNumber && (
-                      <span className="text-[10.5px] text-[#9AA8A0]" style={fontThai}>เบอร์ {row.request.truckNumber}</span>
-                    )}
-                  </span>
-                  
+
                   <span
                     className="mt-1 block truncate text-[12px] text-[#6B7C72] dark:text-gray-400"
                     style={fontThai}
@@ -760,6 +1046,11 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                   >
                     {row.request.driverName || "ไม่ระบุคนขับ"}
                   </span>
+                </td>
+
+                {/* ── เบอร์รถ: คอลัมน์ของตัวเอง เพราะเป็นเลขที่ต้องคัดลอกไปใช้ต่อบ่อยที่สุด ── */}
+                <td className={txTdCls}>
+                  <TruckNo value={row.request.truckNumber} />
                 </td>
 
                 {/* ── ยางเส้นไหน: ตำแหน่งอ่านก่อน แล้วค่อยเลขอ้างอิง (S/N + ใบแจ้งซ่อม) ── */}
@@ -796,6 +1087,12 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                     </span>
                   ) : (
                     <span className="text-[11.5px] text-gray-300 dark:text-gray-600">—</span>
+                  )}
+                  {/* รถกินยาง = สาเหตุเดียวที่ต้องปิด MR ก่อนอนุมัติ — สถานะกับปุ่มเดินงานจึงอยู่ติดกับสาเหตุเลย */}
+                  {row.item.reason === "รถกินยาง" && (
+                    <span className="mt-1 block" onClick={(e) => e.stopPropagation()}>
+                      <MrCell mr={mrMap[mrKey(row.branch, row.plate)]} acting={acting} onAdvance={() => mrAdvance(row)} />
+                    </span>
                   )}
                 </td>
 
@@ -901,6 +1198,12 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                 <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${branchChipCls(row.branch)}`} style={fontThai}>
                   {branchLabel(row.branch)}
                 </span>
+                {/* บนมือถือไม่มีคอลัมน์ — ติดป้าย "เบอร์" ไว้กันสับสนกับทะเบียนที่อยู่ติดกัน */}
+                {row.request.truckNumber && (
+                  <span className="inline-flex items-center gap-1 text-[10.5px] text-[#9AA8A0]" style={fontThai}>
+                    เบอร์ <TruckNo value={row.request.truckNumber} className="text-[11.5px]" />
+                  </span>
+                )}
               </span>
               <span className={`shrink-0 text-[11px] ${row.stuck ? "font-medium text-red-600 dark:text-red-400" : "text-[#9AA8A0]"}`} style={fontThai}>
                 {row.ageDays} วัน · {fmtDateOnly(row.createdAt)}
@@ -987,6 +1290,8 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
         row={openRow}
         acting={acting}
         onClose={() => setOpenKey(null)}
+        mr={openRow ? mrMap[mrKey(openRow.branch, openRow.plate)] : undefined}
+        mrAdvance={mrAdvance}
         {...actions}
       />
 
@@ -1001,6 +1306,58 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
         onConfirm={confirmAppointment}
       />
     </div>
+  )
+}
+
+// ===========================================================================
+// เบอร์รถ — กดคัดลอกได้
+// ===========================================================================
+
+/**
+ * เบอร์รถเป็นเลขที่คนคลังต้องเอาไปพิมพ์ต่อในระบบอื่น (ATMS / แชทกลุ่ม) มากกว่าจะอ่านผ่านตาเฉย ๆ
+ * ทั้งช่องจึงเป็นปุ่มคัดลอก ไม่ใช่ไอคอนจิ๋วข้าง ๆ ที่ต้องเล็งกด
+ * กดแล้วสลับเป็นเครื่องหมายถูก 1.5 วิ — เห็นทันทีว่าคัดลอกเบอร์ไหนไปแล้ว ไม่ต้องรอ toast
+ */
+function TruckNo({ value, className = "text-[13px]" }: { value?: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+
+  const no = (value ?? "").trim()
+  if (!no) return <span className="text-[11.5px] text-gray-300 dark:text-gray-600">—</span>
+
+  async function copy(e: MouseEvent) {
+    // แถว/การ์ดที่ครอบอยู่กดแล้วเปิดโมดัล — คัดลอกต้องไม่พาไปเปิดโมดัลด้วย
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(no)
+      setCopied(true)
+      if (timer.current) clearTimeout(timer.current)
+      timer.current = setTimeout(() => setCopied(false), 1500)
+    } catch {
+      swalError("คัดลอกไม่สำเร็จ — เบราว์เซอร์ไม่อนุญาตให้ใช้คลิปบอร์ด")
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={copied ? `คัดลอก ${no} แล้ว` : `คัดลอกเบอร์รถ ${no}`}
+      aria-label={`คัดลอกเบอร์รถ ${no}`}
+      className={[
+        "group inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono font-bold transition-colors",
+        copied
+          ? "border-[#1B8C4B]/40 bg-[#F0FDF4] text-[#1B8C4B] dark:border-green-400/40 dark:bg-green-500/12 dark:text-green-300"
+          : "border-[#EEF2F0] text-[#14271C] hover:border-[#1B8C4B]/40 hover:bg-[#F0FDF4] dark:border-white/10 dark:text-white dark:hover:bg-white/5",
+        className,
+      ].join(" ")}
+    >
+      <span className="truncate">{no}</span>
+      {copied
+        ? <Check size={11} className="shrink-0" />
+        : <Copy size={11} className="shrink-0 text-[#C3CFC8] transition-colors group-hover:text-[#1B8C4B] dark:text-gray-500" />}
+    </button>
   )
 }
 
@@ -1173,6 +1530,128 @@ function ColHead({ label, width = "", sortKey, sortLabels, facetKey, ctx }: {
         </Popover>
       </span>
     </th>
+  )
+}
+
+// ===========================================================================
+// MR ของ "รถกินยาง"
+// ===========================================================================
+
+/** ป้ายปุ่มขั้นถัดไป — ขั้นถัดไปมีทางเดียวเสมอ ปุ่มเดียวจึงพอ ไม่ต้องมีเมนูให้เลือกสถานะ */
+function mrNextLabel(mr: MrSummary | null | undefined) {
+  if (mr === null) return "+ โน๊ต MR"
+  if (mr?.status === "pending") return "เริ่มซ่อม"
+  if (mr?.status === "in_progress") return "ซ่อมเสร็จ ✓"
+  return null
+}
+
+const MR_BTN_CLS: Record<string, string> = {
+  "+ โน๊ต MR": "bg-blue-600 text-white",
+  "เริ่มซ่อม":   "bg-orange-500 text-white",
+  "ซ่อมเสร็จ ✓": "bg-green-600 text-white",
+}
+
+/** ในตาราง: สถานะ MR + ปุ่มเดินขั้นถัดไป — ขนาดเล็กพอที่จะอยู่ใต้ชิปสาเหตุได้ */
+function MrCell({ mr, acting, onAdvance }: {
+  mr: MrSummary | null | undefined
+  acting: boolean
+  onAdvance: () => void
+}) {
+  if (mr === undefined) {
+    return <span className="text-[10.5px] text-[#9AA8A0]" style={fontThai}>กำลังตรวจ MR...</span>
+  }
+  const next = mrNextLabel(mr)
+  const chip = mr && mrChip(mr.status)
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {chip && (
+        <span className={`inline-block rounded px-1.5 py-px text-[10px] font-semibold ${chip.cls}`} style={fontThai}
+          title={[mr?.note, mr?.updatedBy].filter(Boolean).join(" · ") || undefined}>
+          MR: {chip.label}
+        </span>
+      )}
+      {next && (
+        <button
+          type="button"
+          disabled={acting}
+          onClick={onAdvance}
+          className={`inline-flex cursor-pointer items-center rounded px-2 py-0.5 text-[10px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 ${MR_BTN_CLS[next]}`}
+          style={fontThai}
+        >
+          {next}
+        </button>
+      )}
+    </span>
+  )
+}
+
+/**
+ * ในโมดัลรายละเอียด: กล่องเต็มของ MR — สถานะ + หมายเหตุล่าสุด + ใครอัปเดตเมื่อไร + ปุ่ม
+ * ไทม์ไลน์กางอยู่ในกล่องนี้เลย ไม่เปิดโมดัลซ้อน — โมดัลชั้นนอกเป็น Radix ที่ดักโฟกัสและ
+ * ปิด pointer-events ของทุกอย่างนอกตัวมัน โมดัลชั้นในจึงกดไม่ได้/ไม่โผล่
+ */
+function MrPanel({ mr, acting, onAdvance }: {
+  mr: MrSummary | null | undefined
+  acting: boolean
+  onAdvance: () => void
+}) {
+  // กางไทม์ไลน์ให้เลยตั้งแต่เปิดโมดัล — คนเปิดแถวรถกินยางมาเพื่อดูว่าซ่อมถึงไหนแล้วอยู่แล้ว
+  // ปุ่มเหลือไว้ให้พับเก็บเมื่อ log ยาว
+  const [showLogs, setShowLogs] = useState(true)
+  const next = mrNextLabel(mr)
+  const chip = mr ? mrChip(mr.status) : null
+  return (
+    <div className="rounded-[12px] border border-amber-300 bg-amber-50 p-3.5 dark:border-amber-400/40 dark:bg-amber-500/10" style={fontThai}>
+      <p className="text-[12px] font-semibold text-amber-800 dark:text-amber-200">
+        รถกินยาง — ต้องปิด MR ก่อนถึงจะอนุมัติเปลี่ยนยางได้
+      </p>
+
+      {mr === undefined ? (
+        <p className="mt-1.5 text-[12px] text-[#6B7C72] dark:text-gray-300">กำลังตรวจสถานะ MR...</p>
+      ) : (
+        <>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {chip
+              ? <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${chip.cls}`}>{chip.label}</span>
+              : <span className="text-[12px] text-[#6B7C72] dark:text-gray-300">ยังไม่มี MR สำหรับทะเบียนนี้</span>}
+            {mr && (
+              <span className="text-[11px] text-[#9AA8A0]">
+                {fmtDate(mr.updatedAt)}{mr.updatedBy ? ` · ${mr.updatedBy}` : ""}
+              </span>
+            )}
+          </div>
+
+          {mr?.note && (
+            <p className="mt-1.5 whitespace-pre-wrap text-[12px] text-[#6B7C72] dark:text-gray-300">
+              หมายเหตุล่าสุด: {mr.note}
+            </p>
+          )}
+
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            {next && (
+              <button type="button" disabled={acting} onClick={onAdvance}
+                className={btnSmall + ` inline-flex cursor-pointer items-center gap-1 ${MR_BTN_CLS[next]}`} style={fontThai}>
+                {next}
+              </button>
+            )}
+            {mr && (
+              <button type="button" onClick={() => setShowLogs((v) => !v)}
+                className={btnSmall + " inline-flex cursor-pointer items-center gap-1 bg-white text-[#6B7C72] ring-1 ring-[#EEF2F0] dark:bg-white/10 dark:text-gray-300 dark:ring-white/10"} style={fontThai}>
+                <Clock size={11} /> ไทม์ไลน์{mr.logsCount ? ` (${mr.logsCount})` : ""}
+                {showLogs ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+            )}
+          </div>
+
+          {mr && showLogs && (
+            <div className="mt-2.5 rounded-[10px] bg-white/70 p-2.5 dark:bg-black/20">
+              {/* mrId เป็น key — เปลี่ยนใบแล้ว list โหลดใหม่เอง ไม่ค้างข้อมูลใบเก่า */}
+              <MrTimelineList key={mr.mrId} mrId={mr.mrId} compact />
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
@@ -1508,10 +1987,13 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function TxDetailDialog({ row, acting, onClose, ...actions }: {
+function TxDetailDialog({ row, acting, onClose, mr, mrAdvance, ...actions }: {
   row:    TxRow | null
   acting: boolean
   onClose: () => void
+  /** MR ของทะเบียนในแถวนี้ — undefined = ยังไม่ได้เช็ค, null = ยังไม่มีใบ */
+  mr: MrSummary | null | undefined
+  mrAdvance: (row: TxRow) => void
 } & Omit<RowActionProps, "row" | "acting">) {
   /**
    * ปุ่มในโมดัลต้องปิดโมดัลก่อนเสมอ — กล่องกรอก (SweetAlert / ปฏิทินนัดหมาย) เป็นชั้นซ้อน
@@ -1527,6 +2009,9 @@ function TxDetailDialog({ row, acting, onClose, ...actions }: {
     // ถ้าไม่ปิดโมดัลก่อน ผู้ใช้จะเหลือโมดัลเปล่า ๆ ค้างอยู่
     splitOut: (r) => { onClose(); actions.splitOut(r) },
   }
+
+  // ปุ่ม MR ก็เปิด SweetAlert เหมือนกัน — ต้องปิดโมดัลก่อนด้วยเหตุผลเดียวกับ wrapped ข้างบน
+  const onMrAdvance = () => { if (row) { onClose(); mrAdvance(row) } }
 
   return (
     <Dialog open={!!row} onOpenChange={(open) => { if (!open) onClose() }}>
@@ -1568,6 +2053,11 @@ function TxDetailDialog({ row, acting, onClose, ...actions }: {
                 ยื่นมา {row.ageDays} วัน · {fmtDate(row.createdAt)}
               </span>
             </div>
+
+            {/* MR — วางไว้เหนือเส้นทางสถานะ เพราะเป็นตัวที่บล็อกไม่ให้กดอนุมัติ ต้องเห็นก่อน */}
+            {row.item.reason === "รถกินยาง" && (
+              <MrPanel mr={mr} acting={acting} onAdvance={onMrAdvance} />
+            )}
 
             {/* เส้นทางสถานะ */}
             <div className="rounded-[12px] border border-[#EEF2F0] p-3.5 dark:border-white/8">
@@ -1624,7 +2114,7 @@ function TxDetailDialog({ row, acting, onClose, ...actions }: {
               </div>
               <div className="space-y-1.5 rounded-[12px] bg-[#F6FAF7] p-3.5 dark:bg-white/4">
                 <InfoRow label="คนขับ">{row.request.driverName || "—"}</InfoRow>
-                <InfoRow label="เบอร์รถ">{row.request.truckNumber || "—"}</InfoRow>
+                <InfoRow label="เบอร์รถ"><TruckNo value={row.request.truckNumber} className="text-[12.5px]" /></InfoRow>
                 <InfoRow label="ไมล์ตอนขอ"><span className="font-mono">{fmtNum(row.request.currentOdometer)}</span></InfoRow>
                 <InfoRow label="ไมล์ตอนใส่ยาง"><span className="font-mono">{fmtNum(row.item.mileageStart)}</span></InfoRow>
                 <InfoRow label="ระยะทางใช้งาน"><span className="font-mono">{row.item.usedDistance > 0 ? `${fmtNum(row.item.usedDistance)} กม.` : "—"}</span></InfoRow>

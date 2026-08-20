@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import Swal from "sweetalert2"
 import { swalToast, swalError } from "@/lib/swal"
+import { MR_LABEL, type MrStatus, type MrSummary } from "@/lib/tire-mr"
 import {
   AppointmentDialog, BRANCHES, STATUS_LABEL,
   branchChipCls, branchLabel, branchesFor, btnPrimary, btnSmall, card,
@@ -580,13 +581,14 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
     if (!t.request) return
     // gate: รถกินยาง ต้องปิด MR ก่อน
     if (t.request.reason === "รถกินยาง") {
-      const mr = await fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(branch)}&plates=${encodeURIComponent(plate)}`)
+      const mr: MrSummary | null = await fetch(`/api/tire-mr/latest?branch=${encodeURIComponent(branch)}&plates=${encodeURIComponent(plate)}`)
         .then((r) => r.json()).then((d) => d[plate] ?? null).catch(() => null)
       if (!mr || mr.status !== "completed") {
         await Swal.fire({
           icon: "warning",
           title: "รอ MR ซ่อมเสร็จก่อน",
-          html: `ยางเส้นนี้สาเหตุ <b>รถกินยาง</b><br>ต้องปิด MR ก่อนจึงจะอนุมัติได้ — จัดการ MR ได้ที่แท็บ "คำขอ / อนุมัติ"`,
+          html: `ยางเส้นนี้สาเหตุ <b>รถกินยาง</b><br>ต้องปิด MR ก่อนจึงจะอนุมัติได้ — จัดการ MR ได้ที่แท็บ "คำขอ / อนุมัติ"`
+            + `<br><br>สถานะ MR ปัจจุบัน: <b>${mr ? MR_LABEL[mr.status as MrStatus] ?? mr.status : "ยังไม่มี MR"}</b>`,
           confirmButtonText: "รับทราบ",
         })
         return

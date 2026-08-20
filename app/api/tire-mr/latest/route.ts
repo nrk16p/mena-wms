@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
+import type { MrSummary } from "@/lib/tire-mr"
 
 const DB  = process.env.MONGO_DB ?? "master_data"
 const COL = "tire_mr"
 
 // GET /api/tire-mr/latest?branch=xxx&plates=a,b,c
-// Returns: Record<plate, { mrId, status, note, updatedAt, createdBy }>
+// Returns: Record<plate, MrSummary>  (ใบล่าสุดของแต่ละทะเบียน)
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const branch      = searchParams.get("branch")?.trim() ?? ""
@@ -24,14 +25,17 @@ export async function GET(req: NextRequest) {
     { $replaceRoot: { newRoot: "$doc" } },
   ]).toArray()
 
-  const map: Record<string, { mrId: string; status: string; note: string; updatedAt: Date; createdBy: string }> = {}
+  const map: Record<string, MrSummary> = {}
   for (const r of rows) {
     map[r.plate] = {
       mrId:      String(r._id),
       status:    r.status,
       note:      r.note ?? "",
+      updatedBy: r.updatedBy ?? r.createdBy ?? "",
       updatedAt: r.updatedAt,
       createdBy: r.createdBy ?? "",
+      createdAt: r.createdAt,
+      logsCount: Array.isArray(r.logs) ? r.logs.length : 0,
     }
   }
   return NextResponse.json(map)
