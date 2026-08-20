@@ -2607,7 +2607,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               <section className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 bg-white dark:bg-[#151a10] shadow-sm">
               <button type="button" onClick={() => toggleSec("status", true)} className="flex w-full items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร{secChevron(secOpen("status", true))}</button>
               {secOpen("status", true) && (
-                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 p-3">
+                <div className="grid grid-cols-6 gap-x-3 gap-y-2.5 p-3">
                   <div className="col-span-6">
                     <label className={labelCls}>สถานะ</label>
                     <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
@@ -2740,19 +2740,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </p>
                     )}
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>รหัส PR {isReq("prCode") && <span className="text-amber-500">*</span>}</label>
                     <input value={form.prCode} onChange={(e) => setForm({ ...form, prCode: e.target.value })} className={inputCls + reqCls("prCode")} placeholder="รหัส PR" />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>รหัส PO {isReq("poCode") && <span className="text-amber-500">*</span>} <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
                     <TagInput value={form.poCode} onChange={(v) => setForm({ ...form, poCode: v })} placeholder="พิมพ์รหัส PO แล้วกด Enter" invalid={isReq("poCode") && !form.poCode.trim()} mono />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>{isParts ? "กำหนดของถึง" : "วันกำหนดเสร็จ"} {isReq("dueDate") && <span className="text-amber-500">*</span>}</label>
                     <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={inputCls + reqCls("dueDate")} />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>{isParts ? "วันที่ลงคันเสร็จ" : "วันที่ซ่อมเสร็จ"} {isReq("completedDate") && <span className="text-amber-500">*</span>}</label>
                     <input type="date" value={form.completedDate} onChange={(e) => setForm({ ...form, completedDate: e.target.value })} className={inputCls + reqCls("completedDate")} />
                   </div>
