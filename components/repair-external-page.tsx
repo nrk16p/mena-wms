@@ -2249,7 +2249,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       {/* Modal — ฟอร์มหน้าเดียว (บนลงล่าง) header/footer ตรึง เนื้อหาเลื่อน */}
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 backdrop-blur-sm sm:p-4">
-          <div className="my-2 flex max-h-[94vh] w-full max-w-6xl flex-col rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl sm:my-6">
+          <div className="my-2 flex max-h-[94vh] w-full max-w-5xl flex-col rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl sm:my-6">
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
