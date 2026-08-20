@@ -286,7 +286,7 @@ export function ImageUpload({
           {atLimit ? `ครบ ${max} รูปแล้ว` : "ลากรูปมาวาง หรือคลิกเพื่อเลือก"}
         </span>
         <span className="text-[11px] text-gray-400 dark:text-gray-500">
-          แนบได้หลายไฟล์ · JPG / PNG / WebP / PDF · รูปไม่เกิน 50MB (เกิน 25MB ย่อให้อัตโนมัติ) · PDF ไม่เกิน 25MB
+          <span title="JPG / PNG / WebP / PDF · รูปไม่เกิน 50MB (เกิน 25MB ย่อให้อัตโนมัติ) · PDF ไม่เกิน 25MB">รูป / PDF · แนบได้หลายไฟล์</span>
         </span>
       </button>
 

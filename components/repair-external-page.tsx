@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, Children, isValidElement } from "react"
 import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
@@ -1227,6 +1227,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const toggleSec = (k: string, dflt: boolean) =>
     setSecToggled((v) => ({ ...v, [k]: !(v[k] ?? dflt) }))
   const quoteHasData = !!(form.quotationDetail?.trim() || formQuotImages.length)
+  const moneyHasData = !!(form.repairPrice || form.warranty || form.note?.trim() || form.offerPrice || form.negotiatedPrice || formNegImages.length)
   // ปุ่มลูกศรท้ายหัวข้อ — หมุนตามสถานะพับ/กาง
   const secChevron = (isOpen: boolean) => (
     <ChevronDown size={16} className={`ml-auto shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -2263,23 +2264,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     {isParts ? "🔩" : "🔧"} {formJobType}
                   </span>
                 )}
-                {editId && form.plate && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#F0FDF4] dark:bg-[#1B8C4B]/10 px-2.5 py-1 text-xs font-medium text-[#1B8C4B]">
-                    🚚 {form.plate}{form.fleetNo ? ` · ${form.fleetNo}` : ""}
-                  </span>
-                )}
-                {/* สถานะปัจจุบัน — อัพเดทตามที่เลือกในฟอร์มทันที */}
-                {editId && form.status && (
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${statusMeta(form.status).cls}`}>
-                    {statusMeta(form.status).emoji} {form.status}
-                  </span>
-                )}
-                {/* badge รอใบเสนอราคา — โชว์เฉพาะที่ติ๊กไว้ */}
-                {editId && !!form.waitingQuote && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-cyan-100 px-2.5 py-1 text-xs font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
-                    🔍 รอใบเสนอราคา
-                  </span>
-                )}
               </div>
               <div className="flex items-center gap-1.5">
                 {editId && viewOnly && (
@@ -2302,6 +2286,56 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </button>
               </div>
             </div>
+
+            {/* แถบสรุป — สิ่งที่ต้องรู้ทันทีอยู่บนสุดตลอด ไม่ว่าจะเลื่อนฝั่งไหน */}
+            {editId && (() => {
+              const today   = bkkDate()
+              const etaOver = stageEtaOverdueDays(form, today)
+              const dueOver = !!form.dueDate && form.dueDate < today && !isDoneStatus(form.status)
+              const cell = "bg-white dark:bg-[#151a10] px-3.5 py-2"
+              const cap  = "text-[10px] font-medium uppercase tracking-wide text-[#9AA8A0]"
+              return (
+                <div className="grid shrink-0 grid-cols-6 gap-px border-b border-[#EEF2F0] dark:border-white/8 bg-[#EEF2F0] dark:bg-white/8">
+                  <div className={cell}>
+                    <p className={cap}>รถ</p>
+                    <p className="truncate text-[15px] font-bold leading-tight text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{form.fleetNo || form.plate || "—"}</p>
+                    {form.fleetNo && form.plate && <p className="truncate text-[11px] text-[#5B7568] dark:text-gray-400">{form.plate}</p>}
+                  </div>
+                  <div className={cell}>
+                    <p className={cap}>สถานะ</p>
+                    <p className="truncate text-[13px] font-bold leading-tight text-[#14271C] dark:text-white">{statusMeta(form.status).emoji} {form.status || "—"}</p>
+                    <p className="text-[11px] text-[#5B7568] dark:text-gray-400">
+                      มา {ageDays(form.statusSince || jobStartDate(form)) ?? "-"} วัน
+                      {!!form.waitingQuote && <span className="ml-1 font-semibold text-[#0E7490] dark:text-cyan-300">· รอใบเสนอราคา</span>}
+                    </p>
+                  </div>
+                  <div className={cell}>
+                    <p className={cap}>คาดพ้นขั้นนี้</p>
+                    <p className={`text-[13px] font-bold leading-tight ${etaOver > 0 ? "text-[#DC2626]" : form.stageEta ? "text-[#7C3AED] dark:text-violet-300" : "text-[#C6CFC9]"}`}>
+                      {form.stageEta ? fmtDateShort(form.stageEta) : "ยังไม่ระบุ"}
+                    </p>
+                    {etaOver > 0 && <p className="text-[11px] font-semibold text-[#DC2626]">เลยมา {etaOver} วัน</p>}
+                  </div>
+                  <div className={cell}>
+                    <p className={cap}>{isParts ? "กำหนดของถึง" : "กำหนดเสร็จ"}</p>
+                    <p className={`text-[13px] font-bold leading-tight ${dueOver ? "text-[#DC2626]" : form.dueDate ? "text-[#14271C] dark:text-white" : "text-[#C6CFC9]"}`}>
+                      {form.dueDate ? fmtDateShort(form.dueDate) : "—"}
+                    </p>
+                    {dueOver && <p className="text-[11px] font-semibold text-[#DC2626]">เลยกำหนด</p>}
+                  </div>
+                  <div className={cell}>
+                    <p className={cap}>ฟลีท · แพล้นท์</p>
+                    <p className="truncate text-[13px] font-semibold leading-tight text-[#14271C] dark:text-white">{form.fleet || "—"}</p>
+                    <p className="truncate text-[11px] text-[#5B7568] dark:text-gray-400">{form.plant || "—"}</p>
+                  </div>
+                  <div className={cell}>
+                    <p className={cap}>{isParts ? "อู่ / ร้าน" : "อู่ซ่อม"}</p>
+                    <p className="truncate text-[13px] font-semibold leading-tight text-[#14271C] dark:text-white" title={form.garage}>{form.garage || "—"}</p>
+                    <p className="truncate font-mono text-[11px] text-[#5B7568] dark:text-gray-400" title={form.mrNo}>{form.mrNo || "ไม่มี MR"}</p>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* body — 2 คอลัมน์: ซ้ายกรอกข้อมูล · ขวาแผงสถานะ + ไทม์ไลน์ เลื่อนแยกกัน
                 เดิมเรียงคอลัมน์เดียวบนลงล่าง ใบเสนอราคาจึงตกไปอยู่ใต้พับตลอด */}
@@ -2487,6 +2521,87 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 )}
               </section>
 
+              {/* ── หมวด 2.6: ราคา · การต่อรอง (เหลือง) ──
+                  ย้ายออกจากแผงสถานะ ให้คอลัมน์ขวาเหลือ "สถานะ" ล้วน อ่านปุ๊บรู้ปั๊บ
+                  ของพวกนี้กรอกนาน ๆ ครั้ง ไม่ควรกินที่ในกระดานที่ต้องมองตลอด */}
+              <section className="overflow-hidden rounded-xl border border-[#FDE9BE] dark:border-amber-500/30">
+                <button type="button" onClick={() => toggleSec("money", moneyHasData)} className="flex w-full items-center gap-2 border-b border-[#FDE9BE] dark:border-amber-500/30 bg-[#FDF3DD] dark:bg-amber-500/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#B07D12] dark:text-amber-300" style={{ fontFamily: "'Mitr', sans-serif" }}>
+                  💰 ราคา · การต่อรอง
+                  {!moneyHasData && <span className="text-[11px] font-medium opacity-70">ยังไม่มีข้อมูล</span>}
+                  {secChevron(secOpen("money", moneyHasData))}
+                </button>
+                {secOpen("money", moneyHasData) && (
+                <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 p-3 sm:grid-cols-2">
+                  <div>
+                    <label className={labelCls}>{isParts ? "ราคาอะไหล่ (บาท)" : "ราคาซ่อม (บาท)"}</label>
+                    <input type="number" min={0} step="0.01" value={form.repairPrice || ""} onChange={(e) => setForm({ ...form, repairPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>รับประกัน</label>
+                    <select value={form.warranty} onChange={(e) => setForm({ ...form, warranty: e.target.value })} className={inputCls}>
+                      <option value="">— ไม่ระบุ —</option>
+                      {WARRANTY_OPTIONS.map((w) => (<option key={w} value={w}>{w}</option>))}
+                      {form.warranty && !WARRANTY_OPTIONS.includes(form.warranty) && (<option value={form.warranty}>{form.warranty}</option>)}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={labelCls}>หมายเหตุ</label>
+                    <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} className={inputCls} placeholder="หมายเหตุเพิ่มเติม" />
+                  </div>
+
+                  {/* ── การต่อรอง ── */}
+                  <div className="sm:col-span-2 rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] p-3">
+                    <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">💬 การต่อรอง</p>
+                      <div className="inline-flex rounded-lg border border-[#E2E8E4] dark:border-white/10 p-0.5">
+                        {["ทั้งหมด", "ระบุสินค้า/บริการ"].map((sc) => (
+                          <button
+                            key={sc}
+                            type="button"
+                            onClick={() => setForm({ ...form, negotiationScope: sc, ...(sc === "ทั้งหมด" ? { negotiationItem: "" } : {}) })}
+                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${form.negotiationScope === sc ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                          >
+                            {sc}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {form.negotiationScope === "ระบุสินค้า/บริการ" && (
+                      <div className="mb-3">
+                        <label className={labelCls}>ระบุสินค้า / บริการที่ต่อรอง <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
+                        <TagInput value={form.negotiationItem} onChange={(v) => setForm({ ...form, negotiationItem: v })} placeholder="พิมพ์สินค้า/บริการ แล้วกด Enter" />
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className={labelCls}>ราคาเสนอครั้งแรก (บาท)</label>
+                        <input type="number" min={0} step="0.01" value={form.offerPrice || ""} onChange={(e) => setForm({ ...form, offerPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>ราคาต่อรอง (บาท)</label>
+                        <input type="number" min={0} step="0.01" value={form.negotiatedPrice || ""} onChange={(e) => setForm({ ...form, negotiatedPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
+                      </div>
+                      <div>
+                        <label className={labelCls}>ประกันเสนอครั้งแรก</label>
+                        <select value={form.offerWarranty} onChange={(e) => setForm({ ...form, offerWarranty: e.target.value })} className={inputCls}>
+                          <option value="">— ไม่ระบุ —</option>
+                          {WARRANTY_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
+                          {form.offerWarranty && !WARRANTY_OPTIONS.includes(form.offerWarranty) && <option value={form.offerWarranty}>{form.offerWarranty}</option>}
+                        </select>
+                      </div>
+                    </div>
+                    {form.offerPrice > 0 && form.negotiatedPrice > 0 && form.negotiatedPrice < form.offerPrice && (
+                      <p className="mt-2 text-[11px] font-medium text-[#1B8C4B]">✓ ต่อรองลดได้ ฿{fmtNum(form.offerPrice - form.negotiatedPrice)} ({Math.round((1 - form.negotiatedPrice / form.offerPrice) * 100)}%)</p>
+                    )}
+                    <div className="mt-3">
+                      <label className={labelCls}>แนบหลักฐานการต่อรอง <span className="text-[10px] font-normal text-gray-400">(ใบเสนอราคา / แชท / เอกสาร)</span></label>
+                      <ImageUpload initial={formNegImages} onChange={setFormNegImages} />
+                    </div>
+                  </div>
+                </div>
+                )}
+              </section>
+
               </div>
               )}
 
@@ -2494,10 +2609,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               <div className="flex min-w-0 basis-1/2 grow flex-col gap-2 overflow-hidden border-l border-[#EEF2F0] dark:border-white/8 bg-[#FBFDFC] dark:bg-white/[0.015] px-3.5 py-3">
               {!(viewOnly && editId) && (<>
               {/* ── หมวด 3: สถานะ · เอกสาร (ม่วง) ── */}
-              <section className="flex max-h-[52%] shrink-0 flex-col overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 bg-white dark:bg-[#151a10] shadow-sm">
+              <section className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 bg-white dark:bg-[#151a10] shadow-sm">
               <button type="button" onClick={() => toggleSec("status", true)} className="flex w-full items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร{secChevron(secOpen("status", true))}</button>
               {secOpen("status", true) && (
-                <div className="grid min-h-0 flex-1 grid-cols-2 gap-x-3 gap-y-2.5 overflow-y-auto p-3">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 p-3">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
                     <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
@@ -2645,72 +2760,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div>
                     <label className={labelCls}>{isParts ? "วันที่ลงคันเสร็จ" : "วันที่ซ่อมเสร็จ"} {isReq("completedDate") && <span className="text-amber-500">*</span>}</label>
                     <input type="date" value={form.completedDate} onChange={(e) => setForm({ ...form, completedDate: e.target.value })} className={inputCls + reqCls("completedDate")} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>{isParts ? "ราคาอะไหล่ (บาท)" : "ราคาซ่อม (บาท)"}</label>
-                    <input type="number" min={0} step="0.01" value={form.repairPrice || ""} onChange={(e) => setForm({ ...form, repairPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
-                  </div>
-                  <div>
-                    <label className={labelCls}>รับประกัน</label>
-                    <select value={form.warranty} onChange={(e) => setForm({ ...form, warranty: e.target.value })} className={inputCls}>
-                      <option value="">— ไม่ระบุ —</option>
-                      {WARRANTY_OPTIONS.map((w) => (<option key={w} value={w}>{w}</option>))}
-                      {form.warranty && !WARRANTY_OPTIONS.includes(form.warranty) && (<option value={form.warranty}>{form.warranty}</option>)}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className={labelCls}>หมายเหตุ</label>
-                    <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} className={inputCls} placeholder="หมายเหตุเพิ่มเติม" />
-                  </div>
-
-                  {/* ── การต่อรอง ── */}
-                  <div className="sm:col-span-2 rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] p-3">
-                    <div className="mb-2.5 flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">💬 การต่อรอง</p>
-                      <div className="inline-flex rounded-lg border border-[#E2E8E4] dark:border-white/10 p-0.5">
-                        {["ทั้งหมด", "ระบุสินค้า/บริการ"].map((sc) => (
-                          <button
-                            key={sc}
-                            type="button"
-                            onClick={() => setForm({ ...form, negotiationScope: sc, ...(sc === "ทั้งหมด" ? { negotiationItem: "" } : {}) })}
-                            className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${form.negotiationScope === sc ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-                          >
-                            {sc}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {form.negotiationScope === "ระบุสินค้า/บริการ" && (
-                      <div className="mb-3">
-                        <label className={labelCls}>ระบุสินค้า / บริการที่ต่อรอง <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
-                        <TagInput value={form.negotiationItem} onChange={(v) => setForm({ ...form, negotiationItem: v })} placeholder="พิมพ์สินค้า/บริการ แล้วกด Enter" />
-                      </div>
-                    )}
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div>
-                        <label className={labelCls}>ราคาเสนอครั้งแรก (บาท)</label>
-                        <input type="number" min={0} step="0.01" value={form.offerPrice || ""} onChange={(e) => setForm({ ...form, offerPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
-                      </div>
-                      <div>
-                        <label className={labelCls}>ราคาต่อรอง (บาท)</label>
-                        <input type="number" min={0} step="0.01" value={form.negotiatedPrice || ""} onChange={(e) => setForm({ ...form, negotiatedPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
-                      </div>
-                      <div>
-                        <label className={labelCls}>ประกันเสนอครั้งแรก</label>
-                        <select value={form.offerWarranty} onChange={(e) => setForm({ ...form, offerWarranty: e.target.value })} className={inputCls}>
-                          <option value="">— ไม่ระบุ —</option>
-                          {WARRANTY_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
-                          {form.offerWarranty && !WARRANTY_OPTIONS.includes(form.offerWarranty) && <option value={form.offerWarranty}>{form.offerWarranty}</option>}
-                        </select>
-                      </div>
-                    </div>
-                    {form.offerPrice > 0 && form.negotiatedPrice > 0 && form.negotiatedPrice < form.offerPrice && (
-                      <p className="mt-2 text-[11px] font-medium text-[#1B8C4B]">✓ ต่อรองลดได้ ฿{fmtNum(form.offerPrice - form.negotiatedPrice)} ({Math.round((1 - form.negotiatedPrice / form.offerPrice) * 100)}%)</p>
-                    )}
-                    <div className="mt-3">
-                      <label className={labelCls}>แนบหลักฐานการต่อรอง <span className="text-[10px] font-normal text-gray-400">(ใบเสนอราคา / แชท / เอกสาร)</span></label>
-                      <ImageUpload initial={formNegImages} onChange={setFormNegImages} />
-                    </div>
                   </div>
                 </div>
               )}
@@ -3060,11 +3109,22 @@ function DetailField({ label, value, wide, mono }: { label: string; value?: Reac
   )
 }
 
-function DetailSection({ title, tone, children }: { title: string; tone: string; children: React.ReactNode }) {
+/** ช่องที่ไม่มีค่าถือว่า "ว่าง" — โหมดดูซ่อนทิ้ง ไม่ให้กล่องเปล่ากินพื้นที่เท่าข้อมูลจริง */
+function isEmptyDetail(c: unknown): boolean {
+  if (!isValidElement(c)) return false
+  const p = c.props as { value?: unknown; items?: unknown[] }
+  if (Array.isArray(p.items)) return p.items.length === 0
+  return !String(p.value ?? "").trim()
+}
+
+function DetailSection({ title, tone, children, hideEmpty }: { title: string; tone: string; children: React.ReactNode; hideEmpty?: boolean }) {
+  const kids  = Children.toArray(children)
+  const shown = hideEmpty ? kids.filter((c) => !isEmptyDetail(c)) : kids
+  if (shown.length === 0) return null
   return (
     <section className={`mt-2.5 overflow-hidden rounded-xl border first:mt-0 ${tone}`}>
       <p className="border-b border-inherit bg-black/[0.02] px-3.5 py-1.5 text-[13px] font-bold text-[#37473E] dark:bg-white/5 dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>{title}</p>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 lg:grid-cols-3">{children}</div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 lg:grid-cols-3">{shown}</div>
     </section>
   )
 }
@@ -3093,9 +3153,21 @@ function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
 }) {
   const money = (n: number) => (n ? `${fmtNum(n)} บาท` : "")
   const date = (s: string) => (s ? fmtDateShort(s) : "")
+  // ค่าเริ่มต้นซ่อนช่องว่าง — รายการทั่วไปกรอกไม่ครบ กล่องเปล่ากินจอไปกว่าครึ่ง
+  const [showEmpty, setShowEmpty] = useState(false)
+  const hide = !showEmpty
   return (
     <div>
-      <DetailSection title="🚚 ข้อมูลรถ" tone="border-[#D6EFDF] dark:border-[#1B8C4B]/30">
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setShowEmpty((v) => !v)}
+          className="rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-[11px] font-medium text-[#5B7568] dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
+        >
+          {showEmpty ? "ซ่อนช่องที่ว่าง" : "แสดงช่องที่ว่างด้วย"}
+        </button>
+      </div>
+      <DetailSection hideEmpty={hide} title="🚚 ข้อมูลรถ" tone="border-[#D6EFDF] dark:border-[#1B8C4B]/30">
         <DetailField label="เบอร์รถ" value={r.fleetNo} mono />
         <DetailField label="ทะเบียน" value={r.plate} mono />
         <DetailField label="ฟลีท" value={r.fleet} />
@@ -3107,7 +3179,7 @@ function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
         <DetailField label="จุดที่รถเสีย" value={r.breakdownLocation} wide />
       </DetailSection>
 
-      <DetailSection title={isParts ? "🔩 อะไหล่ลงคัน" : "🔧 งานซ่อม"} tone={isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}>
+      <DetailSection hideEmpty={hide} title={isParts ? "🔩 อะไหล่ลงคัน" : "🔧 งานซ่อม"} tone={isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}>
         <DetailField label="เลข MR" value={r.mrNo} mono />
         <DetailField label={isParts ? "ร้านอะไหล่" : "อู่ซ่อม"} value={r.garage} />
         <DetailField label="อาการ / รายละเอียด" value={r.symptom} wide />
@@ -3118,7 +3190,7 @@ function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
         <DetailImages label="ไฟล์แนบ" items={images} />
       </DetailSection>
 
-      <DetailSection title="💰 ราคา · ใบเสนอราคา" tone="border-[#BEE7F2] dark:border-cyan-500/30">
+      <DetailSection hideEmpty={hide} title="💰 ราคา · ใบเสนอราคา" tone="border-[#BEE7F2] dark:border-cyan-500/30">
         <DetailField label="ราคาเสนอครั้งแรก" value={money(r.offerPrice)} />
         <DetailField label="ประกันที่เสนอ" value={r.offerWarranty} />
         <DetailField label="ราคาหลังต่อรอง" value={money(r.negotiatedPrice)} />
@@ -3130,7 +3202,7 @@ function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
         <DetailImages label="หลักฐานการต่อรอง" items={negImages} />
       </DetailSection>
 
-      <DetailSection title="📄 สถานะ · เอกสาร" tone="border-[#E4D5FB] dark:border-violet-500/30">
+      <DetailSection hideEmpty={hide} title="📄 สถานะ · เอกสาร" tone="border-[#E4D5FB] dark:border-violet-500/30">
         <DetailField label="สถานะปัจจุบัน" value={
           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold ${statusMeta(r.status).cls}`}>
             {statusMeta(r.status).emoji} {r.status}
