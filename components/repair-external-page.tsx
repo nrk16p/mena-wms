@@ -70,6 +70,9 @@ type Comment = {
   by: string
   byEmail: string
   at: string
+  editedAt?: string
+  /** server ตัดสินให้: true เมื่อคนที่เปิดหน้าเป็นเจ้าของความคิดเห็นนี้ */
+  canEdit?: boolean
 }
 
 type LogChange = { field: string; label: string; from: string; to: string }
@@ -462,6 +465,56 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       setCmtText(""); setReplyText(""); setReplyTo(null)
     } catch {
       swalError("ส่งความคิดเห็นไม่สำเร็จ")
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  // แก้ข้อความความคิดเห็น — server อนุญาตเฉพาะเจ้าของ (403 ถ้าไม่ใช่) · คืน true เมื่อบันทึกสำเร็จ
+  async function saveComment(commentId: string, text: string): Promise<boolean> {
+    const targetId = editId
+    if (!targetId || !text.trim()) return false
+    setPosting(true)
+    try {
+      const res = await fetch(`/api/repair-external/${targetId}/comment`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commentId, text: text.trim() }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || "")
+      await loadComments(targetId)
+      return true
+    } catch (e) {
+      swalError(e instanceof Error && e.message ? e.message : "แก้ไขความคิดเห็นไม่สำเร็จ")
+      return false
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  // ลบความคิดเห็น — ลบข้อความหลักจะพาข้อความตอบกลับไปด้วย จึงบอกจำนวนก่อนยืนยัน
+  async function deleteComment(c: Comment) {
+    const targetId = editId
+    if (!targetId) return
+    const replies = comments.filter((r) => r.parentId === c._id).length
+    const ok = await swalDeleteConfirm(
+      replies > 0 ? `ลบความคิดเห็นนี้ พร้อมข้อความตอบกลับอีก ${replies} ข้อความ?` : "ลบความคิดเห็นนี้?"
+    )
+    if (!ok.isConfirmed) return
+    setPosting(true)
+    try {
+      const res = await fetch(`/api/repair-external/${targetId}/comment`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commentId: c._id }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || "")
+      await loadComments(targetId)
+      swalToast("success", "ลบความคิดเห็นแล้ว")
+    } catch (e) {
+      swalError(e instanceof Error && e.message ? e.message : "ลบความคิดเห็นไม่สำเร็จ")
     } finally {
       setPosting(false)
     }
@@ -2662,15 +2715,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     ) : (
                       comments.filter((c) => !c.parentId).map((c) => (
                         <div key={c._id}>
-                          <CommentRow c={c} />
+                          <CommentRow c={c} onSave={saveComment} onDelete={deleteComment} busy={posting} />
                           {comments.filter((r) => r.parentId === c._id).length > 0 && (
                             <div className="ml-4 mt-2 space-y-2 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-3">
-                              {comments.filter((r) => r.parentId === c._id).map((rc) => <CommentRow key={rc._id} c={rc} reply />)}
+                              {comments.filter((r) => r.parentId === c._id).map((rc) => <CommentRow key={rc._id} c={rc} reply onSave={saveComment} onDelete={deleteComment} busy={posting} />)}
                             </div>
                           )}
                           {replyTo === c._id ? (
-                            <div className="ml-4 mt-2 flex items-center gap-2 pl-3">
-                              <input autoFocus value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(replyText, c._id) } }} placeholder="ตอบกลับ..." className="flex-1 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none" />
+                            <div className="ml-4 mt-2 flex items-start gap-2 pl-3">
+                              <textarea autoFocus rows={2} value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="ตอบกลับ... (Enter = ขึ้นบรรทัดใหม่)" className="flex-1 resize-y rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none" />
                               <button type="button" onClick={() => postComment(replyText, c._id)} disabled={posting || !replyText.trim()} className="rounded-lg bg-[#1B8C4B] p-1.5 text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={14} /></button>
                               <button type="button" onClick={() => { setReplyTo(null); setReplyText("") }} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"><X size={14} /></button>
                             </div>
@@ -2684,8 +2737,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )}
                   </div>
 
-                  <div className="mt-3 flex items-center gap-2">
-                    <input value={cmtText} onChange={(e) => setCmtText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(cmtText, null) } }} placeholder="เขียนความคิดเห็น / โน้ตล่าสุด..." className={inputCls} />
+                  <div className="mt-3 flex items-start gap-2">
+                    <textarea rows={2} value={cmtText} onChange={(e) => setCmtText(e.target.value)} placeholder="เขียนความคิดเห็น / โน้ตล่าสุด... (Enter = ขึ้นบรรทัดใหม่ · กดปุ่มส่งเพื่อบันทึก)" className={`${inputCls} resize-y`} />
                     <button type="button" onClick={() => postComment(cmtText, null)} disabled={posting || !cmtText.trim()} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#1B8C4B] px-3 py-2 text-sm font-medium text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={15} /> ส่ง</button>
                   </div>
                 </div>
@@ -2992,9 +3045,20 @@ function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
 }
 
 /* ── การ์ดความคิดเห็น 1 รายการ (ผู้เขียน + เวลา + ข้อความ) ── */
-function CommentRow({ c, reply }: { c: Comment; reply?: boolean }) {
+function CommentRow({
+  c, reply, onSave, onDelete, busy,
+}: {
+  c: Comment
+  reply?: boolean
+  /** คืน true เมื่อบันทึกสำเร็จ — ใช้ปิดโหมดแก้ไข */
+  onSave: (commentId: string, text: string) => Promise<boolean>
+  onDelete: (c: Comment) => void
+  busy?: boolean
+}) {
   const name    = c.by || c.byEmail || "ไม่ระบุ"
   const initial = name.charAt(0).toUpperCase()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft]     = useState(c.text)
   return (
     <div className="flex gap-2">
       <div className={`flex shrink-0 items-center justify-center rounded-full bg-[#1B8C4B] font-bold text-white ${reply ? "h-6 w-6 text-[10px]" : "h-7 w-7 text-xs"}`}>
@@ -3004,8 +3068,47 @@ function CommentRow({ c, reply }: { c: Comment; reply?: boolean }) {
         <div className="flex items-baseline gap-2">
           <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">{name}</span>
           <span className="text-[10px] text-gray-400">{fmtDateTime(c.at)}</span>
+          {c.editedAt && (
+            <span className="text-[10px] text-gray-400" title={`แก้ไขล่าสุด ${fmtDateTime(c.editedAt)}`}>· แก้ไขแล้ว</span>
+          )}
+          {/* ปุ่มโผล่เฉพาะความคิดเห็นของตัวเอง — canEdit มาจาก server */}
+          {c.canEdit && !editing && (
+            <span className="ml-auto flex shrink-0 items-center gap-0.5">
+              <button type="button" onClick={() => { setDraft(c.text); setEditing(true) }} title="แก้ไข" className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-[#1B8C4B] dark:hover:bg-white/5">
+                <Pencil size={11} />
+              </button>
+              <button type="button" onClick={() => onDelete(c)} title="ลบ" className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-[#DC2626] dark:hover:bg-white/5">
+                <Trash2 size={11} />
+              </button>
+            </span>
+          )}
         </div>
-        <p className="whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">{c.text}</p>
+        {editing ? (
+          <div className="mt-1">
+            <textarea
+              autoFocus
+              rows={3}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="w-full resize-y rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none"
+            />
+            <div className="mt-1 flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={busy || !draft.trim() || draft.trim() === c.text}
+                onClick={async () => { if (await onSave(c._id, draft)) setEditing(false) }}
+                className="inline-flex items-center gap-1 rounded-lg bg-[#1B8C4B] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0F6A3C] disabled:opacity-50"
+              >
+                <Check size={12} /> บันทึก
+              </button>
+              <button type="button" onClick={() => setEditing(false)} className="rounded-lg px-2.5 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/5">
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-gray-300">{c.text}</p>
+        )}
       </div>
     </div>
   )

@@ -156,7 +156,8 @@ console.log(data.count, data.items)`}</CodeBlock>
           "parentId": "66a2f1...",   // ตอบกลับความคิดเห็นด้านบน
           "text": "รับทราบ แจ้งฝ่ายเดินรถแล้ว",
           "by": "Plug",
-          "at": "2026-07-19T16:40:00.000+07:00"
+          "at": "2026-07-19T16:40:00.000+07:00",
+          "editedAt": "2026-07-19T17:02:00.000+07:00"   // มีเฉพาะข้อความที่ถูกแก้ไขภายหลัง
         }
       ]
     }
@@ -164,7 +165,7 @@ console.log(data.count, data.items)`}</CodeBlock>
 }`}</CodeBlock>
           <p className="text-[#9AA8A0]">หมายเหตุ: ไม่รวมรูปภาพ (images) เพื่อให้ payload เล็กและเร็ว · ความคิดเห็นส่งเฉพาะชื่อผู้เขียน (<code>by</code>) ไม่ส่งอีเมล · ถ้าไม่ส่ง <code>vehicle</code> จะได้ <code>400</code> พร้อมข้อความอธิบาย</p>
           <p className="text-[#9AA8A0]">
-            🕒 <b className="text-[#37473E] dark:text-gray-200">เขตเวลา:</b> ทุก field ที่เป็นวัน-เวลา (<code>createdAt</code>, <code>updatedAt</code>, <code>statusSinceAt</code>, <code>history[].at</code>, <code>comments[].at</code>)
+            🕒 <b className="text-[#37473E] dark:text-gray-200">เขตเวลา:</b> ทุก field ที่เป็นวัน-เวลา (<code>createdAt</code>, <code>updatedAt</code>, <code>statusSinceAt</code>, <code>history[].at</code>, <code>comments[].at</code>, <code>comments[].editedAt</code>)
             ส่งออกเป็น<b>เวลาไทย</b> รูปแบบ ISO 8601 พร้อม offset <code>+07:00</code> — นำไปแสดงผลได้ตรง ๆ และ parse ได้ทุกภาษา ส่วน field ที่เป็นวันที่ล้วน (<code>receivedDate</code>, <code>dueDate</code> ฯลฯ) เป็นวันไทยอยู่แล้วในรูปแบบ <code>YYYY-MM-DD</code>
           </p>
         </Section>

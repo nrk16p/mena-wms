@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
     const ids = items.map((i) => String(i._id))
     const comments = await client.db(DB).collection(COMMENT_COLL)
       .find({ repairId: { $in: ids } })
-      .project({ repairId: 1, parentId: 1, text: 1, by: 1, at: 1 })
+      .project({ repairId: 1, parentId: 1, text: 1, by: 1, at: 1, editedAt: 1 })
       .sort({ at: 1 })
       .limit(2000)
       .toArray()
@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
       const k = String(c.repairId)
       if (!cById.has(k)) cById.set(k, [])
       // id ส่งออกด้วย เพราะ reply อ้างถึงกันผ่าน parentId
-      cById.get(k)!.push({ id: String(c._id), parentId: c.parentId ?? null, text: c.text ?? "", by: c.by ?? "", at: c.at })
+      cById.get(k)!.push({ id: String(c._id), parentId: c.parentId ?? null, text: c.text ?? "", by: c.by ?? "", at: c.at, ...(c.editedAt ? { editedAt: c.editedAt } : {}) })
     }
     out = out.map((i) => ({ ...i, comments: cById.get(String(i._id)) ?? [] }))
   }
@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ...(i.dailyChecks ? { dailyChecks: i.dailyChecks.map((c: any) => bkkTimestamps(c, ["at"])) } : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...(i.comments ? { comments: i.comments.map((c: any) => bkkTimestamps(c, ["at"])) } : {}),
+    ...(i.comments ? { comments: i.comments.map((c: any) => bkkTimestamps(c, ["at", "editedAt"])) } : {}),
   }))
 
   return NextResponse.json({ ok: true, vehicle, scope: scope || "default", type: type || "all", count: out.length, timezone: "Asia/Bangkok (+07:00)", items: out })
