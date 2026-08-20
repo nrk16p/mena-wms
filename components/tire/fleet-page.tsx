@@ -14,8 +14,8 @@ import {
   fmtDate, fmtDateOnly, fmtNum, fontHead, fontThai, inp, statusChip,
   tdCls, thCls, theadCls,
   type AppointmentTarget,
-} from "@/components/tire-shared"
-import { TireTransactionTracking } from "@/components/tire-transaction-tracking"
+} from "@/components/tire/shared"
+import { TireTransactionTracking } from "@/components/tire/transaction-tracking"
 import { useBranchScope } from "@/components/use-branch-scope"
 
 // ===========================================================================
@@ -84,7 +84,7 @@ type VehicleDetailData = {
 }
 
 // ชนิดข้อมูลคำขอ (RequestItem / TireRequest / MrInfo) + โทน/ตัวจัดรูปแบบร่วม
-// อยู่ที่ `components/tire-shared.tsx` — แท็บคำขอ/อนุมัติอ่านข้อมูลชุดเดียวกัน
+// อยู่ที่ `components/tire/shared.tsx` — แท็บคำขอ/อนุมัติอ่านข้อมูลชุดเดียวกัน
 
 // ===========================================================================
 // SECTION 2: Constants + helpers

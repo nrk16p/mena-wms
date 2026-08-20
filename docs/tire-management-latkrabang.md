@@ -304,11 +304,11 @@ app/api/
     [id]/items/[itemId]/route.ts ← PATCH item status
 
 components/
-  tire-stock-page.tsx            ← Stock view + PR Report tab
-  tire-stock-add-page.tsx        ← Single / bulk add form
-  tire-change-page.tsx           ← Sync + history table
-  tire-change-request-page.tsx   ← Driver request form
-  tire-requests-admin-page.tsx   ← Admin approval UI
+  tire/stock-page.tsx            ← Stock view + PR Report tab
+  tire/stock-add-page.tsx        ← Single / bulk add form
+  tire/change-page.tsx           ← Sync + history table
+  tire/change-request-page.tsx   ← Driver request form
+  tire/requests-admin-page.tsx   ← Admin approval UI
 
 lib/
   tire.ts                        ← normStatus, splitPosition, tireAge, remainingLevel

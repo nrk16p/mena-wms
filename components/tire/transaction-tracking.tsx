@@ -33,7 +33,7 @@ import {
   fmtDate, fmtDateOnly, fmtNum, fontHead, fontThai, inp,
   statusChip,
   type RequestItem, type StatTone, type TireRequest,
-} from "@/components/tire-shared"
+} from "@/components/tire/shared"
 import { AtmsJobLink } from "@/components/atms-job-link"
 
 // ── กติกาของหน้า ────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ const STAGE_CHIPS: { value: TxStage | "all"; label: string; tone: StatTone }[] =
 // ── หน้าตาตาราง ─────────────────────────────────────────────────────────────
 // ตารางนี้เป็น "datatable" ทางการ: หัวเข้มกว่าตัวกลาง (thCls/theadCls) และมีเส้นแบ่ง
 // คอลัมน์ทุกช่อง เพราะแถวเดียวมี 8 คอลัมน์ที่ต่างชนิดกันมาก ถ้าไม่มีเส้นตั้งกวาดตาแล้วหลง
-// ไม่แก้ตัวกลางใน tire-shared เพราะแท็บอื่นยังใช้หัวแบบอ่อนอยู่
+// ไม่แก้ตัวกลางใน tire/shared เพราะแท็บอื่นยังใช้หัวแบบอ่อนอยู่
 
 const txTheadCls = "sticky top-0 z-20 border-b-2 border-[#1B8C4B]/30 bg-[#E4EFE8] dark:border-[#1B8C4B]/45 dark:bg-[#1B2419]"
 
