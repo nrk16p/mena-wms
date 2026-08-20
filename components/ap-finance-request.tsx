@@ -29,11 +29,19 @@ export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceIte
     await navigator.clipboard.writeText(body)
     swalToast("success", "คัดลอกข้อความแล้ว")
   }
-  // mailto มีเพดานความยาว URL ตามโปรแกรมเมล (~2,000 ตัวอักษร) — ใบเยอะ ๆ ให้ใช้คัดลอกแทน
-  const mailtoTooLong = body.length > 1800
-  const openMail = () => {
+  // เปิด Gmail compose ในเบราว์เซอร์ (บริษัทใช้ Google Workspace — login เว็บนี้ก็ Google)
+  // ดีกว่า mailto ที่ต้องพึ่งแอปเมลในเครื่องซึ่งหลายคนไม่ได้ตั้งค่าไว้
+  const openGmail = () => {
+    const url = "https://mail.google.com/mail/?view=cm&fs=1"
+      + `&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    window.open(url, "_blank", "noopener")
+  }
+  // ทางสำรองสำหรับคนที่ใช้แอปเมลในเครื่อง (Outlook ฯลฯ)
+  const openMailApp = () => {
     window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   }
+  // Gmail รับ URL ยาวได้ราว ~8,000 ตัวอักษร — ใบเยอะมากให้ใช้คัดลอกแทน
+  const mailtoTooLong = body.length > 6000
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -71,16 +79,20 @@ export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceIte
         <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-xs leading-relaxed dark:bg-white/5">{body}</pre>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {mailtoTooLong && <span className="mr-auto text-[11px] text-amber-600">ข้อความยาว — บางโปรแกรมเมลอาจตัด แนะนำใช้คัดลอกแล้ววางเอง</span>}
+          {mailtoTooLong && <span className="mr-auto text-[11px] text-amber-600">ข้อความยาวมาก — เบราว์เซอร์อาจตัด แนะนำใช้คัดลอกแล้ววางเอง</span>}
           <button onClick={onClose}
             className="rounded-lg border border-gray-200/80 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">ปิด</button>
+          <button onClick={openMailApp} title="เปิดโปรแกรมเมลในเครื่อง (Outlook ฯลฯ)"
+            className="rounded-lg border border-gray-200/80 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
+            แอปเมล
+          </button>
           <button onClick={copy}
             className="flex items-center gap-1.5 rounded-lg border border-gray-200/80 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
             <Copy className="h-4 w-4" />คัดลอก
           </button>
-          <button onClick={openMail}
+          <button onClick={openGmail}
             className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
-            <Mail className="h-4 w-4" />เปิดอีเมล
+            <Mail className="h-4 w-4" />เปิด Gmail
           </button>
         </div>
       </div>
