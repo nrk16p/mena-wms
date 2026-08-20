@@ -1179,6 +1179,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const isParts      = formJobType === JOB_TYPE_PARTS
   const statusLocked = isDoneStatus(origStatus)  // ปิดงานแล้ว เปลี่ยนสถานะไม่ได้
 
+  // ── พับหมวดในฟอร์ม — หัวข้อเห็นครบตลอด กดกางเฉพาะหมวดที่จะแก้ ──
+  // เก็บเฉพาะหมวดที่ผู้ใช้กดเอง ที่เหลือใช้ค่าเริ่มต้นตามเนื้อหา (หมวดที่ยังว่างพับเก็บให้)
+  const [secToggled, setSecToggled] = useState<Record<string, boolean>>({})
+  const secOpen = (k: string, dflt: boolean) => secToggled[k] ?? dflt
+  const toggleSec = (k: string, dflt: boolean) =>
+    setSecToggled((v) => ({ ...v, [k]: !(v[k] ?? dflt) }))
+  const quoteHasData = !!(form.quotationDetail?.trim() || formQuotImages.length)
+  // ปุ่มลูกศรท้ายหัวข้อ — หมุนตามสถานะพับ/กาง
+  const secChevron = (isOpen: boolean) => (
+    <ChevronDown size={16} className={`ml-auto shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+  )
+
   // เปลี่ยนสถานะ = ต้องให้คำสัญญาใหม่ ล้างวันคาดของขั้นเดิมทิ้งกันเผลอใช้ค่าเก่า
   // กลับไปสถานะเดิม = คืนค่าที่บันทึกไว้ ไม่ต้องกรอกซ้ำ
   function changeStatus(next: string) {
@@ -2195,7 +2207,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       {/* Modal — ฟอร์มหน้าเดียว (บนลงล่าง) header/footer ตรึง เนื้อหาเลื่อน */}
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 backdrop-blur-sm sm:p-4">
-          <div className="my-2 flex max-h-[94vh] w-full max-w-3xl flex-col rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl sm:my-6">
+          <div className="my-2 flex max-h-[94vh] w-full max-w-6xl flex-col rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl sm:my-6">
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
@@ -2250,15 +2262,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </div>
             </div>
 
-            {/* body — ทุก section เรียงบนลงล่างในหน้าเดียว เลื่อนดูได้ */}
-            <div className="flex-1 overflow-y-auto px-5 py-5">
+            {/* body — 2 คอลัมน์: ซ้ายกรอกข้อมูล · ขวาแผงสถานะ + ไทม์ไลน์ เลื่อนแยกกัน
+                เดิมเรียงคอลัมน์เดียวบนลงล่าง ใบเสนอราคาจึงตกไปอยู่ใต้พับตลอด */}
+            <div className="flex min-h-0 flex-1">
               {viewOnly && editId ? (
-                <RepairDetailCard r={form} isParts={isParts} images={formImages} quotImages={formQuotImages} negImages={formNegImages} />
-              ) : (<>
+                <div className="min-w-0 flex-1 overflow-y-auto px-5 py-5">
+                  <RepairDetailCard r={form} isParts={isParts} images={formImages} quotImages={formQuotImages} negImages={formNegImages} />
+                </div>
+              ) : (
+              <div className="min-w-0 flex-1 overflow-y-auto px-5 py-5">
               {/* ── หมวด 1: ข้อมูลรถ (เขียว) ── */}
               <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
-              <p className="flex items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-4 py-2.5 text-[15px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ</p>
-              {(
+              <button type="button" onClick={() => toggleSec("vehicle", true)} className="flex w-full items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-4 py-2.5 text-left text-[15px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ{secChevron(secOpen("vehicle", true))}</button>
+              {secOpen("vehicle", true) && (
                 <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   {/* ประเภทงาน — เลือกได้เฉพาะตอนสร้างใหม่ (แก้ไขเปลี่ยนประเภทไม่ได้ เพราะ workflow คนละชุด) */}
                   {!editId && (
@@ -2383,8 +2399,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
               {/* ── หมวด 2: งานซ่อม (ส้ม) / อะไหล่ (น้ำเงิน) ── */}
               <section className={`mt-5 overflow-hidden rounded-xl border ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}`}>
-              <p className={`flex items-center gap-2 border-b px-4 py-2.5 text-[15px] font-bold ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30 bg-[#EEF2FF] dark:bg-blue-500/15 text-[#3b5bdb] dark:text-blue-300" : "border-[#F8D8C2] dark:border-orange-500/30 bg-[#FFF3E8] dark:bg-orange-500/15 text-[#C2410C] dark:text-orange-300"}`} style={{ fontFamily: "'Mitr', sans-serif" }}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}</p>
-              {(
+              <button type="button" className={`flex w-full items-center gap-2 border-b px-4 py-2.5 text-left text-[15px] font-bold ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30 bg-[#EEF2FF] dark:bg-blue-500/15 text-[#3b5bdb] dark:text-blue-300" : "border-[#F8D8C2] dark:border-orange-500/30 bg-[#FFF3E8] dark:bg-orange-500/15 text-[#C2410C] dark:text-orange-300"}`} style={{ fontFamily: "'Mitr', sans-serif" }} onClick={() => toggleSec("repair", true)}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}{secChevron(secOpen("repair", true))}</button>
+              {secOpen("repair", true) && (
                 <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>{isParts ? "รายการอะไหล่ที่สั่ง" : "รายละเอียดอาการ"}</label>
@@ -2411,7 +2427,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
               {/* ── หมวด 2.5: ใบเสนอราคา (ฟ้า) — รายละเอียด + แนบ PDF/รูป ── */}
               <section className="mt-5 overflow-hidden rounded-xl border border-[#BEE7F2] dark:border-cyan-500/30">
-                <p className="flex items-center gap-2 border-b border-[#BEE7F2] dark:border-cyan-500/30 bg-[#E6F7FB] dark:bg-cyan-500/15 px-4 py-2.5 text-[15px] font-bold text-[#0E7490] dark:text-cyan-300" style={{ fontFamily: "'Mitr', sans-serif" }}>🧾 ใบเสนอราคา</p>
+                <button type="button" onClick={() => toggleSec("quote", quoteHasData)} className="flex w-full items-center gap-2 border-b border-[#BEE7F2] dark:border-cyan-500/30 bg-[#E6F7FB] dark:bg-cyan-500/15 px-4 py-2.5 text-left text-[15px] font-bold text-[#0E7490] dark:text-cyan-300" style={{ fontFamily: "'Mitr', sans-serif" }}>
+                  🧾 ใบเสนอราคา
+                  {!quoteHasData && <span className="text-[11px] font-medium opacity-70">ยังไม่มีข้อมูล</span>}
+                  {secChevron(secOpen("quote", quoteHasData))}
+                </button>
+                {secOpen("quote", quoteHasData) && (
                 <div className="space-y-4 p-4">
                   <div>
                     <label className={labelCls}>รายละเอียดใบเสนอราคา</label>
@@ -2422,12 +2443,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <ImageUpload key={(editId ?? "new") + "-quot"} initial={formQuotImages} onChange={setFormQuotImages} />
                   </div>
                 </div>
+                )}
               </section>
 
+              </div>
+              )}
+
+              {/* ── ขวา: แผงสถานะ + ไทม์ไลน์ · กว้างคงที่ ตรึงไว้ไม่เลื่อนหายไปกับฟอร์ม ── */}
+              <div className="flex w-[430px] shrink-0 flex-col overflow-y-auto border-l border-[#EEF2F0] dark:border-white/8 bg-[#FBFDFC] dark:bg-white/[0.015] px-5 py-5">
+              {!(viewOnly && editId) && (<>
               {/* ── หมวด 3: สถานะ · เอกสาร (ม่วง) ── */}
-              <section className="mt-5 overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30">
-              <p className="flex items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-4 py-2.5 text-[15px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร</p>
-              {(
+              <section className="overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 shadow-sm">
+              <button type="button" onClick={() => toggleSec("status", true)} className="flex w-full items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-4 py-2.5 text-left text-[15px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร{secChevron(secOpen("status", true))}</button>
+              {secOpen("status", true) && (
                 <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
@@ -2867,6 +2895,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                 </div>
               )}
+              </div>
             </div>
 
             {/* footer ตรึงล่าง — ลบได้จากที่นี่ที่เดียว (ตารางไม่มีปุ่มลบแล้ว) */}
