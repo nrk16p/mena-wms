@@ -2350,10 +2350,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
               <button type="button" onClick={() => toggleSec("vehicle", true)} className="flex w-full items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ{secChevron(secOpen("vehicle", true))}</button>
               {secOpen("vehicle", true) && (
-                <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 p-3 sm:grid-cols-2">
+                <div className="grid grid-cols-6 gap-x-3 gap-y-2.5 p-3">
                   {/* ประเภทงาน — เลือกได้เฉพาะตอนสร้างใหม่ (แก้ไขเปลี่ยนประเภทไม่ได้ เพราะ workflow คนละชุด) */}
                   {!editId && (
-                    <div className="sm:col-span-2">
+                    <div className="col-span-6 sm:col-span-2">
                       <label className={labelCls}>ประเภทงาน</label>
                       <div className="grid grid-cols-2 gap-2">
                         {[
@@ -2376,49 +2376,44 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </div>
                     </div>
                   )}
-                  <div className="sm:col-span-2">
-                    <label className={labelCls}>ทะเบียนรถ <span className="text-red-500">*</span></label>
+                  <div className="col-span-6 sm:col-span-2">
+                    <label className={labelCls}>ทะเบียนรถ <span className="font-bold text-[#DC2626]">*</span></label>
                     <PlateCombobox
                       plate={form.plate}
                       onChange={(plate, fleetNo) => setForm((f) => ({ ...f, plate, ...(fleetNo !== undefined ? { fleetNo } : {}) }))}
                     />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-2">
                     <label className={labelCls}>เบอร์รถ <span className="text-[10px] font-normal text-gray-400">(auto · พิมพ์เพื่อค้นหาได้)</span></label>
                     <FleetNoCombobox
                       fleetNo={form.fleetNo}
                       onChange={(fleetNo, plate) => setForm((f) => ({ ...f, fleetNo, ...(plate !== undefined ? { plate } : {}) }))}
                     />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-2">
                     <label className={labelCls}>วันที่รับแจ้ง</label>
                     <input type="date" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} className={inputCls} />
                   </div>
-                  <div>
-                    <label className={labelCls}>ฟลีท <span className="text-[10px] font-normal text-gray-400">(auto · ไม่มีเลือกจาก list)</span></label>
+                  <div className="col-span-6 sm:col-span-2">
+                    <label className={labelCls} title={vdRef ? `อ้างอิงข้อมูลรถ ณ วันที่ ${vdRef} (atms.vehicle_daily)` : undefined}>ฟลีท <span className="text-[10px] font-normal text-gray-400">(auto{vdRef ? ` · ${vdRef}` : ""})</span></label>
                     <input list="fleet-options" value={form.fleet} onChange={(e) => setForm({ ...form, fleet: e.target.value })} className={inputCls + " bg-[#F6FAF7] dark:bg-white/5"} placeholder="ฟลีท — พิมพ์หรือเลือก" />
                     <datalist id="fleet-options">
                       {fleetOptions.map((f) => <option key={f} value={f} />)}
                     </datalist>
                   </div>
-                  <div>
-                    <label className={labelCls}>แพล้นท์ <span className="text-[10px] font-normal text-gray-400">(auto)</span></label>
+                  <div className="col-span-6 sm:col-span-2">
+                    <label className={labelCls} title={vdRef ? `อ้างอิงข้อมูลรถ ณ วันที่ ${vdRef} (atms.vehicle_daily)` : undefined}>แพล้นท์ <span className="text-[10px] font-normal text-gray-400">(auto)</span></label>
                     <input value={form.plant} onChange={(e) => setForm({ ...form, plant: e.target.value })} className={inputCls + " bg-[#F6FAF7] dark:bg-white/5"} placeholder="แพล้นท์" />
                   </div>
-                  {vdRef && (
-                    <p className="sm:col-span-2 -mt-1 text-[11px] text-[#9AA8A0]">
-                      ⓘ ฟลีท/แพล้นท์ อ้างอิงข้อมูลรถ ณ วันที่ <b className="text-[#5B7568] dark:text-gray-400">{vdRef}</b> (atms.vehicle_daily)
-                    </p>
-                  )}
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>👤 ชื่อคนขับ</label>
                     <input value={form.driverName} onChange={(e) => setForm({ ...form, driverName: e.target.value })} className={inputCls} placeholder="ชื่อ-นามสกุล คนขับ" />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>📞 เบอร์โทรคนขับ</label>
                     <input type="tel" value={form.driverPhone} onChange={(e) => setForm({ ...form, driverPhone: e.target.value })} className={inputCls} placeholder="เช่น 081-234-5678" />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>🚦 สภาพรถ</label>
                     <div className="inline-flex w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 p-0.5">
                       {["วิ่งได้", "วิ่งไม่ได้"].map((ds) => {
@@ -2436,7 +2431,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       })}
                     </div>
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>🥣 ปูนในโม่</label>
                     <div className="inline-flex w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 p-0.5">
                       {["มีปูน", "ไม่มีปูน"].map((cs) => {
@@ -2454,7 +2449,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       })}
                     </div>
                   </div>
-                  <div className="sm:col-span-2">
+                  <div className="col-span-6">
                     <label className={labelCls}>📍 พิกัดที่รถเสีย <span className="text-[10px] font-normal text-gray-400">(วางลิงก์ Google Maps / lat,long / หรือพิมพ์อธิบาย)</span></label>
                     <input value={form.breakdownLocation} onChange={(e) => setForm({ ...form, breakdownLocation: e.target.value })} className={inputCls} placeholder="เช่น https://maps.app.goo.gl/... หรือ 13.7563,100.5018 หรือ ถ.บางนา-ตราด กม.18" />
                     {mapUrl(form.breakdownLocation) && (
@@ -2463,7 +2458,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </a>
                     )}
                   </div>
-                  <div className="sm:col-span-2">
+                  <div className="col-span-6">
                     <label className={labelCls}>ไฟล์แนบ <span className="text-[10px] font-normal text-gray-400">(รูป / เอกสาร)</span></label>
                     <ImageUpload initial={formImages} onChange={setFormImages} />
                   </div>
@@ -2476,22 +2471,22 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               <section className={`overflow-hidden rounded-xl border ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}`}>
               <button type="button" className={`flex w-full items-center gap-2 border-b px-3 py-1.5 text-left text-[13.5px] font-bold ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30 bg-[#EEF2FF] dark:bg-blue-500/15 text-[#3b5bdb] dark:text-blue-300" : "border-[#F8D8C2] dark:border-orange-500/30 bg-[#FFF3E8] dark:bg-orange-500/15 text-[#C2410C] dark:text-orange-300"}`} style={{ fontFamily: "'Mitr', sans-serif" }} onClick={() => toggleSec("repair", true)}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}{secChevron(secOpen("repair", true))}</button>
               {secOpen("repair", true) && (
-                <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 p-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
+                <div className="grid grid-cols-6 gap-x-3 gap-y-2.5 p-3">
+                  <div className="col-span-6">
                     <label className={labelCls}>{isParts ? "รายการอะไหล่ที่สั่ง" : "รายละเอียดอาการ"}</label>
                     <textarea value={form.symptom} onChange={(e) => setForm({ ...form, symptom: e.target.value })} rows={3} className={inputCls} placeholder={isParts ? "อะไหล่ที่สั่งซื้อ / จำนวน / สเปก" : "อาการที่พบ / สิ่งที่ต้องซ่อม"} />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>{isParts ? "ร้านค้า / ผู้ขาย" : "อู่"}</label>
                     <GarageCombobox value={form.garage} garages={garages} onChange={(name) => setForm({ ...form, garage: name })} onCreated={(g) => { setGarages((prev) => [...prev, g].sort((a, b) => a.name.localeCompare(b.name, "th"))) }} />
                   </div>
                   {!isParts && (
-                    <div>
+                    <div className="col-span-6 sm:col-span-3">
                       <label className={labelCls}>วันที่รถเข้าอู่ซ่อม {isReq("garageInDate") && <span className="text-amber-500">*</span>}</label>
                       <input type="date" value={form.garageInDate} onChange={(e) => setForm({ ...form, garageInDate: e.target.value })} className={inputCls + reqCls("garageInDate")} />
                     </div>
                   )}
-                  <div className="sm:col-span-2">
+                  <div className="col-span-6">
                     <label className={labelCls}>เลขใบแจ้งซ่อม MR</label>
                     <input value={form.mrNo} onChange={(e) => setForm({ ...form, mrNo: e.target.value })} className={inputCls} placeholder="เช่น MR-2568-0001" />
                   </div>
@@ -2531,12 +2526,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   {secChevron(secOpen("money", moneyHasData))}
                 </button>
                 {secOpen("money", moneyHasData) && (
-                <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 p-3 sm:grid-cols-2">
-                  <div>
+                <div className="grid grid-cols-6 gap-x-3 gap-y-2.5 p-3">
+                  <div className="col-span-6 sm:col-span-2">
                     <label className={labelCls}>{isParts ? "ราคาอะไหล่ (บาท)" : "ราคาซ่อม (บาท)"}</label>
                     <input type="number" min={0} step="0.01" value={form.repairPrice || ""} onChange={(e) => setForm({ ...form, repairPrice: Number(e.target.value) })} className={inputCls} placeholder="0.00" />
                   </div>
-                  <div>
+                  <div className="col-span-6 sm:col-span-2">
                     <label className={labelCls}>รับประกัน</label>
                     <select value={form.warranty} onChange={(e) => setForm({ ...form, warranty: e.target.value })} className={inputCls}>
                       <option value="">— ไม่ระบุ —</option>
@@ -2544,7 +2539,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       {form.warranty && !WARRANTY_OPTIONS.includes(form.warranty) && (<option value={form.warranty}>{form.warranty}</option>)}
                     </select>
                   </div>
-                  <div className="sm:col-span-2">
+                  <div className="col-span-6">
                     <label className={labelCls}>หมายเหตุ</label>
                     <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} rows={2} className={inputCls} placeholder="หมายเหตุเพิ่มเติม" />
                   </div>
@@ -2613,7 +2608,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               <button type="button" onClick={() => toggleSec("status", true)} className="flex w-full items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร{secChevron(secOpen("status", true))}</button>
               {secOpen("status", true) && (
                 <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 p-3">
-                  <div className="sm:col-span-2">
+                  <div className="col-span-6">
                     <label className={labelCls}>สถานะ</label>
                     <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
                       {statusesFor(formJobType).map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
