@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, History, ArrowRight, Table as TableIcon, Columns3, CalendarDays, MessageSquare, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
@@ -128,6 +128,24 @@ const fmtDateTime = (s: string) => {
 
 // แสดงค่าฟิลด์ใน log ให้อ่านง่าย (ว่าง → "(ว่าง)")
 const showVal = (v: string) => (v === "" || v == null ? "(ว่าง)" : v)
+
+/* ── ไทม์ไลน์รวม: ประวัติสถานะ · Mena-Next · ความคิดเห็น อยู่เส้นเดียวกัน ──
+ * เดิมเป็น 3 กล่องแยก ทำให้ปะติดปะต่อลำดับเหตุการณ์ข้ามระบบไม่ได้
+ * เรียงเก่า→ใหม่ให้ตรงกับที่ทีมอ่านอยู่เดิม ช่องเขียนอยู่ท้ายสุดติดกับเหตุการณ์ล่าสุด */
+type FeedKind = "status" | "next" | "note"
+const FEED_TABS: { id: "all" | FeedKind; label: string }[] = [
+  { id: "all",    label: "ทั้งหมด" },
+  { id: "status", label: "สถานะ WMS" },
+  { id: "next",   label: "Mena-Next" },
+  { id: "note",   label: "ความคิดเห็น" },
+]
+const FEED_DOT: Record<FeedKind, string> = { status: "#1B8C4B", next: "#6366F1", note: "#B07D12" }
+const FEED_LABEL: Record<FeedKind, string> = { status: "WMS", next: "Mena-Next", note: "ความคิดเห็น" }
+const FEED_TAG: Record<FeedKind, string> = {
+  status: "bg-[#ECFDF3] text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300",
+  next:   "bg-[#EEF2FF] text-[#4F46E5] dark:bg-indigo-900/25 dark:text-indigo-300",
+  note:   "bg-[#FDF3DD] text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300",
+}
 
 // จำนวนวันตั้งแต่วันรับแจ้ง → วันนี้ (นับตามปฏิทินไทย ไม่ใช่ช่วง 24 ชม.)
 const ageDays = (s: string): number | null => daysSince(s)
@@ -365,7 +383,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // log drawer
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [logLoading, setLogLoading] = useState(false)
-  const [showFieldLog, setShowFieldLog] = useState(false)  // การแก้ field อื่น — พับไว้ (โฟกัสที่สถานะ)
 
   // view + สรุปสถานะ
   const [view, setView]   = useState<"table" | "board" | "plan">("table")
@@ -1068,7 +1085,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // โหลดประวัติมาแสดงในฟอร์มแก้ไข (ไม่ใช้ drawer แยกแล้ว)
   async function loadLog(r: RepairExternal) {
     setLogLoading(true)
-    setLogEntries([]); setShowFieldLog(false)
+    setLogEntries([])
     try {
       const res  = await fetch(`/api/repair-external/${r._id}/log`)
       const data = await res.json()
@@ -1079,6 +1096,46 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       setLogLoading(false)
     }
   }
+
+  // ── ประกอบไทม์ไลน์รวมจาก 3 แหล่ง เรียงตามเวลาจริง ──
+  const [feedTab, setFeedTab] = useState<"all" | FeedKind>("all")
+  type FeedItem =
+    | { kind: "status"; key: string; at: string; by: string; e: LogEntry; eta: string }
+    | { kind: "field";  key: string; at: string; by: string; e: LogEntry }
+    | { kind: "next";   key: string; at: string; by: string; code: string; label: string; branch: string; problem: string }
+    | { kind: "note";   key: string; at: string; by: string; c: Comment }
+  // "แก้ไข field" นับเป็นฝั่ง WMS เหมือนการเปลี่ยนสถานะ — แท็บเดียวกัน
+  const feedKindOf = (f: FeedItem): FeedKind => (f.kind === "field" ? "status" : f.kind)
+
+  const feedItems: FeedItem[] = (() => {
+    const out: FeedItem[] = []
+    for (const e of logEntries) {
+      const by = e.by || e.byEmail || ""
+      if (e.statusChange || e.action === "create") {
+        // วันคาดที่ตั้งไว้ตอนเข้าสถานะนั้น (ถ้าบันทึกไว้ในรอบเดียวกัน)
+        const eta = (e.changes ?? []).find((c) => c.field === "stageEta")?.to ?? ""
+        out.push({ kind: "status", key: `s-${e._id}`, at: e.at, by, e, eta })
+      }
+      if ((e.changes ?? []).some((c) => c.field !== "status" && c.field !== "stageEta")) {
+        out.push({ kind: "field", key: `f-${e._id}`, at: e.at, by, e })
+      }
+    }
+    for (const [i, it] of (atmsTl ?? []).entries()) {
+      const problem = (it.tasks ?? []).map((t) => t.problem).filter(Boolean).join(" · ")
+      for (const [j, ev] of (it.timeline_events ?? []).entries()) {
+        if (!ev.at) continue
+        out.push({
+          kind: "next", key: `n-${i}-${j}`, at: ev.at,
+          by: ev.action_by || it.mechanic_name || "",
+          code: it.code ?? "", label: ev.label ?? "", branch: it.branch_name ?? "", problem,
+        })
+      }
+    }
+    // ตอบกลับแสดงซ้อนใต้ความคิดเห็นหลัก ไม่แยกเป็นรายการในสาย
+    for (const c of comments) if (!c.parentId) out.push({ kind: "note", key: `c-${c._id}`, at: c.at, by: "", c })
+    return out.sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0))
+  })()
+  const feedShown = feedTab === "all" ? feedItems : feedItems.filter((f) => feedKindOf(f) === feedTab)
 
   const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || conflictOnly || nextFilter || etaOverdueOnly || dateFrom || dateTo
   function clearFilters() {
@@ -2678,222 +2735,138 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
               </>)}
 
-              {/* ── หมวด 4: ประวัติ (เทา) — โชว์ในหน้าเลย โฟกัสเส้นทางสถานะ ── */}
+              {/* ── 🕓 ไทม์ไลน์รวม — ประวัติสถานะ + Mena-Next + ความคิดเห็น เรียงตามเวลาจริง ──
+                  เดิมแยกเป็น 3 กล่อง ต้องเลื่อนกลับไปกลับมาเพื่อปะติดปะต่อว่าเกิดอะไรก่อนหลัง */}
               {editId && (
-                <section className="mt-5 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10">
-                  <p className="flex items-center gap-2 border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5 text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>🔄 เส้นทางสถานะ · ประวัติการแก้ไข</p>
-                  <div className="p-4">
+                <section className="mt-5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10]">
+                  <div className="border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5">
+                    <p className="text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>🕓 ไทม์ไลน์ · ความคิดเห็น</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {FEED_TABS.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setFeedTab(t.id)}
+                          className={`rounded-full border px-2.5 py-1 text-[11.5px] font-semibold transition ${feedTab === t.id ? "border-[#14271C] bg-[#14271C] text-white" : "border-[#E2E8E4] dark:border-white/10 text-[#5B7568] dark:text-gray-300 hover:bg-white dark:hover:bg-white/5"}`}
+                        >
+                          {t.label} <span className="opacity-70">{feedItems.filter((f) => t.id === "all" || feedKindOf(f) === t.id).length}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-                  {/* ย้อนสถานะกลับ (ปิดงานแล้วย้อนไม่ได้) */}
-                  {editRow && !isDoneStatus(editRow.status) && (() => {
-                    const lastSC = logEntries.find((e) => e.statusChange && e.action !== "create")
-                    const prev = lastSC?.statusChange?.from
-                    if (!prev || prev === editRow.status) return null
-                    return (
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#F9FCFA] dark:bg-white/[0.02] px-3 py-2">
-                        <span className="text-xs text-[#9AA8A0]">ปัจจุบัน: <b className="text-[#5B7568] dark:text-gray-300">{statusMeta(editRow.status).emoji} {editRow.status}</b></span>
-                        <button onClick={() => revertStatus(editRow, prev)} className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
-                          <ArrowRight size={13} className="rotate-180" /> ย้อนเป็น “{prev}”
+                  <div className="min-h-[220px] flex-1 space-y-3.5 overflow-y-auto p-4">
+                    {/* Mena-Next โหลดเมื่อกด — ยิง API ภายนอกทุกครั้งที่เปิดฟอร์มจะช้าเกินไป */}
+                    {!isParts && atmsTl === null && (
+                      <div className="flex items-center justify-between gap-2 rounded-lg border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/60 dark:bg-indigo-900/15 px-3 py-2">
+                        <span className="text-[11.5px] text-indigo-700 dark:text-indigo-300">ยังไม่ได้ดึงเหตุการณ์จาก Mena-Next</span>
+                        <button type="button" onClick={loadAtmsTimeline} disabled={atmsTlLoading || !form.plate.trim()} className="shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
+                          {atmsTlLoading ? "กำลังโหลด..." : "โหลด"}
                         </button>
                       </div>
-                    )
-                  })()}
-
-                  {logLoading ? (
-                    <p className="py-4 text-center text-sm text-gray-400">กำลังโหลด...</p>
-                  ) : logEntries.length === 0 ? (
-                    <p className="py-2 text-sm text-gray-400">ยังไม่มีประวัติ — รายการที่นำเข้าจากไฟล์จะเริ่มบันทึกประวัติเมื่อมีการแก้ไขครั้งถัดไป</p>
-                  ) : (() => {
-                    // เรียงเก่า→ใหม่ + คำนวณ "อยู่ขั้นนี้กี่วัน"
-                    const chrono = [...logEntries].reverse()
-                    const scs = chrono.filter((e) => e.statusChange)
-                    const fieldEntries = logEntries.filter((e) => (e.changes ?? []).some((c) => c.field !== "status"))
-                    const dayMs = 86400000
-                    return (
-                      <>
-                        {scs.length === 0 ? (
-                          <p className="pb-2 text-sm text-gray-400">ยังไม่มีการเปลี่ยนสถานะที่บันทึกไว้</p>
-                        ) : (
-                          <ol className="relative ml-1 space-y-5 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-5">
-                            {scs.map((e, i) => {
-                              const to   = e.statusChange!.to
-                              const next = scs[i + 1]
-                              const endMs   = next ? Date.parse(next.at) : Date.now()
-                              const stayDay = Math.max(0, Math.round((endMs - Date.parse(e.at)) / dayMs))
-                              const isCurrent = !next
-                              const stayColor = stayDay > 5 ? "#DC2626" : stayDay > 2 ? "#B07D12" : "#1B8C4B"
-                              return (
-                                <li key={e._id} className="relative">
-                                  <span className="absolute -left-[27px] top-0.5 h-4 w-4 rounded-full ring-4 ring-white dark:ring-[#151a10]" style={{ background: barColor(to) }} />
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[13px] font-semibold ${statusMeta(to).cls}`}>
-                                      {statusMeta(to).emoji} {showVal(to)}
-                                    </span>
-                                    {isCurrent && !isDoneStatus(to) && <span className="rounded-full bg-[#14271C] px-2 py-0.5 text-[10px] font-bold text-white dark:bg-white dark:text-[#14271C]">ปัจจุบัน</span>}
-                                    <span
-                                      className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                                      style={{ color: stayColor, background: stayColor + "1A" }}
-                                      title={isCurrent ? "อยู่ขั้นนี้มาแล้ว" : "ใช้เวลาในขั้นนี้"}
-                                    >
-                                      ⏱ {stayDay} วัน{isCurrent && !isDoneStatus(to) ? " (กำลังดำเนินอยู่)" : ""}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1 text-[11.5px] text-gray-400">
-                                    {e.action === "create" ? "เปิดรายการ" : <>จาก {showVal(e.statusChange!.from)}</>} · {e.by || e.byEmail || "ไม่ระบุผู้ใช้"} · {fmtDateTime(e.at)}
-                                  </p>
-                                </li>
-                              )
-                            })}
-                          </ol>
-                        )}
-                        {fieldEntries.length > 0 && (
-                          <div className="mt-4">
-                            <button type="button" onClick={() => setShowFieldLog((v) => !v)} className="inline-flex items-center gap-1 text-[12px] font-medium text-[#1B8C4B] hover:underline">
-                              <History size={13} /> {showFieldLog ? "ซ่อนการแก้ไขอื่น" : `ดูการแก้ไขอื่น (${fieldEntries.length})`}
-                            </button>
-                            {showFieldLog && (
-                              <ol className="mt-3 space-y-3">
-                                {fieldEntries.map((e) => (
-                                  <li key={e._id} className="rounded-lg bg-gray-50 dark:bg-white/5 px-3 py-2">
-                                    <p className="text-[11px] text-gray-400">{e.by || e.byEmail || "ไม่ระบุผู้ใช้"} · {fmtDateTime(e.at)}</p>
-                                    <ul className="mt-1 space-y-1">
-                                      {(e.changes ?? []).filter((c) => c.field !== "status").map((c) => (
-                                        <li key={c.field} className="text-[11.5px]">
-                                          <span className="font-medium text-gray-600 dark:text-gray-300">{c.label}: </span>
-                                          <span className="text-gray-400 line-through">{showVal(c.from)}</span>
-                                          <ArrowRight size={10} className="mx-1 inline text-gray-400" />
-                                          <span className="text-gray-700 dark:text-gray-200">{showVal(c.to)}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </li>
-                                ))}
-                              </ol>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )
-                  })()}
-                </div>
-                </section>
-              )}
-
-              {/* ── Timeline ATMS (เฉพาะงานอู่นอก — โหลดเมื่อกด) ── */}
-              {editId && jobTypeOf(form) !== JOB_TYPE_PARTS && (
-                <section className="mt-5 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10">
-                  <div className="flex items-center justify-between gap-2 border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5">
-                    <p className="text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>📜 Timeline Mena-Next (ระบบแจ้งซ่อม)</p>
-                    <button
-                      type="button"
-                      onClick={loadAtmsTimeline}
-                      disabled={atmsTlLoading || !form.plate.trim()}
-                      className="rounded-lg border border-[#E2E8E4] dark:border-white/10 px-3 py-1 text-[12px] font-bold text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5 disabled:opacity-50"
-                    >
-                      {atmsTlLoading ? "กำลังโหลด..." : atmsTl ? "รีเฟรช" : "โหลด Timeline"}
-                    </button>
-                  </div>
-                  <div className="p-4">
-                    {atmsTlErr && <p className="text-sm text-red-500">โหลดไม่สำเร็จ: {atmsTlErr}</p>}
-                    {atmsTl === null && !atmsTlErr && !atmsTlLoading && (
-                      <p className="text-sm text-gray-400">กด “โหลด Timeline” เพื่อดึงประวัติ MR, PR/PO และ event ทั้งหมดของคันนี้จาก Mena-Next (ปี {new Date(Date.now() + 25200000).getUTCFullYear()})</p>
                     )}
-                    {atmsTl !== null && atmsTl.length === 0 && <p className="text-sm text-gray-400">ไม่พบข้อมูลใน Mena-Next สำหรับทะเบียนนี้</p>}
-                    {atmsTl !== null && atmsTl.length > 0 && (
-                      <div className="space-y-4">
-                        {atmsTl.map((it, idx) => (
-                          <div key={it.code ?? idx} className="rounded-lg border border-[#EEF2F0] dark:border-white/10 p-3">
-                            <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                              <b className="text-[#14271C] dark:text-white">{it.code ?? "-"}</b>
-                              {it.branch_name && <span className="text-gray-400">· {it.branch_name}</span>}
-                              {it.mechanic_name && <span className="text-gray-400">· ช่าง {it.mechanic_name}</span>}
+                    {atmsTlErr && <p className="text-[11.5px] text-red-500">โหลด Mena-Next ไม่สำเร็จ: {atmsTlErr}</p>}
+
+                    {logLoading || cmtLoading ? (
+                      <p className="py-6 text-center text-xs text-gray-400">กำลังโหลด...</p>
+                    ) : feedShown.length === 0 ? (
+                      <p className="py-6 text-center text-xs text-gray-400">ยังไม่มีเหตุการณ์ในมุมมองนี้</p>
+                    ) : (
+                      feedShown.map((f) => (
+                        <div key={f.key} className="flex gap-2.5">
+                          <div className="flex flex-col items-center">
+                            <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: FEED_DOT[feedKindOf(f)] }} />
+                            <span className="mt-1 w-px flex-1 bg-[#EEF2F0] dark:bg-white/10" />
+                          </div>
+                          <div className="min-w-0 flex-1 pb-0.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${FEED_TAG[feedKindOf(f)]}`}>{FEED_LABEL[feedKindOf(f)]}</span>
+                              <span className="text-[10.5px] text-[#9AA8A0]">{fmtDateTime(f.at)}</span>
+                              {f.by && <span className="text-[10.5px] text-[#9AA8A0]">· {f.by}</span>}
                             </div>
-                            {(it.tasks ?? []).length > 0 && (
-                              <ul className="mt-1.5 space-y-0.5">
-                                {(it.tasks ?? []).map((t, i) => (
-                                  <li key={i} className="text-[12.5px] text-gray-700 dark:text-gray-300">🔧 {t.problem ?? "-"}{t.maintenance_type ? <span className="text-gray-400"> ({t.maintenance_type})</span> : null}</li>
-                                ))}
-                              </ul>
+
+                            {f.kind === "status" && (
+                              <div className="mt-1">
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold ${statusMeta(f.e.statusChange?.to ?? "").cls}`}>
+                                  {statusMeta(f.e.statusChange?.to ?? "").emoji} {f.e.statusChange?.to || "—"}
+                                </span>
+                                <span className="ml-1.5 text-[11.5px] text-[#5B7568] dark:text-gray-400">
+                                  {f.e.action === "create" ? "เปิดรายการ" : `จาก ${showVal(f.e.statusChange?.from ?? "")}`}
+                                </span>
+                                {/* ย้อนกลับมาสถานะนี้ — เฉพาะสถานะเก่าที่ไม่ใช่อันปัจจุบัน และงานยังไม่ปิด */}
+                                {editRow && !isDoneStatus(editRow.status) && f.e.statusChange?.to && f.e.statusChange.to !== editRow.status && (
+                                  <button
+                                    type="button"
+                                    onClick={() => revertStatus(editRow, f.e.statusChange!.to)}
+                                    title={`ย้อนสถานะกลับเป็น “${f.e.statusChange.to}”`}
+                                    className="ml-1.5 rounded border border-[#E2E8E4] dark:border-white/10 px-1.5 py-0.5 text-[10.5px] font-medium text-[#5B7568] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
+                                  >
+                                    ย้อนกลับมาที่นี่
+                                  </button>
+                                )}
+                                {f.eta && (
+                                  <div className="mt-1 inline-flex items-center gap-1 rounded bg-[#F3E8FF] px-1.5 py-0.5 text-[10.5px] font-bold text-[#7C3AED] dark:bg-violet-900/25 dark:text-violet-300">
+                                    🎯 คาดพ้นขั้นนี้ {fmtDateShort(f.eta)}
+                                  </div>
+                                )}
+                              </div>
                             )}
-                            {(it.purchase_requests ?? []).length > 0 && (
-                              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                {(it.purchase_requests ?? []).map((pr, i) => (
-                                  <span key={i} className="rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[11px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300" title={(pr.purchase_orders ?? []).map((po) => `${po.po_code} · ${po.supplier ?? "-"} · ${po.received_status ?? "-"}`).join("\n") || "ยังไม่มี PO"}>
-                                    {pr.pr_code}{pr.amount ? ` ฿${(pr.amount).toLocaleString("th-TH")}` : ""}{pr.is_approved ? " ✓" : " (รออนุมัติ)"}
-                                    {(pr.purchase_orders ?? []).length > 0 && ` → ${(pr.purchase_orders ?? []).map((po) => po.po_code).join(", ")}`}
-                                  </span>
+
+                            {f.kind === "field" && (
+                              <div className="mt-1 space-y-0.5">
+                                {(f.e.changes ?? []).filter((c) => c.field !== "status").map((c) => (
+                                  <p key={c.field} className="text-[11.5px] leading-relaxed text-[#5B7568] dark:text-gray-400">
+                                    <b className="font-semibold text-[#37473E] dark:text-gray-300">{c.label}</b>: {showVal(c.from)} → <b className="font-semibold text-[#14271C] dark:text-white">{showVal(c.to)}</b>
+                                  </p>
                                 ))}
                               </div>
                             )}
-                            {(it.timeline_events ?? []).length > 0 && (
-                              <ol className="relative ml-1 mt-3 space-y-2.5 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-4">
-                                {[...(it.timeline_events ?? [])]
-                                  .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))
-                                  .slice(0, 40)
-                                  .map((ev, i) => (
-                                    <li key={ev.uid ?? i} className="relative">
-                                      <span className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full ${ev.source === "wms" ? "bg-[#1B8C4B]" : "bg-indigo-400"}`} />
-                                      <p className="text-[12.5px] text-gray-700 dark:text-gray-300">
-                                        <span className={`mr-1 rounded px-1 py-0.5 text-[10px] font-bold ${ev.source === "wms" ? "bg-[#ECFDF3] text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300" : "bg-indigo-50 text-indigo-600 dark:bg-indigo-900/25 dark:text-indigo-300"}`}>{ev.source === "wms" ? "WMS" : "Mena-Next"}</span>
-                                        {ev.label ?? "-"}
-                                      </p>
-                                      <p className="text-[11px] text-gray-400">{ev.action_by ? `${ev.action_by} · ` : ""}{ev.at ? fmtDateTime(ev.at) : "-"}</p>
-                                    </li>
-                                  ))}
-                              </ol>
+
+                            {f.kind === "next" && (
+                              <div className="mt-1">
+                                <p className="text-[12.5px] leading-relaxed text-[#37473E] dark:text-gray-300">
+                                  {f.code && <b className="font-mono font-semibold">{f.code}</b>} {f.label}
+                                </p>
+                                {f.problem && <p className="mt-0.5 text-[11.5px] leading-relaxed text-[#5B7568] dark:text-gray-400">🔧 {f.problem}</p>}
+                                {f.branch && <p className="mt-0.5 text-[10.5px] text-[#9AA8A0]">{f.branch}</p>}
+                              </div>
+                            )}
+
+                            {f.kind === "note" && (
+                              <div className="mt-1.5">
+                                <CommentRow c={f.c} onSave={saveComment} onDelete={deleteComment} busy={posting} />
+                                {comments.filter((r) => r.parentId === f.c._id).length > 0 && (
+                                  <div className="ml-4 mt-2 space-y-2 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-3">
+                                    {comments.filter((r) => r.parentId === f.c._id).map((rc) => (
+                                      <CommentRow key={rc._id} c={rc} reply onSave={saveComment} onDelete={deleteComment} busy={posting} />
+                                    ))}
+                                  </div>
+                                )}
+                                {replyTo === f.c._id ? (
+                                  <div className="ml-4 mt-2 flex items-start gap-2 pl-3">
+                                    <textarea autoFocus rows={2} value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="ตอบกลับ... (Enter = ขึ้นบรรทัดใหม่)" className="flex-1 resize-y rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none" />
+                                    <button type="button" onClick={() => postComment(replyText, f.c._id)} disabled={posting || !replyText.trim()} className="rounded-lg bg-[#1B8C4B] p-1.5 text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={14} /></button>
+                                    <button type="button" onClick={() => { setReplyTo(null); setReplyText("") }} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"><X size={14} /></button>
+                                  </div>
+                                ) : (
+                                  <button type="button" onClick={() => { setReplyTo(f.c._id); setReplyText("") }} className="ml-4 mt-1 inline-flex items-center gap-1 pl-3 text-[11px] font-medium text-[#1B8C4B] hover:underline">
+                                    <CornerDownRight size={11} /> ตอบกลับ
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {/* ── ความคิดเห็น / โน้ต (ฝังในหน้าแก้ไข) ── */}
-              {editId && (
-                <div className="mt-5 rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-[#F9FCFA] dark:bg-white/[0.02] p-3">
-                  <div className="mb-2 flex items-center gap-1.5">
-                    <MessageSquare size={15} className="text-[#1B8C4B]" />
-                    <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">ความคิดเห็น / โน้ต</span>
-                    <span className="rounded-full bg-[#F1F5F2] dark:bg-white/10 px-1.5 text-xs font-medium text-[#5B7568] dark:text-gray-300">{comments.length}</span>
-                  </div>
-
-                  <div className="max-h-56 space-y-3 overflow-y-auto pr-1">
-                    {cmtLoading ? (
-                      <p className="py-3 text-center text-xs text-gray-400">กำลังโหลด...</p>
-                    ) : comments.filter((c) => !c.parentId).length === 0 ? (
-                      <p className="py-3 text-center text-xs text-gray-400">ยังไม่มีความคิดเห็น — เริ่มเขียนได้เลย</p>
-                    ) : (
-                      comments.filter((c) => !c.parentId).map((c) => (
-                        <div key={c._id}>
-                          <CommentRow c={c} onSave={saveComment} onDelete={deleteComment} busy={posting} />
-                          {comments.filter((r) => r.parentId === c._id).length > 0 && (
-                            <div className="ml-4 mt-2 space-y-2 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-3">
-                              {comments.filter((r) => r.parentId === c._id).map((rc) => <CommentRow key={rc._id} c={rc} reply onSave={saveComment} onDelete={deleteComment} busy={posting} />)}
-                            </div>
-                          )}
-                          {replyTo === c._id ? (
-                            <div className="ml-4 mt-2 flex items-start gap-2 pl-3">
-                              <textarea autoFocus rows={2} value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="ตอบกลับ... (Enter = ขึ้นบรรทัดใหม่)" className="flex-1 resize-y rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none" />
-                              <button type="button" onClick={() => postComment(replyText, c._id)} disabled={posting || !replyText.trim()} className="rounded-lg bg-[#1B8C4B] p-1.5 text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={14} /></button>
-                              <button type="button" onClick={() => { setReplyTo(null); setReplyText("") }} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"><X size={14} /></button>
-                            </div>
-                          ) : (
-                            <button type="button" onClick={() => { setReplyTo(c._id); setReplyText("") }} className="ml-4 mt-1 inline-flex items-center gap-1 pl-3 text-[11px] font-medium text-[#1B8C4B] hover:underline">
-                              <CornerDownRight size={11} /> ตอบกลับ
-                            </button>
-                          )}
                         </div>
                       ))
                     )}
                   </div>
 
-                  <div className="mt-3 flex items-start gap-2">
-                    <textarea rows={2} value={cmtText} onChange={(e) => setCmtText(e.target.value)} placeholder="เขียนความคิดเห็น / โน้ตล่าสุด... (Enter = ขึ้นบรรทัดใหม่ · กดปุ่มส่งเพื่อบันทึก)" className={`${inputCls} resize-y`} />
+                  {/* ช่องเขียนตรึงท้ายไทม์ไลน์ — ไม่ต้องเลื่อนหา */}
+                  <div className="flex items-start gap-2 border-t border-[#EEF2F0] dark:border-white/10 px-4 py-3">
+                    <textarea rows={2} value={cmtText} onChange={(e) => setCmtText(e.target.value)} placeholder="เขียนความคิดเห็น / โน้ต... (Enter = ขึ้นบรรทัดใหม่ · กดปุ่มส่งเพื่อบันทึก)" className={`${inputCls} resize-y`} />
                     <button type="button" onClick={() => postComment(cmtText, null)} disabled={posting || !cmtText.trim()} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#1B8C4B] px-3 py-2 text-sm font-medium text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={15} /> ส่ง</button>
                   </div>
-                </div>
+                </section>
               )}
               </div>
             </div>
