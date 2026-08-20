@@ -13,7 +13,7 @@ import { ApTable } from "@/components/ap-table"
 import { ApSupplierTable } from "@/components/ap-supplier-table"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
-import type { ApFinanceItem } from "@/lib/ap-tracking"
+import type { ApCoverRow, ApFinanceItem } from "@/lib/ap-tracking"
 import type { ApCrossHit, ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
 export type { ApRow } from "@/components/ap-types"
@@ -248,8 +248,28 @@ export function ApTrackingPage() {
   }, [beforeSentRange, rangeOn, sentFrom, sentTo, tab, payTypeFilter])
 
   // ส่งออกแถวที่กรองอยู่เป็น Excel — โหลด xlsx ตอนกดเท่านั้น (ก้อนใหญ่ ~400KB ไม่ควรถ่วงตอนเปิดหน้า)
+  // แท็บ "ผ่าน" ออกเป็น "ใบปะหน้าส่งเข้า สกท." ตามฟอร์มจริงของบัญชี (รายชิ้นสินค้า + หัวฟอร์ม
+  // + ท้ายลายเซ็น) — ผู้ใช้สั่ง 20/08/2026 · แท็บอื่นยังเป็นตารางแบนเหมือนเดิม
   const exportExcel = async () => {
     const XLSX = await import("xlsx")
+    if (tab === "passed") {
+      const res = await fetch("/api/ap-tracking/cover", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes: shown.map((r) => r.depositCode) }),
+      })
+      const d = await res.json()
+      if (!res.ok) { swalError("ดึงรายการสินค้าไม่สำเร็จ"); return }
+      const { apCoverSheetAoa } = await import("@/lib/ap-tracking")
+      const aoa = apCoverSheetAoa((d.rows ?? []) as ApCoverRow[], today)
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+      ws["!cols"] = [3, 11, 15, 28, 34, 12, 20, 16, 22].map((w) => ({ wch: w }))
+      const wb = XLSX.utils.book_new()
+      // ชื่อชีตตามธรรมเนียมไฟล์จริงของบัญชี: "20.8.69"
+      const [y, m, dd] = today.split("-").map(Number)
+      XLSX.utils.book_append_sheet(wb, ws, `${dd}.${m}.${(y + 543) % 100}`)
+      XLSX.writeFile(wb, `ใบปะหน้าสกท_${today}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
+      return
+    }
     const data = shown.map((r) => ({
       "เลขใบรับของ": r.depositCode,
       "วันที่รับของ": r.receivedAt,

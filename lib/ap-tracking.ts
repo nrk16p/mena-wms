@@ -385,6 +385,46 @@ export function apFinanceRequestText(
   }
 }
 
+// ── ใบปะหน้าส่งเอกสารเข้า สกท. (export จากแท็บ "ผ่าน") ─────────────────────────
+// โครงตามไฟล์จริงของบัญชี "ใบปะหน้าส่งเข้า สกท.ปี2569.xlsx" (ดูชีต 18.8.69):
+// หัวฟอร์ม 7 แถว → หัวตาราง → รายการ "รายชิ้นสินค้า" (ใบ DD ใบเดียวมีหลายแถว) → ลายเซ็น
+// ช่องที่คนกรอกเอง (เลขที่/ถึง/จาก/บริษัท) เว้นจุดไข่ปลาไว้เหมือนฟอร์มจริง
+export type ApCoverRow = {
+  date: string           // วันรับของ YYYY-MM-DD
+  depositCode: string
+  supplier: string
+  item: string
+  amount: number
+  voucher: string
+  billingNo: string
+  note: string
+}
+
+export function apCoverSheetAoa(rows: ApCoverRow[], docDateISO: string): (string | number)[][] {
+  const dmy = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "")
+  const [y, m, d] = docDateISO.split("-")
+  const total = rows.reduce((n, r) => n + r.amount, 0)
+  const nDD = new Set(rows.map((r) => r.depositCode)).size
+  const aoa: (string | number)[][] = [
+    ["", "", "", "", "", "", "", "ส่งกลับคืน ศลบ (แสตมป์)"],
+    ["", "", "", "", "", "ฟอร์มส่งเอกสาร และส่งของ"],
+    ["", "", "", "", "", "", `เลขที่..................`],
+    ["", "", "", "", "", "", `วันที่...${d}...เดือน...${m}...พ.ศ...${Number(y) + 543}`],
+    ["", "ถึง.........................................."],
+    ["", "จาก หน่วย/แผนก.........................................."],
+    ["", "", "บริษัท..........................", `หมายเลขเอกสาร ตั้งแต่...............ถึง...............`],
+    ["", "วันที่", "DD", "ซัพพลายเออร์", "ชื่อสินค้า", "ยอดเงิน", "Voucher No. เลขตั้งหนี้", "ใบวางบิลเลขที่", "หมายเหตุ"],
+    ...rows.map((r): (string | number)[] =>
+      ["", dmy(r.date), r.depositCode, r.supplier, r.item, r.amount, r.voucher, r.billingNo, r.note]),
+    ["", "", "", "", "รวม", Math.round(total * 100) / 100, "", "", `${nDD} ใบ / ${rows.length} รายการ`],
+    [],
+    ["", "", "..............................", "", "..............................", "", ".............................."],
+    ["", "", "บัญชี ศลบ", "", "บัญชี AP สกท.", "", "วันที่ส่งเอกสารเข้า สกท."],
+    ["", "", "ผู้จัดทำ", "", "ผู้รับเอกสาร"],
+  ]
+  return aoa
+}
+
 export const CREDIT_TERMS = ["Immediate", "7D", "15D", "30D", "60D"] as const
 const TERM_DAYS: Record<string, number> = { Immediate: 0, "7D": 7, "15D": 15, "30D": 30, "60D": 60 }
 

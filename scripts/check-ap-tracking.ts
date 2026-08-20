@@ -12,7 +12,7 @@ import {
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
   payThursday, payThursdayChoices, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
-  apFinanceRequestText,
+  apFinanceRequestText, apCoverSheetAoa,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
@@ -264,6 +264,21 @@ assert.equal(monthFromCode("LBDD260"), "", "เลขเดือนยังไ
 assert.equal(monthFromCode("ซุปเปอร์พาร์ท"), "", "ชื่อซัพพลายเออร์ไม่ใช่เลขเอกสาร")
 assert.equal(monthFromCode("IV6808-0231"), "", "เลขใบกำกับไม่ได้ฝังเดือนตามรูปแบบนี้")
 assert.equal(monthFromCode(""), "")
+
+// --- ใบปะหน้าส่งเข้า สกท. (โครงตามไฟล์จริงของบัญชี) ---
+{
+  const aoa = apCoverSheetAoa([
+    { date: "2026-07-26", depositCode: "LBDD26070902", supplier: "โกลไรซอน", item: "ยางผ้าใบ", amount: 4439.25, voucher: "LAPO26080010", billingNo: "", note: "ด่วน" },
+    { date: "2026-07-26", depositCode: "LBDD26070902", supplier: "โกลไรซอน", item: "ยางใน", amount: 100, voucher: "LAPO26080010", billingNo: "", note: "" },
+  ], "2026-08-20")
+  assert.deepEqual(aoa[7].slice(1, 6), ["วันที่", "DD", "ซัพพลายเออร์", "ชื่อสินค้า", "ยอดเงิน"], "หัวตารางตามฟอร์มจริง")
+  assert.deepEqual(aoa[8], ["", "26/07/2026", "LBDD26070902", "โกลไรซอน", "ยางผ้าใบ", 4439.25, "LAPO26080010", "", "ด่วน"])
+  assert.ok(String(aoa[3][6]).includes("2569"), "วันที่หัวฟอร์มเป็น พ.ศ.")
+  const sum = aoa[10]
+  assert.equal(sum[5], 4539.25, "แถวรวมบวกถูก")
+  assert.ok(String(sum[8]).includes("1 ใบ / 2 รายการ"), "ใบเดียวสองรายการต้องนับแยกให้เห็น")
+  assert.ok(aoa.some((r) => r[2] === "บัญชี ศลบ" ) && aoa.some((r) => r[4] === "ผู้รับเอกสาร"), "ท้ายลายเซ็นครบ")
+}
 
 // --- ข้อความแจ้งการเงินขอจ่ายนอกรอบ ---
 {
