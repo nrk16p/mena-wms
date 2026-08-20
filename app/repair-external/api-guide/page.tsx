@@ -133,13 +133,13 @@ console.log(data.count, data.items)`}</CodeBlock>
           "action": "create",    // create | update | delete
           "by": "Nopparut",
           "at": "2026-07-18T10:12:45.000+07:00",   // เวลาไทย
-          "statusChange": { "from": "", "to": "รอรถเข้า" }
+          "statusChange": { "from": "", "to": "รอประเมินการซ่อม" }
         },
         {
           "action": "update",
           "by": "Plug",
           "at": "2026-07-19T15:30:02.000+07:00",
-          "statusChange": { "from": "รอรถเข้า", "to": "รถเข้าอู่ซ่อม" },
+          "statusChange": { "from": "รอประเมินการซ่อม", "to": "รถเข้าอู่ซ่อม" },
           "changes": [ { "field": "garageInDate", "label": "วันที่รถเข้าอู่ซ่อม", "from": "", "to": "2026-07-19" } ]
         }
       ],
@@ -185,7 +185,7 @@ console.log(data.count, data.items)`}</CodeBlock>
     "plate": "สบ.70-1234",         // จำเป็น
     "fleetNo": "M123",
     "jobType": "อู่นอก",            // อู่นอก | อะไหล่ลงคัน (ไม่ส่ง = อู่นอก)
-    "status": "รอรถเข้า",           // จำเป็น — ตาม workflow ของประเภทงาน
+    "status": "รอประเมินการซ่อม",           // จำเป็น — ตาม workflow ของประเภทงาน
     "receivedDate": "2026-08-06",
     "symptom": "เบรกไม่อยู่",
     "garage": "อู่ ก.การช่าง",
@@ -217,7 +217,7 @@ console.log(data.count, data.items)`}</CodeBlock>
         <Section icon={ListOrdered} title="สถานะที่เป็นไปได้ (status)">
           <p><b>🔧 อู่นอก:</b></p>
           <p>
-            <code>รอรถเข้า</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอ PR</code> →{" "}
+            <code>รอประเมินการซ่อม</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอ PR</code> →{" "}
             <code>ซ่อมไม่มีกำหนด</code> / <code>ซ่อมมีกำหนดเสร็จ</code> → <code>รถเสร็จ(ไม่มี PR)</code> → <code>รถเสร็จ</code>
           </p>
           <p className="text-[#9AA8A0]">

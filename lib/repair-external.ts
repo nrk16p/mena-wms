@@ -6,7 +6,7 @@ export type RepairStatus = {
 }
 
 export const REPAIR_STATUSES: RepairStatus[] = [
-  { value: "รอรถเข้า",         emoji: "⏳", cls: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300" },
+  { value: "รอประเมินการซ่อม",         emoji: "⏳", cls: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300" },
   { value: "รถเข้าอู่ซ่อม",     emoji: "🔧", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
   // "รอใบเสนอราคา" ถูกถอดจาก workflow อู่นอก (2026-08-11) → เป็น tickbox waitingQuote แทน (ยังเป็นสถานะของอะไหล่ลงคันอยู่)
   { value: "รอ PR",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
@@ -17,6 +17,18 @@ export const REPAIR_STATUSES: RepairStatus[] = [
 ]
 
 export const REPAIR_STATUS_VALUES = REPAIR_STATUSES.map((s) => s.value)
+
+/** ชื่อสถานะเดิมที่เปลี่ยนไปแล้ว → ชื่อปัจจุบัน
+ *  2026-08-20: "รอรถเข้า" → "รอประเมินการซ่อม" ให้ตรงกับสถานะฝั่ง Mena-Next
+ *  คงไว้เพื่อ (1) เอกสารเก่าที่ยังไม่ถูก migrate แสดงผลถูก (2) ทีมภายนอกที่ยังส่งค่าเดิม
+ *  เข้ามาทาง sync API ไม่โดน 400 — ถอดออกได้เมื่อมั่นใจว่าไม่มีใครส่งค่าเก่าแล้ว */
+export const STATUS_ALIASES: Record<string, string> = {
+  "รอรถเข้า": "รอประเมินการซ่อม",
+}
+export const normalizeStatus = (s: string) => {
+  const t = (s ?? "").trim()
+  return STATUS_ALIASES[t] ?? t
+}
 
 // สถานะ "รถเสร็จ" = ปิดงาน — แยกไปหน้า "รถซ่อมเสร็จ" ส่วนที่เหลือคือ "รถซ่อมอู่นอก"
 export const REPAIR_DONE_STATUS = "รถเสร็จ"
@@ -103,7 +115,9 @@ export const doneStatusFor = (jobType: string) => (jobType === JOB_TYPE_PARTS ? 
 // ชื่อสถานะซ้ำกันระหว่าง 2 workflow ให้ meta ของอู่นอกชนะ (ความหมายเดียวกัน)
 const STATUS_MAP = new Map([...PARTS_STATUSES, ...REPAIR_STATUSES].map((s) => [s.value, s] as const))
 
-export function statusMeta(value: string): RepairStatus {
+export function statusMeta(rawValue: string): RepairStatus {
+  // แปลงชื่อเก่าก่อน — เอกสารที่ยังไม่ migrate จะได้ไม่ตกไปที่ fallback
+  const value = normalizeStatus(rawValue)
   return (
     STATUS_MAP.get(value) ?? {
       value: value || "—",
@@ -326,7 +340,7 @@ const NEXT_STEP_STAGE: Record<string, number> = {
 
 /** สถานะงานอู่นอกใน WMS → ขั้น (อะไหล่ลงคันไม่เทียบ — Mena-Next ไม่มี workflow นั้น) */
 const WMS_STATUS_STAGE: Record<string, number> = {
-  "รอรถเข้า": 1,
+  "รอประเมินการซ่อม": 1,
   "รอ PR": 2,
   "รถเข้าอู่ซ่อม": 3,
   "ซ่อมมีกำหนดเสร็จ": 3,

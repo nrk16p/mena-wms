@@ -125,7 +125,7 @@ Add:
 - Surfaces: page `#F6FAF7`; cards `#fff`; borders `#EEF2F0` / `#E2E8E4`; row divider `#F1F5F2`; subtle fill `#F1F5F2` / `#F9FCFA`.
 - Amber (admin / warning): `#E8A317`, text `#B07D12`, bg `#FEF7E6` / `#FDF3DD`.
 - Danger / overdue: `#DC2626`, text `#B4534F`, bg `#FEECEC` / `#FEF5F5`, border `#F7CFCF`.
-- **Status colors** (from `lib/repair-external.ts`, used for dots/rails/bars): รอรถเข้า `#9ca3af` · รถเข้าอู่ซ่อม `#3b82f6` · รอใบเสนอราคา `#06b6d4` · รออนุมัติ `#eab308` · ซ่อมไม่มีกำหนด `#f97316` · ซ่อมมีกำหนดเสร็จ `#14b8a6` · รถเสร็จ `#22c55e`.
+- **Status colors** (from `lib/repair-external.ts`, used for dots/rails/bars): รอประเมินการซ่อม `#9ca3af` · รถเข้าอู่ซ่อม `#3b82f6` · รอใบเสนอราคา `#06b6d4` · รออนุมัติ `#eab308` · ซ่อมไม่มีกำหนด `#f97316` · ซ่อมมีกำหนดเสร็จ `#14b8a6` · รถเสร็จ `#22c55e`.
 - **Aging buckets**: `<8` → text `#1B8C4B` / bg `#ECFDF3`; `8–14` → `#B07D12` / `#FEF7E6`; `≥15` → `#DC2626` / `#FEECEC`.
 
 **Typography**

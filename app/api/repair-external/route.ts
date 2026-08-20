@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
-import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, statusesFor } from "@/lib/repair-external"
+import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, statusesFor, normalizeStatus } from "@/lib/repair-external"
 import { normalizeImages } from "@/lib/media"
 import { bkkToday } from "@/lib/bkk-time"
 
@@ -40,7 +40,8 @@ export function buildDoc(body: Record<string, unknown>) {
     fleet:        s(body.fleet),
     plant:        s(body.plant),
     garage:       s(body.garage),
-    status:       s(body.status),
+    // แปลงชื่อสถานะเดิมเป็นชื่อปัจจุบัน — ทีมภายนอกที่ยังส่ง "รอรถเข้า" มาจะไม่โดน 400
+    status:       normalizeStatus(s(body.status)),
     // tickbox รอใบเสนอราคา — ใช้กับงานอู่นอกเท่านั้น (อะไหล่ลงคันมีสถานะ รอใบเสนอราคา ใน workflow อยู่แล้ว)
     waitingQuote: s(body.jobType) !== JOB_TYPE_PARTS && body.waitingQuote ? "รอใบเสนอราคา" : "",
     prCode:       s(body.prCode),

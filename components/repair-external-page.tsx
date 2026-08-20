@@ -44,7 +44,7 @@ const PARTS_ACTIVE_STATUSES = PARTS_STATUSES.filter((s) => s.value !== PARTS_DON
 
 // สีทึบต่อสถานะ (progress bar + accent การ์ด kanban)
 const BAR_COLORS: Record<string, string> = {
-  "รอรถเข้า":         "#9ca3af",
+  "รอประเมินการซ่อม":         "#9ca3af",
   "รถเข้าอู่ซ่อม":     "#3b82f6",
   "รอใบเสนอราคา":     "#06b6d4",
   "รอ PR":            "#eab308",
@@ -193,7 +193,7 @@ const DAILY_GROUP_CLS: Record<string, string> = {
 }
 
 // สถานะงานอู่นอกที่ "รถควรอยู่อู่" — ถ้าสถานะรายวันของรถเป็นกลุ่มทำงาน (A/AX/...) = ข้อมูลขัดแย้ง
-// (ไม่รวม "รอรถเข้า" เพราะรถอาจยังวิ่งงานอยู่ก่อนเข้าอู่ · ไม่รวมงานอะไหล่ลงคันเพราะรถวิ่งได้ระหว่างรอของ)
+// (ไม่รวม "รอประเมินการซ่อม" เพราะรถอาจยังวิ่งงานอยู่ก่อนเข้าอู่ · ไม่รวมงานอะไหล่ลงคันเพราะรถวิ่งได้ระหว่างรอของ)
 const IN_GARAGE_STATUSES = new Set(["รถเข้าอู่ซ่อม", "รอใบเสนอราคา", "รอ PR", "ซ่อมไม่มีกำหนด", "ซ่อมมีกำหนดเสร็จ"])
 
 // ── ข้อมูลเทียบจาก /api/repair-external/atms-board (ATMS open-jobs × รถจอดจริง × WMS) ──
@@ -782,7 +782,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   }
 
   // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ใช้ข้อมูลรถจอดจริง (fleet) + ATMS ถ้าดึงได้
-  // 🔴 = รถจอดจริงแล้วแต่ WMS ยัง "รอรถเข้า" · 🟢 = WMS ว่ายังซ่อมแต่รถไม่จอดแล้ว · 🆕 = งาน ATMS ที่ยังไม่มีในระบบ
+  // 🔴 = รถจอดจริงแล้วแต่ WMS ยัง "รอประเมินการซ่อม" · 🟢 = WMS ว่ายังซ่อมแต่รถไม่จอดแล้ว · 🆕 = งาน ATMS ที่ยังไม่มีในระบบ
   async function copyFollowUpReal(): Promise<boolean> {
     if (typeof window === "undefined") return false
     let b: AtmsBoard
@@ -805,7 +805,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const lines: string[] = [`📢 งานซ่อมอู่นอก ${total} รายการ สถานะในระบบไม่ตรงกับรถจริงครับ (เช็คกับข้อมูลรถจอดจริง ${fmtThaiDay(b.fetchedAt.slice(0, 10))})`]
     let n = 0
     if (b.waitingButParked.length) {
-      lines.push("", `🔴 ${b.waitingButParked.length} คันนี้ รถจอดอยู่อู่แล้ว แต่ในระบบยังเขียนว่า "รอรถเข้า"`, "→ ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
+      lines.push("", `🔴 ${b.waitingButParked.length} คันนี้ รถจอดอยู่อู่แล้ว แต่ในระบบยังเขียนว่า "รอประเมินการซ่อม"`, "→ ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
       for (const w of [...b.waitingButParked].sort((a, x) => x.days - a.days)) {
         lines.push(`${++n}. ${w.fleetNo || w.plate} — จอดมา ${w.days} วัน${w.days >= 45 ? "‼️" : ""}${w.plant ? ` (${w.plant})` : ""}`)
         lines.push(linkOf(w.fleetNo || w.plate))
@@ -1065,8 +1065,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // วิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง (เฉพาะงานอู่นอกที่ยังไม่ปิด)
   // กติกา:
-  //  • "รอรถเข้า" + รถเป็น A ตลอด ไม่เคย B/BA ตั้งแต่รับแจ้ง → รอเข้าซ่อมจริง (info)
-  //  • "รอรถเข้า" + รถเป็น B/BA อยู่ → เข้าอู่แล้ว ควรอัพเดทเป็น "รถเข้าอู่ซ่อม"
+  //  • "รอประเมินการซ่อม" + รถเป็น A ตลอด ไม่เคย B/BA ตั้งแต่รับแจ้ง → รอเข้าซ่อมจริง (info)
+  //  • "รอประเมินการซ่อม" + รถเป็น B/BA อยู่ → เข้าอู่แล้ว ควรอัพเดทเป็น "รถเข้าอู่ซ่อม"
   //  • งานที่รถควรอยู่อู่ + รถกลับมาวิ่ง (เคย B/BA แล้วเปลี่ยนเป็น A) → ซ่อมเสร็จแล้วยังไม่อัพเดทงาน
   const jobAlertOf = (r: RepairExternal): JobAlert | null => {
     const ds = dailyStatus[r.plate]
@@ -1075,7 +1075,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     // เคยเป็น B/BA หลังวันรับแจ้งไหม (YYYY-MM-DD เทียบ string ตรงๆ ได้)
     const everBbaSinceJob = !!ds.last_bba_date && !!r.receivedDate && ds.last_bba_date >= r.receivedDate
 
-    if (r.status === "รอรถเข้า") {
+    if (r.status === "รอประเมินการซ่อม") {
       if (ds.group === "working" && everBbaSinceJob)
         return {
           kind: "update_needed",
@@ -1086,7 +1086,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         return {
           kind: "update_needed",
           text: `รถเข้าอู่แล้ว (${ds.status} ${ds.streak_days} วัน) — อัพเดทเป็น "รถเข้าอู่ซ่อม"?`,
-          title: `สถานะรายวันเป็น ${ds.status} ต่อเนื่อง ${ds.streak_days} วัน แต่งานยังสถานะ "รอรถเข้า"`,
+          title: `สถานะรายวันเป็น ${ds.status} ต่อเนื่อง ${ds.streak_days} วัน แต่งานยังสถานะ "รอประเมินการซ่อม"`,
         }
       if (ds.group === "working")
         return {
@@ -1561,7 +1561,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </button>
               <button
                 onClick={copyFollowUp}
-                title="คัดลอกข้อความตามงาน — รถค้างสถานะรอรถเข้า + งานเลยกำหนดเสร็จ (ส่งไลน์)"
+                title="คัดลอกข้อความตามงาน — รถค้างสถานะรอประเมินการซ่อม + งานเลยกำหนดเสร็จ (ส่งไลน์)"
                 className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#FDF3DD] hover:text-[#B07D12] dark:hover:bg-white/5"
               >
                 <Megaphone size={12} /> ตามงาน
@@ -1769,7 +1769,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           <span className="shrink-0">⚠</span>
           <span className="flex-1">
             <b>พบ {alertRows.length} งานที่สถานะอาจไม่ตรงกับรถจริง</b> — เช่น รถกลับมาวิ่งแล้วแต่ยังไม่ปิดงาน
-            หรือรถเข้าอู่แล้วแต่งานยัง &quot;รอรถเข้า&quot; → กรุณาตรวจสอบ/อัพเดทสถานะ
+            หรือรถเข้าอู่แล้วแต่งานยัง &quot;รอประเมินการซ่อม&quot; → กรุณาตรวจสอบ/อัพเดทสถานะ
             <span className="ml-1 opacity-80">({[...new Set(alertRows.map((r) => r.plate))].join(", ")})</span>
           </span>
           <button

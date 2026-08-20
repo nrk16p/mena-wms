@@ -62,18 +62,18 @@ export async function GET() {
       .filter(Boolean)
       .sort((a, b) => (b!.days - a!.days))
 
-    // ── 🔴 WMS ยัง "รอรถเข้า" แต่รถจอดจริงแล้ว
+    // ── 🔴 WMS ยัง "รอประเมินการซ่อม" แต่รถจอดจริงแล้ว
     const waitingButParked = wms
-      .filter((w) => w.status === "รอรถเข้า")
+      .filter((w) => w.status === "รอประเมินการซ่อม")
       .map((w) => {
         const p = findParked(w.plate, w.fleetNo)
         return p ? { id: String(w._id), plate: w.plate, fleetNo: w.fleetNo, days: p.days, since: p.since, plant: p.plant } : null
       })
       .filter(Boolean)
 
-    // ── 🟢 WMS ว่ายังซ่อมอยู่ (เลยขั้นรอรถเข้า และยังไม่จบ) แต่รถไม่อยู่ในรายการรถจอดแล้ว
+    // ── 🟢 WMS ว่ายังซ่อมอยู่ (เลยขั้นรอประเมินการซ่อม และยังไม่จบ) แต่รถไม่อยู่ในรายการรถจอดแล้ว
     const openNotParked = wms
-      .filter((w) => w.status !== "รอรถเข้า" && !FINISHED.includes(w.status) && !findParked(w.plate, w.fleetNo))
+      .filter((w) => w.status !== "รอประเมินการซ่อม" && !FINISHED.includes(w.status) && !findParked(w.plate, w.fleetNo))
       .map((w) => {
         const job = jobByPlate.get(normKey(w.plate))
         return {

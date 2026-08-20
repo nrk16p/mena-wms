@@ -29,7 +29,7 @@ const REPLIES = ["รับทราบครับ", "โอเค ดำเน
 
 // จำนวนต่อสถานะ (UAT ~37 คัน ครอบคลุมทุกขั้น)
 const PLAN = [
-  { status: "รอรถเข้า",         n: 6 },
+  { status: "รอประเมินการซ่อม",         n: 6 },
   { status: "รถเข้าอู่ซ่อม",     n: 6 },
   { status: "รอใบเสนอราคา",     n: 4 },
   { status: "รออนุมัติ",        n: 5 },
@@ -40,7 +40,7 @@ const PLAN = [
 
 const WARRANTIES = ["ไม่รับประกัน", "7 วัน", "15 วัน", "1 เดือน", "3 เดือน", "6 เดือน"]
 const USERS = ["สมชาย ใจดี", "ปิยะ ช่างเก่ง", "อรทัย บัญชี", "วิชัย จัดซื้อ", "นิภา ธุรการ"]
-const SLA_STATUSES = ["รอรถเข้า", "รถเข้าอู่ซ่อม", "รอใบเสนอราคา", "รออนุมัติ", "ซ่อมมีกำหนดเสร็จ"]
+const SLA_STATUSES = ["รอประเมินการซ่อม", "รถเข้าอู่ซ่อม", "รอใบเสนอราคา", "รออนุมัติ", "ซ่อมมีกำหนดเสร็จ"]
 const pick = (a) => a[Math.floor(Math.random() * a.length)]
 const rnd = (n) => Math.floor(Math.random() * n)
 const iso = (d) => d.toISOString().slice(0, 10)
@@ -75,7 +75,7 @@ async function main() {
     for (let i = 0; i < n; i++) {
       const v = vehicles[(vi++) % vehicles.length]
       const received = addDays(TODAY, -(2 + rnd(24)))            // รับแจ้ง 2–25 วันก่อน
-      const needGarageIn = status !== "รอรถเข้า"
+      const needGarageIn = status !== "รอประเมินการซ่อม"
       const needPR = ["รอใบเสนอราคา", "รออนุมัติ", "ซ่อมมีกำหนดเสร็จ", "รถเสร็จ"].includes(status)
       const needPO = ["รออนุมัติ", "ซ่อมมีกำหนดเสร็จ", "รถเสร็จ"].includes(status)
       const garageIn = needGarageIn ? addDays(received, 1 + rnd(2)) : null
