@@ -2305,10 +2305,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <RepairDetailCard r={form} isParts={isParts} images={formImages} quotImages={formQuotImages} negImages={formNegImages} />
                 </div>
               ) : (
-              <div className="min-w-0 flex-1 overflow-y-auto px-5 py-5">
+              <div className="min-w-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
               {/* ── หมวด 1: ข้อมูลรถ (เขียว) ── */}
               <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
-              <button type="button" onClick={() => toggleSec("vehicle", true)} className="flex w-full items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-4 py-2.5 text-left text-[15px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ{secChevron(secOpen("vehicle", true))}</button>
+              <button type="button" onClick={() => toggleSec("vehicle", true)} className="flex w-full items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-3.5 py-2 text-left text-[14px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ{secChevron(secOpen("vehicle", true))}</button>
               {secOpen("vehicle", true) && (
                 <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   {/* ประเภทงาน — เลือกได้เฉพาะตอนสร้างใหม่ (แก้ไขเปลี่ยนประเภทไม่ได้ เพราะ workflow คนละชุด) */}
@@ -2433,8 +2433,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </section>
 
               {/* ── หมวด 2: งานซ่อม (ส้ม) / อะไหล่ (น้ำเงิน) ── */}
-              <section className={`mt-5 overflow-hidden rounded-xl border ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}`}>
-              <button type="button" className={`flex w-full items-center gap-2 border-b px-4 py-2.5 text-left text-[15px] font-bold ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30 bg-[#EEF2FF] dark:bg-blue-500/15 text-[#3b5bdb] dark:text-blue-300" : "border-[#F8D8C2] dark:border-orange-500/30 bg-[#FFF3E8] dark:bg-orange-500/15 text-[#C2410C] dark:text-orange-300"}`} style={{ fontFamily: "'Mitr', sans-serif" }} onClick={() => toggleSec("repair", true)}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}{secChevron(secOpen("repair", true))}</button>
+              <section className={`overflow-hidden rounded-xl border ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}`}>
+              <button type="button" className={`flex w-full items-center gap-2 border-b px-3.5 py-2 text-left text-[14px] font-bold ${isParts ? "border-[#C7D6FB] dark:border-blue-500/30 bg-[#EEF2FF] dark:bg-blue-500/15 text-[#3b5bdb] dark:text-blue-300" : "border-[#F8D8C2] dark:border-orange-500/30 bg-[#FFF3E8] dark:bg-orange-500/15 text-[#C2410C] dark:text-orange-300"}`} style={{ fontFamily: "'Mitr', sans-serif" }} onClick={() => toggleSec("repair", true)}>{isParts ? "🔩 อะไหล่" : "🔧 งานซ่อม"}{secChevron(secOpen("repair", true))}</button>
               {secOpen("repair", true) && (
                 <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
@@ -2461,8 +2461,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </section>
 
               {/* ── หมวด 2.5: ใบเสนอราคา (ฟ้า) — รายละเอียด + แนบ PDF/รูป ── */}
-              <section className="mt-5 overflow-hidden rounded-xl border border-[#BEE7F2] dark:border-cyan-500/30">
-                <button type="button" onClick={() => toggleSec("quote", quoteHasData)} className="flex w-full items-center gap-2 border-b border-[#BEE7F2] dark:border-cyan-500/30 bg-[#E6F7FB] dark:bg-cyan-500/15 px-4 py-2.5 text-left text-[15px] font-bold text-[#0E7490] dark:text-cyan-300" style={{ fontFamily: "'Mitr', sans-serif" }}>
+              <section className="overflow-hidden rounded-xl border border-[#BEE7F2] dark:border-cyan-500/30">
+                <button type="button" onClick={() => toggleSec("quote", quoteHasData)} className="flex w-full items-center gap-2 border-b border-[#BEE7F2] dark:border-cyan-500/30 bg-[#E6F7FB] dark:bg-cyan-500/15 px-3.5 py-2 text-left text-[14px] font-bold text-[#0E7490] dark:text-cyan-300" style={{ fontFamily: "'Mitr', sans-serif" }}>
                   🧾 ใบเสนอราคา
                   {!quoteHasData && <span className="text-[11px] font-medium opacity-70">ยังไม่มีข้อมูล</span>}
                   {secChevron(secOpen("quote", quoteHasData))}
@@ -2485,13 +2485,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               )}
 
               {/* ── ขวา: แผงสถานะ + ไทม์ไลน์ · กว้างคงที่ ตรึงไว้ไม่เลื่อนหายไปกับฟอร์ม ── */}
-              <div className="flex w-[430px] shrink-0 flex-col overflow-y-auto border-l border-[#EEF2F0] dark:border-white/8 bg-[#FBFDFC] dark:bg-white/[0.015] px-5 py-5">
+              <div className="flex w-[400px] shrink-0 flex-col gap-2.5 overflow-hidden border-l border-[#EEF2F0] dark:border-white/8 bg-[#FBFDFC] dark:bg-white/[0.015] px-4 py-4">
               {!(viewOnly && editId) && (<>
               {/* ── หมวด 3: สถานะ · เอกสาร (ม่วง) ── */}
-              <section className="overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 shadow-sm">
-              <button type="button" onClick={() => toggleSec("status", true)} className="flex w-full items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-4 py-2.5 text-left text-[15px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร{secChevron(secOpen("status", true))}</button>
+              <section className="flex max-h-[52%] shrink-0 flex-col overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 bg-white dark:bg-[#151a10] shadow-sm">
+              <button type="button" onClick={() => toggleSec("status", true)} className="flex w-full items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-3.5 py-2 text-left text-[14px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร{secChevron(secOpen("status", true))}</button>
               {secOpen("status", true) && (
-                <div className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
+                <div className="grid min-h-0 flex-1 grid-cols-2 gap-x-3 gap-y-2.5 overflow-y-auto p-3">
                   <div className="sm:col-span-2">
                     <label className={labelCls}>สถานะ</label>
                     <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
@@ -2716,7 +2716,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               {/* ── 🕓 ไทม์ไลน์รวม — ประวัติสถานะ + Mena-Next + ความคิดเห็น เรียงตามเวลาจริง ──
                   เดิมแยกเป็น 3 กล่อง ต้องเลื่อนกลับไปกลับมาเพื่อปะติดปะต่อว่าเกิดอะไรก่อนหลัง */}
               {editId && (
-                <section className="mt-5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10]">
+                <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10]">
                   <div className="border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5">
                     <p className="text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>🕓 ไทม์ไลน์ · ความคิดเห็น</p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -3043,9 +3043,9 @@ function CopyText({ value }: { value: string }) {
 function DetailField({ label, value, wide, mono }: { label: string; value?: React.ReactNode; wide?: boolean; mono?: boolean }) {
   const empty = value === undefined || value === null || value === "" || value === 0
   return (
-    <div className={wide ? "sm:col-span-2" : ""}>
-      <p className="text-[11px] font-medium text-[#9AA8A0] dark:text-white/40">{label}</p>
-      <p className={`mt-0.5 text-[13.5px] ${empty ? "text-[#C6CFC9] dark:text-white/25" : "font-medium text-[#14271C] dark:text-white"} ${mono ? "font-mono" : ""} whitespace-pre-wrap break-words`}>
+    <div className={wide ? "col-span-2 lg:col-span-3" : ""}>
+      <p className="text-[10.5px] font-medium leading-tight text-[#9AA8A0] dark:text-white/40">{label}</p>
+      <p className={`text-[13px] leading-snug ${empty ? "text-[#C6CFC9] dark:text-white/25" : "font-medium text-[#14271C] dark:text-white"} ${mono ? "font-mono" : ""} whitespace-pre-wrap break-words`}>
         {empty ? "—" : value}
       </p>
     </div>
@@ -3054,9 +3054,9 @@ function DetailField({ label, value, wide, mono }: { label: string; value?: Reac
 
 function DetailSection({ title, tone, children }: { title: string; tone: string; children: React.ReactNode }) {
   return (
-    <section className={`mt-4 overflow-hidden rounded-xl border first:mt-0 ${tone}`}>
-      <p className="border-b border-inherit bg-black/[0.02] px-4 py-2 text-[13.5px] font-bold text-[#37473E] dark:bg-white/5 dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>{title}</p>
-      <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-4 sm:grid-cols-2">{children}</div>
+    <section className={`mt-2.5 overflow-hidden rounded-xl border first:mt-0 ${tone}`}>
+      <p className="border-b border-inherit bg-black/[0.02] px-3.5 py-1.5 text-[13px] font-bold text-[#37473E] dark:bg-white/5 dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>{title}</p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 lg:grid-cols-3">{children}</div>
     </section>
   )
 }
@@ -3064,8 +3064,8 @@ function DetailSection({ title, tone, children }: { title: string; tone: string;
 function DetailImages({ label, items }: { label: string; items: SkuImage[] }) {
   if (!items.length) return null
   return (
-    <div className="sm:col-span-2">
-      <p className="text-[11px] font-medium text-[#9AA8A0] dark:text-white/40">{label} ({items.length})</p>
+    <div className="col-span-2 lg:col-span-3">
+      <p className="text-[10.5px] font-medium leading-tight text-[#9AA8A0] dark:text-white/40">{label} ({items.length})</p>
       <div className="mt-1.5 flex flex-wrap gap-2">
         {items.map((im) => (
           <a key={im.mediaId} href={im.webpUrl} target="_blank" rel="noopener noreferrer" title={im.filename}
