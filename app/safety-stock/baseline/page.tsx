@@ -9,22 +9,22 @@ import {
 import {
   DAYS_PER_MONTH, USAGE_LOOKBACK_MONTHS, LT_LOOKBACK_MONTHS, LT_MAX_DAYS,
   DEFAULT_WINDOW, WINDOW_MONTHS, Z_BY_SERVICE, DEFAULT_Z, WAREHOUSES, WAREHOUSE, INVENTORY_ID,
-  STATUS_META, MIN_VERDICT_META, derive,
+  STATUS_META, MIN_VERDICT_META, GLOSSARY, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, derive,
   type SafetyStockPayload, type Status,
 } from "@/lib/safety-stock-core"
 
 /** วันที่ตรวจสอบตัวเลขใน COVERAGE ด้านล่าง — ต้อง "แสดงคู่กับตัวเลขเสมอ" ไม่ใช่แค่เขียนไว้ในคอมเมนต์
  *  เพราะเป็นภาพนิ่ง (ข้อจำกัดข้อ 1 ของหน้านี้) ต่างจากแถบวันที่ความสดด้านบนซึ่งเป็นค่าสดจริง — ต้องแยกให้ผู้อ่านเห็นชัด */
-const COVERAGE_AS_OF = "19 ส.ค. 2569"
+const COVERAGE_AS_OF = "21 ส.ค. 2569"
 
-/** ความครอบคลุมของ min/max ต่อคลัง — ตัวเลขจริงจากรอบซิงก์ล่าสุดที่ตรวจสอบตอนเขียนเอกสารนี้ (ดู COVERAGE_AS_OF)
- *  ไม่มี endpoint ที่คืนจำนวน SKU "ทั้งหมด" ต่อคลัง (เฉพาะที่ตั้ง min/max เท่านั้นที่เข้า safety_stock_snapshot)
- *  จึงบันทึกไว้ตรงนี้เป็นภาพนิ่ง แทนที่จะคำนวณสดจาก payload — ต้องอัปเดตเลขนี้ (และ COVERAGE_AS_OF) เองถ้าอยากได้ค่าล่าสุดเป๊ะ */
+/** ความครอบคลุมของ "นโยบายอะไหล่" ต่อคลัง (ต้องมีทั้ง min และ max พร้อมกัน ไม่รวมกลุ่ม "ยาง") ต่อ SKU ทั้งหมดของคลัง
+ *  ตัวเลขจริงจากรอบซิงก์ล่าสุดที่ตรวจสอบตอนเขียนเอกสารนี้ (ดู COVERAGE_AS_OF) — เกณฑ์นี้กรองที่ layer อ่าน
+ *  (lib/safety-stock.ts) ไม่ใช่ตอน build จึงไม่มี endpoint ที่คืนจำนวน SKU "ทั้งหมด" ต่อคลังตรงๆ ให้คำนวณสดจาก
+ *  payload ได้ (payload ของหน้านี้เองก็ถูกกรองแล้ว) — บันทึกไว้ตรงนี้เป็นภาพนิ่ง ต้องอัปเดตเลขนี้ (และ COVERAGE_AS_OF)
+ *  เองถ้าอยากได้ค่าล่าสุดเป๊ะ */
 const COVERAGE: { inventoryId: string; withMinMax: number; total: number }[] = [
-  { inventoryId: "4", withMinMax: 4100, total: 9796 }, // ลาดกระบัง
-  { inventoryId: "3", withMinMax: 497, total: 4998 },  // สระบุรี
-  { inventoryId: "11", withMinMax: 1596, total: 1867 }, // ขอนแก่น
-  { inventoryId: "24", withMinMax: 447, total: 775 },  // DIST
+  { inventoryId: "4", withMinMax: 880, total: 9808 }, // ลาดกระบัง
+  { inventoryId: "3", withMinMax: 368, total: 4999 }, // สระบุรี
 ]
 const COVERAGE_TOTAL = COVERAGE.reduce((s, c) => s + c.total, 0)
 const COVERAGE_WITH = COVERAGE.reduce((s, c) => s + c.withMinMax, 0)
@@ -86,9 +86,11 @@ function QA({ q, a }: { q: string; a: React.ReactNode }) {
   )
 }
 
-/** ขั้นคำนวณเดียว — เลขซ้าย (สูตรเป็นสัญลักษณ์) เลขขวา (แทนค่าจริงจากรหัสตัวอย่าง) */
-function FormulaStep({ no, title, formula, plug, result, note }: {
-  no: number; title: string; formula: string; plug: string; result: string; note?: string
+/** ขั้นคำนวณเดียว — เลขซ้าย (สูตรเป็นสัญลักษณ์) เลขขวา (แทนค่าจริงจากรหัสตัวอย่าง)
+ *  plain: คำอธิบายภาษาคน ดึงจาก GLOSSARY ตัวเดียวกับที่หน้า /safety-stock ใช้ (ทั้งแผงคำอธิบายตัวย่อและ tooltip
+ *  หัวตาราง) — ไม่เขียนซ้ำเป็นข้อความใหม่ตรงนี้ กันความหมายเพี้ยนคนละที่ */
+function FormulaStep({ no, title, formula, plain, plug, result, note }: {
+  no: number; title: string; formula: string; plain?: string; plug: string; result: string; note?: string
 }) {
   return (
     <div className="rounded-lg border border-gray-200 dark:border-white/8 p-3.5">
@@ -96,6 +98,7 @@ function FormulaStep({ no, title, formula, plug, result, note }: {
         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white text-[11px] font-bold mr-1.5">{no}</span>
         {title}
       </p>
+      {plain && <p className="text-[12px] text-gray-600 dark:text-gray-400 mb-1.5 leading-relaxed">{plain}</p>}
       <p className="font-mono text-[12px] text-gray-500 dark:text-gray-400 mb-1">{formula}</p>
       <p className="font-mono text-[12.5px] text-gray-800 dark:text-gray-200">{plug} = <span className="font-bold text-emerald-700 dark:text-emerald-400">{result}</span></p>
       {note && <p className="text-[11.5px] text-gray-500 dark:text-gray-500 mt-1.5">{note}</p>}
@@ -130,7 +133,9 @@ export default function SafetyStockBaselinePage() {
       rows.find((r) => r.leadTimeSource === "sku" && r.usage[win] > 0) ??
       rows.find((r) => r.usage[win] > 0) ??
       rows[0]
-    return { row, d: derive(row, win, z) }
+    // LEAD_TIME_DAYS: ส่งเวลารอของนโยบายคงที่เข้า derive() เหมือนที่หน้า /safety-stock ทำจริง — ให้ตัวอย่างคำนวณ
+    // ที่นี่ตรงกับสิ่งที่ผู้ใช้เห็นจริงบนตาราง (row.leadTimeDays ยังคือค่าที่วัดได้จริง แสดงแยกไว้เป็นข้อมูลอ้างอิงด้านล่าง)
+    return { row, d: derive(row, win, z, LEAD_TIME_DAYS) }
   }, [data, win, z])
 
   const staleDays = data?.latestMovementDate ? daysSince(data.latestMovementDate) : null
@@ -148,7 +153,7 @@ export default function SafetyStockBaselinePage() {
         นิยามตัวชี้วัด — จุดสั่งซื้อ (Safety Stock)
       </h1>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        เอกสารกำกับตัวชี้วัดจุดสั่งซื้อ ครอบคลุมทั้ง 4 คลัง (ลาดกระบัง สระบุรี ขอนแก่น DIST) — อธิบายที่มาตัวเลข สูตรคำนวณ
+        เอกสารกำกับตัวชี้วัดจุดสั่งซื้อ ครอบคลุมทั้ง 2 คลัง (ลาดกระบัง สระบุรี) — อธิบายที่มาตัวเลข สูตรคำนวณ
         และข้อจำกัดที่ต้องรู้ก่อนใช้ตัดสินใจสั่งของ
       </p>
 
@@ -173,8 +178,14 @@ export default function SafetyStockBaselinePage() {
             <span className="font-mono text-xs">atms.stockmovement_v5</span> ย้อนหลัง {USAGE_LOOKBACK_MONTHS} เดือน
           </p>
           <p>
-            <span className="font-semibold text-gray-800 dark:text-gray-200">Lead Time</span> คำนวณจากคู่ใบขอสั่งซื้อ (PR) →
-            วันที่รับของจริงใน v5 ย้อนหลัง {LT_LOOKBACK_MONTHS} เดือน — คู่ที่ห่างกันเกิน {LT_MAX_DAYS} วันถือว่าข้อมูลเพี้ยน ตัดทิ้ง
+            <span className="font-semibold text-gray-800 dark:text-gray-200">Lead Time ที่ใช้คำนวณ SS/ROP/แนะนำสั่ง</span> เป็นค่าคงที่ตามนโยบาย{" "}
+            <span className="font-semibold">{LEAD_TIME_DAYS} วัน</span> ทุกรหัสทุกคลัง — ไม่ใช่ค่าที่วัดได้จริงรายรหัสอีกต่อไป (ตั้งแต่ 2569-08)
+          </p>
+          <p>
+            <span className="font-semibold text-gray-800 dark:text-gray-200">Lead Time ที่วัดได้จริง</span> ยังคำนวณเหมือนเดิมทุกประการ
+            จากคู่ใบขอสั่งซื้อ (PR) → วันที่รับของจริงใน v5 ย้อนหลัง {LT_LOOKBACK_MONTHS} เดือน (คู่ที่ห่างกันเกิน {LT_MAX_DAYS} วันถือว่าข้อมูลเพี้ยน ตัดทิ้ง)
+            แต่เก็บไว้เป็น<span className="font-semibold">ข้อมูลอ้างอิงเท่านั้น</span> — แสดงเฉพาะในหน้าต่างรายละเอียดรายรหัสที่หน้า /safety-stock
+            ให้เทียบดูว่านโยบาย {LEAD_TIME_DAYS} วันตรงกับความเป็นจริงแค่ไหน
           </p>
         </Card>
 
@@ -192,10 +203,12 @@ export default function SafetyStockBaselinePage() {
           </p>
         </Card>
 
-        <Card icon={Layers} no="3." title="ความครอบคลุม (min/max)">
+        <Card icon={Layers} no="3." title="ความครอบคลุม (นโยบายอะไหล่)">
           <p>
             ครอบคลุม <span className="font-semibold text-gray-800 dark:text-gray-200">{COVERAGE_WITH.toLocaleString()} จาก {COVERAGE_TOTAL.toLocaleString()} SKU
-            ทั้ง 4 คลัง ({pct(COVERAGE_WITH, COVERAGE_TOTAL)}%)</span> — เฉพาะรหัสที่ตั้ง min หรือ max ไว้ใน ATMS แล้วเท่านั้น
+            ทั้ง 2 คลัง ({pct(COVERAGE_WITH, COVERAGE_TOTAL)}%)</span> — เฉพาะรหัสที่ตั้ง<span className="font-semibold">ทั้ง min และ max พร้อมกัน</span> ไว้ใน ATMS
+            และไม่ใช่กลุ่ม &quot;{EXCLUDED_PRODUCT_GROUP}&quot; เป๊ะๆ (กลุ่ม &quot;เครื่องมือยาง&quot; ยังนับรวมตามปกติ — กรองเฉพาะยางรถเท่านั้น
+            เพราะหน้า /tire/* มีของตัวเองแล้ว)
           </p>
           <p className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold !mt-0.5">
             ข้อมูล ณ {COVERAGE_AS_OF} — เป็นภาพนิ่ง ไม่ได้อัปเดตสดเหมือนตัวเลขอื่นในหน้านี้
@@ -222,7 +235,9 @@ export default function SafetyStockBaselinePage() {
             คงเหลือพอกี่วัน = คงเหลือ ÷ ADU<br />
             แนะนำสั่ง = 0 ถ้าไม่มีการเบิกเลย ไม่งั้นปัดขึ้น(เป้าหมาย−max(0,คงเหลือ))
           </p>
-          <p className="text-[11.5px]">ดูรายละเอียดพร้อมตัวอย่างคำนวณจริงด้านล่าง</p>
+          <p className="text-[11.5px]">
+            LT ในสูตรข้างต้น = ค่าคงที่ {LEAD_TIME_DAYS} วันตามนโยบาย (ไม่ใช่ค่าที่วัดได้จริงรายรหัส) — ดูรายละเอียดพร้อมตัวอย่างคำนวณจริงด้านล่าง
+          </p>
         </Card>
       </div>
 
@@ -255,6 +270,7 @@ export default function SafetyStockBaselinePage() {
               <FormulaStep
                 no={1}
                 title="ADU — ยอดเบิกเฉลี่ยต่อวัน"
+                plain={GLOSSARY.adu.desc}
                 formula="ADU = ยอดเบิกรวมในหน้าต่าง ÷ (จำนวนเดือน × 365/12)"
                 plug={`${num(example.row.usage[win])} ${example.row.unit} ÷ (${WINDOW_MONTHS[win]} × ${DAYS_PER_MONTH.toFixed(2)})`}
                 result={`${num(example.d.adu, 3)} ${example.row.unit}/วัน`}
@@ -262,6 +278,7 @@ export default function SafetyStockBaselinePage() {
               <FormulaStep
                 no={2}
                 title="SD รายวัน — ความผันผวนของการเบิก"
+                plain={GLOSSARY.sd.desc}
                 formula="SD วัน = SD(ยอดเบิกรายเดือน) ÷ √(365/12)"
                 plug={`SD ของยอดเบิก ${WINDOW_MONTHS[win]} เดือนล่าสุด ÷ √${DAYS_PER_MONTH.toFixed(2)}`}
                 result={`${num(example.d.sdDaily, 3)} ${example.row.unit}/วัน`}
@@ -270,20 +287,24 @@ export default function SafetyStockBaselinePage() {
               <FormulaStep
                 no={3}
                 title="Safety Stock (SS) — สต๊อกกันชน"
+                plain={GLOSSARY.ss.desc}
                 formula="SS = z × SD วัน × √LT"
-                plug={`${Z_BY_SERVICE[95]} × ${num(example.d.sdDaily, 3)} × √${example.row.leadTimeDays}`}
+                plug={`${Z_BY_SERVICE[95]} × ${num(example.d.sdDaily, 3)} × √${LEAD_TIME_DAYS}`}
                 result={`${num(example.d.safetyStock)} ${example.row.unit}`}
+                note={`LT = ${LEAD_TIME_DAYS} วัน (ค่าคงที่ตามนโยบาย) — รหัสนี้วัดเวลารอของจริงได้ ${example.row.leadTimeDays} วัน (${example.row.leadTimeSource === "sku" ? `รายรหัส ${example.row.leadTimeSamples} ครั้ง` : example.row.leadTimeSource === "group" ? "ค่ากลางกลุ่มสินค้า" : "ค่ากลางทั้งคลัง"}) — ดูหัวข้อ "เวลารอของ" ด้านล่างประกอบ`}
               />
               <FormulaStep
                 no={4}
                 title="จุดสั่งซื้อ (ROP)"
+                plain={GLOSSARY.rop.desc}
                 formula="ROP = ADU × LT + SS"
-                plug={`${num(example.d.adu, 3)} × ${example.row.leadTimeDays} + ${num(example.d.safetyStock)}`}
+                plug={`${num(example.d.adu, 3)} × ${LEAD_TIME_DAYS} + ${num(example.d.safetyStock)}`}
                 result={`${num(example.d.reorderPoint)} ${example.row.unit}`}
               />
               <FormulaStep
                 no={5}
                 title="คงเหลือพอใช้อีกกี่วัน"
+                plain={GLOSSARY.dos.desc}
                 formula="Days of Supply = คงเหลือ ÷ ADU"
                 plug={`${num(example.row.stockQty)} ÷ ${num(example.d.adu, 3)}`}
                 result={example.d.daysOfSupply === null ? "คำนวณไม่ได้ (ไม่มีการเบิก)" : `${num(example.d.daysOfSupply)} วัน`}
@@ -291,8 +312,9 @@ export default function SafetyStockBaselinePage() {
               <FormulaStep
                 no={6}
                 title="ปริมาณแนะนำให้สั่ง"
+                plain={GLOSSARY.suggestQty.desc}
                 formula="แนะนำสั่ง = 0 ถ้าไม่มีการเบิกเลย · ไม่งั้น ปัดขึ้น(เป้าหมาย − max(0,คงเหลือ)), เป้าหมาย = max(max ที่ตั้งไว้, ROP) ถ้าตั้ง max ไว้ ไม่งั้น ROP + ADU×LT"
-                plug={`เป้าหมาย ${num(example.row.maxQty > 0 ? Math.max(example.row.maxQty, example.d.reorderPoint) : example.d.reorderPoint + example.d.adu * example.row.leadTimeDays)} − คงเหลือ ${num(Math.max(0, example.row.stockQty))}`}
+                plug={`เป้าหมาย ${num(example.row.maxQty > 0 ? Math.max(example.row.maxQty, example.d.reorderPoint) : example.d.reorderPoint + example.d.adu * LEAD_TIME_DAYS)} − คงเหลือ ${num(Math.max(0, example.row.stockQty))}`}
                 result={`${num(example.d.suggestQty)} ${example.row.unit}`}
                 note="ไม่มีการเบิกใน 12 เดือน (no_usage) ต้องเป็น 0 เสมอ ไม่ว่า ROP จะคำนวณออกมาเท่าไหร่ · ถ้า max ที่ตั้งไว้ต่ำกว่า ROP ที่คำนวณได้จริง ใช้ ROP เป็นเป้าหมายแทน max — ไม่งั้นสั่งแค่ถึง max ก็ยังต่ำกว่าจุดสั่งซื้ออยู่ดี พรุ่งนี้ก็ต้องสั่งซ้ำ"
               />
@@ -301,7 +323,8 @@ export default function SafetyStockBaselinePage() {
             <p className="mt-3 pl-[42px] text-[12px] text-gray-500">
               สรุปรหัสนี้: สถานะ <span className="font-semibold text-gray-700 dark:text-gray-300">{STATUS_META.find((s) => s.key === example.d.status)?.th}</span> ·
               ตรวจ min <span className="font-semibold text-gray-700 dark:text-gray-300">{MIN_VERDICT_META[example.d.minVerdict].th}</span> ·
-              ที่มา Lead Time: {example.row.leadTimeSource === "sku" ? `รายรหัส (${example.row.leadTimeSamples} ครั้ง)` : example.row.leadTimeSource === "group" ? "ค่ากลางกลุ่มสินค้า" : "ค่ากลางทั้งคลัง"}
+              เวลารอของที่ใช้คำนวณจริง: {LEAD_TIME_DAYS} วัน (นโยบายคงที่) · เวลารอของจริงที่วัดได้ (อ้างอิง): {example.row.leadTimeDays} วัน
+              ({example.row.leadTimeSource === "sku" ? `รายรหัส ${example.row.leadTimeSamples} ครั้ง` : example.row.leadTimeSource === "group" ? "ค่ากลางกลุ่มสินค้า" : "ค่ากลางทั้งคลัง"})
             </p>
           </>
         )}
@@ -375,11 +398,39 @@ export default function SafetyStockBaselinePage() {
         <p className="text-xs text-gray-500 mb-3">
           เทียบ min ที่ตั้งไว้ใน ATMS กับ ROP ที่คำนวณได้ — ช่วยดูว่า min เดิมยังเหมาะกับพฤติกรรมการเบิกปัจจุบันหรือไม่
         </p>
+        <p className="text-[11.5px] text-emerald-700 dark:text-emerald-400 font-semibold mb-3">
+          หน้านี้ (/safety-stock) ตัดสิน &quot;ตรวจ min&quot; ด้วยเวลารอของนโยบายคงที่ {LEAD_TIME_DAYS} วันเสมอ — จึงได้ผลตรวจจริง
+          (min ต่ำไป / min สูงไป / เหมาะสม) ครบทุกรหัสที่มี min และมีการเบิก ไม่มีกรณี &quot;ประเมินไม่ได้เพราะ lead time เป็นค่ากลางทั้งคลัง&quot; อีกต่อไป
+          — เหลือ &quot;ประเมินไม่ได้&quot; เฉพาะรหัสที่ไม่ได้ตั้ง min หรือไม่มีการเบิกเลยเท่านั้น (หน้า /tire/* ยังใช้เวลารอของที่วัดได้จริงตัดสิน
+          จึงยังมีกรณีค่ากลางทั้งคลังอยู่)
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           {(Object.keys(MIN_VERDICT_META) as (keyof typeof MIN_VERDICT_META)[]).map((k) => (
             <div key={k} className="rounded-lg bg-gray-50 dark:bg-white/[0.03] p-3">
               <p className="text-[12.5px] font-bold text-gray-800 dark:text-gray-200">{MIN_VERDICT_META[k].th}</p>
               <p className="text-[11.5px] text-gray-500 mt-0.5 leading-relaxed">{MIN_VERDICT_META[k].hint}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── อภิธานศัพท์ย่อ — ใช้ GLOSSARY ชุดเดียวกับแผงคำอธิบายตัวย่อและ tooltip หัวตารางที่หน้า /safety-stock ── */}
+      <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-5 mb-5">
+        <div className="flex items-center gap-2.5 mb-4">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600">
+            <BookOpen size={16} />
+          </span>
+          <p className="text-sm font-bold text-gray-900 dark:text-white">อภิธานศัพท์ย่อ</p>
+        </div>
+        <p className="text-xs text-gray-500 mb-4 pl-[42px]">
+          นิยามเดียวกับที่หน้า /safety-stock ใช้ (แผง &quot;คำอธิบายตัวย่อ&quot; และ tooltip หัวตาราง) เขียนเป็นภาษาคน ไม่ใช่พีชคณิต
+          (สูตรอยู่ด้านบน) — ใช้ได้ทั้งหน้า /safety-stock และหน้า /tire/* จึงไม่ผูกกับตัวเลข {LEAD_TIME_DAYS} วันโดยตรง
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {(Object.keys(GLOSSARY) as (keyof typeof GLOSSARY)[]).map((k) => (
+            <div key={k} className="rounded-lg bg-gray-50 dark:bg-white/[0.03] p-3">
+              <p className="text-[12.5px] font-bold text-gray-800 dark:text-gray-200">{GLOSSARY[k].label}</p>
+              <p className="text-[11.5px] text-gray-500 mt-0.5 leading-relaxed">{GLOSSARY[k].desc}</p>
             </div>
           ))}
         </div>
@@ -395,8 +446,8 @@ export default function SafetyStockBaselinePage() {
         </div>
         <ul className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed space-y-3 list-disc pl-5">
           <li>
-            <span className="font-semibold">min/max ครอบคลุมเฉพาะบางส่วนของ SKU แต่ละคลัง</span>{" "}
-            (<span className="font-semibold">ข้อมูล ณ {COVERAGE_AS_OF}</span> — เป็นภาพนิ่ง ไม่ใช่ตัวเลขสด) — รวมทั้ง 4 คลัง{" "}
+            <span className="font-semibold">ครอบคลุมเฉพาะบางส่วนของ SKU แต่ละคลัง</span>{" "}
+            (<span className="font-semibold">ข้อมูล ณ {COVERAGE_AS_OF}</span> — เป็นภาพนิ่ง ไม่ใช่ตัวเลขสด) — รวมทั้ง 2 คลัง{" "}
             {COVERAGE_WITH.toLocaleString()} จาก {COVERAGE_TOTAL.toLocaleString()} SKU (≈{pct(COVERAGE_WITH, COVERAGE_TOTAL)}%):{" "}
             {COVERAGE.map((c, i) => {
               const w = WAREHOUSES.find((x) => x.id === c.inventoryId)
@@ -407,12 +458,15 @@ export default function SafetyStockBaselinePage() {
                 </span>
               )
             })}{" "}
-            — ส่วนที่เหลือยังไม่ได้ตั้ง min/max จึง<span className="font-semibold">ไม่ปรากฏในหน้านี้เลย</span> ไม่ใช่ว่าไม่มีปัญหา
+            — ต้องตั้ง<span className="font-semibold">ทั้ง min และ max พร้อมกัน</span> ใน ATMS และไม่ใช่กลุ่ม &quot;{EXCLUDED_PRODUCT_GROUP}&quot; เป๊ะๆ
+            (กลุ่ม &quot;เครื่องมือยาง&quot; ยังนับรวม — ยางรถมีหน้า /tire/{"{branch}"}/stock-tire ของตัวเองแล้ว) ส่วนที่เหลือยังไม่เข้าเกณฑ์นี้จึง
+            <span className="font-semibold">ไม่ปรากฏในหน้านี้เลย</span> ไม่ใช่ว่าไม่มีปัญหา
           </li>
           <li>
-            <span className="font-semibold">Lead Time ที่มาจาก &quot;ค่ากลางทั้งคลัง&quot; เป็นการเดา</span> — ใช้ตอนไม่มีข้อมูล PR→รับของ
-            พอทั้งรายรหัสและรายกลุ่ม ใช้ประกอบการตัดสินใจได้ แต่<span className="font-semibold">ห้ามใช้ตัดสินว่า min เหมาะสมหรือไม่</span>
-            {" "}(คอลัมน์ &quot;ตรวจ min&quot; จะขึ้น &quot;ประเมินไม่ได้&quot; โดยอัตโนมัติในกรณีนี้)
+            <span className="font-semibold">สูตร SS/ROP/แนะนำสั่งใช้เวลารอของนโยบายคงที่ {LEAD_TIME_DAYS} วันทุกรายการ</span> ไม่ใช่ค่าที่วัดได้จริงรายรหัส
+            (ตั้งแต่ 2569-08) — เวลารอของจริงที่วัดได้จากคู่ PR→รับของยังคำนวณเหมือนเดิมและเก็บไว้เป็น<span className="font-semibold">ข้อมูลอ้างอิง</span>
+            {" "}แสดงเฉพาะในหน้าต่างรายละเอียดรายรหัส (&quot;เวลารอของจริงที่วัดได้ (อ้างอิง)&quot;) ใช้เทียบดูว่านโยบาย {LEAD_TIME_DAYS} วันตรงกับความเป็นจริงแค่ไหน
+            — ถ้าต่างกันมากในหลายรหัส ควรทบทวนตัวเลขนโยบายนี้
           </li>
           <li>
             <span className="font-semibold">ยอดคงเหลือเป็นตัวเลขจาก ATMS ณ เวลาที่ sync</span> ไม่ใช่การนับของจริงในชั้นวาง —
