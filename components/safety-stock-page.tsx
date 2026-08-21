@@ -618,16 +618,22 @@ export default function SafetyStockPage() {
   }
 
   // ── ความกว้างคอลัมน์ตาราง (ยุบจาก 15 เหลือ 7 — ต้องไม่เกิดสกอลล์แนวนอนที่จอแล็ปท็อป 1280px) ──
-  // table-layout: fixed + <colgroup> ด้านล่างบังคับความกว้างตรงตัวเลขนี้เป๊ะๆ ไม่ให้เนื้อหายาวๆ ดันตารางกว้างเกิน
-  // รวมทั้งหมด 866px — คำนวณไว้ใน report การยุบตาราง เทียบกับพื้นที่จริงหลังหักแถบเมนู/padding แล้ว
+  // ตารางเป็น fluid ไม่ใช่ความกว้างตายตัว: width 100% + minWidth = TABLE_W (พื้น/floor)
+  // 6 คอลัมน์ตัวเลข/ชิปด้านล่างล็อกความกว้างตรงตัวผ่าน <col> ในทุกจอ — ไม่ขยับตามพื้นที่ว่าง
+  // (กันการจัดแนวตัวเลข/บาร์ min–max ที่ออกแบบไว้ไม่ให้เพี้ยน) ส่วนคอลัมน์ "รหัส/ชื่อ" (COL_ID ด้านล่าง
+  // คือ "พื้นขั้นต่ำ" ของมันเท่านั้น) ไม่ตั้ง width ให้ <col> เลย — ตาม algorithm ของ table-layout: fixed
+  // คอลัมน์ที่ไม่ระบุ width จะได้พื้นที่ว่างที่เหลือทั้งหมดไปเอง พอดีกับตารางกว้าง = TABLE_W (พื้น)
+  // ก็จะได้ 220px เป๊ะเหมือนเดิม แต่ถ้าจอกว้างกว่านั้น คอลัมน์นี้จะขยายรับพื้นที่ส่วนเกินไปเอง ให้ชื่อสินค้า
+  // ยาวๆ มีที่แสดงมากขึ้นแทนที่จะโดน ellipsis ตัดทิ้งเร็วเกินจำเป็น — ตารางไม่ปล่อยพื้นที่ว่างทิ้งบนจอกว้าง
+  // overflow-x: auto ที่ wrapper ยังอยู่เป็น safety net เมื่อจอแคบกว่า TABLE_W เท่านั้น
   const COL_STATUS = 100
-  const COL_ID = 220     // รหัส/ชื่อ — คอลัมน์ตรึงซ้าย (sticky) เดียวที่เหลืออยู่
+  const COL_ID = 220     // พื้นขั้นต่ำของคอลัมน์ รหัส/ชื่อ (ตรึงซ้าย/sticky) — ใช้คิด TABLE_W เท่านั้น ไม่ตั้งเป็น width จริง
   const COL_STOCK = 144
   const COL_ROP = 100
   const COL_DOS = 70
   const COL_USAGE = 104
   const COL_SUGGEST = 128
-  const TABLE_W = COL_STATUS + COL_ID + COL_STOCK + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 866
+  const TABLE_W = COL_STATUS + COL_ID + COL_STOCK + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 866 (พื้น/floor)
 
   return (
     <div>
@@ -831,13 +837,15 @@ export default function SafetyStockPage() {
             </div>
 
             {/* ── ตาราง — ยุบเหลือ 7 คอลัมน์ (จากเดิม 15) ให้พอดีจอแล็ปท็อปโดยไม่ต้องเลื่อนแนวนอน
-             *  table-layout: fixed + colgroup บังคับความกว้างตรงตัว กันเนื้อหายาวดันตารางกว้างเกิน
-             *  overflow-x: auto ที่ wrapper ยังอยู่เป็น safety net สำหรับจอที่แคบกว่านี้มากๆ เท่านั้น ── */}
+             *  fluid ไม่ใช่ตายตัว: width 100% + minWidth: TABLE_W (พื้น 866px ที่วัดไว้พอดีจอแล็ปท็อป)
+             *  colgroup ล็อก 6 คอลัมน์ตัวเลข/ชิปตรงตัวทุกจอ ส่วนคอลัมน์ "รหัส/ชื่อ" ไม่ตั้ง width — รับพื้นที่
+             *  ส่วนเกินทั้งหมดไปเอง (table-layout: fixed แบ่งพื้นที่เหลือให้คอลัมน์ที่ไม่ระบุ width)
+             *  overflow-x: auto ที่ wrapper ยังอยู่เป็น safety net เมื่อจอแคบกว่าพื้น 866px เท่านั้น ── */}
             <div style={{ overflowX: "auto", border: "1px solid #E5E7EB", borderRadius: 12, background: "#fff" }}>
-              <table style={{ width: TABLE_W, tableLayout: "fixed", borderCollapse: "collapse", fontSize: 13 }}>
+              <table style={{ width: "100%", minWidth: TABLE_W, tableLayout: "fixed", borderCollapse: "collapse", fontSize: 13 }}>
                 <colgroup>
                   <col style={{ width: COL_STATUS }} />
-                  <col style={{ width: COL_ID }} />
+                  <col /> {/* รหัส/ชื่อ — ไม่ตั้ง width โดยตั้งใจ ให้ได้พื้นที่ว่างที่เหลือทั้งหมด (ดูคอมเมนต์ COL_ID ด้านบน) */}
                   <col style={{ width: COL_STOCK }} />
                   <col style={{ width: COL_ROP }} />
                   <col style={{ width: COL_DOS }} />
@@ -895,9 +903,11 @@ export default function SafetyStockPage() {
                         <div style={{ fontSize: 10.5, color: "#9CA3AF", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.group}</div>
                       </td>
 
-                      {/* คงเหลือ — คงเหลือ+หน่วย (ตัวหลัก) + min·max (บรรทัดรอง) + แถบตำแหน่งระหว่าง min–max */}
+                      {/* คงเหลือ — คงเหลือ+หน่วย (ตัวหลัก) + min·max (บรรทัดรอง) + แถบตำแหน่งระหว่าง min–max
+                       *  overflowWrap: คอลัมน์นี้ความกว้างล็อกตายตัว (ไม่ flex เหมือนรหัส/ชื่อ) — ค่า min/max/คงเหลือ
+                       *  ที่เป็นเลขหลักเยอะๆ ต้องตัดขึ้นบรรทัดใหม่แทนที่จะล้นออกนอกเซลล์ (ข้อกังวลเรื่องความกว้างแถว) */}
                       <td
-                        style={{ padding: "8px 10px", verticalAlign: "top" }}
+                        style={{ padding: "8px 10px", verticalAlign: "top", overflowWrap: "anywhere" }}
                         title={`จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด\nmin: ${GLOSSARY.min.desc}\nmax: ${GLOSSARY.max.desc}`}
                       >
                         <div>{num(r.stockQty)} {r.unit}</div>
@@ -907,7 +917,7 @@ export default function SafetyStockPage() {
 
                       {/* ROP — จุดสั่งซื้อ (ตัวหลัก) + กันขาด/SS (บรรทัดรอง) */}
                       <td
-                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }}
+                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }}
                         title={`${GLOSSARY.rop.desc} — คำนวณด้วยเวลารอของนโยบายคงที่ ${LEAD_TIME_DAYS} วันทุกรายการ\nSS (กันขาด): ${GLOSSARY.ss.desc}`}
                       >
                         <div style={{ fontWeight: 700 }}>{num(d.reorderPoint)}</div>
@@ -915,13 +925,15 @@ export default function SafetyStockPage() {
                       </td>
 
                       {/* พอใช้ — พอใช้อีกกี่วัน */}
-                      <td style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }} title={GLOSSARY.dos.desc}>
+                      <td style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }} title={GLOSSARY.dos.desc}>
                         {d.daysOfSupply === null ? "–" : `${d.daysOfSupply} วัน`}
                       </td>
 
-                      {/* การเบิก — เฉลี่ย/วัน (ตัวหลัก) + จำนวนครั้ง/ปี (บรรทัดรอง) */}
+                      {/* การเบิก — เฉลี่ย/วัน (ตัวหลัก) + จำนวนครั้ง/ปี (บรรทัดรอง)
+                       *  overflowWrap: "N.NN/วัน" ไม่มีช่องว่างให้ตัดคำตามปกติ — เลขทศนิยมเยอะๆ (ของหมุนเร็วมาก)
+                       *  ต้องบังคับตัดได้ ไม่งั้นล้นออกนอกคอลัมน์ที่ความกว้างล็อกตายตัวไว้ */}
                       <td
-                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }}
+                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }}
                         title={`${GLOSSARY.adu.desc} (จำนวนครั้งที่เบิกแสดงคู่กันเสมอ กันเข้าใจผิดว่า ADU ทศนิยมเล็กๆ ผิดพลาด)`}
                       >
                         <div>{d.adu.toFixed(2)}/วัน</div>
@@ -930,7 +942,7 @@ export default function SafetyStockPage() {
 
                       {/* แนะนำสั่ง — จำนวนแนะนำ (ตัวหลัก) + มูลค่า (บรรทัดรอง มัวๆ) */}
                       <td
-                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }}
+                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }}
                         title={`${GLOSSARY.suggestQty.desc}\nมูลค่าที่ต้องสั่ง: แนะนำสั่ง × ราคาทุนล่าสุดที่พบของรหัสนี้`}
                       >
                         <div style={{ fontWeight: 700 }}>{d.suggestQty > 0 ? `${num(d.suggestQty)} ${r.unit}` : "–"}</div>
