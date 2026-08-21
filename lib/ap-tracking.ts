@@ -391,13 +391,14 @@ export function apFinanceRequestText(
 }
 
 // ── การจ่ายเงินจริง (จากไฟล์การเงิน · อนาคต: ดึงจากระบบการเงินตรง) ─────────────
-// เซลล์ DD ในไฟล์การเงินมี 3 รูป: เลขเดี่ยว · หลายเลขคั่น "/" หรือ "-" (บิลเดียวครอบ
-// หลายใบ) · เลขมี ".N" ต่อท้าย (งวดย่อยของใบเดิม) — แตกให้เป็นลิสต์เลขฐานที่ถูกต้อง
+// เซลล์ DD ในไฟล์การเงินเขียนได้สารพัดรูป (เจอจริงทั้งหมด): เลขเดี่ยว · คั่น "/" "-" ","
+// · สองเลขติดกันไม่มีตัวคั่นเลย (LBDD26010929LBDD26020081) · มี ".N"/จุดลอยต่อท้าย
+// · ปนเลข PO มาด้วย — จึงไม่ split ตามตัวคั่น แต่ "ดึงทุกช่วงที่เป็นรูปเลข DD" ออกมาตรง ๆ
+// (\d{6,} กันไปจับเลขสั้น ๆ ที่ไม่ใช่เลขใบ — เลขจริงมี YYMM+ลำดับ ≥ 8 หลัก)
 export function parsePaymentDdCell(cell: string): string[] {
   const out: string[] = []
-  for (const part of String(cell ?? "").split(/[/-]/)) {
-    const base = part.trim().replace(/\.\d+$/, "")
-    if (/^[A-Z]{2,4}DD\d+$/.test(base) && !out.includes(base)) out.push(base)
+  for (const m of String(cell ?? "").matchAll(/[A-Z]{2,4}DD\d{6,}/g)) {
+    if (!out.includes(m[0])) out.push(m[0])
   }
   return out
 }
