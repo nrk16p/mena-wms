@@ -835,7 +835,8 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
                             {selectedTire.request.driverName ? ` · คนขับ: ${selectedTire.request.driverName}` : ""}
                             {selectedTire.request.appointmentDate ? ` · นัด ${fmtDateOnly(selectedTire.request.appointmentDate)}` : ""}
                           </p>
-                          {selectedTire.request.itemStatus === "approved" && (
+                          {/* แก้เลขใบแจ้งซ่อม ATMS ได้ต่อแม้ปิดงานแล้ว — กติกาเดียวกับแท็บคำขอ/อนุมัติ */}
+                          {(selectedTire.request.itemStatus === "approved" || selectedTire.request.itemStatus === "done") && (
                             <button type="button" disabled={acting} onClick={() => handleEditJob(selectedTire)}
                               className="mt-1 text-[11px] text-blue-700 underline decoration-dotted hover:opacity-80 dark:text-blue-300">
                               {selectedTire.request.jobNo

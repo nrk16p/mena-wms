@@ -18,7 +18,7 @@ const CARRY_FIELDS = [
 ] as const
 
 // PATCH /api/tire-change-request/[id]/items/[itemId] — { action: "approve" | "reject" | "editJob" | "appointment" | "done" | "split", reason?, jobNo?, date? }
-// อนุมัติ/ปฏิเสธยางรายเส้น แล้วคำนวณ status ของ request อัตโนมัติ — หรือแก้ไขเลข Job ของเส้นที่อนุมัติแล้ว (ไม่กระทบ status)
+// อนุมัติ/ปฏิเสธยางรายเส้น แล้วคำนวณ status ของ request อัตโนมัติ — หรือแก้ไขเลข Job ของเส้นที่อนุมัติ/ปิดงานแล้ว (ไม่กระทบ status)
 // นัดหมายเป็นรายเส้น (แต่ละล้อนัดคนละวันได้) — request จะขึ้นเป็น appointment เมื่อยางที่อนุมัติมีวันนัดครบทุกเส้น
 // done = ปิดงานรายเส้น ทำได้ทันทีที่ล้อนั้นมีวันนัดแล้ว ไม่ต้องรอเส้นอื่นในใบเดียวกัน
 // split = ย้ายยางเส้นที่ยังไม่ถูกตัดสินออกไปตั้งเป็นใบใหม่ ให้อนุมัติได้ เมื่อใบเดิมปิดไปแล้ว
@@ -54,8 +54,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const target = items.find((it) => String(it._id) === itemId)
   if (!target) return NextResponse.json({ error: "ไม่พบยางเส้นนี้ในคำขอ" }, { status: 404 })
 
+  /**
+   * แก้เลขใบแจ้งซ่อม ATMS — ทำได้ตลอด รวมถึงเส้นที่ปิดงานไปแล้ว
+   *
+   * เลขนี้กรอกตอนอนุมัติ ซึ่งเป็นจังหวะที่ใบ ATMS ยังไม่นิ่ง (พิมพ์ผิด / ออกใบใหม่หลังงานจบ)
+   * และเป็นแค่ตัวเชื่อมไปดูใบที่ ATMS ไม่ได้เป็นตัวตัดสินสถานะใด ๆ ในระบบนี้ — ถ้าล็อกตอนปิดงาน
+   * ทางเดียวที่เหลือคือแก้ในฐานข้อมูลตรง ๆ ส่วนเส้นที่ยังไม่ถูกตัดสิน/ถูกปฏิเสธยังไม่มีเลขให้แก้
+   */
   if (action === "editJob") {
-    if (target.status !== "approved") {
+    if (target.status !== "approved" && target.status !== "done") {
       return NextResponse.json({ error: "แก้ไขเลข Job ได้เฉพาะเส้นที่อนุมัติแล้ว" }, { status: 409 })
     }
     await col.updateOne(

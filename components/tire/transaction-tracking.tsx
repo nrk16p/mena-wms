@@ -1301,6 +1301,7 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
         onClose={() => setOpenKey(null)}
         mr={openRow ? mrMap[mrKey(openRow.branch, openRow.plate)] : undefined}
         mrAdvance={mrAdvance}
+        mrReload={(row) => { reloadMr(row.branch, row.plate) }}
         {...actions}
       />
 
@@ -1599,10 +1600,14 @@ function MrCell({ mr, acting, onAdvance }: {
  * ไทม์ไลน์กางอยู่ในกล่องนี้เลย ไม่เปิดโมดัลซ้อน — โมดัลชั้นนอกเป็น Radix ที่ดักโฟกัสและ
  * ปิด pointer-events ของทุกอย่างนอกตัวมัน โมดัลชั้นในจึงกดไม่ได้/ไม่โผล่
  */
-function MrPanel({ mr, acting, onAdvance }: {
+function MrPanel({ mr, acting, settled, onAdvance, onSaved }: {
   mr: MrSummary | null | undefined
   acting: boolean
+  /** ยางเส้นนี้จบแล้ว (ปิดงาน/ปฏิเสธ) — MR ไม่ได้บล็อกอะไรอีก เหลือไว้ให้อ่านและแก้ประวัติ */
+  settled: boolean
   onAdvance: () => void
+  /** แก้หมายเหตุในไทม์ไลน์แล้ว — หัวใบต้องดึงใหม่ */
+  onSaved: () => void
 }) {
   // กางไทม์ไลน์ให้เลยตั้งแต่เปิดโมดัล — คนเปิดแถวรถกินยางมาเพื่อดูว่าซ่อมถึงไหนแล้วอยู่แล้ว
   // ปุ่มเหลือไว้ให้พับเก็บเมื่อ log ยาว
@@ -1612,7 +1617,7 @@ function MrPanel({ mr, acting, onAdvance }: {
   return (
     <div className="rounded-[12px] border border-amber-300 bg-amber-50 p-3.5 dark:border-amber-400/40 dark:bg-amber-500/10" style={fontThai}>
       <p className="text-[12px] font-semibold text-amber-800 dark:text-amber-200">
-        รถกินยาง — ต้องปิด MR ก่อนถึงจะอนุมัติเปลี่ยนยางได้
+        {settled ? "รถกินยาง — ใบซ่อม (MR) ของทะเบียนนี้" : "รถกินยาง — ต้องปิด MR ก่อนถึงจะอนุมัติเปลี่ยนยางได้"}
       </p>
 
       {mr === undefined ? (
@@ -1636,6 +1641,13 @@ function MrPanel({ mr, acting, onAdvance }: {
             </p>
           )}
 
+          {/* ทางเดียวที่แก้ข้อมูลได้คือแก้บรรทัดเดิมในไทม์ไลน์ — บอกไว้เพราะปุ่มแก้อยู่ในบรรทัดนั้น */}
+          {mr && (
+            <p className="mt-1.5 text-[11px] text-[#9AA8A0]">
+              แก้ไขหมายเหตุของแต่ละสถานะได้ที่ไทม์ไลน์ด้านล่าง — แก้ทับของเดิม ไม่เพิ่มรายการใหม่
+            </p>
+          )}
+
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             {next && (
               <button type="button" disabled={acting} onClick={onAdvance}
@@ -1654,8 +1666,9 @@ function MrPanel({ mr, acting, onAdvance }: {
 
           {mr && showLogs && (
             <div className="mt-2.5 rounded-[10px] bg-white/70 p-2.5 dark:bg-black/20">
-              {/* mrId เป็น key — เปลี่ยนใบแล้ว list โหลดใหม่เอง ไม่ค้างข้อมูลใบเก่า */}
-              <MrTimelineList key={mr.mrId} mrId={mr.mrId} compact />
+              {/* mrId เป็น key — เปลี่ยนใบแล้ว list โหลดใหม่เอง ไม่ค้างข้อมูลใบเก่า
+                  แก้หมายเหตุได้ในบรรทัดเดิม (editable) — ไม่เด้งกล่องซ้อนโมดัล และไม่เพิ่มบรรทัดใหม่ */}
+              <MrTimelineList key={mr.mrId} mrId={mr.mrId} compact editable onSaved={onSaved} />
             </div>
           )}
         </>
@@ -1751,7 +1764,11 @@ function RowActions({ row, acting, approve, reject, editJob, appoint, markDone, 
 
   // เลข Job แสดงเป็นลิงก์ ATMS อยู่ในคอลัมน์รายการแล้ว — ตรงนี้เหลือแค่ปุ่มแก้
   // (ถ้าเอาตัวเลขมาทำปุ่มแก้ด้วย จะกลายเป็นเลขเดียวกันสองที่ที่กดแล้วไปคนละทาง)
-  if ((row.item.status ?? "pending") === "approved" && row.stage !== "done") {
+  //
+  // แก้ได้จากตารางเลย ไม่ต้องเปิดรายละเอียด และแก้ได้ต่อแม้ปิดงานแล้ว — เลขใบแจ้งซ่อม ATMS
+  // เป็นแค่ตัวเชื่อมไปดูใบที่ ATMS ซึ่งมักถูกออกใหม่หรือพบว่าพิมพ์ผิดหลังงานจบไปแล้ว
+  const itemStatus = row.item.status ?? "pending"
+  if (itemStatus === "approved" || itemStatus === "done") {
     btns.push(
       <button key="job" disabled={acting} onClick={() => editJob(row)}
         className="cursor-pointer text-[11px] text-[#6B7C72] underline decoration-dotted transition-colors hover:text-[#1B8C4B] dark:text-gray-400 dark:hover:text-green-400"
@@ -1997,13 +2014,15 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function TxDetailDialog({ row, acting, onClose, mr, mrAdvance, ...actions }: {
+function TxDetailDialog({ row, acting, onClose, mr, mrAdvance, mrReload, ...actions }: {
   row:    TxRow | null
   acting: boolean
   onClose: () => void
   /** MR ของทะเบียนในแถวนี้ — undefined = ยังไม่ได้เช็ค, null = ยังไม่มีใบ */
   mr: MrSummary | null | undefined
   mrAdvance: (row: TxRow) => void
+  /** แก้หมายเหตุในไทม์ไลน์แล้ว — ดึงหัวใบใหม่ให้ชิป/หมายเหตุล่าสุดตรงกับที่เพิ่งแก้ */
+  mrReload: (row: TxRow) => void
 } & Omit<RowActionProps, "row" | "acting">) {
   /**
    * ปุ่มในโมดัลต้องปิดโมดัลก่อนเสมอ — กล่องกรอก (SweetAlert / ปฏิทินนัดหมาย) เป็นชั้นซ้อน
@@ -2066,7 +2085,13 @@ function TxDetailDialog({ row, acting, onClose, mr, mrAdvance, ...actions }: {
 
             {/* MR — วางไว้เหนือเส้นทางสถานะ เพราะเป็นตัวที่บล็อกไม่ให้กดอนุมัติ ต้องเห็นก่อน */}
             {row.item.reason === "รถกินยาง" && (
-              <MrPanel mr={mr} acting={acting} onAdvance={onMrAdvance} />
+              <MrPanel
+                mr={mr}
+                acting={acting}
+                settled={row.stage === "done" || row.stage === "rejected"}
+                onAdvance={onMrAdvance}
+                onSaved={() => mrReload(row)}
+              />
             )}
 
             {/* เส้นทางสถานะ */}
