@@ -493,7 +493,12 @@ export function ApTrackingPage() {
         month={month} onMonth={changeMonth}
         q={q} onQ={(v) => applyFilter(() => setQ(v))}
         onRefresh={load}
-        tab={tab} onTab={(v) => applyFilter(() => { setTab(v); setViewBy("invoice") })}
+        tab={tab} onTab={(v) => applyFilter(() => {
+          setTab(v); setViewBy("invoice")
+          // เปลี่ยนแท็บ = เริ่มต้นไม่กรองเสมอ (ผู้ใช้สั่ง 21/08/2026: default no filter date)
+          // ไม่งั้นช่วงวันที่/ประเภทที่ตั้งไว้ครั้งก่อนค้างอยู่ กลับมาแท็บเดิมแล้วข้อมูลหายไปเฉย ๆ
+          setSentFrom(""); setSentTo(""); setPayTypeFilter("")
+        })}
         viewBy={viewBy} onViewBy={(v) => applyFilter(() => setViewBy(v))}
         warehouse={warehouse} onWarehouse={(v) => applyFilter(() => setWarehouse(v))}
         warehouses={warehouses}
