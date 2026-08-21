@@ -73,39 +73,79 @@ function LtBadge({ source, samples }: { source: LeadTimeSource; samples: number 
   )
 }
 
-function StatusChipBadge({ status }: { status: Status }) {
+// compact: ใช้ในตารางหลัก (คอลัมน์ "สถานะ" ที่ยุบรวมแล้ว) — ตัวเล็กลง ยอมให้ตัดบรรทัดได้ ไม่บังคับ nowrap
+// เหมือนตอนอยู่ในหน้าต่างรายละเอียด เพราะคอลัมน์กว้างจำกัด (ข้อ 1 ของงานยุบตาราง)
+function StatusChipBadge({ status, compact }: { status: Status; compact?: boolean }) {
   const meta = STATUS_META.find((s) => s.key === status)
   if (!meta) return null
   const c = toneOf(meta.tone)
   return (
     <span
       title={meta.hint}
-      style={{ background: c.bg, color: c.fg, border: `1px solid ${c.ring}`, padding: "2px 9px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" }}
+      style={{
+        background: c.bg, color: c.fg, border: `1px solid ${c.ring}`, borderRadius: 999, fontWeight: 700,
+        display: "inline-block",
+        padding: compact ? "1.5px 7px" : "2px 9px",
+        fontSize: compact ? 10.5 : 11.5,
+        whiteSpace: compact ? "normal" : "nowrap",
+        lineHeight: compact ? 1.35 : undefined,
+      }}
     >
       {meta.th}
     </span>
   )
 }
 
-function VerdictBadge({ verdict }: { verdict: MinVerdict }) {
+function VerdictBadge({ verdict, compact }: { verdict: MinVerdict; compact?: boolean }) {
   const meta = MIN_VERDICT_META[verdict]
   const c = toneOf(VERDICT_TONE[verdict])
   return (
     <span
       title={meta.hint}
-      style={{ background: c.bg, color: c.fg, border: `1px solid ${c.ring}`, padding: "2px 9px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" }}
+      style={{
+        background: c.bg, color: c.fg, border: `1px solid ${c.ring}`, borderRadius: 999, fontWeight: 700,
+        display: "inline-block",
+        padding: compact ? "1.5px 7px" : "2px 9px",
+        fontSize: compact ? 10.5 : 11.5,
+        whiteSpace: compact ? "normal" : "nowrap",
+        lineHeight: compact ? 1.35 : undefined,
+      }}
     >
       {meta.th}
     </span>
   )
 }
 
-type EnrichedRow = { r: SnapshotRow; d: Derived }
+/** แถบเล็กบอกตำแหน่งคงเหลือระหว่าง min–max แบบมองปราดเดียวรู้เรื่อง (ข้อ 1 คอลัมน์ "คงเหลือ")
+ *  ต่ำกว่า min = สีส้ม (โทนเดียวกับชิป "ต้องสั่งวันนี้"/"ต่ำกว่า min"), อยู่ในช่วง = สีเขียว (โทนชิป "ปกติ"),
+ *  เกิน max = สีฟ้า (โทนชิป "เกิน max") — ใช้พาเลตเดิมของไฟล์นี้ทั้งหมด ไม่มีสีใหม่
+ *  ไม่ใช่ตัวบอกความหมายหลัก (ชิปสถานะในคอลัมน์ก่อนหน้ามีคำอธิบายเป็นข้อความอยู่แล้ว) — แถบนี้แค่ช่วยให้เห็นภาพเร็วขึ้น */
+function MinMaxBar({ stock, min, max }: { stock: number; min: number; max: number }) {
+  if (max <= 0) return null // ไม่ควรเกิดขึ้นจริง (isPartsPolicyRow กรอง max>0 มาแล้ว) — กันพังไว้เฉยๆ
+  const domain = Math.max(max, stock, min) * 1.08 || 1
+  const pct = (v: number) => Math.min(100, Math.max(0, (v / domain) * 100))
+  const zone: "low" | "ok" | "high" = stock < min ? "low" : stock > max ? "high" : "ok"
+  const fill = zone === "low" ? TONE_COLORS.orange.fg : zone === "high" ? TONE_COLORS.blue.fg : TONE_COLORS.emerald.fg
+  return (
+    <div
+      title={`คงเหลือ ${num(stock)} — ช่วง min ${num(min)} ถึง max ${num(max)}`}
+      style={{ position: "relative", width: "100%", height: 5, background: "#E5E7EB", borderRadius: 999, marginTop: 4 }}
+    >
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct(Math.max(0, stock))}%`, background: fill, borderRadius: 999 }} />
+      <div style={{ position: "absolute", left: `${pct(min)}%`, top: -2, bottom: -2, width: 2, background: "#6B7280" }} />
+      <div style={{ position: "absolute", left: `${pct(max)}%`, top: -2, bottom: -2, width: 2, background: "#6B7280" }} />
+    </div>
+  )
+}
+
+// annualIssue: จำนวนครั้งที่เบิกแปลงเป็น "ครั้ง/ปี" — คำนวณไว้ล่วงหน้าตอน enrich (ต้องใช้ win ซึ่ง sortValue()
+// ที่เป็นฟังก์ชันนอก component ไม่มีให้ใช้) ให้ทั้งตัวเรียงและเซลล์ในตารางอ่านค่าเดียวกัน ไม่คำนวณซ้ำคนละที่
+type EnrichedRow = { r: SnapshotRow; d: Derived; annualIssue: number }
 
 // leadTimeDays ตัดออกจาก sort key พร้อมกับคอลัมน์ (ข้อ 4) — ทุกแถวใช้เวลารอของนโยบายคงที่ {LEAD_TIME_DAYS} วัน
 // เหมือนกันหมดแล้ว เรียงคอลัมน์นี้จึงไม่มีความหมาย (เปรียบเทียบค่าที่วัดได้จริงจะเข้าใจผิดว่าคือค่าที่ใช้คำนวณ)
 type SortKey =
-  | "code" | "name" | "group" | "stockQty" | "minQty" | "maxQty" | "adu"
+  | "code" | "name" | "group" | "stockQty" | "minQty" | "maxQty" | "adu" | "issueCount"
   | "rop" | "ss" | "dos" | "status" | "minVerdict" | "suggestQty" | "orderValue"
 
 // daysOfSupply เป็น null สำหรับแถวไม่มีการเบิก (ADU=0 หารไม่ได้) — คืน null ตรงๆ แล้วให้ตัวเปรียบเทียบใน `sorted`
@@ -119,6 +159,7 @@ function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
     case "minQty": return row.r.minQty
     case "maxQty": return row.r.maxQty
     case "adu": return row.d.adu
+    case "issueCount": return row.annualIssue
     case "rop": return row.d.reorderPoint
     case "ss": return row.d.safetyStock
     case "dos": return row.d.daysOfSupply
@@ -128,6 +169,27 @@ function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
     case "orderValue": return row.d.suggestQty * row.r.cost
   }
 }
+
+/** รายการตัวชี้วัดทั้งหมดที่เรียงได้ — ใช้เติม dropdown "เรียงตาม" เหนือตาราง (ข้อ 1 ของงานยุบตาราง)
+ *  หัวคอลัมน์ที่คลิกได้คือ "ตัวหลัก" ของแต่ละคอลัมน์เท่านั้น ส่วน dropdown นี้ครอบคลุมทั้ง 15 ตัวชี้วัดเดิม
+ *  รวมตัวที่ย้ายไปอยู่เป็นบรรทัดรองในเซลล์ (min, max, SS, จำนวนครั้งที่เบิก, ตรวจ min, มูลค่า, กลุ่ม, ชื่อ) */
+const ORDER_BY_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "orderValue", label: "มูลค่าที่ต้องสั่ง" },
+  { key: "suggestQty", label: "แนะนำสั่ง" },
+  { key: "status", label: "สถานะ" },
+  { key: "minVerdict", label: "ตรวจ min" },
+  { key: "rop", label: "ROP (จุดสั่งซื้อ)" },
+  { key: "ss", label: "SS (กันขาด)" },
+  { key: "dos", label: "พอใช้อีก (วัน)" },
+  { key: "adu", label: "เฉลี่ยเบิก/วัน (ADU)" },
+  { key: "issueCount", label: "จำนวนครั้งที่เบิก/ปี" },
+  { key: "stockQty", label: "คงเหลือ" },
+  { key: "minQty", label: "min" },
+  { key: "maxQty", label: "max" },
+  { key: "code", label: "รหัส" },
+  { key: "name", label: "ชื่อ" },
+  { key: "group", label: "กลุ่ม" },
+]
 
 /** หัวคอลัมน์ที่คลิกเรียงได้ — ตรึงซ้ายได้ถ้าระบุ stickyLeft (ข้อ 3) */
 function SortableTh({
@@ -251,6 +313,12 @@ function RowDialog({
           <StatusChipBadge status={d.status} />
           <VerdictBadge verdict={d.minVerdict} />
         </div>
+
+        {/* ประโยคภาษาคนแทนที่ตัว ROP/SS ของรหัสนี้เข้าไปตรงๆ — จุดที่มีประโยชน์ที่สุดของนิยาม ROP/SS ทั้งหมด
+         *  เพราะผูกกับตัวเลขจริงของรหัสนี้ ไม่ใช่คำอธิบายลอยๆ (ข้อ 2 ของงานยุบตาราง) */}
+        <p style={{ fontSize: 13, color: "#065F46", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 10, padding: "10px 12px", marginTop: 10, lineHeight: 1.55 }}>
+          ควรสั่งเมื่อของเหลือต่ำกว่า <b>{num(d.reorderPoint)} {row.unit}</b> — ในนั้นเป็นของกันขาด <b>{num(d.safetyStock)} {row.unit}</b>
+        </p>
 
         <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>ยอดเบิกรายเดือน (12 เดือน)</h4>
         <UsageMiniChart r={row} months={months} />
@@ -434,7 +502,7 @@ export default function SafetyStockPage() {
   // แสดงเป็นข้อมูลอ้างอิงในหน้าต่างรายละเอียดรายรหัสเท่านั้น (RowDialog) ไม่ใช้คำนวณ SS/ROP/แนะนำสั่งอีกต่อไป
   const enriched: EnrichedRow[] = useMemo(() => {
     if (!data) return []
-    return data.rows.map((r) => ({ r, d: derive(r, win, z, LEAD_TIME_DAYS) }))
+    return data.rows.map((r) => ({ r, d: derive(r, win, z, LEAD_TIME_DAYS), annualIssue: annualCount(r, win) }))
   }, [data, win, z])
 
   const groupOptions = useMemo<Record<string, { th: string; en: string }>>(() => {
@@ -486,6 +554,12 @@ export default function SafetyStockPage() {
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
     else { setSortKey(key); setSortDir("desc") }
+  }
+
+  // ปุ่มพลิกทิศแยกต่างหากสำหรับ dropdown "เรียงตาม" — เลือกตัวชี้วัดใหม่จาก <select> เสมอรีเซ็ตเป็น desc
+  // (ผ่าน toggleSort เหมือนคลิกหัวคอลัมน์) ส่วนปุ่มนี้แค่พลิกทิศของตัวชี้วัดที่เลือกอยู่ ไม่ยุ่งกับ sortKey
+  function flipSortDir() {
+    setSortDir((d) => (d === "asc" ? "desc" : "asc"))
   }
 
   function toggleStatus(key: Status) {
@@ -543,8 +617,17 @@ export default function SafetyStockPage() {
     XLSX.writeFile(wb, `safety-stock-${bkkToday()}.xlsx`)
   }
 
-  const CODE_W = 96
-  const NAME_W = 210
+  // ── ความกว้างคอลัมน์ตาราง (ยุบจาก 15 เหลือ 7 — ต้องไม่เกิดสกอลล์แนวนอนที่จอแล็ปท็อป 1280px) ──
+  // table-layout: fixed + <colgroup> ด้านล่างบังคับความกว้างตรงตัวเลขนี้เป๊ะๆ ไม่ให้เนื้อหายาวๆ ดันตารางกว้างเกิน
+  // รวมทั้งหมด 866px — คำนวณไว้ใน report การยุบตาราง เทียบกับพื้นที่จริงหลังหักแถบเมนู/padding แล้ว
+  const COL_STATUS = 100
+  const COL_ID = 220     // รหัส/ชื่อ — คอลัมน์ตรึงซ้าย (sticky) เดียวที่เหลืออยู่
+  const COL_STOCK = 144
+  const COL_ROP = 100
+  const COL_DOS = 70
+  const COL_USAGE = 104
+  const COL_SUGGEST = 128
+  const TABLE_W = COL_STATUS + COL_ID + COL_STOCK + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 866
 
   return (
     <div>
@@ -726,55 +809,138 @@ export default function SafetyStockPage() {
               })}
             </div>
 
-            {/* ── ตาราง — ตรึงคอลัมน์รหัส/ชื่อ เลื่อนแนวนอนได้ ข้อ 3 ── */}
+            {/* ── เรียงตาม — dropdown ครอบคลุมทุกตัวชี้วัด รวมตัวที่ย้ายไปเป็นบรรทัดรองในเซลล์แล้ว (ข้อ 1) ── */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 12.5, color: "#6B7280", fontWeight: 600 }}>เรียงตาม</span>
+              <select
+                value={sortKey}
+                onChange={(e) => toggleSort(e.target.value as SortKey)}
+                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 12.5, fontWeight: 600, color: "#374151", background: "#fff", cursor: "pointer" }}
+              >
+                {ORDER_BY_OPTIONS.map((o) => (
+                  <option key={o.key} value={o.key}>{o.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={flipSortDir}
+                title={sortDir === "asc" ? "น้อย → มาก (กดเพื่อสลับ)" : "มาก → น้อย (กดเพื่อสลับ)"}
+                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, border: "1px solid #E5E7EB", background: "#fff", cursor: "pointer" }}
+              >
+                {sortDir === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+            </div>
+
+            {/* ── ตาราง — ยุบเหลือ 7 คอลัมน์ (จากเดิม 15) ให้พอดีจอแล็ปท็อปโดยไม่ต้องเลื่อนแนวนอน
+             *  table-layout: fixed + colgroup บังคับความกว้างตรงตัว กันเนื้อหายาวดันตารางกว้างเกิน
+             *  overflow-x: auto ที่ wrapper ยังอยู่เป็น safety net สำหรับจอที่แคบกว่านี้มากๆ เท่านั้น ── */}
             <div style={{ overflowX: "auto", border: "1px solid #E5E7EB", borderRadius: 12, background: "#fff" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <table style={{ width: TABLE_W, tableLayout: "fixed", borderCollapse: "collapse", fontSize: 13 }}>
+                <colgroup>
+                  <col style={{ width: COL_STATUS }} />
+                  <col style={{ width: COL_ID }} />
+                  <col style={{ width: COL_STOCK }} />
+                  <col style={{ width: COL_ROP }} />
+                  <col style={{ width: COL_DOS }} />
+                  <col style={{ width: COL_USAGE }} />
+                  <col style={{ width: COL_SUGGEST }} />
+                </colgroup>
                 <thead>
                   <tr>
-                    <SortableTh label="รหัส" colKey="code" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} stickyLeft={0} />
-                    <SortableTh label="ชื่อ" colKey="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} stickyLeft={CODE_W} />
-                    <SortableTh label="กลุ่ม" colKey="group" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <th style={{ padding: "10px 12px", fontWeight: 700, color: "#374151", borderBottom: "1px solid #E5E7EB", whiteSpace: "nowrap", background: "#F9FAFB" }}>หน่วย</th>
-                    <SortableTh label="คงเหลือ" colKey="stockQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title="จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด" />
-                    <SortableTh label="min" colKey="minQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.min.desc} />
-                    <SortableTh label="max" colKey="maxQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.max.desc} />
-                    <SortableTh label="เฉลี่ย/วัน · ครั้งที่เบิก" colKey="adu" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={`${GLOSSARY.adu.desc} (จำนวนครั้งที่เบิกแสดงคู่กันเสมอ กันเข้าใจผิดว่า ADU ทศนิยมเล็กๆ ผิดพลาด)`} />
-                    <SortableTh label="ROP" colKey="rop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={`${GLOSSARY.rop.desc} — คำนวณด้วยเวลารอของนโยบายคงที่ ${LEAD_TIME_DAYS} วันทุกรายการ`} />
-                    <SortableTh label="SS" colKey="ss" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.ss.desc} />
-                    <SortableTh label="พอใช้อีก (วัน)" colKey="dos" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.dos.desc} />
-                    <SortableTh label="สถานะ" colKey="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="สรุปว่าต้องลงมือทำอะไรกับรหัสนี้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน" />
-                    <SortableTh label="ตรวจ min" colKey="minVerdict" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="เทียบ min ที่ตั้งไว้ใน ATMS กับ ROP ที่คำนวณได้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน" />
-                    <SortableTh label="แนะนำสั่ง" colKey="suggestQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.suggestQty.desc} />
-                    <SortableTh label="มูลค่าที่ต้องสั่ง" colKey="orderValue" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title="แนะนำสั่ง × ราคาทุนล่าสุดที่พบของรหัสนี้" />
+                    <SortableTh
+                      label="สถานะ" colKey="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                      title={"สรุปว่าต้องลงมือทำอะไรกับรหัสนี้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน\nตรวจ min: เทียบ min ที่ตั้งไว้ใน ATMS กับ ROP ที่คำนวณได้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน"}
+                    />
+                    <SortableTh label="รหัส / ชื่อ" colKey="code" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} stickyLeft={COL_STATUS} />
+                    <SortableTh
+                      label="คงเหลือ" colKey="stockQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
+                      title={`จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด\nmin: ${GLOSSARY.min.desc}\nmax: ${GLOSSARY.max.desc}`}
+                    />
+                    <SortableTh
+                      label="ROP" colKey="rop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
+                      title={`${GLOSSARY.rop.desc} — คำนวณด้วยเวลารอของนโยบายคงที่ ${LEAD_TIME_DAYS} วันทุกรายการ\nSS (กันขาด): ${GLOSSARY.ss.desc}`}
+                    />
+                    <SortableTh label="พอใช้" colKey="dos" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.dos.desc} />
+                    <SortableTh
+                      label="การเบิก" colKey="adu" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
+                      title={`${GLOSSARY.adu.desc} (จำนวนครั้งที่เบิกแสดงคู่กันเสมอ กันเข้าใจผิดว่า ADU ทศนิยมเล็กๆ ผิดพลาด)`}
+                    />
+                    <SortableTh
+                      label="แนะนำสั่ง" colKey="suggestQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
+                      title={`${GLOSSARY.suggestQty.desc}\nมูลค่าที่ต้องสั่ง: แนะนำสั่ง × ราคาทุนล่าสุดที่พบของรหัสนี้`}
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map(({ r, d }) => (
+                  {sorted.map(({ r, d, annualIssue }) => (
                     <tr
                       key={r.code}
                       onClick={() => setSelectedRow(r)}
                       style={{ borderBottom: "1px solid #F3F4F6", cursor: "pointer" }}
                     >
-                      <td style={{ padding: "9px 12px", fontFamily: "monospace", whiteSpace: "nowrap", position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>{r.code}</td>
-                      <td style={{ padding: "9px 12px", minWidth: NAME_W, position: "sticky", left: CODE_W, background: "#fff", zIndex: 1 }}>{r.name}</td>
-                      <td style={{ padding: "9px 12px", color: "#6B7280", whiteSpace: "nowrap" }}>{r.group}</td>
-                      <td style={{ padding: "9px 12px", color: "#6B7280", whiteSpace: "nowrap" }}>{r.unit}</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right" }}>{num(r.stockQty)}</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right", color: "#6B7280" }}>{num(r.minQty)}</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right", color: "#6B7280" }}>{num(r.maxQty)}</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" }}>{d.adu.toFixed(2)}/วัน · {annualCount(r, win)} ครั้ง/ปี</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right" }}>{num(d.reorderPoint)}</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right" }}>{num(d.safetyStock)}</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right" }}>{d.daysOfSupply === null ? "–" : `${d.daysOfSupply} วัน`}</td>
-                      <td style={{ padding: "9px 12px" }}><StatusChipBadge status={d.status} /></td>
-                      <td style={{ padding: "9px 12px" }}><VerdictBadge verdict={d.minVerdict} /></td>
-                      <td style={{ padding: "9px 12px", textAlign: "right", fontWeight: 700 }}>{d.suggestQty > 0 ? `${num(d.suggestQty)} ${r.unit}` : "–"}</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right", fontWeight: 700 }}>{baht(d.suggestQty * r.cost)}</td>
+                      {/* สถานะ — ชิปสถานะ (ตัวหลัก) + ชิปตรวจ min ต่อเมื่อไม่ใช่ unknown (บรรทัดรอง) */}
+                      <td style={{ padding: "8px 10px", verticalAlign: "top" }}>
+                        <StatusChipBadge status={d.status} compact />
+                        {d.minVerdict !== "unknown" && (
+                          <div style={{ marginTop: 3 }}><VerdictBadge verdict={d.minVerdict} compact /></div>
+                        )}
+                      </td>
+
+                      {/* รหัส/ชื่อ — ตรึงซ้าย (คอลัมน์ตรึงเดียวที่เหลืออยู่) — รหัส (ตัวหลัก) + ชื่อ + กลุ่ม (บรรทัดรอง) */}
+                      <td
+                        style={{ padding: "8px 10px", position: "sticky", left: COL_STATUS, background: "#fff", zIndex: 1, verticalAlign: "top" }}
+                        title={`${r.code} — ${r.name}${r.group ? ` (${r.group})` : ""}`}
+                      >
+                        <div style={{ fontFamily: "monospace", fontSize: 11.5 }}>{r.code}</div>
+                        <div style={{ fontSize: 12.5, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
+                        <div style={{ fontSize: 10.5, color: "#9CA3AF", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.group}</div>
+                      </td>
+
+                      {/* คงเหลือ — คงเหลือ+หน่วย (ตัวหลัก) + min·max (บรรทัดรอง) + แถบตำแหน่งระหว่าง min–max */}
+                      <td
+                        style={{ padding: "8px 10px", verticalAlign: "top" }}
+                        title={`จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด\nmin: ${GLOSSARY.min.desc}\nmax: ${GLOSSARY.max.desc}`}
+                      >
+                        <div>{num(r.stockQty)} {r.unit}</div>
+                        <div style={{ fontSize: 10.5, color: "#9CA3AF", marginTop: 1 }}>min {num(r.minQty)} · max {num(r.maxQty)}</div>
+                        <MinMaxBar stock={r.stockQty} min={r.minQty} max={r.maxQty} />
+                      </td>
+
+                      {/* ROP — จุดสั่งซื้อ (ตัวหลัก) + กันขาด/SS (บรรทัดรอง) */}
+                      <td
+                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }}
+                        title={`${GLOSSARY.rop.desc} — คำนวณด้วยเวลารอของนโยบายคงที่ ${LEAD_TIME_DAYS} วันทุกรายการ\nSS (กันขาด): ${GLOSSARY.ss.desc}`}
+                      >
+                        <div style={{ fontWeight: 700 }}>{num(d.reorderPoint)}</div>
+                        <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>กันขาด {num(d.safetyStock)}</div>
+                      </td>
+
+                      {/* พอใช้ — พอใช้อีกกี่วัน */}
+                      <td style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }} title={GLOSSARY.dos.desc}>
+                        {d.daysOfSupply === null ? "–" : `${d.daysOfSupply} วัน`}
+                      </td>
+
+                      {/* การเบิก — เฉลี่ย/วัน (ตัวหลัก) + จำนวนครั้ง/ปี (บรรทัดรอง) */}
+                      <td
+                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }}
+                        title={`${GLOSSARY.adu.desc} (จำนวนครั้งที่เบิกแสดงคู่กันเสมอ กันเข้าใจผิดว่า ADU ทศนิยมเล็กๆ ผิดพลาด)`}
+                      >
+                        <div>{d.adu.toFixed(2)}/วัน</div>
+                        <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>{annualIssue.toLocaleString()} ครั้ง/ปี</div>
+                      </td>
+
+                      {/* แนะนำสั่ง — จำนวนแนะนำ (ตัวหลัก) + มูลค่า (บรรทัดรอง มัวๆ) */}
+                      <td
+                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top" }}
+                        title={`${GLOSSARY.suggestQty.desc}\nมูลค่าที่ต้องสั่ง: แนะนำสั่ง × ราคาทุนล่าสุดที่พบของรหัสนี้`}
+                      >
+                        <div style={{ fontWeight: 700 }}>{d.suggestQty > 0 ? `${num(d.suggestQty)} ${r.unit}` : "–"}</div>
+                        <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>{baht(d.suggestQty * r.cost)}</div>
+                      </td>
                     </tr>
                   ))}
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={15} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                      <td colSpan={7} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                         ไม่พบรายการตามเงื่อนไข
                       </td>
                     </tr>
