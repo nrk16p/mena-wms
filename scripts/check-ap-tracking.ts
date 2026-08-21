@@ -480,8 +480,19 @@ const tlLog = [
 ]
 const tl = apTimeline(tlLog,
   { docs: { bill: mark }, sentDate: "2026-08-20", review: { status: "ผ่าน" }, receivedAt: "2026-08-16" })
-assert.deepEqual(tl.map((s) => s.key), ["received", "ready", "sent", "review"])
-assert.deepEqual(tl.map((s) => s.state), ["done", "done", "done", "done"])
+assert.deepEqual(tl.map((s) => s.key), ["received", "ready", "sent", "review", "paid"])
+assert.deepEqual(tl.map((s) => s.state), ["done", "done", "done", "done", "current"],
+  "ผ่านแล้วยังไม่จ่าย = ช่วงจ่ายเงินเป็นช่วงปัจจุบัน")
+assert.equal(tl[4].label, "รอจ่ายเงิน")
+
+// จ่ายแล้ว — ช่วงสุดท้าย done พร้อมวันที่จากทะเบียนการเงิน + เลข PV ใน tooltip
+const tlPaid = apTimeline(tlLog,
+  { docs: { bill: mark }, sentDate: "2026-08-20", review: { status: "ผ่าน" }, receivedAt: "2026-08-16",
+    paid: { paymentNos: ["PV426070266"], date: "2026-07-09" } })
+assert.deepEqual(tlPaid.map((s) => s.state), ["done", "done", "done", "done", "done"])
+assert.equal(tlPaid[4].label, "จ่ายเงินแล้ว")
+assert.equal(tlPaid[4].at, "2026-07-09")
+assert.equal(tlPaid[4].by, "PV426070266")
 assert.equal(tl[0].label, "รอประกบ")
 assert.equal(tl[0].at, "2026-08-16", "ช่วงแรก = วันที่ทำ DD ไม่ใช่เวลาที่เริ่มติ๊ก")
 assert.equal(tl[1].at, "2026-08-17T07:20:00.000Z", "ครบชุด = เวลาที่ติ๊กครั้งล่าสุด")
@@ -495,17 +506,18 @@ const tlRej = apTimeline(
 )
 assert.equal(tlRej[3].state, "rejected")
 assert.equal(tlRej[3].label, "บัญชีตีกลับ")
+assert.equal(tlRej[4].state, "todo", "ตีกลับ = วงจรสะดุด ช่วงจ่ายเงินกลับเป็นรอ")
 
 // ใบที่ยังไม่เริ่มทำอะไรเลย — ช่วงแรกเป็น current ที่เหลือรอ
 const tlNew = apTimeline([], { docs: {}, sentDate: "", receivedAt: "2026-08-17" })
-assert.deepEqual(tlNew.map((s) => s.state), ["current", "todo", "todo", "todo"])
-assert.deepEqual(tlNew.map((s) => s.at), ["2026-08-17", "", "", ""], "ใบใหม่ยังไม่มีใครแตะ แต่รู้วันทำ DD")
+assert.deepEqual(tlNew.map((s) => s.state), ["current", "todo", "todo", "todo", "todo"])
+assert.deepEqual(tlNew.map((s) => s.at), ["2026-08-17", "", "", "", ""], "ใบใหม่ยังไม่มีใครแตะ แต่รู้วันทำ DD")
 
 // เอกสารครบแต่ยังไม่ส่ง — ช่วง "ส่งบัญชี" เป็นช่วงที่ต้องทำต่อ
 const tlReady = apTimeline(tlLog.slice(0, 2), { docs: { bill: mark }, sentDate: "", receivedAt: "2026-08-16" })
-assert.deepEqual(tlReady.map((s) => s.state), ["done", "done", "current", "todo"])
+assert.deepEqual(tlReady.map((s) => s.state), ["done", "done", "current", "todo", "todo"])
 assert.equal(tlReady[2].at, "", "ยังไม่ส่ง = ไม่มีเวลา")
-assert.equal(apTimeline(undefined, { docs: {}, sentDate: "" }).length, 4, "ไม่มี log ก็ต้องไม่พัง")
+assert.equal(apTimeline(undefined, { docs: {}, sentDate: "" }).length, 5, "ไม่มี log ก็ต้องไม่พัง")
 
 // --- thaiDate ---
 assert.equal(thaiDate("2026-08-13"), "13 ส.ค. 69")

@@ -240,7 +240,7 @@ export function apStage(o: {
 
 // ── เส้นทางสถานะ (timeline) ───────────────────────────────────────────────────
 // อ่านจาก log ที่ API เขียนไว้ — ใช้ `field` เป็นตัวชี้ (ไม่แกะจากข้อความ action ที่แปลได้หลายแบบ)
-// 4 ช่วง: เริ่มประกบ → เอกสารครบชุด → ส่งบัญชี → บัญชีตรวจ
+// 5 ช่วง: เริ่มประกบ → เอกสารครบชุด → ส่งบัญชี → บัญชีตรวจ → จ่ายเงิน (เพิ่ม 21/08/2026)
 // "ไม่ผ่าน" นับเป็นช่วงที่เกิดแล้ว (state done) แต่ป้ายกับสีบอกว่าเป็นการตีกลับ
 export type ApTimelineState = "done" | "current" | "todo" | "rejected"
 export type ApTimelineStep = { key: string; label: string; at: string; by: string; state: ApTimelineState }
@@ -250,7 +250,10 @@ const isDocField = (f: string) => FINANCE_DOC_KEYS.includes(f as ApDocKey)
 
 export function apTimeline(
   log: ApLogEntry[] | undefined,
-  o: { docs: ApDocs; sentDate: string; review?: { status?: string } | null; receivedAt?: string },
+  o: {
+    docs: ApDocs; sentDate: string; review?: { status?: string } | null; receivedAt?: string
+    paid?: { paymentNos?: string[]; date?: string } | null
+  },
 ): ApTimelineStep[] {
   const entries = Array.isArray(log) ? log : []
   // ติ๊กครั้งล่าสุด = เวลาที่ชุดเอกสารครบ (ประมาณจาก log — ไม่ได้เก็บ "เวลาที่ครบชุด" เป็นฟิลด์แยก)
@@ -265,6 +268,7 @@ export function apTimeline(
   const step = (key: string, label: string, e: ApLogEntry | undefined, state: ApTimelineState): ApTimelineStep =>
     ({ key, label, at: String(e?.at ?? ""), by: String(e?.by ?? ""), state })
 
+  const paid = Boolean(o.paid?.paymentNos?.length)
   return [
     // ช่วงแรกเริ่มนับจาก "วันที่ทำ DD" ไม่ใช่เวลาที่คนเริ่มติ๊ก — จะได้เห็นว่าใบนอนรอกี่วัน
     // ก่อนมีใครแตะ (ถ้าใช้เวลาติ๊กครั้งแรก ใบที่ติ๊กรวดเดียวจะขึ้นเวลาเท่ากับช่วงถัดไปพอดี ไม่บอกอะไร)
@@ -277,6 +281,12 @@ export function apTimeline(
     step("review", rv === "ไม่ผ่าน" ? "บัญชีตีกลับ" : rv === "ผ่าน" ? "บัญชีตรวจผ่าน" : "รอบัญชีตรวจ",
       rv ? reviewAt : undefined,
       rv === "ไม่ผ่าน" ? "rejected" : rv === "ผ่าน" ? "done" : sent ? "current" : "todo"),
+    // ช่วงจ่ายเงิน — วันที่มาจากทะเบียนการเงิน (paid.date เป็น YYYY-MM-DD ไม่มีเวลา)
+    // by ใส่เลข PV ให้เห็นใน tooltip · ตีกลับ = วงจรสะดุด ช่วงนี้กลับเป็น todo
+    { key: "paid", label: paid ? "จ่ายเงินแล้ว" : "รอจ่ายเงิน",
+      at: paid ? String(o.paid?.date ?? "") : "",
+      by: paid ? (o.paid?.paymentNos ?? []).join(", ") : "",
+      state: (paid ? "done" : rv === "ผ่าน" ? "current" : "todo") as ApTimelineState },
   ]
 }
 

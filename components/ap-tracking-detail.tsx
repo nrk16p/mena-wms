@@ -173,8 +173,9 @@ export function ApTrackingDetail({
 
   const timeline = useMemo(
     () => apTimeline(data?.tracking?.log,
-      { docs: saved, sentDate: savedSent.date, review: savedReview, receivedAt: row.receivedAt }),
-    [data, saved, savedSent.date, savedReview, row.receivedAt],
+      { docs: saved, sentDate: savedSent.date, review: savedReview, receivedAt: row.receivedAt,
+        paid: row.paid ?? null }),
+    [data, saved, savedSent.date, savedReview, row.receivedAt, row.paid],
   )
 
   const depositItems = useMemo(() => data?.items ?? [], [data])
