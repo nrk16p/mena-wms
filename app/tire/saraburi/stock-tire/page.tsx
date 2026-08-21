@@ -1,12 +1,12 @@
 import { Suspense } from "react"
-import { TireStockPage } from "@/components/tire-stock-page"
+import { TireStockSafetyPage } from "@/components/tire/stock-safety-page"
 import { assertBranchAccess } from "@/lib/branch-guard"
 
 export default async function TireSaraburiStockPage() {
   await assertBranchAccess("saraburi")
   return (
     <Suspense>
-      <TireStockPage branch="saraburi" branchLabel="สระบุรี" />
+      <TireStockSafetyPage branch="saraburi" branchLabel="สระบุรี" />
     </Suspense>
   )
 }

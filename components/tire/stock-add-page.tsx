@@ -170,7 +170,7 @@ export function TireStockAddPage({ branch, branchLabel }: { branch: string; bran
 
     if (d.skipped.length === 0) {
       swalToast("success", `บันทึกสำเร็จ ${d.inserted} รายการ`)
-      router.push(`/tire/${branch}/stock-tire`)
+      router.push(`/tire/${branch}/stock-tire/serial`)
       return
     }
 
@@ -215,7 +215,7 @@ export function TireStockAddPage({ branch, branchLabel }: { branch: string; bran
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <Link
-          href={`/tire/${branch}/stock-tire`}
+          href={`/tire/${branch}/stock-tire/serial`}
           className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3.5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/8 transition-colors"
         >
           <ArrowLeft size={14} />

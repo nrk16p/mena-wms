@@ -184,9 +184,9 @@ IBM Plex Sans Thai: 300,400,500,600 — ฟอนต์เนื้อหา (�
 | Dashboard | `app/page.tsx` |
 | รายการ SKU | หน้า list ใน `app/sku/` |
 | เพิ่ม SKU | `app/sku/new/` |
-| สต็อกยาง | `components/tire-stock-page.tsx` (+ `tire-stock-add-page.tsx`) |
-| คำขอเปลี่ยนยาง | `components/tire-change-request-page.tsx` |
-| อนุมัติเปลี่ยนยาง | `components/tire-requests-admin-page.tsx` |
+| สต็อกยาง | `components/tire/stock-page.tsx` (+ `tire/stock-add-page.tsx`) |
+| คำขอเปลี่ยนยาง | `components/tire/change-request-page.tsx` |
+| อนุมัติเปลี่ยนยาง | `components/tire/requests-admin-page.tsx` |
 | มาสคอต | วาง SVG ใน `public/` แล้วทำ React component เล็กๆ (เช่น `components/mascot.tsx`) เรียกใช้ซ้ำ |
 
 **หมายเหตุการทำงาน**

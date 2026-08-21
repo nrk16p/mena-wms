@@ -47,7 +47,7 @@ const WINDOW_KEYS: WindowKey[] = ["m3", "m6", "m12"]
 const SERVICE_LEVELS = Object.keys(Z_BY_SERVICE).map(Number).sort((a, b) => a - b)
 
 /** จำนวนวันนับถึงวันนี้ — แยกเป็นฟังก์ชันนอก component เพราะ Date.now() เป็น impure call
- *  เรียกตรงๆ ใน useMemo/render body ไม่ได้ (react-hooks/purity) เหมือนที่ไฟล์อื่นในโปรเจกต์ทำ (เช่น tire-transaction-tracking.tsx) */
+ *  เรียกตรงๆ ใน useMemo/render body ไม่ได้ (react-hooks/purity) เหมือนที่ไฟล์อื่นในโปรเจกต์ทำ (เช่น components/tire/transaction-tracking.tsx) */
 function daysSince(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
 }
