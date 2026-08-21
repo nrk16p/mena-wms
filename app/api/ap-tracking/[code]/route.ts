@@ -130,13 +130,19 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   }
 
   // บัญชีตรวจเอกสาร — ผ่าน / ไม่ผ่าน (+ เหตุผลเมื่อไม่ผ่าน) · เฉพาะฝ่ายบัญชีเท่านั้น
+  // ยกเว้นหนึ่งทรานสิชัน (เพิ่ม 21/08/2026): จัดซื้อเคลียร์ "ไม่ผ่าน" กลับเป็น "รอตรวจ" ได้
+  // หลังแก้เอกสารเสร็จ — ใบจะกลับไปคิวบัญชีตรวจใหม่เอง จัดซื้อตั้งผลผ่าน/ไม่ผ่านเองไม่ได้
   // ตรวจที่นี่ด้วย ไม่ใช่แค่ซ่อนปุ่มฝั่งหน้าเว็บ — ปุ่มที่ซ่อนไว้ไม่ได้กันการยิง API ตรง
   if (body?.review && typeof body.review === "object") {
-    if (!isAccounting(session?.user?.email, session?.user?.employee?.department)) {
+    const rv = body.review as { status?: unknown; note?: unknown }
+    const wantStatus = s(rv.status)
+    const curStatus = s((current?.review as ApReview | undefined)?.status)
+    const isResubmit = !isAccounting(session?.user?.email, session?.user?.employee?.department)
+      && curStatus === "ไม่ผ่าน" && wantStatus === ""
+    if (!isAccounting(session?.user?.email, session?.user?.employee?.department) && !isResubmit) {
       return NextResponse.json({ error: "เฉพาะฝ่ายบัญชีเท่านั้นที่บันทึกผลตรวจเอกสารได้" }, { status: 403 })
     }
-    const rv = body.review as { status?: unknown; note?: unknown }
-    const status = s(rv.status)
+    const status = wantStatus
     const note   = s(rv.note).slice(0, AP_REVIEW_NOTE_MAX)
     if (status && !AP_REVIEW_STATUSES.includes(status as ApReviewStatus)) {
       return NextResponse.json({ error: "สถานะตรวจเอกสารต้องเป็น ผ่าน หรือ ไม่ผ่าน" }, { status: 400 })
@@ -149,8 +155,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
       // เก็บคนตรวจ+เวลาไว้ในก้อนเดียวกัน — ล้างสถานะ (กลับไป "ยังไม่ตรวจ") ก็ล้างคนตรวจด้วย
       set.review = status ? { status, note, by, at } : { status: "", note: "", by: "", at: "" }
       log.push({
-        action: status ? `บัญชีตรวจเอกสาร: ${status}` : "ล้างผลตรวจเอกสาร",
-        field: "review", detail: note, by, byEmail, at,
+        action: isResubmit ? "จัดซื้อแก้ไขแล้ว ส่งตรวจใหม่"
+          : status ? `บัญชีตรวจเอกสาร: ${status}` : "ล้างผลตรวจเอกสาร",
+        // การส่งตรวจใหม่บันทึก "สิ่งที่แก้" ลงประวัติ — เหตุผลตีกลับเดิมอยู่ใน log อยู่แล้ว
+        field: "review", detail: isResubmit ? s(body.resubmitNote).slice(0, AP_REVIEW_NOTE_MAX) : note,
+        by, byEmail, at,
       })
 
       // ── กดผ่าน = เริ่มกระบวนการจ่ายเงิน (กติกาผู้ใช้ 18/08/2026) ──

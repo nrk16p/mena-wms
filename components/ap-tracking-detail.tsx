@@ -126,6 +126,8 @@ export function ApTrackingDetail({
   // กล่องยืนยันตอนกดผ่าน — null = ไม่เปิด · เปิดพร้อมค่าตั้งต้น: คำขอจากจัดซื้อ + เทอมจาก master
   const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string } | null>(null)
   const [financeOpen, setFinanceOpen] = useState(false)    // กล่องแจ้งการเงินขอนอกรอบ (ใบนี้ใบเดียว)
+  const [resubmitNote, setResubmitNote] = useState("")     // สิ่งที่แก้ ก่อนส่งตรวจใหม่ (ลงประวัติ)
+  const [resubmitting, setResubmitting] = useState(false)
   const [review, setReview]           = useState<ApReview>({ status: "", note: "" })
   const [savedNote, setSavedNote] = useState(row.note ?? "")
   const [note, setNote]           = useState(row.note ?? "")
@@ -339,6 +341,30 @@ export function ApTrackingDetail({
     } finally {
       setSaving(false)
     }
+  }
+
+  // จัดซื้อกด "แก้ไขแล้ว ส่งตรวจใหม่" — เคลียร์ตีกลับกลับเป็นรอตรวจ (สิทธิ์แคบ เซิร์ฟเวอร์คุมอีกชั้น)
+  const resubmit = async () => {
+    if (resubmitting) return
+    setResubmitting(true)
+    try {
+      const res = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review: { status: "", note: "" }, resubmitNote: resubmitNote.trim() }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? "ส่งตรวจใหม่ไม่สำเร็จ")
+      const rvOut = (d.review ?? { status: "", note: "" }) as ApReview
+      setSavedReview(rvOut); setReview(rvOut); setResubmitNote("")
+      onSaved(row.depositCode, {
+        docs: d.docs as ApDocs, status: d.status as ApStatus, sentType: d.sentType ?? "", sentDate: d.sentDate ?? "",
+        note: String(d.note ?? ""), review: { status: rvOut.status, note: rvOut.note }, pay: d.pay ?? null,
+      })
+      loadDetail(row.depositCode, () => true)
+      swalToast("success", "ส่งตรวจใหม่แล้ว — ใบกลับไปคิวบัญชีตรวจ")
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "ส่งตรวจใหม่ไม่สำเร็จ")
+    } finally { setResubmitting(false) }
   }
 
   const rvMeta = apReviewMeta(savedReview.status)
@@ -697,6 +723,25 @@ export function ApTrackingDetail({
                     )
                   })}
                 </div>
+                {/* ใบถูกตีกลับ — จัดซื้อแก้เอกสารแล้วส่งกลับเข้าคิวตรวจได้เอง ไม่ต้องรอบัญชีมาเคลียร์ให้
+                    (เซิร์ฟเวอร์เปิดสิทธิ์เฉพาะทรานสิชัน ไม่ผ่าน → รอตรวจ เท่านั้น) */}
+                {savedReview.status === "ไม่ผ่าน" && (
+                  <div className="space-y-2 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-2.5 dark:border-rose-900 dark:bg-rose-900/15">
+                    <div className="text-xs text-rose-700 dark:text-rose-300">
+                      <b>เหตุผลที่ตีกลับ:</b> {savedReview.note || "—"}
+                      {savedReview.by && <span className="text-rose-400"> · โดย {savedReview.by}{savedReview.at ? ` · ${thaiDateTime(savedReview.at)}` : ""}</span>}
+                    </div>
+                    <textarea value={resubmitNote} rows={2} maxLength={AP_REVIEW_NOTE_MAX}
+                      onChange={(e) => setResubmitNote(e.target.value)}
+                      placeholder="สิ่งที่แก้ไข (บันทึกลงประวัติ) เช่น แนบใบกำกับฉบับแก้แล้ว"
+                      className="w-full rounded-lg border border-rose-200 bg-white px-2 py-1 text-xs dark:border-rose-900 dark:bg-white/5" />
+                    <button onClick={resubmit} disabled={resubmitting}
+                      className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-50">
+                      {resubmitting ? "กำลังส่ง…" : "📤 แก้ไขแล้ว — ส่งตรวจใหม่"}
+                    </button>
+                  </div>
+                )}
+
                 {/* กำหนดจ่ายที่ยืนยันไว้ตอนกดผ่าน — โชว์ค้างไว้ให้ทุกคนเห็นว่าเงินจะออกวันไหน */}
                 {savedPay && savedReview.status === "ผ่าน" && (
                   <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
