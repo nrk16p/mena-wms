@@ -3,12 +3,13 @@ import { ObjectId } from "mongodb"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
+import { itemAppointment, rollupRequestStatus } from "@/lib/tire-request-status"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
 type Params = { params: Promise<{ id: string; itemId: string }> }
 
-type Item = { _id: ObjectId; status?: string; appointmentDate?: Date | null; createdAt?: Date }
+type Item = { _id: ObjectId; status?: string; appointmentDate?: Date | null; createdAt?: Date; positionCode?: string; serialNo?: string }
 
 /** ฟิลด์ระดับใบที่ต้องยกไปด้วยตอนแยกยางออกเป็นคำขอใบใหม่ (ดู action "split") */
 const CARRY_FIELDS = [
@@ -16,9 +17,10 @@ const CARRY_FIELDS = [
   "fleet", "plant", "vehicleType", "requestedBy", "requestedByEmail", "source",
 ] as const
 
-// PATCH /api/tire-change-request/[id]/items/[itemId] — { action: "approve" | "reject" | "editJob" | "appointment" | "split", reason?, jobNo?, date? }
+// PATCH /api/tire-change-request/[id]/items/[itemId] — { action: "approve" | "reject" | "editJob" | "appointment" | "done" | "split", reason?, jobNo?, date? }
 // อนุมัติ/ปฏิเสธยางรายเส้น แล้วคำนวณ status ของ request อัตโนมัติ — หรือแก้ไขเลข Job ของเส้นที่อนุมัติแล้ว (ไม่กระทบ status)
 // นัดหมายเป็นรายเส้น (แต่ละล้อนัดคนละวันได้) — request จะขึ้นเป็น appointment เมื่อยางที่อนุมัติมีวันนัดครบทุกเส้น
+// done = ปิดงานรายเส้น ทำได้ทันทีที่ล้อนั้นมีวันนัดแล้ว ไม่ต้องรอเส้นอื่นในใบเดียวกัน
 // split = ย้ายยางเส้นที่ยังไม่ถูกตัดสินออกไปตั้งเป็นใบใหม่ ให้อนุมัติได้ เมื่อใบเดิมปิดไปแล้ว
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { id, itemId } = await params
@@ -28,7 +30,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const body   = await req.json()
   const action = String(body.action ?? "")
-  const ACTIONS = ["approve", "reject", "editJob", "appointment", "split"]
+  const ACTIONS = ["approve", "reject", "editJob", "appointment", "done", "split"]
   if (!ACTIONS.includes(action)) {
     return NextResponse.json({ error: `action must be ${ACTIONS.join(" / ")}` }, { status: 400 })
   }
@@ -94,11 +96,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       )
     }
 
-    const hasPending = remaining.some((it) => (it.status ?? "pending") === "pending")
-    const hasOk      = remaining.some((it) => it.status === "approved")
-    // ใบที่นัด/ปิดไปแล้วต้องคงสถานะนั้นไว้ — การหยิบเส้นที่ค้างออกไม่ใช่การรื้อใบเดิม
-    const keepTerminal = reqStatus === "appointment" || reqStatus === "done"
-    const newReqStatus = hasPending ? "pending" : hasOk ? (keepTerminal ? reqStatus : "approved") : "rejected"
+    // สถานะใบเดิมคิดใหม่จากเส้นที่เหลือ — เส้นที่นัดไว้ครบแล้วจะกลับไปเป็น appointment เอง
+    // (ไม่ต้องกดนัดซ้ำหลังแยกใบ) และไม่มีทางค้างเป็น appointment ทั้งที่ยังมีเส้นรอตัดสิน
+    const newReqStatus = rollupRequestStatus(remaining, doc.appointmentDate)
 
     const carried = Object.fromEntries(
       CARRY_FIELDS.filter((f) => doc[f] !== undefined).map((f) => [f, doc[f]])
@@ -155,21 +155,51 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       { $set: { "items.$.appointmentDate": date, "items.$.appointmentBy": by, "items.$.appointmentAt": now } }
     )
 
-    // roll up ขึ้น request: นัดครบทุกเส้นที่อนุมัติ (และไม่มีเส้นค้างอนุมัติ) → appointment
-    const approved = items
-      .filter((it) => (it.status ?? "pending") === "approved")
-      .map((it) => (String(it._id) === itemId ? date : it.appointmentDate ?? null))
-    const hasPending  = items.some((it) => (it.status ?? "pending") === "pending")
-    const scheduled   = approved.filter((d): d is Date => !!d).map((d) => new Date(d).getTime())
-    const allSchedule = approved.length > 0 && scheduled.length === approved.length
+    // roll up ขึ้น request จากทุกเส้น (นัดครบ + ไม่มีเส้นค้างตัดสิน = appointment)
+    const nextItems = items.map((it) => (String(it._id) === itemId ? { ...it, appointmentDate: date } : it))
+    const scheduled = nextItems
+      .filter((it) => (it.status ?? "pending") === "approved" && !!it.appointmentDate)
+      .map((it) => new Date(it.appointmentDate as Date).getTime())
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const reqSet: Record<string, any> = { updatedAt: now }
+    const reqSet: Record<string, any> = { updatedAt: now, status: rollupRequestStatus(nextItems, doc.appointmentDate) }
     if (scheduled.length > 0) reqSet.appointmentDate = new Date(Math.max(...scheduled))
-    if (!hasPending) reqSet.status = allSchedule ? "appointment" : "approved"
     await col.updateOne({ _id: new ObjectId(id) }, { $set: reqSet })
 
-    return NextResponse.json({ ok: true, appointmentDate: date, requestStatus: reqSet.status ?? reqStatus })
+    return NextResponse.json({ ok: true, appointmentDate: date, requestStatus: reqSet.status })
+  }
+
+  /**
+   * ปิดงานรายเส้น — ยางล้อนี้เปลี่ยนเสร็จแล้ว ปิดได้เลยโดยไม่ต้องรอเส้นอื่นในใบเดียวกัน
+   *
+   * เดิมปิดงานได้แค่ "ทั้งใบ" ซึ่งต้องให้ยางทุกเส้นถูกตัดสินและนัดครบก่อน — รถที่ทยอย
+   * เปลี่ยนทีละล้อจึงปิดงานไม่ได้เลยจนกว่าเส้นสุดท้ายจะจบ (เคสจริง T-0003 / สบ.70-6788:
+   * RA8+RA7 เปลี่ยนตามนัด 17 ส.ค. แล้ว แต่ค้างเพราะ RA3+F2 ยังไม่มีใครตัดสิน)
+   */
+  if (action === "done") {
+    if (target.status !== "approved") {
+      return NextResponse.json({ error: "ปิดงานได้เฉพาะยางเส้นที่อนุมัติแล้ว" }, { status: 409 })
+    }
+    // ต้องมีวันนัดก่อน — ปิดงานคือยืนยันว่าเปลี่ยนตามนัดแล้ว ไม่ใช่ข้ามขั้นจากอนุมัติ
+    if (!itemAppointment(items, target, doc.appointmentDate)) {
+      return NextResponse.json({ error: "ยางเส้นนี้ยังไม่มีวันนัดหมาย — กรุณาลงวันนัดก่อนปิดงาน" }, { status: 409 })
+    }
+
+    await col.updateOne(
+      { _id: new ObjectId(id), "items._id": new ObjectId(itemId) },
+      { $set: { "items.$.status": "done", "items.$.doneBy": by, "items.$.doneAt": now } }
+    )
+
+    const nextItems = items.map((it) => (String(it._id) === itemId ? { ...it, status: "done" } : it))
+    const requestStatus = rollupRequestStatus(nextItems, doc.appointmentDate)
+    // ปิดครบทุกเส้นแล้วค่อยปั๊ม doneBy/doneAt ระดับใบ — รายงานเดิมที่อ่านสองฟิลด์นี้
+    // จะได้ยังหมายถึง "ทั้งใบจบแล้ว" เหมือนตอนที่ปิดงานได้ทีเดียวทั้งใบ
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const reqSet: Record<string, any> = { status: requestStatus, updatedAt: now }
+    if (requestStatus === "done") { reqSet.doneBy = by; reqSet.doneAt = now }
+    await col.updateOne({ _id: new ObjectId(id) }, { $set: reqSet })
+
+    return NextResponse.json({ ok: true, itemStatus: "done", requestStatus })
   }
 
   if (reqStatus === "appointment" || reqStatus === "done") {
@@ -186,13 +216,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     { $set: itemSet }
   )
 
-  // derive request status from item decisions
-  const statuses = items.map((it) =>
-    String(it._id) === itemId ? (action === "approve" ? "approved" : "rejected") : (it.status ?? "pending")
+  // สถานะใบคิดใหม่จากยางทุกเส้น — เส้นที่เหลือมีวันนัดครบอยู่แล้วจะกลับเป็น appointment เอง
+  // ไม่ต้องให้คนกดนัดหมายซ้ำเพียงเพื่อปลดล็อกปุ่มปิดงาน
+  const nextItems = items.map((it) =>
+    String(it._id) === itemId ? { ...it, status: action === "approve" ? "approved" : "rejected" } : it
   )
-  const newStatus = statuses.includes("pending")
-    ? "pending"
-    : statuses.includes("approved") ? "approved" : "rejected"
+  const newStatus = rollupRequestStatus(nextItems, doc.appointmentDate)
 
   await col.updateOne({ _id: new ObjectId(id) }, { $set: { status: newStatus, updatedAt: now } })
 

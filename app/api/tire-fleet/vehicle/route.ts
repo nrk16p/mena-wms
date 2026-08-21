@@ -79,7 +79,8 @@ export async function GET(req: NextRequest) {
     for (const it of rItems) {
       const iStatus = it.status ?? "pending"
       const key = String(it.serialNo ?? "").trim()
-      if (iStatus === "rejected" || !key || statusMap.has(key)) continue
+      // เส้นที่จบแล้ว (ปฏิเสธ/ปิดงานรายเส้น) ไม่ใช่คำขอที่ยังค้าง — ใบอาจยังเปิดอยู่เพราะเส้นอื่น
+      if (iStatus === "rejected" || iStatus === "done" || !key || statusMap.has(key)) continue
       statusMap.set(key, {
         requestId:       String(r._id),
         itemId:          String(it._id ?? ""),
