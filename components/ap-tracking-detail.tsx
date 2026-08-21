@@ -572,6 +572,23 @@ export function ApTrackingDetail({
 
           {tab === "money" && (
             <>
+              {/* จ่ายจริงแล้ว (จากทะเบียนการเงิน) — ใบจบวงจร ให้เห็นก่อนทุกอย่างในแท็บการเงิน */}
+              {row.paid?.paymentNos?.length ? (
+                <section className="rounded-xl border border-teal-200 bg-teal-50/70 px-4 py-3 text-sm dark:border-teal-800 dark:bg-teal-900/20">
+                  <div className="font-bold text-teal-800 dark:text-teal-300" style={mitr}>
+                    ✅ จ่ายเงินแล้ว {thaiDate(row.paid.date)}
+                  </div>
+                  <div className="mt-0.5 text-xs text-teal-700 dark:text-teal-300">
+                    เลข PV: <span className={NUM}>{row.paid.paymentNos.join(", ")}</span>
+                    {typeof row.paid.amount === "number" && <> · ยอดจ่าย <span className={NUM}>{baht(row.paid.amount)}</span> บาท</>}
+                    {row.paid.sharedWith?.length ? <> · จ่ายรวมบิลเดียวกับ {row.paid.sharedWith.join(", ")}</> : null}
+                  </div>
+                  {row.paid.source === "payment-file" && (
+                    <div className="mt-0.5 text-[10px] text-teal-600/70 dark:text-teal-400/70">ที่มา: ทะเบียนจ่ายของการเงิน (นำเข้าจากไฟล์)</div>
+                  )}
+                </section>
+              ) : null}
+
               {/* รอบการวางบิล — ตามรอบ = เครดิตเทอมนับจากวันตั้งต้น · นอกรอบ = วันพฤหัสเท่านั้น */}
               <section className="space-y-2">
                 <div className="flex items-center gap-2">
