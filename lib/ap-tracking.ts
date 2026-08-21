@@ -531,10 +531,13 @@ export function overdueDays(dueISO: string, todayISO: string): number {
 
 // ── กำหนดจ่ายเงิน (เริ่มนับตอนบัญชีกดผ่าน) ─────────────────────────────────────
 // กติกาจากผู้ใช้ 18/08/2026 — จุดตั้งต้นคือ "วันที่บัญชีกดผ่าน" ไม่ใช่วันส่งเอกสาร:
-//   ตามรอบ: ครบกำหนด = วันกดผ่าน + เครดิตเทอม · ตัดรอบวันที่ 25 นับถึงสิ้นวัน
-//           (ครบวันที่ 25 พอดี = ทันรอบนั้น) · จ่ายวันที่ 5 ของเดือนที่ 2 ถัดจากเดือนตัดรอบ
-//           (แก้ 19/08/2026: เดิมเดือนถัดไป — ตัด 25 ส.ค. → จ่าย 5 ต.ค. ไม่ใช่ 5 ก.ย.)
-//           วันที่ 5/25 ตรงเสาร์-อาทิตย์ไม่เลื่อน — จ่ายตามวันที่ตรง ๆ
+//   ตามรอบ (เครดิตยาว 30D/60D/Immediate): ครบกำหนด = วันกดผ่าน + เครดิตเทอม
+//           ตัดรอบวันที่ 25 นับถึงสิ้นวัน (ครบวันที่ 25 พอดี = ทันรอบนั้น)
+//           จ่ายวันที่ 5 ของเดือนที่ 2 ถัดจากเดือนตัดรอบ · เสาร์-อาทิตย์ไม่เลื่อน
+//   ตามรอบ (เครดิตสั้น 7D/15D — แก้ 21/08/2026): จ่ายรอบพฤหัสเหมือนนอกรอบ
+//           นับจาก "วันที่ส่งเอกสารเข้าบัญชี" (sentMarkedAt) เส้นตายอังคาร → พฤหัสถัดไป
+//           ถ้าพฤหัสรอบนั้นผ่านไปแล้วตอนบัญชีกดผ่าน นับใหม่จากวันกดผ่านแทน
+//           ใบที่ตีกลับแล้วส่งตรวจใหม่ วันส่งใหม่คือจุดตั้งต้นรอบใหม่ (ดู resubmit ใน API)
 //   นอกรอบ: โอนทุกวันพฤหัส · เส้นตายคือวันอังคาร (แก้จากวันพุธ 19/08/2026 ตามผู้ใช้)
 //           กดผ่าน อา.–อังคาร = พฤหัสสัปดาห์นั้นยังทัน · พุธเป็นต้นไป = พฤหัสหน้า
 //           ค่าตั้งต้นที่เสนอคือ "พฤหัสหน้า" เสมอ — พฤหัสที่ใกล้กว่ายังเก็บไว้ให้เลือกถ้าทัน
@@ -587,13 +590,22 @@ export function payFromCutoff(dueISO: string): { cutoff: string; payDate: string
 // คิดกำหนดจ่ายทั้งใบ — คืน null เมื่อคิดไม่ได้ (วันที่เพี้ยน · ตามรอบแต่ไม่มีเครดิตเทอม
 // · หรือนอกรอบที่เลือกวันโอนนอกตัวเลือกที่ทันรอบ — เซิร์ฟเวอร์ใช้แยกตอบ 400)
 export function apPaySchedule(
-  passedISO: string, type: ApPayType, creditTerm: string, chosenPayDate?: string,
+  passedISO: string, type: ApPayType, creditTerm: string, chosenPayDate?: string, sentDocISO?: string,
 ): ApPaySchedule | null {
   if (type === "นอกรอบ") {
     const { options, def } = payThursdayChoices(passedISO)
     if (!def) return null
     if (chosenPayDate && !options.includes(chosenPayDate)) return null
     return { type, dueDate: "", cutoff: "", payDate: chosenPayDate || def }
+  }
+  // เครดิตสั้น (7D/15D): รอบพฤหัส นับจากวันส่งเอกสารเข้าบัญชี — cutoff เว้นว่างเป็นตัวบอก UI
+  // ว่าใบนี้ไม่ได้เดินสายตัดรอบ 25 · ไม่มีวันส่ง (ใบเก่าก่อนเก็บ sentMarkedAt) ใช้วันกดผ่านแทน
+  if (creditTerm === "7D" || creditTerm === "15D") {
+    const base = sentDocISO || passedISO
+    let payDate = payThursday(base)
+    if (!payDate) return null
+    if (payDate < passedISO) payDate = payThursday(passedISO)   // รอบจากวันส่งเลยไปแล้ว — นับจากวันกดผ่าน
+    return { type, dueDate: dueDateOf(base, creditTerm), cutoff: "", payDate }
   }
   const dueDate = dueDateOf(passedISO, creditTerm)
   if (!dueDate) return null

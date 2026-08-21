@@ -539,7 +539,8 @@ export function ApTrackingDetail({
               <section className="space-y-2">
                 <h3 className="text-sm font-bold" style={mitr}>เลขที่เอกสาร</h3>
                 <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-                  {AP_NO_FIELDS.map((f) => {
+                  {/* เลข Voucher เป็นของฝั่งบัญชี — ย้ายไปแท็บการเงิน ใต้ช่องตรวจผ่าน (ผู้ใช้สั่ง 21/08/2026) */}
+                  {AP_NO_FIELDS.filter((f) => f.key !== "voucherNos").map((f) => {
                     const list = nos[f.key]
                     const edited = nosChangedKeys.includes(f.key)
                     return (
@@ -746,7 +747,9 @@ export function ApTrackingDetail({
                 {savedPay && savedReview.status === "ผ่าน" && (
                   <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
                     💰 {savedPay.type === "ตามรอบ"
-                      ? <>ตามรอบ · ครบกำหนด {thaiDate(savedPay.dueDate)} · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
+                      ? savedPay.cutoff
+                        ? <>ตามรอบ · ครบกำหนด {thaiDate(savedPay.dueDate)} · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
+                        : <>ตามรอบ (เครดิตสั้น) · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>
                       : <>นอกรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>}
                     {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
                   </div>
@@ -760,6 +763,28 @@ export function ApTrackingDetail({
                       onChange={(e) => setReview((r) => ({ ...r, note: e.target.value }))}
                       className={`w-full rounded-lg border px-2 py-1 dark:bg-white/5 ${reviewNeedsNote(review.status, review.note) ? "border-rose-400" : "border-gray-200/80 dark:border-white/10"}`} />
                   </label>
+                )}
+              </section>
+
+              {/* เลขตั้งหนี้ (Voucher) — บัญชีออกตอนผ่าน จึงอยู่คู่กับช่องตรวจ ไม่ใช่ชุดเอกสารของจัดซื้อ */}
+              <section className="space-y-1 border-t border-gray-100 pt-4 dark:border-white/10">
+                <div className={`text-sm font-bold ${nosChangedKeys.includes("voucherNos") ? "text-amber-700 dark:text-amber-400" : ""}`} style={mitr}>
+                  เลขที่ Voucher/ตั้งหนี้{nos.voucherNos.length > 1 ? ` (${nos.voucherNos.length})` : ""}
+                </div>
+                {nos.voucherNos.map((v, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <input value={v} maxLength={AP_NO_MAX} placeholder="เช่น LAPO26080130"
+                      onChange={(e) => setNoAt("voucherNos", i, e.target.value)}
+                      className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm dark:bg-white/5 ${nosChangedKeys.includes("voucherNos") ? "border-amber-400" : "border-gray-200/80 dark:border-white/10"}`} />
+                    <button onClick={() => removeNo("voucherNos", i)} title="ลบเลขนี้"
+                      className="shrink-0 rounded-lg border border-gray-200/80 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-white/10 dark:hover:bg-rose-900/20">✕</button>
+                  </div>
+                ))}
+                {nos.voucherNos.length < AP_NOS_MAX && (
+                  <button onClick={() => addNo("voucherNos")}
+                    className="rounded-lg border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-white/20 dark:text-gray-300 dark:hover:bg-white/5">
+                    + เพิ่มเลข Voucher
+                  </button>
                 )}
               </section>
 
@@ -795,7 +820,8 @@ export function ApTrackingDetail({
         {passConfirm && (() => {
           const thuChoices = payThursdayChoices(todayICT())
           const preview = apPaySchedule(todayICT(), passConfirm.payType, passConfirm.creditTerm,
-            passConfirm.payType === "นอกรอบ" ? passConfirm.payDate || undefined : undefined)
+            passConfirm.payType === "นอกรอบ" ? passConfirm.payDate || undefined : undefined,
+            row.sentMarkedDate)
           const needTerm = passConfirm.payType === "ตามรอบ" && !passConfirm.creditTerm
           return (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-4"
@@ -853,11 +879,19 @@ export function ApTrackingDetail({
                 <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm dark:bg-white/5">
                   {preview ? (
                     preview.type === "ตามรอบ" ? (
-                      <div className="space-y-0.5 text-xs">
-                        <div>ครบกำหนด <b>{thaiDate(preview.dueDate)}</b></div>
-                        <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b></div>
-                        <div className="text-emerald-700 dark:text-emerald-400">💰 จ่าย <b>{thaiDate(preview.payDate)}</b></div>
-                      </div>
+                      preview.cutoff ? (
+                        <div className="space-y-0.5 text-xs">
+                          <div>ครบกำหนด <b>{thaiDate(preview.dueDate)}</b></div>
+                          <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b></div>
+                          <div className="text-emerald-700 dark:text-emerald-400">💰 จ่าย <b>{thaiDate(preview.payDate)}</b></div>
+                        </div>
+                      ) : (
+                        // เครดิตสั้น 7D/15D — รอบพฤหัส นับจากวันส่งเอกสารเข้าบัญชี ไม่เดินสายตัดรอบ 25
+                        <div className="text-xs text-emerald-700 dark:text-emerald-400">
+                          💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b>
+                          <span className="text-gray-400"> (เครดิตสั้น — นับจากวันส่งเอกสารเข้าบัญชี)</span>
+                        </div>
+                      )
                     ) : (
                       <div className="text-xs text-emerald-700 dark:text-emerald-400">💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b></div>
                     )

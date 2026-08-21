@@ -154,6 +154,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     if (status !== s(cur.status) || note !== s(cur.note)) {
       // เก็บคนตรวจ+เวลาไว้ในก้อนเดียวกัน — ล้างสถานะ (กลับไป "ยังไม่ตรวจ") ก็ล้างคนตรวจด้วย
       set.review = status ? { status, note, by, at } : { status: "", note: "", by: "", at: "" }
+      // ส่งตรวจใหม่ = ส่งเอกสารเข้าบัญชีรอบใหม่ — รีเซ็ตจุดตั้งต้น (ผู้ใช้สั่ง 21/08/2026:
+      // ถ้าไม่ผ่านแล้วให้นับวันที่ส่งบัญชีเป็นรอบใหม่) · กระทบทั้งคอลัมน์ "กดส่งเมื่อ"
+      // และรอบพฤหัสของเครดิตสั้นตอนบัญชีกดผ่านรอบถัดไป
+      if (isResubmit) { set.sentMarkedAt = at; set.sentMarkedBy = by }
       log.push({
         action: isResubmit ? "จัดซื้อแก้ไขแล้ว ส่งตรวจใหม่"
           : status ? `บัญชีตรวจเอกสาร: ${status}` : "ล้างผลตรวจเอกสาร",
@@ -187,7 +191,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
         // นอกรอบเลือกวันโอนได้ (พฤหัสนี้ถ้ายังทันเส้นตายอังคาร / พฤหัสหน้า) — เซิร์ฟเวอร์
         // ตรวจกับตัวเลือกที่คิดจากนาฬิกาตัวเองอีกชั้น ค่าที่หลุดมานอกตัวเลือกต้องไม่ผ่าน
         const chosenPayDate = payType === "นอกรอบ" ? s(body.payDate) || undefined : undefined
-        const schedule = apPaySchedule(ictDate(at), payType, creditTerm, chosenPayDate)
+        // เครดิตสั้น (7D/15D) นับรอบพฤหัสจาก "วันส่งเอกสารเข้าบัญชี" — anchor คือ sentMarkedAt
+        // ซึ่งถูกตั้งใหม่ทุกครั้งที่จัดซื้อส่งตรวจใหม่หลังตีกลับ (= เริ่มรอบใหม่ตามกติกา)
+        const schedule = apPaySchedule(ictDate(at), payType, creditTerm, chosenPayDate, ictDate(s(current?.sentMarkedAt)))
         if (!schedule) {
           if (chosenPayDate) {
             return NextResponse.json(
