@@ -6,7 +6,7 @@ import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
-  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, payThursdayChoices,
+  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, payThursday, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
@@ -159,6 +159,9 @@ export function ApTrackingDetail({
   const dirtyCount = changed.length + itemsChanged.length + nosChangedKeys.length
     + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0) + (reviewChanged ? 1 : 0) + (noteChanged ? 1 : 0)
   const dirty = dirtyCount > 0
+
+  // เครดิตสั้น (7D/15D) เดินสายรอบพฤหัส — ป้าย/ค่าตั้งต้นของ "ตามรอบ" ต่างจากเครดิตยาว
+  const shortCredit = row.creditTerm === "7D" || row.creditTerm === "15D"
 
   const draftDocs   = useMemo(() => docsOf(draft), [draft])
   const draftStatus = apStatusOf(draftDocs, sent.date)
@@ -617,7 +620,9 @@ export function ApTrackingDetail({
                 </section>
               ) : null}
 
-              {/* รอบการวางบิล — ตามรอบ = เครดิตเทอมนับจากวันตั้งต้น · นอกรอบ = วันพฤหัสเท่านั้น */}
+              {/* รอบการวางบิล — นอกรอบเหมือนเดิม · ตามรอบแยกสองสายตามเครดิตเทอมของใบ
+                  (ผู้ใช้สั่ง 21/08/2026): เครดิตสั้น 7/15 วัน = รอบพฤหัสนับจากวันส่งเอกสาร ·
+                  เครดิตยาว 30/60 วัน = ครบกำหนดนับจากวันทำ DD ตามเดิม */}
               <section className="space-y-2">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold" style={mitr}>รอบการวางบิล</h3>
@@ -629,13 +634,25 @@ export function ApTrackingDetail({
                 <label className="flex flex-wrap items-center gap-2 text-sm">
                   <input type="radio" name="apSent" className="h-4 w-4 accent-emerald-600"
                     checked={sent.type === "ตามรอบ"}
-                    onChange={() => setSent({ type: "ตามรอบ", date: sent.type === "ตามรอบ" ? sent.date : (dueDateOf(baseDate, row.creditTerm) || row.dueDate || "") })} />
-                  <span className="font-medium">📋 ตามรอบ</span>
+                    onChange={() => setSent({ type: "ตามรอบ", date: sent.type === "ตามรอบ" ? sent.date
+                      : shortCredit ? payThursday(todayICT())
+                      : (dueDateOf(baseDate, row.creditTerm) || row.dueDate || "") })} />
+                  <span className="font-medium">📋 ตามรอบ{row.creditTerm ? ` (เครดิต ${row.creditTerm})` : ""}</span>
                   <span className="text-xs text-gray-500">
-                    {row.creditTerm ? `เครดิต ${row.creditTerm} นับจากวันที่ทำ DD` : "ยังไม่ตั้งเครดิตเทอม — ระบุวันครบกำหนดเอง"}
+                    {shortCredit ? "จ่ายรอบพฤหัส — นับจากวันส่งเอกสารเข้าบัญชี (ส่งไม่เกินอังคาร ทันพฤหัสถัดไป)"
+                      : row.creditTerm ? "นับจากวันที่ทำ DD ตัดรอบวันที่ 25" : "ยังไม่ตั้งเครดิตเทอม — ระบุวันครบกำหนดเอง"}
                   </span>
                 </label>
-                {sent.type === "ตามรอบ" && (
+                {/* เครดิตสั้น: โชว์พฤหัสที่ทันถ้าส่งวันนี้ — วันจริงบัญชียืนยันอีกทีตอนกดผ่าน */}
+                {sent.type === "ตามรอบ" && shortCredit && (
+                  <div className="flex flex-wrap items-center gap-2 pl-6 text-xs">
+                    <span className="text-gray-500">ส่งเอกสารวันนี้ ทันรอบพฤหัส</span>
+                    <input type="date" value={sent.date} onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
+                      className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 dark:border-white/10 dark:bg-white/5" />
+                    {sent.date && <span className="text-gray-400">({thaiDate(sent.date)})</span>}
+                  </div>
+                )}
+                {sent.type === "ตามรอบ" && !shortCredit && (
                   <div className="flex flex-wrap items-center gap-2 pl-6 text-xs">
                     <span className="text-gray-500">นับจาก</span>
                     <input type="date" value={baseDate}
