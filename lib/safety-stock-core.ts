@@ -5,13 +5,27 @@
 export const INVENTORY_ID = "4"
 export const WAREHOUSE = "คลังลาดกระบัง"
 
-/** คลังที่ระบบครอบคลุม — id คือ inventory_id ใน ATMS/stockmovement_v5 */
+/** คลังที่ระบบครอบคลุม — id คือ inventory_id ใน ATMS/stockmovement_v5
+ *  ตัดเหลือ 2 คลัง (ขอบเขตที่อนุมัติ 2569-08) — ขอนแก่น (11) และ DIST (24) ออกจากขอบเขตทั้งหมด
+ *  ทั้ง sync/build เดินตาม array นี้อัตโนมัติอยู่แล้ว จึงไม่ต้องแก้ที่อื่น */
 export const WAREHOUSES: { id: string; name: string }[] = [
   { id: "4", name: "คลังลาดกระบัง" },
   { id: "3", name: "คลังสระบุรี" },
-  { id: "11", name: "คลังขอนแก่น" },
-  { id: "24", name: "คลัง DIST" },
 ]
+
+/** เวลารอของตามนโยบาย (วัน) — ใช้แทนเวลารอของที่วัดได้จริงในทุกสูตร (SS/ROP/แนะนำสั่ง) ของหน้า /safety-stock
+ *  ตั้งแต่ 2569-08 (ขอบเขตที่อนุมัติ) เพราะ PR→รับของจับคู่ได้ไม่ครบทุกรหัส ทำให้ lead time รายรหัส/รายกลุ่ม
+ *  มีทั้งเชื่อได้และเดา ปนกันจนเทียบรหัสต่อรหัสไม่ตรงกัน — ใช้ค่าคงที่ตัวเดียวทั้งระบบให้เทียบกันได้ตรงๆ
+ *  ค่าที่วัดได้จริง (SnapshotRow.leadTimeDays จาก build) ยังคงเก็บไว้เหมือนเดิมทุกประการเพื่อใช้เป็นข้อมูลอ้างอิง
+ *  (แสดงในหน้าต่างรายละเอียดรายรหัสของ /safety-stock) และเพราะ /tire/* ยังใช้ค่าที่วัดได้จริงนี้ตรงๆ ต่อไป
+ *  ไม่ผ่านนโยบาย 7 วันนี้เลย — ห้ามเขียนทับ SnapshotRow.leadTimeDays ที่ build เก็บไว้ */
+export const LEAD_TIME_DAYS = 7
+
+/** กลุ่มสินค้าที่ตัดออกจากมุมมอง "นโยบายอะไหล่" ของหน้า /safety-stock (ไม่รวม "เครื่องมือยาง" — เก็บไว้ตามที่ตกลง)
+ *  กรองที่ layer อ่าน (lib/safety-stock.ts) เท่านั้น ไม่ใช่ตอน build — เพราะ safety_stock_snapshot เป็นชุดข้อมูล
+ *  ที่ /tire/{branch}/stock-tire ใช้ร่วมด้วย (ดู lib/tire-stock-safety.ts) กรองตอน build จะทำให้แถวกลุ่มนี้
+ *  หายไปจาก collection เลย พา /tire/* ไปด้วยทั้งที่ไม่ได้ตั้งใจ */
+export const EXCLUDED_PRODUCT_GROUP = "ยาง"
 
 /** 365/12 — ใช้แปลงหน่วยเดือน↔วัน ให้ตรงกันทุกที่ */
 export const DAYS_PER_MONTH = 365 / 12
@@ -32,7 +46,10 @@ export const Z_BY_SERVICE: Record<number, number> = { 90: 1.28, 95: 1.65, 99: 2.
 export const DEFAULT_Z = Z_BY_SERVICE[95]
 
 export type WindowStat = { m3: number; m6: number; m12: number }
-export type LeadTimeSource = "sku" | "group" | "warehouse"
+/** "policy" ไม่เคยเก็บลง SnapshotRow.leadTimeSource (ยังเป็น sku/group/warehouse ของค่าที่วัดได้จริงเสมอ)
+ *  ใช้เฉพาะภายใน derive() เมื่อมีการส่ง lead time override เข้ามา (ดู derive() ด้านล่าง) เพื่อบอก minVerdictOf
+ *  ว่ากำลังตัดสินด้วยเวลารอของตามนโยบาย ไม่ใช่ค่าที่วัดได้ — จึงไม่ต้องกดเป็น unknown แบบเดียวกับ "warehouse" */
+export type LeadTimeSource = "sku" | "group" | "warehouse" | "policy"
 export type Status = "no_usage" | "out" | "below_rop" | "below_min" | "over_max" | "ok"
 export type MinVerdict = "too_low" | "too_high" | "ok" | "unknown"
 
@@ -53,6 +70,51 @@ export const MIN_VERDICT_META: Record<MinVerdict, { th: string; hint: string }> 
   unknown:  { th: "ประเมินไม่ได้", hint: "ข้อมูลไม่พอ — ไม่ได้ตั้ง min, ไม่มีการเบิก, หรือ lead time เป็นค่ากลางทั้งคลัง" },
 }
 
+/** อภิธานศัพท์ย่อ — นิยามเดียวใช้ร่วมกันทุกที่ (การ์ดใน /safety-stock, tooltip หัวตาราง, หน้า /safety-stock/baseline)
+ *  เพื่อไม่ให้คำอธิบายเพี้ยนคนละความหมายในแต่ละหน้า — เขียนสำหรับทีมหน้างานอ่าน บอกว่าตัวเลขหมายถึงอะไรและควรทำอะไรต่อ
+ *  ไม่ใช่สูตรพีชคณิต (สูตรอยู่ที่หน้า /safety-stock/baseline โดยเฉพาะ)
+ *  ต้องใช้ได้ทั้งกับหน้า /safety-stock (อะไหล่ทั่วไป, เวลารอของคงที่ 7 วัน) และหน้า /tire/*  (สต็อกยาง,
+ *  เวลารอของที่วัดได้จริง) — จึงเขียนแบบกลางๆ ไม่ผูกกับตัวเลข 7 วันหรือสมมติว่าเป็นอะไหล่เท่านั้น */
+export type GlossaryKey = "adu" | "sd" | "ss" | "rop" | "dos" | "lt" | "min" | "max" | "suggestQty"
+export const GLOSSARY: Record<GlossaryKey, { label: string; desc: string }> = {
+  adu: {
+    label: "ADU — เบิกเฉลี่ย/วัน",
+    desc: "เฉลี่ยแล้วเบิกออกวันละกี่หน่วย คำนวณจากยอดเบิกจริงย้อนหลังในหน้าต่างเวลาที่เลือก ยิ่งสูงยิ่งต้องมีของสำรองไว้มาก",
+  },
+  sd: {
+    label: "SD — ความผันผวนของการเบิก",
+    desc: "บอกว่าการเบิกแต่ละเดือนแกว่งขึ้นลงมากแค่ไหน เดือนไหนเบิกเยอะเดือนไหนเบิกน้อยสลับกัน ยิ่งแกว่งมากยิ่งต้องกันสต๊อกสำรอง (SS) ไว้มากขึ้น",
+  },
+  ss: {
+    label: "SS — สต๊อกกันชน (Safety Stock)",
+    desc: "ของสำรองที่กันไว้เผื่อการเบิกพุ่งขึ้นกะทันหันระหว่างรอของรอบใหม่มาถึง ไม่ใช่สต๊อกที่ใช้หมุนเวียนตามปกติ",
+  },
+  rop: {
+    label: "ROP — จุดสั่งซื้อ (Reorder Point)",
+    desc: "ระดับคงเหลือที่พอเห็นแล้วต้องรีบสั่งของเพิ่มทันที ถ้าคงเหลือต่ำกว่าตัวเลขนี้แปลว่าเสี่ยงของขาดก่อนของรอบใหม่จะมาถึง",
+  },
+  dos: {
+    label: "พอใช้อีก (Days of Supply)",
+    desc: "ประมาณการว่าของที่มีอยู่ตอนนี้จะพอใช้ได้อีกกี่วัน ถ้าเบิกในอัตราเฉลี่ยเท่าเดิม ใช้เทียบกับเวลารอของเพื่อดูว่าจะขาดก่อนของใหม่มาถึงหรือไม่ — คำนวณไม่ได้ (แสดง —) เมื่อไม่มีการเบิกเลย",
+  },
+  lt: {
+    label: "LT / เวลารอของ (Lead Time)",
+    desc: "จำนวนวันตั้งแต่วันที่สั่งซื้อจนของมาถึงคลัง ใช้คำนวณทั้ง SS และ ROP — ยิ่งรอนานยิ่งต้องกันสต๊อกสำรองไว้มากขึ้น",
+  },
+  min: {
+    label: "min",
+    desc: "ระดับคงเหลือขั้นต่ำที่ตั้งไว้ใน ATMS เป็นเกณฑ์อ้างอิงเดิม อาจตรงหรือไม่ตรงกับพฤติกรรมการเบิกจริงตอนนี้ก็ได้ — ดูคอลัมน์ \"ตรวจ min\" ประกอบ",
+  },
+  max: {
+    label: "max",
+    desc: "ระดับคงเหลือสูงสุดที่ตั้งไว้ใน ATMS มีของเกินระดับนี้ถือว่าสต๊อกจมเกินความจำเป็น ควรตรวจว่าซื้อเกินมาจริงหรือ max ตั้งไว้ต่ำเกินไป",
+  },
+  suggestQty: {
+    label: "แนะนำสั่ง",
+    desc: "จำนวนที่แนะนำให้สั่งเพิ่มในรอบนี้ เพื่อให้คงเหลือกลับไปอยู่ในระดับปลอดภัยโดยไม่เกิน max — เป็น 0 เสมอถ้ารหัสนี้ไม่มีการเบิกเลยในช่วงที่ผ่านมา",
+  },
+}
+
 export type SnapshotRow = {
   code: string; name: string; group: string; unit: string
   brand: string; oracleCode: string; inventoryId: string
@@ -66,6 +128,15 @@ export type SnapshotRow = {
   monthly: number[]
   leadTimeDays: number; leadTimeSource: LeadTimeSource; leadTimeSamples: number
   cost: number; value: number
+}
+
+/** เกณฑ์ "นโยบายอะไหล่" ที่หน้า /safety-stock ใช้ — กรองที่ layer อ่าน (lib/safety-stock.ts getSafetyStock)
+ *  ไม่ใช่ตอน build เพราะ safety_stock_snapshot เป็นชุดข้อมูลที่ /tire/{branch}/stock-tire ใช้ร่วมด้วย
+ *  (ดู lib/tire-stock-safety.ts) — ต้องมีทั้ง min และ max พร้อมกัน (เดิม min หรือ max อย่างใดอย่างหนึ่งก็พอ)
+ *  และไม่ใช่กลุ่ม "ยาง" เป๊ะๆ (เก็บ "เครื่องมือยาง" ไว้ตามที่ตกลง) ส่งออกไว้ให้ script ตรวจสอบ
+ *  (scripts/check-safety-stock.ts) ใช้ประกอบด้วย กันตรรกะกระจายไปเขียนซ้ำคนละที่ */
+export function isPartsPolicyRow(r: Pick<SnapshotRow, "group" | "minQty" | "maxQty">): boolean {
+  return r.group !== EXCLUDED_PRODUCT_GROUP && r.minQty > 0 && r.maxQty > 0
 }
 
 export type Derived = {
@@ -244,10 +315,17 @@ export function mergeWarehouseResults<T extends { inventoryId: string; error: st
 }
 
 // ── ตัวรวม — job และเบราว์เซอร์เรียกตัวนี้ตัวเดียวกัน ──────────────────────
-export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: number = DEFAULT_Z): Derived {
+/** ltOverride: เวลารอของตามนโยบาย (วัน) ใช้แทนค่าที่วัดได้จริง (r.leadTimeDays) ในทุกสูตร — ไม่ใส่ (undefined)
+ *  พฤติกรรมเดิมทุกประการ (ใช้ค่าที่วัดได้จริง เหมือนที่ /tire/* เรียกอยู่) หน้า /safety-stock ส่ง LEAD_TIME_DAYS
+ *  เข้ามาที่นี่ (view-layer parameter เดียวกับ win/z ไม่ใช่การเขียนทับ r.leadTimeDays ที่ build เก็บไว้)
+ *  เมื่อมี override ตัดสิน minVerdict ด้วย source "policy" แทน r.leadTimeSource เดิม — เพราะเวลารอของตอนนี้
+ *  เป็นค่าคงที่ตามนโยบาย ไม่ใช่ค่ากลางทั้งคลังที่เชื่อไม่ได้ (การ์ด "warehouse" ของ minVerdictOf ยังอยู่ครบ
+ *  ใช้กับ /tire/* ที่ไม่ส่ง override เข้ามาต่อไปเหมือนเดิม) */
+export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: number = DEFAULT_Z, ltOverride?: number): Derived {
   const adu = r.adu[win]
   const sdDaily = r.sdDaily[win]
-  const lt = r.leadTimeDays
+  const lt = ltOverride ?? r.leadTimeDays
+  const ltSource: LeadTimeSource = ltOverride !== undefined ? "policy" : r.leadTimeSource
   const ss = safetyStockOf(sdDaily, lt, z)
   const rop = reorderPointOf(adu, lt, ss)
   const onHand = r.stockQty
@@ -258,7 +336,7 @@ export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: numbe
     reorderPoint: r2(rop),
     daysOfSupply: daysOfSupplyOf(onHand, adu),
     status: statusOf({ usage12: r.usage.m12, onHand, rop, minQty: r.minQty, maxQty: r.maxQty }),
-    minVerdict: minVerdictOf(r.minQty, rop, r.leadTimeSource),
+    minVerdict: minVerdictOf(r.minQty, rop, ltSource),
     suggestQty: suggestQtyOf(onHand, r.maxQty, rop, adu, lt, r.usage.m12),
   }
 }
