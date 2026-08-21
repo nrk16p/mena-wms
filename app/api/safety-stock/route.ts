@@ -19,7 +19,10 @@ export async function GET(req: NextRequest) {
       forceRefresh = token?.role === "admin"
     }
 
-    const data = await getSafetyStock(inventoryId, forceRefresh)
+    // scope "parts": ตัดกลุ่ม "ยาง" + ต้องมีทั้ง min และ max พร้อมกัน — มุมมอง "นโยบายอะไหล่" ของหน้า /safety-stock
+    // เอง เท่านั้น ไม่ใช่พฤติกรรมของ getSafetyStock โดยรวม — /api/tire-stock/safety ยังเรียกแบบ scope เดิม
+    // ("full") เพื่อให้ /tire/{branch}/stock-tire เห็นข้อมูลครบเหมือนเดิมทุกประการ (ดู lib/safety-stock.ts)
+    const data = await getSafetyStock(inventoryId, forceRefresh, "parts")
     return NextResponse.json(data)
   } catch (e) {
     console.error("[safety-stock] ", e)
