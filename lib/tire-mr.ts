@@ -36,12 +36,15 @@ export function mrChip(status: string): { label: string; cls: string } {
   }
 }
 
-/** หนึ่งบรรทัดในไทม์ไลน์ MR — บันทึกทุกครั้งที่สร้าง/เปลี่ยนสถานะ */
+/** หนึ่งบรรทัดในไทม์ไลน์ MR — 1 บรรทัด = 1 ครั้งที่สถานะขยับ (สร้าง/เริ่มซ่อม/ปิดใบ) */
 export type MrLog = {
   status:    string
   note:      string
   updatedBy: string
   updatedAt: string
+  // แก้หมายเหตุย้อนหลังเป็นการ "แก้ทับบรรทัดเดิม" ไม่เพิ่มบรรทัดใหม่ — สองฟิลด์นี้บอกว่าใครแก้เมื่อไร
+  editedBy?: string
+  editedAt?: string
 }
 
 /** สรุป MR ล่าสุดของทะเบียน (payload ของ /api/tire-mr/latest) */
