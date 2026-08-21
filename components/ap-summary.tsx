@@ -232,7 +232,7 @@ export function ApHeader({
           )}
 
           {/* filter ย่อยแท็บ "ส่งบัญชีแล้ว"/"ผ่าน" — ใบผ่านใช้ค่าที่บัญชียืนยัน ที่เหลือใช้คำขอจัดซื้อ */}
-          {(tab === "sent" || tab === "passed") && (
+          {(tab === "sent" || tab === "passed" || tab === "paid") && (
             <div className="flex items-center gap-1.5 border-l border-gray-200 pl-3 dark:border-white/10">
               {([["", "ทั้งหมด"], ["ตามรอบ", "📋 ตามรอบ"], ["นอกรอบ", "💸 นอกรอบ"]] as const).map(([v, label]) => (
                 <button key={label} onClick={() => onPayTypeFilter(v)}

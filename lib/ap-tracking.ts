@@ -207,13 +207,15 @@ export function apStatusMeta(s: ApStatus) {
 // 1 ใบอยู่ได้ขั้นเดียวเท่านั้น — เดิมใบหนึ่งเป็นได้หลายอย่างพร้อมกัน (ส่งบัญชีแล้ว + บัญชีตรวจผ่าน)
 // ทำให้ตัวเลขทับซ้อนกันจนบวกไม่ได้ · ลำดับข้างล่างคือลำดับความสำคัญ: "ไม่ผ่าน" ชนะทุกขั้น
 // เพราะตีกลับแล้วต้องแก้ ไม่ว่าจะส่งไปแล้วหรือยัง
-export type ApStage = "wait" | "ready" | "sent" | "passed" | "rejected"
+export type ApStage = "wait" | "ready" | "sent" | "passed" | "paid" | "rejected"
 
 export const AP_STAGES: { key: ApStage; label: string; dot: string; hint: string }[] = [
   { key: "wait",     label: "รอประกบ",       dot: "bg-rose-500",    hint: "เอกสารยังไม่ครบชุด" },
   { key: "ready",    label: "ครบชุด",        dot: "bg-amber-400",   hint: "ครบแล้ว รอกดส่งบัญชี" },
   { key: "sent",     label: "ส่งบัญชีแล้ว",  dot: "bg-sky-500",     hint: "ส่งแล้ว รอบัญชีตรวจ" },
-  { key: "passed",   label: "ผ่าน",          dot: "bg-emerald-500", hint: "บัญชีตรวจผ่าน" },
+  { key: "passed",   label: "ผ่าน",          dot: "bg-emerald-500", hint: "บัญชีตรวจผ่าน รอจ่ายเงิน" },
+  // เพิ่ม 21/08/2026 — มีหลักฐานจ่ายจริงจากการเงิน (เลข PV) = จบวงจรของใบ
+  { key: "paid",     label: "จ่ายแล้ว",      dot: "bg-teal-500",    hint: "การเงินจ่ายเงินแล้ว (มีเลข PV)" },
   { key: "rejected", label: "ไม่ผ่าน",       dot: "bg-rose-600",    hint: "บัญชีตีกลับ ต้องแก้" },
 ]
 
@@ -225,9 +227,12 @@ export function apStage(o: {
   docs: ApDocs
   sentDate: string
   review?: { status?: string } | null
+  // มีหลักฐานจ่ายจริง (เลข PV จากการเงิน) — วันนี้มาจากไฟล์ อนาคตดึงจากระบบการเงินตรง
+  paid?: { paymentNos?: string[] } | null
 }): ApStage {
   const rv = String(o.review?.status ?? "").trim()
-  if (rv === "ไม่ผ่าน") return "rejected"
+  if (rv === "ไม่ผ่าน") return "rejected"          // ตีกลับชนะทุกขั้น — จ่ายไปแล้วก็ต้องกลับมาแก้
+  if (o.paid?.paymentNos?.length) return "paid"
   if (rv === "ผ่าน") return "passed"
   if (o.sentDate) return "sent"
   return isDocSetComplete(o.docs) ? "ready" : "wait"
@@ -383,6 +388,18 @@ export function apFinanceRequestText(
     subject: `ขออนุมัติจ่ายนอกรอบ พฤหัสที่ ${thaiDate(payThursdayISO)} · ${bySup.size} ราย · ${thb(total)} บาท`,
     body: lines.join("\n"),
   }
+}
+
+// ── การจ่ายเงินจริง (จากไฟล์การเงิน · อนาคต: ดึงจากระบบการเงินตรง) ─────────────
+// เซลล์ DD ในไฟล์การเงินมี 3 รูป: เลขเดี่ยว · หลายเลขคั่น "/" หรือ "-" (บิลเดียวครอบ
+// หลายใบ) · เลขมี ".N" ต่อท้าย (งวดย่อยของใบเดิม) — แตกให้เป็นลิสต์เลขฐานที่ถูกต้อง
+export function parsePaymentDdCell(cell: string): string[] {
+  const out: string[] = []
+  for (const part of String(cell ?? "").split(/[/-]/)) {
+    const base = part.trim().replace(/\.\d+$/, "")
+    if (/^[A-Z]{2,4}DD\d+$/.test(base) && !out.includes(base)) out.push(base)
+  }
+  return out
 }
 
 // ── ใบปะหน้าส่งเอกสารเข้า สกท. (export จากแท็บ "ผ่าน") ─────────────────────────

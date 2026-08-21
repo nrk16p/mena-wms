@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   // — หาเลขใบ DD ที่มีเลขพวกนี้ก่อน แล้วค่อยไปเอาหัวใบ
   const md = process.env.MONGO_DB ?? "master_data"
   const byDocNo = await client.db(md).collection("ap_tracking")
-    .find({ $or: AP_NO_FIELDS.map((f) => ({ [f.key]: rx })) },
+    .find({ $or: [...AP_NO_FIELDS.map((f) => ({ [f.key]: rx })), { "paid.paymentNos": rx }] },
       { projection: { _id: 0, depositCode: 1 } })
     .limit(40).maxTimeMS(10_000).toArray()
   const docNoCodes = byDocNo.map((d) => s(d.depositCode)).filter(Boolean)

@@ -12,7 +12,7 @@ import {
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
   payThursday, payThursdayChoices, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
-  apFinanceRequestText, apCoverSheetAoa,
+  apFinanceRequestText, apCoverSheetAoa, parsePaymentDdCell,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
 } from "../lib/ap-tracking"
@@ -428,7 +428,24 @@ for (const e of ACCOUNTING_EMAILS) {
 }
 
 // --- ขั้นของงาน (แกนหลักของหน้า — 1 ใบอยู่ได้ขั้นเดียว) ---
-assert.deepEqual(AP_STAGES.map((s) => s.key), ["wait", "ready", "sent", "passed", "rejected"])
+assert.deepEqual(AP_STAGES.map((s) => s.key), ["wait", "ready", "sent", "passed", "paid", "rejected"])
+// จ่ายแล้ว (เพิ่ม 21/08/2026): มีเลข PV = จบวงจร · ตีกลับยังชนะทุกขั้นเหมือนเดิม
+assert.equal(apStage({ docs: { bill: mark }, sentDate: "2026-08-20", review: { status: "ผ่าน" },
+  paid: { paymentNos: ["PV426070266"] } }), "paid")
+assert.equal(apStage({ docs: { bill: mark }, sentDate: "2026-08-20", review: { status: "ผ่าน" },
+  paid: { paymentNos: [] } }), "passed", "paid ว่าง = ยังไม่จ่าย")
+assert.equal(apStage({ docs: { bill: mark }, sentDate: "2026-08-20", review: { status: "ไม่ผ่าน" },
+  paid: { paymentNos: ["PV1"] } }), "rejected", "ตีกลับชนะแม้จ่ายแล้ว — ต้องกลับมาแก้")
+assert.equal(apStage({ docs: {}, sentDate: "", paid: { paymentNos: ["PV1"] } }), "paid",
+  "จ่ายแล้วแม้ไม่เคยผ่านขั้นอื่นในระบบ (ใบนำเข้า) ก็ต้องขึ้นจ่ายแล้ว")
+
+// --- แตกเซลล์ DD ของไฟล์การเงิน ---
+assert.deepEqual(parsePaymentDdCell("SBDD26060672/SBDD26060673"), ["SBDD26060672", "SBDD26060673"], "บิลเดียวครอบสองใบ (/)")
+assert.deepEqual(parsePaymentDdCell("SBDD26050313-SBDD26050314"), ["SBDD26050313", "SBDD26050314"], "ขีดกลางความหมายเดียวกัน")
+assert.deepEqual(parsePaymentDdCell("SBDD26061019.1"), ["SBDD26061019"], "งวดย่อย .1 ตัดเหลือเลขฐาน")
+assert.deepEqual(parsePaymentDdCell("LBDD26080101"), ["LBDD26080101"])
+assert.deepEqual(parsePaymentDdCell("ไม่ใช่เลข"), [], "ขยะ = ลิสต์ว่าง ไม่พัง")
+assert.deepEqual(parsePaymentDdCell(""), [])
 assert.equal(apStage({ docs: {}, sentDate: "" }), "wait")
 assert.equal(apStage({ docs: { bill: mark }, sentDate: "" }), "ready", "ครบชุดแล้วแต่ยังไม่ส่ง")
 assert.equal(apStage({ docs: { bill: mark }, sentDate: "2026-08-20" }), "sent")

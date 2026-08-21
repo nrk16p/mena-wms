@@ -20,7 +20,7 @@ export async function GET() {
     .maxTimeMS(30_000).toArray()
 
   const tracks = await client.db(MD).collection("ap_tracking")
-    .find({}, { projection: { _id: 0, depositCode: 1, docs: 1, sentDate: 1, "review.status": 1 } })
+    .find({}, { projection: { _id: 0, depositCode: 1, docs: 1, sentDate: 1, "review.status": 1, "paid.paymentNos": 1 } })
     .maxTimeMS(30_000).toArray()
   const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
 
@@ -38,6 +38,7 @@ export async function GET() {
       docs: (t?.docs ?? {}) as ApDocs,
       sentDate: s(t?.sentDate),
       review: (t?.review ?? null) as { status?: string } | null,
+      paid: (t?.paid ?? null) as { paymentNos?: string[] } | null,
     })
     const warehouse = s(h.warehouse) || "(ไม่ระบุคลัง)"
     const key = `${ym}|${warehouse}|${stage}`

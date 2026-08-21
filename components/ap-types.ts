@@ -2,6 +2,17 @@
 // อ้างถึงชนิดเดียวกันได้โดยไม่ import วนกันเอง
 import type { ApDocNos, ApDocs, ApPaySchedule, ApStage, ApStatus } from "@/lib/ap-tracking"
 
+// การจ่ายจริงจากการเงิน — paymentNos = เลข PV · date = วันจ่าย (หลายงวดใช้วันล่าสุด)
+// sharedWith = ใบอื่นที่จ่ายรวมในบิลเดียวกัน (ยอด amount เป็นของใบนี้เมื่อแยกได้เท่านั้น)
+export type ApPaid = {
+  paymentNos: string[]
+  date: string
+  amount?: number
+  sharedWith?: string[]
+  source?: string
+  by?: string; at?: string
+}
+
 // กำหนดจ่ายที่บัญชียืนยันตอนกดผ่าน — basis คือตัวตั้งที่ใช้คิด เก็บไว้ย้อนตรวจ
 export type ApPay = ApPaySchedule & {
   basis?: { passedAt: string; passedDate: string; creditTerm: string; requestedType: string }
@@ -25,6 +36,8 @@ export type ApRow = {
   sentMarkedAt?: string; sentMarkedDate?: string; sentMarkedBy?: string
   // มีเฉพาะใบที่บัญชีกดผ่านแล้ว (API ตัดคีย์ว่างทิ้งเพื่อลดขนาด payload)
   pay?: ApPay
+  // หลักฐานจ่ายจริงจากการเงิน — วันนี้นำเข้าจากไฟล์ อนาคตดึงจากระบบการเงินตรง (ดู source)
+  paid?: ApPaid
   // ทะเบียนรถ (จาก PO) + หมายเหตุ (จาก PR — มีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง)
   // มีเฉพาะแถวที่ข้อมูลต้นทางมีจริง
   vehicle?: string

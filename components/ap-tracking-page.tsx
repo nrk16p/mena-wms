@@ -23,7 +23,7 @@ export type { ApRow } from "@/components/ap-types"
 const PER_PAGE_OPTIONS = [25, 50, 100, 0] as const
 // ตัวกรอง/จัดกลุ่ม "วันที่กดส่งบัญชี" มีความหมายเฉพาะใบที่ผ่านการกดส่งมาแล้วเท่านั้น
 // แท็บรอประกบ/ครบชุดยังไม่มีวันกดส่ง — โชว์แถบนี้ไปก็มีแต่ทำให้ตารางว่างโดยไม่มีเหตุผล
-const SENT_STAGES: ApStage[] = ["sent", "passed", "rejected"]
+const SENT_STAGES: ApStage[] = ["sent", "passed", "paid", "rejected"]
 // วันนี้ตามเวลาไทยเสมอ (เครื่องผู้ใช้อาจตั้ง TZ อื่น / เซิร์ฟเวอร์รัน UTC) — กันวันเลื่อนช่วง 00:00–07:00
 const thisMonth = () => todayICT().slice(0, 7)
 
@@ -43,6 +43,7 @@ const matchQ = (r: ApRow, rx: RegExp) =>
   rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
   || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos))
   || rx.test(r.vehicle ?? "") || rx.test(r.prNote ?? "")
+  || rx.test((r.paid?.paymentNos ?? []).join(" "))
 
 // กล่องเลือกวันส่งบัญชีของใบเดียว — เปิด/ปิดคือ mount/unmount ค่าจึงเริ่มใหม่ทุกครั้ง
 function SendDialog({
@@ -245,7 +246,7 @@ export function ApTrackingPage() {
     let out = rangeOn ? beforeSentRange.filter((r) => inDateRange(r.sentMarkedDate, sentFrom, sentTo)) : beforeSentRange
     // filter ย่อย ตามรอบ/นอกรอบ ใช้กับแท็บ "ส่งบัญชีแล้ว" และ "ผ่าน" — แท็บอื่นค่าค้างต้องไม่แอบกรอง
     // (ใบที่ผ่านแล้วใช้ค่าที่บัญชียืนยัน · ใบที่แค่ส่งแล้วยังไม่มี pay ใช้คำขอจากจัดซื้อ)
-    if ((tab === "sent" || tab === "passed") && payTypeFilter) {
+    if ((tab === "sent" || tab === "passed" || tab === "paid") && payTypeFilter) {
       out = out.filter((r) => (r.pay?.type || r.sentType) === payTypeFilter)
     }
     if (tab === "passed") {
@@ -297,7 +298,9 @@ export function ApTrackingPage() {
       "กดส่งเมื่อ": r.sentMarkedDate ?? "",
       "ผ่านเมื่อ": (r.review?.at ?? "").slice(0, 10),
       "ตรวจโดย": r.review?.by ?? "",
-      "วันจ่าย": r.pay?.payDate ?? "",
+      "กำหนดจ่าย": r.pay?.payDate ?? "",
+      "จ่ายจริง": r.paid?.date ?? "",
+      "เลข PV": (r.paid?.paymentNos ?? []).join(", "),
       "เลขที่ Voucher": (r.docNos.voucherNos ?? []).join(", "),
       "เลขที่ใบวางบิล": (r.docNos.billingNoteNos ?? []).join(", "),
       "หมายเหตุ": r.note,
@@ -305,7 +308,7 @@ export function ApTrackingPage() {
     const ws = XLSX.utils.json_to_sheet(data)
     ws["!cols"] = [14, 11, 16, 30, 13, 12, 12, 10, 11, 13, 11, 11, 22, 11, 18, 18, 24].map((w) => ({ wch: w }))
     const wb = XLSX.utils.book_new()
-    const label = tab === "sent" ? "ส่งบัญชีแล้ว" : "ผ่าน"
+    const label = tab === "sent" ? "ส่งบัญชีแล้ว" : tab === "paid" ? "จ่ายแล้ว" : "ผ่าน"
     XLSX.utils.book_append_sheet(wb, ws, label)
     XLSX.writeFile(wb, `เจ้าหนี้${label}_${month}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
   }

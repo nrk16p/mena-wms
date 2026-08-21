@@ -183,6 +183,8 @@ export async function GET(req: NextRequest) {
         ...sentMarkedOf(s(t?.sentMarkedAt), s(t?.sentMarkedBy)),
         // กำหนดจ่ายที่บัญชียืนยันตอนกดผ่าน — ส่งเฉพาะใบที่มี (ส่วนน้อย) ไม่แบกคีย์ว่างทั้งตาราง
         ...(t?.pay ? { pay: t.pay } : {}),
+        // หลักฐานจ่ายจริงจากการเงิน (เลข PV/วันจ่าย) — ตัวกำหนดขั้น "จ่ายแล้ว"
+        ...(t?.paid ? { paid: t.paid as { paymentNos?: string[] } } : {}),
         note:        s(t?.note),
         status:      apStatusOf(docs, sentDate),
         carryover:   receivedAt.slice(0, 7) !== monthPrefix,
@@ -206,7 +208,8 @@ export async function GET(req: NextRequest) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
       rows = rows.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
         || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos))
-        || rx.test(r.vehicle ?? "") || rx.test(r.prNote ?? ""))
+        || rx.test(r.vehicle ?? "") || rx.test(r.prNote ?? "")
+        || rx.test((r.paid?.paymentNos ?? []).join(" ")))
     }
     rows.sort((a, b) => (b.receivedAt || "").localeCompare(a.receivedAt || "") || b.depositCode.localeCompare(a.depositCode))
 

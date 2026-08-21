@@ -91,8 +91,12 @@ function ApDepositRow({
           <div className="mt-0.5 text-[11px] text-gray-400">
             ส่งบัญชี {r.sentType} {thaiDate(r.sentDate)}
             {r.review?.status === "ผ่าน" ? " · บัญชีตรวจผ่าน" : ""}
-            {/* วันจ่ายที่บัญชียืนยันตอนกดผ่าน — ใบที่ผ่านแล้วคนถามต่อทันทีว่าเงินออกวันไหน */}
-            {r.pay?.payDate ? <span className="text-emerald-600 dark:text-emerald-400"> · 💰 จ่าย {thaiDate(r.pay.payDate)}</span> : ""}
+            {/* จ่ายจริงแล้ว (มีเลข PV จากการเงิน) สำคัญกว่ากำหนดจ่ายที่วางแผนไว้ */}
+            {r.paid?.paymentNos?.length ? (
+              <span className="font-medium text-teal-600 dark:text-teal-400"> · ✅ จ่ายแล้ว {thaiDate(r.paid.date)} · {r.paid.paymentNos.join(", ")}</span>
+            ) : r.pay?.payDate ? (
+              <span className="text-emerald-600 dark:text-emerald-400"> · 💰 กำหนดจ่าย {thaiDate(r.pay.payDate)}</span>
+            ) : ""}
           </div>
         ) : null}
         {/* หมายเหตุจาก PR (เลขใบแจ้งซ่อม/ทะเบียน/ช่าง) — ตัวเต็มอ่านได้จาก tooltip */}
