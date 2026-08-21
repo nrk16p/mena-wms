@@ -5,8 +5,8 @@ import assert from "node:assert/strict"
 import {
   median, stdev, aduFrom, sdDailyFrom, safetyStockOf, reorderPointOf,
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
-  prCodeFromNote, leadTimeDaysBetween,
-  DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW,
+  prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
+  DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow,
 } from "../lib/safety-stock-core"
 
@@ -66,6 +66,8 @@ assert.equal(statusOf({ usage12: 20, onHand: 7, rop: 3, minQty: 5, maxQty: 10 })
 assert.equal(statusOf({ usage12: 20, onHand: 99, rop: 3, minQty: 5, maxQty: 0 }), "ok", "ไม่ได้ตั้ง max ต้องไม่ฟ้อง over_max")
 
 // --- minVerdictOf ---
+// การ์ด "warehouse" ยังต้องอยู่ครบ — /tire/* ยังเรียก derive() แบบไม่ส่ง override เข้ามา ใช้ leadTimeSource
+// ที่วัดได้จริงตรงๆ เหมือนเดิม ค่ากลางทั้งคลังยังเชื่อไม่ได้พอจะตัดสิน min เหมือนก่อนหน้านี้ทุกประการ
 assert.equal(minVerdictOf(5, 10, "warehouse"), "unknown", "lead time เป็นค่ากลางทั้งคลัง ห้ามตัดสิน min")
 assert.equal(minVerdictOf(0, 10, "sku"), "unknown", "ไม่ได้ตั้ง min ก็ไม่มีอะไรให้ตัดสิน")
 assert.equal(minVerdictOf(5, 0, "sku"), "unknown", "ROP = 0 (ไม่มีการใช้) ตัดสินไม่ได้")
@@ -73,6 +75,12 @@ assert.equal(minVerdictOf(5, 10, "sku"), "too_low")
 assert.equal(minVerdictOf(25, 10, "sku"), "too_high")
 assert.equal(minVerdictOf(20, 10, "sku"), "ok", "เท่ากับ 2 เท่าพอดี ยังถือว่าโอเค")
 assert.equal(minVerdictOf(10, 10, "group"), "ok")
+// "policy" (เวลารอของนโยบายคงที่ที่ derive() ส่งเข้ามาเมื่อมี ltOverride) ต้องตัดสินได้ตามปกติเหมือน sku/group
+// ไม่ใช่ unknown เหมือน "warehouse" — เพราะเป็นค่าคงที่ที่ตั้งใจใช้ ไม่ใช่การเดาจากค่ากลางทั้งคลัง
+assert.equal(minVerdictOf(5, 10, "policy"), "too_low", "policy ต้องตัดสินได้ปกติ ไม่ใช่ unknown แบบ warehouse")
+assert.equal(minVerdictOf(25, 10, "policy"), "too_high")
+assert.equal(minVerdictOf(10, 10, "policy"), "ok")
+assert.equal(minVerdictOf(0, 10, "policy"), "unknown", "ไม่ได้ตั้ง min ก็ยังตัดสินไม่ได้ไม่ว่า source ไหน")
 
 // --- suggestQtyOf: เติมให้ถึง max ถ้ามี ไม่มีก็เติมถึง ROP + ของที่ใช้ระหว่างรอ ---
 // เคสเดิม (usage12 ไม่ส่ง → default 1 > 0) ต้องได้ผลเหมือนก่อนแก้ทุกประการ
@@ -171,6 +179,25 @@ const ROW: SnapshotRow = {
   assert.ok(d.suggestQty >= 0)
 }
 
+// --- derive: ltOverride (เวลารอของนโยบายคงที่ที่หน้า /safety-stock ส่งเข้ามา) ---
+// ไม่ใส่ override เลย: พฤติกรรมเดิมทุกประการ (ตามที่ /tire/* เรียกอยู่ต่อไป) — ใช้ r.leadTimeDays/r.leadTimeSource ตรงๆ
+{
+  const withoutOverride = derive(ROW, DEFAULT_WINDOW, DEFAULT_Z)
+  const withOverride = derive(ROW, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS)
+  assert.notEqual(withOverride.reorderPoint, withoutOverride.reorderPoint, "ltOverride ต้องเปลี่ยน ROP (คนละ LT กับ r.leadTimeDays=20)")
+  assert.ok(Math.abs(withOverride.reorderPoint - aduFrom(15, 6) * LEAD_TIME_DAYS) < 1e-2, `ROP ต้องคำนวณจาก ltOverride (${LEAD_TIME_DAYS}) ไม่ใช่ r.leadTimeDays (20)`)
+}
+// แถวที่ leadTimeSource เป็น "warehouse" — ปกติ minVerdictOf คืน unknown เสมอ (การ์ดค่ากลางทั้งคลัง) เมื่อไม่มี
+// override (พฤติกรรมเดิมของ /tire/* ต้องไม่เปลี่ยน) แต่เมื่อ derive() ได้รับ ltOverride ต้องตัดสินได้จริง เพราะตอนนี้
+// เป็นการตัดสินด้วยนโยบายคงที่ ("policy") ไม่ใช่การเดาจากค่ากลางทั้งคลังอีกต่อไป
+{
+  const warehouseSourced: SnapshotRow = { ...ROW, leadTimeSource: "warehouse", leadTimeDays: 45 }
+  const noOverride = derive(warehouseSourced, DEFAULT_WINDOW, DEFAULT_Z)
+  const withOverride = derive(warehouseSourced, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS)
+  assert.equal(noOverride.minVerdict, "unknown", "ไม่มี override — ยังต้อง unknown เหมือนเดิมทุกประการ (พฤติกรรมเดิมของ /tire/*)")
+  assert.equal(withOverride.minVerdict, "too_high", "มี ltOverride — ต้องตัดสินได้จริง ไม่ใช่ unknown แบบ warehouse อีกต่อไป")
+}
+
 // --- mergeWarehouseResults: log doc เป็น singleton ถือ results[] ของ 4 คลังรวมกัน ห้ามทับทั้งก้อน ---
 type R = { inventoryId: string; upserted: number; error: string | null; skipped?: boolean }
 
@@ -220,5 +247,18 @@ type R = { inventoryId: string; upserted: number; error: string | null; skipped?
   assert.equal(merged[0].upserted, 2)
   assert.equal(merged[1].inventoryId, "3")
 }
+
+// --- WAREHOUSES: ขอบเขตที่อนุมัติ 2569-08 — เหลือ 2 คลัง ขอนแก่น (11) และ DIST (24) ต้องไม่อยู่ในนี้อีก ---
+assert.equal(WAREHOUSES.length, 2, "ต้องเหลือแค่ 2 คลัง (ลาดกระบัง, สระบุรี)")
+assert.deepEqual(WAREHOUSES.map((w) => w.id).sort(), ["3", "4"], "ต้องเป็นลาดกระบัง(4)+สระบุรี(3) เท่านั้น")
+assert.ok(!WAREHOUSES.some((w) => w.id === "11" || w.id === "24"), "ขอนแก่น(11)/DIST(24) ต้องไม่อยู่ในขอบเขตอีกต่อไป")
+
+// --- isPartsPolicyRow: เกณฑ์ "นโยบายอะไหล่" ที่ layer อ่าน (lib/safety-stock.ts) ใช้กรอง — ต้องมีทั้ง min และ max
+// พร้อมกัน และไม่ใช่กลุ่ม "ยาง" เป๊ะๆ (เก็บ "เครื่องมือยาง" ไว้) ---
+assert.equal(isPartsPolicyRow({ group: "ระบบเครื่องยนต์", minQty: 5, maxQty: 15 }), true)
+assert.equal(isPartsPolicyRow({ group: "ระบบเครื่องยนต์", minQty: 5, maxQty: 0 }), false, "มีแค่ min อย่างเดียวไม่พอแล้ว (เดิม min หรือ max ก็พอ)")
+assert.equal(isPartsPolicyRow({ group: "ระบบเครื่องยนต์", minQty: 0, maxQty: 15 }), false, "มีแค่ max อย่างเดียวไม่พอแล้ว")
+assert.equal(isPartsPolicyRow({ group: EXCLUDED_PRODUCT_GROUP, minQty: 5, maxQty: 15 }), false, "กลุ่มยางเป๊ะๆ ต้องถูกตัดออกแม้มีทั้ง min และ max")
+assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง", minQty: 5, maxQty: 15 }), true, "เครื่องมือยาง (คนละกลุ่มกับ ยาง เป๊ะๆ) ต้องยังนับรวม")
 
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")
