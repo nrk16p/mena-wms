@@ -11,11 +11,16 @@ import { NUM, baht, mitr } from "@/components/ap-style"
 const EMAIL_KEY = "apFinanceEmailTo"     // จำอีเมลผู้รับล่าสุดไว้ในเครื่อง — แก้แล้วระบบจำ
 // อีเมลกลางสำหรับส่งขอจ่ายนอกรอบ (ผู้ใช้กำหนด 21/08/2026)
 const DEFAULT_TO = "account@menatransport.co.th, Account-center@menatransport.co.th, dpFinAcc@menatransport.co.th"
+const EMAIL_CC_KEY = "apFinanceEmailCc"
+const DEFAULT_CC = "Natchaphak.k@menatransport.co.th"    // สำเนาถึง (ผู้ใช้กำหนด 21/08/2026)
 
 export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceItem[]; onClose: () => void }) {
   const [reason, setReason] = useState("")
   const [to, setTo] = useState(() => {
     try { return localStorage.getItem(EMAIL_KEY) || DEFAULT_TO } catch { return DEFAULT_TO }
+  })
+  const [cc, setCc] = useState(() => {
+    try { return localStorage.getItem(EMAIL_CC_KEY) || DEFAULT_CC } catch { return DEFAULT_CC }
   })
   const thursdays = useMemo(() => upcomingThursdays(todayICT(), 4), [])
   const [thu, setThu] = useState(() => nextThursday(todayICT()))
@@ -27,6 +32,10 @@ export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceIte
     setTo(v)
     try { localStorage.setItem(EMAIL_KEY, v) } catch { /* private mode — จำไม่ได้ก็แค่กรอกใหม่ */ }
   }
+  const rememberCc = (v: string) => {
+    setCc(v)
+    try { localStorage.setItem(EMAIL_CC_KEY, v) } catch { /* เช่นกัน */ }
+  }
   const copy = async () => {
     await navigator.clipboard.writeText(body)
     swalToast("success", "คัดลอกข้อความแล้ว")
@@ -35,12 +44,13 @@ export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceIte
   // ดีกว่า mailto ที่ต้องพึ่งแอปเมลในเครื่องซึ่งหลายคนไม่ได้ตั้งค่าไว้
   const openGmail = () => {
     const url = "https://mail.google.com/mail/?view=cm&fs=1"
-      + `&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      + `&to=${encodeURIComponent(to)}${cc.trim() ? `&cc=${encodeURIComponent(cc)}` : ""}`
+      + `&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
     window.open(url, "_blank", "noopener")
   }
   // ทางสำรองสำหรับคนที่ใช้แอปเมลในเครื่อง (Outlook ฯลฯ)
   const openMailApp = () => {
-    window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    window.location.href = `mailto:${encodeURIComponent(to)}?${cc.trim() ? `cc=${encodeURIComponent(cc)}&` : ""}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   }
   // Gmail รับ URL ยาวได้ราว ~8,000 ตัวอักษร — ใบเยอะมากให้ใช้คัดลอกแทน
   const mailtoTooLong = body.length > 6000
@@ -72,6 +82,17 @@ export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceIte
               )}
             </span>
             <input value={to} onChange={(e) => rememberTo(e.target.value)}
+              className="w-full rounded-lg border border-gray-200/80 px-2 py-1.5 text-sm dark:border-white/10 dark:bg-white/5" />
+          </label>
+          <label className="block space-y-1 text-xs sm:col-span-2">
+            <span className="flex items-center gap-2 text-gray-500">
+              สำเนาถึง (CC)
+              {cc !== DEFAULT_CC && (
+                <button type="button" onClick={() => rememberCc(DEFAULT_CC)}
+                  className="text-emerald-700 underline underline-offset-2 dark:text-emerald-400">ใช้ค่าเริ่มต้น</button>
+              )}
+            </span>
+            <input value={cc} onChange={(e) => rememberCc(e.target.value)}
               className="w-full rounded-lg border border-gray-200/80 px-2 py-1.5 text-sm dark:border-white/10 dark:bg-white/5" />
           </label>
         </div>
