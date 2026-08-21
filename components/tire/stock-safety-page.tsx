@@ -67,15 +67,20 @@ const VERDICT_CHIP_CLS: Record<MinVerdict, string> = {
   unknown:  "bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400",
 }
 
+// "policy" ไม่มีทางเจอในหน้านี้จริง (หน้านี้ไม่เคยส่ง ltOverride เข้า derive() — row.leadTimeSource มาจาก build
+// ตรงๆ เป็น sku/group/warehouse เท่านั้น) แต่ LeadTimeSource เป็น union ที่ใช้ร่วมกับ /safety-stock ซึ่งตอนนี้มี
+// tier "policy" เพิ่ม (ดู lib/safety-stock-core.ts) ต้องเติม key ให้ครบเพื่อให้ TS ผ่าน ไม่ใช่พฤติกรรมใหม่ของหน้านี้
 const LT_CHIP_CLS: Record<LeadTimeSource, string> = {
   sku:       "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
   group:     "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
   warehouse: "bg-gray-100 text-gray-400 dark:bg-white/8 dark:text-gray-500",
+  policy:    "bg-gray-100 text-gray-400 dark:bg-white/8 dark:text-gray-500",
 }
 
-/** ที่มา lead time แบบสั้น — ใช้เป็นค่าติ๊กในเมนูกรอง (ไม่มีเลขครั้ง ไม่งั้นค่าจะแตกเป็นสิบ ๆ ตัว) */
+/** ที่มา lead time แบบสั้น — ใช้เป็นค่าติ๊กในเมนูกรอง (ไม่มีเลขครั้ง ไม่งั้นค่าจะแตกเป็นสิบ ๆ ตัว)
+ *  "policy" ไม่มีทางเจอในหน้านี้จริงเช่นกัน (ดูคอมเมนต์ LT_CHIP_CLS ด้านบน) */
 const LT_SOURCE_TH: Record<LeadTimeSource, string> = {
-  sku: "รายรหัส", group: "กลุ่ม", warehouse: "ค่ากลางคลัง",
+  sku: "รายรหัส", group: "กลุ่ม", warehouse: "ค่ากลางคลัง", policy: "นโยบาย",
 }
 
 const ltLabel = (source: LeadTimeSource, samples: number) =>

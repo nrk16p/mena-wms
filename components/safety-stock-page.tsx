@@ -8,8 +8,8 @@ import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { bkkToday } from "@/lib/bkk-time"
 import {
-  derive, STATUS_META, MIN_VERDICT_META, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID,
-  DEFAULT_WINDOW, DEFAULT_Z,
+  derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID,
+  DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS,
   type SafetyStockPayload, type SnapshotRow, type WindowKey, type Status,
   type Derived, type MinVerdict, type LeadTimeSource,
 } from "@/lib/safety-stock-core"
@@ -102,8 +102,10 @@ function VerdictBadge({ verdict }: { verdict: MinVerdict }) {
 
 type EnrichedRow = { r: SnapshotRow; d: Derived }
 
+// leadTimeDays ตัดออกจาก sort key พร้อมกับคอลัมน์ (ข้อ 4) — ทุกแถวใช้เวลารอของนโยบายคงที่ {LEAD_TIME_DAYS} วัน
+// เหมือนกันหมดแล้ว เรียงคอลัมน์นี้จึงไม่มีความหมาย (เปรียบเทียบค่าที่วัดได้จริงจะเข้าใจผิดว่าคือค่าที่ใช้คำนวณ)
 type SortKey =
-  | "code" | "name" | "group" | "stockQty" | "minQty" | "maxQty" | "adu" | "leadTimeDays"
+  | "code" | "name" | "group" | "stockQty" | "minQty" | "maxQty" | "adu"
   | "rop" | "ss" | "dos" | "status" | "minVerdict" | "suggestQty" | "orderValue"
 
 // daysOfSupply เป็น null สำหรับแถวไม่มีการเบิก (ADU=0 หารไม่ได้) — คืน null ตรงๆ แล้วให้ตัวเปรียบเทียบใน `sorted`
@@ -117,7 +119,6 @@ function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
     case "minQty": return row.r.minQty
     case "maxQty": return row.r.maxQty
     case "adu": return row.d.adu
-    case "leadTimeDays": return row.r.leadTimeDays
     case "rop": return row.d.reorderPoint
     case "ss": return row.d.safetyStock
     case "dos": return row.d.daysOfSupply
@@ -212,7 +213,9 @@ function UsageMiniChart({ r, months }: { r: SnapshotRow; months: string[] }) {
 function RowDialog({
   row, win, z, months, onClose,
 }: { row: SnapshotRow; win: WindowKey; z: number; months: string[]; onClose: () => void }) {
-  const d = useMemo(() => derive(row, win, z), [row, win, z])
+  // ส่ง LEAD_TIME_DAYS (นโยบายคงที่) เข้า derive() เหมือนกับตารางหลัก — ให้สถานะ/ROP/SS/ตรวจ min ในหน้าต่างนี้
+  // ตรงกับที่แถวในตารางแสดงเป๊ะๆ ไม่ใช่คำนวณจากเวลารอของที่วัดได้จริง (row.leadTimeDays ยังใช้แสดงแยกเป็นข้อมูลอ้างอิงด้านล่าง)
+  const d = useMemo(() => derive(row, win, z, LEAD_TIME_DAYS), [row, win, z])
   const isLB = row.inventoryId === INVENTORY_ID
 
   useEffect(() => {
@@ -255,25 +258,29 @@ function RowDialog({
         <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>min / max / ROP / SS เทียบกัน</h4>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8 }}>
           {[
-            { label: "min (ATMS)", value: row.minQty },
-            { label: "max (ATMS)", value: row.maxQty },
-            { label: "ROP (คำนวณ)", value: d.reorderPoint },
-            { label: "SS (คำนวณ)", value: d.safetyStock },
-            { label: "คงเหลือ", value: row.stockQty },
+            { label: "min (ATMS)", value: row.minQty, title: GLOSSARY.min.desc },
+            { label: "max (ATMS)", value: row.maxQty, title: GLOSSARY.max.desc },
+            { label: "ROP (คำนวณ)", value: d.reorderPoint, title: GLOSSARY.rop.desc },
+            { label: "SS (คำนวณ)", value: d.safetyStock, title: GLOSSARY.ss.desc },
+            { label: "คงเหลือ", value: row.stockQty, title: "จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด" },
           ].map((x) => (
-            <div key={x.label} style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 10, padding: "8px 10px" }}>
+            <div key={x.label} title={x.title} style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 10, padding: "8px 10px" }}>
               <div style={{ fontSize: 10.5, color: "#6B7280", fontWeight: 600 }}>{x.label}</div>
               <div style={{ ...mitr, fontSize: 16, fontWeight: 700, marginTop: 2 }}>{num(x.value)}</div>
             </div>
           ))}
         </div>
 
-        <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>ที่มา Lead Time</h4>
+        <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>เวลารอของจริงที่วัดได้ (อ้างอิง)</h4>
         <p style={{ fontSize: 13, color: "#374151", margin: 0 }}>
           <b>{row.leadTimeDays} วัน</b> — <LtBadge source={row.leadTimeSource} samples={row.leadTimeSamples} />
+          <span style={{ display: "block", fontSize: 11.5, color: "#9CA3AF", marginTop: 4 }}>
+            สูตร ROP/SS/แนะนำสั่งด้านบนใช้เวลารอของตามนโยบายคงที่ {LEAD_TIME_DAYS} วันสำหรับทุกรายการ ไม่ใช่ตัวเลขนี้ —
+            ตัวเลขนี้คือค่าที่วัดได้จริงจากประวัติสั่งซื้อ→รับของ ใช้เทียบดูว่านโยบาย {LEAD_TIME_DAYS} วันตรงกับความเป็นจริงแค่ไหน
+          </span>
           {row.leadTimeSource === "warehouse" && (
             <span style={{ display: "block", fontSize: 11.5, color: "#9CA3AF", marginTop: 4 }}>
-              เป็นค่ากลางทั้งคลัง (ไม่มีข้อมูล PR→รับของรายรหัสหรือรายกลุ่มพอ) — ใช้ประกอบได้ แต่ห้ามใช้ตัดสิน min
+              เป็นค่ากลางทั้งคลัง (ไม่มีข้อมูล PR→รับของรายรหัสหรือรายกลุ่มพอ) — ใช้ประกอบได้เท่านั้น
             </span>
           )}
         </p>
@@ -287,6 +294,67 @@ function RowDialog({
           <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>ข้อมูล FIFO เก็บเฉพาะคลังลาดกระบัง — คลังนี้ยังไม่มีข้อมูลส่วนนี้</p>
         )}
       </div>
+    </div>
+  )
+}
+
+/** แผงคำอธิบายตัวย่อ — ยุบไว้เป็นค่าเริ่มต้นเสมอ ไม่ดันตารางลง (ข้อ 5) เปิดเมื่อกดเท่านั้น
+ *  ใช้ GLOSSARY/STATUS_META/MIN_VERDICT_META ชุดเดียวกับ tooltip หัวตารางและหน้า /safety-stock/baseline
+ *  ไม่มีทางเพี้ยนคนละความหมาย เพราะอ่านจากที่เดียวกันทั้งหมด */
+function GlossaryPanel({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <div style={{ border: "1px solid #E5E7EB", borderRadius: 12, background: "#fff", marginBottom: 14, overflow: "hidden" }}>
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 16px",
+          border: "none", background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#374151", textAlign: "left",
+        }}
+      >
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        คำอธิบายตัวย่อ
+        <span style={{ fontWeight: 500, color: "#9CA3AF", fontSize: 12 }}>— ตัวเลขแต่ละตัวหมายถึงอะไร ควรทำอะไรต่อ</span>
+      </button>
+      {open && (
+        <div style={{ padding: "4px 16px 16px", borderTop: "1px solid #F3F4F6" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, marginTop: 10 }}>
+            {(Object.keys(GLOSSARY) as (keyof typeof GLOSSARY)[]).map((k) => (
+              <div key={k} style={{ background: "#F9FAFB", borderRadius: 8, padding: "8px 10px" }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#111827" }}>{GLOSSARY[k].label}</div>
+                <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 2, lineHeight: 1.5 }}>{GLOSSARY[k].desc}</div>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 8 }}>
+            หน้านี้ใช้เวลารอของตามนโยบายคงที่ {LEAD_TIME_DAYS} วันกับทุกรายการ (ไม่ใช้ค่าที่วัดได้จริงรายรหัสในการคำนวณ) —
+            ดูค่าที่วัดได้จริงเป็นข้อมูลอ้างอิงได้ในหน้าต่างรายละเอียดของแต่ละรหัส
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginTop: 14 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>สถานะ</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {STATUS_META.map((s) => (
+                  <div key={s.key} style={{ fontSize: 11.5, color: "#6B7280" }}>
+                    <b style={{ color: "#374151" }}>{s.th}</b> — {s.hint}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>ตรวจ min</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {(Object.keys(MIN_VERDICT_META) as MinVerdict[]).map((k) => (
+                  <div key={k} style={{ fontSize: 11.5, color: "#6B7280" }}>
+                    <b style={{ color: "#374151" }}>{MIN_VERDICT_META[k].th}</b> — {MIN_VERDICT_META[k].hint}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -310,6 +378,7 @@ export default function SafetyStockPage() {
   const [win, setWin] = useState<WindowKey>(DEFAULT_WINDOW)
   const [service, setService] = useState(95)
   const [selectedRow, setSelectedRow] = useState<SnapshotRow | null>(null)
+  const [glossaryOpen, setGlossaryOpen] = useState(false) // ยุบไว้ก่อนเสมอ — ไม่ดันตารางลง (ข้อ 5)
   const [sortKey, setSortKey] = useState<SortKey>("orderValue")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
 
@@ -361,9 +430,11 @@ export default function SafetyStockPage() {
   const z = Z_BY_SERVICE[service] ?? DEFAULT_Z
 
   // คำนวณใหม่ในเครื่องเมื่อผู้ใช้เปลี่ยนหน้าต่างหรือ service level — ไม่ยิง DB ซ้ำ
+  // LEAD_TIME_DAYS: นโยบายคงที่ 7 วันสำหรับทุกแถว — r.leadTimeDays (ค่าที่วัดได้จริง) ยังอยู่ในแถวเหมือนเดิม
+  // แสดงเป็นข้อมูลอ้างอิงในหน้าต่างรายละเอียดรายรหัสเท่านั้น (RowDialog) ไม่ใช้คำนวณ SS/ROP/แนะนำสั่งอีกต่อไป
   const enriched: EnrichedRow[] = useMemo(() => {
     if (!data) return []
-    return data.rows.map((r) => ({ r, d: derive(r, win, z) }))
+    return data.rows.map((r) => ({ r, d: derive(r, win, z, LEAD_TIME_DAYS) }))
   }, [data, win, z])
 
   const groupOptions = useMemo<Record<string, { th: string; en: string }>>(() => {
@@ -531,6 +602,8 @@ export default function SafetyStockPage() {
           {data?.warehouse ?? "—"} · ข้อมูล ณ {data ? thaiDateTime(data.asOf) : "—"} · เคลื่อนไหวล่าสุด {data ? thaiDate(data.latestMovementDate) : "—"} · sync min/max ล่าสุด {data ? thaiDateTime(data.skuSyncedAt) : "—"}
         </p>
 
+        <GlossaryPanel open={glossaryOpen} onToggle={() => setGlossaryOpen((o) => !o)} />
+
         {error && (
           <div style={{ padding: 16, borderRadius: 10, background: "#FEF2F2", color: "#B91C1C", marginBottom: 16 }}>
             โหลดข้อมูลไม่สำเร็จ: {error}
@@ -662,18 +735,17 @@ export default function SafetyStockPage() {
                     <SortableTh label="ชื่อ" colKey="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} stickyLeft={CODE_W} />
                     <SortableTh label="กลุ่ม" colKey="group" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <th style={{ padding: "10px 12px", fontWeight: 700, color: "#374151", borderBottom: "1px solid #E5E7EB", whiteSpace: "nowrap", background: "#F9FAFB" }}>หน่วย</th>
-                    <SortableTh label="คงเหลือ" colKey="stockQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="min" colKey="minQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="max" colKey="maxQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="เฉลี่ย/วัน · ครั้งที่เบิก" colKey="adu" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title="จำนวนครั้งที่เบิกแสดงคู่กันเสมอ กันเข้าใจผิดว่า ADU ทศนิยมเล็กๆ ผิดพลาด" />
-                    <SortableTh label="LT (ที่มา)" colKey="leadTimeDays" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="ROP" colKey="rop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="SS" colKey="ss" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="พอใช้อีก (วัน)" colKey="dos" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="สถานะ" colKey="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortableTh label="ตรวจ min" colKey="minVerdict" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortableTh label="แนะนำสั่ง" colKey="suggestQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortableTh label="มูลค่าที่ต้องสั่ง" colKey="orderValue" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+                    <SortableTh label="คงเหลือ" colKey="stockQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title="จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด" />
+                    <SortableTh label="min" colKey="minQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.min.desc} />
+                    <SortableTh label="max" colKey="maxQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.max.desc} />
+                    <SortableTh label="เฉลี่ย/วัน · ครั้งที่เบิก" colKey="adu" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={`${GLOSSARY.adu.desc} (จำนวนครั้งที่เบิกแสดงคู่กันเสมอ กันเข้าใจผิดว่า ADU ทศนิยมเล็กๆ ผิดพลาด)`} />
+                    <SortableTh label="ROP" colKey="rop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={`${GLOSSARY.rop.desc} — คำนวณด้วยเวลารอของนโยบายคงที่ ${LEAD_TIME_DAYS} วันทุกรายการ`} />
+                    <SortableTh label="SS" colKey="ss" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.ss.desc} />
+                    <SortableTh label="พอใช้อีก (วัน)" colKey="dos" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.dos.desc} />
+                    <SortableTh label="สถานะ" colKey="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="สรุปว่าต้องลงมือทำอะไรกับรหัสนี้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน" />
+                    <SortableTh label="ตรวจ min" colKey="minVerdict" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="เทียบ min ที่ตั้งไว้ใน ATMS กับ ROP ที่คำนวณได้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน" />
+                    <SortableTh label="แนะนำสั่ง" colKey="suggestQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title={GLOSSARY.suggestQty.desc} />
+                    <SortableTh label="มูลค่าที่ต้องสั่ง" colKey="orderValue" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" title="แนะนำสั่ง × ราคาทุนล่าสุดที่พบของรหัสนี้" />
                   </tr>
                 </thead>
                 <tbody>
@@ -691,10 +763,6 @@ export default function SafetyStockPage() {
                       <td style={{ padding: "9px 12px", textAlign: "right", color: "#6B7280" }}>{num(r.minQty)}</td>
                       <td style={{ padding: "9px 12px", textAlign: "right", color: "#6B7280" }}>{num(r.maxQty)}</td>
                       <td style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" }}>{d.adu.toFixed(2)}/วัน · {annualCount(r, win)} ครั้ง/ปี</td>
-                      <td style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
-                        <div>{r.leadTimeDays} วัน</div>
-                        <LtBadge source={r.leadTimeSource} samples={r.leadTimeSamples} />
-                      </td>
                       <td style={{ padding: "9px 12px", textAlign: "right" }}>{num(d.reorderPoint)}</td>
                       <td style={{ padding: "9px 12px", textAlign: "right" }}>{num(d.safetyStock)}</td>
                       <td style={{ padding: "9px 12px", textAlign: "right" }}>{d.daysOfSupply === null ? "–" : `${d.daysOfSupply} วัน`}</td>
@@ -706,7 +774,7 @@ export default function SafetyStockPage() {
                   ))}
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={16} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                      <td colSpan={15} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                         ไม่พบรายการตามเงื่อนไข
                       </td>
                     </tr>
