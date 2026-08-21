@@ -100,7 +100,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           { status: 409 },
         )
       }
-      update = { status: "done", doneBy: by, doneAt: now }
+      // ปิดทั้งใบ = ปั๊มสถานะ done ลงยางทุกเส้นที่อนุมัติด้วย ไม่ใช่แค่หัวใบ —
+      // ตั้งแต่มีปิดงานรายเส้น สถานะเส้นคือแหล่งความจริง ถ้าปล่อยเส้นไว้ที่ approved
+      // หน้าจอจะยังโชว์ปุ่ม "ปิดงาน" ของเส้นนั้นทั้งที่ใบปิดไปแล้ว
+      update = {
+        status: "done", doneBy: by, doneAt: now,
+        "items.$[appr].status": "done", "items.$[appr].doneBy": by, "items.$[appr].doneAt": now,
+      }
+      arrayFilters = [{ "appr.status": "approved" }]
       break
 
     default:

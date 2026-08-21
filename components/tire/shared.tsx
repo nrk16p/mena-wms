@@ -95,6 +95,9 @@ export type RequestItem = {
   rejectedAt?:    string
   appointmentBy?: string
   appointmentAt?: string
+  // ปิดงานรายเส้น — ล้อที่เปลี่ยนเสร็จแล้วปิดได้เลย ไม่ต้องรอเส้นอื่นในใบเดียวกัน
+  doneBy?:        string
+  doneAt?:        string
 }
 
 export type TireRequest = {

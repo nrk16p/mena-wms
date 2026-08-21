@@ -445,7 +445,9 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                           {status === "pending" && (
                             <span className="text-[11px] text-gray-400">อนุมัติรายเส้น ↓ คลิกแถว</span>
                           )}
-                          {status === "approved" && (
+                          {/* ปิดงานทั้งใบทำได้หลังนัดครบทุกเส้นเท่านั้น (ฝั่ง API ตอบ 409 ถ้ายัง)
+                              — ปิดทีละล้ออยู่ที่แท็บ "คำขอ / อนุมัติ V.2" */}
+                          {status === "appointment" && (
                             <button disabled={acting} onClick={() => handleDone(r)}
                               className={btn + " bg-green-600 text-white inline-flex items-center gap-1"}>
                               <Flag size={11} /> เสร็จสิ้น

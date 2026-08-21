@@ -147,7 +147,10 @@ function apptOf(r: TireRequest, it: RequestItem): string | null {
 function stageOf(r: TireRequest, it: RequestItem): TxStage {
   const st = it.status ?? "pending"
   if (st === "rejected") return "rejected"
+  // ปิดงานรายเส้น: ล้อนี้จบแล้วแม้เส้นอื่นในใบเดียวกันจะยังค้างอยู่
+  if (st === "done") return "done"
   if (st !== "approved") return "pending"
+  // ใบเก่าที่ปิดทั้งใบก่อนจะมีปิดงานรายเส้น — เส้นในใบยังเป็น approved อยู่
   if ((r.status ?? "pending") === "done") return "done"
   return apptOf(r, it) ? "appointment" : "approved"
 }
@@ -158,7 +161,7 @@ type LastAction = { label: string; by: string; at: string }
 function lastActionOf(r: TireRequest, it: RequestItem, stage: TxStage): LastAction {
   switch (stage) {
     case "done":
-      return { label: "ปิดงาน", by: r.doneBy ?? "", at: r.doneAt ?? "" }
+      return { label: "ปิดงาน", by: it.doneBy ?? r.doneBy ?? "", at: it.doneAt ?? r.doneAt ?? "" }
     case "rejected":
       return { label: "ปฏิเสธ", by: it.rejectedBy ?? r.rejectedBy ?? "", at: it.rejectedAt ?? r.rejectedAt ?? "" }
     case "appointment":
@@ -803,18 +806,24 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   }
 
   /**
-   * ปิดงาน — เป็นการกระทำระดับ "คำขอ" ไม่ใช่รายเส้น (ฝั่ง API มีแค่แบบนี้)
-   * กล่องยืนยันจึงบอกจำนวนเส้นที่จะถูกปิดไปด้วย ผู้ใช้จะได้ไม่คิดว่าปิดแค่แถวที่กด
+   * ปิดงาน — ทีละล้อ ปิดได้ทันทีที่เส้นนั้นมีวันนัดแล้ว
+   *
+   * เดิมเป็นการกระทำระดับ "คำขอ" ปิดทีเดียวทุกเส้น ซึ่งรถที่ทยอยเปลี่ยนทีละล้อใช้ไม่ได้:
+   * ใบจะค้างจนกว่าเส้นสุดท้ายจะถูกตัดสินและนัดครบ (เคสจริง T-0003 / สบ.70-6788)
+   * ตอนนี้ใบจะขึ้นเป็น "ปิดงาน" เองเมื่อเส้นสุดท้ายในใบถูกปิด
    */
   async function markDone(row: TxRow) {
-    const siblings = (row.request.items ?? []).filter((it) => (it.status ?? "pending") === "approved")
+    const left = (row.request.items ?? []).filter(
+      (it) => (it.status ?? "pending") === "approved" && String(it._id) !== String(row.item._id),
+    ).length
     const result = await swalConfirm(
-      "ปิดงานเปลี่ยนยาง?",
-      `${row.plate} · ${row.request.driverName} — ปิดทั้งคำขอ ${siblings.length} เส้น (${siblings.map((it) => it.positionCode || "—").join(", ")})`,
+      "ปิดงานเปลี่ยนยางเส้นนี้?",
+      `${row.plate} · ${row.item.positionCode || row.item.serialNo} — นัด ${fmtDateOnly(row.appointment)}`
+      + (left > 0 ? ` (อีก ${left} เส้นในคำขอเดียวกันยังเปิดอยู่ ปิดแยกได้ทีหลัง)` : ""),
     )
     if (!result.isConfirmed) return
     setActing(true)
-    const res = await fetch(`/api/tire-change-request/${row.request._id}`, {
+    const res = await fetch(`/api/tire-change-request/${row.request._id}/items/${row.item._id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "done" }),
@@ -1730,8 +1739,8 @@ function RowActions({ row, acting, approve, reject, editJob, appoint, markDone, 
     )
   }
 
-  // ปิดงานเป็นการกระทำระดับคำขอ — ทำได้เมื่อคำขอนั้นถึงขั้นนัดหมายครบแล้ว
-  if (row.stage === "appointment" && row.request.status === "appointment") {
+  // ปิดงานรายเส้น — เงื่อนไขเดียวคือล้อนี้มีวันนัดแล้ว ไม่ต้องรอเส้นอื่นในใบเดียวกัน
+  if (row.stage === "appointment") {
     btns.push(
       <button key="done" disabled={acting} onClick={() => markDone(row)}
         className={btnSmall + " inline-flex cursor-pointer items-center gap-1 bg-[#1B8C4B] text-white"} style={fontThai}>
@@ -1957,8 +1966,9 @@ function timelineOf(row: TxRow): TimelineStep[] {
     {
       key: "done",
       label: "เปลี่ยนแล้ว (ปิดงาน)",
-      at: r.doneAt ?? "",
-      by: r.doneBy ?? "",
+      // ปิดงานรายเส้นมาก่อน — ฟิลด์ระดับใบเหลือไว้เป็น fallback ของใบเก่าที่ปิดทีเดียวทั้งใบ
+      at: it.doneAt ?? r.doneAt ?? "",
+      by: it.doneBy ?? r.doneBy ?? "",
       state: step >= 4 ? "done" : step === 3 ? "current" : "todo",
     },
   ]
