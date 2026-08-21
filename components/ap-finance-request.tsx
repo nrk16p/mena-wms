@@ -8,12 +8,14 @@ import { swalToast } from "@/lib/swal"
 import { apFinanceRequestText, nextThursday, thaiDate, todayICT, upcomingThursdays, type ApFinanceItem } from "@/lib/ap-tracking"
 import { NUM, baht, mitr } from "@/components/ap-style"
 
-const EMAIL_KEY = "apFinanceEmailTo"     // จำอีเมลผู้รับล่าสุดไว้ในเครื่อง — กรอกครั้งแรกครั้งเดียว
+const EMAIL_KEY = "apFinanceEmailTo"     // จำอีเมลผู้รับล่าสุดไว้ในเครื่อง — แก้แล้วระบบจำ
+// อีเมลกลางสำหรับส่งขอจ่ายนอกรอบ (ผู้ใช้กำหนด 21/08/2026)
+const DEFAULT_TO = "account@menatransport.co.th, Account-center@menatransport.co.th, dpFinAcc@menatransport.co.th"
 
 export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceItem[]; onClose: () => void }) {
   const [reason, setReason] = useState("")
   const [to, setTo] = useState(() => {
-    try { return localStorage.getItem(EMAIL_KEY) ?? "" } catch { return "" }
+    try { return localStorage.getItem(EMAIL_KEY) || DEFAULT_TO } catch { return DEFAULT_TO }
   })
   const thursdays = useMemo(() => upcomingThursdays(todayICT(), 4), [])
   const [thu, setThu] = useState(() => nextThursday(todayICT()))
@@ -61,8 +63,15 @@ export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceIte
             </select>
           </label>
           <label className="block space-y-1 text-xs">
-            <span className="text-gray-500">อีเมลผู้รับ (จำค่าไว้ให้)</span>
-            <input value={to} onChange={(e) => rememberTo(e.target.value)} placeholder="เช่น account.manager@company.com"
+            <span className="flex items-center gap-2 text-gray-500">
+              อีเมลผู้รับ (แก้ได้ ระบบจำค่าไว้)
+              {/* คนที่เคยพิมพ์อีเมลทดสอบไว้ localStorage จะทับค่ากลาง — ให้กดกลับได้คลิกเดียว */}
+              {to !== DEFAULT_TO && (
+                <button type="button" onClick={() => rememberTo(DEFAULT_TO)}
+                  className="text-emerald-700 underline underline-offset-2 dark:text-emerald-400">ใช้อีเมลกลาง</button>
+              )}
+            </span>
+            <input value={to} onChange={(e) => rememberTo(e.target.value)}
               className="w-full rounded-lg border border-gray-200/80 px-2 py-1.5 text-sm dark:border-white/10 dark:bg-white/5" />
           </label>
         </div>
