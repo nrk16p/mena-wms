@@ -1,7 +1,7 @@
 "use client"
 
 import { CalendarRange, ChevronLeft, ChevronRight, CloudDownload, FileDown, RefreshCw, Search } from "lucide-react"
-import { AP_STAGES, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
+import { AP_STAGES, CREDIT_TERMS, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
 import { NUM as NUMCLS } from "@/components/ap-style"
 import type { ApCrossHit } from "@/components/ap-types"
 import { NUM, mitr } from "@/components/ap-style"
@@ -34,7 +34,8 @@ export function ApHeader({
   canPull, pulling, pullProgress, onPull,
   crossHits, onGotoHit,
   viewBy, onViewBy,
-  payTypeFilter, onPayTypeFilter, onExport,
+  payTypeFilter, onPayTypeFilter, onExport, exportSelected,
+  passedFrom, passedTo, onPassedRange, termFilter, onTermFilter,
 }: {
   summary: ApSummary | null
   loading: boolean
@@ -74,6 +75,13 @@ export function ApHeader({
   payTypeFilter: "" | "ตามรอบ" | "นอกรอบ"
   onPayTypeFilter: (v: "" | "ตามรอบ" | "นอกรอบ") => void
   onExport: () => void
+  exportSelected: number                        // จำนวนใบที่ติ๊กเลือกไว้ (แท็บผ่าน) — 0 = export ทั้งหมด
+  // filter เฉพาะแท็บ "ผ่าน": ช่วงวันที่บัญชีกดผ่าน + เครดิตเทอม
+  passedFrom: string
+  passedTo: string
+  onPassedRange: (from: string, to: string) => void
+  termFilter: string
+  onTermFilter: (v: string) => void
 }) {
   const rangeOn = Boolean(sentFrom || sentTo)
   // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
@@ -234,10 +242,37 @@ export function ApHeader({
                   {label}
                 </button>
               ))}
-              <button onClick={onExport} title="ส่งออกแถวที่กรองอยู่เป็นไฟล์ Excel"
+              <button onClick={onExport}
+                title={tab === "passed"
+                  ? (exportSelected ? `ใบปะหน้า สกท. เฉพาะ ${exportSelected} ใบที่ติ๊กเลือก` : "ใบปะหน้า สกท. ทุกใบที่กรองอยู่ — ติ๊กเลือกเพื่อเอาบางใบ")
+                  : "ส่งออกแถวที่กรองอยู่เป็นไฟล์ Excel"}
                 className="flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs hover:bg-white dark:border-white/10 dark:hover:bg-white/10">
-                <FileDown className="h-3.5 w-3.5" />Excel
+                <FileDown className="h-3.5 w-3.5" />
+                {tab === "passed" ? `ใบปะหน้า${exportSelected ? ` (${exportSelected})` : ""}` : "Excel"}
               </button>
+            </div>
+          )}
+
+          {/* filter เฉพาะแท็บ "ผ่าน" — วันที่บัญชีกดผ่าน + เครดิตเทอม (ผู้ใช้สั่ง 21/08/2026) */}
+          {tab === "passed" && (
+            <div className="flex flex-wrap items-center gap-1.5 border-l border-gray-200 pl-3 dark:border-white/10">
+              <span className="text-xs text-gray-500">วันที่ผ่าน</span>
+              <input type="date" value={passedFrom} max={passedTo || undefined} aria-label="ผ่านตั้งแต่วันที่"
+                onChange={(e) => onPassedRange(e.target.value, passedTo)}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5" />
+              <span className="text-xs text-gray-400">ถึง</span>
+              <input type="date" value={passedTo} min={passedFrom || undefined} aria-label="ผ่านถึงวันที่"
+                onChange={(e) => onPassedRange(passedFrom, e.target.value)}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5" />
+              {(passedFrom || passedTo) && (
+                <button onClick={() => onPassedRange("", "")} className="text-xs text-gray-500 underline underline-offset-2">ล้าง</button>
+              )}
+              <select value={termFilter} onChange={(e) => onTermFilter(e.target.value)} aria-label="กรองเครดิตเทอม"
+                className={`rounded-lg border bg-white px-2 py-1 text-xs dark:bg-white/5 ${termFilter ? "border-emerald-400 text-emerald-700 dark:text-emerald-300" : "border-gray-200 dark:border-white/10"}`}>
+                <option value="">ทุกเทอม</option>
+                {CREDIT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
+                <option value="none">ยังไม่ตั้งเทอม</option>
+              </select>
             </div>
           )}
 

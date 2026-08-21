@@ -8,8 +8,11 @@ import {
 import { NUM, URGENCY, baht, mitr } from "@/components/ap-style"
 import type { ApRow } from "@/components/ap-types"
 
-// ใบที่ยัง "เลือกเพื่อส่งบัญชีพร้อมกัน" ไม่ได้ — บอกเหตุผลไว้ที่ checkbox เลย ไม่ต้องให้เดา
-function selectableReason(r: ApRow): string {
+// ความหมายของ checkbox ต่างกันตามแท็บ: โหมด send = เลือกส่งบัญชีพร้อมกัน (ใบที่ส่งแล้ว/
+// ไม่ครบชุดถูกล็อก) · โหมด export (แท็บผ่าน) = เลือกใบไปออกใบปะหน้า สกท. — เลือกได้ทุกใบ
+type SelectMode = "send" | "export"
+function selectableReason(r: ApRow, mode: SelectMode): string {
+  if (mode === "export") return ""
   if (r.sentDate) return "ส่งบัญชีไปแล้ว"
   if (!isDocSetComplete(r.docs)) return "เอกสารยังไม่ครบชุด"
   return ""
@@ -36,7 +39,7 @@ function DocDots({ row }: { row: ApRow }) {
 
 // แถวเดียวของตาราง — แยกออกมาเพราะต้องใช้ทั้งมุมมองรายการและมุมมองจัดกลุ่มตามวันที่กดส่ง
 function ApDepositRow({
-  r, today, selected, onToggle, onOpen, onSend, showSentMarked,
+  r, today, selected, onToggle, onOpen, onSend, showSentMarked, selectMode,
 }: {
   r: ApRow
   today: string
@@ -45,9 +48,10 @@ function ApDepositRow({
   onOpen: (row: ApRow) => void
   onSend: (row: ApRow) => void
   showSentMarked: boolean
+  selectMode: SelectMode
 }) {
   const u   = apUrgency(r.dueDate, r.sentDate, today)
-  const why = selectableReason(r)
+  const why = selectableReason(r, selectMode)
   // สีขอบบนกับสีแถบซ้ายตั้งแยกกัน (border-t-* / border-l-*) — ถ้าใช้ border-gray-100 รวม
   // จะไปทับสีแถบซ้ายตามลำดับ CSS ที่ Tailwind สร้าง แล้วแถบเตือนหายไปเงียบ ๆ
   return (
@@ -55,7 +59,8 @@ function ApDepositRow({
       className={`border-t border-t-gray-100 border-l-4 dark:border-t-white/5 ${URGENCY[u].rail} hover:bg-gray-50/60 dark:hover:bg-white/5`}>
       <td className="px-3 py-3 align-top">
         <input type="checkbox" checked={selected} disabled={Boolean(why)}
-          onChange={() => onToggle(r.depositCode)} title={why || "เลือกเพื่อส่งบัญชีพร้อมกัน"}
+          onChange={() => onToggle(r.depositCode)}
+          title={why || (selectMode === "export" ? "เลือกเพื่อ export ใบปะหน้า" : "เลือกเพื่อส่งบัญชีพร้อมกัน")}
           className="h-4 w-4 accent-emerald-600 disabled:opacity-30" />
       </td>
 
@@ -140,7 +145,7 @@ function ApDepositRow({
 
 export function ApTable({
   rows, loading, selected, onToggle, onToggleAll, onOpen, onSend, emptyNote,
-  groups, showSentMarked = false, unit = "ใบ",
+  groups, showSentMarked = false, unit = "ใบ", selectMode = "send",
   page, totalPages, pageNumbers, firstIdx, lastIdx, totalRows, perPage, perPageOptions, onPage, onPerPage,
 }: {
   rows: ApRow[]
@@ -155,6 +160,7 @@ export function ApTable({
   // ใช้คิดว่า "เลือกทั้งหน้า" ครอบคลุมใบไหนบ้าง จะได้ตรงกับที่ตาเห็น)
   groups?: { date: string; rows: ApRow[] }[] | null
   showSentMarked?: boolean
+  selectMode?: SelectMode
   unit?: string            // หน่วยของการแบ่งหน้า — "ใบ" ในมุมมองรายการ, "วัน" ในมุมมองจัดกลุ่ม
   page: number
   totalPages: number
@@ -168,7 +174,7 @@ export function ApTable({
   onPerPage: (n: number) => void
 }) {
   const today = todayICT()
-  const selectable = rows.filter((r) => !selectableReason(r))
+  const selectable = rows.filter((r) => !selectableReason(r, selectMode))
   const allSelected = selectable.length > 0 && selectable.every((r) => selected.has(r.depositCode))
   // จำนวนคอลัมน์จริง ณ ตอนนี้ — colSpan ของหัวกลุ่ม/แถวว่างต้องขยับตามคอลัมน์ที่ซ่อน/โผล่
   // ไม่งั้นเลข 6 ที่ hardcode ไว้จะทำให้พื้นหลังหัวกลุ่มขาดไปหนึ่งช่องเงียบ ๆ
@@ -182,7 +188,8 @@ export function ApTable({
             <tr>
               <th className="w-10 px-3 py-2.5">
                 <input type="checkbox" checked={allSelected} onChange={onToggleAll}
-                  disabled={selectable.length === 0} title="เลือกทุกใบที่ส่งบัญชีได้ในหน้านี้"
+                  disabled={selectable.length === 0}
+                  title={selectMode === "export" ? "เลือกทุกใบในหน้านี้เพื่อ export ใบปะหน้า" : "เลือกทุกใบที่ส่งบัญชีได้ในหน้านี้"}
                   className="h-4 w-4 accent-emerald-600" />
               </th>
               <th className="px-3 py-2.5 text-left font-medium">ใบรับของ</th>
@@ -226,13 +233,13 @@ export function ApTable({
                   </tr>
                   {g.rows.map((r) => (
                     <ApDepositRow key={r.depositCode} r={r} today={today} selected={selected.has(r.depositCode)}
-                      onToggle={onToggle} onOpen={onOpen} onSend={onSend} showSentMarked={showSentMarked} />
+                      onToggle={onToggle} onOpen={onOpen} onSend={onSend} showSentMarked={showSentMarked} selectMode={selectMode} />
                   ))}
                 </Fragment>
               ))
               : rows.map((r) => (
                 <ApDepositRow key={r.depositCode} r={r} today={today} selected={selected.has(r.depositCode)}
-                  onToggle={onToggle} onOpen={onOpen} onSend={onSend} showSentMarked={showSentMarked} />
+                  onToggle={onToggle} onOpen={onOpen} onSend={onSend} showSentMarked={showSentMarked} selectMode={selectMode} />
               ))}
 
             {!loading && rows.length === 0 && (

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_GO_LIVE, apStage, docNosText, groupByDate, inDateRange, isDocSetComplete, monthInApScope,
+  AP_GO_LIVE, apStage, docNosText, groupByDate, ictDate, inDateRange, isDocSetComplete, monthInApScope,
   nextThursday, overdueDays, thaiDate, todayICT,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
@@ -116,6 +116,10 @@ export function ApTrackingPage() {
   // filter ย่อยของแท็บ "ผ่าน" — ตามรอบ/นอกรอบ · ใบที่กดผ่านในเว็บใช้ค่าที่บัญชียืนยัน (pay.type)
   // ใบนำเข้าจาก Excel ไม่มี pay ถอยไปใช้คำขอจากจัดซื้อ (sentType)
   const [payTypeFilter, setPayTypeFilter] = useState<"" | "ตามรอบ" | "นอกรอบ">("")
+  // filter เฉพาะแท็บ "ผ่าน": ช่วงวันที่บัญชีกดผ่าน (review.at เวลาไทย) + เครดิตเทอม
+  const [passedFrom, setPassedFrom] = useState("")
+  const [passedTo, setPassedTo] = useState("")
+  const [termFilter, setTermFilter] = useState("")     // "" = ทุกเทอม · "none" = ยังไม่ตั้ง
   // มุมมองหลักของตาราง: รายใบ (ปกติ) หรือยุบเป็นรายเจ้าหนี้ — สรุป DD/PO/ขั้นของแต่ละเจ้า
   const [viewBy, setViewBy] = useState<"invoice" | "supplier">("invoice")
   const [warehouses, setWarehouses] = useState<string[]>([])
@@ -244,8 +248,13 @@ export function ApTrackingPage() {
     if ((tab === "sent" || tab === "passed") && payTypeFilter) {
       out = out.filter((r) => (r.pay?.type || r.sentType) === payTypeFilter)
     }
+    if (tab === "passed") {
+      // วันที่ผ่าน = เวลาที่บัญชีกดผ่าน (review.at) แปลงเป็นวันไทย — ใบนำเข้าจากไฟล์ใช้วันส่งเข้าสกท
+      if (passedFrom || passedTo) out = out.filter((r) => inDateRange(ictDate(r.review?.at ?? ""), passedFrom, passedTo))
+      if (termFilter) out = out.filter((r) => (termFilter === "none" ? !r.creditTerm : r.creditTerm === termFilter))
+    }
     return out
-  }, [beforeSentRange, rangeOn, sentFrom, sentTo, tab, payTypeFilter])
+  }, [beforeSentRange, rangeOn, sentFrom, sentTo, tab, payTypeFilter, passedFrom, passedTo, termFilter])
 
   // ส่งออกแถวที่กรองอยู่เป็น Excel — โหลด xlsx ตอนกดเท่านั้น (ก้อนใหญ่ ~400KB ไม่ควรถ่วงตอนเปิดหน้า)
   // แท็บ "ผ่าน" ออกเป็น "ใบปะหน้าส่งเข้า สกท." ตามฟอร์มจริงของบัญชี (รายชิ้นสินค้า + หัวฟอร์ม
@@ -253,9 +262,13 @@ export function ApTrackingPage() {
   const exportExcel = async () => {
     const XLSX = await import("xlsx")
     if (tab === "passed") {
+      // ติ๊กเลือกไว้ = ออกเฉพาะที่เลือก · ไม่ติ๊กเลย = ออกทั้งหมดที่กรองอยู่
+      // (คำนวณเองตรงนี้ — selectedRows ประกาศทีหลังในไฟล์ อ้างข้ามจะพัง memoization ของ React Compiler)
+      const sel = shown.filter((r) => selected.has(r.depositCode))
+      const exportRows = sel.length ? sel : shown
       const res = await fetch("/api/ap-tracking/cover", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codes: shown.map((r) => r.depositCode) }),
+        body: JSON.stringify({ codes: exportRows.map((r) => r.depositCode) }),
       })
       const d = await res.json()
       if (!res.ok) { swalError("ดึงรายการสินค้าไม่สำเร็จ"); return }
@@ -498,6 +511,7 @@ export function ApTrackingPage() {
           // เปลี่ยนแท็บ = เริ่มต้นไม่กรองเสมอ (ผู้ใช้สั่ง 21/08/2026: default no filter date)
           // ไม่งั้นช่วงวันที่/ประเภทที่ตั้งไว้ครั้งก่อนค้างอยู่ กลับมาแท็บเดิมแล้วข้อมูลหายไปเฉย ๆ
           setSentFrom(""); setSentTo(""); setPayTypeFilter("")
+          setPassedFrom(""); setPassedTo(""); setTermFilter("")
         })}
         viewBy={viewBy} onViewBy={(v) => applyFilter(() => setViewBy(v))}
         warehouse={warehouse} onWarehouse={(v) => applyFilter(() => setWarehouse(v))}
@@ -513,7 +527,10 @@ export function ApTrackingPage() {
         pulling={pulling} pullProgress={pullProgress} onPull={pullAtms}
         crossHits={crossHits} onGotoHit={gotoHit}
         payTypeFilter={payTypeFilter} onPayTypeFilter={(v) => applyFilter(() => setPayTypeFilter(v))}
-        onExport={exportExcel}
+        passedFrom={passedFrom} passedTo={passedTo}
+        onPassedRange={(f, t) => applyFilter(() => { setPassedFrom(f); setPassedTo(t) })}
+        termFilter={termFilter} onTermFilter={(v) => applyFilter(() => setTermFilter(v))}
+        onExport={exportExcel} exportSelected={tab === "passed" ? selectedRows.length : 0}
       />
 
       {/* ผลลัพธ์ถูกตัดเพราะชนเพดานแถว — ยอดสรุปทุกตัวข้างบนยังไม่ครบ ต้องบอกให้ชัด ไม่ปล่อยให้เงียบ */}
@@ -536,10 +553,18 @@ export function ApTrackingPage() {
           <span className="text-sm text-emerald-900 dark:text-emerald-200">
             เลือก {selectedRows.length} ใบ · <span className={`font-bold ${NUM}`}>{baht(selectedAmount)}</span> บาท
           </span>
+          {/* แท็บผ่าน: การเลือกคือ "เลือกใบไป export ใบปะหน้า" ไม่ใช่ส่งนอกรอบ (ส่งไปแล้วทุกใบ) */}
+          {tab === "passed" ? (
+            <button onClick={exportExcel}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
+              📄 Export ใบปะหน้า ({selectedRows.length} ใบ)
+            </button>
+          ) : (
           <button onClick={bulkSend} disabled={bulkRunning}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
             {bulkRunning ? "กำลังส่ง…" : `💸 ส่งบัญชีนอกรอบ · พฤหัสนี้ ${thaiDate(nextThursday(today))}`}
           </button>
+          )}
           {/* แจ้งการเงินจากใบที่เลือก — ราย DD เลือกหลายใบได้ (ผู้ใช้สั่ง 19/08/2026) */}
           <button onClick={() => setFinanceItems(selectedRows.map((r) => ({
               depositCode: r.depositCode, supplier: r.supplier, amount: r.amount,
@@ -559,6 +584,7 @@ export function ApTrackingPage() {
       ) : (
       <ApTable
         rows={paged} groups={pagedGroups} showSentMarked={sentView} unit={grouped ? "วัน" : "ใบ"}
+        selectMode={tab === "passed" ? "export" : "send"}
         loading={busy}
         selected={selected} onToggle={toggle} onToggleAll={toggleAll}
         onOpen={openDetail} onSend={openSent}
