@@ -766,7 +766,7 @@ export function ApTrackingDetail({
                     💰 {savedPay.type === "ตามรอบ"
                       ? savedPay.cutoff
                         ? <>ตามรอบ · ครบกำหนด {thaiDate(savedPay.dueDate)} · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
-                        : <>ตามรอบ (เครดิตสั้น) · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>
+                        : <>ตามรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>
                       : <>นอกรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>}
                     {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
                   </div>
@@ -906,7 +906,7 @@ export function ApTrackingDetail({
                         // เครดิตสั้น 7D/15D — รอบพฤหัส นับจากวันส่งเอกสารเข้าบัญชี ไม่เดินสายตัดรอบ 25
                         <div className="text-xs text-emerald-700 dark:text-emerald-400">
                           💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b>
-                          <span className="text-gray-400"> (เครดิตสั้น — นับจากวันส่งเอกสารเข้าบัญชี)</span>
+                          <span className="text-gray-400"> (นับจากวันส่งเอกสารเข้าบัญชี)</span>
                         </div>
                       )
                     ) : (
