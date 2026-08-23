@@ -5,149 +5,12 @@ import { usePathname } from "next/navigation"
 import { useState, useEffect } from "react"
 import { useSession, signOut } from "next-auth/react"
 import { UserAvatar } from "./user-avatar"
-import {
-  Banknote,
-  BarChart3,
-  BookOpen,
-  Bot,
-  Car,
-  ChevronDown,
-  ClipboardCheck,
-  Clock,
-  Code2,
-  Database,
-  Disc3,
-  Factory,
-  FileText,
-  Flag,
-  GitCompare,
-  Inbox,
-  Landmark,
-  Layers,
-  LayoutDashboard,
-  LogOut,
-  MapPin,
-  PackageSearch,
-  PackageX,
-  PanelLeftClose,
-  PlusCircle,
-  ShieldCheck,
-  TableProperties,
-  Truck,
-  Wrench,
-  X,
-} from "lucide-react"
+import { ChevronDown, Clock, LogOut, PanelLeftClose, X } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { useBranchScope } from "./use-branch-scope"
 import { canSeeBranch } from "@/lib/branch-scope"
-
-type NavItem  = {
-  href: string
-  label: string
-  icon: React.ElementType
-  exact?: boolean
-  subheader?: boolean
-  indent?: boolean
-  adminOnly?: boolean
-  /** เมนูของสาขานี้เท่านั้น — ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขา (lib/branch-scope.ts) */
-  branch?: string
-}
-// visibleToEmails: จำกัดกลุ่มให้เห็นเฉพาะ email ที่ระบุ (ไม่ระบุ = เห็นทุกคน)
-type NavGroup = { label: string; items: NavItem[]; collapsible?: boolean; visibleToEmails?: string[] }
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: "ภาพรวม",
-    items: [
-      { href: "/", label: "หน้าหลัก", icon: LayoutDashboard, exact: true },
-      { href: "/atms-new-sku-report/baseline", label: "นิยามตัวชี้วัด",   icon: BookOpen,  exact: true },
-    ],
-  },
-  {
-    label: "จัดการ SKU",
-    collapsible: true,
-    items: [
-      { href: "/atms-new-sku-report",label: "SKU ใหม่ ATMS",      icon: BarChart3, exact: true },
-      { href: "/sku",                label: "รายการ SKU",       icon: PackageSearch, exact: true },
-      { href: "/sku/new",            label: "เพิ่ม SKU ใหม่",   icon: PlusCircle },
-      { href: "/sku/my-submissions", label: "รายการของฉัน",     icon: Inbox },
-      { href: "/sku/oe-search",      label: "ค้นหา OE",         icon: GitCompare },
-      { href: "/sku/bulk-update",    label: "Bulk Update",       icon: TableProperties },
-      { href: "/codes/parts",        label: "แคตาล็อกอะไหล่",  icon: Layers },
-      { href: "/vehicles",           label: "ยานพาหนะ",         icon: Car },
-      { href: "/codes",              label: "พจนานุกรมโค้ด",   icon: Database, exact: true },
-    ],
-  },
-  {
-    label: "จัดการยาง",
-    collapsible: true,
-    items: [
-      { href: "/tire",                       label: "ศูนย์จัดการยางรถ", icon: ClipboardCheck, exact: true },
-      { href: "/tire/master",                label: "สเปคยาง (Master)", icon: Database, exact: true },
-      { href: "#stock",                      label: "สต็อกยาง",          icon: MapPin,  subheader: true },
-      { href: "/tire/latkrabang/stock-tire", label: "ลาดกระบัง",         icon: Disc3,   indent: true, branch: "latkrabang" },
-      { href: "/tire/saraburi/stock-tire",   label: "สระบุรี",            icon: Disc3,   indent: true, branch: "saraburi" },
-    ],
-  },
-  {
-    label: "จัดการติดตามสินค้า",
-    collapsible: true,
-    items: [
-      { href: "/pr", label: "ติดตาม PR / รับสินค้า", icon: FileText, exact: true },
-      { href: "/order-tracking", label: "ติดตามคำขอเปิด PO", icon: ClipboardCheck, exact: true },
-      { href: "/ap-tracking", label: "ติดตามเจ้าหนี้", icon: Banknote, exact: true },
-      { href: "/ap-tracking/dashboard", label: "แดชบอร์ดเจ้าหนี้", icon: LayoutDashboard },
-      { href: "/ap-tracking/suppliers", label: "เครดิตเทอมเจ้าหนี้", icon: Landmark },
-      { href: "/ap-tracking/audit", label: "ตรวจความครบถ้วนข้อมูล", icon: ShieldCheck },
-      { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen },
-      { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen },
-    ],
-  },
-  {
-    label: "ของค้างคลัง (ลาดกระบัง)",
-    collapsible: true,
-    items: [
-      { href: "/deadstock", label: "ภาพรายเดือน", icon: BarChart3, exact: true },
-      { href: "/deadstock/pending", label: "สถานะล่าสุด", icon: PackageX, exact: true },
-      { href: "/deadstock/items", label: "รายรหัสสินค้า", icon: PackageSearch, exact: true },
-      { href: "/deadstock/baseline", label: "นิยามตัวชี้วัด", icon: BookOpen, exact: true },
-    ],
-  },
-  {
-    label: "จุดสั่งซื้อ (Safety Stock)",
-    collapsible: true,
-    items: [
-      { href: "/safety-stock", label: "Safety Stock", icon: PackageSearch, exact: true },
-      { href: "/safety-stock/baseline", label: "นิยามตัวชี้วัด", icon: BookOpen, exact: true },
-    ],
-  },
-  {
-    label: "จัดการอู่นอกและสั่งซื้ออะไหล่ลงคัน",
-    collapsible: true,
-    items: [
-      { href: "/repair-external",           label: "อู่นอก & อะไหล่ลงคัน", icon: Wrench, exact: true },
-      { href: "/repair-external/completed",  label: "งานเสร็จ",  icon: Flag },
-      { href: "/garages",                    label: "จัดการอู่ / ร้านอะไหล่", icon: Factory },
-      { href: "/repair-external/guide",      label: "คู่มือการใช้งาน", icon: BookOpen },
-      { href: "/repair-external/api-guide",  label: "คู่มือ API Sync", icon: Code2 },
-    ],
-  },
-  {
-    label: "ส่งมอบรถ พจส.ใหม่",
-    collapsible: true,
-    items: [
-      { href: "/driver-handover", label: "จับคู่คน-รถ ส่งมอบ", icon: Truck, exact: true },
-    ],
-  },
-  {
-    label: "ทดสอบระบบ ระบบ AI ช่วยจัดการงานซ่อมรถโม่ (Fleet Mixer Truck Maintenance)",
-    collapsible: true,
-    visibleToEmails: ["narongkorn.a@menatransport.co.th", "kittaboon.l@menatransport.co.th"],
-    items: [
-      { href: "/ai-mixer-maintenance", label: "AI จัดการงานซ่อมรถโม่", icon: Bot, exact: true },
-    ],
-  },
-]
+// เมนูทั้งหมดอยู่ที่ lib/nav.ts ที่เดียว — หน้าหลัก (app/page.tsx) ก็อ่านจากไฟล์เดียวกัน
+import { sidebarGroups, type NavGroup } from "@/lib/nav"
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   // Sidebar auto-hide (desktop): ปกติย่อเป็นแถบเล็ก เอาเมาส์ไปชิดซ้าย/ชี้ที่แถบ → กางออกอัตโนมัติ
@@ -171,9 +34,11 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const userEmail = session?.user?.email ?? ""
   // ผู้ใช้ที่ผูกกับสาขา (site_id 2/3) ไม่ต้องเห็นเมนูของอีกสาขา
   const scope = useBranchScope()
-  const visibleGroups = NAV_GROUPS.filter(
-    (g) => !g.visibleToEmails || g.visibleToEmails.includes(userEmail),
-  ).map((g) => ({ ...g, items: g.items.filter((i) => !i.branch || canSeeBranch(scope, i.branch)) }))
+  const visibleGroups = sidebarGroups({
+    email: userEmail,
+    isAdmin,
+    canSeeBranch: (b) => canSeeBranch(scope, b),
+  })
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
 

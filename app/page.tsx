@@ -2,117 +2,42 @@
 
 import Link from "next/link"
 import { useSession } from "next-auth/react"
-import { Suspense, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import {
-  PackageSearch, PlusCircle, Database, Car, GitCompare, Inbox, Layers,
-  BarChart3, TableProperties, ClipboardCheck, Disc3, FileText, BookOpen,
-  Wrench, Flag, Factory, Code2, ClipboardList, ChevronDown, Truck,
-} from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { WelcomePopup } from "@/components/welcome-popup"
 import { Mascot } from "@/components/mascot"
 import { useBranchScope } from "@/components/use-branch-scope"
 import { canSeeBranch } from "@/lib/branch-scope"
+// เมนูทั้งหมดอยู่ที่ lib/nav.ts ที่เดียว — sidebar ก็อ่านจากไฟล์เดียวกัน
+import { homeModules } from "@/lib/nav"
 
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const mitr = { fontFamily: "'Mitr', sans-serif" }
 
-// branch = ลิงก์ของสาขานั้นโดยเฉพาะ — ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขา (lib/branch-scope.ts)
-type PageLink = { href: string; label: string; desc: string; icon: React.ElementType; branch?: string }
-type Module = {
-  key: string
-  title: string
-  desc: string
-  icon: React.ElementType
-  color: string   // สีประจำโมดูล (ไอคอน/แถบ)
-  bg: string      // พื้นไอคอน (light)
-  links: PageLink[]
-}
-
-// โมดูลทั้งหมด — ติดตามสินค้าขึ้นก่อน (ใช้บ่อยสุด) ที่เหลือเรียงตาม sidebar
-const MODULES: Module[] = [
-  {
-    key: "tracking",
-    title: "จัดการติดตามสินค้า",
-    desc: "ติดตามการสั่งซื้อ ตั้งแต่คำขอจนของถึงมือ",
-    icon: FileText, color: "#7C3AED", bg: "#F3E8FF",
-    links: [
-      { href: "/pr",                   label: "ติดตาม PR / รับสินค้า",  desc: "PR อนุมัติแล้ว รอเปิด PO / รอรับของ", icon: FileText },
-      { href: "/order-tracking",       label: "ติดตามคำขอเปิด PO",      desc: "แจ้งขอซื้อ · จัดซื้อรับเรื่อง · ปิดจบอัตโนมัติ", icon: ClipboardList },
-      { href: "/pr/guide",             label: "คู่มือติดตาม PR",         desc: "วิธีอ่านสถานะและตัวกรอง",          icon: BookOpen },
-      { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", desc: "ขั้นตอนแจ้งเรื่อง-รับเรื่อง-ปิดงาน", icon: BookOpen },
-    ],
-  },
-  {
-    key: "sku",
-    title: "จัดการ SKU",
-    desc: "ฐานข้อมูลอะไหล่และรหัสสินค้า",
-    icon: PackageSearch, color: "#1B8C4B", bg: "#EAF6EE",
-    links: [
-      { href: "/sku",                 label: "รายการ SKU",       desc: "ค้นหา / ดูอะไหล่ทั้งหมด",        icon: PackageSearch },
-      { href: "/sku/new",             label: "เพิ่ม SKU ใหม่",    desc: "สร้างรหัสอัตโนมัติ",              icon: PlusCircle },
-      { href: "/sku/my-submissions",  label: "รายการของฉัน",     desc: "SKU ที่ส่งไป รอ/ผ่านอนุมัติ",     icon: Inbox },
-      { href: "/sku/oe-search",       label: "ค้นหา OE",          desc: "ค้นข้ามเบอร์อะไหล่แท้",           icon: GitCompare },
-      { href: "/codes/parts",         label: "แคตาล็อกอะไหล่",   desc: "หมวดหมู่ L1 · L2 · L3",           icon: Layers },
-      { href: "/vehicles",            label: "ยานพาหนะ",          desc: "ข้อมูลรถทุกคัน",                  icon: Car },
-      { href: "/codes",               label: "พจนานุกรมโค้ด",    desc: "ความหมายรหัสทุกส่วน",             icon: Database },
-      { href: "/atms-new-sku-report", label: "SKU ใหม่ ATMS",     desc: "รายงาน SKU เกิดใหม่รายเดือน",     icon: BarChart3 },
-      { href: "/sku/bulk-update",     label: "Bulk Update",       desc: "แก้ไข SKU ทีละหลายรายการ",        icon: TableProperties },
-    ],
-  },
-  {
-    key: "tire",
-    title: "จัดการยาง",
-    desc: "สต็อกยางและการเปลี่ยนยางทุกสาขา",
-    icon: Disc3, color: "#1D4ED8", bg: "#DBEAFE",
-    links: [
-      { href: "/tire",                       label: "ศูนย์จัดการยางรถ",  desc: "ภาพรวมยางทุกคัน ทุกสาขา",  icon: ClipboardCheck },
-      { href: "/tire/master",                label: "สเปคยาง (Master)",  desc: "ขนาด / ยี่ห้อ / รุ่นยาง",   icon: Database },
-      { href: "/tire/latkrabang/stock-tire", label: "สต็อกยาง ลาดกระบัง", desc: "คลังยางสาขา ศลบ",          icon: Disc3, branch: "latkrabang" },
-      { href: "/tire/saraburi/stock-tire",   label: "สต็อกยาง สระบุรี",   desc: "คลังยางสาขา สสบ",          icon: Disc3, branch: "saraburi" },
-    ],
-  },
-  {
-    key: "repair",
-    title: "จัดการอู่นอกและสั่งซื้ออะไหล่ลงคัน",
-    desc: "งานซ่อมอู่ภายนอกและสั่งอะไหล่มาลงคัน",
-    icon: Wrench, color: "#C2410C", bg: "#FFEDD5",
-    links: [
-      { href: "/repair-external",           label: "อู่นอก & อะไหล่ลงคัน", desc: "งานที่กำลังดำเนินการ (ตาราง/บอร์ด)", icon: Wrench },
-      { href: "/repair-external/completed", label: "งานเสร็จ",              desc: "งานที่ปิดแล้ว (รถเสร็จ / ลงคันเสร็จ)", icon: Flag },
-      { href: "/garages",                   label: "จัดการอู่ / ร้านอะไหล่", desc: "รายชื่อ master แก้แล้วอัปเดตทุกงาน", icon: Factory },
-      { href: "/repair-external/guide",     label: "คู่มือการใช้งาน",        desc: "workflow สถานะ + SLA",              icon: BookOpen },
-      { href: "/repair-external/api-guide", label: "คู่มือ API Sync",        desc: "API สำหรับทีมภายนอก (public)",       icon: Code2 },
-    ],
-  },
-  {
-    key: "driver-handover",
-    title: "ส่งมอบรถ พจส.ใหม่",
-    desc: "จับคู่คนขับใหม่กับรถ ให้พร้อมตรงกันรายฟลีท/รายสัปดาห์",
-    icon: Truck, color: "#0E7490", bg: "#CFFAFE",
-    links: [
-      { href: "/driver-handover", label: "จับคู่คน-รถ ส่งมอบ", desc: "Fleet Balance + เลือกรถ + อัปเดตสถานะ พจส.ใหม่ (sync ชีต Onboarding)", icon: Truck },
-    ],
-  },
-]
-
 export default function Home() {
   const { data: session } = useSession()
-  // ผู้ใช้ที่ผูกกับสาขา (site_id 2/3) เห็นเฉพาะเมนูสาขาตัวเอง
+  // ผู้ใช้ที่ผูกกับสาขา (site_id 2/3) เห็นเฉพาะเมนูสาขาตัวเอง · โมดูลลับเห็นเฉพาะอีเมลที่กำหนด
   const scope = useBranchScope()
-  const modules = MODULES.map((m) => ({
-    ...m,
-    links: m.links.filter((l) => !l.branch || canSeeBranch(scope, l.branch)),
-  }))
+  const modules = useMemo(
+    () => homeModules({
+      email: session?.user?.email,
+      isAdmin: session?.user?.role === "admin",
+      canSeeBranch: (b) => canSeeBranch(scope, b),
+    }),
+    [session?.user?.email, session?.user?.role, scope],
+  )
   const hour = new Date().getHours()
   const greeting = hour < 12 ? "สวัสดีตอนเช้า" : hour < 17 ? "สวัสดีตอนบ่าย" : "สวัสดีตอนเย็น"
   const userName = session?.user?.name ?? "คุณ"
 
   // Accordion — โมดูลแรก (ติดตามสินค้า) กางไว้ ที่เหลือพับ · เปิดพร้อมกันหลายอันได้
-  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set([MODULES[0].key]))
+  // null = ยังไม่เคยกด → ใช้ค่าเริ่มต้น (โมดูลแรกกาง) เพราะรายการโมดูลมาหลัง session โหลดเสร็จ
+  const [openKeys, setOpenKeys] = useState<Set<string> | null>(null)
+  const defaultOpen = () => new Set(modules.length ? [modules[0].key] : [])
   const toggleModule = (key: string) =>
     setOpenKeys((prev) => {
-      const next = new Set(prev)
+      const next = new Set(prev ?? defaultOpen())
       if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
@@ -140,7 +65,7 @@ export default function Home() {
       {/* ── โมดูลทั้งหมด — Accordion: กดหัวข้อเพื่อกาง/พับ (อันแรกกางไว้) ── */}
       {modules.map((m, mi) => {
         const MIcon = m.icon
-        const isOpen = openKeys.has(m.key)
+        const isOpen = openKeys ? openKeys.has(m.key) : mi === 0
         return (
           <motion.section
             key={m.key}
