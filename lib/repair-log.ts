@@ -55,6 +55,8 @@ export type RepairLogEntry = {
   at:           Date
   statusChange?: { from: string; to: string }
   changes?:     RepairChange[]
+  /** id ของข้อความอัพเดทงานที่เขียนพร้อมกัน — ไทม์ไลน์ใช้กันไม่ให้ขึ้นซ้ำสองแถว */
+  noteId?:      string
 }
 
 export async function writeRepairLog(db: Db, entry: RepairLogEntry) {

@@ -403,3 +403,59 @@ export function compareStage(
   if (!a || !b) return "unknown"
   return a === b ? "same" : "diff"
 }
+
+/* ── อัพเดทงาน (job update) ──────────────────────────────────────────────────
+ * ทุกความเคลื่อนไหวของงาน = "อัพเดทงาน" 1 ครั้ง = สถานะ + วันคาดพ้นขั้น + ข้อความ
+ * บังคับครบทั้งสามเสมอ — เลือกสถานะเดิมได้ (= ยังค้างขั้นเดิม แต่ต้องเล่าว่าติดอะไร)
+ * กติกาเดียวกันนี้ใช้ทั้งฝั่ง API (กันยิงตรง) และฝั่งหน้าเว็บ (กันกดปุ่มไปก่อน)
+ */
+
+/** ข้อความอัพเดทสั้นกว่านี้ไม่รับ — กัน "." หรือ "ok" ที่ไม่ได้บอกอะไรเลย */
+export const UPDATE_NOTE_MIN = 3
+
+export type JobUpdateInput = {
+  status:   string
+  stageEta: string
+  note:     string
+  /** ใบงานปัจจุบัน (เอกสารจาก Mongo ก็ส่งมาตรง ๆ ได้) — ใช้ตรวจล็อกสถานะปิดงาน
+   *  ประเภทงาน และฟิลด์บังคับตอนปิดงาน */
+  current:  Record<string, unknown>
+}
+
+/** null = ผ่าน · missing = ฟิลด์ที่ต้องไปกรอกในฟอร์มแก้ไขก่อนปิดงาน */
+export type JobUpdateError = { error: string; missing?: { field: RepairField; label: string }[] }
+
+export function validateJobUpdate(input: JobUpdateInput): JobUpdateError | null {
+  const status  = normalizeStatus(String(input.status ?? "").trim())
+  const note    = String(input.note ?? "").trim()
+  const current = input.current ?? {}
+  const from    = normalizeStatus(String(current.status ?? "").trim())
+  const jobType = jobTypeOf(current)
+
+  if (!status) return { error: "กรุณาเลือกสถานะ" }
+  if (note.length < UPDATE_NOTE_MIN) {
+    return { error: `กรุณาพิมพ์ข้อความอัพเดทอย่างน้อย ${UPDATE_NOTE_MIN} ตัวอักษร` }
+  }
+  // ปิดงานแล้วห้ามขยับ — กติกาเดียวกับ PUT /api/repair-external/[id]
+  if (isDoneStatus(from) && status !== from) {
+    return { error: "รายการที่ปิดงานแล้ว ย้อนสถานะกลับไม่ได้" }
+  }
+  if (!statusesFor(jobType).some((s) => s.value === status)) {
+    return { error: `สถานะ "${status}" ไม่อยู่ในขั้นตอนของงานประเภท "${jobType}"` }
+  }
+  const etaErr = validateStageEta(status, String(input.stageEta ?? "").trim())
+  if (etaErr) return { error: etaErr }
+
+  // ปิดงานต้องมีข้อมูลครบ — สถานะกลางไม่บังคับ (ยังไม่มี PR/PO ได้)
+  if (status === doneStatusFor(jobType)) {
+    const missing = requiredFieldsFor(status, jobType)
+      .filter((f) => !String(current[f.field] ?? "").trim())
+    if (missing.length) {
+      return {
+        error: `ปิดงานเป็น "${status}" ต้องกรอกข้อมูลให้ครบก่อน: ${missing.map((m) => m.label).join(" · ")}`,
+        missing,
+      }
+    }
+  }
+  return null
+}

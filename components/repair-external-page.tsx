@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef, Children, isValidElement } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Send, CornerDownRight, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
-import { swalDeleteConfirm, swalToast, swalError, swalStageEtaInput } from "@/lib/swal"
+import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
+import { RepairUpdateDialog } from "./repair-update-dialog"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
 import {
@@ -74,6 +75,11 @@ type Comment = {
   _id: string
   parentId: string | null
   text: string
+  /** "update" = อัพเดทงาน (มีสถานะติดมาด้วย) · ไม่มี = ความคิดเห็นเก่าก่อนบังคับสถานะ */
+  kind?: string
+  status?: string
+  statusFrom?: string
+  stageEta?: string
   by: string
   byEmail: string
   at: string
@@ -91,6 +97,8 @@ type LogEntry = {
   at: string
   statusChange?: { from: string; to: string }
   changes?: LogChange[]
+  /** มีค่า = การเปลี่ยนสถานะนี้มาจาก "อัพเดทงาน" ซึ่งไทม์ไลน์แสดงเป็นการ์ดข้อความอยู่แล้ว */
+  noteId?: string
 }
 
 type Stats = {
@@ -370,10 +378,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // comments (drawer)
   const [comments, setComments]   = useState<Comment[]>([])
   const [cmtLoading, setCmtLoading] = useState(false)
-  const [cmtText, setCmtText]     = useState("")
-  const [replyTo, setReplyTo]     = useState<string | null>(null)
-  const [replyText, setReplyText] = useState("")
   const [posting, setPosting]     = useState(false)
+  // ฟอร์ม "อัพเดทงาน" — ทางเดียวที่สถานะจะเปลี่ยนได้ (สถานะ + วันคาด + ข้อความ พร้อมกัน)
+  const [updRow, setUpdRow]       = useState<RepairExternal | null>(null)
 
   // Timeline ATMS ใน modal (โหลดเมื่อกด) — เฉพาะงานอู่นอก
   const [atmsTl, setAtmsTl]               = useState<AtmsTlItem[] | null>(null)
@@ -390,8 +397,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [planRefreshKey, setPlanRefreshKey] = useState(0)
   const planLinkRef = useRef<string | null>(null)
   const [stats, setStats] = useState<Stats>({ counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [], garageDist: [], garageDupes: [] })
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [dragOverStatus, setDragOverStatus] = useState<string | null>(null)
 
   // ตัวกรอง ฟลีท + ค้างเกิน SLA
   const [fFleet, setFFleet]     = useState("")
@@ -485,27 +490,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       setComments(Array.isArray(data) ? data : [])
     } catch { setComments([]) } finally { setCmtLoading(false) }
   }
-  async function postComment(text: string, parentId: string | null) {
-    const targetId = editId   // ความคิดเห็นอยู่ในฟอร์มแก้ไขเท่านั้น (drawer แยกถูกถอดออกแล้ว)
-    if (!targetId || !text.trim()) return
-    setPosting(true)
-    try {
-      const res = await fetch(`/api/repair-external/${targetId}/comment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.trim(), parentId }),
-      })
-      if (!res.ok) throw new Error()
-      await loadComments(targetId)
-      setCmtText(""); setReplyText(""); setReplyTo(null)
-    } catch {
-      swalError("ส่งความคิดเห็นไม่สำเร็จ")
-    } finally {
-      setPosting(false)
-    }
-  }
-
-  // แก้ข้อความความคิดเห็น — server อนุญาตเฉพาะเจ้าของ (403 ถ้าไม่ใช่) · คืน true เมื่อบันทึกสำเร็จ
   async function saveComment(commentId: string, text: string): Promise<boolean> {
     const targetId = editId
     if (!targetId || !text.trim()) return false
@@ -674,7 +658,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id, ...rest } = r
     setForm({ ...EMPTY, ...rest })
-    setComments([]); setCmtText(""); setReplyTo(null); setReplyText("")
+    setComments([])
     setAtmsTl(null); setAtmsTlErr("")
     loadComments(r._id)
     loadLog(r)
@@ -1007,48 +991,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  // ── Kanban: ลากการ์ดเปลี่ยนสถานะ ──
-  async function moveStatus(r: RepairExternal, newStatus: string) {
-    if (r.status === newStatus) return
-    // บังคับข้อมูลครบ "เฉพาะตอนจะปิดงาน" — สถานะกลางเปลี่ยนได้เลยแม้ไม่มี PR/PO
-    const missing = newStatus === doneStatusFor(jobTypeOf(r))
-      ? requiredFieldsFor(newStatus, jobTypeOf(r)).filter((f) => !String(r[f.field] ?? "").trim())
-      : []
-    if (missing.length) {
-      // เปิดฟอร์ม (หน้าเดียว) ให้กรอกฟิลด์ที่ขาดก่อนปิดงาน
-      setEditId(r._id)
-      setViewOnly(false)
-      setEditRow(r)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { _id, ...rest } = r
-      setForm({ ...EMPTY, ...rest, status: newStatus })
-      setOpen(true)
-      return
-    }
-    // เข้าสถานะใหม่ = ต้องบอกวันคาดพ้นขั้นด้วย (สถานะปิดงานไม่ต้อง) — ถามสั้น ๆ ตรงนี้
-    // เพื่อไม่ให้ต้องเปิดฟอร์มทุกครั้งที่ลากการ์ด
-    let stageEta = ""
-    if (stageEtaRequired(newStatus)) {
-      const today   = bkkDate()
-      const preset  = new Date(Date.parse(today) + 3 * 86400000).toISOString().slice(0, 10)
-      const picked  = await swalStageEtaInput(newStatus, today, preset)
-      if (!picked.isConfirmed || !picked.value) return
-      stageEta = String(picked.value)
-    }
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { _id, ...rest } = r
-      const res = await fetch(`/api/repair-external/${r._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...rest, status: newStatus, stageEta }),
-      })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "เปลี่ยนสถานะไม่สำเร็จ") }
-      swalToast("success", `ย้ายเป็น “${newStatus}”`)
-      load(); loadStats(); loadAtmsBoard()
-    } catch (e) {
-      swalError(e instanceof Error ? e.message : "เปลี่ยนสถานะไม่สำเร็จ")
-    }
+  // เปิดฟอร์ม "อัพเดทงาน" — ทางเดียวที่สถานะจะขยับได้ (บอร์ดไม่ให้ลากการ์ดแล้ว)
+  function openUpdate(r: RepairExternal) {
+    setUpdRow(r)
   }
 
   async function remove(r: RepairExternal) {
@@ -1094,7 +1039,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const out: FeedItem[] = []
     for (const e of logEntries) {
       const by = e.by || e.byEmail || ""
-      if (e.statusChange || e.action === "create") {
+      // เปลี่ยนสถานะที่มาจาก "อัพเดทงาน" มีการ์ดข้อความแสดงอยู่แล้ว (ผูกด้วย noteId) ไม่ต้องขึ้นซ้ำ
+      if ((e.statusChange || e.action === "create") && !e.noteId) {
         // วันคาดที่ตั้งไว้ตอนเข้าสถานะนั้น (ถ้าบันทึกไว้ในรอบเดียวกัน)
         const eta = (e.changes ?? []).find((c) => c.field === "stageEta")?.to ?? ""
         out.push({ kind: "status", key: `s-${e._id}`, at: e.at, by, e, eta })
@@ -2133,16 +2079,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               return [...b.statuses, ...extra]
             })().map((s) => {
               const colRows = boardRows.filter((r) => r.status === s.value)
-              const isDropDone = s.value === doneStatusFor(b.type)
               const colColor = barColor(s.value)
               const colAges  = colRows.map((r) => ageDays(jobStartDate(r))).filter((n): n is number => n !== null)
               const avgCol   = colAges.length ? Math.round(colAges.reduce((a, b) => a + b, 0) / colAges.length) : 0
               return (
                 <div
                   key={s.value}
-                  onDragOver={(e) => { e.preventDefault(); if (dragOverStatus !== s.value) setDragOverStatus(s.value) }}
-                  onDrop={() => { const r = rows.find((x) => x._id === dragId); if (r && jobTypeOf(r) === b.type) moveStatus(r, s.value); setDragId(null); setDragOverStatus(null) }}
-                  className={`flex min-w-[170px] flex-1 flex-col rounded-xl border bg-gray-50/60 dark:bg-white/[0.03] transition ${dragId && dragOverStatus === s.value ? "border-[#1B8C4B] ring-2 ring-[#1B8C4B]/30" : "border-[#EEF2F0] dark:border-white/8"}`}
+                  className="flex min-w-[170px] flex-1 flex-col rounded-xl border border-[#EEF2F0] bg-gray-50/60 transition dark:border-white/8 dark:bg-white/[0.03]"
                 >
                   <div className="border-b border-[#EEF2F0] dark:border-white/8 px-3 py-2" style={{ borderTop: `3px solid ${colColor}`, borderTopLeftRadius: 11, borderTopRightRadius: 11 }}>
                     <div className="flex items-center justify-between">
@@ -2175,11 +2118,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       return (
                       <div
                         key={r._id}
-                        draggable
-                        onDragStart={() => setDragId(r._id)}
-                        onDragEnd={() => { setDragId(null); setDragOverStatus(null) }}
                         onClick={() => openEdit(r)}
-                        className={`group cursor-grab rounded-[11px] border bg-white dark:bg-[#0f1117] p-2.5 text-left shadow-sm transition hover:shadow-md active:cursor-grabbing ${dragId === r._id ? "opacity-50" : ""} ${isDup(r) ? "border-red-400 dark:border-red-500/60" : "border-[#EEF2F0] dark:border-white/10"}`}
+                        className={`group cursor-pointer rounded-[11px] border bg-white dark:bg-[#0f1117] p-2.5 text-left shadow-sm transition hover:shadow-md ${isDup(r) ? "border-red-400 dark:border-red-500/60" : "border-[#EEF2F0] dark:border-white/10"}`}
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span className="min-w-0 truncate">
@@ -2223,12 +2163,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         {r.repairPrice > 0 && (
                           <div className="mt-1 text-[11px] font-semibold text-[#1B8C4B]">฿ {fmtNum(r.repairPrice)}</div>
                         )}
+                        {!isDone && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); openUpdate(r) }}
+                            className="mt-2 w-full rounded-lg border border-[#E4D5FB] bg-[#FAF5FF] py-1 text-[11px] font-semibold text-[#7C3AED] transition hover:bg-[#F3E8FF] dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300"
+                          >
+                            ✍️ อัพเดทงาน
+                          </button>
+                        )}
                       </div>
                       )
                     })}
                     {colRows.length === 0 && (
                       <p className="py-6 text-center text-[11px] text-gray-300 dark:text-gray-600">
-                        {isDropDone ? "ลากมาที่นี่เพื่อปิดงาน" : "—"}
+                        —
                       </p>
                     )}
                   </div>
@@ -2610,7 +2559,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <div className="grid grid-cols-6 gap-x-3 gap-y-2.5 p-3">
                   <div className="col-span-6">
                     <label className={labelCls}>สถานะ</label>
-                    <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked} className={inputCls + (statusLocked ? " cursor-not-allowed opacity-60" : "")}>
+                    <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked || !!editId} className={inputCls + (statusLocked || editId ? " cursor-not-allowed opacity-60" : "")}>
                       {statusesFor(formJobType).map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
                     </select>
                     {/* tickbox รอใบเสนอราคา (เฉพาะอู่นอก) — แทนสถานะเดิมที่ถูกถอดจาก workflow */}
@@ -2626,6 +2575,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       </label>
                     )}
                     {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
+                    {/* สถานะเปลี่ยนได้ทางเดียว: ปุ่มอัพเดทงาน — บังคับให้มีข้อความกำกับทุกครั้ง */}
+                    {!!editId && !statusLocked && (
+                      <button
+                        type="button"
+                        onClick={() => editRow && openUpdate(editRow)}
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[#E4D5FB] bg-[#FAF5FF] px-3 py-2 text-[12.5px] font-semibold text-[#7C3AED] transition hover:bg-[#F3E8FF] dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300"
+                      >
+                        ✍️ เปลี่ยนสถานะที่ปุ่มอัพเดทงาน (ต้องมีข้อความกำกับ)
+                      </button>
+                    )}
 
                     {/* 🎯 วันคาดว่าจะพ้นสถานะนี้ — ผูกกับ "ขั้น" คนละตัวกับวันกำหนดเสร็จของงานทั้งใบ */}
                     {stageEtaRequired(form.status) && (() => {
@@ -2853,6 +2812,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
                             {f.kind === "note" && (
                               <div className="mt-1.5">
+                                {f.c.kind === "update" && f.c.status && (
+                                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold ${statusMeta(f.c.status).cls}`}>
+                                      {statusMeta(f.c.status).emoji} {f.c.status}
+                                    </span>
+                                    <span className="text-[11.5px] text-[#5B7568] dark:text-gray-400">
+                                      {f.c.statusFrom && f.c.statusFrom !== f.c.status ? `จาก ${f.c.statusFrom}` : "ยังอยู่ขั้นเดิม"}
+                                    </span>
+                                    {f.c.stageEta && (
+                                      <span className="inline-flex items-center gap-1 rounded bg-[#F3E8FF] px-1.5 py-0.5 text-[10.5px] font-bold text-[#7C3AED] dark:bg-violet-900/25 dark:text-violet-300">
+                                        🎯 คาดพ้นขั้นนี้ {fmtDateShort(f.c.stageEta)}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                                 <CommentRow c={f.c} onSave={saveComment} onDelete={deleteComment} busy={posting} />
                                 {comments.filter((r) => r.parentId === f.c._id).length > 0 && (
                                   <div className="ml-4 mt-2 space-y-2 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-3">
@@ -2860,17 +2834,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                                       <CommentRow key={rc._id} c={rc} reply onSave={saveComment} onDelete={deleteComment} busy={posting} />
                                     ))}
                                   </div>
-                                )}
-                                {replyTo === f.c._id ? (
-                                  <div className="ml-4 mt-2 flex items-start gap-2 pl-3">
-                                    <textarea autoFocus rows={2} value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="ตอบกลับ... (Enter = ขึ้นบรรทัดใหม่)" className="flex-1 resize-y rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none" />
-                                    <button type="button" onClick={() => postComment(replyText, f.c._id)} disabled={posting || !replyText.trim()} className="rounded-lg bg-[#1B8C4B] p-1.5 text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={14} /></button>
-                                    <button type="button" onClick={() => { setReplyTo(null); setReplyText("") }} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"><X size={14} /></button>
-                                  </div>
-                                ) : (
-                                  <button type="button" onClick={() => { setReplyTo(f.c._id); setReplyText("") }} className="ml-4 mt-1 inline-flex items-center gap-1 pl-3 text-[11px] font-medium text-[#1B8C4B] hover:underline">
-                                    <CornerDownRight size={11} /> ตอบกลับ
-                                  </button>
                                 )}
                               </div>
                             )}
@@ -2880,10 +2843,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )}
                   </div>
 
-                  {/* ช่องเขียนตรึงท้ายไทม์ไลน์ — ไม่ต้องเลื่อนหา */}
-                  <div className="flex items-start gap-2 border-t border-[#EEF2F0] dark:border-white/10 px-4 py-3">
-                    <textarea rows={2} value={cmtText} onChange={(e) => setCmtText(e.target.value)} placeholder="เขียนความคิดเห็น / โน้ต... (Enter = ขึ้นบรรทัดใหม่ · กดปุ่มส่งเพื่อบันทึก)" className={`${inputCls} resize-y`} />
-                    <button type="button" onClick={() => postComment(cmtText, null)} disabled={posting || !cmtText.trim()} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#1B8C4B] px-3 py-2 text-sm font-medium text-white hover:bg-[#0F6A3C] disabled:opacity-50"><Send size={15} /> ส่ง</button>
+                  {/* อัพเดทงาน = สถานะ + วันคาดพ้นขั้น + ข้อความ พร้อมกันเสมอ (ข้อความลอย ๆ ไม่มีแล้ว) */}
+                  <div className="border-t border-[#EEF2F0] px-4 py-3 dark:border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => editRow && openUpdate(editRow)}
+                      disabled={!editRow || isDoneStatus(String(editRow?.status ?? ""))}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#7C3AED] px-3 py-2.5 text-[13.5px] font-semibold text-white transition hover:bg-[#6D28D9] disabled:opacity-40"
+                    >
+                      ✍️ อัพเดทงาน
+                    </button>
+                    <p className="mt-1.5 text-center text-[11px] leading-relaxed text-[#9AA8A0]">
+                      {editRow && isDoneStatus(String(editRow.status ?? ""))
+                        ? "ปิดงานแล้ว — อัพเดทเพิ่มไม่ได้"
+                        : "ทุกครั้งต้องบอก สถานะ + วันคาดพ้นขั้น + สิ่งที่เกิดขึ้น พร้อมกัน"}
+                    </p>
                   </div>
                 </section>
               )}
@@ -2917,6 +2891,18 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       )}
 
+      {/* ฟอร์มอัพเดทงาน — เปิดได้จากการ์ดบนบอร์ดและจากท้ายไทม์ไลน์ในโมดัล */}
+      {updRow && (
+        <RepairUpdateDialog
+          row={updRow}
+          onClose={() => setUpdRow(null)}
+          onDone={() => {
+            load(); loadStats(); loadAtmsBoard()
+            if (editId === updRow._id) { loadComments(updRow._id); loadLog(updRow); openById(updRow._id) }
+          }}
+          onFixFields={() => { setUpdRow(null); openEdit(updRow, true) }}
+        />
+      )}
 
     </div>
   )

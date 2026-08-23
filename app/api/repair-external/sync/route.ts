@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
     const ids = items.map((i) => String(i._id))
     const comments = await client.db(DB).collection(COMMENT_COLL)
       .find({ repairId: { $in: ids } })
-      .project({ repairId: 1, parentId: 1, text: 1, by: 1, at: 1, editedAt: 1 })
+      .project({ repairId: 1, parentId: 1, text: 1, by: 1, at: 1, editedAt: 1, kind: 1, status: 1, statusFrom: 1, stageEta: 1 })
       .sort({ at: 1 })
       .limit(2000)
       .toArray()
@@ -216,6 +216,26 @@ async function updateRecord(req: NextRequest, partial: boolean) {
   const statusSinceAt = statusChanged ? now.toISOString() : (existing.statusSinceAt ?? "")
   await col.updateOne({ _id }, { $set: { ...doc, statusSince, statusSinceAt, editedBy: by, updatedAt: now } })
 
+  // สถานะเปลี่ยนจากระบบภายนอก → เขียนข้อความอัพเดทให้อัตโนมัติ
+  // ฝั่งเว็บบังคับพิมพ์ข้อความทุกครั้งอยู่แล้ว ทางนี้บังคับไม่ได้ แต่ไทม์ไลน์ต้องไม่ขาดช่วง
+  let noteId: string | undefined
+  if (statusChanged) {
+    const sent = String(body.note ?? "").trim()
+    const inserted = await db.collection(COMMENT_COLL).insertOne({
+      repairId: id,
+      parentId: null,
+      kind:     "update",
+      text:     sent || `อัพเดทจากระบบภายนอก: ${existingStatus || "—"} → ${doc.status}`,
+      status:     doc.status,
+      statusFrom: existingStatus,
+      stageEta:   String(doc.stageEta ?? ""),
+      by:       by || "ระบบภายนอก",
+      byEmail:  "",
+      at:       now,
+    })
+    noteId = String(inserted.insertedId)
+  }
+
   if (changes.length > 0) {
     const sc = changes.find((c) => c.field === "status")
     await writeRepairLog(db, {
@@ -223,6 +243,7 @@ async function updateRecord(req: NextRequest, partial: boolean) {
       action: "update", by, byEmail: "", at: now,
       statusChange: sc ? { from: sc.from, to: sc.to } : undefined,
       changes,
+      noteId,
     })
   }
   return NextResponse.json({ ok: true, id, changed: changes.length, status: doc.status })

@@ -26,27 +26,14 @@ export async function GET(_req: NextRequest, { params }: Params) {
   )
 }
 
-// POST /api/repair-external/[id]/comment — เพิ่มความคิดเห็น { text, parentId? }
-export async function POST(req: NextRequest, { params }: Params) {
-  const { id } = await params
-  const body   = await req.json()
-  const text   = String(body.text ?? "").trim()
-  if (!text) return NextResponse.json({ error: "กรุณาพิมพ์ข้อความ" }, { status: 400 })
-
-  const session = await getServerSession(authOptions)
-  const client  = await clientPromise
-  const col     = client.db(DB).collection(COLL)
-
-  const doc = {
-    repairId: id,
-    parentId: body.parentId ? String(body.parentId) : null,
-    text,
-    by:      session?.user?.name  || "",
-    byEmail: session?.user?.email || "",
-    at:      new Date(),
-  }
-  const result = await col.insertOne(doc)
-  return NextResponse.json({ ...doc, _id: result.insertedId }, { status: 201 })
+// POST /api/repair-external/[id]/comment — ปิดแล้ว
+// ข้อความลอย ๆ ไม่มีอีก: ทุกข้อความต้องมาพร้อมสถานะ ผ่าน POST /api/repair-external/[id]/update
+// (คงเส้นทางไว้เพื่อบอกผู้เรียกเก่าให้ชัด แทนที่จะ 404 เฉย ๆ)
+export async function POST() {
+  return NextResponse.json(
+    { error: "ตอนนี้ต้องอัพเดทงานพร้อมสถานะ — ใช้ POST /api/repair-external/[id]/update" },
+    { status: 410 },
+  )
 }
 
 // หาความคิดเห็นพร้อมตรวจว่าคนที่เรียกเป็นเจ้าของ — คืน error response ถ้าไม่ผ่าน
