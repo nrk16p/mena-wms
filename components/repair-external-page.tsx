@@ -379,6 +379,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [comments, setComments]   = useState<Comment[]>([])
   const [cmtLoading, setCmtLoading] = useState(false)
   const [posting, setPosting]     = useState(false)
+  // เหตุผลที่บันทึกไม่สำเร็จ — ค้างไว้ท้ายโมดัล (popup เด้งแล้วหาย จับไม่ทันว่าทำไมโมดัลไม่ปิด)
+  const [saveErr, setSaveErr]     = useState<string | null>(null)
   // ฟอร์ม "อัพเดทงาน" — ทางเดียวที่สถานะจะเปลี่ยนได้ (สถานะ + วันคาด + ข้อความ พร้อมกัน)
   const [updRow, setUpdRow]       = useState<RepairExternal | null>(null)
 
@@ -659,6 +661,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const { _id, ...rest } = r
     setForm({ ...EMPTY, ...rest })
     setComments([])
+    setSaveErr(null)
     setAtmsTl(null); setAtmsTlErr("")
     loadComments(r._id)
     loadLog(r)
@@ -934,19 +937,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   }
 
   async function save() {
-    if (!form.plate.trim())  { swalError("กรุณาระบุทะเบียนรถ"); return }
-    if (!form.status)        { swalError("กรุณาเลือกสถานะ"); return }
+    setSaveErr(null)
+    const fail = (msg: string) => { setSaveErr(msg); swalError(msg) }
+    if (!form.plate.trim())  { fail("กรุณาระบุทะเบียนรถ"); return }
+    if (!form.status)        { fail("กรุณาเลือกสถานะ"); return }
     // ทุกครั้งที่เข้าสถานะใหม่ ต้องบอกว่าคาดจะพ้นขั้นนั้นเมื่อไหร่ (สถานะปิดงานไม่ต้อง)
     // ไม่บังคับตอนแก้ field อื่นโดยไม่แตะสถานะ — จะกวนคนที่แค่มาเติมเลข PR
     if (form.status !== origStatus) {
       const etaErr = validateStageEta(form.status, form.stageEta)
-      if (etaErr) { swalError(etaErr); return }
+      if (etaErr) { fail(etaErr); return }
     }
     // บังคับกรอกให้ครบ "เฉพาะตอนปิดงาน" (รถเสร็จ/ลงคันเสร็จ — สถานะกลางไม่มี PR/PO ได้)
     if (form.status === doneStatusFor(jobTypeOf(form))) {
       const missing = requiredFieldsFor(form.status, jobTypeOf(form)).filter((r) => !String(form[r.field] ?? "").trim())
       if (missing.length) {
-        swalError(`ปิดงานเป็น “${form.status}” ต้องกรอกให้ครบก่อน:\n${missing.map((m) => `• ${m.label}`).join("\n")}`)
+        fail(`ปิดงานเป็น “${form.status}” ต้องกรอกให้ครบก่อน: ${missing.map((m) => m.label).join(" · ")}`)
         return
       }
     }
@@ -981,11 +986,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         }
         planLinkRef.current = null
       }
-      setOpen(false)
       swalToast("success", editId ? "แก้ไขแล้ว" : "เพิ่มรายการแล้ว")
       load(); loadStats(); loadAtmsBoard()
+      if (editId) {
+        // อยู่ในใบเดิมต่อ — กลับไปโหมดดูข้อมูล พร้อมค่าล่าสุดจากเซิร์ฟเวอร์ + ไทม์ไลน์ใหม่
+        setViewOnly(true)
+        openById(editId)
+      } else {
+        setOpen(false)
+      }
     } catch (e) {
-      swalError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
+      fail(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
     } finally {
       setSaving(false)
     }
@@ -2803,6 +2814,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </div>
             </div>
 
+            {/* บันทึกไม่ผ่านเพราะอะไร — ค้างไว้จนกว่าจะกดบันทึกใหม่ */}
+            {saveErr && !viewOnly && (
+              <div className="flex items-start gap-2 border-t border-[#F7CFCF] bg-[#FEECEC] px-5 py-2.5 text-[12.5px] text-[#B42318] dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+                <span className="font-bold">บันทึกไม่สำเร็จ:</span>
+                <span className="min-w-0 flex-1">{saveErr}</span>
+                <button type="button" onClick={() => setSaveErr(null)} className="shrink-0 rounded p-0.5 hover:bg-red-100 dark:hover:bg-red-900/30"><X size={14} /></button>
+              </div>
+            )}
+
             {/* footer ตรึงล่าง — ลบได้จากที่นี่ที่เดียว (ตารางไม่มีปุ่มลบแล้ว) */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-3.5">
               <div>
@@ -2837,7 +2857,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           onClose={() => setUpdRow(null)}
           onDone={() => {
             load(); loadStats(); loadAtmsBoard()
-            if (editId === updRow._id) { loadComments(updRow._id); loadLog(updRow); openById(updRow._id) }
+            // เปิดใบเดิมค้างไว้ ดึงค่าล่าสุด + ไทม์ไลน์ที่มีอัพเดทเมื่อกี้ขึ้นมาให้ดูต่อได้
+            if (editId === updRow._id) openById(updRow._id)
           }}
           onFixFields={() => { setUpdRow(null); openEdit(updRow, true) }}
         />
