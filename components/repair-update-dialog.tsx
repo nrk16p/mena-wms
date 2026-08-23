@@ -60,6 +60,11 @@ export function RepairUpdateDialog({
     () => validateJobUpdate({ status, stageEta: eta, note, current: row }),
     [status, eta, note, row],
   )
+  // ปุ่มบันทึกไม่ถูกปิดเพราะ validate ไม่ผ่านอีกแล้ว — กดแล้วต้องได้เหตุผลเสมอ
+  // (ของเดิมปุ่มเทาเฉย ๆ คนใช้เลยไม่มีทางรู้ว่าปิดงานไม่ได้เพราะยังไม่มีรหัส PR)
+  const touched  = note.trim().length > 0 || status !== current || eta !== String(row.stageEta ?? "")
+  const shownErr = err ? { error: err, missing } : (touched && problem ? problem : null)
+
   const addDays = (n: number) => new Date(Date.parse(bkkToday()) + n * 86400000).toISOString().slice(0, 10)
 
   async function submit() {
@@ -195,17 +200,20 @@ export function RepairUpdateDialog({
             />
           </div>
 
-          {/* ข้อผิดพลาด */}
-          {err && (
-            <div className="rounded-xl border border-[#F7CFCF] bg-[#FEECEC] p-3 text-[12.5px] text-[#B42318] dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
-              {err}
-              {missing.length > 0 && onFixFields && (
+          {/* ทำไมยังบันทึกไม่ได้ — แดง = ที่ server ตีกลับ · เหลือง = เตือนล่วงหน้า */}
+          {shownErr && (
+            <div className={`rounded-xl border p-3 text-[12.5px] ${
+              err ? "border-[#F7CFCF] bg-[#FEECEC] text-[#B42318] dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300"
+                  : "border-[#F5D9A6] bg-[#FEF7E7] text-[#B07D12] dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+            }`}>
+              {shownErr.error}
+              {(shownErr.missing?.length ?? 0) > 0 && onFixFields && (
                 <button
                   type="button"
-                  onClick={() => { onFixFields(missing); onClose() }}
-                  className="mt-2 block rounded-lg bg-[#DC2626] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#B42318]"
+                  onClick={() => { onFixFields(shownErr.missing!); onClose() }}
+                  className="mt-2 block rounded-lg bg-[#7C3AED] px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-[#6D28D9]"
                 >
-                  ไปกรอกข้อมูลที่ขาด
+                  ไปกรอกข้อมูลที่ขาด ({shownErr.missing!.map((m) => m.label).join(" · ")})
                 </button>
               )}
             </div>
@@ -225,8 +233,7 @@ export function RepairUpdateDialog({
             </button>
             <button
               onClick={submit}
-              disabled={saving || !!problem}
-              title={problem?.error}
+              disabled={saving}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-50"
             >
               {saving ? <Loader2 size={15} className="animate-spin" /> : <MessageSquarePlus size={15} />}
