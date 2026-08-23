@@ -496,7 +496,7 @@ export function PrPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
+            {loading && !data ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-b border-[#F1F5F2] dark:border-white/5">
                   <td colSpan={10} className="px-4 py-3"><div className="h-4 w-full animate-pulse rounded bg-[#F0F4F1] dark:bg-white/5" /></td>
@@ -567,7 +567,7 @@ export function PrPage() {
 
       {/* Card list (mobile) */}
       <div className="mb-3 space-y-2 sm:hidden">
-        {loading ? (
+        {loading && !data ? (
           Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="h-24 animate-pulse rounded-2xl bg-[#F0F4F1] dark:bg-white/5" />
           ))
