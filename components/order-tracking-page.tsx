@@ -124,7 +124,7 @@ export function OrderTrackingPage() {
       return next
     })
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<OrderTracking[]> => {
     setLoading(true)
     try {
       const p = new URLSearchParams()
@@ -133,9 +133,12 @@ export function OrderTrackingPage() {
       if (fDept)   p.set("dept", fDept)
       const res  = await fetch(`/api/order-tracking?${p.toString()}`)
       const data = await res.json()
-      setRows(Array.isArray(data) ? data : [])
+      const list = Array.isArray(data) ? data : []
+      setRows(list)
+      return list
     } catch {
       swalError("โหลดข้อมูลไม่สำเร็จ")
+      return []
     } finally {
       setLoading(false)
     }
@@ -248,9 +251,14 @@ export function OrderTrackingPage() {
         .map((x) => (/^https?:\/\//i.test(x) ? x : `https://${x}`))
       const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, images: formImages, links }) })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "บันทึกไม่สำเร็จ") }
-      setOpen(false)
       swalToast("success", editId ? "แก้ไขแล้ว" : "เปิดเรื่องแล้ว")
-      load()
+      const list = await load()
+      if (editId) {
+        const fresh = list.find((x) => x._id === editId)
+        if (fresh) setCurrent(fresh)
+      } else {
+        setOpen(false)
+      }
     } catch (e) {
       swalError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
     } finally {
@@ -273,8 +281,10 @@ export function OrderTrackingPage() {
       })
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "รับเรื่องไม่สำเร็จ") }
       swalToast("success", "รับเรื่องแล้ว")
-      setOpen(false)
-      load()
+      // อยู่ที่เรื่องเดิมต่อ ไม่ปิดโมดัล/ไม่ดีดกลับหัวรายการ — จัดซื้อมักทำงานต่อทันที
+      const list  = await load()
+      const fresh = list.find((x) => x._id === r._id)
+      if (fresh && editId === r._id) setCurrent(fresh)
     } catch (e) {
       swalError(e instanceof Error ? e.message : "รับเรื่องไม่สำเร็จ")
     }
@@ -420,7 +430,7 @@ export function OrderTrackingPage() {
           <div className="sticky top-0 z-10 grid gap-3 border-b border-[#EEF2F0] dark:border-white/8 bg-[#F6FAF7] dark:bg-[#1a1f16] px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-wide text-[#9AA8A0]" style={{ gridTemplateColumns: TABLE_GRID }}>
             <div>อายุเรื่อง</div><div>เรื่องที่ขอ</div><div>ผู้ขอ</div><div>PR / PO</div><div>จัดซื้อ</div><div>สถานะ</div><div className="text-center">จัดการ</div>
           </div>
-          {loading ? (
+          {loading && rows.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-gray-400">กำลังโหลด...</div>
           ) : rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
@@ -602,7 +612,7 @@ export function OrderTrackingPage() {
 
       {/* ── Mobile: การ์ดแนวตั้ง (จอ < md) — ไม่ต้อง scroll แนวนอน ── */}
       <div className="space-y-2.5 md:hidden">
-        {loading ? (
+        {loading && rows.length === 0 ? (
           <div className="rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-12 text-center text-sm text-gray-400">กำลังโหลด...</div>
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-[16px] border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] px-4 py-14 text-center">
