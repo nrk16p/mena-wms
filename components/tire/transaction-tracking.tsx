@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import Swal from "sweetalert2"
 import {
   ArrowDown, ArrowUp, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
-  Clock, Copy, FilePlus2, FileSpreadsheet, Flag, Inbox, ListFilter, Lock, RefreshCw, Search, X,
+  Clock, Copy, FilePlus2, FileSpreadsheet, Flag, Inbox, ListFilter, Lock, RefreshCw, Search, Tag, X,
 } from "lucide-react"
 import { bkkToday } from "@/lib/bkk-time"
 import {
@@ -246,6 +246,30 @@ function toRows(requests: TireRequest[]): TxRow[] {
   return rows.sort((a, b) => (timeOf(b.createdAt) || 0) - (timeOf(a.createdAt) || 0))
 }
 
+/**
+ * ติ๊กเลือกแถวนี้เพื่อทำรายการพร้อมกันได้ไหม — คืนเหตุผลถ้าไม่ได้ (แสดงเป็น tooltip)
+ * ปิดไว้แค่เส้นที่ไม่มีอะไรให้ทำต่อจริง ๆ (ปฏิเสธไปแล้ว / ติดทางตัน) ส่วนเส้นที่เหลือ
+ * (รออนุมัติ, อนุมัติแล้ว, นัดหมายแล้ว, ปิดงานแล้ว) เลือกได้เสมอ — แถบรวมจะโชว์เฉพาะปุ่มที่
+ * ใช้ได้จริงกับกลุ่มที่เลือกไว้ (ดู canBulkApprove / canBulkReject / canBulkEditJob)
+ */
+function selectReason(row: TxRow): string {
+  if (row.blocked) return "ติดทางตัน — ต้องแยกเป็นคำขอใหม่ก่อน"
+  if (row.stage === "rejected") return "ปฏิเสธไปแล้ว — ไม่มีอะไรให้ทำต่อ"
+  return ""
+}
+
+/** เกณฑ์ของแต่ละปุ่มในแถบรวม — แยกจาก selectReason() เพราะ "เลือกได้" กับ "ทำปุ่มนี้ได้" ไม่ใช่เรื่องเดียวกัน */
+const canBulkApprove = (r: TxRow) => r.canDecide
+/** ปฏิเสธพร้อมกันได้ทั้งเส้นที่ยังไม่ตัดสินและเส้นที่อนุมัติแล้วแต่ยังไม่ลงวันนัด (ตรงกับ reject() รายแถว) */
+const canBulkReject  = (r: TxRow) => r.canDecide || r.stage === "approved"
+/** ใส่/แก้เลข Job ได้ตั้งแต่อนุมัติแล้วจนถึงปิดงานแล้ว (ตรงกับเงื่อนไข action "editJob" ฝั่ง API) */
+const canBulkEditJob = (r: TxRow) => {
+  const st = r.item.status ?? "pending"
+  return st === "approved" || st === "done"
+}
+/** ปิดงานได้เฉพาะเส้นที่นัดหมายแล้ว (stage "appointment" = อนุมัติแล้ว + มีวันนัด ตรงกับเงื่อนไข action "done") */
+const canBulkMarkDone = (r: TxRow) => r.stage === "appointment"
+
 const matchesQuery = (row: TxRow, q: string) => {
   if (!q) return true
   const hay = [
@@ -411,6 +435,9 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   const [appointTarget, setAppointTarget] = useState<{ row: TxRow } | null>(null)
   const [exporting, setExporting] = useState(false)
 
+  // ติ๊กเลือกหลายแถวเพื่อทำรายการพร้อมกัน — คีย์เดียวกับ row.key (คงอยู่ข้ามหน้าได้)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
   // MR ของยางสาเหตุ "รถกินยาง" — key = "สาขา|ทะเบียน" (ทะเบียนซ้ำข้ามสาขาได้)
   // undefined = ยังไม่ได้เช็ค, null = ยังไม่มีใบ
   const [mrMap, setMrMap] = useState<Record<string, MrSummary | null>>({})
@@ -510,6 +537,35 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   const current = Math.min(page, pageCount)
   const sliceFrom = (current - 1) * perPage
   const pageRows = rows.slice(sliceFrom, sliceFrom + perPage)
+
+  /* ------------------------------------------------------------- ติ๊กเลือกหลายแถว */
+
+  // แถวที่เลือกไว้ — อิงจาก rows (ทุกหน้าที่กรอง/เรียงอยู่ตอนนี้) การเลือกจึงข้ามหน้าได้
+  // คีย์ที่หายไปจากชุดข้อมูล (โหลดใหม่/แยกใบ) จะไม่ถูกกรองเข้ามาที่นี่เอง ไม่ต้องคอยเก็บกวาด selected เอง
+  const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.key)), [rows, selected])
+
+  // แบ่งกลุ่มที่เลือกไว้ตามปุ่มที่ทำได้จริง — ใช้ทั้งโชว์/ซ่อนปุ่มและเป็นชุดที่ยิงจริงตอนกด
+  const approveTargets = useMemo(() => selectedRows.filter(canBulkApprove), [selectedRows])
+  const rejectTargets  = useMemo(() => selectedRows.filter(canBulkReject), [selectedRows])
+  const editJobTargets = useMemo(() => selectedRows.filter(canBulkEditJob), [selectedRows])
+  const doneTargets    = useMemo(() => selectedRows.filter(canBulkMarkDone), [selectedRows])
+
+  const toggleSelect = (key: string) => setSelected((prev) => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    return next
+  })
+
+  // "เลือกทั้งหมด" หมายถึงทุกแถวที่เลือกได้ในหน้าปัจจุบัน ไม่ใช่ทุกแถวที่กรองอยู่ — ตรงกับที่ตาเห็น
+  const pageSelectableKeys = pageRows.filter((r) => !selectReason(r)).map((r) => r.key)
+  const allPageSelected = pageSelectableKeys.length > 0 && pageSelectableKeys.every((k) => selected.has(k))
+  const somePageSelected = pageSelectableKeys.some((k) => selected.has(k))
+  const toggleAllPage = () => setSelected((prev) => {
+    const next = new Set(prev)
+    const allOn = pageSelectableKeys.length > 0 && pageSelectableKeys.every((k) => next.has(k))
+    pageSelectableKeys.forEach((k) => (allOn ? next.delete(k) : next.add(k)))
+    return next
+  })
 
   /**
    * โหลดสถานะ MR ของแถว "รถกินยาง" ที่อยู่ในหน้าปัจจุบัน — ยิงรวมทีเดียวต่อสาขา
@@ -763,21 +819,160 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
     itemPatch(row, { action: "approve", jobNo: String(jobNo).trim() }, `อนุมัติ ${row.item.positionCode || row.item.serialNo} แล้ว`)
   }
 
+  /** ปฏิเสธ — ใช้ได้ทั้งเส้นที่ยังไม่ตัดสิน และเส้นที่อนุมัติแล้วแต่เปลี่ยนใจ (ดู route.ts)
+   *  ไม่ใช้กับเส้นที่ลงวันนัดแล้ว — พ้นขั้นนัดหมายไปแล้วให้ปิดงานหรือแก้ไขนัดแทน ไม่ใช่ยกเลิกทั้งเส้น */
   async function reject(row: TxRow) {
+    const wasApproved = row.stage === "approved"
     const { value, isConfirmed } = await Swal.fire<string>({
-      title: "ปฏิเสธยางเส้นนี้?",
-      html: `<code style="font-size:0.8rem;opacity:0.65">${tireLabel(row)}</code>`,
+      title: wasApproved ? "ยกเลิกการอนุมัติยางเส้นนี้?" : "ปฏิเสธยางเส้นนี้?",
+      html: `<code style="font-size:0.8rem;opacity:0.65">${tireLabel(row)}</code>`
+        + (wasApproved
+          ? `<div style="font-size:0.8rem;margin-top:6px;opacity:0.75">เส้นนี้อนุมัติไปแล้ว — ยกเลิกจะเปลี่ยนเป็น "ปฏิเสธ"</div>`
+          : ""),
       input: "textarea",
-      inputLabel: "เหตุผลการปฏิเสธ (ไม่บังคับ)",
+      inputLabel: wasApproved ? "เหตุผลที่ยกเลิก (ไม่บังคับ)" : "เหตุผลการปฏิเสธ (ไม่บังคับ)",
       inputAttributes: { rows: "3" },
       showCancelButton: true,
-      confirmButtonText: "ยืนยันปฏิเสธ",
+      confirmButtonText: wasApproved ? "ยืนยันยกเลิกอนุมัติ" : "ยืนยันปฏิเสธ",
       confirmButtonColor: "#dc2626",
       cancelButtonText: "ยกเลิก",
       reverseButtons: true,
     })
     if (!isConfirmed) return
-    itemPatch(row, { action: "reject", reason: value ?? "" }, `ปฏิเสธ ${row.item.positionCode || row.item.serialNo} แล้ว`)
+    itemPatch(
+      row,
+      { action: "reject", reason: value ?? "" },
+      wasApproved
+        ? `ยกเลิกอนุมัติ ${row.item.positionCode || row.item.serialNo} แล้ว`
+        : `ปฏิเสธ ${row.item.positionCode || row.item.serialNo} แล้ว`,
+    )
+  }
+
+  /**
+   * ทำรายการหลายแถวพร้อมกัน — ยิงทีละใบผ่าน endpoint เดิม (ไม่เพิ่ม endpoint ใหม่)
+   * ทำทีละใบไม่ใช่ Promise.all เพื่อให้ใบที่พลาดไม่ลากใบอื่นในชุดล้มตาม และรู้ได้ว่าสำเร็จกี่ใบ
+   */
+  async function runBulk(targets: TxRow[], body: Record<string, unknown>, verb: string) {
+    setActing(true)
+    const failed: string[] = []
+    for (const row of targets) {
+      const ok = await fetch(`/api/tire-change-request/${row.request._id}/items/${row.item._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then((res) => res.ok).catch(() => false)
+      if (!ok) failed.push(row.item.positionCode || row.item.serialNo || row.plate)
+    }
+    setActing(false)
+    setSelected(new Set())
+    const okCount = targets.length - failed.length
+    if (failed.length === 0) {
+      swalToast("success", `${verb} ${okCount} รายการแล้ว`)
+    } else if (okCount > 0) {
+      swalError(`${verb}สำเร็จ ${okCount} จาก ${targets.length} รายการ — ไม่สำเร็จ: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""}`)
+    } else {
+      swalError(`${verb}ไม่สำเร็จทั้งหมด`)
+    }
+    load(); onChanged()
+  }
+
+  /** อนุมัติหลายเส้นพร้อมกัน — ใช้เลข Job เดียวกันทุกเส้น, เส้น "รถกินยาง" ที่ยังไม่ปิด MR ถูกข้าม */
+  async function bulkApprove() {
+    const targets = approveTargets
+    if (!targets.length) return
+
+    const checks = await Promise.all(targets.map(async (row) => {
+      if (row.item.reason !== "รถกินยาง") return { row, ok: true }
+      const mr = await reloadMr(row.branch, row.plate)
+      return { row, ok: !!mr && mr.status === "completed" }
+    }))
+    const ready = checks.filter((c) => c.ok).map((c) => c.row)
+    const skipped = checks.length - ready.length
+
+    if (!ready.length) {
+      swalError(`ยางที่เลือกทั้งหมดติดเงื่อนไข MR "รถกินยาง" — ต้องปิด MR ก่อนจึงจะอนุมัติได้`)
+      return
+    }
+
+    const { value: jobNo, isConfirmed } = await Swal.fire<string>({
+      title: `อนุมัติ ${ready.length} รายการที่เลือก?`,
+      html:
+        (skipped ? `<div style="font-size:0.8rem;color:#dc2626;margin-bottom:6px">ข้าม ${skipped} รายการที่ยังไม่ปิด MR (รถกินยาง)</div>` : "")
+        + `<div style="font-size:0.82rem;opacity:0.75">ใช้เลข Job เดียวกันทุกรายการที่เลือก</div>`,
+      input: "text",
+      inputLabel: "เลข Job",
+      inputPlaceholder: "ระบุเลข Job",
+      inputValidator: (value) => (!value || !value.trim() ? "กรุณากรอกเลข Job" : undefined),
+      showCancelButton: true,
+      confirmButtonText: "อนุมัติทั้งหมด",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    })
+    if (!isConfirmed || !jobNo) return
+    await runBulk(ready, { action: "approve", jobNo: String(jobNo).trim() }, "อนุมัติ")
+  }
+
+  /** ปฏิเสธ/ยกเลิกอนุมัติหลายเส้นพร้อมกัน — ใช้เหตุผลเดียวกันทุกเส้น (route.ts รองรับทั้งเส้น pending และ approved) */
+  async function bulkReject() {
+    const targets = rejectTargets
+    if (!targets.length) return
+    const anyApproved = targets.some((r) => r.stage === "approved")
+
+    const { value, isConfirmed } = await Swal.fire<string>({
+      title: `${anyApproved ? "ปฏิเสธ / ยกเลิกอนุมัติ" : "ปฏิเสธ"} ${targets.length} รายการที่เลือก?`,
+      html: anyApproved
+        ? `<div style="font-size:0.8rem;opacity:0.75">มีบางรายการที่อนุมัติไปแล้ว — จะเปลี่ยนเป็น "ปฏิเสธ"</div>`
+        : "",
+      input: "textarea",
+      inputLabel: "เหตุผล (ไม่บังคับ, ใช้เหตุผลเดียวกันทุกรายการ)",
+      inputAttributes: { rows: "3" },
+      showCancelButton: true,
+      confirmButtonText: "ยืนยัน",
+      confirmButtonColor: "#dc2626",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    })
+    if (!isConfirmed) return
+    await runBulk(targets, { action: "reject", reason: value ?? "" }, "ปฏิเสธ")
+  }
+
+  /**
+   * ใส่/แก้ไขเลข Job หลายเส้นพร้อมกัน — ใช้เลขเดียวกันทุกเส้นที่เลือก
+   * เขียนทับเลขเดิมของเส้นที่มีอยู่แล้วด้วย (นี่คือ "แก้ไข" ไม่ใช่แค่ "เติมช่องว่าง")
+   */
+  async function bulkEditJob() {
+    const targets = editJobTargets
+    if (!targets.length) return
+    const existing = targets.filter((r) => r.item.jobNo).length
+
+    const { value: jobNo, isConfirmed } = await Swal.fire<string>({
+      title: `ระบุเลข Job ${targets.length} รายการที่เลือก?`,
+      html:
+        (existing ? `<div style="font-size:0.8rem;color:#dc2626;margin-bottom:6px">${existing} รายการมีเลข Job อยู่แล้ว — จะถูกเขียนทับด้วยเลขใหม่</div>` : "")
+        + `<div style="font-size:0.82rem;opacity:0.75">ใช้เลข Job เดียวกันทุกรายการที่เลือก</div>`,
+      input: "text",
+      inputLabel: "เลข Job",
+      inputPlaceholder: "ระบุเลข Job",
+      inputValidator: (value) => (!value || !value.trim() ? "กรุณากรอกเลข Job" : undefined),
+      showCancelButton: true,
+      confirmButtonText: "บันทึกทั้งหมด",
+      cancelButtonText: "ยกเลิก",
+      reverseButtons: true,
+    })
+    if (!isConfirmed || !jobNo) return
+    await runBulk(targets, { action: "editJob", jobNo: String(jobNo).trim() }, "อัปเดตเลข Job")
+  }
+
+  /** ปิดงานหลายเส้นพร้อมกัน — ใช้ได้เฉพาะเส้นที่นัดหมายแล้ว (ดู canBulkMarkDone) */
+  async function bulkMarkDone() {
+    const targets = doneTargets
+    if (!targets.length) return
+    const result = await swalConfirm(
+      `ปิดงาน ${targets.length} รายการที่เลือก?`,
+      "ยืนยันว่าเปลี่ยนยางตามนัดของทุกรายการที่เลือกเรียบร้อยแล้ว",
+    )
+    if (!result.isConfirmed) return
+    await runBulk(targets, { action: "done" }, "ปิดงาน")
   }
 
   async function editJob(row: TxRow) {
@@ -979,11 +1174,67 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
         ))}
       </div>
 
+      {/* ── แถบทำรายการพร้อมกัน — โผล่เฉพาะตอนมีการติ๊กเลือก ไม่กินที่ตอนใช้งานปกติ ── */}
+      {selectedRows.length > 0 && (
+        <div className="sticky top-2 z-30 mb-2.5 flex flex-wrap items-center gap-2.5 rounded-2xl border border-[#1B8C4B]/25 bg-[#EAF7EF]/95 px-4 py-2.5 backdrop-blur dark:border-[#1B8C4B]/40 dark:bg-[#132018]/90">
+          <span className="text-[13px] font-medium text-[#14271C] dark:text-white" style={fontThai}>
+            เลือกไว้ {selectedRows.length} รายการ
+          </span>
+          {approveTargets.length > 0 && (
+            <button type="button" disabled={acting} onClick={bulkApprove}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-[10px] bg-green-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={fontThai}>
+              <Check size={12} /> อนุมัติที่เลือก ({approveTargets.length})
+            </button>
+          )}
+          {rejectTargets.length > 0 && (
+            <button type="button" disabled={acting} onClick={bulkReject}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-[10px] bg-red-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={fontThai}>
+              <X size={12} /> {rejectTargets.every((r) => r.canDecide) ? "ปฏิเสธที่เลือก" : "ปฏิเสธ/ยกเลิกอนุมัติที่เลือก"} ({rejectTargets.length})
+            </button>
+          )}
+          {editJobTargets.length > 0 && (
+            <button type="button" disabled={acting} onClick={bulkEditJob}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-[10px] border border-[#1B8C4B]/40 bg-white px-3 py-1.5 text-[12px] font-semibold text-[#14271C] transition-colors hover:bg-[#F0FDF4] disabled:opacity-50 dark:border-[#1B8C4B]/40 dark:bg-transparent dark:text-white dark:hover:bg-white/5"
+              style={fontThai}>
+              <Tag size={12} /> ระบุ/แก้ไขเลข Job ({editJobTargets.length})
+            </button>
+          )}
+          {doneTargets.length > 0 && (
+            <button type="button" disabled={acting} onClick={bulkMarkDone}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-[10px] bg-[#1B8C4B] px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={fontThai}>
+              <Flag size={12} /> ปิดงานที่เลือก ({doneTargets.length})
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="ml-auto cursor-pointer text-[12px] text-[#6B7C72] underline-offset-4 transition-colors hover:text-[#14271C] hover:underline dark:text-gray-400 dark:hover:text-white"
+            style={fontThai}
+          >
+            ล้างการเลือก
+          </button>
+        </div>
+      )}
+
       {/* ── ตาราง (จอ ≥md) ── */}
       <div className={card + " hidden overflow-x-auto md:block"}>
         <table className="w-full text-sm">
           <thead>
             <tr className={txTheadCls}>
+              <th className={txThCls + " w-9"}>
+                <input
+                  ref={(el) => { if (el) el.indeterminate = somePageSelected && !allPageSelected }}
+                  type="checkbox"
+                  checked={allPageSelected}
+                  onChange={toggleAllPage}
+                  disabled={pageSelectableKeys.length === 0}
+                  title="เลือกทุกแถวที่ทำรายการได้ในหน้านี้"
+                  className="h-4 w-4 cursor-pointer accent-[#1B8C4B] disabled:opacity-30"
+                />
+              </th>
               <ColHead ctx={headCtx} label="อายุคำขอ" width="w-24"
                 sortKey="age" sortLabels={["ใหม่สุดก่อน", "ค้างนานสุดก่อน"]} />
               <ColHead ctx={headCtx} label="ผู้แจ้ง / ทะเบียน" width="w-42"
@@ -1006,12 +1257,12 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={10} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
+              <tr><td colSpan={11} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
                 <RefreshCw size={18} className="mx-auto mb-2 animate-spin text-gray-300 dark:text-gray-600" />
                 กำลังโหลด...
               </td></tr>
             ) : pageRows.length === 0 ? (
-              <tr><td colSpan={10}>
+              <tr><td colSpan={11}>
                 <Empty
                   hint={filtered ? "ลองปรับคำค้นหรือล้างตัวกรอง" : "ยังไม่มีคำขอเปลี่ยนยางในระบบ"}
                   onClear={filtered ? clearFilters : undefined}
@@ -1030,6 +1281,18 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                     : (i % 2 === 1 ? "bg-gray-50/50 dark:bg-white/1 " : "") + "hover:bg-[#F0FDF4] dark:hover:bg-white/4",
                 ].join(" ")}
               >
+                {/* ── ติ๊กเลือกทำรายการพร้อมกัน — ปิดไว้เฉพาะเส้นที่จบทาง/ติดทางตันแล้ว ── */}
+                <td className={txTdCls} onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(row.key)}
+                    disabled={Boolean(selectReason(row))}
+                    onChange={() => toggleSelect(row.key)}
+                    title={selectReason(row) || "เลือกเพื่อทำรายการพร้อมกัน"}
+                    className="h-4 w-4 cursor-pointer accent-[#1B8C4B] disabled:opacity-30"
+                  />
+                </td>
+
                 {/* ── อายุคำขอ: ตัวเลขวันเป็นตัวเด่น วันที่แจ้งเป็นบรรทัดรอง ── */}
                 <td className={txTdCls}>
                   <span className={`block text-[17px] leading-none font-bold ${row.stuck ? "text-red-600 dark:text-red-400" : "text-[#14271C] dark:text-white"}`}>
@@ -1202,6 +1465,16 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
           >
             <div className="flex items-start justify-between gap-2">
               <span className="flex flex-wrap items-center gap-1.5">
+                {!selectReason(row) && (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(row.key)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => toggleSelect(row.key)}
+                    title="เลือกเพื่อทำรายการพร้อมกัน"
+                    className="h-4 w-4 cursor-pointer accent-[#1B8C4B]"
+                  />
+                )}
                 <span className="font-mono text-[14px] font-bold text-[#14271C] dark:text-white">{row.plate}</span>
                 {row.blocked && <BlockedBadge />}
                 <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${branchChipCls(row.branch)}`} style={fontThai}>
@@ -1748,6 +2021,16 @@ function RowActions({ row, acting, approve, reject, editJob, appoint, markDone, 
       <button key="appt" disabled={acting} onClick={() => appoint(row)}
         className={btnSmall + " inline-flex cursor-pointer items-center gap-1 bg-purple-600 text-white"} style={fontThai}>
         <CalendarClock size={11} /> {row.appointment ? "แก้ไขนัด" : "นัดหมาย"}
+      </button>,
+    )
+  }
+
+  {/* เผื่อกรณีอนุมัติแล้วยังอยากยกเลิก — เฉพาะก่อนลงวันนัด กดครั้งเดียวจบ (เปลี่ยนเป็น "ปฏิเสธ" ทันที) */}
+  if (row.stage === "approved") {
+    btns.push(
+      <button key="cancel" disabled={acting} onClick={() => reject(row)}
+        className={btnSmall + " inline-flex cursor-pointer items-center gap-1 bg-red-600 text-white"} style={fontThai}>
+        <X size={11} /> ปฏิเสธ
       </button>,
     )
   }

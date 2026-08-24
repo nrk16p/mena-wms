@@ -209,14 +209,38 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true, itemStatus: "done", requestStatus })
   }
 
-  if (reqStatus === "appointment" || reqStatus === "done") {
+  const targetStatus = target.status ?? "pending"
+
+  /**
+   * ปฏิเสธหลังอนุมัติไปแล้ว — เผื่อกรณีเปลี่ยนใจ (อนุมัติผิด/แผนงานเปลี่ยน) แต่ทำได้แค่ "ก่อน" ลงวันนัด
+   * เท่านั้น พอนัดหมายแล้วถือว่าเดินหน้าไปอีกขั้น ต้องปิดงานหรือแก้ไขวันนัดแทน ไม่ใช่ยกเลิกทั้งเส้น
+   * ต่างจากเส้นที่ยัง "pending": เส้นนั้นยังกินกฎเดิม (บล็อกถ้าทั้งใบเลยขั้น pending ไปแล้ว
+   * ต้องแยกใบก่อน — ดู action "split") เพราะเส้น approved ไม่มีทางตันแบบนั้นให้ต้องเลี่ยง
+   */
+  if (action === "reject") {
+    if (targetStatus === "done") {
+      return NextResponse.json({ error: "ปฏิเสธไม่ได้ — ยางเส้นนี้ปิดงานไปแล้ว" }, { status: 409 })
+    }
+    if (targetStatus === "rejected") {
+      return NextResponse.json({ error: "ยางเส้นนี้ถูกปฏิเสธไปแล้ว" }, { status: 409 })
+    }
+    if (targetStatus === "approved" && itemAppointment(items, target, doc.appointmentDate)) {
+      return NextResponse.json({ error: "นัดหมายไปแล้ว — ยกเลิกอนุมัติไม่ได้ กรุณาปิดงานหรือแก้ไขวันนัดแทน" }, { status: 409 })
+    }
+    if (targetStatus === "pending" && (reqStatus === "appointment" || reqStatus === "done")) {
+      return NextResponse.json({ error: `แก้ไขไม่ได้ — คำขออยู่สถานะ ${reqStatus} แล้ว` }, { status: 409 })
+    }
+  } else if (reqStatus === "appointment" || reqStatus === "done") {
     return NextResponse.json({ error: `แก้ไขไม่ได้ — คำขออยู่สถานะ ${reqStatus} แล้ว` }, { status: 409 })
   }
 
-  const itemSet =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const itemSet: Record<string, any> =
     action === "approve"
       ? { "items.$.status": "approved", "items.$.approvedBy": by, "items.$.approvedAt": now, "items.$.jobNo": jobNo }
       : { "items.$.status": "rejected", "items.$.rejectedBy": by, "items.$.rejectedAt": now, "items.$.rejectReason": String(body.reason ?? "") }
+  // ยกเลิกอนุมัติที่นัดวันไว้แล้ว — ล้างวันนัดทิ้งด้วย ไม่งั้นเส้นที่ปฏิเสธจะยังโชว์วันนัดค้างอยู่
+  if (action === "reject" && targetStatus === "approved") itemSet["items.$.appointmentDate"] = null
 
   await col.updateOne(
     { _id: new ObjectId(id), "items._id": new ObjectId(itemId) },
@@ -226,7 +250,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // สถานะใบคิดใหม่จากยางทุกเส้น — เส้นที่เหลือมีวันนัดครบอยู่แล้วจะกลับเป็น appointment เอง
   // ไม่ต้องให้คนกดนัดหมายซ้ำเพียงเพื่อปลดล็อกปุ่มปิดงาน
   const nextItems = items.map((it) =>
-    String(it._id) === itemId ? { ...it, status: action === "approve" ? "approved" : "rejected" } : it
+    String(it._id) === itemId
+      ? { ...it, status: action === "approve" ? "approved" : "rejected", appointmentDate: action === "reject" ? null : it.appointmentDate }
+      : it
   )
   const newStatus = rollupRequestStatus(nextItems, doc.appointmentDate)
 
