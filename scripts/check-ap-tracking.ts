@@ -6,7 +6,7 @@ import {
   isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, docChecked, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS, thaiDateTime,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
-  apDocLabel, apItemKeys, apItemsDone, apFilesByDoc, upcomingThursdays, addDays,
+  apDocLabel, apItemKeys, apItemsDone, apItemVerification, apFilesByDoc, upcomingThursdays, addDays,
   apStage, apStageMeta, AP_STAGES, apTimeline,
   apUrgency, needsAccountingReview,
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
@@ -350,6 +350,55 @@ assert.equal(apItemsDone(["S16CSE0021"], items), 1)
 assert.equal(apItemsDone([], items), 0)
 assert.equal(apItemsDone(["ไม่มีในนี้"], items), 0)
 assert.equal(apItemsDone(["S16CSE0021"], undefined), 0, "ใบที่ยังไม่เคยติ๊กเลย = 0 ไม่ใช่พัง")
+
+// --- ตรวจรายการสินค้ากับ ATMS (แทนการติ๊กหลักฐานด้วยมือ) ---
+{
+  const it = (total: string, scraped_at?: string) => ({ total, scraped_at })
+  // เคสจริง LBDD26080471 ก่อนแก้: ราคาน้ำกลั่นค้างที่ 8.00 → รายการรวม 3,510 แต่หัวใบ 3,750
+  const bad = apItemVerification([it("960.00"), it("1,450.00"), it("1,100.00")], "3,750.00")
+  assert.equal(bad.amountOk, false)
+  assert.equal(bad.okCount, 0)
+  assert.deepEqual(bad.rows.map((r) => r.state), ["mismatch", "mismatch", "mismatch"])
+  assert.match(bad.warning, /ไม่ตรงยอดใบ/)
+  assert.equal(bad.itemsTotal, 3510)
+
+  // หลัง re-sync: 1,200 + 1,450 + 1,100 = 3,750 ตรงยอดใบ
+  const good = apItemVerification(
+    [it("1,200.00", "2026-08-24T02:12:00.000Z"), it("1,450.00", "2026-08-24T02:12:00.000Z"), it("1,100.00")],
+    "3,750.00")
+  assert.equal(good.amountOk, true)
+  assert.equal(good.okCount, 3)
+  assert.deepEqual(good.rows.map((r) => r.state), ["ok", "ok", "ok"])
+  assert.equal(good.warning, "")
+  assert.equal(good.checkedAt, "2026-08-24T02:12:00.000Z", "ใช้เวลาตรวจล่าสุดในใบ")
+
+  // ของที่ดึงมาก่อนมีฟิลด์ scraped_at (31,828 แถวในฐาน) — ยอดตรงก็ถือว่าตรง แค่ไม่รู้เวลา
+  const noTime = apItemVerification([it("100.00")], "100.00")
+  assert.equal(noTime.amountOk, true)
+  assert.equal(noTime.checkedAt, "", "ไม่มี scraped_at = ไม่รู้เวลา ไม่ใช่ผิด")
+
+  // ATMS ปัดเศษ "รวม" ทีละบรรทัด — ใบหลายสิบบรรทัดเพี้ยนระดับสตางค์ ห้ามเตือน (วัดจริงสูงสุด 0.03)
+  const rounding = apItemVerification(Array.from({ length: 39 }, () => it("1,000.00")), "39,000.03")
+  assert.equal(rounding.amountOk, true, "ต่าง 0.03 บาทที่ 39 บรรทัด = การปัดเศษ ไม่ใช่ข้อมูลผิด")
+  // แต่ส่วนต่างจริงต้องไม่รอด แม้จะเป็นใบยาว
+  assert.equal(apItemVerification(Array.from({ length: 39 }, () => it("1,000.00")), "39,240.00").amountOk, false)
+
+  // ใบคืนสต็อกไม่มียอดหัวใบ (3,057 ใบในฐาน) — เทียบไม่ได้ อย่าขึ้นเตือน
+  const noHead = apItemVerification([it("500.00")], "")
+  assert.equal(noHead.hasChecksum, false)
+  assert.equal(noHead.amountOk, true)
+  assert.equal(noHead.warning, "")
+
+  // ใบที่มียอดแต่รายการยังไม่ถูกดึงมาเลย — ต้องบอกว่ายังไม่ได้ดึง ไม่ใช่เงียบ
+  const empty = apItemVerification([], "3,750.00")
+  assert.equal(empty.total, 0)
+  assert.match(empty.warning, /ยังไม่ได้ดึงจาก ATMS/)
+  assert.deepEqual(apItemVerification([], "").warning, "", "ไม่มีทั้งยอดและรายการ = ไม่มีอะไรให้เตือน")
+
+  // scraped_at ที่มาจาก Mongo เป็น Date object ไม่ใช่ string
+  const asDate = apItemVerification([{ total: "100.00", scraped_at: new Date("2026-08-24T02:12:00.000Z") }], "100.00")
+  assert.equal(asDate.checkedAt, "2026-08-24T02:12:00.000Z", "รับ Date จาก Mongo ได้ ไม่ใช่แค่ string")
+}
 
 // --- ไฟล์แนบแยกตามประเภทเอกสาร ---
 const f = (docType: string): ApFile =>

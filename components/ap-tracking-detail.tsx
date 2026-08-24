@@ -7,7 +7,7 @@ import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, payThursday, payThursdayChoices,
-  apDocLabel, apFilesByDoc, apItemKeys, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
+  apDocLabel, apFilesByDoc, apItemVerification, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingThursdays,
@@ -22,7 +22,8 @@ import { isAccounting } from "@/lib/roles"
 import { NUM, baht, mitr } from "@/components/ap-style"
 import type { ApPay, ApRow } from "@/components/ap-types"
 
-type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string }
+type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string;
+  scraped_at?: string }
 type LogEntry = { action?: string; field?: string; detail?: string; by?: string; at?: string }
 type Detail = {
   tracking: ({ log?: LogEntry[]; items?: ApItems; files?: ApFile[]; review?: ApReview; note?: string; pay?: ApPay | null }
@@ -117,8 +118,6 @@ export function ApTrackingDetail({
   // เลขที่เอกสารเก็บเป็นชุดต่อช่อง (4 ช่อง) — ช่องไหนไม่เคยกรอกก็ยังมีคีย์เป็น [] เสมอ
   const [savedNos, setSavedNos]     = useState<ApDocNos>(() => readDocNos(null))
   const [nos, setNos]               = useState<ApDocNos>(() => readDocNos(null))
-  const [savedItems, setSavedItems] = useState<ApItems>({})
-  const [itemDraft, setItemDraft]   = useState<Record<string, boolean>>({})
   const [savedFiles, setSavedFiles] = useState<ApFile[]>([])
   const [files, setFiles]           = useState<ApFile[]>([])
   const [savedReview, setSavedReview] = useState<ApReview>({ status: "", note: "" })
@@ -142,10 +141,6 @@ export function ApTrackingDetail({
     () => AP_DOC_FIELDS.map((f) => f.key).filter((k) => draft[k] !== docChecked(saved, k)),
     [draft, saved],
   )
-  const itemsChanged = useMemo(
-    () => Object.keys(itemDraft).filter((k) => itemDraft[k] !== Boolean(savedItems[k]?.checked)),
-    [itemDraft, savedItems],
-  )
   // เทียบหลังทำความสะอาด — พิมพ์แล้วลบจนเหลือค่าเดิมต้องไม่นับว่าแก้ · นับแยกทีละช่อง
   const nosChangedKeys = useMemo(
     () => AP_NO_FIELDS.map((f) => f.key)
@@ -156,7 +151,7 @@ export function ApTrackingDetail({
   const sentChanged   = sent.type !== savedSent.type || sent.date !== savedSent.date
   const reviewChanged = review.status !== savedReview.status || review.note.trim() !== (savedReview.note ?? "").trim()
   const noteChanged   = note.trim() !== savedNote.trim()
-  const dirtyCount = changed.length + itemsChanged.length + nosChangedKeys.length
+  const dirtyCount = changed.length + nosChangedKeys.length
     + (filesChanged ? 1 : 0) + (sentChanged ? 1 : 0) + (reviewChanged ? 1 : 0) + (noteChanged ? 1 : 0)
   const dirty = dirtyCount > 0
 
@@ -184,15 +179,9 @@ export function ApTrackingDetail({
   )
 
   const depositItems = useMemo(() => data?.items ?? [], [data])
-  const itemKeys     = useMemo(() => apItemKeys(depositItems), [depositItems])
-  const itemsDone    = itemKeys.filter((k) => itemDraft[k]).length
-  const allItemsOn   = itemKeys.length > 0 && itemsDone === itemKeys.length
-  // ติ๊กทั้งใบทีเดียว — ใบที่มีสิบกว่ารายการแต่มาพร้อมบิลใบเดียว ไม่ควรต้องคลิกทีละแถว
-  const toggleAllItems = () => setItemDraft((d) => {
-    const next = { ...d }
-    for (const k of itemKeys) next[k] = !allItemsOn
-    return next
-  })
+  // ระบบตรวจเองว่ารายการที่เก็บไว้ยังตรงกับ ATMS ไหม (แทนการติ๊กหลักฐานด้วยมือ)
+  // — เทียบผลรวมรายการกับยอดหัวใบซึ่งถูกรีเฟรชทุกรอบ sync
+  const verify = useMemo(() => apItemVerification(depositItems, row.amount), [depositItems, row.amount])
 
   // แก้ลิสต์เลขที่ทีละช่อง — ทุกตัวคืน object ใหม่ทั้งชุด ไม่แก้ของเดิมในที่ (React ต้องเห็นว่าเปลี่ยน)
   const setNoAt   = (key: ApNoKey, i: number, v: string) =>
@@ -207,7 +196,6 @@ export function ApTrackingDetail({
       const d   = await res.json()
       if (!alive() || !res.ok) return
       setData(d)
-      const t: ApItems   = d?.tracking?.items ?? {}
       const fl: ApFile[] = Array.isArray(d?.tracking?.files) ? d.tracking.files : []
       const dn: ApDocNos = readDocNos(d?.tracking)
       const rv: ApReview = {
@@ -220,8 +208,6 @@ export function ApTrackingDetail({
       setSavedNos(dn);    setNos(dn)
       setSavedReview(rv); setReview(rv)
       setSavedNote(nt);   setNote(nt)
-      setSavedItems(t)
-      setItemDraft(Object.fromEntries(Object.entries(t).map(([k, v]) => [k, Boolean(v?.checked)])))
       setSavedFiles(fl);  setFiles(fl)
     } finally { if (alive()) setLoading(false) }
   }, [])
@@ -250,7 +236,6 @@ export function ApTrackingDetail({
 
   const resetAll = () => {
     setDraft(draftOf(saved)); setNos(savedNos); setFiles(savedFiles)
-    setItemDraft(Object.fromEntries(Object.entries(savedItems).map(([k, v]) => [k, Boolean(v?.checked)])))
     setSent(savedSent); setReview(savedReview); setNote(savedNote)
   }
 
@@ -293,7 +278,6 @@ export function ApTrackingDetail({
         if (changed.includes("invoice") && !draft.invoice && saved.billingNote?.checked) docsBody.billingNote = false
         body.docs = docsBody
       }
-      if (itemsChanged.length) body.items  = Object.fromEntries(itemsChanged.map((k) => [k, itemDraft[k]]))
       for (const k of nosChangedKeys) body[k] = cleanDocNos(nos[k])
       if (filesChanged)        body.files  = files
       if (reviewChanged)       body.review = { status: review.status, note: review.note.trim() }
@@ -317,7 +301,6 @@ export function ApTrackingDetail({
 
       // ยึดผลจากเซิร์ฟเวอร์เป็นความจริง (มี by/at ของคนติ๊กจริง + ช่องที่ถูกติ๊กอัตโนมัติจากไฟล์แนบ)
       const docsOut  = d.docs as ApDocs
-      const itemsOut = (d.items ?? {}) as ApItems
       const filesOut = (d.files ?? []) as ApFile[]
       const nosOut   = readDocNos(d)
       const rvOut    = (d.review ?? { status: "", note: "" }) as ApReview
@@ -325,7 +308,6 @@ export function ApTrackingDetail({
       const noteOut  = String(d.note ?? "")
       const sentOut  = { type: (d.sentType ?? "") as ApSentType, date: String(d.sentDate ?? "") }
       setSaved(docsOut);       setDraft(draftOf(docsOut))
-      setSavedItems(itemsOut); setItemDraft(Object.fromEntries(Object.entries(itemsOut).map(([k, v]) => [k, Boolean(v?.checked)])))
       setSavedFiles(filesOut); setFiles(filesOut)
       setSavedNos(nosOut);     setNos(nosOut)
       setSavedReview(rvOut);   setReview(rvOut)
@@ -426,7 +408,7 @@ export function ApTrackingDetail({
                 {t.label}
                 {t.key === "docs" && (depositItems.length > 0 || files.length > 0) && (
                   <span className="ml-1 text-[10px] text-gray-400">
-                    {depositItems.length > 0 ? `${itemsDone}/${depositItems.length}` : ""}
+                    {depositItems.length > 0 ? (verify.amountOk ? `${depositItems.length} รายการ` : "⚠️") : ""}
                     {files.length > 0 ? ` 📎${files.length}` : ""}
                   </span>
                 )}
@@ -448,12 +430,24 @@ export function ApTrackingDetail({
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold" style={mitr}>รายการสินค้า</h3>
                 {depositItems.length > 0 && (
-                  <span className={`text-xs ${itemsDone === depositItems.length ? "text-emerald-700 dark:text-emerald-400" : "text-gray-500"}`}>
-                    หลักฐานครบ {itemsDone}/{depositItems.length} รายการ
-                  </span>
+                  verify.amountOk ? (
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400">
+                      ✅ ตรงกับ ATMS {verify.total}/{verify.total} รายการ
+                      {verify.checkedAt ? <span className="text-gray-400"> · ตรวจ {thaiDateTime(verify.checkedAt)}</span> : null}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-rose-700 dark:text-rose-400">⚠️ ข้อมูลไม่ตรงกับ ATMS</span>
+                  )
                 )}
-                <span className="text-[10px] text-gray-400">(ติ๊กได้เลย ไม่ต้องแนบไฟล์)</span>
               </div>
+              {verify.warning && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300">
+                  ⚠️ {verify.warning}
+                  <div className="mt-0.5 text-[11px] text-rose-600/80 dark:text-rose-400/80">
+                    เปิดใบใน ATMS เทียบก่อนส่งบัญชี — ระบบจะดึงรายการใหม่ให้เองในรอบ sync ถัดไป
+                  </div>
+                </div>
+              )}
               {loading ? <div className="text-sm text-gray-400">กำลังโหลด…</div> : (
                 <div className="overflow-x-auto rounded-xl border border-gray-200/80 dark:border-white/10">
                   <table className="min-w-full text-xs">
@@ -463,33 +457,29 @@ export function ApTrackingDetail({
                         <th className="px-2 py-2 text-right font-medium">จำนวน</th>
                         <th className="px-2 py-2 text-right font-medium">ราคา/หน่วย</th>
                         <th className="px-2 py-2 text-right font-medium">รวม</th>
-                        <th className="px-2 py-2 text-center font-medium">
-                          <label className="inline-flex cursor-pointer items-center gap-1.5" title="ติ๊กหลักฐานทุกรายการในใบนี้">
-                            <input type="checkbox" checked={allItemsOn} onChange={toggleAllItems}
-                              disabled={itemKeys.length === 0}
-                              ref={(el) => { if (el) el.indeterminate = itemsDone > 0 && !allItemsOn }}
-                              className="h-3.5 w-3.5 cursor-pointer accent-emerald-600" />
-                            หลักฐาน
-                          </label>
+                        <th className="px-2 py-2 text-center font-medium" title="ระบบเทียบกับ ATMS ให้อัตโนมัติทุกรอบ sync">
+                          ตรวจสอบ
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {depositItems.map((it, i) => {
-                        const k = itemKeys[i]
-                        const mark = savedItems[k]
-                        const on = Boolean(itemDraft[k])
+                        const v = verify.rows[i]
                         return (
-                          <tr key={k} className="border-t border-gray-100 dark:border-white/5">
+                          <tr key={i} className={`border-t border-gray-100 dark:border-white/5 ${v?.state === "mismatch" ? "bg-rose-50/60 dark:bg-rose-950/20" : ""}`}>
                             <td className="px-2 py-2">{it.item}</td>
                             <td className={`px-2 py-2 text-right ${NUM}`}>{it.qty}</td>
                             <td className={`px-2 py-2 text-right ${NUM}`}>{it.unit_price}</td>
                             <td className={`px-2 py-2 text-right ${NUM}`}>{it.total}</td>
-                            <td className="px-2 py-2 text-center">
-                              <input type="checkbox" checked={on}
-                                onChange={(e) => setItemDraft((d) => ({ ...d, [k]: e.target.checked }))}
-                                title={mark?.checked && mark.by ? `ติ๊กโดย ${mark.by} ${thaiDateTime(mark.at || "")}` : undefined}
-                                className={`h-4 w-4 cursor-pointer accent-emerald-600 ${on !== Boolean(mark?.checked) ? "rounded ring-2 ring-amber-400" : ""}`} />
+                            <td className="px-2 py-2 text-center whitespace-nowrap">
+                              {v?.state === "ok" ? (
+                                <span className="text-emerald-600 dark:text-emerald-400"
+                                  title={v.at ? `ตรวจกับ ATMS ${thaiDateTime(v.at)}` : "ตรงกับยอดใบ (ดึงมาก่อนระบบเก็บเวลาตรวจ)"}>
+                                  ✅ <span className="text-[10px] text-gray-400">{v.at ? thaiDateTime(v.at) : "—"}</span>
+                                </span>
+                              ) : (
+                                <span className="text-rose-600 dark:text-rose-400" title={verify.warning}>⚠️ ไม่ตรง</span>
+                              )}
                             </td>
                           </tr>
                         )

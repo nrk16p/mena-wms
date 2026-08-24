@@ -175,6 +175,67 @@ export function apItemsDone(keys: string[], items: ApItems | undefined): number 
   return keys.filter((k) => isOn(items[k])).length
 }
 
+// ── ตรวจรายการสินค้ากับ ATMS ─────────────────────────────────────────────────
+// แทนการติ๊กหลักฐานด้วยมือ: ระบบเทียบเองว่ารายการที่เก็บไว้ยังตรงกับ ATMS หรือไม่
+//
+// เทียบยังไง: ยอดหัวใบ (deposit_header.amount) ถูกรีเฟรชทุกรอบ sync ส่วนรายการสินค้า
+// (deposit_items) ดึงมาคนละจังหวะ → ถ้าใครแก้ใบใน ATMS แล้วรายการเราค้าง สองฝั่งจะไม่ตรงกัน
+// ผลรวมรายการ ≠ ยอดหัวใบ จึงเป็นสัญญาณว่าข้อมูลบรรทัดเชื่อไม่ได้ (เคสจริง LBDD26080471
+// 21/08/2026: ราคาน้ำกลั่นถูกแก้ 8 → 10 หลังเราดึงไปแล้ว หัวใบขึ้นเป็น 3,750 แต่รายการค้างที่ 3,510)
+export type ApVerifyState = "ok" | "mismatch"
+export type ApItemVerify = { state: ApVerifyState; at: string }
+export type ApVerification = {
+  rows: ApItemVerify[]
+  okCount: number
+  total: number
+  itemsTotal: number
+  headerAmount: number
+  amountOk: boolean
+  hasChecksum: boolean   // ใบที่หัวใบไม่มียอด (คืนสต็อก) เทียบไม่ได้ — อย่าขึ้นเตือนให้ตกใจเปล่า
+  checkedAt: string      // scraped_at ล่าสุดในใบ ("" = ไม่รู้เวลา — ของที่ดึงมาก่อนมีฟิลด์นี้)
+  warning: string
+}
+
+// ยอมให้ต่างได้เท่าไหร่: ATMS ปัดเศษ "รวม" ทีละบรรทัด ใบที่มีหลายสิบบรรทัดจึงเพี้ยนได้ระดับสตางค์
+// (วัดจริงจากทั้งคอลเลกชัน 16,472 ใบ — เพี้ยนสูงสุด 0.03 บาทที่ 39 บรรทัด)
+const verifyTolerance = (rows: number) => Math.max(0.05, rows * 0.01)
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+export function apItemVerification(
+  items: { total?: string; scraped_at?: string | Date }[],
+  headerAmount: unknown,
+): ApVerification {
+  const list        = items ?? []
+  const total       = list.length
+  const itemsTotal  = round2(list.reduce((n, it) => n + parseAmount(it?.total), 0))
+  const amount      = parseAmount(headerAmount)
+  const hasChecksum = amount > 0
+  const diff        = round2(amount - itemsTotal)
+  const amountOk    = !hasChecksum || Math.abs(diff) <= verifyTolerance(total)
+
+  const times = list
+    .map((it) => (it?.scraped_at instanceof Date ? it.scraped_at.toISOString() : String(it?.scraped_at ?? "")))
+    .filter((s) => !Number.isNaN(Date.parse(s)))
+  const checkedAt = times.length ? times.sort()[times.length - 1] : ""
+
+  // เทียบรายบรรทัดไม่ได้ (เรามีแค่ชุดที่เก็บไว้ ไม่มีของ ATMS มาวางข้าง ๆ) — ใบไหนยอดไม่ตรง
+  // ก็เชื่อไม่ได้ทั้งใบ จึงติดธงทุกบรรทัดเหมือนกันหมด ตรงไปตรงมากว่าเดาว่าบรรทัดไหนผิด
+  const state: ApVerifyState = amountOk ? "ok" : "mismatch"
+  const rows = list.map((it) => ({
+    state,
+    at: it?.scraped_at instanceof Date ? it.scraped_at.toISOString() : String(it?.scraped_at ?? ""),
+  }))
+
+  let warning = ""
+  if (total === 0 && hasChecksum)
+    warning = `ไม่มีรายการสินค้าในระบบ แต่ใบนี้มียอด ${amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })} บาท — ยังไม่ได้ดึงจาก ATMS`
+  else if (!amountOk)
+    warning = `รายการรวม ${itemsTotal.toLocaleString("th-TH", { minimumFractionDigits: 2 })} ไม่ตรงยอดใบ ${amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })} (ต่าง ${Math.abs(diff).toLocaleString("th-TH", { minimumFractionDigits: 2 })}) — มีคนแก้ใบใน ATMS หลังระบบดึงข้อมูล`
+
+  return { rows, okCount: amountOk ? total : 0, total, itemsTotal, headerAmount: amount,
+           amountOk, hasChecksum, checkedAt, warning }
+}
+
 // ── ไฟล์แนบ ──────────────────────────────────────────────────────────────────
 export const AP_FILES_MAX = 30
 
