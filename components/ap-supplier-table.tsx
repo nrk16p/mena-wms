@@ -10,7 +10,9 @@ import type { ApRow } from "@/components/ap-types"
 
 type SupRow = {
   supplier: string
-  creditTerm: string
+  // เทอมเป็นของ "รายใบ" ไม่ใช่รายเจ้า (มาจาก ap term บน PO ของแต่ละใบ) — เจ้าเดียวกัน
+  // จึงมีได้หลายเทอม เก็บเป็นเซ็ตแล้วค่อยตัดสินตอนแสดงผล ห้ามหยิบใบแรกมาแปะทั้งกลุ่ม
+  creditTerms: Set<string>
   dd: number
   po: Set<string>
   amount: number
@@ -31,11 +33,12 @@ export function ApSupplierTable({
       const name = r.supplier || "(ไม่ระบุเจ้าหนี้)"
       let row = m.get(name)
       if (!row) {
-        row = { supplier: name, creditTerm: r.creditTerm, dd: 0, po: new Set(), amount: 0,
+        row = { supplier: name, creditTerms: new Set(), dd: 0, po: new Set(), amount: 0,
           stages: Object.fromEntries(AP_STAGES.map((st) => [st.key, 0])) as Record<ApStage, number> }
         m.set(name, row)
       }
       row.dd++
+      if (r.creditTerm) row.creditTerms.add(r.creditTerm)
       if (r.purchaseOrder) row.po.add(r.purchaseOrder)
       row.amount += r.amount
       row.stages[apStage(r)]++
@@ -81,7 +84,12 @@ export function ApSupplierTable({
               className="cursor-pointer border-t border-gray-100 hover:bg-emerald-50/60 dark:border-white/5 dark:hover:bg-emerald-900/10">
               <td className="max-w-[20rem] px-3 py-2.5">
                 <div className="truncate font-medium" title={sp.supplier}>{sp.supplier}</div>
-                <div className="text-[11px] text-gray-400">{sp.creditTerm ? `เครดิต ${sp.creditTerm}` : "ยังไม่ตั้งเครดิตเทอม"}</div>
+                <div className="text-[11px] text-gray-400"
+                  title={sp.creditTerms.size > 1 ? "ใบของเจ้านี้ใช้เครดิตเทอมต่างกัน (เทอมมาจาก ap term บน PO ของแต่ละใบ)" : undefined}>
+                  {sp.creditTerms.size === 0 ? "ยังไม่ตั้งเครดิตเทอม"
+                    : sp.creditTerms.size === 1 ? `เครดิต ${[...sp.creditTerms][0]}`
+                    : `เครดิต ${[...sp.creditTerms].join(" / ")}`}
+                </div>
               </td>
               <td className={`px-3 py-2.5 text-right ${NUM}`}>{sp.dd.toLocaleString("th-TH")}</td>
               <td className={`px-3 py-2.5 text-right ${NUM}`}>{sp.po.size.toLocaleString("th-TH")}</td>

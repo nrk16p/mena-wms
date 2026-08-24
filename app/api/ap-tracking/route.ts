@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apUrgency, nextThursday, todayICT,
+  resolveCreditTerm,
   AP_STAGES, compactDocNos, docNosText, ictDate,
   apSinceOf, inApScope, monthInApScope,
   type ApDocs, type ApStage, type ApStatus,
@@ -124,8 +125,8 @@ export async function GET(req: NextRequest) {
     // 2) overlay: tracking + เครดิตเทอม + ข้อมูล PO (ทุกอันจำกัดด้วย $in จากชุดข้างบน)
     const [tracks, sups, pos] = await Promise.all([
       codes.length ? md.collection("ap_tracking").find({ depositCode: { $in: codes } }, { projection: { _id: 0, log: 0 } }).toArray() as Promise<Doc[]> : [],
-      supNames.length ? md.collection("ap_supplier").find({ name: { $in: supNames } }, { projection: { _id: 0, name: 1, creditTerm: 1 } }).toArray() as Promise<Doc[]> : [],
-      poCodes.length ? atms.collection("purchase_orders").find({ "รหัส": { $in: poCodes } }, { projection: { _id: 0, "รหัส": 1, "รวม": 1, "กำหนดส่งสินค้า": 1, "สถานะการรับสินค้า": 1, "ยานพาหนะ": 1, "ใบขอสั่งซื้อ (PR)": 1 } }).toArray() as Promise<Doc[]> : [],
+      supNames.length ? md.collection("ap_supplier").find({ name: { $in: supNames } }, { projection: { _id: 0, name: 1, creditTerm: 1, override: 1, atmsTerm: 1 } }).toArray() as Promise<Doc[]> : [],
+      poCodes.length ? atms.collection("purchase_orders").find({ "รหัส": { $in: poCodes } }, { projection: { _id: 0, "รหัส": 1, "รวม": 1, "กำหนดส่งสินค้า": 1, "สถานะการรับสินค้า": 1, "ยานพาหนะ": 1, "ใบขอสั่งซื้อ (PR)": 1, "ap term": 1 } }).toArray() as Promise<Doc[]> : [],
     ])
     // หมายเหตุอยู่บน PR (ATMS ไม่ใส่มากับ PO/DD) — เชื่อมอีกฮ็อป: DD → PO → PR
     // ในหมายเหตุมีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง ซึ่งคือสิ่งที่คนใช้ค้นหางานจริง
@@ -138,7 +139,10 @@ export async function GET(req: NextRequest) {
       : []
     const prNoteBy = new Map(prs.map((x) => [s(x["ใบขอสั่งซื้อ (PR)"]), s(x["หมายเหตุ"])]))
     const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
-    const termBy  = new Map(sups.map((x) => [s(x.name), s(x.creditTerm)]))
+    // เก็บ override แยกจากเทอมของ master — ลำดับความสำคัญคิดรายใบใน resolveCreditTerm
+    // atmsTerm คือค่าที่ sync มาจาก ATMS · creditTerm เป็น fallback ให้แถวเก่าที่ seed จาก Excel
+    // แล้วไม่มีคู่ใน ATMS master (7 ราย ณ 24/08/2026)
+    const termBy  = new Map(sups.map((x) => [s(x.name), { override: s(x.override), master: s(x.atmsTerm) || s(x.creditTerm) }]))
     const poBy    = new Map(pos.map((p) => [s(p["รหัส"]), p]))
 
     // 3) ประกอบแถว + คำนวณสถานะ
@@ -149,9 +153,11 @@ export async function GET(req: NextRequest) {
       const docs       = (t?.docs ?? {}) as ApDocs
       const sentDate   = s(t?.sentDate)
       const receivedAt = parseDmy(h.received_at)
-      const creditTerm = termBy.get(s(h.supplier)) ?? ""
-      const dueDate    = dueDateOf(receivedAt, creditTerm)
       const po         = poBy.get(s(h.purchase_order))
+      const sup        = termBy.get(s(h.supplier))
+      // เทอมของใบนี้: override ของคน > "ap term" บน PO ใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
+      const { creditTerm, termSource } = resolveCreditTerm(sup?.override ?? "", s(po?.["ap term"]), sup?.master ?? "")
+      const dueDate    = dueDateOf(receivedAt, creditTerm)
       return {
         depositCode: code,
         depositId:   typeof h.deposit_id === "number" ? h.deposit_id : null,
@@ -165,6 +171,8 @@ export async function GET(req: NextRequest) {
         receivedAt,
         createdAt:   parseDmy(h.created_at),
         creditTerm, dueDate,
+        // มาจากไหน — หน้าเว็บติดป้ายให้ย้อนตรวจได้ว่าวันครบกำหนดคิดจากอะไร
+        ...(termSource ? { termSource } : {}),
         overdue:     sentDate ? 0 : overdueDays(dueDate, today),
         docs,
         // ส่งแค่ "จำนวน" ไฟล์แนบ ไม่ส่งตัว object (ตารางใช้แค่ตัวเลข · โมดัลค่อยดึงของจริงรายใบ)

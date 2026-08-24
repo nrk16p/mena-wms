@@ -25,6 +25,8 @@ export type ApRow = {
   purchaseOrder: string; supplier: string; supplierRefNo: string
   amount: number; receivedAt: string; createdAt: string
   creditTerm: string; dueDate: string; overdue: number
+  // เทอมนี้มาจากไหน — "override" คนตั้งเอง · "po" จาก ap term บน PO · "supplier" จาก master ซัพพลายเออร์
+  termSource?: "override" | "po" | "supplier"
   docs: ApDocs; fileCount: number
   review?: { status: string; note: string; by?: string; at?: string }
   sentType: string; sentDate: string; note: string

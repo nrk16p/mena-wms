@@ -514,12 +514,33 @@ export function apCoverSheetAoa(rows: ApCoverRow[], docDateISO: string): (string
   return aoa
 }
 
-export const CREDIT_TERMS = ["Immediate", "7D", "15D", "30D", "60D"] as const
-const TERM_DAYS: Record<string, number> = { Immediate: 0, "7D": 7, "15D": 15, "30D": 30, "60D": 60 }
+// ต้องตรงกับ master "ap term" ของ ATMS (/fin/ap.term/index) เพราะเทอมถูก sync มาจากที่นั่น —
+// เทอมที่ไม่อยู่ในลิสต์นี้จะทำให้ termDays() คืน null แล้วใบตกกลุ่ม noTerm แบบเงียบ ๆ
+export const CREDIT_TERMS = ["Immediate", "7D", "15D", "30D", "60D", "90D"] as const
+const TERM_DAYS: Record<string, number> = { Immediate: 0, "7D": 7, "15D": 15, "30D": 30, "60D": 60, "90D": 90 }
 
 export function termDays(term: string): number | null {
   const d = TERM_DAYS[String(term ?? "").trim()]
   return d === undefined ? null : d
+}
+
+// แหล่งที่มาของเครดิตเทอมบนใบหนึ่ง เรียงตามความน่าเชื่อถือ:
+//   override  — คนตั้งทับไว้เองในหน้า suppliers (ชนะทุกอย่าง)
+//   po        — "ap term" บน PO ของใบนั้น = เทอมที่ตกลงกัน ณ ตอนสั่งซื้อจริง
+//   supplier  — ค่าปัจจุบันของซัพพลายเออร์ (ใช้เมื่อใบไม่มี PO ผูก หรือ PO ไม่ได้ระบุเทอม)
+// ทำไม po ต้องมาก่อน supplier: เทอมของเจ้าหนึ่งถูกแก้ใน ATMS ได้ตลอด ใบเก่าต้องคิดด้วยเทอมเดิม
+// (วัดจริง 24/08/2026: 180 ใบปี 2026 ที่สองแหล่งไม่ตรงกัน เช่น สมบัติเซอร์วิส 141 ใบ PO=15D แต่ master=7D)
+export type ApTermSource = "override" | "po" | "supplier" | ""
+export function resolveCreditTerm(
+  override: string, poTerm: string, supplierTerm: string,
+): { creditTerm: string; termSource: ApTermSource } {
+  const o = String(override ?? "").trim()
+  if (o) return { creditTerm: o, termSource: "override" }
+  const p = String(poTerm ?? "").trim()
+  if (p) return { creditTerm: p, termSource: "po" }
+  const m = String(supplierTerm ?? "").trim()
+  if (m) return { creditTerm: m, termSource: "supplier" }
+  return { creditTerm: "", termSource: "" }
 }
 
 // "DD/MM/YYYY" (อาจมีเวลาต่อท้าย) → "YYYY-MM-DD" · ค่าอื่น → ""

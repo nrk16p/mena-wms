@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import {
   AP_FILES_MAX, AP_NO_FIELDS, AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
-  AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate,
+  AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate, resolveCreditTerm,
   apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate,
   type ApDocKey, type ApDocs, type ApFile, type ApPayType, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
@@ -181,12 +181,22 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
           return NextResponse.json({ error: `เครดิตเทอมไม่ถูกต้อง: ${creditTerm}` }, { status: 400 })
         }
         const head = await client.db("atms").collection("deposit_header")
-          .findOne({ deposit_code: depositCode }, { projection: { _id: 0, supplier: 1 } })
+          .findOne({ deposit_code: depositCode }, { projection: { _id: 0, supplier: 1, purchase_order: 1 } })
         const supplier = s(head?.supplier)
         const md = writeDb(client)
         if (payType === "ตามรอบ" && !creditTerm && supplier) {
-          const sup = await md.collection("ap_supplier").findOne({ name: supplier }, { projection: { _id: 0, creditTerm: 1 } })
-          creditTerm = s(sup?.creditTerm)
+          // ลำดับเดียวกับตาราง (/api/ap-tracking) — override > "ap term" บน PO ของใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
+          // ถ้าใช้คนละลำดับ วันครบกำหนดในกล่องยืนยันจะไม่ตรงกับที่คนเห็นในตาราง
+          const [sup, po] = await Promise.all([
+            md.collection("ap_supplier").findOne({ name: supplier }, { projection: { _id: 0, creditTerm: 1, override: 1, atmsTerm: 1 } }),
+            s(head?.purchase_order)
+              ? client.db("atms").collection("purchase_orders")
+                  .findOne({ "รหัส": s(head?.purchase_order) }, { projection: { _id: 0, "ap term": 1 } })
+              : null,
+          ])
+          creditTerm = resolveCreditTerm(
+            s(sup?.override), s(po?.["ap term"]), s(sup?.atmsTerm) || s(sup?.creditTerm),
+          ).creditTerm
         }
         // นอกรอบเลือกวันโอนได้ (พฤหัสนี้ถ้ายังทันเส้นตายอังคาร / พฤหัสหน้า) — เซิร์ฟเวอร์
         // ตรวจกับตัวเลือกที่คิดจากนาฬิกาตัวเองอีกชั้น ค่าที่หลุดมานอกตัวเลือกต้องไม่ผ่าน
@@ -220,7 +230,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
         if (s(body.payCreditTerm) && supplier) {
           await md.collection("ap_supplier").updateOne(
             { name: supplier },
-            { $set: { name: supplier, creditTerm, updatedBy: by, updatedAt: at } },
+            // ลง override ด้วย — sync จาก ATMS อ่าน override เป็นตัวชนะ ค่าที่คนตั้งจึงไม่ถูกทับรอบหน้า
+            { $set: { name: supplier, creditTerm, override: creditTerm, updatedBy: by, updatedAt: at } },
             { upsert: true },
           )
           log.push({ action: "ตั้งเครดิตเทอมซัพพลายเออร์", field: "pay", detail: `${supplier} = ${creditTerm}`, by, byEmail, at })
