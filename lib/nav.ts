@@ -193,6 +193,22 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: "vendor",
+    label: "Vendor List",
+    homeTitle: "Vendor List (อู่ที่อนุมัติ)",
+    homeDesc: "งานซ่อมประเภทนี้ควรเลือกอู่ไหน — ประวัติจริง 2 ปี + สถานะอนุมัติ",
+    homeIcon: ShieldCheck, color: "#6D28D9", bg: "#EDE9FE", homeOrder: 65,
+    collapsible: true,
+    items: [
+      { href: "/vendors/by-service", label: "เลือกอู่ตามประเภทงาน", icon: Wrench, exact: true,
+        desc: "งานประเภทนี้ใช้อู่ไหนได้บ้าง" },
+      { href: "/vendors", label: "อู่ทั้งหมด", icon: Factory, exact: true,
+        desc: "รายชื่ออู่ + อนุมัติรายประเภทงาน" },
+      { href: "/vendors/labour-codes", label: "ตั้งค่ารหัสค่าแรง", icon: TableProperties, exact: true,
+        adminOnly: true, desc: "จับคู่รหัสค่าแรงกับประเภทงาน" },
+    ],
+  },
+  {
     key: "driver-handover",
     label: "ส่งมอบรถ พจส.ใหม่",
     homeDesc: "จับคู่คนขับใหม่กับรถ ให้พร้อมตรงกันรายฟลีท/รายสัปดาห์",
