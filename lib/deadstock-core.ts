@@ -1,10 +1,12 @@
 // lib/deadstock-core.ts
-// ตรรกะล้วนของหน้า /deadstock — ห้าม import อะไรทั้งสิ้น เพื่อให้ทดสอบตรง ๆ ได้ด้วย tsx
+// ตรรกะล้วนของหน้า /deadstock — import ได้เฉพาะ lib/safety-stock-core ซึ่งเป็นตรรกะล้วนเหมือนกัน
+// (ไม่แตะ mongo/env) เพื่อให้ยังทดสอบตรง ๆ ได้ด้วย tsx และไม่ต้องก๊อปสูตรแกะเลข PR มาไว้สองที่
 //
 // นิยาม "ของค้าง" ที่นี่: ชั้นของจากใบรับสินค้า (DD) ที่ยังไม่ถูกใบเบิก (WD) ตัดออกตามลำดับ FIFO
 // ⚠️ ต่างจาก KPI ชื่อ "deadstock" ของ mena-intelligence ซึ่งนับจาก "ไม่เคลื่อนไหว ≥12 เดือน"
 //    ชื่อซ้ำกันแต่คนละนิยาม — ระบุให้ชัดทุกครั้งที่คุยข้ามทีม
 
+import { prCodeFromNote } from "@/lib/safety-stock-core"
 import type { OnOrder } from "@/lib/safety-stock-core"
 
 export const DB_NAME = "atms"
@@ -139,6 +141,9 @@ export type PendingRow = {
   dd: string
   date: string
   plate: string
+  /** เบอร์รถ + เลขใบขอซื้อ แกะจาก `หมายเหตุ` ใบเดียวกับที่ให้ทะเบียน — null เมื่อใบนั้นเขียนไม่ครบช่อง */
+  fleetNo: string | null
+  prCode: string | null
   itemCode: string
   itemName: string
   itemGroup: string
@@ -217,6 +222,17 @@ const PLATE_RE = /\/\s*([ก-ฮ]{0,3}\s*\d{1,3}-?\d{3,4})/
 export function plateFromNote(note: string | null | undefined): string | null {
   const m = PLATE_RE.exec(note ?? "")
   return m ? m[1].replace(/\s+/g, "") : null
+}
+
+/** เบอร์รถอยู่ช่องที่ 3 ของ `หมายเหตุ` ถัดจากเลข PR และทะเบียน
+ *  เช่น "LBPR26050758/71-5742/153/โม่ใหญ่" → "153"  ·  ".../71-0432/UH04/..." → "UH04"
+ *  บางใบเขียนไม่ครบช่อง ช่องที่ 3 จึงกลายเป็นประเภทรถ ("โม่ใหญ่") — บังคับให้ต้องมีตัวเลข
+ *  และเป็นอักษรอังกฤษล้วน เพื่อไม่ให้ประเภทรถหลุดมาแสดงเป็นเบอร์รถ */
+const FLEET_NO_RE = /^(?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]{1,10}$/
+
+export function fleetNoFromNote(note: string | null | undefined): string | null {
+  const seg = (note ?? "").split("/")[2]?.trim() ?? ""
+  return FLEET_NO_RE.test(seg) ? seg : null
 }
 
 export function daysBetween(from: string | Date, to: Date): number {
@@ -401,6 +417,8 @@ export function buildPayload(
         dd: r.dd,
         date: r.date,
         plate: r.plate,
+        fleetNo: fleetNoFromNote(r.note),
+        prCode: prCodeFromNote(r.note),
         itemCode: r.itemCode,
         itemName: r.itemName,
         itemGroup: r.itemGroup,

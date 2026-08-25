@@ -223,7 +223,8 @@ export function DeadstockPendingPage() {
     return data.pending.filter(
       (p) =>
         (!bucket || p.bucket === bucket) &&
-        (!rx || rx.test(p.dd) || rx.test(p.plate) || rx.test(p.itemCode) || rx.test(p.itemName))
+        (!rx || rx.test(p.dd) || rx.test(p.plate) || rx.test(p.fleetNo ?? "") ||
+          rx.test(p.prCode ?? "") || rx.test(p.itemCode) || rx.test(p.itemName))
     )
   }, [data, q, bucket])
 
@@ -258,6 +259,8 @@ export function DeadstockPendingPage() {
         "ใบ DD": r.dd,
         วันที่รับ: thaiDate(r.date),
         ทะเบียนรถ: r.plate,
+        เบอร์รถ: r.fleetNo ?? "",
+        "ใบ PR": r.prCode ?? "",
         รหัสสินค้า: r.itemCode,
         ชื่อสินค้า: r.itemName,
         กลุ่มสินค้า: r.itemGroup,
@@ -299,7 +302,7 @@ export function DeadstockPendingPage() {
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="ค้นหา DD / ทะเบียน / รหัส / ชื่อสินค้า"
+                placeholder="ค้นหา DD / ทะเบียน / เบอร์รถ / PR / รหัส / ชื่อสินค้า"
                 style={{ padding: "7px 12px 7px 30px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13, width: 290 }}
               />
             </div>
@@ -372,11 +375,13 @@ export function DeadstockPendingPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ", "กำลังสั่งอีก", "การจัดการ"].map((h, i) => (
+                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "เบอร์รถ", "ใบ PR", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ", "กำลังสั่งอีก", "การจัดการ"].map((h, i) => (
                     <th
                       key={h}
                       title={
-                        h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ) — ซื้อไปแล้ว เงินออกแล้ว"
+                        h === "เบอร์รถ" ? "เบอร์รถที่ระบุไว้ในหมายเหตุใบขอซื้อ ช่องถัดจากทะเบียน — บางใบเขียนไม่ครบช่อง จะขึ้นขีด"
+                        : h === "ใบ PR" ? "เลขใบขอซื้อที่ทำให้เกิดใบรับ (DD) นี้ — ใช้ตามกลับไปหาผู้ขอซื้อและเหตุผลที่สั่ง"
+                        : h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ) — ซื้อไปแล้ว เงินออกแล้ว"
                         : h === "กำลังสั่งอีก" ? "จำนวนของรหัสเดียวกันที่สั่งไปแล้วแต่ยังไม่รับเข้า ทั้งที่ใบนี้ยังไม่ถูกเบิกสักชิ้น\nนับจากใบ PR ที่ซื้อเข้าสต๊อกและยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน หักส่วนที่รับไปแล้ว\nใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) ไม่นับ — เกณฑ์เดียวกับหน้า /safety-stock\nต่างจาก \"ซื้อซ้ำ\" ตรงที่ยังไม่รับของ จึงยังชะลอหรือยกเลิกทัน"
                         : undefined
                       }
@@ -386,7 +391,7 @@ export function DeadstockPendingPage() {
                         color: "#374151",
                         borderBottom: "1px solid #E5E7EB",
                         whiteSpace: "nowrap",
-                        textAlign: i >= 6 ? "right" : "left",
+                        textAlign: i >= 8 ? "right" : "left",
                       }}
                     >
                       {h}
@@ -400,6 +405,12 @@ export function DeadstockPendingPage() {
                     <td style={{ padding: "9px 12px", fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.dd}</td>
                     <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{thaiDate(r.date)}</td>
                     <td style={{ padding: "9px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{r.plate}</td>
+                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
+                      {r.fleetNo ?? <span style={{ color: "#D1D5DB" }}>—</span>}
+                    </td>
+                    <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, whiteSpace: "nowrap" }}>
+                      {r.prCode ?? <span style={{ color: "#D1D5DB" }}>—</span>}
+                    </td>
                     <td style={{ padding: "9px 12px", fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.itemCode}</td>
                     <td style={{ padding: "9px 12px", minWidth: 220 }}>{r.itemName}</td>
                     <td style={{ padding: "9px 12px", color: "#6B7280", whiteSpace: "nowrap" }}>{r.itemGroup}</td>

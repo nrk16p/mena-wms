@@ -2,7 +2,7 @@
 // รัน: npx tsx scripts/check-deadstock-core.ts   (repo ไม่มี test framework — ใช้ assert ตามแพตเทิร์น check-ap-tracking.ts)
 import assert from "node:assert/strict"
 import {
-  plateFromNote, daysBetween, bucketOf, consumeFifo, buildPayload,
+  plateFromNote, fleetNoFromNote, daysBetween, bucketOf, consumeFifo, buildPayload,
   matchesAgeFilter, rollupItems, ITEM_AGE_FILTERS, START_YM, KPI_AGE_DAYS,
   STALE_DAYS, type Layer, type LayerDoc, type IssueDoc, type PendingRow,
 } from "../lib/deadstock-core"
@@ -15,6 +15,16 @@ assert.equal(plateFromNote("LBPR26050699/STOCK"), null, "เข้าสต็�
 assert.equal(plateFromNote("LBPR25120644/เข้าสต๊อกเพื่อการซ่อมบำรุง"), null)
 assert.equal(plateFromNote(""), null)
 assert.equal(plateFromNote(null), null)
+
+// --- fleetNoFromNote: เบอร์รถอยู่ช่องที่ 3 ต่อจากเลข PR และทะเบียน ---
+assert.equal(fleetNoFromNote("LBPR26050758/71-5742/153/โม่ใหญ่"), "153")
+assert.equal(fleetNoFromNote("LBPR26050729/71-0432/UH04/โม่ใหญ่"), "UH04")
+assert.equal(fleetNoFromNote("LBPR26050516/กธ2607 รถ สนง. ฝ่าย HR"), null, "ไม่มีช่องที่ 3")
+assert.equal(fleetNoFromNote("LBPR26050001/71-5742/โม่ใหญ่"), null, "เขียนไม่ครบช่อง ประเภทรถต้องไม่หลุดมาเป็นเบอร์รถ")
+assert.equal(fleetNoFromNote("LBPR26050002/71-5742/STOCK/โม่ใหญ่"), null, "ไม่มีตัวเลข ไม่ใช่เบอร์รถ")
+assert.equal(fleetNoFromNote("LBPR26050699/STOCK"), null)
+assert.equal(fleetNoFromNote(""), null)
+assert.equal(fleetNoFromNote(null), null)
 
 // --- daysBetween / bucketOf ---
 assert.equal(daysBetween("2026-08-01T00:00:00.000Z", new Date("2026-08-14T00:00:00.000Z")), 13)
