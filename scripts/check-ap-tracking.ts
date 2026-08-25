@@ -113,7 +113,8 @@ assert.equal(apDocLabel("ไม่รู้จัก"), "ไม่รู้จ�
 for (const f of AP_NO_FIELDS) {
   assert.equal(apDocLabel(f.key), f.label, `ช่องเลขที่ ${f.key} ต้องมีป้ายไว้อ่าน log`)
 }
-assert.equal(apDocLabel("taxInvoiceNo"), "เลขที่ใบกำกับ", "ช่องเดี่ยวรุ่นแรกยังต้องอ่านออก")
+assert.equal(apDocLabel("taxInvoiceNo"), "เลขที่ใบกำกับภาษี", "ช่องเดี่ยวรุ่นแรกยังต้องอ่านออก")
+assert.equal(apDocLabel("vatInvoiceNos"), "เลขที่ใบกำกับภาษี", "ช่องซ้ำที่ถอดออก 25/08/2026 ยังต้องอ่าน log เก่าออก")
 assert.equal(apDocLabel("invoiceNo"), "เลขที่ใบแจ้งหนี้/ใบวางบิล", "ช่องที่ถอดออกแล้วยังต้องอ่านออก")
 
 // --- บัญชีตรวจเอกสาร ---
@@ -128,7 +129,7 @@ assert.equal(reviewNeedsNote("ไม่ผ่าน", "ใบกำกับไ�
 assert.equal(reviewNeedsNote("ผ่าน", ""), false, "ผ่านไม่ต้องบังคับเหตุผล")
 assert.equal(reviewNeedsNote("", ""), false)
 
-// --- เลขที่เอกสาร (4 ช่อง · หลายเลขต่อช่องต่อใบ) ---
+// --- เลขที่เอกสาร (หลายเลขต่อช่องต่อใบ) ---
 assert.deepEqual(cleanDocNos([" A1 ", "A2"]), ["A1", "A2"], "ตัดช่องว่างหัวท้าย")
 assert.deepEqual(cleanDocNos(["A1", "", "  ", "A1"]), ["A1"], "ทิ้งค่าว่างและตัวซ้ำ")
 assert.deepEqual(cleanDocNos("A1"), [], "ไม่ใช่ array = ไม่มีเลข")
@@ -136,19 +137,24 @@ assert.deepEqual(cleanDocNos(undefined), [])
 assert.equal(cleanDocNos(Array.from({ length: 50 }, (_, i) => `N${i}`)).length, AP_NOS_MAX, "คุมเพดานจำนวน")
 assert.equal(cleanDocNos(["x".repeat(200)])[0].length, AP_NO_MAX, "คุมความยาวต่อเลข")
 
-// โครงช่องเลขที่ — เพิ่ม 3 ช่องวันที่ 18/08/2026 · คีย์เดิม taxInvoiceNos ต้องอยู่ที่เดิม
+// โครงช่องเลขที่ — คีย์เดิม taxInvoiceNos ต้องอยู่ที่เดิมเสมอ
 // (ถ้าคีย์เดิมถูกเปลี่ยนชื่อ เลขที่คนกรอกไว้แล้วทุกใบจะหายไปเงียบ ๆ)
+// 25/08/2026 ถอด vatInvoiceNos ออก — เป็นชื่อซ้ำของใบเดียวกัน · taxInvoiceNos ใช้ป้าย "เลขที่ใบกำกับภาษี" แทน
 assert.deepEqual(AP_NO_FIELDS.map((f) => f.key),
-  ["taxInvoiceNos", "billingNoteNos", "cashBillNos", "vatInvoiceNos", "ncAcNos", "voucherNos"])
+  ["taxInvoiceNos", "billingNoteNos", "cashBillNos", "ncAcNos", "voucherNos"])
 assert.deepEqual(AP_NO_FIELDS.map((f) => f.label),
-  ["เลขที่ใบกำกับ", "เลขที่ใบวางบิล", "เลขที่บิลเงินสด", "เลขที่ใบกำกับภาษี", "เลขที่ NC/AC", "เลขที่ Voucher/ตั้งหนี้"])
+  ["เลขที่ใบกำกับภาษี", "เลขที่ใบวางบิล", "เลขที่บิลเงินสด", "เลขที่ NC/AC", "เลขที่ Voucher/ตั้งหนี้"])
 assert.equal(new Set(AP_NO_FIELDS.map((f) => f.key)).size, AP_NO_FIELDS.length, "คีย์ห้ามซ้ำ")
+// ป้ายซ้ำ = บั๊กที่เพิ่งแก้ไป (ใบกำกับ/ใบกำกับภาษี) — คนกรอกจะไม่รู้ว่าต้องลงช่องไหน
+assert.equal(new Set(AP_NO_FIELDS.map((f) => f.label)).size, AP_NO_FIELDS.length, "ป้ายช่องห้ามซ้ำ")
+assert.equal(new Set(AP_NO_FIELDS.map((f) => f.short)).size, AP_NO_FIELDS.length, "ป้ายสั้น (ปุ่ม + เพิ่ม…) ห้ามซ้ำ")
 
 // readDocNos ต้องคืนครบทุกคีย์เสมอ — ฝั่งเรียกใช้จะได้ไม่ต้องเช็ค undefined ทีละช่อง
 assert.deepEqual(readDocNos({ taxInvoiceNos: ["IV1"], cashBillNos: ["CB1", "CB1"] }),
-  { taxInvoiceNos: ["IV1"], billingNoteNos: [], cashBillNos: ["CB1"], vatInvoiceNos: [], ncAcNos: [], voucherNos: [] })
+  { taxInvoiceNos: ["IV1"], billingNoteNos: [], cashBillNos: ["CB1"], ncAcNos: [], voucherNos: [] })
 assert.deepEqual(readDocNos(null),
-  { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], vatInvoiceNos: [], ncAcNos: [], voucherNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
+  { taxInvoiceNos: [], billingNoteNos: [], cashBillNos: [], ncAcNos: [], voucherNos: [] }, "ใบที่ยังไม่เคยกรอกเลยต้องไม่พัง")
+assert.equal("vatInvoiceNos" in readDocNos({ vatInvoiceNos: ["TX1"] }), false, "ช่องที่ถอดออกแล้วต้องไม่งอกกลับมา")
 assert.deepEqual(readDocNos({ taxInvoiceNos: "IV1" }), readDocNos(null), "ค่าเสียรูปใน DB = ถือว่าไม่มีเลข")
 
 // compactDocNos — payload ของตารางส่งเฉพาะช่องที่มีเลขจริง (หมื่นแถว × คีย์เปล่า 4 ตัว = เปลืองเปล่า)
@@ -157,8 +163,8 @@ assert.deepEqual(compactDocNos(null), {}, "ใบที่ไม่มีเล�
 assert.deepEqual(Object.keys(compactDocNos({ billingNoteNos: ["BN1"] })), ["billingNoteNos"], "ไม่งอกคีย์ที่ว่าง")
 
 // สายค้นหา — ต้องรวมทุกช่อง ไม่งั้นค้นด้วยเลขใบวางบิลแล้วเหมือนไม่เจอ
-const nosDoc = { taxInvoiceNos: ["IV6808-0231"], billingNoteNos: ["BN-2569/0814"], vatInvoiceNos: ["TX1187"], ncAcNos: ["SBAD26080007"] }
-for (const needle of ["IV6808-0231", "BN-2569/0814", "TX1187", "SBAD26080007"]) {
+const nosDoc = { taxInvoiceNos: ["IV6808-0231"], billingNoteNos: ["BN-2569/0814"], cashBillNos: ["CB-9001"], ncAcNos: ["SBAD26080007"] }
+for (const needle of ["IV6808-0231", "BN-2569/0814", "CB-9001", "SBAD26080007"]) {
   assert.ok(docNosText(nosDoc).includes(needle), `ค้นหาต้องเจอ ${needle}`)
 }
 assert.equal(docNosText(null), "", "ใบที่ไม่มีเลขเลย = สายว่าง ไม่ใช่ undefined")
@@ -293,13 +299,13 @@ assert.equal(monthFromCode(""), "")
 {
   const { subject, body } = apFinanceRequestText([
     { depositCode: "LBDD26080101", supplier: "มิตซุย บุซซัน", amount: 14810.51, purchaseOrder: "LBPO26080001",
-      docNos: { billingNoteNos: ["BL-SVCB2026-0395"], vatInvoiceNos: ["TX-1187"] } },
+      docNos: { billingNoteNos: ["BL-SVCB2026-0395"], taxInvoiceNos: ["TX-1187"] } },
     { depositCode: "LBDD26080102", supplier: "มิตซุย บุซซัน", amount: 1000 },
     { depositCode: "SBDD26080050", supplier: "หจก.หงส์ดำ", amount: 500 },
   ], "2026-08-20", "เอกสารแก้ไขล่าช้า")
   assert.ok(subject.includes("20 ส.ค. 69") && subject.includes("2 ราย"), subject)
   assert.ok(body.includes("เจ้าหนี้ มิตซุย บุซซัน"), "จัดกลุ่มตามเจ้าหนี้")
-  assert.ok(body.includes("1. LBDD26080101 · PO LBPO26080001 · ใบวางบิล BL-SVCB2026-0395 · ใบกำกับภาษี TX-1187 = 14,810.51"),
+  assert.ok(body.includes("1. LBDD26080101 · PO LBPO26080001 · ใบกำกับภาษี TX-1187 · ใบวางบิล BL-SVCB2026-0395 = 14,810.51"),
     "อ้าง DD · PO · เลขที่เอกสารทุกช่องที่กรอก พร้อมป้ายชนิด (ผู้ใช้สั่ง 19/08/2026)")
   assert.ok(body.includes("2. LBDD26080102 = 1,000.00"), "ไม่กรอกเลขเอกสารเลย เหลือเลขใบ DD อย่างเดียว")
   assert.ok(body.includes("รวมทั้งสิ้น 16,310.51 บาท (3 ใบ)"), "ยอดรวมต้องถูก")

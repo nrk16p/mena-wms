@@ -35,16 +35,17 @@ export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote"]
 
 // เลขที่เอกสาร — ATMS ไม่มีให้ ต้องคีย์เอง · ใบ DD ใบเดียวมีเอกสารชนิดเดียวกันได้หลายใบ จึงเก็บเป็นลิสต์
 // เดิมมีช่องเดียว (taxInvoiceNos) — เพิ่มอีก 3 ช่องวันที่ 18/08/2026 ตามที่ผู้ใช้สั่ง
+// 25/08/2026 ถอด vatInvoiceNos ("เลขที่ใบกำกับภาษี") ออก — ซ้ำกับ taxInvoiceNos ที่แปลว่าใบเดียวกัน
+// (ตอนถอดไม่มีใบไหนกรอกช่องนั้นเลยสักใบ จึงไม่ต้องย้ายข้อมูล) · taxInvoiceNos รับชื่อ "เลขที่ใบกำกับภาษี" แทน
 // เพิ่มช่องที่ 5 ในอนาคต = เติมบรรทัดเดียวที่นี่ ทั้ง UI/API/ค้นหา วนจากตารางนี้ตัวเดียว
 // (ช่อง "เลขที่ใบแจ้งหนี้/ใบวางบิล" เคยมีอยู่ช่วงสั้น ๆ วันที่ 17/08/2026 แล้วผู้ใช้สั่งเอาออก)
-export type ApNoKey = "taxInvoiceNos" | "billingNoteNos" | "cashBillNos" | "vatInvoiceNos" | "ncAcNos" | "voucherNos"
+export type ApNoKey = "taxInvoiceNos" | "billingNoteNos" | "cashBillNos" | "ncAcNos" | "voucherNos"
 export type ApDocNos = Record<ApNoKey, string[]>
 
 export const AP_NO_FIELDS: { key: ApNoKey; label: string; short: string }[] = [
-  { key: "taxInvoiceNos",  label: "เลขที่ใบกำกับ",      short: "ใบกำกับ" },
+  { key: "taxInvoiceNos",  label: "เลขที่ใบกำกับภาษี",  short: "ใบกำกับภาษี" },
   { key: "billingNoteNos", label: "เลขที่ใบวางบิล",     short: "ใบวางบิล" },
   { key: "cashBillNos",    label: "เลขที่บิลเงินสด",    short: "บิลเงินสด" },
-  { key: "vatInvoiceNos",  label: "เลขที่ใบกำกับภาษี",  short: "ใบกำกับภาษี" },
   { key: "ncAcNos",        label: "เลขที่ NC/AC",       short: "NC/AC" },      // เพิ่ม 19/08/2026
   // เลขตั้งหนี้ที่บัญชีออกตอนผ่าน (VoucherNo. จากไฟล์บัญชี เช่น LAPO26080130) — เพิ่ม 19/08/2026
   { key: "voucherNos",     label: "เลขที่ Voucher/ตั้งหนี้", short: "Voucher" },
@@ -95,7 +96,8 @@ export function docNosText(src: Record<string, unknown> | null | undefined): str
 const AP_RETIRED_DOC_LABELS: Record<string, string> = {
   dd: "DD (ใบรับของ)",
   po: "PO (ใบสั่งซื้อ)",
-  taxInvoiceNo: "เลขที่ใบกำกับ",              // ช่องเดี่ยวรุ่นแรก (ก่อนเปลี่ยนเป็นลิสต์)
+  taxInvoiceNo:  "เลขที่ใบกำกับภาษี",         // ช่องเดี่ยวรุ่นแรก (ก่อนเปลี่ยนเป็นลิสต์)
+  vatInvoiceNos: "เลขที่ใบกำกับภาษี",         // ช่องซ้ำ 18–25/08/2026 — รวมกลับเข้า taxInvoiceNos แล้ว
   invoiceNo: "เลขที่ใบแจ้งหนี้/ใบวางบิล",     // ถอดออกแล้ว
   billingNote: "ใบวางบิล (รวมกับใบแจ้งหนี้แล้ว)",
 }
