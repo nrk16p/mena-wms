@@ -4,7 +4,7 @@
 // ตรวจว่า "กำลังสั่งซื้อ" (PR ที่ยังไม่มี DD) ที่ build จะเขียนลง snapshot ออกมาเป็นตัวเลขเท่าไร
 // ใช้ฟังก์ชันตัวเดียวกับที่ build เรียกจริง (fetchOnOrderBySku) จะได้รู้ตัวถ้า ATMS เปลี่ยนรูปข้อมูล
 import clientPromise from "../lib/mongo"
-import { fetchOnOrderBySku } from "../lib/safety-stock-build"
+import { fetchOnOrderBySku } from "../lib/on-order"
 import { derive, isPartsPolicyRow, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, WAREHOUSES, type SnapshotRow } from "../lib/safety-stock-core"
 
 const MASTER_DB = process.env.MONGO_DB ?? "master_data"

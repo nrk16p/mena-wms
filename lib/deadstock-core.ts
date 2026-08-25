@@ -5,6 +5,8 @@
 // ⚠️ ต่างจาก KPI ชื่อ "deadstock" ของ mena-intelligence ซึ่งนับจาก "ไม่เคลื่อนไหว ≥12 เดือน"
 //    ชื่อซ้ำกันแต่คนละนิยาม — ระบุให้ชัดทุกครั้งที่คุยข้ามทีม
 
+import type { OnOrder } from "@/lib/safety-stock-core"
+
 export const DB_NAME = "atms"
 export const COLL_NAME = "stockmovement_v5"
 
@@ -149,6 +151,12 @@ export type PendingRow = {
    *  ไม่ต้องเช็คว่าใบใหม่กว่า "ยังไม่ถูกเบิก" ซ้ำอีก — FIFO ตัดจากใบเก่าสุดก่อน
    *  ถ้าใบนี้ยังค้าง ใบที่ใหม่กว่าย่อมยังไม่ถูกแตะเสมอ (ตรวจกับข้อมูลจริงแล้ว 0/290 กรณีขัดแย้ง) */
   newerCount: number
+  /** "กำลังจะซื้อซ้ำ" — ของรหัสเดียวกันที่สั่งไปแล้วแต่ยังไม่รับเข้า ทั้งที่ใบนี้ยังไม่ถูกเบิกสักชิ้น
+   *  ต่างจาก newerCount ตรงที่อันนั้นนับใบ DD ที่ "รับของมาแล้ว" (เงินออกไปแล้ว) ส่วนอันนี้นับ PR ที่ยัง
+   *  ไม่รับของ — เห็นก่อนเงินออก ยังชะลอหรือยกเลิกทัน (ทับซ้อนกันแค่ 1 ใบจาก 364 วัดจริง 25/08/2026)
+   *  นับเฉพาะ PR ที่ซื้อเข้าสต๊อก ไม่รวมอะไหล่ลงคัน — เกณฑ์เดียวกับหน้า /safety-stock (ดู openPrQtyBySku)
+   *  ไม่ใส่ (undefined) เมื่อรหัสนั้นไม่มีของค้างสั่งอยู่ */
+  onOrder?: OnOrder
 }
 
 export type MonthPoint = {
@@ -294,7 +302,12 @@ export function rollupItems(rows: PendingRow[]): ItemRow[] {
 }
 
 // ── Payload builder ─────────────────────────────────────────────────────────
-export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf: Date): DeadstockPayload {
+/** onOrderBySku: "กำลังสั่งซื้อ" รายรหัส (ดู lib/on-order.ts) — ไม่ส่งมาก็ได้ ผลลัพธ์จะไม่มีฟิลด์ onOrder
+ *  เลยทุกแถว เหมือนก่อนมีฟีเจอร์นี้ทุกประการ (เทสต์เดิมที่เรียกแบบ 3 อาร์กิวเมนต์จึงไม่ต้องแก้) */
+export function buildPayload(
+  layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf: Date,
+  onOrderBySku?: Map<string, OnOrder>,
+): DeadstockPayload {
   type Entry = { layers: Layer[]; issues: Map<string, number> }
   const byItem = new Map<string, Entry>()
   const entry = (code: string): Entry => {
@@ -411,6 +424,14 @@ export function buildPayload(layerDocs: LayerDoc[], issueDocs: IssueDoc[], asOf:
   for (const rows of byCode.values()) {
     rows.sort((a, b) => (a.date === b.date ? a.dd.localeCompare(b.dd) : a.date < b.date ? -1 : 1))
     for (let i = 0; i < rows.length; i++) rows[i].newerCount = rows.length - 1 - i
+  }
+
+  // กำลังจะซื้อซ้ำ — แปะรายรหัส ทุกใบที่ค้างของรหัสนั้นเห็นยอดเดียวกัน (ยอดสั่งผูกกับรหัส ไม่ใช่ผูกกับใบ DD)
+  if (onOrderBySku) {
+    for (const p of pending) {
+      const oo = onOrderBySku.get(p.itemCode)
+      if (oo && oo.qty > 0) p.onOrder = oo
+    }
   }
 
   pending.sort((a, b) => b.ageDays - a.ageDays || b.value - a.value)

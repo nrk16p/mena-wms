@@ -268,6 +268,9 @@ export function DeadstockPendingPage() {
         สถานะ: BUCKET_LABEL[r.bucket]?.label ?? r.bucket,
         "สถานะ (ไทย)": BUCKET_LABEL[r.bucket]?.th ?? "",
         "ซื้อซ้ำหลังใบนี้ (ใบ)": r.newerCount,
+        "กำลังสั่งอีก (เข้าสต๊อก)": r.onOrder?.qty ?? "",
+        "ใบ PR ที่ค้าง": r.onOrder?.prCodes.join(", ") ?? "",
+        "PR เก่าสุด (วัน)": r.onOrder?.oldestDays ?? "",
         การจัดการ: ACTION_LABEL[actions[layerKey(r)]?.action ?? ""] ?? "",
         "ผู้บันทึกการจัดการ": actions[layerKey(r)]?.by ?? "",
       }))
@@ -369,10 +372,14 @@ export function DeadstockPendingPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ", "การจัดการ"].map((h, i) => (
+                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ", "กำลังสั่งอีก", "การจัดการ"].map((h, i) => (
                     <th
                       key={h}
-                      title={h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ)" : undefined}
+                      title={
+                        h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ) — ซื้อไปแล้ว เงินออกแล้ว"
+                        : h === "กำลังสั่งอีก" ? "จำนวนของรหัสเดียวกันที่สั่งไปแล้วแต่ยังไม่รับเข้า ทั้งที่ใบนี้ยังไม่ถูกเบิกสักชิ้น\nนับจากใบ PR ที่ซื้อเข้าสต๊อกและยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน หักส่วนที่รับไปแล้ว\nใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) ไม่นับ — เกณฑ์เดียวกับหน้า /safety-stock\nต่างจาก \"ซื้อซ้ำ\" ตรงที่ยังไม่รับของ จึงยังชะลอหรือยกเลิกทัน"
+                        : undefined
+                      }
                       style={{
                         padding: "10px 12px",
                         fontWeight: 700,
@@ -406,6 +413,22 @@ export function DeadstockPendingPage() {
                     </td>
                     <td style={{ padding: "9px 12px", textAlign: "right" }}>
                       <RepurchaseBadge n={r.newerCount} />
+                    </td>
+                    {/* กำลังจะซื้อซ้ำ — ของยังไม่มา ยังยกเลิกทัน จึงเน้นให้เห็นชัดกว่าขีดจางเวลาไม่มี */}
+                    <td
+                      style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" }}
+                      title={r.onOrder
+                        ? `PR ที่ยังไม่รับของ ${r.onOrder.prCount} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${r.onOrder.prCodes.join(", ")}${r.onOrder.prCount > r.onOrder.prCodes.length ? " …" : ""}`
+                        : "ไม่มีใบ PR ซื้อเข้าสต๊อกค้างอยู่สำหรับรหัสนี้"}
+                    >
+                      {r.onOrder ? (
+                        <>
+                          <div style={{ fontWeight: 700, color: "#B45309" }}>+{r.onOrder.qty.toLocaleString()}</div>
+                          <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>PR {r.onOrder.prCount} ใบ</div>
+                        </>
+                      ) : (
+                        <span style={{ color: "#D1D5DB" }}>—</span>
+                      )}
                     </td>
                     <td style={{ padding: "9px 12px", textAlign: "right" }}>
                       <ActionSelect

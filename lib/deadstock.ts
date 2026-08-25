@@ -2,9 +2,10 @@
 // ชั้นคุย MongoDB ของหน้า /deadstock — ตรรกะทั้งหมดอยู่ใน deadstock-core.ts
 import clientPromise from "@/lib/mongo"
 import {
-  DB_NAME, COLL_NAME, LAYER_PIPELINE, ISSUE_PIPELINE, buildPayload,
+  DB_NAME, COLL_NAME, INVENTORY_ID, LAYER_PIPELINE, ISSUE_PIPELINE, buildPayload,
   type LayerDoc, type IssueDoc, type DeadstockPayload,
 } from "@/lib/deadstock-core"
+import { fetchOnOrderBySku } from "@/lib/on-order"
 
 /** ยุบข้อมูลฝั่ง Mongo ก่อนเสมอ — ดึงแถวดิบ 54k แถวใช้ 152 วินาที ส่วนยุบก่อนใช้ 1.7 วินาที */
 async function fetchRaw(): Promise<{ layers: LayerDoc[]; issues: IssueDoc[] }> {
@@ -28,8 +29,13 @@ declare global {
 export async function getDeadstock(force = false): Promise<DeadstockPayload> {
   const hit = globalThis._deadstockCache
   if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.data
+  const asOf = new Date()
+  const client = await clientPromise
   const { layers, issues } = await fetchRaw()
-  const data = buildPayload(layers, issues, new Date())
+  // "กำลังจะซื้อซ้ำ" — ของที่สั่งไปแล้วยังไม่รับเข้า ทั้งที่ของเก่ายังค้างในคลัง · พังก็ไม่ล้มทั้งหน้า
+  // (fetchOnOrderBySku คืน Map ว่างเองเมื่อ query พัง) แค่คอลัมน์นั้นว่างไป ตัวเลข deadstock หลักไม่กระทบ
+  const onOrder = await fetchOnOrderBySku(client.db("atms"), INVENTORY_ID, asOf)
+  const data = buildPayload(layers, issues, asOf, onOrder)
   globalThis._deadstockCache = { at: Date.now(), data }
   return data
 }
