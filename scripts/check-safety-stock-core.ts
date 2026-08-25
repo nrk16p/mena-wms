@@ -6,7 +6,7 @@ import {
   median, stdev, aduFrom, sdDailyFrom, safetyStockOf, reorderPointOf,
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
-  openPrQtyBySku, ageDaysFromDmy, ON_ORDER_MAX_AGE_DAYS,
+  openPrQtyBySku, ageDaysFromDmy, isVehiclePlate, ON_ORDER_MAX_AGE_DAYS,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow,
 } from "../lib/safety-stock-core"
@@ -304,12 +304,13 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   const WH = "คลังลาดกระบัง"
   const base = {
     prHeads: [
-      { code: "LBPR001", date: "20/08/2026", warehouse: WH },   // เปิดอยู่ ยังไม่มี PO
-      { code: "LBPR002", date: "10/08/2026", warehouse: WH },   // มี PO + DD ครบ → ปิดแล้ว
-      { code: "LBPR003", date: "01/08/2026", warehouse: WH },   // มี PO แต่ DD ไม่ครบ → ยังเปิด
-      { code: "LBPR004", date: "01/01/2026", warehouse: WH },   // เก่าเกิน 90 วัน
-      { code: "SBPR005", date: "20/08/2026", warehouse: "คลังสระบุรี" }, // คนละคลัง
-      { code: "LBPR006", date: "18/08/2026", warehouse: WH },   // มีแต่ PO ที่ยกเลิก → ยังเปิด
+      { code: "LBPR001", date: "20/08/2026", warehouse: WH, plate: "" },        // เปิดอยู่ ยังไม่มี PO
+      { code: "LBPR002", date: "10/08/2026", warehouse: WH, plate: "" },        // มี PO + DD ครบ → ปิดแล้ว
+      { code: "LBPR003", date: "01/08/2026", warehouse: WH, plate: "สบ.00000" },// ทะเบียนหลอกของฝ่ายสโตร์ = ยังนับ
+      { code: "LBPR004", date: "01/01/2026", warehouse: WH, plate: "" },        // เก่าเกิน 90 วัน
+      { code: "SBPR005", date: "20/08/2026", warehouse: "คลังสระบุรี", plate: "" }, // คนละคลัง
+      { code: "LBPR006", date: "18/08/2026", warehouse: WH, plate: "" },        // มีแต่ PO ที่ยกเลิก → ยังเปิด
+      { code: "LBPR007", date: "19/08/2026", warehouse: WH, plate: "สบ.71-0048" }, // อะไหล่ลงคัน → ไม่นับ
     ],
     poHeads: [
       { code: "LBPO002", prCode: "LBPR002", receiveStatus: "รับสินค้าแล้วทั้งหมด" },
@@ -326,6 +327,7 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
       { prCode: "LBPR004", sku: "A1", amount: 50, warehouse: WH, group: "ระบบเบรก" },        // เก่าเกินไม่นับ
       { prCode: "SBPR005", sku: "A1", amount: 70, warehouse: "คลังสระบุรี", group: "ระบบเบรก" },
       { prCode: "LBPR006", sku: "B2", amount: 4, warehouse: WH, group: "ระบบไฟฟ้า" },
+      { prCode: "LBPR007", sku: "A1", amount: 500, warehouse: WH, group: "ระบบเบรก" },   // ลงคัน ห้ามนับ
     ],
     poItems: [
       { poCode: "LBPO003a", sku: "A1", received: 5 },
@@ -342,6 +344,17 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   assert.equal(m.get("A1")?.oldestDays, 24, "LBPR003 ลงวันที่ 01/08/2026 = 24 วันก่อน 25/08/2026")
   assert.equal(m.get("LAB"), undefined, "บรรทัดกลุ่มค่าแรงไม่ใช่ของเข้าสต๊อก ห้ามนับ")
   assert.equal(m.get("B2")?.qty, 4, "PO ที่ยกเลิกไม่ปิดใบ PR และยอดที่ 'รับ' บน PO ยกเลิกห้ามเอามาหัก")
+
+  // อะไหล่ลงคัน — ตัดทั้งใบ · และห้ามเผลอไปตัดใบที่ฝ่ายสโตร์กรอกทะเบียนหลอกไว้ด้วย
+  assert.ok(!m.get("A1")!.prCodes.includes("LBPR007"), "ใบที่ระบุทะเบียนรถจริงคืออะไหล่ลงคัน ห้ามนับ")
+  assert.ok(m.get("A1")!.prCodes.includes("LBPR003"), 'ทะเบียนหลอก "สบ.00000" ของฝ่ายสโตร์ยังต้องนับเป็นของเข้าสต๊อก')
+  assert.equal(isVehiclePlate("สบ.71-0048"), true)
+  assert.equal(isVehiclePlate("สบ.00000"), false, "ศูนย์ล้วน = ค่าหลอกที่ฝ่ายสโตร์กรอก ไม่ใช่รถจริง")
+  assert.equal(isVehiclePlate("สบ.000"), false)
+  assert.equal(isVehiclePlate("สบ.00-0000"), false)
+  assert.equal(isVehiclePlate(""), false)
+  assert.equal(isVehiclePlate(null), false, "ช่องว่างใน DB ต้องไม่พัง")
+  assert.equal(isVehiclePlate("สบ."), false, "ไม่มีตัวเลขเลย = ไม่ใช่ทะเบียนรถ")
 
   // คลังอื่นต้องไม่ปนกัน — เรียกด้วยชื่อคลังไหนได้ของคลังนั้น
   const sb = openPrQtyBySku({ ...base, warehouse: "คลังสระบุรี" })

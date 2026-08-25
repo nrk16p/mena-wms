@@ -19,6 +19,7 @@ const PR_KEY = "ใบขอสั่งซื้อ (PR)"
 const PO_KEY = "รหัส"
 const WH_KEY = "คลังสินค้า"
 const DATE_KEY = "วันที่"
+const PLATE_KEY = "ทะเบียน"
 const PO_RECEIVE_STATUS_KEY = "สถานะการรับสินค้า"
 
 /** ปัด 6 ตำแหน่งทศนิยม — ใช้กับ adu/sdDaily ก่อนเก็บลง Mongo (ดูจุดที่ใช้ด้านล่าง) */
@@ -68,10 +69,13 @@ export async function fetchOnOrderBySku(atms: Db, inventoryId: string, asOf: Dat
     // PR ของคลังนี้ที่ยังไม่เกินอายุ — กรองอายุฝั่ง JS เพราะ ATMS เก็บวันที่เป็นสตริง "DD/MM/YYYY" ช่วงค่าไม่ได้
     const prHeadDocs = (await atms.collection("purchase_requests")
       .find({ [WH_KEY]: warehouseName })
-      .project({ _id: 0, [PR_KEY]: 1, [DATE_KEY]: 1, [WH_KEY]: 1 })
+      .project({ _id: 0, [PR_KEY]: 1, [DATE_KEY]: 1, [WH_KEY]: 1, [PLATE_KEY]: 1 })
       .toArray()) as Record<string, unknown>[]
     const prHeads = prHeadDocs
-      .map((d) => ({ code: String(d[PR_KEY] ?? ""), date: String(d[DATE_KEY] ?? ""), warehouse: String(d[WH_KEY] ?? "") }))
+      .map((d) => ({
+        code: String(d[PR_KEY] ?? ""), date: String(d[DATE_KEY] ?? ""),
+        warehouse: String(d[WH_KEY] ?? ""), plate: String(d[PLATE_KEY] ?? ""),
+      }))
       .filter((p) => {
         if (!p.code) return false
         const age = ageDaysFromDmy(p.date, asOf)

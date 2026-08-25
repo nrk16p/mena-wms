@@ -349,10 +349,23 @@ export const ON_ORDER_PR_CODES_MAX = 5
 /** บรรทัด PR กลุ่มค่าแรงไม่ใช่ของเข้าสต๊อก (ค่าปะยาง ค่าเชื่อม ฯลฯ) — นับรวมจะทำให้ตัวเลขเพี้ยน */
 const LABOUR_GROUP_RE = /^ค่าแรง/
 
-export type PrHeadRef = { code: string; date: string; warehouse: string }
+export type PrHeadRef = { code: string; date: string; warehouse: string; plate: string }
 export type PoHeadRef = { code: string; prCode: string; receiveStatus: string }
 export type PrItemRef = { prCode: string; sku: string; amount: number; warehouse: string; group: string }
 export type PoItemRef = { poCode: string; sku: string; received: number }
+
+/** ใบ PR ที่ระบุทะเบียนรถจริง = ซื้ออะไหล่ไปลงรถคันนั้นโดยเฉพาะ ไม่ใช่ซื้อเข้าสต๊อก
+ *  ของกองนี้รับเข้าคลังแล้วเบิกออกให้รถทันที สุทธิแล้วสต๊อกไม่ได้เพิ่ม — และยอดเบิกของรถพวกนั้นถูกนับ
+ *  ใน ADU/ROP อยู่แล้ว ถ้าเอามาหัก "แนะนำสั่ง" อีกจะเท่ากับหักซ้ำสองรอบ
+ *
+ *  ห้ามเช็คแค่ "ช่องทะเบียนไม่ว่าง" — ฝ่ายจัดซื้อสโตร์กรอกทะเบียนหลอกไว้ "สบ.00000"/"สบ.000" ในใบที่ซื้อ
+ *  เข้าสต๊อกจริง (วัดจริง 25/08/2026: 392 ใบจาก 4,019 ใบ หมายเหตุเขียนว่า "เข้าสต๊อกเพื่อการซ่อมบำรุง"
+ *  หรือ "สำหรับ PM") เช็คแบบนั้นจะตัดของที่เข้าสต๊อกจริงทิ้งไปด้วย
+ *  เกณฑ์จึงเป็น "มีตัวเลขที่ไม่ใช่ศูนย์อยู่ในทะเบียน" ไม่ใช่แค่ "มีตัวอักษรอยู่ในช่อง" */
+export function isVehiclePlate(plate: string | null | undefined): boolean {
+  const digits = (plate ?? "").replace(/\D/g, "")
+  return digits.length > 0 && /[1-9]/.test(digits)
+}
 
 /** อายุ (วัน) ของวันที่รูป "DD/MM/YYYY" — คืน null เมื่ออ่านไม่ออก ให้ผู้เรียกตัดสินเองว่าจะทิ้งหรือเก็บ */
 export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
@@ -373,6 +386,9 @@ export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
  *
  *  ที่ต้องหักส่วนที่รับไปแล้ว: PR ใบเดียวแตกเป็นหลาย PO แล้วทยอยรับ ถ้าเอายอดในใบ PR มาตรงๆ จะนับเกิน
  *  (วัดจริง 25/08/2026: ลาดกระบังยอดดิบ 6,210 ชิ้น แต่รับไปแล้ว 2,622 = เกินจริง 42%)
+ *
+ *  ใบที่ระบุทะเบียนรถจริงถูกตัดทิ้งทั้งใบ — เป็นอะไหล่ลงคัน ไม่ใช่ของเข้าสต๊อก (ดู isVehiclePlate)
+ *  วัดจริง 25/08/2026: ใบที่ยังไม่มี DD 644 ใบ เป็นอะไหล่ลงคัน 564 ใบ เหลือของเข้าสต๊อกจริง 80 ใบ
  */
 export function openPrQtyBySku(input: {
   prHeads: PrHeadRef[]
@@ -400,10 +416,11 @@ export function openPrQtyBySku(input: {
     prOfPo.set(po.code, po.prCode)
   }
 
-  // ใบ PR ที่ยังไม่มี DD ครบ + อายุยังไม่เกิน — เก็บอายุไว้ด้วยเพื่อรายงาน oldestDays
+  // ใบ PR ที่ยังไม่มี DD ครบ + อายุยังไม่เกิน + ไม่ใช่อะไหล่ลงคัน — เก็บอายุไว้ด้วยเพื่อรายงาน oldestDays
   const openPrAge = new Map<string, number>()
   for (const pr of input.prHeads) {
     if (pr.warehouse !== input.warehouse) continue
+    if (isVehiclePlate(pr.plate)) continue      // ซื้อไปลงรถคันนั้น ไม่ใช่ของเข้าสต๊อก
     const age = ageDaysFromDmy(pr.date, input.asOf)
     if (age === null || age < 0 || age > maxAge) continue
     const myPos = posByPr.get(pr.code) ?? []
