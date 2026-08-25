@@ -144,6 +144,9 @@ export type PendingRow = {
   /** เบอร์รถ + เลขใบขอซื้อ แกะจาก `หมายเหตุ` ใบเดียวกับที่ให้ทะเบียน — null เมื่อใบนั้นเขียนไม่ครบช่อง */
   fleetNo: string | null
   prCode: string | null
+  /** ผู้ขอซื้อจากหัวใบ PR — ไม่ได้อยู่ใน stockmovement จึงเติมทีหลังใน lib/deadstock.ts
+   *  (ตรรกะล้วนที่นี่ query ไม่ได้ · แพตเทิร์นเดียวกับ newerCount ที่เติมย้อนหลัง) */
+  requester: string | null
   itemCode: string
   itemName: string
   itemGroup: string
@@ -419,6 +422,7 @@ export function buildPayload(
         plate: r.plate,
         fleetNo: fleetNoFromNote(r.note),
         prCode: prCodeFromNote(r.note),
+        requester: null, // เติมใน lib/deadstock.ts เมื่อรู้ว่าใบไหนค้างจริงแล้ว จะได้ยิง $in เท่าที่แสดง
         itemCode: r.itemCode,
         itemName: r.itemName,
         itemGroup: r.itemGroup,

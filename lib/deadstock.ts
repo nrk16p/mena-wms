@@ -6,6 +6,7 @@ import {
   type LayerDoc, type IssueDoc, type DeadstockPayload,
 } from "@/lib/deadstock-core"
 import { fetchOnOrderBySku } from "@/lib/on-order"
+import { fetchRequesterByPr } from "@/lib/pr-snapshot"
 
 /** ยุบข้อมูลฝั่ง Mongo ก่อนเสมอ — ดึงแถวดิบ 54k แถวใช้ 152 วินาที ส่วนยุบก่อนใช้ 1.7 วินาที */
 async function fetchRaw(): Promise<{ layers: LayerDoc[]; issues: IssueDoc[] }> {
@@ -36,6 +37,10 @@ export async function getDeadstock(force = false): Promise<DeadstockPayload> {
   // (fetchOnOrderBySku คืน Map ว่างเองเมื่อ query พัง) แค่คอลัมน์นั้นว่างไป ตัวเลข deadstock หลักไม่กระทบ
   const onOrder = await fetchOnOrderBySku(client.db("atms"), INVENTORY_ID, asOf)
   const data = buildPayload(layers, issues, asOf, onOrder)
+  // ผู้ขอซื้ออยู่ที่หัวใบ PR คนละ collection กับ stockmovement — เติมหลัง build เพราะเพิ่งรู้ตอนนี้
+  // ว่าใบไหน "ค้างจริง" (~364 ใบ วัดจริง 25/08/2026) $in จึงเล็กกว่าการยิงทุกใบรับที่เคยมี (~2,500)
+  const requesters = await fetchRequesterByPr(client, data.pending.map((p) => p.prCode ?? ""))
+  for (const row of data.pending) row.requester = (row.prCode && requesters.get(row.prCode)) || null
   globalThis._deadstockCache = { at: Date.now(), data }
   return data
 }

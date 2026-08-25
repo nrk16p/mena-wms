@@ -15,6 +15,30 @@ function toISO(d: string): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : ""
 }
 
+/** ผู้ขอซื้อรายใบ PR — ตัวเบาสำหรับหน้าที่ต้องการแค่ชื่อคน ไม่ต้องลากสถานะ PO/DD มาด้วย
+ *  bounded ด้วยรายการ prCodes ที่ผู้เรียกส่งมา · `ใบขอสั่งซื้อ (PR)` ยังไม่มี index (collscan ~11k doc)
+ *  ยอมรับได้ที่ขนาดนี้ และผู้เรียกฝั่ง /deadstock cache ไว้ชั่วโมงละครั้งอยู่แล้ว
+ *  พังก็คืน Map ว่าง ไม่ล้มทั้งหน้า — ชื่อผู้ขอซื้อเป็นข้อมูลเสริม */
+export async function fetchRequesterByPr(client: MongoClient, prCodes: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const codes = [...new Set(prCodes.map((c) => c.trim()).filter(Boolean))]
+  if (!codes.length) return out
+  try {
+    const docs = (await client.db("atms").collection("purchase_requests")
+      .find({ [PR_KEY]: { $in: codes } }, { maxTimeMS: 20_000 })
+      .project({ [PR_KEY]: 1, "ผู้ขอซื้อ": 1, _id: 0 })
+      .toArray()) as Doc[]
+    for (const d of docs) {
+      const pr = s(d[PR_KEY])
+      const who = s(d["ผู้ขอซื้อ"])
+      if (pr && who) out.set(pr, who)
+    }
+  } catch (e) {
+    console.error("[pr-snapshot] fetchRequesterByPr ", e)
+  }
+  return out
+}
+
 // ดึง snapshot หลาย PR ในชุดเดียว (bounded ตามจำนวน ticket ที่เปิดอยู่)
 export async function fetchPrSnapshots(client: MongoClient, prCodes: string[]): Promise<Map<string, PrSnapshot>> {
   const out = new Map<string, PrSnapshot>()
