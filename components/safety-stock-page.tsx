@@ -144,8 +144,13 @@ type EnrichedRow = { r: SnapshotRow; d: Derived; annualIssue: number }
 
 // leadTimeDays ตัดออกจาก sort key พร้อมกับคอลัมน์ (ข้อ 4) — ทุกแถวใช้เวลารอของนโยบายคงที่ {LEAD_TIME_DAYS} วัน
 // เหมือนกันหมดแล้ว เรียงคอลัมน์นี้จึงไม่มีความหมาย (เปรียบเทียบค่าที่วัดได้จริงจะเข้าใจผิดว่าคือค่าที่ใช้คำนวณ)
+/** ป้ายแทนแถวที่คนคลังยังไม่ได้กรอกสถานที่จัดเก็บใน ATMS — ใช้เป็นทั้งตัวเลือกในตัวกรองและตัวเรียง
+ *  (แถวที่ซิงก์ไว้ก่อน 25/08/2026 ก็ยังไม่มีฟิลด์นี้ ต้องอ่านเป็นค่าว่างได้โดยไม่พัง) */
+const NO_LOCATION = "(ยังไม่ระบุ)"
+const locationOf = (r: SnapshotRow): string => r.storageLocation?.trim() || NO_LOCATION
+
 type SortKey =
-  | "code" | "name" | "group" | "stockQty" | "minQty" | "maxQty" | "adu" | "issueCount"
+  | "code" | "name" | "group" | "storageLocation" | "stockQty" | "minQty" | "maxQty" | "adu" | "issueCount"
   | "rop" | "ss" | "dos" | "status" | "minVerdict" | "suggestQty" | "orderValue"
 
 // daysOfSupply เป็น null สำหรับแถวไม่มีการเบิก (ADU=0 หารไม่ได้) — คืน null ตรงๆ แล้วให้ตัวเปรียบเทียบใน `sorted`
@@ -155,6 +160,7 @@ function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
     case "code": return row.r.code
     case "name": return row.r.name
     case "group": return row.r.group
+    case "storageLocation": return locationOf(row.r)
     case "stockQty": return row.r.stockQty
     case "minQty": return row.r.minQty
     case "maxQty": return row.r.maxQty
@@ -189,6 +195,7 @@ const ORDER_BY_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "code", label: "รหัส" },
   { key: "name", label: "ชื่อ" },
   { key: "group", label: "กลุ่ม" },
+  { key: "storageLocation", label: "สถานที่จัดเก็บ" },
 ]
 
 /** หัวคอลัมน์ที่คลิกเรียงได้ — ตรึงซ้ายได้ถ้าระบุ stickyLeft (ข้อ 3) */
@@ -442,6 +449,7 @@ export default function SafetyStockPage() {
 
   const [q, setQ] = useState("")
   const [groups, setGroups] = useState<string[]>([])
+  const [locs, setLocs] = useState<string[]>([])
   const [statuses, setStatuses] = useState<Status[]>(["out", "below_rop"])
   const [win, setWin] = useState<WindowKey>(DEFAULT_WINDOW)
   const [service, setService] = useState(95)
@@ -469,6 +477,7 @@ export default function SafetyStockPage() {
     setError(null)
     setSelectedRow(null)
     setGroups([])
+    setLocs([])   // ชื่อสถานที่คนละชุดกันคนละคลัง (ลาดกระบัง "B1-1" · สระบุรี "Shelf 4/B")
     setStatuses(["out", "below_rop"])
     setWarehouseId(id)
   }
@@ -514,15 +523,26 @@ export default function SafetyStockPage() {
     return out
   }, [data])
 
+  // เรียงแบบ th ให้ "Shelf 1/A" กับ "A1-2" อยู่ในลำดับที่คนอ่านคาดเดาได้ · ดัน "(ยังไม่ระบุ)" ไปท้ายเสมอ
+  const locationOptions = useMemo<Record<string, { th: string; en: string }>>(() => {
+    if (!data) return {}
+    const all = [...new Set(data.rows.map(locationOf))]
+      .sort((a, b) => (a === NO_LOCATION ? 1 : b === NO_LOCATION ? -1 : a.localeCompare(b, "th")))
+    const out: Record<string, { th: string; en: string }> = {}
+    for (const l of all) out[l] = { th: l, en: "" }
+    return out
+  }, [data])
+
   // ค้นหา+กลุ่ม ก่อนสถานะ — เพื่อให้จำนวนในวงเล็บของชิปสถานะสะท้อนตัวกรองอื่นที่เลือกอยู่ (ไม่รวมสถานะเอง)
   const searched = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return enriched.filter(({ r }) => {
       if (needle && !r.code.toLowerCase().includes(needle) && !r.name.toLowerCase().includes(needle)) return false
       if (groups.length && !groups.includes(r.group)) return false
+      if (locs.length && !locs.includes(locationOf(r))) return false
       return true
     })
-  }, [enriched, q, groups])
+  }, [enriched, q, groups, locs])
 
   const statusCounts = useMemo(() => {
     const m = new Map<Status, number>()
@@ -593,6 +613,7 @@ export default function SafetyStockPage() {
         รหัส: r.code,
         ชื่อ: r.name,
         กลุ่ม: r.group,
+        สถานที่จัดเก็บ: r.storageLocation ?? "",
         หน่วย: r.unit,
         คงเหลือ: r.stockQty,
         min: r.minQty,
@@ -628,12 +649,13 @@ export default function SafetyStockPage() {
   // overflow-x: auto ที่ wrapper ยังอยู่เป็น safety net เมื่อจอแคบกว่า TABLE_W เท่านั้น
   const COL_STATUS = 100
   const COL_ID = 220     // พื้นขั้นต่ำของคอลัมน์ รหัส/ชื่อ (ตรึงซ้าย/sticky) — ใช้คิด TABLE_W เท่านั้น ไม่ตั้งเป็น width จริง
+  const COL_LOC = 108    // พอสำหรับ "ห้องเก็บเครื่องมือช่าง" ของสระบุรี (ยาวสุดที่พบ) โดยไม่กิน 1280px จนล้น
   const COL_STOCK = 144
   const COL_ROP = 100
   const COL_DOS = 70
   const COL_USAGE = 104
   const COL_SUGGEST = 128
-  const TABLE_W = COL_STATUS + COL_ID + COL_STOCK + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 866 (พื้น/floor)
+  const TABLE_W = COL_STATUS + COL_ID + COL_LOC + COL_STOCK + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 974 (พื้น/floor)
 
   return (
     <div>
@@ -753,6 +775,13 @@ export default function SafetyStockPage() {
                 placeholder="— ทุกกลุ่มสินค้า —"
                 className="min-w-[220px] max-w-[320px] rounded-lg border border-[#E5E7EB] px-2"
               />
+              <MultiSelectCombobox
+                options={locationOptions}
+                values={locs}
+                onChange={setLocs}
+                placeholder="— ทุกสถานที่จัดเก็บ —"
+                className="min-w-[200px] max-w-[280px] rounded-lg border border-[#E5E7EB] px-2"
+              />
               <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
                 {WINDOW_KEYS.map((w) => (
                   <button
@@ -846,6 +875,7 @@ export default function SafetyStockPage() {
                 <colgroup>
                   <col style={{ width: COL_STATUS }} />
                   <col /> {/* รหัส/ชื่อ — ไม่ตั้ง width โดยตั้งใจ ให้ได้พื้นที่ว่างที่เหลือทั้งหมด (ดูคอมเมนต์ COL_ID ด้านบน) */}
+                  <col style={{ width: COL_LOC }} />
                   <col style={{ width: COL_STOCK }} />
                   <col style={{ width: COL_ROP }} />
                   <col style={{ width: COL_DOS }} />
@@ -859,6 +889,10 @@ export default function SafetyStockPage() {
                       title={"สรุปว่าต้องลงมือทำอะไรกับรหัสนี้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน\nตรวจ min: เทียบ min ที่ตั้งไว้ใน ATMS กับ ROP ที่คำนวณได้ — วางเมาส์บนป้ายแต่ละแถวเพื่อดูรายละเอียด หรือดูแผงคำอธิบายตัวย่อด้านบน"}
                     />
                     <SortableTh label="รหัส / ชื่อ" colKey="code" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} stickyLeft={COL_STATUS} />
+                    <SortableTh
+                      label="สถานที่จัดเก็บ" colKey="storageLocation" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                      title={"ช่อง/ชั้นที่เก็บของจริงในคลัง — คนคลังกรอกไว้ใน ATMS (หน้าประวัติสต๊อก) ระบบซิงก์มาคืนละครั้ง\nว่าง = ยังไม่ได้กรอกใน ATMS ไม่ใช่ระบบดึงไม่ได้"}
+                    />
                     <SortableTh
                       label="คงเหลือ" colKey="stockQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
                       title={`จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด\nmin: ${GLOSSARY.min.desc}\nmax: ${GLOSSARY.max.desc}`}
@@ -901,6 +935,14 @@ export default function SafetyStockPage() {
                         <div style={{ fontFamily: "monospace", fontSize: 11.5 }}>{r.code}</div>
                         <div style={{ fontSize: 12.5, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
                         <div style={{ fontSize: 10.5, color: "#9CA3AF", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.group}</div>
+                      </td>
+
+                      {/* สถานที่จัดเก็บ — ค่าจาก ATMS ตรงๆ ไม่แปลง · แถวที่ยังไม่ได้กรอกขึ้นขีดเทา ไม่ใช่ช่องว่างเปล่า
+                          (ช่องว่างเปล่าอ่านไม่ออกว่า "ยังไม่กรอก" หรือ "ระบบดึงไม่ได้") */}
+                      <td style={{ padding: "8px 10px", verticalAlign: "top" }} title={r.storageLocation || "ยังไม่ได้กรอกสถานที่จัดเก็บใน ATMS"}>
+                        {r.storageLocation?.trim()
+                          ? <span style={{ fontFamily: "monospace", fontSize: 11.5, background: "#F3F4F6", borderRadius: 6, padding: "2px 6px", display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.storageLocation}</span>
+                          : <span style={{ color: "#D1D5DB" }}>—</span>}
                       </td>
 
                       {/* คงเหลือ — คงเหลือ+หน่วย (ตัวหลัก) + min·max (บรรทัดรอง) + แถบตำแหน่งระหว่าง min–max

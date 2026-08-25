@@ -1,5 +1,8 @@
 import https from "node:https"
 import { AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
+// ตัวแกะ HTML ล้วนอยู่ที่ lib/atms-parse.ts — ไฟล์นี้ลากสาย import ไปถึง lib/mongo เทสต์ตรรกะล้วนจึง import ไม่ได้
+import { stripTags, parseTotal, stockHistoryUrl, parseStockLocationRows, type StockLocationRow } from "@/lib/atms-parse"
+export { ictDdmmyyyy, type StockLocationRow } from "@/lib/atms-parse"
 
 // Session cookie for the ATMS activity log. The fallback value is committed
 // intentionally (approved) so the cron works without extra env setup;
@@ -89,16 +92,6 @@ function logIndexUrl(fromDate: string, toDate: string, page: number, orderBy = "
 /** Rows-per-page is stored server-side per session — pin it so pagination math holds. */
 export async function ensureRowsPerPage(phpsessid: string, n = 1000): Promise<void> {
   await fetchHtml(`https://www.mena-atms.com/account/user/set.row.per.page/?row-per-page=${n}&redir=%2F`, phpsessid)
-}
-
-function stripTags(s: string): string {
-  return s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim()
-}
-
-/** Total from the pagination bar: "1 - 1000 / 52,505" */
-function parseTotal(html: string): number | null {
-  const m = stripTags(html).match(/[\d,]+\s*-\s*[\d,]+\s*\/\s*([\d,]+)/)
-  return m ? Number(m[1].replace(/,/g, "")) : null
 }
 
 export type SkuAddEvent = {
@@ -252,4 +245,17 @@ export async function fetchSkuIndexPage(
     if (row) rows.push(row)
   }
   return { rows, total: parseTotal(html) }
+}
+
+// ── สถานที่จัดเก็บรายรหัส ─────────────────────────────────────────────────────
+// URL/ตัวแกะ/วันที่ อยู่ที่ lib/atms-parse.ts (ตรรกะล้วน มีเทสต์คุมตำแหน่งคอลัมน์กับ order_by)
+// ที่นี่เหลือแค่ตัวยิง HTTP ซึ่งต้องใช้คุกกี้ session เหมือน fetchSkuIndexPage
+
+/** ดึง "รหัสสินค้า → สถานที่จัดเก็บ" หนึ่งหน้าของคลัง ณ วันที่ระบุ พร้อมยอดรวมจากแถบแบ่งหน้า
+ *  ต้องเรียก ensureRowsPerPage() ก่อนเหมือน fetchSkuIndexPage (ค่าเก็บระดับ session ใช้ร่วมกันทั้งสองตาราง) */
+export async function fetchStockLocationPage(
+  inventoryId: string, page: number, dateText: string, phpsessid: string
+): Promise<{ rows: StockLocationRow[]; total: number | null }> {
+  const html = await fetchHtml(stockHistoryUrl(inventoryId, page, dateText), phpsessid)
+  return { rows: parseStockLocationRows(html), total: parseTotal(html) }
 }

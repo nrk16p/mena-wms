@@ -64,7 +64,7 @@ export async function buildSnapshotRows(
       $or: [{ minQty: { $gt: 0 } }, { maxQty: { $gt: 0 } }],
       group: { $not: /^ค่าแรง/ },
     })
-    .project({ _id: 0, skuPk: 1, code: 1, name: 1, group: 1, unit: 1, brand: 1, oracleCode: 1, stockQty: 1, minQty: 1, maxQty: 1 })
+    .project({ _id: 0, skuPk: 1, code: 1, name: 1, group: 1, unit: 1, brand: 1, oracleCode: 1, stockQty: 1, minQty: 1, maxQty: 1, storageLocation: 1 })
     .toArray()
 
   const skuTotal = await masterCol.countDocuments({ inventoryId })
@@ -229,6 +229,8 @@ export async function buildSnapshotRows(
       unit: String(m.unit ?? ""),
       brand: String(m.brand ?? ""),
       oracleCode: String(m.oracleCode ?? ""),
+      // แถวที่ซิงก์ไว้ก่อน 25/08/2026 (หรือรอบที่ดึงสถานที่ไม่สำเร็จ) ยังไม่มีฟิลด์นี้ใน atms_sku_master
+      storageLocation: String(m.storageLocation ?? ""),
       inventoryId,
       minQty: Number(m.minQty ?? 0),
       maxQty: Number(m.maxQty ?? 0),

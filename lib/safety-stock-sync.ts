@@ -2,7 +2,10 @@
 // ตรรกะของ /api/cron/atms-sku-sync แยกเป็นฟังก์ชันล้วน — เรียกได้ทั้งจาก route handler ของตัวเอง
 // และจาก /api/cron/atms-sku-report ที่ chain ต่อท้ายในสล็อตเดียวกัน (ดู route.ts ทั้งสองไฟล์)
 import { AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
-import { atmsSkuSession, ensureRowsPerPage, fetchSkuIndexPage } from "@/lib/atms-sku-log"
+import {
+  atmsSkuSession, ensureRowsPerPage, fetchSkuIndexPage,
+  fetchStockLocationPage, ictDdmmyyyy, type StockLocationRow,
+} from "@/lib/atms-sku-log"
 import { WAREHOUSES, mergeWarehouseResults } from "@/lib/safety-stock-core"
 import clientPromise from "@/lib/mongo"
 
@@ -13,6 +16,20 @@ const ROWS_PER_PAGE = 1000
 const PACE_MS = 3000
 const MAX_PAGES = 30
 const RETRIES = 3
+
+/** ตารางประวัติสต๊อก (แหล่งเดียวที่มี "สถานที่จัดเก็บ") — ลาดกระบัง ~9,800 แถว = 10 หน้า, สระบุรี 5,000 = 5 หน้า
+ *  15 เผื่อไว้เท่าตัวโดยยังไม่ปล่อยให้วนไม่รู้จบถ้า ATMS คืนหน้าเดิมซ้ำ */
+const LOC_MAX_PAGES = 15
+/** ATMS ปิดยอดแถวประวัติสต๊อกของแต่ละวันตอนสิ้นวัน — ยิงตอนตี 3 จึงยังไม่มีของ "วันนี้"
+ *  (วัดจริง 25/08/2026: วันนี้ 0 แถว · เมื่อวาน 9,812 แถว) ถอยหลังหาวันที่มีข้อมูลได้ถึง 7 วัน
+ *  สถานที่จัดเก็บเป็นคุณสมบัติของรหัสสินค้าไม่ใช่ของวัน — ใช้วันล่าสุดที่มีข้อมูลก็ได้ค่าเดียวกัน */
+const LOC_DATE_LOOKBACK = 7
+/** ต้องเหลือเวลาก่อน deadline อย่างน้อยเท่านี้ ถึงจะเริ่มดึงสถานที่จัดเก็บของคลังนั้น
+ *  วัดจริงจาก log คืน 25/08/2026 (maxDuration 300s): งาน atms-sku-report ~50s · sku-sync 2 คลัง 43s · build 2 คลัง 115s
+ *  ดึงสถานที่เพิ่มอีกคลังละ ~30s — คืนที่เวลาตึงต้องยอมข้ามสถานที่ ไม่ใช่ไปเบียดเวลาของ build จน Vercel ฆ่ากลางคัน
+ *  (min/max สำคัญกว่า และสถานที่จัดเก็บแทบไม่เปลี่ยนรายวัน ข้ามคืนนี้แล้วได้ในคืนถัดไปก็ทัน)
+ *  ยิงเองผ่าน /api/cron/atms-sku-sync ซึ่งไม่มี deadline จะดึงสถานที่ครบทุกคลังเสมอ */
+const LOC_MIN_REMAINING_MS = 150_000
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -29,6 +46,10 @@ export type SkuSyncWarehouseResult = {
   pages: number
   total: number | null
   error: string | null
+  /** จำนวนรหัสที่ได้ "สถานที่จัดเก็บ" มาในรอบนี้ · null = ดึงไม่สำเร็จ (ดู locationError) แล้วไม่แตะค่าเดิมใน DB */
+  locations: number | null
+  /** เหตุผลที่ดึงสถานที่จัดเก็บไม่สำเร็จ — แยกจาก error เพราะไม่ทำให้การซิงก์ min/max ของคลังนี้ล้มเหลว */
+  locationError: string | null
   /** true เฉพาะแถวที่ถูกข้ามเพราะ deadline — ไม่ใส่ (undefined) เมื่อรันจนจบตามปกติ
    *  เพื่อไม่ให้ response shape ของ route แบบไม่มี deadline เปลี่ยนไปจากเดิมแม้แต่ field เดียว */
   skipped?: boolean
@@ -66,13 +87,63 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
 
   // ซิงก์คลังเดียว — คืน error ในผลลัพธ์แทนการ throw เพื่อให้คลังอื่นซิงก์ต่อได้
   // ยกเว้น session ตาย ซึ่งกระทบทุกคลังเท่ากัน ผู้เรียก (loop ด้านล่าง) จะเห็นจาก error ที่ตรงกับ SESSION_EXPIRED_MSG แล้วหยุดทั้งรอบ
+  /** รหัสสินค้า → สถานที่จัดเก็บ ของทั้งคลัง จากตารางประวัติสต๊อก (ATMS ไม่มีค่านี้ในตาราง SKU index)
+   *  โยน error เมื่อได้มาไม่ครบ — ผู้เรียกจะถือว่า "ไม่มีข้อมูลสถานที่รอบนี้" แล้วไม่เขียนทับของเดิม
+   *  ห้ามคืนแมปที่ไม่ครบเด็ดขาด: รหัสที่หายไปจากแมปจะถูกเขียนเป็นค่าว่าง = ลบสถานที่ที่คนคลังกรอกไว้ทิ้ง */
+  async function fetchLocations(inventoryId: string): Promise<Map<string, string>> {
+    let dateText: string | null = null
+    let first: { rows: StockLocationRow[]; total: number | null } | null = null
+    for (let back = 0; back <= LOC_DATE_LOOKBACK; back++) {
+      const d = ictDdmmyyyy(back)
+      const res = await fetchStockLocationPage(inventoryId, 1, d, phpsessid)
+      if (res.rows.length > 0) { dateText = d; first = res; break }
+      await sleep(PACE_MS)
+    }
+    if (!dateText || !first) throw new Error(`ไม่พบแถวประวัติสต๊อกย้อนหลัง ${LOC_DATE_LOOKBACK} วัน`)
+
+    const map = new Map<string, string>()
+    for (const r of first.rows) map.set(r.code, r.location)
+    let fetched = first.rows.length
+    let last = first.rows.length
+    for (let page = 2; page <= LOC_MAX_PAGES && last >= ROWS_PER_PAGE; page++) {
+      await sleep(PACE_MS)
+      const res = await fetchStockLocationPage(inventoryId, page, dateText, phpsessid)
+      for (const r of res.rows) map.set(r.code, r.location)
+      fetched += res.rows.length
+      last = res.rows.length
+      if (first.total !== null && fetched >= first.total) break
+    }
+    // เหตุผลเดียวกับด่านตรวจของลูป SKU ด้านล่าง — ได้มาไม่ครบต้องรู้ตัว ไม่ใช่เขียนทับด้วยของครึ่งเดียว
+    if (first.total !== null && fetched < first.total) {
+      throw new Error(`ดึงสถานที่จัดเก็บไม่ครบ — ได้ ${fetched} จาก ${first.total} แถวที่ ATMS รายงาน`)
+    }
+    return map
+  }
+
   async function syncOneWarehouse(inventoryId: string): Promise<SkuSyncWarehouseResult> {
     let upserted = 0
     let pages = 0
     let total: number | null = null
     let error: string | null = null
+    let locations: Map<string, string> | null = null
+    let locationError: string | null = null
 
     try {
+      // ดึงสถานที่จัดเก็บก่อนเริ่มลูป SKU — พังแล้วไม่ล้มทั้งคลัง แค่รอบนี้ไม่อัพเดทสถานที่ (ค่าเดิมใน DB อยู่ครบ)
+      // ยกเว้น session ตายที่ต้องหยุดทั้งรอบเหมือนเดิม ปล่อยให้ throw ออกไปให้ catch ด้านล่างจัดการ
+      if (deadline !== undefined && deadline - Date.now() < LOC_MIN_REMAINING_MS) {
+        locationError = `ข้ามการดึงสถานที่จัดเก็บ — เหลือเวลาไม่ถึง ${Math.round(LOC_MIN_REMAINING_MS / 1000)} วินาทีก่อนหมด time budget จะดึงในรอบถัดไป`
+      } else {
+        try {
+          locations = await fetchLocations(inventoryId)
+          await sleep(PACE_MS)
+        } catch (e) {
+          if (e instanceof AtmsSessionError) throw e
+          locations = null
+          locationError = e instanceof Error ? e.message : "Unknown error"
+        }
+      }
+
       for (let page = 1; page <= MAX_PAGES; page++) {
         let res: Awaited<ReturnType<typeof fetchSkuIndexPage>> | null = null
         for (let attempt = 1; attempt <= RETRIES; attempt++) {
@@ -105,7 +176,9 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
           res.rows.map((r) => ({
             updateOne: {
               filter: { skuPk: r.skuPk },
-              update: { $set: { ...r, inventoryId, syncedAt } },
+              // storageLocation เขียนเฉพาะรอบที่ดึงสถานที่มาครบเท่านั้น (locations ไม่ใช่ null) — รหัสที่ไม่มีใน
+              // แมปแปลว่าคนคลังยังไม่ได้กรอก ต้องเขียนค่าว่างทับจริงๆ เพื่อให้ค่าที่ถูกลบใน ATMS หายตามไปด้วย
+              update: { $set: { ...r, inventoryId, syncedAt, ...(locations ? { storageLocation: locations.get(r.code) ?? "" } : {}) } },
               upsert: true,
             },
           })),
@@ -132,7 +205,7 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
       else error = "Unknown error"
     }
 
-    return { inventoryId, upserted, pages, total, error }
+    return { inventoryId, upserted, pages, total, error, locations: locations?.size ?? null, locationError }
   }
 
   const results: SkuSyncWarehouseResult[] = []
@@ -141,7 +214,7 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
   if (deadlinePassed()) {
     // เกิน time budget ไปแล้วตั้งแต่ก่อนเริ่ม (เช่น atms-sku-report ด้านบนกินเวลาไปเกือบหมด) — ข้ามทั้งรอบ ไม่ยิง ATMS แม้แต่ครั้งเดียว
     for (const inventoryId of targets) {
-      results.push({ inventoryId, upserted: 0, pages: 0, total: null, error: DEADLINE_SKIP_MSG, skipped: true })
+      results.push({ inventoryId, upserted: 0, pages: 0, total: null, error: DEADLINE_SKIP_MSG, locations: null, locationError: null, skipped: true })
     }
   } else {
     try {
@@ -151,7 +224,7 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
         // เช็คก่อนเริ่มคลังถัดไปเท่านั้น — ไม่เช็คระหว่างหน้าในคลังเดียวกัน กันตัดกลางคลังที่กำลังซิงก์อยู่
         if (deadlinePassed()) {
           for (let j = i; j < targets.length; j++) {
-            results.push({ inventoryId: targets[j], upserted: 0, pages: 0, total: null, error: DEADLINE_SKIP_MSG, skipped: true })
+            results.push({ inventoryId: targets[j], upserted: 0, pages: 0, total: null, error: DEADLINE_SKIP_MSG, locations: null, locationError: null, skipped: true })
           }
           break
         }
@@ -168,7 +241,7 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
         : err instanceof AtmsNetworkError ? `Network error: ${err.message}`
         : err instanceof Error ? err.message
         : "Unknown error"
-      results.push({ inventoryId: targets[0], upserted: 0, pages: 0, total: null, error: msg })
+      results.push({ inventoryId: targets[0], upserted: 0, pages: 0, total: null, error: msg, locations: null, locationError: null })
     }
   }
 

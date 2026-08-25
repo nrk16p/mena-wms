@@ -9,6 +9,7 @@ import {
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow,
 } from "../lib/safety-stock-core"
+import { parseStockLocationRows, stockHistoryUrl, ictDdmmyyyy } from "../lib/atms-parse"
 
 // --- median: ทนค่าผิดปกติ จึงเลือกใช้แทน mean สำหรับ lead time ---
 assert.equal(median([]), 0)
@@ -260,5 +261,39 @@ assert.equal(isPartsPolicyRow({ group: "ระบบเครื่องยน�
 assert.equal(isPartsPolicyRow({ group: "ระบบเครื่องยนต์", minQty: 0, maxQty: 15 }), false, "มีแค่ max อย่างเดียวไม่พอแล้ว")
 assert.equal(isPartsPolicyRow({ group: EXCLUDED_PRODUCT_GROUP, minQty: 5, maxQty: 15 }), false, "กลุ่มยางเป๊ะๆ ต้องถูกตัดออกแม้มีทั้ง min และ max")
 assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง", minQty: 5, maxQty: 15 }), true, "เครื่องมือยาง (คนละกลุ่มกับ ยาง เป๊ะๆ) ต้องยังนับรวม")
+
+// --- สถานที่จัดเก็บ: ตำแหน่งคอลัมน์ในตารางประวัติสต๊อกของ ATMS + การแบ่งหน้าที่นิ่ง ---
+// ATMS มีค่านี้ที่ /inv/stock.history/index ที่เดียว (ตาราง SKU index ไม่มี) — สองอย่างนี้พังเงียบทั้งคู่:
+// คอลัมน์สลับ = เขียนหน่วยสินค้าทับสถานที่ทั้งคลัง · order_by ผิด = ได้ข้อมูลไม่ครบแต่ไม่มี error
+{
+  // ตัดมาจากหน้าจริง 25/08/2026 — 11 คอลัมน์: วันที่ คลังสินค้า รหัสสินค้า สินค้า กลุ่มสินค้า ยี่ห้อ
+  // สินค้าคงเหลือ หน่วยสินค้า stock value สถานที่จัดเก็บ (แล้วปิดท้ายด้วยคอลัมน์ปุ่ม)
+  const row = (code: string, unit: string, loc: string) =>
+    `<tr><td>23/08/2026</td><td>คลังลาดกระบัง</td><td>${code}</td><td>กรองน้ำมันเครื่อง</td><td>กรอง</td>` +
+    `<td>ไม่ระบุ</td><td>21.00</td><td>${unit}</td><td>1,234.00</td><td>${loc}</td><td><a href="#">แสดง</a></td></tr>`
+  const html = `<table><thead><tr><th>วันที่</th></tr></thead><tbody>
+    ${row("LB10PM00057", "ชิ้น", "B1-1")}
+    ${row("S13OP00008", "อัน", "Shelf 4/C")}
+    ${row("LB10PM00003", "ชิ้น", "")}
+    <tr><td>รวม</td><td>2</td></tr>
+  </tbody></table>`
+  assert.deepEqual(parseStockLocationRows(html), [
+    { code: "LB10PM00057", location: "B1-1" },
+    { code: "S13OP00008",  location: "Shelf 4/C" },
+    { code: "LB10PM00003", location: "" },        // ยังไม่ได้กรอกใน ATMS — ต้องเป็นค่าว่าง ไม่ใช่หน่วยสินค้า
+  ], "คอลัมน์ที่ 3 = รหัสสินค้า, คอลัมน์ที่ 10 = สถานที่จัดเก็บ")
+  assert.deepEqual(parseStockLocationRows("<html>ไม่มีตาราง</html>"), [], "หน้าที่ไม่มีตารางต้องไม่พัง")
+
+  const url = stockHistoryUrl("4", 3, "23/08/2026")
+  // ห้ามเปลี่ยนกลับเป็น sh.t_date desc (ค่าเริ่มต้นของหน้าเว็บ ATMS) — เรากรองวันเดียวทุกแถวจึงมี t_date เท่ากันหมด
+  // การแบ่งหน้าเลยคืนแถวซ้ำข้ามหน้า วัดจริง 25/08/2026: สระบุรีได้ 3,000 จาก 5,000 รหัสแล้วตัน โดยไม่มี error
+  assert.ok(url.includes("order_by=s.code+asc"), `ต้องเรียงด้วยรหัสสินค้าเท่านั้น: ${url}`)
+  assert.ok(url.includes("from_t_date=23%2F08%2F2026") && url.includes("to_t_date=23%2F08%2F2026"), "ต้องกรองวันเดียว")
+  assert.ok(url.includes("inventory_id=4") && url.includes("page=3"))
+
+  const d = ictDdmmyyyy(0)
+  assert.match(d, /^\d{2}\/\d{2}\/\d{4}$/, `รูปแบบวันที่ที่ ATMS รับคือ dd/mm/yyyy: ${d}`)
+  assert.notEqual(ictDdmmyyyy(0), ictDdmmyyyy(1), "ย้อนหลัง 1 วันต้องได้คนละวัน")
+}
 
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")

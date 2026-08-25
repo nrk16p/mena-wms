@@ -118,6 +118,10 @@ export const GLOSSARY: Record<GlossaryKey, { label: string; desc: string }> = {
 export type SnapshotRow = {
   code: string; name: string; group: string; unit: string
   brand: string; oracleCode: string; inventoryId: string
+  /** สถานที่จัดเก็บที่คนคลังกรอกไว้ใน ATMS (เช่น "B1-1" ลาดกระบัง · "Shelf 4/B" สระบุรี) — "" = ยังไม่ได้กรอก
+   *  ATMS มีค่านี้ที่ตาราง /inv/stock.history/index ที่เดียว ไม่มีในตาราง SKU index ที่ซิงก์ min/max มา
+   *  (ดู fetchStockLocationPage) · แถวที่ซิงก์ไว้ก่อน 25/08/2026 ยังไม่มีฟิลด์นี้ ฝั่งอ่านต้อง default "" เอง */
+  storageLocation: string
   minQty: number; maxQty: number; stockQty: number
   /** จาก FIFO ของหน้า /deadstock — ข้อมูลประกอบ ไม่ใช่ตัวหลัก */
   fifoRemaining: number; oldestAgeDays: number
