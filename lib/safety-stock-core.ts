@@ -120,8 +120,8 @@ export type SnapshotRow = {
   brand: string; oracleCode: string; inventoryId: string
   /** สถานที่จัดเก็บที่คนคลังกรอกไว้ใน ATMS (เช่น "B1-1" ลาดกระบัง · "Shelf 4/B" สระบุรี) — "" = ยังไม่ได้กรอก
    *  ATMS มีค่านี้ที่ตาราง /inv/stock.history/index ที่เดียว ไม่มีในตาราง SKU index ที่ซิงก์ min/max มา
-   *  (ดู fetchStockLocationPage) · แถวที่ซิงก์ไว้ก่อน 25/08/2026 ยังไม่มีฟิลด์นี้ ฝั่งอ่านต้อง default "" เอง */
-  storageLocation: string
+   *  (ดู fetchStockLocationPage) · แถวที่ซิงก์ไว้ก่อน 25/08/2026 ยังไม่มีฟิลด์นี้ จึงเป็น optional — ฝั่งอ่านต้อง default "" เอง */
+  storageLocation?: string
   minQty: number; maxQty: number; stockQty: number
   /** จาก FIFO ของหน้า /deadstock — ข้อมูลประกอบ ไม่ใช่ตัวหลัก */
   fifoRemaining: number; oldestAgeDays: number
@@ -132,6 +132,21 @@ export type SnapshotRow = {
   monthly: number[]
   leadTimeDays: number; leadTimeSource: LeadTimeSource; leadTimeSamples: number
   cost: number; value: number
+  /** ของที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — ไม่ใส่ (undefined) เมื่อไม่มีของค้างอยู่เลย
+   *  build ใช้ $unset ล้างทิ้งเมื่อของมาครบแล้ว จะได้ไม่มีค่าค้างหลอกในรอบถัดไป
+   *  (แถวที่ build ไว้ก่อน 25/08/2026 ก็ไม่มีฟิลด์นี้ ฝั่งอ่านต้องทนค่า undefined ได้) */
+  onOrder?: OnOrder
+}
+
+/** สรุป "กำลังสั่งซื้อ" ของรหัสสินค้าหนึ่งในคลังหนึ่ง — ดู openPrQtyBySku สำหรับนิยามเต็ม */
+export type OnOrder = {
+  /** จำนวนที่ยังไม่เข้าคลัง = ยอดในใบ PR หักส่วนที่รับไปแล้ว */
+  qty: number
+  prCount: number
+  /** เลข PR (ใหม่→เก่า) ตัดที่ ON_ORDER_PR_CODES_MAX ใบ — ไว้โชว์ในหน้าต่างรายละเอียด ไม่ใช่เก็บให้ครบ */
+  prCodes: string[]
+  /** อายุใบ PR ที่เก่าสุดในกอง (วัน) — สั่งไปนานแล้วยังไม่มาคือสัญญาณว่าต้องตามของ ไม่ใช่สั่งเพิ่ม */
+  oldestDays: number
 }
 
 /** เกณฑ์ "นโยบายอะไหล่" ที่หน้า /safety-stock ใช้ — กรองที่ layer อ่าน (lib/safety-stock.ts getSafetyStock)
@@ -148,7 +163,13 @@ export type Derived = {
   safetyStock: number; reorderPoint: number
   daysOfSupply: number | null
   status: Status; minVerdict: MinVerdict; suggestQty: number
+  /** "ตอนนี้ต้องสั่ง แต่ของที่สั่งไว้แล้วพอ" — true เมื่อสถานะตอนนี้อยู่ในกลุ่มต้องลงมือ แต่ถ้านับของที่กำลังมา
+   *  ด้วยจะหลุดออกจากกลุ่มนั้น · เป็น false เสมอเมื่อผู้เรียกไม่ส่ง onOrderQty เข้ามา (เช่น /tire/*) */
+  coveredByOrder: boolean
 }
+
+/** สถานะที่แปลว่า "ต้องลงมือสั่ง" — ใช้ตัดสิน coveredByOrder ที่เดียว ไม่ให้เกณฑ์กระจายไปเขียนซ้ำ */
+const NEEDS_ORDER: Status[] = ["out", "below_rop", "below_min"]
 
 export type SafetyStockPayload = {
   asOf: string
@@ -318,6 +339,119 @@ export function mergeWarehouseResults<T extends { inventoryId: string; error: st
   return merged
 }
 
+// ── "กำลังสั่งซื้อ" — PR ที่ยังไม่มี DD ─────────────────────────────────────
+
+/** PR เก่ากว่านี้ไม่นับว่าของกำลังมา — เวลารอของตามนโยบายคือ 7 วัน เกิน 90 วันคือ 13 เท่า
+ *  ของกองนี้ในทางปฏิบัติคือใบที่ค้างจนลืม ถ้านับต่อไปหน้าจอจะบอกว่ามีของกำลังมาตลอดกาลแล้วไม่มีใครสั่งเพิ่ม */
+export const ON_ORDER_MAX_AGE_DAYS = 90
+/** เก็บเลข PR ไว้โชว์ในหน้าต่างรายละเอียดเท่าที่พอให้ตามของถูก ไม่ใช่เก็บครบทุกใบ (payload ส่งออกทุกแถว) */
+export const ON_ORDER_PR_CODES_MAX = 5
+/** บรรทัด PR กลุ่มค่าแรงไม่ใช่ของเข้าสต๊อก (ค่าปะยาง ค่าเชื่อม ฯลฯ) — นับรวมจะทำให้ตัวเลขเพี้ยน */
+const LABOUR_GROUP_RE = /^ค่าแรง/
+
+export type PrHeadRef = { code: string; date: string; warehouse: string }
+export type PoHeadRef = { code: string; prCode: string; receiveStatus: string }
+export type PrItemRef = { prCode: string; sku: string; amount: number; warehouse: string; group: string }
+export type PoItemRef = { poCode: string; sku: string; received: number }
+
+/** อายุ (วัน) ของวันที่รูป "DD/MM/YYYY" — คืน null เมื่ออ่านไม่ออก ให้ผู้เรียกตัดสินเองว่าจะทิ้งหรือเก็บ */
+export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((dmy ?? "").trim())
+  if (!m) return null
+  const from = Date.UTC(+m[3], +m[2] - 1, +m[1])
+  const to = Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate())
+  return Math.round((to - from) / 86_400_000)
+}
+
+/** "กำลังสั่งซื้อ" รายรหัสสินค้าของคลังหนึ่ง — ตรรกะล้วน ไม่แตะ DB (ผู้เรียกดึงข้อมูลมาให้ครบ)
+ *
+ *  นิยาม: รวมทุกใบ PR ของคลังนี้ที่ "ยังไม่มี DD ครบ" และอายุ ≤ maxAgeDays
+ *           qty ของรหัส X = max(0, ยอด X ในบรรทัด PR − ยอด X ที่รับไปแล้วใน PO ของ PR ใบนั้น)
+ *
+ *  "ยังไม่มี DD ครบ" ใช้เกณฑ์เดียวกับหน้า /pr (lib/pr-snapshot.ts): PO ที่ยกเลิกไม่นับ · ปิดงานเมื่อ PO
+ *  ที่เหลือมีใบรับของ (DD) ครบทุกใบ · PR ที่ยังไม่ออก PO เลยถือว่ายังไม่มี DD (ของยังอยู่ในสายพานจัดซื้อ)
+ *
+ *  ที่ต้องหักส่วนที่รับไปแล้ว: PR ใบเดียวแตกเป็นหลาย PO แล้วทยอยรับ ถ้าเอายอดในใบ PR มาตรงๆ จะนับเกิน
+ *  (วัดจริง 25/08/2026: ลาดกระบังยอดดิบ 6,210 ชิ้น แต่รับไปแล้ว 2,622 = เกินจริง 42%)
+ */
+export function openPrQtyBySku(input: {
+  prHeads: PrHeadRef[]
+  poHeads: PoHeadRef[]
+  /** เลข PO ที่มีใบรับของแล้ว (จาก deposit_header.purchase_order) */
+  ddPoCodes: Iterable<string>
+  prItems: PrItemRef[]
+  poItems: PoItemRef[]
+  /** ชื่อคลังอย่างที่ ATMS เขียน เช่น "คลังลาดกระบัง" */
+  warehouse: string
+  asOf: Date
+  maxAgeDays?: number
+}): Map<string, OnOrder> {
+  const maxAge = input.maxAgeDays ?? ON_ORDER_MAX_AGE_DAYS
+  const dd = new Set(input.ddPoCodes)
+
+  // PO ที่ยกเลิกไม่นับทั้งการตัดสินว่าปิดงานแล้วและการหักยอดที่รับ (เหมือนที่หน้า /pr ทำ)
+  const posByPr = new Map<string, string[]>()
+  const prOfPo = new Map<string, string>()
+  for (const po of input.poHeads) {
+    if (po.receiveStatus.includes("ยกเลิก")) continue
+    if (!po.prCode || !po.code) continue
+    if (!posByPr.has(po.prCode)) posByPr.set(po.prCode, [])
+    posByPr.get(po.prCode)!.push(po.code)
+    prOfPo.set(po.code, po.prCode)
+  }
+
+  // ใบ PR ที่ยังไม่มี DD ครบ + อายุยังไม่เกิน — เก็บอายุไว้ด้วยเพื่อรายงาน oldestDays
+  const openPrAge = new Map<string, number>()
+  for (const pr of input.prHeads) {
+    if (pr.warehouse !== input.warehouse) continue
+    const age = ageDaysFromDmy(pr.date, input.asOf)
+    if (age === null || age < 0 || age > maxAge) continue
+    const myPos = posByPr.get(pr.code) ?? []
+    if (myPos.length > 0 && myPos.every((po) => dd.has(po))) continue   // รับของครบแล้ว
+    openPrAge.set(pr.code, age)
+  }
+
+  // ยอดที่รับไปแล้ว รายคู่ (PR, รหัสสินค้า)
+  const received = new Map<string, number>()
+  for (const it of input.poItems) {
+    const pr = prOfPo.get(it.poCode)
+    if (!pr || !openPrAge.has(pr)) continue
+    const k = `${pr}|${it.sku}`
+    received.set(k, (received.get(k) ?? 0) + (Number(it.received) || 0))
+  }
+
+  // รวมรายรหัสสินค้า — หักยอดที่รับแล้วทีละ (PR, รหัส) ไม่ใช่หักทีเดียวตอนท้าย
+  // (หักตอนท้ายจะทำให้ใบที่รับเกินยอดของตัวเองไปกินโควตาของใบอื่นในกองเดียวกัน)
+  const out = new Map<string, OnOrder>()
+  const seenPr = new Map<string, Set<string>>()
+  for (const it of input.prItems) {
+    const age = openPrAge.get(it.prCode)
+    if (age === undefined) continue
+    if (it.warehouse !== input.warehouse) continue
+    if (LABOUR_GROUP_RE.test(it.group)) continue
+    const sku = (it.sku ?? "").trim()
+    if (!sku) continue
+    const qty = Math.max(0, (Number(it.amount) || 0) - (received.get(`${it.prCode}|${sku}`) ?? 0))
+    if (qty <= 0) continue
+
+    const cur = out.get(sku) ?? { qty: 0, prCount: 0, prCodes: [], oldestDays: 0 }
+    cur.qty = r2(cur.qty + qty)
+    cur.oldestDays = Math.max(cur.oldestDays, age)
+    if (!seenPr.has(sku)) seenPr.set(sku, new Set())
+    const prs = seenPr.get(sku)!
+    if (!prs.has(it.prCode)) {
+      prs.add(it.prCode)
+      cur.prCount = prs.size
+      // ใบใหม่กว่ามาก่อน แล้วตัดที่เพดาน — คนตามของสนใจใบล่าสุดมากกว่าใบที่ค้างมานาน
+      cur.prCodes = [...prs]
+        .sort((a, b) => (openPrAge.get(a) ?? 0) - (openPrAge.get(b) ?? 0))
+        .slice(0, ON_ORDER_PR_CODES_MAX)
+    }
+    out.set(sku, cur)
+  }
+  return out
+}
+
 // ── ตัวรวม — job และเบราว์เซอร์เรียกตัวนี้ตัวเดียวกัน ──────────────────────
 /** ltOverride: เวลารอของตามนโยบาย (วัน) ใช้แทนค่าที่วัดได้จริง (r.leadTimeDays) ในทุกสูตร — ไม่ใส่ (undefined)
  *  พฤติกรรมเดิมทุกประการ (ใช้ค่าที่วัดได้จริง เหมือนที่ /tire/* เรียกอยู่) หน้า /safety-stock ส่ง LEAD_TIME_DAYS
@@ -325,7 +459,10 @@ export function mergeWarehouseResults<T extends { inventoryId: string; error: st
  *  เมื่อมี override ตัดสิน minVerdict ด้วย source "policy" แทน r.leadTimeSource เดิม — เพราะเวลารอของตอนนี้
  *  เป็นค่าคงที่ตามนโยบาย ไม่ใช่ค่ากลางทั้งคลังที่เชื่อไม่ได้ (การ์ด "warehouse" ของ minVerdictOf ยังอยู่ครบ
  *  ใช้กับ /tire/* ที่ไม่ส่ง override เข้ามาต่อไปเหมือนเดิม) */
-export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: number = DEFAULT_Z, ltOverride?: number): Derived {
+export function derive(
+  r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: number = DEFAULT_Z, ltOverride?: number,
+  onOrderQty = 0,
+): Derived {
   const adu = r.adu[win]
   const sdDaily = r.sdDaily[win]
   const lt = ltOverride ?? r.leadTimeDays
@@ -333,14 +470,24 @@ export function derive(r: SnapshotRow, win: WindowKey = DEFAULT_WINDOW, z: numbe
   const ss = safetyStockOf(sdDaily, lt, z)
   const rop = reorderPointOf(adu, lt, ss)
   const onHand = r.stockQty
+
+  // ของที่กำลังมาเปลี่ยนแค่ "ต้องสั่งเพิ่มอีกเท่าไร" — ไม่เปลี่ยนสถานะและ "พอใช้อีกกี่วัน" เพราะของยังไม่อยู่ในมือ
+  // เบิกวันนี้ยังเบิกไม่ได้ ถ้าเอาไปบวกใน onHand ตรงๆ ของที่หมดจริงจะขึ้นเขียวทั้งที่หยิบไม่ได้สักชิ้น
+  const onOrder = Math.max(0, onOrderQty)
+  const status = statusOf({ usage12: r.usage.m12, onHand, rop, minQty: r.minQty, maxQty: r.maxQty })
+  const statusIfArrived = onOrder > 0
+    ? statusOf({ usage12: r.usage.m12, onHand: onHand + onOrder, rop, minQty: r.minQty, maxQty: r.maxQty })
+    : status
+
   return {
     adu,
     sdDaily,
     safetyStock: r2(ss),
     reorderPoint: r2(rop),
     daysOfSupply: daysOfSupplyOf(onHand, adu),
-    status: statusOf({ usage12: r.usage.m12, onHand, rop, minQty: r.minQty, maxQty: r.maxQty }),
+    status,
     minVerdict: minVerdictOf(r.minQty, rop, ltSource),
-    suggestQty: suggestQtyOf(onHand, r.maxQty, rop, adu, lt, r.usage.m12),
+    suggestQty: suggestQtyOf(onHand + onOrder, r.maxQty, rop, adu, lt, r.usage.m12),
+    coveredByOrder: onOrder > 0 && NEEDS_ORDER.includes(status) && !NEEDS_ORDER.includes(statusIfArrived),
   }
 }

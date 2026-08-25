@@ -6,6 +6,7 @@ import {
   median, stdev, aduFrom, sdDailyFrom, safetyStockOf, reorderPointOf,
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
+  openPrQtyBySku, ageDaysFromDmy, ON_ORDER_MAX_AGE_DAYS,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow,
 } from "../lib/safety-stock-core"
@@ -294,6 +295,102 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   const d = ictDdmmyyyy(0)
   assert.match(d, /^\d{2}\/\d{2}\/\d{4}$/, `รูปแบบวันที่ที่ ATMS รับคือ dd/mm/yyyy: ${d}`)
   assert.notEqual(ictDdmmyyyy(0), ictDdmmyyyy(1), "ย้อนหลัง 1 วันต้องได้คนละวัน")
+}
+
+// --- กำลังสั่งซื้อ: PR ที่ยังไม่มี DD (openPrQtyBySku) ---
+// ทุกเคสในนี้เคยทำให้ตัวเลข "กำลังมา" ผิดได้จริง และผิดแบบเงียบ — หน้าจอจะบอกว่าไม่ต้องสั่งทั้งที่ต้องสั่ง
+{
+  const asOf = new Date(Date.UTC(2026, 7, 25))    // 25/08/2026
+  const WH = "คลังลาดกระบัง"
+  const base = {
+    prHeads: [
+      { code: "LBPR001", date: "20/08/2026", warehouse: WH },   // เปิดอยู่ ยังไม่มี PO
+      { code: "LBPR002", date: "10/08/2026", warehouse: WH },   // มี PO + DD ครบ → ปิดแล้ว
+      { code: "LBPR003", date: "01/08/2026", warehouse: WH },   // มี PO แต่ DD ไม่ครบ → ยังเปิด
+      { code: "LBPR004", date: "01/01/2026", warehouse: WH },   // เก่าเกิน 90 วัน
+      { code: "SBPR005", date: "20/08/2026", warehouse: "คลังสระบุรี" }, // คนละคลัง
+      { code: "LBPR006", date: "18/08/2026", warehouse: WH },   // มีแต่ PO ที่ยกเลิก → ยังเปิด
+    ],
+    poHeads: [
+      { code: "LBPO002", prCode: "LBPR002", receiveStatus: "รับสินค้าแล้วทั้งหมด" },
+      { code: "LBPO003a", prCode: "LBPR003", receiveStatus: "รับสินค้าแล้วทั้งหมด" },
+      { code: "LBPO003b", prCode: "LBPR003", receiveStatus: "ยังไม่ได้รับสินค้า" },
+      { code: "LBPO006", prCode: "LBPR006", receiveStatus: "ยกเลิก" },
+    ],
+    ddPoCodes: ["LBPO002", "LBPO003a"],
+    prItems: [
+      { prCode: "LBPR001", sku: "A1", amount: 10, warehouse: WH, group: "ระบบเบรก" },
+      { prCode: "LBPR001", sku: "LAB", amount: 3, warehouse: WH, group: "ค่าแรง-ระบบยาง" },  // ค่าแรงไม่นับ
+      { prCode: "LBPR002", sku: "A1", amount: 99, warehouse: WH, group: "ระบบเบรก" },        // ปิดแล้วไม่นับ
+      { prCode: "LBPR003", sku: "A1", amount: 8, warehouse: WH, group: "ระบบเบรก" },         // รับไปแล้ว 5 → เหลือ 3
+      { prCode: "LBPR004", sku: "A1", amount: 50, warehouse: WH, group: "ระบบเบรก" },        // เก่าเกินไม่นับ
+      { prCode: "SBPR005", sku: "A1", amount: 70, warehouse: "คลังสระบุรี", group: "ระบบเบรก" },
+      { prCode: "LBPR006", sku: "B2", amount: 4, warehouse: WH, group: "ระบบไฟฟ้า" },
+    ],
+    poItems: [
+      { poCode: "LBPO003a", sku: "A1", received: 5 },
+      { poCode: "LBPO006", sku: "B2", received: 4 },   // PO ยกเลิก — ห้ามเอามาหักยอด
+    ],
+    warehouse: WH,
+    asOf,
+  }
+  const m = openPrQtyBySku(base)
+
+  assert.equal(m.get("A1")?.qty, 13, "10 (PR ไม่มี PO) + max(0, 8−5) = 13")
+  assert.equal(m.get("A1")?.prCount, 2, "นับเฉพาะใบที่ยังเปิดและมีของเหลือจริง")
+  assert.deepEqual(m.get("A1")?.prCodes, ["LBPR001", "LBPR003"], "ใบใหม่กว่ามาก่อน")
+  assert.equal(m.get("A1")?.oldestDays, 24, "LBPR003 ลงวันที่ 01/08/2026 = 24 วันก่อน 25/08/2026")
+  assert.equal(m.get("LAB"), undefined, "บรรทัดกลุ่มค่าแรงไม่ใช่ของเข้าสต๊อก ห้ามนับ")
+  assert.equal(m.get("B2")?.qty, 4, "PO ที่ยกเลิกไม่ปิดใบ PR และยอดที่ 'รับ' บน PO ยกเลิกห้ามเอามาหัก")
+
+  // คลังอื่นต้องไม่ปนกัน — เรียกด้วยชื่อคลังไหนได้ของคลังนั้น
+  const sb = openPrQtyBySku({ ...base, warehouse: "คลังสระบุรี" })
+  assert.equal(sb.get("A1")?.qty, 70, "เรียกคลังสระบุรีต้องได้ยอดของสระบุรี")
+  assert.equal(m.get("A1")?.qty, 13, "และต้องไม่ไปปนกับยอดลาดกระบัง")
+
+  // รับครบพอดี = ไม่เหลืออะไรกำลังมา (ไม่ใช่ 0 ที่ยังโผล่เป็นแถว)
+  const exact = openPrQtyBySku({ ...base, poItems: [{ poCode: "LBPO003a", sku: "A1", received: 8 }],
+    prItems: base.prItems.filter((i) => i.prCode === "LBPR003") })
+  assert.equal(exact.get("A1"), undefined, "รับครบยอดแล้วต้องไม่เหลือรายการค้าง")
+
+  // รับเกินยอดของใบตัวเอง ห้ามไปกินโควตาของใบอื่นในกองเดียวกัน
+  const over = openPrQtyBySku({ ...base, poItems: [{ poCode: "LBPO003a", sku: "A1", received: 999 }] })
+  assert.equal(over.get("A1")?.qty, 10, "หักได้มากสุดแค่ยอดของใบนั้น เหลือ 10 จาก LBPR001 ครบ")
+
+  assert.equal(openPrQtyBySku({ ...base, prHeads: [], prItems: [] }).size, 0, "ไม่มีข้อมูลต้องไม่พัง")
+  assert.equal(ageDaysFromDmy("25/08/2026", asOf), 0)
+  assert.equal(ageDaysFromDmy("20/08/2026", asOf), 5)
+  assert.equal(ageDaysFromDmy("ไม่ใช่วันที่", asOf), null, "อ่านไม่ออกต้องคืน null ไม่ใช่ 0")
+  assert.equal(ON_ORDER_MAX_AGE_DAYS, 90)
+}
+
+// --- derive() กับของที่กำลังมา ---
+// พารามิเตอร์ที่ 5 ต้อง default 0 เสมอ — /tire/{branch}/stock-tire เรียก derive(r, win, z) แบบไม่ส่งเข้ามา
+// ถ้าเผลอไปอ่าน row.onOrder ตรงๆ ใน derive ตัวเลขของหน้ายางจะเปลี่ยนตามไปด้วยโดยไม่มีใครสั่ง
+{
+  const low: SnapshotRow = { ...ROW, stockQty: 1, onOrder: { qty: 20, prCount: 1, prCodes: ["LBPR001"], oldestDays: 3 } }
+  const plain = derive(low, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS)
+  const withOrder = derive(low, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, low.onOrder!.qty)
+
+  assert.equal(plain.coveredByOrder, false, "ไม่ส่ง onOrderQty = พฤติกรรมเดิมทุกประการ (/tire/*)")
+  assert.deepEqual({ ...plain, coveredByOrder: withOrder.coveredByOrder, suggestQty: withOrder.suggestQty }, withOrder,
+    "ของที่กำลังมาต้องเปลี่ยนแค่ suggestQty กับ coveredByOrder เท่านั้น")
+  assert.equal(withOrder.status, plain.status, "สถานะต้องคิดจากของที่มีอยู่จริง ของยังไม่มาเบิกไม่ได้")
+  assert.equal(withOrder.daysOfSupply, plain.daysOfSupply, "พอใช้อีกกี่วันต้องคิดจากของที่มีอยู่จริงเช่นกัน")
+  assert.ok(withOrder.suggestQty < plain.suggestQty, "แนะนำสั่งต้องหักของที่กำลังมาออก")
+  assert.equal(withOrder.coveredByOrder, true, "คงเหลือ 1 + กำลังมา 20 พ้น ROP แล้ว = สั่งแล้ว รอของ")
+
+  // ของกำลังมาน้อยเกินกว่าจะพ้น ROP — ยังต้องสั่งเพิ่มอยู่ ห้ามขึ้นชิป
+  const tiny = derive(low, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, 1)
+  assert.equal(tiny.coveredByOrder, false, "ของที่กำลังมาไม่พอ ยังต้องสั่งเพิ่ม")
+  assert.ok(tiny.suggestQty > 0)
+
+  // แถวที่ไม่ได้ขาดอยู่แล้ว ไม่ใช่ "สั่งแล้ว รอของ" ต่อให้มีของกำลังมา
+  const healthy = derive({ ...ROW, stockQty: 12 }, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, 5)
+  assert.equal(healthy.coveredByOrder, false, "ของพอตั้งแต่แรก ไม่ต้องขึ้นป้ายกันสั่งซ้ำ")
+
+  assert.equal(derive(ROW, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, -5).suggestQty,
+    derive(ROW, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, 0).suggestQty, "ค่าติดลบต้องถือเป็น 0 ไม่ใช่บวกกลับ")
 }
 
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")

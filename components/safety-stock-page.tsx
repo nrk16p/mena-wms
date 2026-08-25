@@ -149,8 +149,11 @@ type EnrichedRow = { r: SnapshotRow; d: Derived; annualIssue: number }
 const NO_LOCATION = "(ยังไม่ระบุ)"
 const locationOf = (r: SnapshotRow): string => r.storageLocation?.trim() || NO_LOCATION
 
+/** จำนวนที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — แถวที่ build ไว้ก่อนมีฟีเจอร์นี้ยังไม่มี onOrder ต้องอ่านเป็น 0 ได้ */
+const onOrderQtyOf = (r: SnapshotRow): number => r.onOrder?.qty ?? 0
+
 type SortKey =
-  | "code" | "name" | "group" | "storageLocation" | "stockQty" | "minQty" | "maxQty" | "adu" | "issueCount"
+  | "code" | "name" | "group" | "storageLocation" | "stockQty" | "onOrder" | "minQty" | "maxQty" | "adu" | "issueCount"
   | "rop" | "ss" | "dos" | "status" | "minVerdict" | "suggestQty" | "orderValue"
 
 // daysOfSupply เป็น null สำหรับแถวไม่มีการเบิก (ADU=0 หารไม่ได้) — คืน null ตรงๆ แล้วให้ตัวเปรียบเทียบใน `sorted`
@@ -161,6 +164,7 @@ function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
     case "name": return row.r.name
     case "group": return row.r.group
     case "storageLocation": return locationOf(row.r)
+    case "onOrder": return onOrderQtyOf(row.r)
     case "stockQty": return row.r.stockQty
     case "minQty": return row.r.minQty
     case "maxQty": return row.r.maxQty
@@ -190,6 +194,7 @@ const ORDER_BY_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "adu", label: "เฉลี่ยเบิก/วัน (ADU)" },
   { key: "issueCount", label: "จำนวนครั้งที่เบิก/ปี" },
   { key: "stockQty", label: "คงเหลือ" },
+  { key: "onOrder", label: "กำลังสั่งซื้อ" },
   { key: "minQty", label: "min" },
   { key: "maxQty", label: "max" },
   { key: "code", label: "รหัส" },
@@ -284,7 +289,7 @@ function RowDialog({
 }: { row: SnapshotRow; win: WindowKey; z: number; months: string[]; onClose: () => void }) {
   // ส่ง LEAD_TIME_DAYS (นโยบายคงที่) เข้า derive() เหมือนกับตารางหลัก — ให้สถานะ/ROP/SS/ตรวจ min ในหน้าต่างนี้
   // ตรงกับที่แถวในตารางแสดงเป๊ะๆ ไม่ใช่คำนวณจากเวลารอของที่วัดได้จริง (row.leadTimeDays ยังใช้แสดงแยกเป็นข้อมูลอ้างอิงด้านล่าง)
-  const d = useMemo(() => derive(row, win, z, LEAD_TIME_DAYS), [row, win, z])
+  const d = useMemo(() => derive(row, win, z, LEAD_TIME_DAYS, onOrderQtyOf(row)), [row, win, z])
   const isLB = row.inventoryId === INVENTORY_ID
 
   useEffect(() => {
@@ -316,10 +321,36 @@ function RowDialog({
           </button>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
           <StatusChipBadge status={d.status} />
           <VerdictBadge verdict={d.minVerdict} />
+          {d.coveredByOrder && (
+            <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: "#DBEAFE", color: "#1D4ED8", border: "1px solid #93C5FD" }}>
+              สั่งแล้ว รอของ
+            </span>
+          )}
         </div>
+
+        {/* ของที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — โชว์เลข PR ให้ตามของต่อได้ทันที ไม่ต้องไปค้นเองในหน้า /pr */}
+        {row.onOrder && row.onOrder.qty > 0 && (
+          <div style={{ marginTop: 10, borderRadius: 10, border: "1px solid #BFDBFE", background: "#EFF6FF", padding: "10px 12px" }}>
+            <div style={{ fontSize: 13, color: "#1E3A8A" }}>
+              กำลังสั่งซื้ออยู่ <b>{num(row.onOrder.qty)} {row.unit}</b> จากใบ PR {row.onOrder.prCount} ใบ ·
+              {" "}รวมกับคงเหลือแล้วเป็น <b>{num(row.stockQty + row.onOrder.qty)} {row.unit}</b>
+            </div>
+            <div style={{ fontSize: 11.5, color: "#3B82F6", marginTop: 3, fontFamily: "monospace" }}>
+              {row.onOrder.prCodes.join(" · ")}{row.onOrder.prCount > row.onOrder.prCodes.length ? " · …" : ""}
+            </div>
+            <div style={{ fontSize: 11.5, color: row.onOrder.oldestDays > 30 ? "#B45309" : "#6B7280", marginTop: 3 }}>
+              ใบเก่าสุดค้างมา {row.onOrder.oldestDays} วัน
+              {row.onOrder.oldestDays > 30 && " — นานกว่าเวลารอของตามนโยบายมาก ควรตามของก่อนสั่งเพิ่ม"}
+            </div>
+            <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4 }}>
+              นับจากใบ PR ที่ยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน หักส่วนที่รับไปแล้ว ·
+              {" "}ยอดนี้หักออกจาก &quot;แนะนำสั่ง&quot; ให้แล้ว แต่ไม่นับใน &quot;คงเหลือ&quot; เพราะของยังเบิกไม่ได้
+            </div>
+          </div>
+        )}
 
         {/* ประโยคภาษาคนแทนที่ตัว ROP/SS ของรหัสนี้เข้าไปตรงๆ — จุดที่มีประโยชน์ที่สุดของนิยาม ROP/SS ทั้งหมด
          *  เพราะผูกกับตัวเลขจริงของรหัสนี้ ไม่ใช่คำอธิบายลอยๆ (ข้อ 2 ของงานยุบตาราง) */}
@@ -450,6 +481,7 @@ export default function SafetyStockPage() {
   const [q, setQ] = useState("")
   const [groups, setGroups] = useState<string[]>([])
   const [locs, setLocs] = useState<string[]>([])
+  const [onlyCovered, setOnlyCovered] = useState(false)
   const [statuses, setStatuses] = useState<Status[]>(["out", "below_rop"])
   const [win, setWin] = useState<WindowKey>(DEFAULT_WINDOW)
   const [service, setService] = useState(95)
@@ -478,6 +510,7 @@ export default function SafetyStockPage() {
     setSelectedRow(null)
     setGroups([])
     setLocs([])   // ชื่อสถานที่คนละชุดกันคนละคลัง (ลาดกระบัง "B1-1" · สระบุรี "Shelf 4/B")
+    setOnlyCovered(false)
     setStatuses(["out", "below_rop"])
     setWarehouseId(id)
   }
@@ -511,7 +544,7 @@ export default function SafetyStockPage() {
   // แสดงเป็นข้อมูลอ้างอิงในหน้าต่างรายละเอียดรายรหัสเท่านั้น (RowDialog) ไม่ใช้คำนวณ SS/ROP/แนะนำสั่งอีกต่อไป
   const enriched: EnrichedRow[] = useMemo(() => {
     if (!data) return []
-    return data.rows.map((r) => ({ r, d: derive(r, win, z, LEAD_TIME_DAYS), annualIssue: annualCount(r, win) }))
+    return data.rows.map((r) => ({ r, d: derive(r, win, z, LEAD_TIME_DAYS, onOrderQtyOf(r)), annualIssue: annualCount(r, win) }))
   }, [data, win, z])
 
   const groupOptions = useMemo<Record<string, { th: string; en: string }>>(() => {
@@ -550,10 +583,15 @@ export default function SafetyStockPage() {
     return m
   }, [searched])
 
+  // นับจาก searched (ไม่ใช่ filtered) เหมือนชิปสถานะ — เลขในวงเล็บจะได้ไม่กระพริบตามตัวเองตอนกดเปิด/ปิด
+  const coveredCount = useMemo(() => searched.filter(({ d }) => d.coveredByOrder).length, [searched])
+
   const filtered = useMemo(() => {
-    if (!statuses.length) return searched
-    return searched.filter(({ d }) => statuses.includes(d.status))
-  }, [searched, statuses])
+    let out = searched
+    if (statuses.length) out = out.filter(({ d }) => statuses.includes(d.status))
+    if (onlyCovered) out = out.filter(({ d }) => d.coveredByOrder)
+    return out
+  }, [searched, statuses, onlyCovered])
 
   const sorted = useMemo(() => {
     const copy = [...filtered]
@@ -616,6 +654,10 @@ export default function SafetyStockPage() {
         สถานที่จัดเก็บ: r.storageLocation ?? "",
         หน่วย: r.unit,
         คงเหลือ: r.stockQty,
+        กำลังสั่งซื้อ: onOrderQtyOf(r),
+        "คงเหลือ+กำลังสั่งซื้อ": Math.round((r.stockQty + onOrderQtyOf(r)) * 100) / 100,
+        "ใบ PR ที่ค้าง": r.onOrder?.prCodes.join(", ") ?? "",
+        "PR เก่าสุด (วัน)": r.onOrder ? r.onOrder.oldestDays : "",
         min: r.minQty,
         max: r.maxQty,
         "เฉลี่ย/วัน": d.adu,
@@ -651,11 +693,12 @@ export default function SafetyStockPage() {
   const COL_ID = 220     // พื้นขั้นต่ำของคอลัมน์ รหัส/ชื่อ (ตรึงซ้าย/sticky) — ใช้คิด TABLE_W เท่านั้น ไม่ตั้งเป็น width จริง
   const COL_LOC = 108    // พอสำหรับ "ห้องเก็บเครื่องมือช่าง" ของสระบุรี (ยาวสุดที่พบ) โดยไม่กิน 1280px จนล้น
   const COL_STOCK = 144
+  const COL_ONORDER = 104
   const COL_ROP = 100
   const COL_DOS = 70
   const COL_USAGE = 104
   const COL_SUGGEST = 128
-  const TABLE_W = COL_STATUS + COL_ID + COL_LOC + COL_STOCK + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 974 (พื้น/floor)
+  const TABLE_W = COL_STATUS + COL_ID + COL_LOC + COL_STOCK + COL_ONORDER + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 1,078 (พื้น/floor)
 
   return (
     <div>
@@ -842,6 +885,22 @@ export default function SafetyStockPage() {
                   </button>
                 )
               })}
+              {coveredCount > 0 && (
+                <button
+                  onClick={() => setOnlyCovered((v) => !v)}
+                  title="เห็นเฉพาะรหัสที่คงเหลือต่ำจริง แต่มีใบ PR ค้างรับของอยู่แล้วพอจนไม่ต้องสั่งเพิ่ม — กองที่เสี่ยงสั่งซ้ำที่สุด"
+                  aria-pressed={onlyCovered}
+                  style={{
+                    padding: "6px 12px", borderRadius: 999, fontSize: 12.5, cursor: "pointer",
+                    marginLeft: 8, fontWeight: onlyCovered ? 700 : 600,
+                    background: onlyCovered ? "#DBEAFE" : "#F9FAFB",
+                    color: onlyCovered ? "#1D4ED8" : "#9CA3AF",
+                    border: `1.5px solid ${onlyCovered ? "#93C5FD" : "#E5E7EB"}`,
+                  }}
+                >
+                  สั่งแล้ว รอของ ({coveredCount})
+                </button>
+              )}
             </div>
 
             {/* ── เรียงตาม — dropdown ครอบคลุมทุกตัวชี้วัด รวมตัวที่ย้ายไปเป็นบรรทัดรองในเซลล์แล้ว (ข้อ 1) ── */}
@@ -877,6 +936,7 @@ export default function SafetyStockPage() {
                   <col /> {/* รหัส/ชื่อ — ไม่ตั้ง width โดยตั้งใจ ให้ได้พื้นที่ว่างที่เหลือทั้งหมด (ดูคอมเมนต์ COL_ID ด้านบน) */}
                   <col style={{ width: COL_LOC }} />
                   <col style={{ width: COL_STOCK }} />
+                  <col style={{ width: COL_ONORDER }} />
                   <col style={{ width: COL_ROP }} />
                   <col style={{ width: COL_DOS }} />
                   <col style={{ width: COL_USAGE }} />
@@ -896,6 +956,10 @@ export default function SafetyStockPage() {
                     <SortableTh
                       label="คงเหลือ" colKey="stockQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
                       title={`จำนวนที่มีอยู่จริงในระบบ ATMS ณ เวลาที่ sync ล่าสุด\nmin: ${GLOSSARY.min.desc}\nmax: ${GLOSSARY.max.desc}`}
+                    />
+                    <SortableTh
+                      label="กำลังสั่งซื้อ" colKey="onOrder" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
+                      title={"จำนวนที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — รวมจากใบ PR ของคลังนี้ที่ยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน\nหักส่วนที่รับของไปแล้วออกแล้ว (PR ใบเดียวแตกเป็นหลาย PO แล้วทยอยรับได้)\nไม่นับบรรทัดกลุ่มค่าแรง เพราะไม่ใช่ของเข้าสต๊อก\nตัวเลขนี้ถูกหักออกจาก \"แนะนำสั่ง\" ให้แล้ว แต่ไม่ถูกนับใน \"คงเหลือ\"/\"พอใช้\" เพราะของยังเบิกไม่ได้"}
                     />
                     <SortableTh
                       label="ROP" colKey="rop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
@@ -924,6 +988,17 @@ export default function SafetyStockPage() {
                         <StatusChipBadge status={d.status} compact />
                         {d.minVerdict !== "unknown" && (
                           <div style={{ marginTop: 3 }}><VerdictBadge verdict={d.minVerdict} compact /></div>
+                        )}
+                        {/* ต้องสั่งตามคงเหลือ แต่ของที่สั่งไว้แล้วพอ — จุดที่กันสั่งซ้ำ ต้องเห็นคู่กับชิปสถานะเสมอ */}
+                        {d.coveredByOrder && (
+                          <div style={{ marginTop: 3 }}>
+                            <span
+                              title={`สั่งไปแล้ว ${num(onOrderQtyOf(r))} ${r.unit} และยังไม่เข้าคลัง — พอจนไม่ต้องสั่งเพิ่มในรอบนี้`}
+                              style={{ display: "inline-block", padding: "1px 6px", borderRadius: 999, fontSize: 10, fontWeight: 700, background: "#DBEAFE", color: "#1D4ED8", border: "1px solid #93C5FD", whiteSpace: "nowrap" }}
+                            >
+                              สั่งแล้ว รอของ
+                            </span>
+                          </div>
                         )}
                       </td>
 
@@ -955,6 +1030,27 @@ export default function SafetyStockPage() {
                         <div>{num(r.stockQty)} {r.unit}</div>
                         <div style={{ fontSize: 10.5, color: "#9CA3AF", marginTop: 1 }}>min {num(r.minQty)} · max {num(r.maxQty)}</div>
                         <MinMaxBar stock={r.stockQty} min={r.minQty} max={r.maxQty} />
+                      </td>
+
+                      {/* กำลังสั่งซื้อ — จำนวนค้างรับ (ตัวหลัก) + รวมกับคงเหลือ (บรรทัดรอง)
+                          แถวที่ไม่มีของค้างขึ้นขีดเทา ไม่ใช่เลข 0 (0 อ่านเหมือน "สั่งแล้วแต่ได้ศูนย์ชิ้น") */}
+                      <td
+                        style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }}
+                        title={r.onOrder
+                          ? `PR ที่ยังไม่มีใบรับของครบ ${r.onOrder.prCount} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${r.onOrder.prCodes.join(", ")}${r.onOrder.prCount > r.onOrder.prCodes.length ? " …" : ""}`
+                          : "ไม่มีใบ PR ที่ค้างรับของสำหรับรหัสนี้"}
+                      >
+                        {onOrderQtyOf(r) > 0 ? (
+                          <>
+                            <div style={{ fontWeight: 700, color: "#1D4ED8" }}>+{num(onOrderQtyOf(r))}</div>
+                            <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>รวม {num(r.stockQty + onOrderQtyOf(r))}</div>
+                            {r.onOrder && r.onOrder.oldestDays > 30 && (
+                              <div style={{ fontSize: 10, color: "#B45309" }}>ค้าง {r.onOrder.oldestDays} วัน</div>
+                            )}
+                          </>
+                        ) : (
+                          <span style={{ color: "#D1D5DB" }}>—</span>
+                        )}
                       </td>
 
                       {/* ROP — จุดสั่งซื้อ (ตัวหลัก) + กันขาด/SS (บรรทัดรอง) */}

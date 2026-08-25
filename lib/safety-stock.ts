@@ -60,7 +60,9 @@ export async function getSafetyStock(
       // การอ่านเพื่อลดขนาด payload โดยไม่กระทบอะไร ลาดกระบัง ~4,100 แถวใกล้เพดาน response 4.5 MB ของ Vercel
       .project({
         _id: 0, updatedAt: 0,
-        safetyStock: 0, reorderPoint: 0, daysOfSupply: 0, status: 0, minVerdict: 0, suggestQty: 0,
+        // coveredByOrder ที่ build เก็บไว้เป็น false เสมอ (build ไม่ส่ง onOrder เข้า derive) — เบราว์เซอร์
+        // คำนวณใหม่เองจาก row.onOrder อยู่แล้ว ส่งไปก็เปลืองเปล่าเหมือน 6 ตัวข้างล่าง
+        safetyStock: 0, reorderPoint: 0, daysOfSupply: 0, status: 0, minVerdict: 0, suggestQty: 0, coveredByOrder: 0,
       })
       .toArray() as unknown as Promise<SnapshotRow[]>,
     db.collection("safety_stock_sync_log").findOne({ trigger: "build" }),
