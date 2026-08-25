@@ -19,7 +19,7 @@ const PO_RECEIVE_STATUS_KEY = "สถานะการรับสินค้�
  *  (นิยามอยู่ที่นั่น ไฟล์นี้รับผิดชอบแค่การ query) · แยกจาก buildSnapshotRows เพื่อให้ probe เรียกได้ตรงๆ
  *  โดยไม่ต้องลาก aggregation หนักบน stockmovement_v5 มาด้วย — ดู scripts/probe-on-order.ts
  *
- *  4 query ที่ bounded ทั้งหมด บน collection ขนาด 11k–17k แถว เทียบกับ aggregation บน stockmovement_v5
+ *  4 query ที่ bounded ทั้งหมด บน collection ขนาด 17k–30k แถว เทียบกับ aggregation บน stockmovement_v5
  *  476k แถวใน buildSnapshotRows ถือว่าเล็กมาก · purchase_orders.{PR_KEY} กับ deposit_header.purchase_order
  *  ยังไม่มี index (collscan ครั้งละ ~13k/17k doc) ยอมรับได้ที่ขนาดนี้ ไม่สร้าง index เพิ่มเพราะ collection
  *  พวกนี้เป็นของ pipeline อื่นที่เขียนเข้ามา ไม่ใช่ของหน้านี้
@@ -31,8 +31,12 @@ export async function fetchOnOrderBySku(atms: Db, inventoryId: string, asOf: Dat
   if (!warehouseName) return new Map()
   try {
     // PR ของคลังนี้ที่ยังไม่เกินอายุ — กรองอายุฝั่ง JS เพราะ ATMS เก็บวันที่เป็นสตริง "DD/MM/YYYY" ช่วงค่าไม่ได้
+    // ตัดปีที่เก่าเกินออกฝั่ง Mongo ก่อน ไม่งั้นลากใบเก่ามาทิ้งเปล่าๆ (หลัง backfill ปี 2568 เข้ามา
+    // ลาดกระบังมี 15,046 ใบ แต่ในกรอบ 90 วันจริงๆ ไม่ถึง 1 ใน 4) · ปลอดภัยเพราะใบที่ผ่านตัวกรอง JS
+    // ต้องมีอายุ ≤ maxAge เสมอ ปีของมันจึงไม่มีทางเก่ากว่าปีของ (asOf − maxAge)
+    const minYear = String(new Date(asOf.getTime() - ON_ORDER_MAX_AGE_DAYS * 86_400_000).getFullYear())
     const prHeadDocs = (await atms.collection("purchase_requests")
-      .find({ [WH_KEY]: warehouseName })
+      .find({ [WH_KEY]: warehouseName, $expr: { $gte: [{ $substrCP: [`$${DATE_KEY}`, 6, 4] }, minYear] } })
       .project({ _id: 0, [PR_KEY]: 1, [DATE_KEY]: 1, [WH_KEY]: 1, [PLATE_KEY]: 1 })
       .toArray()) as Record<string, unknown>[]
     const prHeads = prHeadDocs

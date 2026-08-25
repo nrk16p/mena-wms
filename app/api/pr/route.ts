@@ -77,7 +77,9 @@ export async function GET(req: NextRequest) {
     const q         = searchParams.get("q")?.trim()         ?? ""
     const warehouse = searchParams.get("warehouse")?.trim() ?? ""
     const dept      = searchParams.get("dept")?.trim()      ?? ""
-    // ~1,550 PR อนุมัติ/เดือน (ข้อมูลเริ่ม พ.ค. 2026) — 5000 ครอบคลุม ~3 เดือน = ทั้งหมด ณ ส.ค. 2026
+    // ~1,550 PR อนุมัติ/เดือน · หลัง backfill 25/08/2026 มีปี 2568 ครบด้วย (29,661 ใบ ม.ค.68–ส.ค.69)
+    // 5000 จึงไม่ใช่ "ทั้งหมด" อีกแล้ว แต่เรียงวันที่ใหม่สุดก่อน หน้าแรกจึงยังเป็นของล่าสุดเหมือนเดิม
+    // และช่องค้นหากรองใน $match ก่อน sort ใบเก่าจึงยังค้นเจอ — เพิ่ม limit ได้ถึง 10000 ถ้าต้องการ
     const limit     = Math.min(parseInt(searchParams.get("limit") ?? "5000"), 10000)
 
     const client = await clientPromise

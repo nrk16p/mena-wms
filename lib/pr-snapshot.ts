@@ -16,8 +16,8 @@ function toISO(d: string): string {
 }
 
 /** ผู้ขอซื้อรายใบ PR — ตัวเบาสำหรับหน้าที่ต้องการแค่ชื่อคน ไม่ต้องลากสถานะ PO/DD มาด้วย
- *  bounded ด้วยรายการ prCodes ที่ผู้เรียกส่งมา · `ใบขอสั่งซื้อ (PR)` ยังไม่มี index (collscan ~11k doc)
- *  ยอมรับได้ที่ขนาดนี้ และผู้เรียกฝั่ง /deadstock cache ไว้ชั่วโมงละครั้งอยู่แล้ว
+ *  bounded ด้วยรายการ prCodes ที่ผู้เรียกส่งมา และ `ใบขอสั่งซื้อ (PR)` มี index อยู่ (pipeline
+ *  ฝั่ง api-ncac สร้างให้ตอน scrape) · ผู้เรียกฝั่ง /deadstock ยัง cache ไว้ชั่วโมงละครั้งอยู่แล้ว
  *  พังก็คืน Map ว่าง ไม่ล้มทั้งหน้า — ชื่อผู้ขอซื้อเป็นข้อมูลเสริม */
 export async function fetchRequesterByPr(client: MongoClient, prCodes: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>()
