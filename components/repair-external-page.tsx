@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef, Children, isValidElement } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Copy, Link2, Megaphone, ClipboardList } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Copy, Link2, Megaphone, ClipboardList, Maximize2, Minimize2 } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
@@ -257,6 +257,12 @@ type AtmsTlItem = {
   timeline_events?: { kind?: string; source?: string; at?: string; label?: string; action_by?: string; uid?: string }[]
 }
 
+/** ระดับการขยาย modal รายละเอียด — เพิ่มทั้งฟอนต์ ระยะห่าง และรูปพร้อมกันด้วย CSS zoom
+ *  (ไล่แก้คลาส text-[11px] ทีละจุดในไฟล์ 3,000+ บรรทัดพลาดแน่ และรูป/ระยะห่างก็ไม่โตตาม) */
+const MODAL_ZOOMS = [1, 1.15, 1.3, 1.5]
+const MODAL_ZOOM_KEY = "repair-external:modal-zoom"
+const MODAL_FULL_KEY = "repair-external:modal-full"
+
 export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const isDone = mode === "done"
   const [rows, setRows]       = useState<RepairExternal[]>([])
@@ -360,6 +366,32 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [fGarage, setFGarage]   = useState("")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo]     = useState("")
+
+  // ขนาดตัวอักษร/เต็มจอ ของ modal — จอในโรงซ่อมมีหลายขนาด บางเครื่องอ่านตัวเล็กไม่ออก (ผู้ใช้ขอ 25/08/2026)
+  // ตั้งค่าไว้แล้วจำข้ามการเปิดรายการถัดไป จะได้ไม่ต้องกดใหม่ทุกใบ
+  // อ่านค่าตอน useState ได้เลย ไม่ต้องรอ effect — ฝั่ง server localStorage เป็น undefined จึง throw แล้วตกไป
+  // ใช้ค่าเริ่มต้น ส่วนฝั่งเบราว์เซอร์ได้ค่าที่เก็บไว้ · ไม่เกิด hydration mismatch เพราะตอน hydrate modal ยังปิดอยู่
+  // (open = false) ปุ่มพวกนี้จึงไม่ถูก render ออกมาให้เทียบกันตั้งแต่แรก
+  const [modalZoom, setModalZoom] = useState<number>(() => {
+    try { const z = Number(localStorage.getItem(MODAL_ZOOM_KEY)); return MODAL_ZOOMS.includes(z) ? z : 1 }
+    catch { return 1 }   // private mode / โดนปิด site data — ใช้ค่าเริ่มต้นไป ไม่ต้องพัง
+  })
+  const [modalFull, setModalFull] = useState<boolean>(() => {
+    try { return localStorage.getItem(MODAL_FULL_KEY) === "1" } catch { return false }
+  })
+  function bumpZoom(step: number) {
+    setModalZoom((cur) => {
+      const next = MODAL_ZOOMS[Math.min(MODAL_ZOOMS.length - 1, Math.max(0, MODAL_ZOOMS.indexOf(cur) + step))]
+      try { localStorage.setItem(MODAL_ZOOM_KEY, String(next)) } catch { /* ไม่บันทึกก็ยังใช้งานรอบนี้ได้ */ }
+      return next
+    })
+  }
+  function toggleFull() {
+    setModalFull((cur) => {
+      try { localStorage.setItem(MODAL_FULL_KEY, cur ? "0" : "1") } catch { /* เหมือนกับ bumpZoom */ }
+      return !cur
+    })
+  }
 
   // modal
   const [open, setOpen]     = useState(false)
@@ -2208,8 +2240,22 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
       {/* Modal — ฟอร์มหน้าเดียว (บนลงล่าง) header/footer ตรึง เนื้อหาเลื่อน */}
       {open && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-2 backdrop-blur-sm sm:p-4">
-          <div className="my-2 flex max-h-[94vh] w-full max-w-5xl flex-col rounded-2xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl sm:my-6">
+        <div className={`fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm ${modalFull ? "p-0" : "p-2 sm:p-4"}`}>
+          {/* ขนาดของกล่องนี้ผูกกับ overlay (100%) ไม่ใช่ vh — เพราะ zoom มีกติกาต่างกันสองแบบ:
+              ค่า % เบราว์เซอร์แปลงให้เข้ากับ zoom ให้แล้ว (ห้ามหารซ้ำ ไม่งั้น 150% จะได้ modal เล็กลงเหลือ 2/3)
+              ส่วนหน่วยสัมบูรณ์อย่าง rem/vh ไม่ถูกแปลง ต้องหารด้วย zoom เอง (max-w-5xl = 64rem จึงเขียนเป็น calc)
+              เดิมใช้ max-h-[94vh] + my-6 ซึ่งโดน zoom คูณทั้งคู่ ตั้ง 150% แล้วล้นจอ — วัดจริงในเบราว์เซอร์แล้ว
+              สูตรนี้พอดีทุกระดับ (ปกติ 1024x768 · เต็มจอ 1280x800 ที่จอ 1280x800) */}
+          <div
+            className={`flex flex-col border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl ${modalFull ? "rounded-none" : "rounded-2xl"}`}
+            style={{
+              zoom: modalZoom === 1 ? undefined : modalZoom,
+              width: "100%",
+              maxWidth: modalFull ? "100%" : `calc(64rem / ${modalZoom})`,
+              maxHeight: "100%",
+              height: modalFull ? "100%" : undefined,
+            }}
+          >
             <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
@@ -2241,6 +2287,35 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <ClipboardList size={14} /> คัดลอกสรุปรถ
                   </button>
                 )}
+                {/* ขยายตัวอักษร / เต็มจอ — ค่าที่ตั้งไว้จำข้ามการเปิดรายการถัดไป (ผู้ใช้ขอ 25/08/2026) */}
+                <div className="ml-1 flex items-center gap-0.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-1 py-0.5">
+                  <button
+                    onClick={() => bumpZoom(-1)}
+                    disabled={modalZoom === MODAL_ZOOMS[0]}
+                    title="ลดขนาดตัวอักษรในหน้าต่างนี้"
+                    className="rounded px-1.5 py-0.5 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-white/5"
+                  >
+                    A−
+                  </button>
+                  <span className="w-9 text-center text-[11px] font-semibold tabular-nums text-gray-500 dark:text-gray-400">
+                    {Math.round(modalZoom * 100)}%
+                  </span>
+                  <button
+                    onClick={() => bumpZoom(1)}
+                    disabled={modalZoom === MODAL_ZOOMS[MODAL_ZOOMS.length - 1]}
+                    title="ขยายขนาดตัวอักษรในหน้าต่างนี้"
+                    className="rounded px-1.5 py-0.5 text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-white/5"
+                  >
+                    A+
+                  </button>
+                </div>
+                <button
+                  onClick={toggleFull}
+                  title={modalFull ? "ย่อกลับขนาดปกติ" : "ขยายเต็มจอ"}
+                  className="rounded-lg border border-[#E2E8E4] dark:border-white/10 p-1.5 text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
+                >
+                  {modalFull ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                </button>
                 <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">
                   <X size={18} />
                 </button>
