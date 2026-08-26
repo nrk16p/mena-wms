@@ -163,21 +163,45 @@ export async function setLabourCode(
   )
 }
 
+/** ติ๊ก/เอาติ๊กออก ของคู่ (อู่ × รหัสประเภทการซ่อม) — บันทึกทีละช่อง
+ *  ใช้ $addToSet/$pull แทนการเขียนทั้ง array กัน 2 คนติ๊กพร้อมกันแล้วทับกันหาย */
+export async function setVendorCapability(
+  vendor: string, code: string, on: boolean, by: string
+): Promise<void> {
+  const client = await clientPromise
+  const col = client.db(MASTER_DB).collection<VendorApproval>(AP_COLL)
+  await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
+  const at = new Date().toISOString()
+  await col.updateOne(
+    { vendor },
+    {
+      ...(on ? { $addToSet: { codes: code } } : { $pull: { codes: code } }),
+      $set: { by, at },
+      $setOnInsert: { vendor, status: "pending" as const },
+    },
+    { upsert: true }
+  )
+}
+
 export async function setVendorApproval(
   vendor: string,
-  patch: { status?: VendorApproval["status"]; approvedTypes?: ServiceType[]; note?: string },
+  patch: { status?: VendorApproval["status"]; codes?: string[]; note?: string },
   by: string
 ): Promise<void> {
   const client = await clientPromise
   const col = client.db(MASTER_DB).collection<VendorApproval>(AP_COLL)
   await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
   const $set: Record<string, unknown> = { by, at: new Date().toISOString() }
-  if (patch.status !== undefined)        $set.status = patch.status
-  if (patch.approvedTypes !== undefined) $set.approvedTypes = patch.approvedTypes
-  if (patch.note !== undefined)          $set.note = patch.note
+  if (patch.status !== undefined) $set.status = patch.status
+  if (patch.codes  !== undefined) $set.codes  = patch.codes
+  if (patch.note   !== undefined) $set.note   = patch.note
   await col.updateOne(
     { vendor },
-    { $set, $setOnInsert: { vendor, ...(patch.status === undefined ? { status: "pending" } : {}), ...(patch.approvedTypes === undefined ? { approvedTypes: [] } : {}) } },
+    { $set, $setOnInsert: {
+        vendor,
+        ...(patch.status === undefined ? { status: "pending" as const } : {}),
+        ...(patch.codes  === undefined ? { codes: [] } : {}),
+    } },
     { upsert: true }
   )
 }

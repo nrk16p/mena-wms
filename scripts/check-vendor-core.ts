@@ -89,10 +89,11 @@ const raw: VendorRawRow[] = [
   R("เงินสด (ไม่มีVAT)", "ค่าแรง-ระบบโม่", "M1", 99, 999_999, "2026-08"), // ต้องถูกตัดทิ้ง
   R("อู่ ง", "ค่าแรง", "X9", 4, 8_000, "2026-07"),                 // ยังไม่จัดประเภท
 ]
+// ติ๊กด้วยรหัสจากทะเบียนฝ่ายยานยนต์ — S45 = อู่นอก-CM-ระบบโม่
 const approvals: VendorApproval[] = [
-  { vendor: "อู่ ก ข", approvedTypes: ["ระบบโม่"], status: "approved" },
-  { vendor: "อู่ ข", approvedTypes: ["ระบบโม่"], status: "approved" },
-  { vendor: "อู่ ค", approvedTypes: ["ระบบโม่"], status: "approved" },
+  { vendor: "อู่ ก ข", codes: ["S45"], status: "approved" },
+  { vendor: "อู่ ข", codes: ["S45"], status: "approved" },
+  { vendor: "อู่ ค", codes: ["S45"], status: "approved" },
 ]
 const p = buildVendorPayload(raw, [], approvals, "2026-08", "2024-09")
 
@@ -122,10 +123,19 @@ assert.equal(kc.tier, "backup", "งาน 3 ครั้ง + ทำล่า�
 // ตัวหลักต้องมาก่อนสำรองในลำดับ
 assert.ok(mo.indexOf(kc) > mo.indexOf(kx), "ตัวหลักต้องขึ้นก่อนสำรอง")
 
-// อนุมัติเป็นรายคู่ (อู่ × ประเภท) — อนุมัติระบบโม่ไม่ได้แปลว่าทำระบบยางได้
+// ติ๊กเป็นรายคู่ (อู่ × รหัสงาน) — ติ๊กระบบโม่ไม่ได้แปลว่าทำระบบยางได้
 const tyre = p.byService.find((r) => r.serviceType === "ระบบยาง" && r.vendor === "อู่ ก ข")!
-assert.equal(tyre.approved, false, "อนุมัติเฉพาะระบบโม่ ระบบยางต้องยังไม่อนุมัติ")
+assert.equal(tyre.approved, false, "ติ๊กเฉพาะ S45 (ระบบโม่) ระบบยางต้องยังไม่ผ่าน")
 assert.equal(tyre.tier, "unapproved")
+
+// ติ๊ก S75 (อู่นอก-T-ปะยาง) แล้ว "ระบบยาง" ฝั่งจัดซื้อต้องนับว่าผ่าน
+// เพราะ WORKS_OF_SERVICE จับ "ระบบยาง" → 5 งานย่อยของหมวดยาง
+const p3 = buildVendorPayload(raw, [], [{ vendor: "อู่ ก ข", codes: ["S75"], status: "approved" }], "2026-08", "2024-09")
+const tyre3 = p3.byService.find((r) => r.serviceType === "ระบบยาง" && r.vendor === "อู่ ก ข")!
+assert.equal(tyre3.approved, true, "ติ๊กงานย่อยของหมวดยาง = ทำระบบยางได้")
+// รหัสที่ไม่มีในทะเบียนต้องไม่ทำให้พัง และต้องไม่นับว่าผ่าน
+const p4 = buildVendorPayload(raw, [], [{ vendor: "อู่ ก ข", codes: ["S999"], status: "approved" }], "2026-08", "2024-09")
+assert.equal(p4.byService.find((r) => r.serviceType === "ระบบโม่" && r.vendor === "อู่ ก ข")!.approved, false)
 
 // งานที่ยังไม่จัดประเภท ต้องถูกนับเป็นงานค้างให้คนไปตั้งค่า
 assert.equal(p.unclassified.codes, 1)
@@ -144,5 +154,6 @@ assert.equal(vkx.didTypes[0].serviceType, "ระบบโม่")
 assert.equal(vkx.jobs, 12)
 assert.equal(vkx.baht, 104_000)
 assert.equal(vkx.status, "approved")
+assert.deepEqual(vkx.codes, ["S45"])
 
 console.log("✅ vendor-core: ผ่านทั้งหมด")

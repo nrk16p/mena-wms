@@ -6,11 +6,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { isAdmin } from "@/lib/roles"
 import { setVendorApproval } from "@/lib/vendor"
-import { SERVICE_TYPES, type ServiceType } from "@/lib/vendor-core"
+import { byCode } from "@/lib/repair-type-master"
 
 export const dynamic = "force-dynamic"
 
-const VALID_TYPE = new Set<string>(SERVICE_TYPES)
 const VALID_STATUS = new Set(["approved", "rejected", "pending"])
 
 export async function PATCH(req: NextRequest) {
@@ -36,14 +35,14 @@ export async function PATCH(req: NextRequest) {
       patch.status = status as "approved" | "rejected" | "pending"
     }
 
-    if (body.approvedTypes !== undefined) {
-      if (!Array.isArray(body.approvedTypes)) {
-        return NextResponse.json({ error: "approvedTypes ต้องเป็น array" }, { status: 400 })
+    if (body.codes !== undefined) {
+      if (!Array.isArray(body.codes)) {
+        return NextResponse.json({ error: "codes ต้องเป็น array" }, { status: 400 })
       }
-      const types = [...new Set(body.approvedTypes.map((t: unknown) => String(t).trim()))] as string[]
-      const bad = types.find((t) => !VALID_TYPE.has(t))
-      if (bad) return NextResponse.json({ error: `ประเภทงานไม่ถูกต้อง: ${bad}` }, { status: 400 })
-      patch.approvedTypes = types as ServiceType[]
+      const codes = [...new Set(body.codes.map((t: unknown) => String(t).trim().toUpperCase()))] as string[]
+      const bad = codes.find((c) => !byCode(c))
+      if (bad) return NextResponse.json({ error: `ไม่รู้จักรหัสประเภทการซ่อม: ${bad}` }, { status: 400 })
+      patch.codes = codes
     }
 
     if (body.note !== undefined) patch.note = String(body.note).trim().slice(0, 500)

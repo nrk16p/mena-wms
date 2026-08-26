@@ -11,6 +11,8 @@
 //   • สองฝั่งไม่เคยอยู่แถวเดียวกัน (วัดจริง 0 จาก 231,759 แถว 25/08/2026)
 // จึงยังผูกกับใบแจ้งซ่อมรายใบไม่ได้ — ดูหมายเหตุท้ายไฟล์
 
+import { REPAIR_TYPES, byCode, type RepairGroup } from "@/lib/repair-type-master"
+
 export const DB_NAME = "atms"
 export const COLL_NAME = "stockmovement_v5"
 
@@ -136,12 +138,53 @@ export type LabourCode = {
 
 export type VendorApproval = {
   vendor: string
-  /** ประเภทงานที่อนุมัติให้อู่รายนี้ทำ */
-  approvedTypes: ServiceType[]
+  /** รหัสประเภทการซ่อมที่จัดซื้อติ๊กว่าอู่รายนี้ทำได้ (S30–S101 ดู lib/repair-type-master)
+   *  เก็บเป็นรหัสไม่ใช่ชื่อ เพราะชื่อยาวและสะกดไม่นิ่ง ส่วนรหัสเป็นคีย์ถาวรของฝ่ายยานยนต์ */
+  codes: string[]
   status: "approved" | "rejected" | "pending"
   note?: string
   by?: string
   at?: string
+}
+
+/** สะพานระหว่างประเภทที่แกะได้จากข้อมูลจัดซื้อ กับงานตามทะเบียนฝ่ายยานยนต์
+ *  ต้นทางหยาบกว่าทะเบียน — "ระบบยาง" ไม่บอกว่าปะยางหรือเปลี่ยนยาง, "ระบบบำรุงรักษา"
+ *  ไม่บอกว่า PM รอบไหน จึงจับเข้าได้หลายงาน ตัวเลขประวัติที่โชว์ในตารางติ๊ก
+ *  จึงเป็นระดับ "งานกลุ่มนี้" ไม่ใช่รายงานย่อย — บอกไว้ใน tooltip ของช่อง */
+export const WORKS_OF_SERVICE: Record<string, string[]> = {
+  "ระบบโม่":                ["ระบบโม่"],
+  "ระบบเครื่องยนต์":         ["ระบบเครื่องยนต์"],
+  "ระบบเบรค-คลัทช์-เกียร์":  ["ระบบเบรกและคลัตช์", "ระบบเกียร์"],
+  "ระบบช่วงล่าง":            ["ระบบช่วงล่าง"],
+  "ระบบแอร์-ไฟฟ้า":          ["ระบบแอร์และไฟ"],
+  "ระบบยาง":                ["ปะยาง", "เปลี่ยนยาง", "เปลี่ยนน็อตล้อ", "เปลี่ยนยางใน", "เปลี่ยนยางรองคอ"],
+  "ระบบบำรุงรักษา":          ["PM-1", "PM-2", "PM-3", "PM-4", "ลูกปืนล้อ", "ช่วงล่าง", "ระบบความเย็น", "ลิฟต์ท้าย"],
+  "หัวเก๋ง-ตัวถัง-สี":        ["ระบบหัวเก๋ง", "ปะผุและทำสี", "ตัวถังบอดี้"],
+  "ระบบหาง":                ["หาง"],
+  "อุปกรณ์เสริม":            ["อุปกรณ์เสริม"],
+  "ทำความสะอาด":            ["ทำความสะอาด"],
+  "เชื่อม-กลึง-งานโลหะ":     ["ตัวถังบอดี้"],
+  // "อื่นๆ / ยังไม่จัดประเภท" จงใจไม่จับเข้างานไหน — ยังไม่รู้ว่าคืองานอะไร
+}
+
+/** งานตามทะเบียน → ประเภทฝั่งจัดซื้อที่จับเข้ากันได้ (ผกผันของตารางข้างบน) */
+export const SERVICES_OF_WORK: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {}
+  for (const [svc, works] of Object.entries(WORKS_OF_SERVICE)) {
+    for (const w of works) (out[w] ??= []).push(svc)
+  }
+  return out
+})()
+
+/** อู่ที่เราเห็นในข้อมูลคือ "ผู้ถูกจ้าง" ทั้งหมด ประวัติจึงเป็นของฝั่งอู่นอกเสมอ
+ *  คอลัมน์อู่ในไม่มีตัวเลขประวัติให้ดู เพราะเป็นช่างในบริษัท ไม่ได้จ้าง vendor */
+export function historyApplies(code: string): boolean {
+  return byCode(code)?.side === "อู่นอก"
+}
+
+/** รหัสทั้งหมดของหมวดหนึ่ง — ใช้ตอนกรองคอลัมน์ในตารางติ๊ก */
+export function codesOfGroup(group: RepairGroup): string[] {
+  return REPAIR_TYPES.filter((r) => r.group === group).map((r) => r.code)
 }
 
 export type Tier = "primary" | "backup" | "unapproved"
@@ -189,7 +232,8 @@ export type VendorSummary = {
   lastYm: string
   monthsSince: number
   status: VendorApproval["status"]
-  approvedTypes: ServiceType[]
+  /** รหัสประเภทการซ่อมที่จัดซื้อติ๊กไว้ */
+  codes: string[]
   /** ประเภทที่เคยทำจริง เรียงตามยอดเงินมากไปน้อย */
   didTypes: { serviceType: ServiceType; jobs: number; baht: number }[]
   warehouses: string[]
@@ -300,7 +344,13 @@ export function buildVendorPayload(
   for (const [k, a] of cell) {
     const [vendor, t] = k.split(SEP) as [string, ServiceType]
     const ap = apMap.get(vendor)
-    const approved = ap?.status === "approved" && (ap.approvedTypes ?? []).includes(t)
+    // อนุมัติสำหรับประเภทนี้ = ติ๊กรหัสที่ตรงกับงานตามทะเบียนไว้อย่างน้อย 1 รหัส
+    // (ประเภทฝั่งจัดซื้อ 1 ตัวจับได้หลายงาน เช่น "ระบบยาง" ครอบ 5 งานย่อย)
+    const wants = new Set(WORKS_OF_SERVICE[t] ?? [])
+    const approved = (ap?.codes ?? []).some((c) => {
+      const row = byCode(c)
+      return !!row && wants.has(row.work)
+    })
     const avg = a.jobs ? a.baht / a.jobs : 0
     const med = medianOf.get(t) ?? 0
     const monthsSince = monthsBetweenYm(a.lastYm, asOfYm)
@@ -342,7 +392,7 @@ export function buildVendorPayload(
       vendor, jobs: a.jobs, baht: r2(a.baht), lastYm: a.lastYm,
       monthsSince: monthsBetweenYm(a.lastYm, asOfYm),
       status: ap?.status ?? "pending",
-      approvedTypes: ap?.approvedTypes ?? [],
+      codes: ap?.codes ?? [],
       didTypes: (didByVendor.get(vendor) ?? []).sort((x, y) => y.baht - x.baht),
       warehouses: [...a.wh].sort(),
       note: ap?.note, by: ap?.by, at: ap?.at,

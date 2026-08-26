@@ -202,8 +202,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/vendors/by-service", label: "เลือกอู่ตามประเภทงาน", icon: Wrench, exact: true,
         desc: "งานประเภทนี้ใช้อู่ไหนได้บ้าง" },
-      { href: "/vendors", label: "อู่ทั้งหมด", icon: Factory, exact: true,
-        desc: "รายชื่ออู่ + อนุมัติรายประเภทงาน" },
+      { href: "/vendors", label: "ตารางความสามารถอู่", icon: Factory, exact: true,
+        desc: "ติ๊กว่าอู่ไหนทำงานประเภทไหนได้" },
       { href: "/vendors/labour-codes", label: "ตั้งค่ารหัสค่าแรง", icon: TableProperties, exact: true,
         adminOnly: true, desc: "จับคู่รหัสค่าแรงกับประเภทงาน" },
     ],
