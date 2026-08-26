@@ -8,7 +8,8 @@
 // ช่างในบริษัท ไม่ได้จ้าง vendor (ดู historyApplies ใน lib/vendor-core)
 import { useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Search } from "lucide-react"
+import { Download, Search } from "lucide-react"
+import * as XLSX from "xlsx"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
@@ -131,6 +132,59 @@ export function VendorMatrixPage() {
     }
   }
 
+  /** ส่งออกตามที่เห็นบนจอ (ตัวกรองมีผลด้วย) — คนกดปุ่มคาดหวังไฟล์ที่ตรงกับที่กำลังดูอยู่
+   *  2 ชีต: ชีตแรกเป็นตารางติ๊กแบบเดียวกับบนจอ ชีตสองเป็นรายการติ๊กแบบแถวต่อแถว
+   *  ซึ่งเอาไป pivot / vlookup ต่อได้ ต่างจากตารางกากบาทที่เอาไปทำต่อยาก */
+  function exportXlsx() {
+    const wb = XLSX.utils.book_new()
+
+    const matrix = rows.map((v) => {
+      const hist = historyByWork(v)
+      const ticked = new Set(v.codes)
+      const base: Record<string, string | number> = {
+        อู่: v.vendor,
+        สถานะ: STATUS_META[v.status].th,
+        ครั้ง: v.jobs,
+        มูลค่า: v.baht,
+        ล่าสุด: ymThai(v.lastYm),
+        คลัง: v.warehouses.join(", "),
+        "ติ๊กแล้ว (ประเภท)": v.codes.length,
+      }
+      for (const c of cols) {
+        // หัวคอลัมน์ใส่รหัสนำหน้า กันชื่อซ้ำกันระหว่างอู่ใน/อู่นอก เวลาเปิดครบ 72 คอลัมน์
+        base[`${c.code} ${c.label}`] =
+          ticked.has(c.code) ? "✓" : c.side === "อู่นอก" && (hist.get(c.work) ?? 0) > 0 ? `(${hist.get(c.work)})` : ""
+      }
+      return base
+    })
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(matrix), "ตารางติ๊ก")
+
+    const long = rows.flatMap((v) => {
+      const hist = historyByWork(v)
+      return v.codes
+        .map((code) => cols.find((c) => c.code === code) ?? REPAIR_TYPES.find((c) => c.code === code))
+        .filter((c): c is RepairTypeRow => !!c)
+        .map((c) => ({
+          อู่: v.vendor,
+          สถานะ: STATUS_META[v.status].th,
+          รหัส: c.code,
+          "ประเภทการซ่อม": c.label,
+          หมวด: `${c.group} · ${GROUP_LABEL[c.group]}`,
+          ฝั่ง: c.side,
+          "ประเภทงาน": c.work,
+          "เคยทำ (ครั้ง)": c.side === "อู่นอก" ? (hist.get(c.work) ?? 0) : "",
+          คลัง: v.warehouses.join(", "),
+        }))
+    })
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(long.length ? long : [{ หมายเหตุ: "ยังไม่มีใครติ๊กในขอบเขตที่กรองอยู่" }]),
+      "รายการติ๊ก"
+    )
+
+    XLSX.writeFile(wb, `vendor-capability-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   const TH = { position: "sticky" as const, top: 0, zIndex: 2, background: "#F9FAFB" }
   const NAMECOL = { position: "sticky" as const, left: 0, zIndex: 1, background: "#fff" }
 
@@ -165,6 +219,17 @@ export function VendorMatrixPage() {
               {num(rows.length)} อู่ · {cols.length} คอลัมน์ · ติ๊กแล้ว {num(totalTicked)} ช่อง
             </span>
             {!isAdmin && <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· ดูได้อย่างเดียว</span>}
+            <button
+              onClick={exportXlsx}
+              title="ส่งออกตามที่กรองอยู่ตอนนี้ · 2 ชีต — ตารางติ๊ก และรายการติ๊กแบบแถวต่อแถว"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto",
+                padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB",
+                background: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              <Download size={14} /> Excel
+            </button>
           </div>
 
           {/* กรองคลัง — อู่แต่ละพื้นที่คนละชุดกัน จัดซื้อที่ดูแลคนละคลังจะได้ไม่ต้องเลื่อนผ่านอู่ที่ไม่เกี่ยว */}
