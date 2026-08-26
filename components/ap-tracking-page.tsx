@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_GO_LIVE, apStage, docNosText, groupByDate, ictDate, inDateRange, isDocSetComplete, monthInApScope,
-  nextThursday, overdueDays, thaiDate, todayICT,
+  nextThursday, overdueDays, thaiDate, thaiMonthLabel, todayICT,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
 import { CARD, NUM, baht, mitr } from "@/components/ap-style"
@@ -120,7 +120,8 @@ export function ApTrackingPage() {
   // filter เฉพาะแท็บ "ผ่าน": ช่วงวันที่บัญชีกดผ่าน (review.at เวลาไทย) + เครดิตเทอม
   const [passedFrom, setPassedFrom] = useState("")
   const [passedTo, setPassedTo] = useState("")
-  const [termFilter, setTermFilter] = useState("")     // "" = ทุกเทอม · "none" = ยังไม่ตั้ง
+  // เลือกได้หลายเทอมพร้อมกัน — ผู้ใช้ดูเป็นกลุ่ม "สั้น 7+15" / "ยาว 30+60" ไม่ใช่ทีละเทอม
+  const [terms, setTerms] = useState<string[]>([])   // ว่าง = ทุกเทอม · "none" = ยังไม่ตั้งเทอม
   // มุมมองหลักของตาราง: รายใบ (ปกติ) หรือยุบเป็นรายเจ้าหนี้ — สรุป DD/PO/ขั้นของแต่ละเจ้า
   const [viewBy, setViewBy] = useState<"invoice" | "supplier">("invoice")
   const [warehouses, setWarehouses] = useState<string[]>([])
@@ -252,10 +253,14 @@ export function ApTrackingPage() {
     if (tab === "passed") {
       // วันที่ผ่าน = เวลาที่บัญชีกดผ่าน (review.at) แปลงเป็นวันไทย — ใบนำเข้าจากไฟล์ใช้วันส่งเข้าสกท
       if (passedFrom || passedTo) out = out.filter((r) => inDateRange(ictDate(r.review?.at ?? ""), passedFrom, passedTo))
-      if (termFilter) out = out.filter((r) => (termFilter === "none" ? !r.creditTerm : r.creditTerm === termFilter))
+    }
+    // เครดิตเทอมใช้ได้ทั้งแท็บ "ส่งบัญชีแล้ว" และ "ผ่าน" (ผู้ใช้สั่ง 26/08/2026)
+    // แท็บอื่นค่าค้างต้องไม่แอบกรอง จึงเช็คแท็บก่อนเสมอ
+    if ((tab === "passed" || tab === "sent") && terms.length) {
+      out = out.filter((r) => (r.creditTerm ? terms.includes(r.creditTerm) : terms.includes("none")))
     }
     return out
-  }, [beforeSentRange, rangeOn, sentFrom, sentTo, tab, payTypeFilter, passedFrom, passedTo, termFilter])
+  }, [beforeSentRange, rangeOn, sentFrom, sentTo, tab, payTypeFilter, passedFrom, passedTo, terms])
 
   // ส่งออกแถวที่กรองอยู่เป็น Excel — โหลด xlsx ตอนกดเท่านั้น (ก้อนใหญ่ ~400KB ไม่ควรถ่วงตอนเปิดหน้า)
   // แท็บ "ผ่าน" ออกเป็น "ใบปะหน้าส่งเข้า สกท." ตามฟอร์มจริงของบัญชี (รายชิ้นสินค้า + หัวฟอร์ม
@@ -311,6 +316,66 @@ export function ApTrackingPage() {
     const label = tab === "sent" ? "ส่งบัญชีแล้ว" : tab === "paid" ? "จ่ายแล้ว" : "ผ่าน"
     XLSX.utils.book_append_sheet(wb, ws, label)
     XLSX.writeFile(wb, `เจ้าหนี้${label}_${month}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
+  }
+
+  /** วันที่ใช้ตัดเดือนของแต่ละแท็บ — แท็บ "ผ่าน" ใช้วันที่บัญชีกดผ่าน
+   *  ส่วน "ส่งบัญชีแล้ว" ใบยังไม่ผ่านย่อมไม่มีวันที่กดผ่าน จึงต้องใช้วันที่กดส่งแทน */
+  const monthKeyOf = (r: ApRow) =>
+    (tab === "passed" ? ictDate(r.review?.at ?? "") : (r.sentMarkedDate ?? "")).slice(0, 7)
+
+  /** Excel แตกชีตตามเดือน — เดิมต้องกรองทีละเดือนแล้วกด export ทีละไฟล์
+   *  ที่นี่ออกทีเดียวครบทุกเดือนที่มีในชุดที่กรองอยู่ + ชีต "รวม" ไว้ข้างหน้า
+   *  ใช้ตารางแบนเสมอ ไม่ใช่ฟอร์มใบปะหน้า เพราะไฟล์นี้มีไว้เอาไปวิเคราะห์ต่อ */
+  async function exportMonthly() {
+    const XLSX = await import("xlsx")
+    const flat = (r: ApRow) => ({
+      "เลขใบรับของ": r.depositCode,
+      "วันที่รับของ": r.receivedAt,
+      "คลัง": r.warehouse,
+      "ซัพพลายเออร์": r.supplier,
+      "PO": r.purchaseOrder,
+      "ทะเบียนรถ": r.vehicle ?? "",
+      "ยอดเงิน": r.amount,
+      "เครดิตเทอม": r.creditTerm,
+      "ประเภทการส่ง": r.pay?.type || r.sentType,
+      "วันโอน/ครบกำหนด": r.sentDate,
+      "กดส่งเมื่อ": r.sentMarkedDate ?? "",
+      "ผ่านเมื่อ": ictDate(r.review?.at ?? ""),
+      "ตรวจโดย": r.review?.by ?? "",
+      "กำหนดจ่าย": r.pay?.payDate ?? "",
+      "จ่ายจริง": r.paid?.date ?? "",
+      "เลข PV": (r.paid?.paymentNos ?? []).join(", "),
+      "เลขที่ Voucher": (r.docNos.voucherNos ?? []).join(", "),
+      "เลขที่ใบวางบิล": (r.docNos.billingNoteNos ?? []).join(", "),
+      "หมายเหตุ": r.note,
+    })
+    const WIDTHS = [14, 11, 16, 30, 13, 12, 12, 10, 11, 13, 11, 11, 22, 11, 18, 18, 24].map((w) => ({ wch: w }))
+    const addSheet = (wb: ReturnType<typeof XLSX.utils.book_new>, rowsIn: ApRow[], name: string) => {
+      const ws = XLSX.utils.json_to_sheet(rowsIn.map(flat))
+      ws["!cols"] = WIDTHS
+      XLSX.utils.book_append_sheet(wb, ws, name)
+    }
+
+    const byMonth = new Map<string, ApRow[]>()
+    for (const r of shown) {
+      const k = monthKeyOf(r) || "ไม่ระบุเดือน"
+      const arr = byMonth.get(k) ?? []
+      arr.push(r)
+      byMonth.set(k, arr)
+    }
+    // เดือนใหม่อยู่หน้า — คนเปิดไฟล์มักดูเดือนล่าสุดก่อน · "ไม่ระบุเดือน" ไว้ท้ายสุด
+    const months = [...byMonth.keys()].sort((a, b) =>
+      a === "ไม่ระบุเดือน" ? 1 : b === "ไม่ระบุเดือน" ? -1 : b.localeCompare(a))
+
+    const wb = XLSX.utils.book_new()
+    addSheet(wb, shown, "รวม")
+    for (const k of months) {
+      // ชื่อชีตตามธรรมเนียมไฟล์บัญชี "ส.ค. 69"
+      addSheet(wb, byMonth.get(k)!, thaiMonthLabel(k))
+    }
+    const label = tab === "passed" ? "ผ่าน" : tab === "sent" ? "ส่งบัญชีแล้ว" : "ทั้งหมด"
+    const basis = tab === "passed" ? "ตามวันที่ผ่าน" : "ตามวันที่กดส่ง"
+    XLSX.writeFile(wb, `เจ้าหนี้${label}_รายเดือน_${basis}_${today}.xlsx`)
   }
 
   // มุมมองจัดกลุ่มแบ่งหน้าเป็น "รายวัน" ไม่ใช่รายแถว — ไม่งั้นวันเดียวจะถูกหั่นคาหน้า
@@ -514,7 +579,7 @@ export function ApTrackingPage() {
           // เปลี่ยนแท็บ = เริ่มต้นไม่กรองเสมอ (ผู้ใช้สั่ง 21/08/2026: default no filter date)
           // ไม่งั้นช่วงวันที่/ประเภทที่ตั้งไว้ครั้งก่อนค้างอยู่ กลับมาแท็บเดิมแล้วข้อมูลหายไปเฉย ๆ
           setSentFrom(""); setSentTo(""); setPayTypeFilter("")
-          setPassedFrom(""); setPassedTo(""); setTermFilter("")
+          setPassedFrom(""); setPassedTo(""); setTerms([])
         })}
         viewBy={viewBy} onViewBy={(v) => applyFilter(() => setViewBy(v))}
         warehouse={warehouse} onWarehouse={(v) => applyFilter(() => setWarehouse(v))}
@@ -532,8 +597,10 @@ export function ApTrackingPage() {
         payTypeFilter={payTypeFilter} onPayTypeFilter={(v) => applyFilter(() => setPayTypeFilter(v))}
         passedFrom={passedFrom} passedTo={passedTo}
         onPassedRange={(f, t) => applyFilter(() => { setPassedFrom(f); setPassedTo(t) })}
-        termFilter={termFilter} onTermFilter={(v) => applyFilter(() => setTermFilter(v))}
+        terms={terms} onTerms={(v) => applyFilter(() => setTerms(v))}
         onExport={exportExcel} exportSelected={tab === "passed" ? selectedRows.length : 0}
+        onExportMonthly={() => void exportMonthly()}
+        monthlyBasis={tab === "passed" ? "วันที่ผ่าน" : "วันที่กดส่ง"}
       />
 
       {/* ผลลัพธ์ถูกตัดเพราะชนเพดานแถว — ยอดสรุปทุกตัวข้างบนยังไม่ครบ ต้องบอกให้ชัด ไม่ปล่อยให้เงียบ */}

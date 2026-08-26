@@ -715,6 +715,14 @@ export function upcomingThursdays(fromISO: string, n = 4): string[] {
 }
 
 const TH_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."]
+
+/** "2026-08" → "ส.ค. 69" — ชื่อเดือนแบบที่บัญชีใช้ตั้งชื่อชีต/ไฟล์
+ *  คืนค่าเดิมเมื่อรูปแบบไม่ตรง ดีกว่าคืนค่าว่างจนชีตไม่มีชื่อ */
+export function thaiMonthLabel(ym: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(ym ?? "").trim())
+  if (!m) return String(ym ?? "")
+  return `${TH_MONTHS[+m[2] - 1]} ${String(+m[1] + 543).slice(-2)}`
+}
 // timestamp ISO (UTC) → "17 ส.ค. 69 14:32" ตามเวลาไทย
 // log เก็บเวลาเป็น UTC (new Date().toISOString()) ถ้าโชว์ตรง ๆ จะช้าไป 7 ชม.
 // และงานที่ทำตอนเช้าไทยจะดูเหมือนเกิดเมื่อวาน

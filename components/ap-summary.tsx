@@ -27,6 +27,13 @@ const SENT_PRESETS: { key: ApRangePreset; label: string }[] = [
   { key: "month", label: "เดือนนี้" },
 ]
 
+/** กลุ่มลัดของเครดิตเทอม — จัดตามที่ผู้ใช้พูดถึงจริง ("7,15 / 30,60")
+ *  Immediate / 90D / ยังไม่ตั้ง ไม่ได้อยู่ในกลุ่มไหน แต่ยังติ๊กแยกได้ */
+const TERM_GROUPS: { label: string; terms: string[] }[] = [
+  { label: "สั้น 7+15",  terms: ["7D", "15D"] },
+  { label: "ยาว 30+60", terms: ["30D", "60D"] },
+]
+
 export function ApHeader({
   summary, loading, month, onMonth, q, onQ, onRefresh,
   tab, onTab, warehouse, onWarehouse, warehouses, totalShown,
@@ -35,7 +42,7 @@ export function ApHeader({
   crossHits, onGotoHit,
   viewBy, onViewBy,
   payTypeFilter, onPayTypeFilter, onExport, exportSelected,
-  passedFrom, passedTo, onPassedRange, termFilter, onTermFilter,
+  passedFrom, passedTo, onPassedRange, terms, onTerms, onExportMonthly, monthlyBasis,
 }: {
   summary: ApSummary | null
   loading: boolean
@@ -80,8 +87,10 @@ export function ApHeader({
   passedFrom: string
   passedTo: string
   onPassedRange: (from: string, to: string) => void
-  termFilter: string
-  onTermFilter: (v: string) => void
+  terms: string[]
+  onTerms: (v: string[]) => void
+  onExportMonthly: () => void
+  monthlyBasis: string
 }) {
   const rangeOn = Boolean(sentFrom || sentTo)
   // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
@@ -253,7 +262,8 @@ export function ApHeader({
             </div>
           )}
 
-          {/* filter เฉพาะแท็บ "ผ่าน" — วันที่บัญชีกดผ่าน + เครดิตเทอม (ผู้ใช้สั่ง 21/08/2026) */}
+          {/* filter วันที่บัญชีกดผ่าน — เฉพาะแท็บ "ผ่าน" (ผู้ใช้สั่ง 21/08/2026)
+              ใบที่ยังไม่ผ่านไม่มีวันที่ผ่าน ตัวกรองนี้จึงไม่มีความหมายในแท็บอื่น */}
           {tab === "passed" && (
             <div className="flex flex-wrap items-center gap-1.5 border-l border-gray-200 pl-3 dark:border-white/10">
               <span className="text-xs text-gray-500">วันที่ผ่าน</span>
@@ -267,12 +277,46 @@ export function ApHeader({
               {(passedFrom || passedTo) && (
                 <button onClick={() => onPassedRange("", "")} className="text-xs text-gray-500 underline underline-offset-2">ล้าง</button>
               )}
-              <select value={termFilter} onChange={(e) => onTermFilter(e.target.value)} aria-label="กรองเครดิตเทอม"
-                className={`rounded-lg border bg-white px-2 py-1 text-xs dark:bg-white/5 ${termFilter ? "border-emerald-400 text-emerald-700 dark:text-emerald-300" : "border-gray-200 dark:border-white/10"}`}>
-                <option value="">ทุกเทอม</option>
-                {CREDIT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
-                <option value="none">ยังไม่ตั้งเทอม</option>
-              </select>
+            </div>
+          )}
+
+          {/* เครดิตเทอม — ใช้ได้ทั้ง "ส่งบัญชีแล้ว" และ "ผ่าน" (ผู้ใช้สั่ง 26/08/2026)
+              ติ๊กได้หลายเทอม + ปุ่มลัดกลุ่มสั้น/ยาว เพราะคนดูเป็นกลุ่มไม่ใช่ทีละเทอม */}
+          {(tab === "passed" || tab === "sent") && (
+            <div className="flex flex-wrap items-center gap-1 border-l border-gray-200 pl-3 dark:border-white/10">
+              <span className="text-xs text-gray-500">เครดิต</span>
+              {TERM_GROUPS.map((g) => {
+                const on = g.terms.length === terms.length && g.terms.every((t) => terms.includes(t))
+                return (
+                  <button key={g.label} onClick={() => onTerms(on ? [] : g.terms)}
+                    title={`เลือก ${g.terms.join(" + ")} พร้อมกัน`}
+                    className={`rounded-lg border px-2 py-1 text-xs transition ${on
+                      ? "border-emerald-500 bg-emerald-600 text-white"
+                      : "border-gray-200 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/10"}`}>
+                    {g.label}
+                  </button>
+                )
+              })}
+              <span className="mx-0.5 text-gray-300">|</span>
+              {[...CREDIT_TERMS, "none"].map((t) => {
+                const on = terms.includes(t)
+                return (
+                  <button key={t} onClick={() => onTerms(on ? terms.filter((x) => x !== t) : [...terms, t])}
+                    className={`rounded-lg border px-1.5 py-1 text-xs transition ${on
+                      ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                      : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/10"}`}>
+                    {t === "none" ? "ยังไม่ตั้ง" : t}
+                  </button>
+                )
+              })}
+              {terms.length > 0 && (
+                <button onClick={() => onTerms([])} className="text-xs text-gray-500 underline underline-offset-2">ล้าง</button>
+              )}
+              <button onClick={onExportMonthly}
+                title={`แตกชีตตามเดือนของ${monthlyBasis} + ชีตรวมข้างหน้า — ล้างช่วงวันที่ถ้าอยากได้ทุกเดือน`}
+                className="ml-1 inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/10">
+                <FileDown className="h-3.5 w-3.5" /> รายเดือน
+              </button>
             </div>
           )}
 
