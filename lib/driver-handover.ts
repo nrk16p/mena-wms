@@ -37,6 +37,12 @@ const CUSTOMER_MAP: Record<string, string> = {
   TN: "T.N. ซีเมนต์", "T.N.": "T.N. ซีเมนต์", "T.N. ซีเมนต์": "T.N. ซีเมนต์",
 }
 
+/** รถว่าง (status_id 3) — เอาเฉพาะ sub-status ที่ไม่มีพจส.ประจำผูกอยู่ จึงส่งมอบให้คนใหม่ได้
+ *  วA = รถว่างรอดำเนินการ, วร/ว = รถว่างรอสรรหา
+ *  ตัดทิ้ง: วล/วก/วป/วพ/วข/วส (พจส.ประจำแค่ลา รถยังมีเจ้าของ), X (ตกคิว/วันหยุด), วภ (รอต่อภาษี), วฝ (ฝึกงาน) */
+const IDLE_STATUS_ID = 3
+const IDLE_FREE_SUB = new Set(["วA", "วร", "ว"])
+
 /** เทียบเบอร์รถแบบไม่สนช่องว่าง เช่น "ME 127" = "ME127" */
 export const normTruckNum = (s: string) => s.toUpperCase().replace(/\s+/g, "")
 
@@ -142,7 +148,7 @@ async function fetchTrucksWithJobs(
 ): Promise<{ trucks: HandoverTruck[]; jobByPlate: Map<string, any> }> {
   const [openJobsRaw, fleetRaw] = await Promise.all([
     apiGet(`${MONGODBAPI_URL}/repair-board/open-jobs`) as Promise<any>,
-    apiGet(`${FLEET_API_URL}/fleet/current?status_id=2&status_id=4&status_id=5&minimal=true&branch_id=2&branch_id=5`) as Promise<any>,
+    apiGet(`${FLEET_API_URL}/fleet/current?status_id=2&status_id=3&status_id=4&status_id=5&minimal=true&branch_id=2&branch_id=5`) as Promise<any>,
   ])
 
   const jobByPlate = new Map<string, any>()
@@ -172,6 +178,7 @@ async function fetchTrucksWithJobs(
         for (const vt of c.vehicle_types ?? [])
           for (const ot of vt.owner_types ?? [])
             for (const t of ot.trucks ?? []) {
+              if (Number(st.status_id) === IDLE_STATUS_ID && !IDLE_FREE_SUB.has((t.sub_status_name ?? "").trim())) continue
               const raw = jobByPlate.get(t.truckplate)
               const j = raw?.open_maintenance_job
               const step: string = j?.current_step?.step?.label_th ?? ""
