@@ -291,7 +291,7 @@ export function VendorMatrixPage() {
                       >
                         {v.vendor}
                         <span style={{ display: "block", fontSize: 10.5, color: "#9AA8A0", fontWeight: 400 }}>
-                          {num(v.jobs)} ครั้ง · {baht(v.baht)} · {ymThai(v.lastYm)}
+                          {num(v.jobs)} ครั้ง · {ymThai(v.lastYm)}
                         </span>
                       </td>
                       <td style={{ padding: "6px 8px", borderBottom: "1px solid #F3F4F6", borderRight: "1px solid #E5E7EB" }}>
