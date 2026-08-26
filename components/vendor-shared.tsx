@@ -120,6 +120,14 @@ export function useVendors() {
   return { data, loading, error, reload: load }
 }
 
+/** คลังที่ข้อมูลชุดนี้ครอบคลุม — อ่านจากข้อมูลจริง ไม่ hardcode เผื่อขอบเขตเปลี่ยน
+ *  คนเปิดหน้าต้องรู้ทันทีว่ากำลังดูของกี่คลัง ไม่ต้องเดาหรือไปถามใคร */
+function warehouseScope(data: VendorPayload): string {
+  const whs = [...new Set(data.vendors.flatMap((v) => v.warehouses))].sort()
+  if (!whs.length) return ""
+  return `${whs.length} คลัง: ${whs.map((w) => w.replace(/^คลัง/, "")).join(" · ")}`
+}
+
 export function VendorShell({
   title, subtitle, data, loading, error, reload, children,
 }: {
@@ -155,6 +163,10 @@ export function VendorShell({
       {data && (
         <p style={{ fontSize: 11.5, color: "#9AA8A0", marginBottom: 14 }}>
           ข้อมูล {ymThai(data.fromYm)} – {ymThai(data.asOfYm)} · จากรายการซื้อค่าแรงซ่อมใน ATMS
+          {" · "}
+          <span title="ต่างจากหน้า /safety-stock ที่ตัดขอบเขตเหลือ 2 คลัง — ที่นี่เอาครบทุกคลัง เพราะอู่รายเดียวรับงานข้ามคลัง ตัดคลังทิ้งจะทำให้ประวัติอู่ขาด">
+            {warehouseScope(data)}
+          </span>
           {data.unclassified.codes > 0 && (
             <span style={{ color: "#B45309" }}>
               {" · "}ยังมีรหัสค่าแรง {num(data.unclassified.codes)} รหัส ({baht(data.unclassified.baht)}) ที่ยังไม่ได้จัดประเภท

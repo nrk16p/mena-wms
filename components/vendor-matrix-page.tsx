@@ -9,6 +9,7 @@
 import { useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { Search } from "lucide-react"
+import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
 import { WORKS_OF_SERVICE, type VendorSummary } from "@/lib/vendor-core"
@@ -40,26 +41,54 @@ export function VendorMatrixPage() {
   const isAdmin = session?.user?.role === "admin"
   const [q, setQ] = useState("")
   const [groups, setGroups] = useState<RepairGroup[]>([])
+  const [whs, setWhs] = useState<string[]>([])
+  const [pickedCodes, setPickedCodes] = useState<string[]>([])
   const [outsideOnly, setOutsideOnly] = useState(true)
   const [tickedOnly, setTickedOnly] = useState(false)
   const [saving, setSaving] = useState("")
   // ทับผลที่เพิ่งติ๊กบนข้อมูลเดิม จะได้ไม่ต้องโหลดทั้งหน้าใหม่ทุกคลิก
   const [patched, setPatched] = useState<Record<string, string[]>>({})
 
+  // ตัวเลือกในช่องกรองประเภทงาน — โชว์เฉพาะฝั่งที่กำลังแสดงอยู่ จะได้ไม่เลือกคอลัมน์
+  // ที่ถูกสวิตช์ "เฉพาะอู่นอก" ซ่อนไว้แล้วงงว่าทำไมไม่ขึ้น
+  const codeOptions = useMemo(() => {
+    const out: Record<string, { th: string; en: string }> = {}
+    for (const r of REPAIR_TYPES) {
+      if (outsideOnly && r.side !== "อู่นอก") continue
+      out[r.code] = { th: r.label, en: r.code }
+    }
+    return out
+  }, [outsideOnly])
+
   const cols: RepairTypeRow[] = useMemo(() => {
     const g = groups.length ? new Set(groups) : null
+    const picked = pickedCodes.length ? new Set(pickedCodes) : null
     return REPAIR_TYPES
-      .filter((r) => (!g || g.has(r.group)) && (!outsideOnly || r.side === "อู่นอก"))
+      .filter((r) =>
+        (!outsideOnly || r.side === "อู่นอก") &&
+        // เลือกประเภทเจาะจงแล้ว ให้ตัวนั้นชนะตัวกรองหมวด — คนเลือกเจาะจงย่อมตั้งใจกว่า
+        (picked ? picked.has(r.code) : !g || g.has(r.group)))
       .sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group))
-  }, [groups, outsideOnly])
+  }, [groups, outsideOnly, pickedCodes])
 
   const rows = useMemo(() => {
     if (!data) return []
     const rx = q.trim() ? new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null
+    const w = whs.length ? new Set(whs) : null
     return data.vendors
       .map((v) => ({ ...v, codes: patched[v.vendor] ?? v.codes }))
-      .filter((v) => (!rx || rx.test(v.vendor)) && (!tickedOnly || v.codes.length > 0))
-  }, [data, q, tickedOnly, patched])
+      .filter((v) =>
+        (!rx || rx.test(v.vendor)) &&
+        (!tickedOnly || v.codes.length > 0) &&
+        // อู่รายเดียวรับงานได้หลายคลัง เลือกคลังไหนก็ให้ติดมาถ้ามีงานที่คลังนั้น
+        (!w || v.warehouses.some((x) => w.has(x))))
+  }, [data, q, tickedOnly, patched, whs])
+
+  /** คลังทั้งหมดที่พบในข้อมูลจริง — ไม่ hardcode เผื่อขอบเขตเปลี่ยน */
+  const allWarehouses = useMemo(
+    () => [...new Set((data?.vendors ?? []).flatMap((v) => v.warehouses))].sort(),
+    [data]
+  )
 
   const totalTicked = rows.reduce((a, v) => a + v.codes.length, 0)
 
@@ -138,7 +167,53 @@ export function VendorMatrixPage() {
             {!isAdmin && <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· ดูได้อย่างเดียว</span>}
           </div>
 
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {/* กรองคลัง — อู่แต่ละพื้นที่คนละชุดกัน จัดซื้อที่ดูแลคนละคลังจะได้ไม่ต้องเลื่อนผ่านอู่ที่ไม่เกี่ยว */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "#6B7280", fontWeight: 600 }}>คลัง:</span>
+            {allWarehouses.map((w) => {
+              const on = whs.includes(w)
+              return (
+                <button
+                  key={w}
+                  onClick={() => setWhs((c) => (on ? c.filter((x) => x !== w) : [...c, w]))}
+                  style={{
+                    padding: "5px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer",
+                    border: on ? "1px solid #0E7490" : "1px solid #E5E7EB",
+                    background: on ? "#0E7490" : "#fff", color: on ? "#fff" : "#374151",
+                    fontWeight: on ? 700 : 500,
+                  }}
+                >
+                  {w.replace(/^คลัง/, "")}
+                </button>
+              )
+            })}
+            {whs.length > 0 && (
+              <button onClick={() => setWhs([])}
+                style={{ padding: "5px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: "1px solid #E5E7EB", background: "#fff" }}>
+                ล้าง
+              </button>
+            )}
+          </div>
+
+          {/* กรองประเภทงานเจาะจง — เลือกได้หลายตัว ใช้ตอนอยากเทียบแค่ 2-3 ประเภท
+              ไม่ต้องเลื่อนผ่านคอลัมน์ที่ไม่เกี่ยว · เลือกแล้วจะชนะตัวกรองหมวดด้านล่าง */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 12, color: "#6B7280", fontWeight: 600, whiteSpace: "nowrap" }}>ประเภทงานซ่อม:</span>
+            <div style={{ minWidth: 320, flex: "1 1 320px", maxWidth: 620 }}>
+              <MultiSelectCombobox
+                options={codeOptions}
+                values={pickedCodes}
+                onChange={setPickedCodes}
+                placeholder="— ทุกประเภท (เลือกเจาะจงได้หลายตัว) —"
+              />
+            </div>
+            {pickedCodes.length > 0 && (
+              <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>เลือก {pickedCodes.length} ประเภท · ตัวกรองหมวดถูกข้าม</span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, alignItems: "center", opacity: pickedCodes.length ? 0.45 : 1 }}>
+            <span style={{ fontSize: 12, color: "#6B7280", fontWeight: 600 }}>หมวด:</span>
             {GROUP_ORDER.map((g) => {
               const on = groups.includes(g)
               return (
@@ -159,7 +234,7 @@ export function VendorMatrixPage() {
             {groups.length > 0 && (
               <button onClick={() => setGroups([])}
                 style={{ padding: "5px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: "1px solid #E5E7EB", background: "#fff" }}>
-                ล้างตัวกรองหมวด
+                ล้าง
               </button>
             )}
           </div>
