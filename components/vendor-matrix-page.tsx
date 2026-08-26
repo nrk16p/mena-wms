@@ -9,7 +9,6 @@
 import { useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { Download, Search } from "lucide-react"
-import * as XLSX from "xlsx"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
@@ -133,56 +132,145 @@ export function VendorMatrixPage() {
   }
 
   /** ส่งออกตามที่เห็นบนจอ (ตัวกรองมีผลด้วย) — คนกดปุ่มคาดหวังไฟล์ที่ตรงกับที่กำลังดูอยู่
-   *  2 ชีต: ชีตแรกเป็นตารางติ๊กแบบเดียวกับบนจอ ชีตสองเป็นรายการติ๊กแบบแถวต่อแถว
-   *  ซึ่งเอาไป pivot / vlookup ต่อได้ ต่างจากตารางกากบาทที่เอาไปทำต่อยาก */
-  function exportXlsx() {
-    const wb = XLSX.utils.book_new()
+   *
+   *  ช่องประเภทการซ่อมเป็น "ช่องติ๊ก" ที่คลิกเลือกได้ใน Excel — ทำด้วย data validation
+   *  แบบ list (☑/☐) ไม่ใช่ checkbox แบบ form control เพราะทั้ง SheetJS และ ExcelJS
+   *  เขียน form control ลงไฟล์ไม่ได้ · เสริม conditional formatting ให้ช่องที่ติ๊ก
+   *  เป็นสีเขียวเอง คนที่ไปติ๊กต่อในไฟล์จึงเห็นผลทันทีเหมือนติ๊กบนเว็บ
+   *
+   *  โหลด exceljs ตอนกดปุ่มเท่านั้น (ก้อนใหญ่) — ห้ามเอาไป import บนสุดของไฟล์
+   */
+  async function exportXlsx() {
+    const ExcelJS = (await import("exceljs")).default
+    const wb = new ExcelJS.Workbook()
 
-    const matrix = rows.map((v) => {
-      const hist = historyByWork(v)
+    const FONT = "Tahoma"           // มีครบทุกเครื่อง Windows และมีสระ/วรรณยุกต์ไทยครบ
+    const BRAND = "FF1B8C4B"
+    const TICK = "☑", UNTICK = "☐"
+    const FIXED = ["อู่", "สถานะ", "ครั้ง", "มูลค่า", "ล่าสุด", "คลัง"]
+
+    /** เลข column → ตัวอักษร Excel (77 คอลัมน์ = เกิน Z ต้องรองรับ AA, BZ) */
+    const col = (n: number): string => {
+      let out = ""
+      while (n > 0) { const r = (n - 1) % 26; out = String.fromCharCode(65 + r) + out; n = (n - r - 1) / 26 }
+      return out
+    }
+
+    const ws = wb.addWorksheet("ตารางติ๊ก", {
+      views: [{ state: "frozen", xSplit: 2, ySplit: 1 }],   // ตรึงชื่ออู่+สถานะ และหัวตาราง
+    })
+
+    ws.addRow([...FIXED, ...cols.map((c) => `${c.code}\n${c.work}`), "รวมติ๊ก"])
+    const head = ws.getRow(1)
+    head.height = 132
+    head.eachCell((cell, i) => {
+      cell.font = { name: FONT, size: 9, bold: true, color: { argb: "FFFFFFFF" } }
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND } }
+      cell.alignment = i <= FIXED.length
+        ? { vertical: "bottom", horizontal: "left", wrapText: true }
+        : { textRotation: 90, vertical: "bottom", horizontal: "center", wrapText: true }
+    })
+
+    for (const v of rows) {
       const ticked = new Set(v.codes)
-      const base: Record<string, string | number> = {
-        อู่: v.vendor,
-        สถานะ: STATUS_META[v.status].th,
-        ครั้ง: v.jobs,
-        มูลค่า: v.baht,
-        ล่าสุด: ymThai(v.lastYm),
-        คลัง: v.warehouses.join(", "),
-        "ติ๊กแล้ว (ประเภท)": v.codes.length,
-      }
-      for (const c of cols) {
-        // หัวคอลัมน์ใส่รหัสนำหน้า กันชื่อซ้ำกันระหว่างอู่ใน/อู่นอก เวลาเปิดครบ 72 คอลัมน์
-        base[`${c.code} ${c.label}`] =
-          ticked.has(c.code) ? "✓" : c.side === "อู่นอก" && (hist.get(c.work) ?? 0) > 0 ? `(${hist.get(c.work)})` : ""
-      }
-      return base
-    })
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(matrix), "ตารางติ๊ก")
+      ws.addRow([
+        v.vendor, STATUS_META[v.status].th, v.jobs, v.baht, ymThai(v.lastYm), v.warehouses.join(", "),
+        ...cols.map((c) => (ticked.has(c.code) ? TICK : UNTICK)),
+      ])
+    }
 
-    const long = rows.flatMap((v) => {
+    const first = FIXED.length + 1
+    const last  = FIXED.length + cols.length
+    const total = FIXED.length + cols.length + 1
+
+    ws.columns.forEach((c, i) => {
+      c.width = i === 0 ? 38 : i === 1 ? 11 : i < FIXED.length ? 12 : i === total - 1 ? 9 : 4.2
+    })
+
+    for (let r = 2; r <= rows.length + 1; r++) {
+      const row = ws.getRow(r)
+      row.height = 17
+      row.font = { name: FONT, size: 9 }
+      row.getCell(3).numFmt = "#,##0"
+      row.getCell(4).numFmt = "#,##0"
+      for (let c = first; c <= last; c++) {
+        const cell = row.getCell(c)
+        cell.alignment = { horizontal: "center", vertical: "middle" }
+        cell.font = { name: FONT, size: 11 }
+        // คลิกช่องแล้วเลือกได้จากรายการ — เป็นช่องติ๊กที่ใกล้เคียง checkbox ที่สุดที่เขียนลงไฟล์ได้
+        cell.dataValidation = {
+          type: "list", allowBlank: false, formulae: [`"${TICK},${UNTICK}"`],
+          showErrorMessage: true, errorTitle: "เลือกจากรายการ", error: `ใส่ได้เฉพาะ ${TICK} หรือ ${UNTICK}`,
+        }
+      }
+      // นับสดในไฟล์ — ติ๊กเพิ่มใน Excel แล้วตัวเลขขยับเอง ไม่ต้องกลับมา export ใหม่
+      row.getCell(total).value = { formula: `COUNTIF(${col(first)}${r}:${col(last)}${r},"${TICK}")` }
+      row.getCell(total).alignment = { horizontal: "center" }
+      row.getCell(total).font = { name: FONT, size: 9, bold: true }
+    }
+
+    if (cols.length && rows.length) {
+      ws.addConditionalFormatting({
+        ref: `${col(first)}2:${col(last)}${rows.length + 1}`,
+        rules: [{
+          type: "cellIs", operator: "equal", priority: 1, formulae: [`"${TICK}"`],
+          style: {
+            fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFE7F6EC" } },
+            font: { color: { argb: BRAND }, bold: true },
+          },
+        }],
+      })
+    }
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: FIXED.length } }
+
+    // ชีตประวัติ — ตัวเลขหลักฐานว่าเคยทำจริงกี่ครั้ง วางคู่กันคนละชีตแต่ลำดับแถว/คอลัมน์
+    // ตรงกับชีตติ๊กเป๊ะ เปิดเทียบข้างกันได้ · แยกออกมาเพราะชีตติ๊กต้องเป็น ☑/☐ ล้วน
+    // ไม่งั้น data validation จะฟ้องทุกช่องที่มีตัวเลขปน
+    const ws3 = wb.addWorksheet("ประวัติ (ครั้ง)", { views: [{ state: "frozen", xSplit: 1, ySplit: 1 }] })
+    ws3.addRow(["อู่", ...cols.map((c) => `${c.code}\n${c.work}`)])
+    for (const v of rows) {
       const hist = historyByWork(v)
-      return v.codes
-        .map((code) => cols.find((c) => c.code === code) ?? REPAIR_TYPES.find((c) => c.code === code))
-        .filter((c): c is RepairTypeRow => !!c)
-        .map((c) => ({
-          อู่: v.vendor,
-          สถานะ: STATUS_META[v.status].th,
-          รหัส: c.code,
-          "ประเภทการซ่อม": c.label,
-          หมวด: `${c.group} · ${GROUP_LABEL[c.group]}`,
-          ฝั่ง: c.side,
-          "ประเภทงาน": c.work,
-          "เคยทำ (ครั้ง)": c.side === "อู่นอก" ? (hist.get(c.work) ?? 0) : "",
-          คลัง: v.warehouses.join(", "),
-        }))
+      ws3.addRow([v.vendor, ...cols.map((c) => (c.side === "อู่นอก" ? (hist.get(c.work) || "") : ""))])
+    }
+    ws3.getRow(1).height = 132
+    ws3.getRow(1).eachCell((cell, i) => {
+      cell.font = { name: FONT, size: 9, bold: true, color: { argb: "FFFFFFFF" } }
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND } }
+      cell.alignment = i === 1
+        ? { vertical: "bottom", horizontal: "left" }
+        : { textRotation: 90, vertical: "bottom", horizontal: "center", wrapText: true }
     })
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(long.length ? long : [{ หมายเหตุ: "ยังไม่มีใครติ๊กในขอบเขตที่กรองอยู่" }]),
-      "รายการติ๊ก"
-    )
+    ws3.columns.forEach((c, i) => { c.width = i === 0 ? 38 : 5.5 })
 
-    XLSX.writeFile(wb, `vendor-capability-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    // ชีตสุดท้าย: แถวต่อแถว เอาไป pivot/vlookup ต่อได้ ต่างจากตารางกากบาทที่ทำต่อยาก
+    const ws2 = wb.addWorksheet("รายการติ๊ก", { views: [{ state: "frozen", ySplit: 1 }] })
+    ws2.addRow(["อู่", "สถานะ", "รหัส", "ประเภทการซ่อม", "หมวด", "ฝั่ง", "ประเภทงาน", "เคยทำ (ครั้ง)", "คลัง"])
+    for (const v of rows) {
+      const hist = historyByWork(v)
+      for (const code of v.codes) {
+        const c = REPAIR_TYPES.find((x) => x.code === code)
+        if (!c) continue
+        ws2.addRow([
+          v.vendor, STATUS_META[v.status].th, c.code, c.label,
+          `${c.group} · ${GROUP_LABEL[c.group]}`, c.side, c.work,
+          c.side === "อู่นอก" ? (hist.get(c.work) ?? 0) : "", v.warehouses.join(", "),
+        ])
+      }
+    }
+    ws2.columns.forEach((c, i) => { c.width = [38, 11, 7, 34, 22, 8, 24, 12, 20][i] ?? 14 })
+    ws2.getRow(1).font = { name: FONT, size: 9, bold: true, color: { argb: "FFFFFFFF" } }
+    ws2.getRow(1).eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND } }
+    })
+
+    const buf = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `vendor-capability-${new Date().toISOString().slice(0, 10)}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const TH = { position: "sticky" as const, top: 0, zIndex: 2, background: "#F9FAFB" }
@@ -220,8 +308,8 @@ export function VendorMatrixPage() {
             </span>
             {!isAdmin && <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· ดูได้อย่างเดียว</span>}
             <button
-              onClick={exportXlsx}
-              title="ส่งออกตามที่กรองอยู่ตอนนี้ · 2 ชีต — ตารางติ๊ก และรายการติ๊กแบบแถวต่อแถว"
+              onClick={() => void exportXlsx()}
+              title="ส่งออกตามที่กรองอยู่ตอนนี้ · ช่องประเภทการซ่อมคลิกติ๊กได้ในไฟล์ (☑/☐) · 2 ชีต"
               style={{
                 display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto",
                 padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB",
