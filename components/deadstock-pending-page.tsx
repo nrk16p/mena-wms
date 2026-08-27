@@ -39,6 +39,9 @@ const ACTION_STYLE: Record<string, { bg: string; fg: string; ring: string }> = {
   to_stock: { bg: "#EDE9FE", fg: "#5B21B6", ring: "#DDD6FE" },
   move_truck: { bg: "#D1FAE5", fg: "#065F46", ring: "#A7F3D0" },
   for_sale: { bg: "#FFE4E6", fg: "#9F1239", ring: "#FECDD3" },
+  // โทนเทา/ฟ้าอมเทา แยกจากสี่สีบนที่เป็น "จะทำอะไรกับของ" — สองอันนี้แปลว่าของไม่ได้ค้างจริง แค่เอกสารไม่ครบ
+  used:  { bg: "#E2E8F0", fg: "#334155", ring: "#CBD5E1" },
+  no_wd: { bg: "#CFFAFE", fg: "#155E75", ring: "#A5F3FC" },
 }
 
 /** ป้ายการจัดการ — เลือกแล้วบันทึกทันที ถ้าเซิร์ฟเวอร์ปฏิเสธจะคืนค่าเดิมให้เห็น */
