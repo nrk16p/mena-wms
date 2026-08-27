@@ -34,6 +34,14 @@ export type ParkedTruck = {
   plant: string         // ตำแหน่งซ่อม/แพล้นท์
 }
 
+/**
+ * ขั้นตอน ATMS ที่ไม่นับเป็น "ภาระอู่" แล้ว
+ * - รถซ่อมเสร็จสิ้น = จบงาน
+ * - รถรอขาย       = ถอดออกจากฟลีท ไม่ใช่งานที่อู่กำลังทำอยู่
+ */
+export const ATMS_SETTLED_STEPS = ["รถซ่อมเสร็จสิ้น", "รถรอขาย"]
+export const isAtmsSettled = (step: string) => ATMS_SETTLED_STEPS.includes(step)
+
 export type AtmsBoardData = {
   jobs: AtmsOpenJob[]       // งานอู่นอกเปิดทั้งหมดใน ATMS
   parked: ParkedTruck[]     // รถจอดจริงตอนนี้

@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef, Children, isValidElement } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Copy, Link2, Megaphone, ClipboardList, Maximize2, Minimize2 } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Copy, Link2, Megaphone, ClipboardList, Maximize2, Minimize2, Factory } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { RepairPlanTab } from "@/components/repair-plan-tab"
+import { GarageLoadTab } from "@/components/garage-load-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 import { RepairUpdateDialog } from "./repair-update-dialog"
@@ -426,7 +427,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [logLoading, setLogLoading] = useState(false)
 
   // view + สรุปสถานะ
-  const [view, setView]   = useState<"table" | "board" | "plan">("table")
+  const [view, setView]   = useState<"table" | "board" | "plan" | "garage">("table")
+  // แท็บ "ภาระอู่" อ่านจาก Mena-Next ล้วน ๆ — ตัวกรอง/การ์ดสรุปที่คำนวณจากใบงาน WMS ไม่เกี่ยวจึงซ่อนทั้งหมด
+  const showWms = !isDone && view !== "garage"
   // แผนซ่อม: bump เพื่อให้แท็บแผนโหลดใหม่หลังผูกใบงาน · ref เก็บ id แผนที่กำลังแปลงเป็นใบงาน
   const [planRefreshKey, setPlanRefreshKey] = useState(0)
   const planLinkRef = useRef<string | null>(null)
@@ -1285,6 +1288,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               >
                 <CalendarDays size={14} /> แผนซ่อม
               </button>
+              <button
+                onClick={() => setView("garage")}
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${view === "garage" ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              >
+                <Factory size={14} /> ภาระอู่
+              </button>
             </div>
           )}
           <button
@@ -1297,7 +1306,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       </div>
 
       {/* Insight strip (1a) */}
-      {!isDone && (() => {
+      {showWms && (() => {
         const ab = stats.agingBuckets
         const abTotal = ab.lt8 + ab.d8_14 + ab.gte15
         const seg = (n: number, color: string) => (n && abTotal ? <div style={{ width: `${(n / abTotal) * 100}%`, background: color }} /> : null)
@@ -1402,7 +1411,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })()}
 
       {/* สัดส่วนตามฟลีท */}
-      {!isDone && (stats.fleetDist.length > 0 || (stats.garageDist?.length ?? 0) > 0) && (() => {
+      {showWms && (stats.fleetDist.length > 0 || (stats.garageDist?.length ?? 0) > 0) && (() => {
         const byGarage = distBy === "garage"
         const garages  = stats.garageDist ?? []
         const dupes    = stats.garageDupes ?? []
@@ -1540,7 +1549,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })()}
 
       {/* Search + filter bar (1a) — แนวตั้ง บนลงล่าง (ตัวกรองของใบงาน — ซ่อนในมุมมองแผนซ่อม) */}
-      {(isDone || view !== "plan") && (
+      {(isDone || (view !== "plan" && view !== "garage")) && (
       <div className="mb-3 flex flex-col gap-2">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1568,7 +1577,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )}
 
       {/* Type filter tabs — อู่นอก / อะไหล่ลงคัน */}
-      {!isDone && view !== "plan" && (
+      {showWms && view !== "plan" && (
         <div className="mb-3 flex w-full flex-wrap items-center gap-1.5">
           <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">ประเภท:</span>
           {[
@@ -1591,7 +1600,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )}
 
       {/* Status filter chips — แยกกลุ่มตามประเภทงาน (อู่นอก / อะไหล่ลงคัน) นับแยกประเภทจริง */}
-      {!isDone && (() => {
+      {showWms && (() => {
         const cbt = stats.countsByType
         const cnt = (jt: string, status: string) => cbt?.[jt]?.[status] ?? 0
         // แถว chips ของประเภทหนึ่ง — คลิก chip = กรองทั้งประเภท+สถานะ
@@ -1719,7 +1728,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })()}
 
       {/* คำอธิบาย SLA */}
-      {!isDone && (
+      {showWms && (
         <p className="mb-4 flex items-start gap-1.5 text-[11px] leading-relaxed text-[#9AA8A0]">
           <span className="shrink-0">ⓘ</span>
           <span><b className="font-semibold text-[#5B7568] dark:text-gray-400">เกณฑ์ค้างงาน (SLA):</b> {REPAIR_SLA_NOTE}</span>
@@ -1727,7 +1736,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )}
 
       {/* ── เทียบอัตโนมัติกับ ATMS + รถจอดจริง — โฟกัสงานอู่นอกที่ "ขาด" จากระบบ ── */}
-      {!isDone && atms && (() => {
+      {showWms && atms && (() => {
         const inWms = atms.pending.filter((p) => p.wms)
         const mrIssues = inWms.filter((p) => p.wms!.mrMatch !== "match" && p.mrCode)
         const prFill = atms.prFill ?? []
@@ -1838,7 +1847,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })()}
 
       {/* เตือนทะเบียนซ้ำ — รถ 1 คันต้องมีรายการที่ยังไม่เสร็จได้แค่ 1 รายการ */}
-      {!isDone && dupList.length > 0 && (
+      {showWms && dupList.length > 0 && (
         <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-red-300 bg-red-50 px-4 py-3 text-[13px] text-red-700 dark:border-red-500/40 dark:bg-red-900/20 dark:text-red-300">
           <span className="mt-0.5 shrink-0">⚠</span>
           <span>
@@ -1849,7 +1858,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )}
 
       {/* งานที่สถานะไม่ตรงกับสถานะรถจริง — แจ้งให้อัพเดท */}
-      {!isDone && alertRows.length > 0 && (
+      {showWms && alertRows.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[12px] border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-300">
           <span className="shrink-0">⚠</span>
           <span className="flex-1">
@@ -2234,6 +2243,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })}
 
       {/* แผนซ่อม — gantt วางแผนรถเข้าอู่นอกล่วงหน้า (หลายแผนต่อทะเบียนได้) */}
+      {view === "garage" && !isDone && <GarageLoadTab />}
+
       {view === "plan" && !isDone && (
         <RepairPlanTab garages={garages} onConvert={openAddFromPlan} refreshKey={planRefreshKey} />
       )}
