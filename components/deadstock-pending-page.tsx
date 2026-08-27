@@ -9,6 +9,28 @@ import { AGE_BUCKETS, ACTION_LABEL, DEADSTOCK_ACTIONS, layerKey, type ActionKey 
 
 const BUCKET_LABEL = Object.fromEntries(AGE_BUCKETS.map((b) => [b.key, b])) as Record<string, (typeof AGE_BUCKETS)[number]>
 
+/** ป้ายของแถวที่หาชื่อผู้ขอซื้อไม่ได้ — ใช้เป็นทั้งตัวเลือกในตัวกรองและข้อความในเซลล์ */
+const NO_REQUESTER = "(ไม่รู้ผู้ขอ)"
+
+/** บรรทัดรองในเซลล์ — ตัวประกอบที่ยุบเข้ามาอยู่ใต้ตัวหลัก ต้องอ่านออกแต่ไม่แย่งสายตา */
+const sub: React.CSSProperties = { fontSize: 10.5, color: "#9CA3AF", marginTop: 1 }
+
+/** โครงคอลัมน์ของตาราง — ยุบจาก 16 เหลือ 8 โดยจับข้อมูลที่คนอ่านคู่กันอยู่แล้วไว้ในเซลล์เดียว
+ *  (ตัวหลักบรรทัดบน ตัวประกอบบรรทัดล่างสีจาง — แพตเทิร์นเดียวกับตารางหน้า /safety-stock)
+ *  ข้อมูลไม่ได้หายไปไหนสักช่อง และไฟล์ Excel ยังส่งออกแยกคอลัมน์ครบเหมือนเดิมทุกช่อง
+ *  "อายุค้าง" กับ "สถานะ" เดิมเป็นข้อมูลตัวเดียวกัน (คำนวณจาก bucket ทั้งคู่) จึงรวมเป็นช่องเดียว */
+const PENDING_COLS: { key: string; label: string; right?: boolean; title?: string }[] = [
+  { key: "dd",     label: "ใบ DD",           title: "เลขใบรับของ และวันที่รับเข้าคลัง" },
+  { key: "car",    label: "รถ",              title: "ทะเบียนรถ และเบอร์รถที่ระบุไว้ในหมายเหตุใบขอซื้อ — บางใบเขียนไม่ครบช่อง จะขึ้นขีด" },
+  { key: "who",    label: "ผู้ขอซื้อ",        title: "คนที่เปิดใบขอซื้อ (จากหัวใบ PR ใน ATMS) และเลขใบ PR — ใช้ตามกลับไปถามเหตุผลที่สั่ง" },
+  { key: "item",   label: "สินค้า",           title: "ชื่อสินค้า · รหัสสินค้า · กลุ่มสินค้า" },
+  { key: "value",  label: "มูลค่า / คงเหลือ", right: true, title: "มูลค่าของที่ยังค้างอยู่ในคลัง และจำนวนคงเหลือ" },
+  { key: "age",    label: "อายุค้าง",         right: true, title: "จำนวนวันตั้งแต่รับเข้าโดยยังไม่ถูกเบิก และช่วงอายุที่ตกอยู่" },
+  { key: "repeat", label: "ซื้อซ้ำ",          right: true,
+    title: "DD = จำนวนใบรับของรหัสเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ) — ซื้อไปแล้ว เงินออกแล้ว\nPR = จำนวนของรหัสเดียวกันที่สั่งแล้วแต่ยังไม่รับเข้า — ยังชะลอหรือยกเลิกทัน\nPR นับเฉพาะใบที่ซื้อเข้าสต๊อก อายุไม่เกิน 90 วัน หักส่วนที่รับไปแล้ว ไม่รวมอะไหล่ลงคัน (เกณฑ์เดียวกับหน้า /safety-stock)" },
+  { key: "action", label: "การจัดการ",        right: true },
+]
+
 type ActionEntry = { action: ActionKey | ""; note: string; by: string; byEmail: string; at: string }
 
 const ACTION_STYLE: Record<string, { bg: string; fg: string; ring: string }> = {
@@ -172,6 +194,7 @@ export function DeadstockPendingPage() {
   const [bucket, setBucket] = useState("")
   const [group, setGroup] = useState("")
   const [actionFilter, setActionFilter] = useState("")
+  const [requester, setRequester] = useState("")
 
   // ป้ายการจัดการ — โหลดแยกจาก /api/deadstock เพราะตัวนั้น cache 1 ชม. แต่ป้ายต้องเห็นผลทันที
   const [actions, setActions] = useState<Record<string, ActionEntry>>({})
@@ -216,6 +239,18 @@ export function DeadstockPendingPage() {
 
   const groups = useMemo(() => [...new Set(data?.pending.map((p) => p.itemGroup) ?? [])].sort(), [data])
 
+  /** ผู้ขอซื้อพร้อมจำนวนใบ/มูลค่า เรียงมูลค่ามากไปน้อย — คนที่ปล่อยของค้างเยอะสุดอยู่บนสุด
+   *  นับจากทั้งกอง ไม่อิงตัวกรองอื่น เพื่อให้ตัวเลขในวงเล็บไม่กระพริบตามตัวเองตอนเลือก */
+  const requesters = useMemo(() => {
+    const m = new Map<string, { n: number; value: number }>()
+    for (const p of data?.pending ?? []) {
+      const k = p.requester || NO_REQUESTER
+      const c = m.get(k) ?? { n: 0, value: 0 }
+      c.n++; c.value += p.value; m.set(k, c)
+    }
+    return [...m].sort((a, b) => b[1].value - a[1].value)
+  }, [data])
+
   // กราฟอิงค้นหา + ช่วงอายุ แต่ไม่อิงตัวกรองกลุ่ม เพื่อให้กราฟทำหน้าที่เป็นตัวเลือกกลุ่มไปในตัว
   const chartRows = useMemo(() => {
     if (!data) return []
@@ -223,11 +258,13 @@ export function DeadstockPendingPage() {
     return data.pending.filter(
       (p) =>
         (!bucket || p.bucket === bucket) &&
+        // ผู้ขอซื้อกรองตรงนี้ (ไม่ใช่ชั้น rows) เพื่อให้กราฟกลุ่มสินค้าสะท้อนของ "คนที่เลือก" ด้วย
+        (!requester || (p.requester || NO_REQUESTER) === requester) &&
         (!rx || rx.test(p.dd) || rx.test(p.plate) || rx.test(p.fleetNo ?? "") ||
           rx.test(p.prCode ?? "") || rx.test(p.requester ?? "") ||
           rx.test(p.itemCode) || rx.test(p.itemName))
     )
-  }, [data, q, bucket])
+  }, [data, q, bucket, requester])
 
   const rows = useMemo(
     () =>
@@ -336,6 +373,19 @@ export function DeadstockPendingPage() {
               ))}
             </select>
             <select
+              value={requester}
+              onChange={(e) => setRequester(e.target.value)}
+              title="เลือกผู้ขอซื้อเพื่อดูเฉพาะของที่คนนั้นสั่งเข้ามาแล้วยังค้าง"
+              style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13, maxWidth: 260 }}
+            >
+              <option value="">ผู้ขอซื้อ: ทั้งหมด</option>
+              {requesters.map(([name, c]) => (
+                <option key={name} value={name}>
+                  {name} ({c.n} ใบ · {baht(c.value)})
+                </option>
+              ))}
+            </select>
+            <select
               value={actionFilter}
               onChange={(e) => setActionFilter(e.target.value)}
               style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13 }}
@@ -377,27 +427,20 @@ export function DeadstockPendingPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["ใบ DD", "วันที่รับ", "ทะเบียนรถ", "เบอร์รถ", "ใบ PR", "ผู้ขอซื้อ", "รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", "คงเหลือ", "มูลค่า", "อายุค้าง", "สถานะ", "ซื้อซ้ำ", "กำลังสั่งอีก", "การจัดการ"].map((h, i) => (
+                  {PENDING_COLS.map((c) => (
                     <th
-                      key={h}
-                      title={
-                        h === "เบอร์รถ" ? "เบอร์รถที่ระบุไว้ในหมายเหตุใบขอซื้อ ช่องถัดจากทะเบียน — บางใบเขียนไม่ครบช่อง จะขึ้นขีด"
-                        : h === "ใบ PR" ? "เลขใบขอซื้อที่ทำให้เกิดใบรับ (DD) นี้ — ใช้ตามกลับไปหาผู้ขอซื้อและเหตุผลที่สั่ง"
-                        : h === "ผู้ขอซื้อ" ? "คนที่เปิดใบขอซื้อใบนี้ (จากหัวใบ PR ใน ATMS) — ใช้ตามกลับไปถามเหตุผลที่สั่ง"
-                        : h === "ซื้อซ้ำ" ? "จำนวนใบ DD ของรหัสสินค้าเดียวกันที่รับเข้ามาหลังใบนี้ (นับเฉพาะใบที่ผูกทะเบียนรถ) — ซื้อไปแล้ว เงินออกแล้ว"
-                        : h === "กำลังสั่งอีก" ? "จำนวนของรหัสเดียวกันที่สั่งไปแล้วแต่ยังไม่รับเข้า ทั้งที่ใบนี้ยังไม่ถูกเบิกสักชิ้น\nนับจากใบ PR ที่ซื้อเข้าสต๊อกและยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน หักส่วนที่รับไปแล้ว\nใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) ไม่นับ — เกณฑ์เดียวกับหน้า /safety-stock\nต่างจาก \"ซื้อซ้ำ\" ตรงที่ยังไม่รับของ จึงยังชะลอหรือยกเลิกทัน"
-                        : undefined
-                      }
+                      key={c.key}
+                      title={c.title}
                       style={{
                         padding: "10px 12px",
                         fontWeight: 700,
                         color: "#374151",
                         borderBottom: "1px solid #E5E7EB",
                         whiteSpace: "nowrap",
-                        textAlign: i >= 9 ? "right" : "left",
+                        textAlign: c.right ? "right" : "left",
                       }}
                     >
-                      {h}
+                      {c.label}
                     </th>
                   ))}
                 </tr>
@@ -405,49 +448,69 @@ export function DeadstockPendingPage() {
               <tbody>
                 {rows.map((r) => (
                   <tr key={`${r.dd}|${r.itemCode}|${r.date}`} style={{ borderBottom: "1px solid #F3F4F6" }}>
-                    <td style={{ padding: "9px 12px", fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.dd}</td>
-                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>{thaiDate(r.date)}</td>
-                    <td style={{ padding: "9px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{r.plate}</td>
-                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
-                      {r.fleetNo ?? <span style={{ color: "#D1D5DB" }}>—</span>}
+                    {/* ใบ DD — เลขใบ (ตัวหลัก) + วันที่รับ (บรรทัดรอง) */}
+                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                      <div style={{ fontFamily: "monospace" }}>{r.dd}</div>
+                      <div style={sub}>รับ {thaiDate(r.date)}</div>
                     </td>
-                    <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, whiteSpace: "nowrap" }}>
-                      {r.prCode ?? <span style={{ color: "#D1D5DB" }}>—</span>}
+
+                    {/* รถ — ทะเบียน (ตัวหลัก) + เบอร์รถ (บรรทัดรอง) */}
+                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                      <div style={{ fontWeight: 600 }}>{r.plate || <span style={{ color: "#D1D5DB" }}>—</span>}</div>
+                      <div style={sub}>{r.fleetNo ?? "—"}</div>
                     </td>
-                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
-                      {r.requester ?? <span style={{ color: "#D1D5DB" }}>—</span>}
+
+                    {/* ผู้ขอซื้อ — ชื่อคน (ตัวหลัก) + เลขใบ PR (บรรทัดรอง) ตามกลับไปถามได้จากสองอย่างนี้ */}
+                    <td style={{ padding: "9px 12px", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                      <div>{r.requester ?? <span style={{ color: "#D1D5DB" }}>{NO_REQUESTER}</span>}</div>
+                      <div style={{ ...sub, fontFamily: "monospace" }}>{r.prCode ?? "—"}</div>
                     </td>
-                    <td style={{ padding: "9px 12px", fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.itemCode}</td>
-                    <td style={{ padding: "9px 12px", minWidth: 220 }}>{r.itemName}</td>
-                    <td style={{ padding: "9px 12px", color: "#6B7280", whiteSpace: "nowrap" }}>{r.itemGroup}</td>
-                    <td style={{ padding: "9px 12px", textAlign: "right" }}>{r.remaining.toLocaleString()}</td>
-                    <td style={{ padding: "9px 12px", textAlign: "right", fontWeight: 600 }}>{baht(r.value)}</td>
-                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
+
+                    {/* สินค้า — ชื่อ (ตัวหลัก) + รหัส · กลุ่ม (บรรทัดรอง) */}
+                    <td style={{ padding: "9px 12px", minWidth: 240, verticalAlign: "top" }}>
+                      <div>{r.itemName}</div>
+                      <div style={sub}>
+                        <span style={{ fontFamily: "monospace" }}>{r.itemCode}</span> · {r.itemGroup}
+                      </div>
+                    </td>
+
+                    {/* มูลค่า (ตัวหลัก — ตัวเลขที่ใช้ตัดสินใจ) + คงเหลือ (บรรทัดรอง) */}
+                    <td style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                      <div style={{ fontWeight: 600 }}>{baht(r.value)}</div>
+                      <div style={sub}>คงเหลือ {r.remaining.toLocaleString()}</div>
+                    </td>
+
+                    {/* อายุค้าง — จำนวนวัน (ตัวหลัก) + ช่วงอายุ (บรรทัดรอง) เดิมแยกเป็นสองคอลัมน์ทั้งที่มาจากค่าเดียวกัน */}
+                    <td style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>
                       <BucketBadge bucket={r.bucket} days={r.ageDays} />
+                      <div style={{ marginTop: 3 }}><StatusBadge bucket={r.bucket} /></div>
                     </td>
-                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                      <StatusBadge bucket={r.bucket} />
-                    </td>
-                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                      <RepurchaseBadge n={r.newerCount} />
-                    </td>
-                    {/* กำลังจะซื้อซ้ำ — ของยังไม่มา ยังยกเลิกทัน จึงเน้นให้เห็นชัดกว่าขีดจางเวลาไม่มี */}
+
+                    {/* ซื้อซ้ำ — DD (ซื้อไปแล้ว) + PR (กำลังจะซื้อ ยังยกเลิกทัน) อยู่คู่กันเพราะอ่านคู่กันเสมอ */}
                     <td
-                      style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" }}
+                      style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}
                       title={r.onOrder
                         ? `PR ที่ยังไม่รับของ ${r.onOrder.prCount} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${r.onOrder.prCodes.join(", ")}${r.onOrder.prCount > r.onOrder.prCodes.length ? " …" : ""}`
                         : "ไม่มีใบ PR ซื้อเข้าสต๊อกค้างอยู่สำหรับรหัสนี้"}
                     >
-                      {r.onOrder ? (
+                      {r.newerCount > 0 || r.onOrder ? (
                         <>
-                          <div style={{ fontWeight: 700, color: "#B45309" }}>+{r.onOrder.qty.toLocaleString()}</div>
-                          <div style={{ fontSize: 10.5, color: "#9CA3AF" }}>PR {r.onOrder.prCount} ใบ</div>
+                          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
+                            <span style={sub}>DD</span>
+                            <RepurchaseBadge n={r.newerCount} />
+                          </div>
+                          {r.onOrder && (
+                            <div style={{ marginTop: 2, fontWeight: 700, color: "#B45309" }}>
+                              <span style={{ ...sub, marginRight: 4 }}>PR</span>+{r.onOrder.qty.toLocaleString()}
+                            </div>
+                          )}
                         </>
                       ) : (
                         <span style={{ color: "#D1D5DB" }}>—</span>
                       )}
                     </td>
-                    <td style={{ padding: "9px 12px", textAlign: "right" }}>
+
+                    <td style={{ padding: "9px 12px", textAlign: "right", verticalAlign: "top" }}>
                       <ActionSelect
                         value={actions[layerKey(r)]}
                         saving={savingKey === layerKey(r)}
@@ -458,7 +521,7 @@ export function DeadstockPendingPage() {
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={12} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                    <td colSpan={PENDING_COLS.length} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                       ไม่พบรายการตามเงื่อนไข
                     </td>
                   </tr>
