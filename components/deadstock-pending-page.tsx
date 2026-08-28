@@ -34,6 +34,8 @@ const PENDING_COLS: { key: string; label: string; right?: boolean; title?: strin
 type ActionEntry = { action: ActionKey | ""; note: string; by: string; byEmail: string; at: string }
 
 const ACTION_STYLE: Record<string, { bg: string; fg: string; ring: string }> = {
+  // teal — ชุดสีเดียวกับสถานะ "ของถึง-รอลงคัน" ของโมดูลอะไหล่ลงคัน
+  await_install: { bg: "#CCFBF1", fg: "#0F766E", ring: "#99F6E4" },
   wrong_spec: { bg: "#FEF3C7", fg: "#92400E", ring: "#FDE68A" },
   return_vendor: { bg: "#DBEAFE", fg: "#1E40AF", ring: "#BFDBFE" },
   to_stock: { bg: "#EDE9FE", fg: "#5B21B6", ring: "#DDD6FE" },
