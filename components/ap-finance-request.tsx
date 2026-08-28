@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react"
 import { Copy, Mail } from "lucide-react"
 import { swalToast } from "@/lib/swal"
-import { apFinanceRequestText, nextThursday, thaiDate, todayICT, upcomingThursdays, type ApFinanceItem } from "@/lib/ap-tracking"
+import { apFinanceRequestText, payThursday, thaiDate, todayICT, upcomingPayThursdays, type ApFinanceItem } from "@/lib/ap-tracking"
 import { NUM, baht, mitr } from "@/components/ap-style"
 
 const EMAIL_KEY = "apFinanceEmailTo"     // จำอีเมลผู้รับล่าสุดไว้ในเครื่อง — แก้แล้วระบบจำ
@@ -22,8 +22,8 @@ export function ApFinanceRequestDialog({ items, onClose }: { items: ApFinanceIte
   const [cc, setCc] = useState(() => {
     try { return localStorage.getItem(EMAIL_CC_KEY) || DEFAULT_CC } catch { return DEFAULT_CC }
   })
-  const thursdays = useMemo(() => upcomingThursdays(todayICT(), 4), [])
-  const [thu, setThu] = useState(() => nextThursday(todayICT()))
+  const thursdays = useMemo(() => upcomingPayThursdays(todayICT(), 4), [])
+  const [thu, setThu] = useState(() => payThursday(todayICT()))
 
   const { subject, body } = useMemo(() => apFinanceRequestText(items, thu, reason), [items, thu, reason])
   const total = items.reduce((n, it) => n + it.amount, 0)

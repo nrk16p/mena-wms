@@ -6,11 +6,12 @@ import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
-  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, payThursday, payThursdayChoices,
+  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule,
+  billingCutoff, payThursday, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemVerification, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
-  upcomingThursdays,
+  upcomingPayThursdays,
   type ApDocKey, type ApDocNos, type ApDocs, type ApFile, type ApItems, type ApNoKey,
   type ApPayType, type ApReview, type ApReviewStatus,
   type ApSentType, type ApStatus, type ApTimelineStep,
@@ -164,9 +165,9 @@ export function ApTrackingDetail({
   const fileCounts  = useMemo(() => apFilesByDoc(files), [files])
   const meta        = apStatusMeta(draftStatus)
 
-  // ตัวเลือก "นอกรอบ" = วันพฤหัสที่กำลังจะถึง 4 ตัว (+ วันที่บันทึกไว้เดิม เผื่อเป็นพฤหัสที่ผ่านมาแล้ว)
+  // ตัวเลือก "นอกรอบ" = พฤหัสที่ยังทันรอบ 4 ตัว (+ วันที่บันทึกไว้เดิม เผื่อเป็นพฤหัสที่ผ่านมาแล้ว)
   const thursdays = useMemo(() => {
-    const list = upcomingThursdays(todayICT(), 4)
+    const list = upcomingPayThursdays(todayICT(), 4)
     return savedSent.type === "นอกรอบ" && savedSent.date && !list.includes(savedSent.date)
       ? [savedSent.date, ...list] : list
   }, [savedSent])
@@ -629,14 +630,16 @@ export function ApTrackingDetail({
                       : (dueDateOf(baseDate, row.creditTerm) || row.dueDate || "") })} />
                   <span className="font-medium">📋 ตามรอบ{row.creditTerm ? ` (เครดิต ${row.creditTerm})` : ""}</span>
                   <span className="text-xs text-gray-500">
-                    {shortCredit ? "จ่ายรอบพฤหัส — นับจากวันส่งเอกสารเข้าบัญชี (ส่งไม่เกินอังคาร ทันพฤหัสถัดไป)"
+                    {shortCredit ? "จ่ายรอบพฤหัส — นับจากวันส่งเอกสารเข้าบัญชี (ปิดรอบวันอังคาร → จ่ายพฤหัสสัปดาห์ถัดไป)"
                       : row.creditTerm ? "นับจากวันที่ทำ DD ตัดรอบวันที่ 25" : "ยังไม่ตั้งเครดิตเทอม — ระบุวันครบกำหนดเอง"}
                   </span>
                 </label>
                 {/* เครดิตสั้น: โชว์พฤหัสที่ทันถ้าส่งวันนี้ — วันจริงบัญชียืนยันอีกทีตอนกดผ่าน */}
                 {sent.type === "ตามรอบ" && shortCredit && (
                   <div className="flex flex-wrap items-center gap-2 pl-6 text-xs">
-                    <span className="text-gray-500">ส่งเอกสารวันนี้ ทันรอบพฤหัส</span>
+                    <span className="text-gray-500">
+                      ส่งเอกสารวันนี้ → ปิดรอบ {thaiDate(billingCutoff(todayICT()))} → จ่าย
+                    </span>
                     <input type="date" value={sent.date} onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
                       className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 dark:border-white/10 dark:bg-white/5" />
                     {sent.date && <span className="text-gray-400">({thaiDate(sent.date)})</span>}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_GO_LIVE, apStage, docNosText, groupByDate, ictDate, inDateRange, isDocSetComplete, monthInApScope,
-  nextThursday, overdueDays, thaiDate, thaiMonthLabel, todayICT,
+  overdueDays, payThursday, thaiDate, thaiMonthLabel, todayICT,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
 import { CARD, NUM, baht, mitr } from "@/components/ap-style"
@@ -55,7 +55,7 @@ function SendDialog({
 }) {
   // ตามรอบ = ครบกำหนดตามเครดิตเทอมนับจากวันที่ทำ DD — ถอยไปใช้วันนี้เมื่อยังไม่ได้ตั้งเครดิต
   const [roundDate, setRoundDate] = useState(() => row.dueDate || todayICT())
-  const thu = nextThursday(todayICT())
+  const thu = payThursday(todayICT())
   const [y, m, d] = thu.split("-").map(Number)
   const nextThu = new Date(Date.UTC(y, m - 1, d + 7)).toISOString().slice(0, 10)
 
@@ -66,15 +66,15 @@ function SendDialog({
         <div className="text-xs text-gray-500">{row.supplier} · <span className={NUM}>{baht(row.amount)}</span> บาท</div>
 
         <div className="space-y-2">
-          <div className="text-sm font-medium">💸 นอกรอบ — โอนทุกวันพฤหัส</div>
+          <div className="text-sm font-medium">💸 นอกรอบ — โอนทุกวันพฤหัส (ปิดรอบอังคาร → จ่ายพฤหัสสัปดาห์ถัดไป)</div>
           <div className="flex gap-2">
             <button onClick={() => onSent(row, "นอกรอบ", thu)}
               className="flex-1 rounded-lg border border-gray-200/80 px-2 py-1.5 text-xs hover:bg-emerald-50 dark:border-white/10 dark:hover:bg-emerald-900/20">
-              พฤหัสนี้ {thaiDate(thu)}
+              รอบนี้ {thaiDate(thu)}
             </button>
             <button onClick={() => onSent(row, "นอกรอบ", nextThu)}
               className="flex-1 rounded-lg border border-gray-200/80 px-2 py-1.5 text-xs hover:bg-emerald-50 dark:border-white/10 dark:hover:bg-emerald-900/20">
-              พฤหัสหน้า {thaiDate(nextThu)}
+              รอบหน้า {thaiDate(nextThu)}
             </button>
           </div>
 
@@ -433,7 +433,7 @@ export function ApTrackingPage() {
 
   // ส่งบัญชีทีละใบผ่าน API เดิม — ไม่เพิ่ม endpoint ใหม่ · ทำทีละใบเพื่อให้ใบที่ล้มเหลวไม่ลากใบอื่นล้มตาม
   const bulkSend = async () => {
-    const thu = nextThursday(todayICT())
+    const thu = payThursday(todayICT())
     const r = await swalConfirm(
       `ส่งบัญชีนอกรอบ ${selectedRows.length} ใบ?`,
       `กำหนดโอนวันพฤหัสที่ ${thaiDate(thu)} · รวม ${baht(selectedAmount)} บาท`,
@@ -632,7 +632,7 @@ export function ApTrackingPage() {
           ) : (
           <button onClick={bulkSend} disabled={bulkRunning}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
-            {bulkRunning ? "กำลังส่ง…" : `💸 ส่งบัญชีนอกรอบ · พฤหัสนี้ ${thaiDate(nextThursday(today))}`}
+            {bulkRunning ? "กำลังส่ง…" : `💸 ส่งบัญชีนอกรอบ · รอบ ${thaiDate(payThursday(today))}`}
           </button>
           )}
           {/* แจ้งการเงินจากใบที่เลือก — ราย DD เลือกหลายใบได้ (ผู้ใช้สั่ง 19/08/2026) */}
