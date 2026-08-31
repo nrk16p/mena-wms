@@ -12,7 +12,7 @@ import {
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
   payThursday, payThursdayChoices, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
-  billingCutoff, upcomingPayThursdays,
+  billingCutoff, upcomingPayThursdays, apPayRecalc,
   apFinanceRequestText, apCoverSheetAoa, parsePaymentDdCell,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
@@ -294,6 +294,51 @@ assert.equal(apPaySchedule("2026-08-19", "นอกรอบ", "", "2026-08-27")
 assert.equal(apPaySchedule("2026-08-18", "นอกรอบ", "", "2026-08-21"), null, "วันที่ไม่ใช่ตัวเลือก (ไม่ใช่พฤหัส) = ปฏิเสธ")
 assert.equal(apPaySchedule("2026-08-18", "ตามรอบ", ""), null, "ตามรอบแต่ไม่มีเครดิตเทอม = คิดไม่ได้ (ให้ UI บังคับกรอก)")
 assert.equal(apPaySchedule("", "นอกรอบ", ""), null)
+
+// --- pay ที่แช่ไว้ vs กติกาปัจจุบัน (apPayRecalc) ---
+// ค่าใน pay คิดครั้งเดียวตอนกดผ่าน กติกาที่เปลี่ยนทีหลังไม่ย้อนไปถึง — ตัวนี้คือตัวจับใบที่ค้าง
+// เคสจริง LBDD26080664: 15D กดผ่าน 21/08 14:39 (ก่อนกติกาเครดิตสั้น 17:09 วันเดียวกัน)
+assert.deepEqual(
+  apPayRecalc({ type: "ตามรอบ", dueDate: "2026-09-05", cutoff: "2026-09-25", payDate: "2026-11-05",
+                basis: { passedDate: "2026-08-21", creditTerm: "15D" } }, "2026-08-21"),
+  { type: "ตามรอบ", dueDate: "2026-09-05", cutoff: "", payDate: "2026-09-03" },
+  "15D ที่ค้างสายตัดรอบ 25 ต้องถูกจับได้ และคืนรอบพฤหัสที่ถูกต้อง")
+assert.equal(
+  apPayRecalc({ type: "ตามรอบ", dueDate: "2026-09-05", cutoff: "", payDate: "2026-09-03",
+                basis: { passedDate: "2026-08-21", creditTerm: "15D" } }, "2026-08-21"),
+  null, "ใบที่ตรงกติกาวันนี้แล้วต้องไม่ขึ้นธง")
+// กติกา 28/08/2026 บวก 1 สัปดาห์ — ใบที่กดผ่านก่อนหน้านั้นค้างวันจ่ายเร็วไป 7 วัน
+assert.equal(
+  apPayRecalc({ type: "ตามรอบ", dueDate: "2026-09-04", cutoff: "", payDate: "2026-09-03",
+                basis: { passedDate: "2026-08-28", creditTerm: "7D" } }, "2026-08-28")?.payDate,
+  "2026-09-10", "7D กดผ่าน 28/08 ก่อน deploy — ต้องเลื่อนเป็นพฤหัสสัปดาห์ถัดไป")
+// เครดิตยาวไม่ถูกกติกาทั้งสองรอบแตะ — ต้องไม่มี false positive
+assert.equal(
+  apPayRecalc({ type: "ตามรอบ", dueDate: "2026-09-17", cutoff: "2026-09-25", payDate: "2026-11-05",
+                basis: { passedDate: "2026-08-18", creditTerm: "30D" } }, ""),
+  null, "30D สายตัดรอบ 25 ไม่เปลี่ยน")
+// นอกรอบ: บัญชีเลือกวันเอง — ยังใช้ได้ถ้าอยู่ในตัวเลือกของกติกาวันนี้ (รวมตัวที่เลื่อนออกไป 1 รอบ)
+assert.equal(
+  apPayRecalc({ type: "นอกรอบ", payDate: "2026-09-03", basis: { passedDate: "2026-08-21" } }, ""),
+  null, "นอกรอบที่ตรงตัวเลือกแรก = ไม่ต้องแก้")
+assert.equal(
+  apPayRecalc({ type: "นอกรอบ", payDate: "2026-09-10", basis: { passedDate: "2026-08-21" } }, ""),
+  null, "นอกรอบที่บัญชีเลือกเลื่อนออกไปเอง 1 รอบ = ไม่ใช่ของค้าง ห้ามดึงกลับ")
+assert.deepEqual(
+  apPayRecalc({ type: "นอกรอบ", payDate: "2026-08-27", basis: { passedDate: "2026-08-21" } }, ""),
+  { type: "นอกรอบ", dueDate: "", cutoff: "", payDate: "2026-09-03" },
+  "นอกรอบที่คิดด้วยกติกาก่อน 28/08 = เร็วไป 1 สัปดาห์ ต้องถูกจับ")
+// ข้อมูลไม่พอ = เงียบไว้ ดีกว่าเดาแล้วขึ้นธงผิด
+assert.equal(apPayRecalc(null, ""), null)
+assert.equal(apPayRecalc({ type: "ตามรอบ", payDate: "2026-09-03", basis: { passedDate: "2026-08-21" } }, ""),
+  null, "ตามรอบแต่ไม่มี creditTerm ใน basis = คิดใหม่ไม่ได้")
+assert.equal(apPayRecalc({ type: "ตามรอบ", payDate: "2026-09-03", basis: { creditTerm: "15D" } }, ""),
+  null, "ไม่มีวันกดผ่าน = คิดใหม่ไม่ได้")
+assert.equal(apPayRecalc({ type: "อะไรก็ไม่รู้", payDate: "2026-09-03" }, ""), null)
+// ใบเก่าที่ไม่มี basis แต่มี pay.at — ใช้ at (UTC) แปลงเป็นวันไทยแทนได้
+assert.equal(
+  apPayRecalc({ type: "นอกรอบ", payDate: "2026-08-27", at: "2026-08-20T18:00:00.000Z" }, "")?.payDate,
+  "2026-09-03", "ไม่มี basis ให้ถอยไปใช้ pay.at (18:00Z = 21/08 ตามเวลาไทย)")
 
 // --- เดือนที่ฝังในเลขเอกสาร (ทางลัดค้นข้ามเดือน) ---
 assert.equal(monthFromCode("LBDD26020004"), "2026-02")

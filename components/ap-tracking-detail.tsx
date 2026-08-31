@@ -6,8 +6,8 @@ import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
-  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule,
-  billingCutoff, payThursday, payThursdayChoices,
+  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc,
+  billingCutoff, ictDate, payThursday, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemVerification, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
@@ -123,6 +123,12 @@ export function ApTrackingDetail({
   const [files, setFiles]           = useState<ApFile[]>([])
   const [savedReview, setSavedReview] = useState<ApReview>({ status: "", note: "" })
   const [savedPay, setSavedPay] = useState<ApPay | null>(null)
+  // เทียบค่าที่แช่ไว้กับสูตรปัจจุบัน (lib ตัวเดียวกับ scripts/backfill-ap-pay.ts)
+  // null = ตรงกติกาวันนี้แล้ว · มีค่า = ใบนี้ค้างสูตรเก่า ต้องขึ้นธงเตือน
+  const payOutdated = useMemo(
+    () => apPayRecalc(savedPay, ictDate(row.sentMarkedAt ?? "")),
+    [savedPay, row.sentMarkedAt],
+  )
   // กล่องยืนยันตอนกดผ่าน — null = ไม่เปิด · เปิดพร้อมค่าตั้งต้น: คำขอจากจัดซื้อ + เทอมจาก master
   const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string } | null>(null)
   const [financeOpen, setFinanceOpen] = useState(false)    // กล่องแจ้งการเงินขอนอกรอบ (ใบนี้ใบเดียว)
@@ -755,13 +761,28 @@ export function ApTrackingDetail({
 
                 {/* กำหนดจ่ายที่ยืนยันไว้ตอนกดผ่าน — โชว์ค้างไว้ให้ทุกคนเห็นว่าเงินจะออกวันไหน */}
                 {savedPay && savedReview.status === "ผ่าน" && (
-                  <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
-                    💰 {savedPay.type === "ตามรอบ"
-                      ? savedPay.cutoff
-                        ? <>ตามรอบ · ครบกำหนด {thaiDate(savedPay.dueDate)} · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
-                        : <>ตามรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>
-                      : <>นอกรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>}
-                    {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
+                  <div className="space-y-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
+                    <div>
+                      💰 {savedPay.type === "ตามรอบ"
+                        ? savedPay.cutoff
+                          /* "ครบเครดิต" ไม่ใช่ "ครบกำหนด" — หัวใบโชว์ครบกำหนดที่นับจากวันทำ DD
+                             ส่วนตัวนี้นับจากวันบัญชีกดผ่าน คนละเลข ใช้คำเดียวกันแล้วอ่านแล้วงงว่าอันไหนจริง */
+                          ? <>ตามรอบ · ครบเครดิต (จากวันกดผ่าน) {thaiDate(savedPay.dueDate)} · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
+                          : <>ตามรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>
+                        : <>นอกรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>}
+                      {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
+                    </div>
+                    {/* กติกาเปลี่ยนหลังใบนี้ถูกกดผ่าน — เลขข้างบนถูกแช่ไว้ตั้งแต่ตอนนั้น ไม่มีใครคิดใหม่
+                        เคยเงียบจนใบ 15D โชว์สายตัดรอบ 25 ที่เลิกใช้แล้ว (31/08/2026) จึงต้องบอกให้เห็น */}
+                    {payOutdated && (
+                      <div className="rounded-md bg-amber-100/80 px-2 py-1 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+                        ⚠️ คิดด้วยกติกาเดิมตอนกดผ่าน · กติกาปัจจุบันได้{" "}
+                        <b>{payOutdated.type === "ตามรอบ" && payOutdated.cutoff
+                          ? `ครบเครดิต ${thaiDate(payOutdated.dueDate)} · ตัดรอบ ${thaiDate(payOutdated.cutoff)} · จ่าย ${thaiDate(payOutdated.payDate)}`
+                          : `จ่าย ${thaiDate(payOutdated.payDate)}`}</b>
+                        {" "}— แจ้งบัญชีให้ยืนยันก่อนใช้เลขใหม่
+                      </div>
+                    )}
                   </div>
                 )}
                 {(review.status === "ไม่ผ่าน" || review.note) && (

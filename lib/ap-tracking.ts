@@ -703,6 +703,42 @@ export function apPaySchedule(
   return { type, dueDate, cutoff, payDate }
 }
 
+// ค่าใน pay ถูกคิดครั้งเดียวตอนบัญชีกดผ่านแล้วแช่ไว้ ไม่มีใครคิดใหม่ — กติกาที่เปลี่ยนทีหลัง
+// จึงไม่ย้อนไปถึงใบเก่า หน้าเว็บโชว์เลขที่เลิกใช้แล้วอย่างเงียบ ๆ ทั้งที่ข้อความอธิบายข้าง ๆ
+// render จากโค้ดใหม่ (เจอจริง 31/08/2026: ใบ 15D กดผ่าน 21/08 14:39 ยังเดินสายตัดรอบ 25
+// ที่ถูกยกเลิกตอน 17:09 วันเดียวกัน — โชว์ "จ่าย 5 พ.ย." ทั้งที่กติกาใหม่คือ "จ่าย 3 ก.ย.")
+// คืนตารางตามกติกาวันนี้เมื่อไม่ตรงกับที่เก็บไว้ · null = ตรงแล้ว / ข้อมูลไม่พอจะคิดใหม่
+// ใช้ร่วมกันระหว่าง UI (ติดธงเตือน) กับ scripts/backfill-ap-pay.ts (เขียนทับ) — สูตรเดียว ไม่แตกสองทาง
+export type ApPayStored = {
+  type?: string; dueDate?: string; cutoff?: string; payDate?: string
+  basis?: { passedDate?: string; creditTerm?: string } | null
+  at?: string
+}
+export function apPayRecalc(pay: ApPayStored | null | undefined, sentDocISO: string): ApPaySchedule | null {
+  if (!pay) return null
+  const t = String(pay.type ?? "").trim()
+  if (t !== "ตามรอบ" && t !== "นอกรอบ") return null
+  const type = t as ApPayType
+  // ตัวตั้งคือวันที่กดผ่านตอนนั้น ไม่ใช่วันนี้ — ผลจึงเป็น "ถ้าตอนนั้นใช้กติกาวันนี้จะได้อะไร"
+  // ไม่ใช่เลื่อนวันจ่ายหนีไปเรื่อย ๆ ตามวันที่เปิดหน้าเว็บ
+  const passed = String(pay.basis?.passedDate ?? "").trim() || ictDate(String(pay.at ?? ""))
+  if (!passed) return null
+  if (type === "นอกรอบ") {
+    // บัญชีเลือกวันโอนเอง — ถือว่ายังใช้ได้ถ้าเป็นหนึ่งในตัวเลือกที่กติกาวันนี้ยอมรับ
+    const { options, def } = payThursdayChoices(passed)
+    if (!def || options.includes(String(pay.payDate ?? "").trim())) return null
+    return { type, dueDate: "", cutoff: "", payDate: def }
+  }
+  const creditTerm = String(pay.basis?.creditTerm ?? "").trim()
+  if (!creditTerm) return null
+  const next = apPaySchedule(passed, type, creditTerm, undefined, sentDocISO)
+  if (!next) return null
+  const same = String(pay.dueDate ?? "").trim() === next.dueDate
+    && String(pay.cutoff ?? "").trim() === next.cutoff
+    && String(pay.payDate ?? "").trim() === next.payDate
+  return same ? null : next
+}
+
 // บัญชีโอน "นอกรอบ" ทุกวันพฤหัส — คืนวันพฤหัสที่ใกล้ที่สุดที่ >= วันที่ให้มา
 export function nextThursday(fromISO: string): string {
   const base = toUTC(fromISO)
