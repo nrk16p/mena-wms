@@ -7,7 +7,7 @@ import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc,
-  billingCutoff, ictDate, payThursday, payThursdayChoices,
+  billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemVerification, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
@@ -163,7 +163,7 @@ export function ApTrackingDetail({
   const dirty = dirtyCount > 0
 
   // เครดิตสั้น (7D/15D) เดินสายรอบพฤหัส — ป้าย/ค่าตั้งต้นของ "ตามรอบ" ต่างจากเครดิตยาว
-  const shortCredit = row.creditTerm === "7D" || row.creditTerm === "15D"
+  const shortCredit = isShortCredit(row.creditTerm)
 
   const draftDocs   = useMemo(() => docsOf(draft), [draft])
   const draftStatus = apStatusOf(draftDocs, sent.date)

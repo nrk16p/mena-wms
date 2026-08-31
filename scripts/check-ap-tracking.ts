@@ -12,7 +12,7 @@ import {
   cleanDocNos, readDocNos, compactDocNos, docNosText, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   ictDate, inDateRange, apRangeOf, groupByDate, thaiDow,
   payThursday, payThursdayChoices, payFromCutoff, apPaySchedule, AP_PAY_TYPES, monthFromCode,
-  billingCutoff, upcomingPayThursdays, apPayRecalc,
+  billingCutoff, upcomingPayThursdays, apPayRecalc, apSentRecalc, isShortCredit,
   apFinanceRequestText, apCoverSheetAoa, parsePaymentDdCell,
   AP_REVIEW_STATUSES, apReviewMeta, reviewNeedsNote,
   type ApDocs, type ApFile,
@@ -339,6 +339,36 @@ assert.equal(apPayRecalc({ type: "อะไรก็ไม่รู้", payDate
 assert.equal(
   apPayRecalc({ type: "นอกรอบ", payDate: "2026-08-27", at: "2026-08-20T18:00:00.000Z" }, "")?.payDate,
   "2026-09-03", "ไม่มี basis ให้ถอยไปใช้ pay.at (18:00Z = 21/08 ตามเวลาไทย)")
+
+// --- วันที่จัดซื้อขอตอนกดส่ง vs กติกาปัจจุบัน (apSentRecalc) ---
+// clamp ขึ้นอย่างเดียว: แก้เฉพาะใบที่วันเดิม "เร็วกว่า" รอบเร็วสุดของวันที่กดส่งตัวเอง
+assert.equal(apSentRecalc("นอกรอบ", "2026-08-27", "2026-08-22", ""), "2026-09-03",
+  "นอกรอบ กดส่ง 22/08 — 27/08 คิดด้วยกติกาก่อน 28/08 เร็วไป 1 สัปดาห์")
+assert.equal(apSentRecalc("นอกรอบ", "2026-09-03", "2026-08-22", ""), "",
+  "ตรงรอบเร็วสุดแล้ว = ไม่แตะ")
+assert.equal(apSentRecalc("นอกรอบ", "2026-09-24", "2026-08-22", ""), "",
+  "จัดซื้อเลือกเลื่อนออกไปเองหลายรอบ = เจตนา ห้ามดึงกลับ")
+assert.equal(apSentRecalc("ตามรอบ", "2026-09-03", "2026-08-29", "7D"), "2026-09-10",
+  "เครดิตสั้นเดินรอบพฤหัสเหมือนนอกรอบ")
+assert.equal(apSentRecalc("ตามรอบ", "2026-09-03", "2026-08-29", "15D"), "2026-09-10")
+assert.equal(apSentRecalc("ตามรอบ", "2026-09-16", "2026-08-29", "30D"), "",
+  "เครดิตยาว: sentDate คือวันครบกำหนดจาก dueDateOf ซึ่งกติกาไม่เคยเปลี่ยน = ไม่แตะ")
+assert.equal(apSentRecalc("ตามรอบ", "2026-05-21", "2026-05-08", "15D"), "",
+  "ใบเก่าที่วันของมันตรงรอบของตัวเองอยู่แล้ว = ไม่แตะ")
+// เกณฑ์คือรอบของวันส่งตัวเอง ไม่ใช่อายุใบ — ใบเก่าที่เร็วกว่ารอบตัวเองก็ถูก clamp เหมือนกัน
+assert.equal(apSentRecalc("ตามรอบ", "2026-05-14", "2026-05-08", "15D"), "2026-05-21",
+  "ใบเก่าไม่ได้รับการยกเว้น — ถ้าเร็วกว่ารอบของวันส่งตัวเองก็ถูกดันขึ้น")
+// ใบตีกลับแล้วส่งใหม่: sentMarkedAt ถูกตั้งใหม่ แต่ sentDate ยังค้างของรอบเดิมที่ผ่านไปแล้ว
+assert.equal(apSentRecalc("นอกรอบ", "2026-08-13", "2026-08-29", ""), "2026-09-10",
+  "ส่งใหม่ 29/08 แต่วันขอยังชี้ 13/08 ที่ผ่านไปแล้ว — ต้องดันมาที่รอบของวันส่งใหม่")
+assert.equal(apSentRecalc("นอกรอบ", "", "2026-08-22", ""), "", "ไม่มีวันขอ = ไม่ตัดสิน")
+assert.equal(apSentRecalc("นอกรอบ", "2026-08-27", "", ""), "", "ไม่มีวันกดส่ง = ไม่มีจุดตั้งต้น")
+assert.equal(apSentRecalc("", "2026-08-27", "2026-08-22", ""), "", "ไม่รู้ประเภท = ไม่ตัดสิน")
+
+assert.equal(isShortCredit("7D"), true)
+assert.equal(isShortCredit("15D"), true)
+assert.equal(isShortCredit("30D"), false)
+assert.equal(isShortCredit(""), false)
 
 // --- เดือนที่ฝังในเลขเอกสาร (ทางลัดค้นข้ามเดือน) ---
 assert.equal(monthFromCode("LBDD26020004"), "2026-02")

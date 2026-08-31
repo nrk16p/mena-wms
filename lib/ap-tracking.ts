@@ -690,7 +690,7 @@ export function apPaySchedule(
   }
   // เครดิตสั้น (7D/15D): รอบพฤหัส นับจากวันส่งเอกสารเข้าบัญชี — cutoff เว้นว่างเป็นตัวบอก UI
   // ว่าใบนี้ไม่ได้เดินสายตัดรอบ 25 · ไม่มีวันส่ง (ใบเก่าก่อนเก็บ sentMarkedAt) ใช้วันกดผ่านแทน
-  if (creditTerm === "7D" || creditTerm === "15D") {
+  if (isShortCredit(creditTerm)) {
     const base = sentDocISO || passedISO
     let payDate = payThursday(base)
     if (!payDate) return null
@@ -701,6 +701,37 @@ export function apPaySchedule(
   if (!dueDate) return null
   const { cutoff, payDate } = payFromCutoff(dueDate)
   return { type, dueDate, cutoff, payDate }
+}
+
+// วันที่จัดซื้อ "ขอ" ตอนกดส่งบัญชี (sentType + sentDate) ก็ถูกแช่ไว้แบบเดียวกับ pay — คิดตอน
+// กดส่ง แล้วไม่มีใครคิดใหม่ กติกาที่เปลี่ยนทีหลังจึงไม่ย้อนไปถึงใบที่ยังรออยู่ในคิว
+// ต่างจาก pay ตรงที่ค่านี้ "เลือกได้" — จัดซื้อกดเลื่อนออกไปเองได้หลายรอบ จึงตัดสินว่าเพี้ยน
+// เฉพาะตอนที่ค่าที่เก็บไว้ "เร็วกว่า" วันเร็วสุดที่กติกาวันนี้ยอมให้เท่านั้น (clamp ขึ้นอย่างเดียว)
+// เกณฑ์คือ "เร็วกว่ารอบของวันที่ส่งตัวเอง" ไม่ใช่ "ส่งมานานแค่ไหน" — ใบเก่าก็ถูก clamp ได้
+// ถ้าวันของมันเร็วกว่ารอบของวันส่งตัวเอง (ตอนรันจริง 31/08/2026 ไม่มีใบก่อน ส.ค. เข้าเงื่อนไข
+// สักใบ เพราะใบเก่าที่ยังค้างคิวเกือบทั้งหมดเป็นตามรอบเครดิตยาว ซึ่งฟังก์ชันนี้ไม่แตะ —
+// นั่นเป็นเรื่องของข้อมูล ไม่ใช่ข้อรับประกันของกฎ)
+// คืน "" = ไม่ต้องแก้ / ข้อมูลไม่พอจะตัดสิน
+export function apSentRecalc(
+  sentType: string, sentDate: string, sentMarkedDateISO: string, creditTerm: string,
+): string {
+  const type = String(sentType ?? "").trim()
+  const date = String(sentDate ?? "").trim()
+  const marked = String(sentMarkedDateISO ?? "").trim()
+  if (!date || !marked) return ""
+  // เครดิตยาว (30D/60D/Immediate) ตามรอบ: sentDate คือวันครบกำหนดจาก dueDateOf ซึ่งกติกา
+  // ไม่เคยเปลี่ยน — และจัดซื้อแก้วันตั้งต้นเองได้ ไม่มีวัน "เร็วสุด" ให้เทียบ จึงไม่แตะ
+  if (type === "ตามรอบ" && !isShortCredit(creditTerm)) return ""
+  if (type !== "ตามรอบ" && type !== "นอกรอบ") return ""
+  const earliest = payThursday(marked)
+  if (!earliest) return ""
+  return date < earliest ? earliest : ""
+}
+
+// เครดิตสั้น = เดินรอบพฤหัสแทนสายตัดรอบ 25 (กติกา 21/08/2026)
+export function isShortCredit(term: string): boolean {
+  const t = String(term ?? "").trim()
+  return t === "7D" || t === "15D"
 }
 
 // ค่าใน pay ถูกคิดครั้งเดียวตอนบัญชีกดผ่านแล้วแช่ไว้ ไม่มีใครคิดใหม่ — กติกาที่เปลี่ยนทีหลัง
