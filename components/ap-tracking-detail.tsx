@@ -765,9 +765,10 @@ export function ApTrackingDetail({
                     <div>
                       💰 {savedPay.type === "ตามรอบ"
                         ? savedPay.cutoff
-                          /* "ครบเครดิต" ไม่ใช่ "ครบกำหนด" — หัวใบโชว์ครบกำหนดที่นับจากวันทำ DD
-                             ส่วนตัวนี้นับจากวันบัญชีกดผ่าน คนละเลข ใช้คำเดียวกันแล้วอ่านแล้วงงว่าอันไหนจริง */
-                          ? <>ตามรอบ · ครบเครดิต (จากวันกดผ่าน) {thaiDate(savedPay.dueDate)} · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
+                          /* ไม่โชว์วันครบกำหนดตรงนี้แล้ว — ตั้งแต่ 01/09/2026 วันจ่ายคิดจากวันกดผ่าน
+                             เข้ารอบตัด 25 ตรง ๆ ไม่มีวันครบเครดิตมาเกี่ยวข้อง · ครบกำหนดของจริง
+                             (นับจากวันทำ DD) อยู่บนหัวใบอยู่แล้ว เอามาวางซ้ำมีแต่ทำให้อ่านสับสน */
+                          ? <>ตามรอบ · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
                           : <>ตามรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>
                         : <>นอกรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>}
                       {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
@@ -778,7 +779,7 @@ export function ApTrackingDetail({
                       <div className="rounded-md bg-amber-100/80 px-2 py-1 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
                         ⚠️ คิดด้วยกติกาเดิมตอนกดผ่าน · กติกาปัจจุบันได้{" "}
                         <b>{payOutdated.type === "ตามรอบ" && payOutdated.cutoff
-                          ? `ครบเครดิต ${thaiDate(payOutdated.dueDate)} · ตัดรอบ ${thaiDate(payOutdated.cutoff)} · จ่าย ${thaiDate(payOutdated.payDate)}`
+                          ? `ตัดรอบ ${thaiDate(payOutdated.cutoff)} · จ่าย ${thaiDate(payOutdated.payDate)}`
                           : `จ่าย ${thaiDate(payOutdated.payDate)}`}</b>
                         {" "}— แจ้งบัญชีให้ยืนยันก่อนใช้เลขใหม่
                       </div>
@@ -912,8 +913,7 @@ export function ApTrackingDetail({
                     preview.type === "ตามรอบ" ? (
                       preview.cutoff ? (
                         <div className="space-y-0.5 text-xs">
-                          <div>ครบกำหนด <b>{thaiDate(preview.dueDate)}</b></div>
-                          <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b></div>
+                          <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b> <span className="text-gray-400">(จากวันกดผ่านวันนี้)</span></div>
                           <div className="text-emerald-700 dark:text-emerald-400">💰 จ่าย <b>{thaiDate(preview.payDate)}</b></div>
                         </div>
                       ) : (

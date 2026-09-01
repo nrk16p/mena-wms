@@ -58,7 +58,8 @@ function recompute(d: Doc): Verdict {
 const line = (p: { dueDate?: string; cutoff?: string; payDate?: string }, type: string) =>
   type === "นอกรอบ"
     ? `นอกรอบ · โอน ${thaiDate(s(p.payDate))}`
-    : `ตามรอบ · ครบกำหนด ${thaiDate(s(p.dueDate))} · ตัดรอบ ${s(p.cutoff) ? thaiDate(s(p.cutoff)) : "—"} · จ่าย ${thaiDate(s(p.payDate))}`
+    // ใบเก่าก่อน 01/09/2026 มี dueDate ติดมาด้วย — โชว์ไว้ให้เห็นว่าค่าเดิมคิดจากอะไร ใบใหม่เว้นว่าง
+    : `ตามรอบ · ${s(p.dueDate) ? `ครบกำหนด ${thaiDate(s(p.dueDate))} · ` : ""}ตัดรอบ ${s(p.cutoff) ? thaiDate(s(p.cutoff)) : "—"} · จ่าย ${thaiDate(s(p.payDate))}`
 
 async function main() {
   const uri = process.env.MONGO_URI

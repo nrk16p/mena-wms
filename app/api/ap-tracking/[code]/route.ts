@@ -222,7 +222,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
         log.push({
           action: "กำหนดจ่ายเงิน", field: "pay",
           detail: payType === "ตามรอบ"
-            ? `ตามรอบ · ครบกำหนด ${thaiDate(schedule.dueDate)} · ตัดรอบ ${thaiDate(schedule.cutoff)} · จ่าย ${thaiDate(schedule.payDate)}`
+            ? `ตามรอบ · ตัดรอบ ${thaiDate(schedule.cutoff)} · จ่าย ${thaiDate(schedule.payDate)}`
             : `นอกรอบ · โอนพฤหัส ${thaiDate(schedule.payDate)}`,
           by, byEmail, at,
         })
