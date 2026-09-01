@@ -1,9 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef, Children, isValidElement } from "react"
-import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Columns3, CalendarDays, Copy, Link2, Megaphone, ClipboardList, Maximize2, Minimize2, Factory } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Copy, Link2, Megaphone, ClipboardList, Maximize2, Minimize2, Factory } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
-import { RepairPlanTab } from "@/components/repair-plan-tab"
 import { GarageLoadTab } from "@/components/garage-load-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
@@ -68,9 +67,6 @@ const barColor = (s: string) => BAR_COLORS[s] ?? "#9ca3af"
 // คอลัมน์ตารางโปร่ง (1a): อายุงาน / รถ / อาการ / อู่ / สถานะ·เอกสาร / จัดการ
 // 5 คอลัมน์ (ไม่มี "จัดการ" — คลิกแถวเพื่อแก้ไข/ลบจากในฟอร์ม): อายุ | รถ | อาการ+อู่ | สถานะ·เอกสาร | กำหนด
 const TABLE_GRID = "110px 1.7fr 2.9fr 2fr 130px"
-
-// จานสีสำหรับสัดส่วนตามฟลีท
-const FLEET_PALETTE = ["#1B8C4B", "#3b82f6", "#eab308", "#f97316", "#14b8a6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16", "#ef4444", "#8b5cf6", "#64748b"]
 
 type Comment = {
   _id: string
@@ -150,6 +146,8 @@ const FEED_TABS: { id: "all" | FeedKind; label: string }[] = [
 ]
 const FEED_DOT: Record<FeedKind, string> = { status: "#1B8C4B", next: "#6366F1", note: "#B07D12" }
 const FEED_LABEL: Record<FeedKind, string> = { status: "WMS", next: "Mena-Next", note: "ความคิดเห็น" }
+// ไอคอนในหมุดไทม์ไลน์ — แยกตาม f.kind (ละเอียดกว่า FeedKind เพราะ "field" กับ "status" มาจากกลุ่มเดียวกัน)
+const FEED_ICON: Record<string, string> = { status: "🔧", field: "✏️", next: "🔗", note: "💬" }
 const FEED_TAG: Record<FeedKind, string> = {
   status: "bg-[#ECFDF3] text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300",
   next:   "bg-[#EEF2FF] text-[#4F46E5] dark:bg-indigo-900/25 dark:text-indigo-300",
@@ -380,9 +378,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [modalFull, setModalFull] = useState<boolean>(() => {
     try { return localStorage.getItem(MODAL_FULL_KEY) === "1" } catch { return false }
   })
-  function bumpZoom(step: number) {
-    setModalZoom((cur) => {
-      const next = MODAL_ZOOMS[Math.min(MODAL_ZOOMS.length - 1, Math.max(0, MODAL_ZOOMS.indexOf(cur) + step))]
+  // เลือกระดับตรง ๆ — เดิมกดเพิ่ม/ลดทีละขั้นแล้วอ่านค่าปัจจุบันจากตัวเลข % ซึ่งบอกไม่ได้ว่ามีกี่ระดับ
+  // และไปสุดทางหรือยัง · ชิปเรียงกันเห็นครบทุกระดับพร้อมกัน กดข้ามไปเลยได้
+  function pickZoom(next: number) {
+    setModalZoom(() => {
       try { localStorage.setItem(MODAL_ZOOM_KEY, String(next)) } catch { /* ไม่บันทึกก็ยังใช้งานรอบนี้ได้ */ }
       return next
     })
@@ -427,7 +426,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [logLoading, setLogLoading] = useState(false)
 
   // view + สรุปสถานะ
-  const [view, setView]   = useState<"table" | "board" | "plan" | "garage">("table")
+  const [view, setView]   = useState<"table" | "garage">("table")
   // แท็บ "ภาระอู่" อ่านจาก Mena-Next ล้วน ๆ — ตัวกรอง/การ์ดสรุปที่คำนวณจากใบงาน WMS ไม่เกี่ยวจึงซ่อนทั้งหมด
   const showWms = !isDone && view !== "garage"
   // แผนซ่อม: bump เพื่อให้แท็บแผนโหลดใหม่หลังผูกใบงาน · ref เก็บ id แผนที่กำลังแปลงเป็นใบงาน
@@ -440,10 +439,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [slaOnly, setSlaOnly]   = useState(false)
   const [noPrOnly, setNoPrOnly] = useState(false)
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
-  // การ์ดสัดส่วน: ดูตามฟลีท หรือ จำนวนรถต่ออู่
-  const [distBy, setDistBy] = useState<"fleet" | "garage">("fleet")
-  const [showAllGarages, setShowAllGarages] = useState(false)
-  const [showDupes, setShowDupes] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -773,36 +768,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         setVdRef(d.date || "")
       }
     } catch { /* ignore */ }
-  }
-
-  // คัดลอกข้อมูลทั้งคอลัมน์เป็นข้อความพร้อมอีโมจิ (สำหรับส่งกลุ่มไลน์)
-  function copyColumnLine(s: { value: string; emoji: string }, colRows: RepairExternal[], avgCol: number) {
-    const lines: string[] = []
-    lines.push(`${s.emoji} ${s.value} — ${colRows.length} คัน (เฉลี่ย ${avgCol} วัน)`)
-    lines.push("━━━━━━━━━━━━━━")
-    colRows.forEach((r, i) => {
-      const sla = slaInfo(r)
-      const age = ageDays(jobStartDate(r))
-      lines.push(`${i + 1}. 🚚 ${r.plate || "-"}${r.fleetNo ? ` (${r.fleetNo})` : ""}${r.fleet ? ` · ${r.fleet}` : ""}`)
-      if (r.symptom) lines.push(`   🔧 ${r.symptom}`)
-      const meta: string[] = []
-      if (r.garage) meta.push(`🏭 ${r.garage}`)
-      if (age !== null) meta.push(`🕐 ${age} วัน`)
-      if (r.dueDate) meta.push(`📅 ${fmtDateShort(r.dueDate)}`)
-      if (sla?.over) meta.push(`⏱️ รอ PR ค้าง ${sla.hours} ชม. (เกิน 24 ชม.)`)
-      if (meta.length) lines.push(`   ${meta.join("  ")}`)
-      const doc: string[] = []
-      if (r.prCode) doc.push(`PR ${r.prCode}`)
-      else doc.push("⚠ ยังไม่มี PR")
-      if (r.poCode) doc.push(`PO ${r.poCode}`)
-      if (r.repairPrice > 0) doc.push(`💰 ${fmtNum(r.repairPrice)}`)
-      if (doc.length) lines.push(`   ${doc.join("  ")}`)
-    })
-    const text = lines.join("\n")
-    navigator.clipboard?.writeText(text).then(
-      () => swalToast("success", `คัดลอก ${s.value} (${colRows.length} คัน) แล้ว`),
-      () => swalError("คัดลอกไม่สำเร็จ"),
-    )
   }
 
   // คัดลอกสรุปสถานะงาน (สำหรับส่งไลน์)
@@ -1277,18 +1242,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <TableIcon size={14} /> ตาราง
               </button>
               <button
-                onClick={() => setView("board")}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${view === "board" ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-              >
-                <Columns3 size={14} /> บอร์ด
-              </button>
-              <button
-                onClick={() => setView("plan")}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${view === "plan" ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-              >
-                <CalendarDays size={14} /> แผนซ่อม
-              </button>
-              <button
                 onClick={() => setView("garage")}
                 className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${view === "garage" ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
               >
@@ -1410,146 +1363,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         )
       })()}
 
-      {/* สัดส่วนตามฟลีท */}
-      {showWms && (stats.fleetDist.length > 0 || (stats.garageDist?.length ?? 0) > 0) && (() => {
-        const byGarage = distBy === "garage"
-        const garages  = stats.garageDist ?? []
-        const dupes    = stats.garageDupes ?? []
-        const toggle = (
-          <div className="inline-flex overflow-hidden rounded-lg border border-[#E2E8E4] dark:border-white/10">
-            {([["fleet", "🚚 ฟลีท"], ["garage", "🏭 อู่"]] as const).map(([v, label]) => (
-              <button
-                key={v}
-                onClick={() => setDistBy(v)}
-                className={`px-2.5 py-1 text-[11px] font-semibold transition ${distBy === v ? "bg-[#14271C] text-white dark:bg-white dark:text-[#14271C]" : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )
-
-        /* ── มุมมองอู่: อันดับอู่ที่ถือรถอยู่ + แถบแบ่งตามช่วงวันซ่อม ── */
-        if (byGarage) {
-          const shown   = showAllGarages ? garages : garages.slice(0, 8)
-          const maxCnt  = garages[0]?.count ?? 1
-          const trucks  = garages.reduce((a, g) => a + g.count, 0)
-          const slowest = [...garages].sort((a, b) => b.maxDays - a.maxDays)[0]
-          const seg = (n: number, color: string, label: string) =>
-            n ? <div key={label} title={`${label} ${n} คัน`} style={{ flex: n, background: color }} /> : null
-          return (
-            <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">🏭 อู่ที่ถือรถอยู่ตอนนี้</p>
-                  {toggle}
-                </div>
-                <span className="text-xs text-gray-400">
-                  {garages.length} อู่ · {trucks} คัน
-                  {slowest && <> · ค้างนานสุด <b className="text-[#DC2626]">{slowest.garage} {slowest.maxDays} วัน</b></>}
-                </span>
-              </div>
-
-              {/* ชื่ออู่ที่อาจเป็นอู่เดียวกัน — ตัวเลขจะกระจายกันจนดูน้อยกว่าจริง */}
-              {dupes.length > 0 && (
-                <div className="mt-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-300">
-                  <button onClick={() => setShowDupes((v) => !v)} className="text-left font-semibold">
-                    ⚠ พบชื่ออู่ที่น่าจะเป็นอู่เดียวกัน {dupes.length} กลุ่ม — ตัวเลขด้านล่างจึงกระจายกันอยู่ {showDupes ? "▲" : "▼"}
-                  </button>
-                  {showDupes && (
-                    <ul className="mt-1.5 space-y-1">
-                      {dupes.map((d) => (
-                        <li key={d.names.join("|")} className="text-[11.5px]">
-                          รวมกัน <b>{d.total} คัน</b>: {d.names.join("  ·  ")}
-                        </li>
-                      ))}
-                      <li className="pt-0.5 text-[11px] opacity-80">แก้โดยเปิดรายการแล้วเลือกชื่ออู่ให้ตรงกันจากรายการอู่ (หน้า จัดการอู่ / ร้านอะไหล่)</li>
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              <div className="mt-3 space-y-1">
-                {shown.map((g) => {
-                  const active = fGarage === g.garage
-                  const worst  = g.gte15 ? "#DC2626" : g.d8_14 ? "#E8A317" : "#1B8C4B"
-                  return (
-                    <button
-                      key={g.garage}
-                      onClick={() => setFGarage(active ? "" : g.garage)}
-                      title={`${g.garage} — ${g.count} คัน · เฉลี่ย ${g.avgDays} วัน · นานสุด ${g.maxDays} วัน (คลิกเพื่อกรองตาราง)`}
-                      className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition ${active ? "bg-[#F0FDF4] ring-1 ring-[#1B8C4B]/30 dark:bg-white/5" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
-                    >
-                      <span className="w-7 shrink-0 text-right text-[19px] font-semibold leading-none" style={{ fontFamily: "'Mitr', sans-serif", color: worst }}>{g.count}</span>
-                      <span className={`min-w-0 flex-1 truncate text-[13px] ${active ? "font-semibold text-[#14271C] dark:text-white" : "text-gray-700 dark:text-gray-300"}`}>{g.garage}</span>
-                      <span className="hidden h-2.5 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10 sm:flex" style={{ width: `${Math.max(12, (g.count / maxCnt) * 100)}%`, maxWidth: 200, minWidth: 24 }}>
-                        {seg(g.lt8, "#1B8C4B", "0-7 วัน")}{seg(g.d8_14, "#E8A317", "8-14 วัน")}{seg(g.gte15, "#DC2626", "15+ วัน")}
-                      </span>
-                      <span className="w-[92px] shrink-0 text-right text-[11.5px] font-semibold" style={{ color: worst }}>นานสุด {g.maxDays} วัน</span>
-                    </button>
-                  )
-                })}
-              </div>
-
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#F1F5F2] dark:border-white/5 pt-2 text-[11px] text-gray-500 dark:text-gray-400">
-                {[["#1B8C4B", "0–7 วัน"], ["#E8A317", "8–14 วัน"], ["#DC2626", "15+ วัน"]].map(([c, l]) => (
-                  <span key={l} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c }} />{l}</span>
-                ))}
-                <span className="opacity-70">คลิกแถว = กรองตารางเฉพาะอู่นั้น</span>
-                {garages.length > 8 && (
-                  <button onClick={() => setShowAllGarages((v) => !v)} className="ml-auto font-medium text-[#1B8C4B] hover:underline">
-                    {showAllGarages ? "ย่อเหลือ 8 อันดับแรก" : `ดูอีก ${garages.length - 8} อู่`}
-                  </button>
-                )}
-              </div>
-            </div>
-          )
-        }
-
-        /* ── มุมมองฟลีท (เดิม) ── */
-        const fleetTotal = stats.fleetDist.reduce((s2, f) => s2 + f.count, 0)
-        return (
-          <div className="mb-3 rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9AA8A0]">สัดส่วนตามฟลีท</p>
-                {toggle}
-              </div>
-              <span className="text-xs text-gray-400">{stats.fleetDist.length} ฟลีท · {fleetTotal} คัน</span>
-            </div>
-            <div className="mt-2.5 flex h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-white/10">
-              {stats.fleetDist.map((f, i) => (f.count && fleetTotal ? (
-                <button
-                  key={f.fleet}
-                  title={`${f.fleet} · ${f.count} คัน`}
-                  onClick={() => setFFleet(fFleet === f.fleet ? "" : f.fleet)}
-                  className="h-full transition-opacity hover:opacity-80"
-                  style={{ width: `${(f.count / fleetTotal) * 100}%`, background: FLEET_PALETTE[i % FLEET_PALETTE.length] }}
-                />
-              ) : null))}
-            </div>
-            <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-              {stats.fleetDist.map((f, i) => {
-                const active = fFleet === f.fleet
-                return (
-                  <button
-                    key={f.fleet}
-                    onClick={() => setFFleet(active ? "" : f.fleet)}
-                    className={`inline-flex items-center gap-1.5 rounded px-1 text-xs transition ${active ? "bg-[#F0FDF4] dark:bg-white/5" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
-                  >
-                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: FLEET_PALETTE[i % FLEET_PALETTE.length] }} />
-                    <span className={active ? "font-semibold text-[#14271C] dark:text-white" : "text-gray-600 dark:text-gray-300"}>{f.fleet}</span>
-                    <span className="font-semibold text-[#14271C] dark:text-white">{f.count}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })()}
-
       {/* Search + filter bar (1a) — แนวตั้ง บนลงล่าง (ตัวกรองของใบงาน — ซ่อนในมุมมองแผนซ่อม) */}
-      {(isDone || (view !== "plan" && view !== "garage")) && (
+      {(isDone || view !== "garage") && (
       <div className="mb-3 flex flex-col gap-2">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1577,7 +1392,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )}
 
       {/* Type filter tabs — อู่นอก / อะไหล่ลงคัน */}
-      {showWms && view !== "plan" && (
+      {showWms && (
         <div className="mb-3 flex w-full flex-wrap items-center gap-1.5">
           <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">ประเภท:</span>
           {[
@@ -1604,36 +1419,72 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const cbt = stats.countsByType
         const cnt = (jt: string, status: string) => cbt?.[jt]?.[status] ?? 0
         // แถว chips ของประเภทหนึ่ง — คลิก chip = กรองทั้งประเภท+สถานะ
-        const chipRow = (jt: string, emoji: string, list: typeof ACTIVE_STATUSES) => (
-          <div className="flex w-full flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => { setFType(fType === jt && !fStatus ? "" : jt); setFStatus("") }}
-              className={`inline-flex w-[120px] items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold transition ${fType === jt && !fStatus ? "bg-[#14271C] text-white" : "text-[#5B7568] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-              title={`ดูเฉพาะ${jt}ทั้งหมด`}
-            >
-              {emoji} {jt}:
-            </button>
-            {list.map((s) => {
-              const active = fStatus === s.value && fType === jt
-              const color  = barColor(s.value)
-              return (
-                <button
-                  key={jt + s.value}
-                  onClick={() => {
-                    if (active) { setFStatus(""); setFType("") }
-                    else { setFStatus(s.value); setFType(jt) }
-                  }}
-                  className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${active ? "text-white" : "border border-[#E2E8E4] dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"}`}
-                  style={active ? { background: color } : undefined}
-                >
-                  {!active && <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />}
-                  <span>{s.emoji}</span>{s.value}
-                  <span className="opacity-70">{cnt(jt, s.value)} คัน</span>
-                </button>
-              )
-            })}
-          </div>
-        )
+        // การ์ดสถานะ: แท่งแนวตั้ง + ไอคอนในกล่องสี + ป้าย + จำนวน · กดที่การ์ด = กรองประเภท+สถานะนั้น
+        // เลื่อนแนวนอนได้เมื่อการ์ดเกินความกว้าง — ไม่ยุบ ไม่ตัดป้ายทิ้ง (บทเรียนจาก grid-cols-6 ที่หายบนมือถือ)
+        // เรียงตามลำดับขั้นของงาน ไม่เรียงตามจำนวน — จะได้เห็นว่างานไปกองอยู่ช่วงไหนของสายพาน
+        const barRow = (jt: string, emoji: string, list: typeof ACTIVE_STATUSES) => {
+          const max   = Math.max(1, ...list.map((s) => cnt(jt, s.value)))
+          const total = list.reduce((a, s) => a + cnt(jt, s.value), 0)
+          const typeActive = fType === jt && !fStatus
+          return (
+            <section className="min-w-0 overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-3" aria-label={`สถานะ${jt}`}>
+              <button
+                onClick={() => { setFType(typeActive ? "" : jt); setFStatus("") }}
+                title={`ดูเฉพาะ${jt}ทั้งหมด`}
+                className={`mb-2.5 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[13px] font-semibold transition ${typeActive ? "bg-[#14271C] text-white" : "text-[#14271C] dark:text-white hover:bg-gray-50 dark:hover:bg-white/5"}`}
+              >
+                <span>{emoji} {jt}</span>
+                <span className={`ml-auto text-xs tabular-nums ${typeActive ? "opacity-80" : "text-[#9AA8A0]"}`}>รวม {total} คัน</span>
+              </button>
+              <div className="flex min-w-0 items-stretch gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
+                {list.map((st) => {
+                  const n      = cnt(jt, st.value)
+                  const active = fStatus === st.value && fType === jt
+                  const color  = barColor(st.value)
+                  // แท่งขั้นต่ำ 12% เมื่อมีของ — 1 คันจากฐาน 25 คิดตรง ๆ ได้ 4% ซึ่งมองแทบไม่เห็น
+                  const pct    = n > 0 ? Math.max(12, (n / max) * 100) : 0
+                  return (
+                    <button
+                      key={jt + st.value}
+                      onClick={() => {
+                        if (active) { setFStatus(""); setFType("") }
+                        else { setFStatus(st.value); setFType(jt) }
+                      }}
+                      aria-pressed={active}
+                      aria-label={`${st.value} ${n} คัน`}
+                      title={`${st.value} — ${n} คัน (กดเพื่อกรอง)`}
+                      className={`flex w-[5.75rem] shrink-0 flex-col items-center gap-1.5 rounded-xl border px-2 py-2.5 text-center transition ${
+                        active ? "border-[#1B8C4B] bg-[#F0FDF4] dark:bg-emerald-900/20"
+                        : n === 0 ? "border-[#F1F5F3] bg-[#FAFCFB] dark:border-white/5 dark:bg-white/[0.02]"
+                        : "border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-transparent hover:border-[#C6CFC9] hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                    >
+                      {/* รางสูงเท่ากันทุกใบ ให้เทียบความสูงแท่งกันได้ด้วยตา */}
+                      <span className="flex h-14 w-full items-end justify-center">
+                        <span className="flex h-full w-5 items-end justify-center rounded-t-md bg-[#F1F5F3] dark:bg-white/5">
+                          {n > 0 && (
+                            <span className="w-full rounded-t-md transition-[height]"
+                              style={{ height: `${pct}%`, background: color }} />
+                          )}
+                        </span>
+                      </span>
+                      <span className="flex size-9 items-center justify-center rounded-lg text-base"
+                        style={n === 0 ? undefined : { background: `${color}1F`, color }}>
+                        <span className={n === 0 ? "opacity-40 grayscale" : ""}>{st.emoji}</span>
+                      </span>
+                      <span className={`line-clamp-2 min-h-[2rem] text-[11px] font-medium leading-tight ${n === 0 ? "text-[#9AA8A0]" : "text-[#14271C] dark:text-gray-200"}`}>
+                        {st.value}
+                      </span>
+                      <span className="text-xs font-bold tabular-nums" style={{ color: n === 0 ? "#9AA8A0" : color }}>
+                        {n} คัน
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )
+        }
+
         return (
           <div className="mb-4 space-y-2">
             {/* แถวบน: สรุป + ตัวกรองพิเศษ */}
@@ -1720,48 +1571,68 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </>
               )}
             </div>
-            {/* แถวอู่นอก + แถวอะไหล่ลงคัน (ซ่อนแถวที่ไม่เกี่ยวเมื่อกรองประเภทอยู่) */}
-            {(fType === "" || fType === JOB_TYPE_GARAGE) && chipRow(JOB_TYPE_GARAGE, "🔧", ACTIVE_STATUSES)}
-            {(fType === "" || fType === JOB_TYPE_PARTS)  && chipRow(JOB_TYPE_PARTS, "🔩", PARTS_ACTIVE_STATUSES)}
+            {/* กราฟสถานะสองประเภท — เรียงข้างกันบนจอกว้าง ซ้อนบนจอแคบ
+                min-w-0 บนตัว grid ต้องมี ไม่งั้นการ์ดข้างในดันความกว้างจนล้นจอแทนที่จะเลื่อนในแถบตัวเอง
+                (ซ่อนกราฟที่ไม่เกี่ยวเมื่อกรองประเภทอยู่) */}
+            <div className="grid min-w-0 gap-2 md:grid-cols-2">
+              {(fType === "" || fType === JOB_TYPE_GARAGE) && barRow(JOB_TYPE_GARAGE, "🔧", ACTIVE_STATUSES)}
+              {(fType === "" || fType === JOB_TYPE_PARTS)  && barRow(JOB_TYPE_PARTS, "🔩", PARTS_ACTIVE_STATUSES)}
+            </div>
           </div>
         )
       })()}
 
-      {/* คำอธิบาย SLA */}
-      {showWms && (
-        <p className="mb-4 flex items-start gap-1.5 text-[11px] leading-relaxed text-[#9AA8A0]">
-          <span className="shrink-0">ⓘ</span>
-          <span><b className="font-semibold text-[#5B7568] dark:text-gray-400">เกณฑ์ค้างงาน (SLA):</b> {REPAIR_SLA_NOTE}</span>
-        </p>
-      )}
-
       {/* ── เทียบอัตโนมัติกับ ATMS + รถจอดจริง — โฟกัสงานอู่นอกที่ "ขาด" จากระบบ ── */}
-      {showWms && atms && (() => {
-        const inWms = atms.pending.filter((p) => p.wms)
+      {showWms && (atms || alertRows.length > 0) && (() => {
+        const inWms = atms ? atms.pending.filter((p) => p.wms) : []
         const mrIssues = inWms.filter((p) => p.wms!.mrMatch !== "match" && p.mrCode)
-        const prFill = atms.prFill ?? []
-        const hasIssue = atms.missing.length > 0 || mrIssues.length > 0 || prFill.length > 0
+        const prFill = atms?.prFill ?? []
+        const hasIssue = (atms?.missing.length ?? 0) > 0 || mrIssues.length > 0 || prFill.length > 0 || alertRows.length > 0
         return (
-          <div id="atms-compare" className={`mb-4 rounded-[12px] border px-4 py-3 text-[13px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <span className="font-bold">🔎 เทียบ Mena-Next·รถจอดจริง:</span>
-              <span>ค้างซ่อมอู่นอกจริง <b>{atms.pending.length}</b> คัน</span>
-              <span>· มีในระบบ <b>{inWms.length}</b></span>
-              {atms.missing.length > 0
-                ? <span className="font-bold text-rose-600 dark:text-rose-300">· ขาด {atms.missing.length} คัน</span>
-                : <span>· ครบทุกคัน ✓</span>}
-              {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ว่าง/ไม่ตรง {mrIssues.length}</span>}
-              {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR (Mena-Next มีให้เติม) {prFill.length}</span>}
-              <span className="text-[11px] opacity-60">อัพเดท {fmtDateTime(atms.fetchedAt)}</span>
-              <button
-                onClick={() => setAtmsOpen((v) => !v)}
-                className="ml-auto shrink-0 rounded-lg border border-current/30 px-3 py-1 text-[12px] font-bold hover:bg-white/50 dark:hover:bg-white/10"
-              >
-                {atmsOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียด"}
-              </button>
+          <div id="atms-compare" className={`mb-4 rounded-[12px] border px-3 py-2 text-[12px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
+            {/* บรรทัดเดียวจบ — ตัวเลขเทียบ Mena-Next และจำนวนงานที่สถานะไม่ตรง เคยเป็นสองแถบซ้อนกัน
+                กินพื้นที่เหนือตารางเกือบ 200px · คำอธิบายยาว ๆ ย้ายไปอยู่ใน title ให้ hover อ่านแทน
+                flex-wrap ไว้เพื่อให้จอแคบตกบรรทัดแทนที่จะโดนตัดหาย */}
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              {atms && (
+                <>
+                  <span className="font-bold" title={`ข้อมูล Mena-Next อัพเดท ${fmtDateTime(atms.fetchedAt)}`}>🔎 เทียบ Mena-Next</span>
+                  <span>อู่นอกจริง <b>{atms.pending.length}</b></span>
+                  <span>· ในระบบ <b>{inWms.length}</b></span>
+                  {atms.missing.length > 0
+                    ? <span className="font-bold text-rose-600 dark:text-rose-300">· ขาด {atms.missing.length}</span>
+                    : <span>· ครบ ✓</span>}
+                  {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ไม่ตรง {mrIssues.length}</span>}
+                  {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR {prFill.length}</span>}
+                </>
+              )}
+              {alertRows.length > 0 && (
+                <span className="font-semibold text-amber-700 dark:text-amber-300"
+                  title="เช่น รถกลับมาวิ่งแล้วแต่ยังไม่ปิดงาน หรือรถเข้าอู่แล้วแต่งานยัง&quot;รอประเมินการซ่อม&quot; — กดปุ่มข้าง ๆ เพื่อกรองดูเฉพาะรายการเหล่านี้">
+                  {atms ? "· " : ""}⚠ สถานะไม่ตรง {alertRows.length}
+                </span>
+              )}
+              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                {alertRows.length > 0 && (
+                  <button
+                    onClick={() => setConflictOnly((v) => !v)}
+                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition ${conflictOnly ? "border-amber-500 bg-amber-500 text-white" : "border-amber-400 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"}`}
+                  >
+                    {conflictOnly ? "แสดงทั้งหมด" : "เฉพาะขัดแย้ง"}
+                  </button>
+                )}
+                {atms && (
+                  <button
+                    onClick={() => setAtmsOpen((v) => !v)}
+                    className="rounded-lg border border-current/30 px-2.5 py-1 text-[11px] font-bold hover:bg-white/50 dark:hover:bg-white/10"
+                  >
+                    {atmsOpen ? "ซ่อน" : "รายละเอียด"}
+                  </button>
+                )}
+              </span>
             </div>
 
-            {atmsOpen && (
+            {atms && atmsOpen && (
               <div className="mt-3 space-y-3 border-t border-current/10 pt-3">
                 {/* งานที่ขาด — สร้างได้ทีละคัน (prefill ให้ครบ) */}
                 {atms.missing.length > 0 && (
@@ -1854,24 +1725,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             <b>พบรถซ้ำ {dupList.length} คัน</b> (ทะเบียนหรือเบอร์รถตรงกัน) — รถ 1 คันควรมีรายการซ่อมที่ยัง<b>ไม่เสร็จ</b>ได้แค่ 1 รายการ กรุณา<b>ลบให้เหลือคันละ 1 รายการ</b>
             <span className="ml-1 opacity-80">({dupList.join(", ")})</span>
           </span>
-        </div>
-      )}
-
-      {/* งานที่สถานะไม่ตรงกับสถานะรถจริง — แจ้งให้อัพเดท */}
-      {showWms && alertRows.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[12px] border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-300">
-          <span className="shrink-0">⚠</span>
-          <span className="flex-1">
-            <b>พบ {alertRows.length} งานที่สถานะอาจไม่ตรงกับรถจริง</b> — เช่น รถกลับมาวิ่งแล้วแต่ยังไม่ปิดงาน
-            หรือรถเข้าอู่แล้วแต่งานยัง &quot;รอประเมินการซ่อม&quot; → กรุณาตรวจสอบ/อัพเดทสถานะ
-            <span className="ml-1 opacity-80">({[...new Set(alertRows.map((r) => r.plate))].join(", ")})</span>
-          </span>
-          <button
-            onClick={() => setConflictOnly((v) => !v)}
-            className={`shrink-0 rounded-lg border px-3 py-1.5 text-[12px] font-bold transition ${conflictOnly ? "border-amber-500 bg-amber-500 text-white" : "border-amber-400 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"}`}
-          >
-            {conflictOnly ? "แสดงทั้งหมด" : "ดูเฉพาะรายการขัดแย้ง"}
-          </button>
         </div>
       )}
 
@@ -2108,167 +1961,30 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )}
 
       {/* Kanban board — แยกบอร์ดต่อประเภทงาน (workflow คนละชุด) */}
-      {view === "board" && !isDone && [
-        { type: JOB_TYPE_GARAGE, emoji: "🔧", statuses: ACTIVE_STATUSES },
-        { type: JOB_TYPE_PARTS,  emoji: "🔩", statuses: PARTS_ACTIVE_STATUSES },
-      ].filter((b) => !fType || fType === b.type).map((b) => {
-        const boardRows = displayRows.filter((r) => jobTypeOf(r) === b.type)
-        return (
-        <div key={b.type} className="mb-5">
-          {!fType && (
-            <p className="mb-2 flex items-center gap-1.5 text-[13px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-              <span>{b.emoji}</span>{b.type}
-              <span className="rounded-full bg-[#F1F5F2] dark:bg-white/10 px-1.5 text-[11px] font-semibold text-[#5B7568] dark:text-gray-300">{boardRows.length}</span>
-            </p>
-          )}
-        <div className="overflow-x-auto pb-2">
-          <div className="flex gap-3">
-            {(() => {
-              // สถานะที่มีข้อมูลจริงแต่ไม่อยู่ใน workflow แล้ว (รายการเก่า/นำเข้าผิด) — ต้องมีคอลัมน์ ไม่งั้นการ์ดหายเงียบ
-              const known = new Set(b.statuses.map((x) => x.value))
-              const extra = [...new Set(boardRows.map((r) => r.status).filter((v) => v && !known.has(v)))]
-                .map((v) => statusMeta(v))
-              return [...b.statuses, ...extra]
-            })().map((s) => {
-              const colRows = boardRows.filter((r) => r.status === s.value)
-              const colColor = barColor(s.value)
-              const colAges  = colRows.map((r) => ageDays(jobStartDate(r))).filter((n): n is number => n !== null)
-              const avgCol   = colAges.length ? Math.round(colAges.reduce((a, b) => a + b, 0) / colAges.length) : 0
-              return (
-                <div
-                  key={s.value}
-                  className="flex min-w-[170px] flex-1 flex-col rounded-xl border border-[#EEF2F0] bg-gray-50/60 transition dark:border-white/8 dark:bg-white/[0.03]"
-                >
-                  <div className="border-b border-[#EEF2F0] dark:border-white/8 px-3 py-2" style={{ borderTop: `3px solid ${colColor}`, borderTopLeftRadius: 11, borderTopRightRadius: 11 }}>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
-                        <span>{s.emoji}</span>{s.value}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        {colRows.length > 0 && (
-                          <button
-                            onClick={() => copyColumnLine(s, colRows, avgCol)}
-                            title="คัดลอกทั้งคอลัมน์ (ส่งไลน์)"
-                            className="flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-[#1B8C4B]/10 hover:text-[#1B8C4B]"
-                          >
-                            <Copy size={12} />
-                          </button>
-                        )}
-                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold" style={{ background: colColor + "22", color: colColor }}>
-                          {colRows.length}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="mt-0.5 text-[10px] text-gray-400">เฉลี่ย {avgCol} วัน</p>
-                  </div>
-                  <div className="min-h-[140px] flex-1 space-y-2 p-2">
-                    {colRows.map((r) => {
-                      const days = ageDays(jobStartDate(r))
-                      const bkt  = days !== null ? agingBucket(days) : null
-                      const idx  = b.statuses.findIndex((x) => x.value === r.status)
-                      const dueOverdue = !!r.dueDate && r.dueDate < todayStr()
-                      return (
-                      <div
-                        key={r._id}
-                        onClick={() => openEdit(r)}
-                        className={`group cursor-pointer rounded-[11px] border bg-white dark:bg-[#0f1117] p-2.5 text-left shadow-sm transition hover:shadow-md ${isDup(r) ? "border-red-400 dark:border-red-500/60" : "border-[#EEF2F0] dark:border-white/10"}`}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="min-w-0 truncate">
-                            <span className="text-[15px] font-bold text-[#14271C] dark:text-white">{r.fleetNo || r.plate || "—"}</span>
-                            {r.fleetNo && r.plate && <span className="ml-1.5 text-[10px] font-normal text-[#9AA8A0]">{r.plate}</span>}
-                          </span>
-                          {days !== null && bkt && (
-                            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ color: bkt.text, background: bkt.bg }}>{days} วัน</span>
-                          )}
-                        </div>
-                        {isDup(r) && <div className="mt-1 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[9.5px] font-bold text-red-700 dark:bg-red-900/30 dark:text-red-300">⚠ ทะเบียนซ้ำ — ต้องลบ</div>}
-                        {!!r.waitingQuote && <div className="mt-1 inline-flex items-center gap-1 rounded bg-cyan-100 px-1.5 py-0.5 text-[9.5px] font-bold text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">🔍 รอใบเสนอราคา</div>}
-                        {checkedToday(r) && <div className="mt-1 ml-1 inline-flex items-center gap-1 rounded bg-[#ECFDF3] px-1.5 py-0.5 text-[9.5px] font-bold text-[#1B8C4B] dark:bg-emerald-900/25 dark:text-emerald-300" title={`ยืนยันโดย ${r.lastCheckedBy || "-"}`}>✅ เช็คแล้ว</div>}
-                        {dailyStatus[r.plate] && (
-                          <div className={`mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-bold ${DAILY_GROUP_CLS[dailyStatus[r.plate].group] ?? DAILY_GROUP_CLS.unknown}`}
-                            title={`${dailyStatus[r.plate].label} · ค้างซ่อม (B/BA) ${dailyStatus[r.plate].streak_days ?? 0} วัน · ถึง ${dailyStatus[r.plate].date}`}>
-                            📊 {dailyStatus[r.plate].status}
-                            {(dailyStatus[r.plate].streak_days ?? 0) > 0 && <span>· {dailyStatus[r.plate].streak_days}{dailyStatus[r.plate].streak_capped ? "+" : ""}ว</span>}
-                          </div>
-                        )}
-                        <div className="mt-1 line-clamp-2 text-[10.5px] text-[#5B7568] dark:text-gray-400" title={r.symptom}>{r.symptom || "—"}</div>
-                        {/* workflow progress */}
-                        <div className="mt-2 flex gap-0.5">
-                          {b.statuses.map((_, i) => (
-                            <div key={i} className="h-1 flex-1 rounded-full" style={{ background: i <= idx ? colColor : "#E5E7EB" }} />
-                          ))}
-                        </div>
-                        {(r.fleet || r.plant) && (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {r.fleet && <span className="rounded bg-[#EAF6EE] px-1.5 py-0.5 text-[9.5px] font-medium text-[#0F6A3C] dark:bg-[#1B8C4B]/15 dark:text-[#4ade80]">🚚 {r.fleet}</span>}
-                            {r.plant && <span className="rounded bg-[#EEF2FF] px-1.5 py-0.5 text-[9.5px] font-medium text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300">🏭 {r.plant}</span>}
-                          </div>
-                        )}
-                        {!r.prCode?.trim() && (
-                          <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-[#FDF3DD] px-1.5 py-0.5 text-[10px] font-semibold text-[#B07D12] dark:bg-amber-900/25 dark:text-amber-300">⚠ ยังไม่มี PR</div>
-                        )}
-                        <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#9AA8A0]">
-                          <span className="truncate">{r.garage || "ยังไม่ระบุอู่"}</span>
-                          {r.dueDate && <span className={`shrink-0 ${dueOverdue ? "font-semibold text-[#DC2626]" : ""}`}>📅 {fmtDateShort(r.dueDate)}</span>}
-                        </div>
-                        {r.repairPrice > 0 && (
-                          <div className="mt-1 text-[11px] font-semibold text-[#1B8C4B]">฿ {fmtNum(r.repairPrice)}</div>
-                        )}
-                        {!isDone && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); openUpdate(r) }}
-                            className="mt-2 w-full rounded-lg border border-[#E4D5FB] bg-[#FAF5FF] py-1 text-[11px] font-semibold text-[#7C3AED] transition hover:bg-[#F3E8FF] dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300"
-                          >
-                            ✍️ อัพเดทงาน
-                          </button>
-                        )}
-                      </div>
-                      )
-                    })}
-                    {colRows.length === 0 && (
-                      <p className="py-6 text-center text-[11px] text-gray-300 dark:text-gray-600">
-                        —
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-        </div>
-        )
-      })}
-
       {/* แผนซ่อม — gantt วางแผนรถเข้าอู่นอกล่วงหน้า (หลายแผนต่อทะเบียนได้) */}
       {view === "garage" && !isDone && <GarageLoadTab />}
 
-      {view === "plan" && !isDone && (
-        <RepairPlanTab garages={garages} onConvert={openAddFromPlan} refreshKey={planRefreshKey} />
-      )}
-
       {/* Modal — ฟอร์มหน้าเดียว (บนลงล่าง) header/footer ตรึง เนื้อหาเลื่อน */}
       {open && (
-        <div className={`fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm ${modalFull ? "p-0" : "p-2 sm:p-4"}`}>
-          {/* ขนาดของกล่องนี้ผูกกับ overlay (100%) ไม่ใช่ vh — เพราะ zoom มีกติกาต่างกันสองแบบ:
-              ค่า % เบราว์เซอร์แปลงให้เข้ากับ zoom ให้แล้ว (ห้ามหารซ้ำ ไม่งั้น 150% จะได้ modal เล็กลงเหลือ 2/3)
-              ส่วนหน่วยสัมบูรณ์อย่าง rem/vh ไม่ถูกแปลง ต้องหารด้วย zoom เอง (max-w-5xl = 64rem จึงเขียนเป็น calc)
-              เดิมใช้ max-h-[94vh] + my-6 ซึ่งโดน zoom คูณทั้งคู่ ตั้ง 150% แล้วล้นจอ — วัดจริงในเบราว์เซอร์แล้ว
-              สูตรนี้พอดีทุกระดับ (ปกติ 1024x768 · เต็มจอ 1280x800 ที่จอ 1280x800) */}
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm">
+          {/* Drawer แนบขอบขวา เต็มความสูง เนื้อหาเลื่อนต่อเนื่อง (เดิมเป็นการ์ดลอยกลางจอ)
+              ที่ยังต้องระวังเรื่อง zoom เหมือนเดิม: ค่า % เบราว์เซอร์แปลงให้เข้ากับ zoom แล้ว (ห้ามหารซ้ำ)
+              แต่หน่วยสัมบูรณ์อย่าง rem ไม่ถูกแปลง ต้องหารด้วย zoom เอง — ไม่งั้นตั้ง ก+++ แล้ว drawer
+              กว้างเกินจอ · ความสูงใช้ 100% ของ overlay จึงปลอดภัยทุกระดับ ไม่ต้องแตะ */}
           <div
-            className={`flex flex-col border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-xl ${modalFull ? "rounded-none" : "rounded-2xl"}`}
+            className="drawer-in flex h-full flex-col border-l border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] shadow-2xl"
             style={{
               zoom: modalZoom === 1 ? undefined : modalZoom,
               width: "100%",
-              maxWidth: modalFull ? "100%" : `calc(64rem / ${modalZoom})`,
-              maxHeight: "100%",
-              height: modalFull ? "100%" : undefined,
+              maxWidth: modalFull ? "100%" : `calc(52rem / ${modalZoom})`,
+              height: "100%",
             }}
           >
-            <div className="flex items-center justify-between border-b border-[#EEF2F0] dark:border-white/8 px-5 py-4">
-              <div className="flex items-center gap-2.5">
+            {/* flex-wrap ทั้งสองชั้น — บนจอแคบ drawer กว้างเท่าจอ ปุ่มชุดนี้ (แก้ไข/คัดลอก 2 ปุ่ม/
+                ชิปขนาด 4 ตัว/เต็มจอ/ปิด) รวมกันเกิน 500px ถ้าไม่ตกบรรทัดจะหลุดออกนอกขอบแล้วกดไม่ได้
+                วัดจริงที่จอ 390px ก่อนแก้: ขอบขวาของแถบปุ่มอยู่ที่ 543px */}
+            <div className="flex flex-wrap items-center justify-between gap-y-2 border-b border-[#EEF2F0] dark:border-white/8 px-3 py-3 sm:px-5 sm:py-4">
+              <div className="flex min-w-0 items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
                   {!editId
                     ? (isParts ? "รายการอะไหล่ลงคัน" : "รายการแจ้งซ่อม")
@@ -2282,7 +1998,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
                 {editId && viewOnly && (
                   <button onClick={() => setViewOnly(false)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0F6A3C]">
                     <Pencil size={14} /> แก้ไขข้อมูล
@@ -2299,26 +2015,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </button>
                 )}
                 {/* ขยายตัวอักษร / เต็มจอ — ค่าที่ตั้งไว้จำข้ามการเปิดรายการถัดไป (ผู้ใช้ขอ 25/08/2026) */}
-                <div className="ml-1 flex items-center gap-0.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-1 py-0.5">
-                  <button
-                    onClick={() => bumpZoom(-1)}
-                    disabled={modalZoom === MODAL_ZOOMS[0]}
-                    title="ลดขนาดตัวอักษรในหน้าต่างนี้"
-                    className="rounded px-1.5 py-0.5 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-white/5"
-                  >
-                    A−
-                  </button>
-                  <span className="w-9 text-center text-[11px] font-semibold tabular-nums text-gray-500 dark:text-gray-400">
-                    {Math.round(modalZoom * 100)}%
-                  </span>
-                  <button
-                    onClick={() => bumpZoom(1)}
-                    disabled={modalZoom === MODAL_ZOOMS[MODAL_ZOOMS.length - 1]}
-                    title="ขยายขนาดตัวอักษรในหน้าต่างนี้"
-                    className="rounded px-1.5 py-0.5 text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-white/5"
-                  >
-                    A+
-                  </button>
+                <div className="ml-1 inline-flex items-center gap-0.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 p-0.5"
+                  role="group" aria-label="ขนาดตัวอักษรในหน้าต่างนี้">
+                  {MODAL_ZOOMS.map((z, i) => (
+                    <button
+                      key={z}
+                      onClick={() => pickZoom(z)}
+                      aria-pressed={modalZoom === z}
+                      title={`ขนาด ${Math.round(z * 100)}%`}
+                      className={`rounded px-1.5 py-0.5 text-[11px] font-bold transition ${modalZoom === z
+                        ? "bg-[#1B8C4B] text-white shadow-sm"
+                        : "text-gray-600 dark:text-gray-300 hover:bg-white hover:text-[#14271C] dark:hover:bg-white/10"}`}
+                    >
+                      ก{"+".repeat(i)}
+                    </button>
+                  ))}
                 </div>
                 <button
                   onClick={toggleFull}
@@ -2340,8 +2051,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               const dueOver = !!form.dueDate && form.dueDate < today && !isDoneStatus(form.status)
               const cell = "bg-white dark:bg-[#151a10] px-3.5 py-2"
               const cap  = "text-[10px] font-medium uppercase tracking-wide text-[#9AA8A0]"
+              // สูงสุด 3 คอลัมน์ ไม่ใช่ 6 — drawer ถูกจำกัดที่ 52rem (832px) ต่อให้จอ 4K ก็ไม่กว้างกว่านี้
+              // 6 คอลัมน์จึงได้ช่องละ ~138px เสมอ หัก px-3.5 สองข้างเหลือเนื้อที่ 110px ขณะที่
+              // "⏳ รอประเมินการซ่อม" ต้องการ 117px = โดน truncate ตัดทิ้งทุกจอ (วัดจริง 01/09/2026)
+              // 3 คอลัมน์ได้ช่องละ ~277px เหลือเฟือ และอ่านเป็น 2 แถวง่ายกว่าแถวเดียว 6 ช่องแน่น ๆ
               return (
-                <div className="grid shrink-0 grid-cols-6 gap-px border-b border-[#EEF2F0] dark:border-white/8 bg-[#EEF2F0] dark:bg-white/8">
+                <div className="grid shrink-0 grid-cols-2 gap-px border-b border-[#EEF2F0] dark:border-white/8 bg-[#EEF2F0] dark:bg-white/8 sm:grid-cols-3">
                   <div className={cell}>
                     <p className={cap}>รถ</p>
                     <p className="truncate text-[15px] font-bold leading-tight text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>{form.fleetNo || form.plate || "—"}</p>
@@ -2383,15 +2098,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               )
             })()}
 
-            {/* body — 2 คอลัมน์: ซ้ายกรอกข้อมูล · ขวาแผงสถานะ + ไทม์ไลน์ เลื่อนแยกกัน
-                เดิมเรียงคอลัมน์เดียวบนลงล่าง ใบเสนอราคาจึงตกไปอยู่ใต้พับตลอด */}
-            <div className="flex min-h-0 flex-1">
+            {/* body — คอลัมน์เดียว เลื่อนต่อเนื่องทั้งก้อน (เปลี่ยนจาก 2 คอลัมน์เลื่อนแยกกัน 01/09/2026)
+                drawer กว้างสุด 52rem ถ้าแบ่งสองคอลัมน์จะเหลือฝั่งละ ~400px ซึ่งแคบเกินสำหรับข้อความไทย
+                และ "เลื่อนแยกกัน" ทำให้ต้องเลือกว่าจะเลื่อนกล่องไหน — ใน drawer ควรเลื่อนทีเดียวจบ
+                กล่องลูกจึงต้องไม่ตั้ง overflow-y ของตัวเองอีก ไม่งั้นเกิดสกอลล์ซ้อนสกอลล์ */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               {viewOnly && editId ? (
-                <div className="min-w-0 basis-1/2 grow overflow-y-auto px-3.5 py-3">
+                <div className="min-w-0 px-3.5 py-3">
                   <RepairDetailCard r={form} isParts={isParts} images={formImages} quotImages={formQuotImages} negImages={formNegImages} />
                 </div>
               ) : (
-              <div className="min-w-0 basis-1/2 grow space-y-2 overflow-y-auto px-3.5 py-3">
+              <div className="min-w-0 space-y-2 px-3.5 py-3">
               {/* ── หมวด 1: ข้อมูลรถ (เขียว) ── */}
               <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
               <button type="button" onClick={() => toggleSec("vehicle", true)} className="flex w-full items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ{secChevron(secOpen("vehicle", true))}</button>
@@ -2647,7 +2364,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               )}
 
               {/* ── ขวา: แผงสถานะ + ไทม์ไลน์ · กว้างคงที่ ตรึงไว้ไม่เลื่อนหายไปกับฟอร์ม ── */}
-              <div className="flex min-w-0 basis-1/2 grow flex-col gap-2 overflow-hidden border-l border-[#EEF2F0] dark:border-white/8 bg-[#FBFDFC] dark:bg-white/[0.015] px-3.5 py-3">
+              <div className="flex min-w-0 flex-col gap-2 border-t border-[#EEF2F0] dark:border-white/8 bg-[#FBFDFC] dark:bg-white/[0.015] px-3.5 py-3">
               {!(viewOnly && editId) && (<>
               {/* ── หมวด 3: สถานะ · เอกสาร (ม่วง) ── */}
               <section className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 bg-white dark:bg-[#151a10] shadow-sm">
@@ -2761,7 +2478,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               {/* ── 🕓 ไทม์ไลน์รวม — ประวัติสถานะ + Mena-Next + ความคิดเห็น เรียงตามเวลาจริง ──
                   เดิมแยกเป็น 3 กล่อง ต้องเลื่อนกลับไปกลับมาเพื่อปะติดปะต่อว่าเกิดอะไรก่อนหลัง */}
               {editId && (
-                <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10]">
+                <section className="flex flex-col overflow-hidden rounded-xl border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10]">
                   <div className="border-b border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 px-4 py-2.5">
                     <p className="text-[15px] font-bold text-[#37473E] dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>🕓 ไทม์ไลน์ · ความคิดเห็น</p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -2778,7 +2495,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     </div>
                   </div>
 
-                  <div className="min-h-[220px] flex-1 space-y-3.5 overflow-y-auto p-4">
+                  <div className="space-y-3.5 p-4">
                     {/* Mena-Next โหลดเมื่อกด — ยิง API ภายนอกทุกครั้งที่เปิดฟอร์มจะช้าเกินไป */}
                     {!isParts && (atmsTl === null || atmsTlLoading) && (
                       <div className="flex items-center justify-between gap-2 rounded-lg border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/60 dark:bg-indigo-900/15 px-3 py-2">
@@ -2798,17 +2515,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       <p className="py-6 text-center text-xs text-gray-400">ยังไม่มีเหตุการณ์ในมุมมองนี้</p>
                     ) : (
                       feedShown.map((f) => (
-                        <div key={f.key} className="flex gap-2.5">
-                          <div className="flex flex-col items-center">
-                            <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: FEED_DOT[feedKindOf(f)] }} />
+                        <div key={f.key} className="flex gap-2 pb-3 last:pb-0">
+                          {/* หมุดวงกลม + เส้นเชื่อม — ring สีพื้นทำให้วงกลมดูลอยเหนือเส้น ไม่ใช่ถูกเส้นผ่ากลาง
+                              เดิมเป็นจุดทึบ 2.5px ซึ่งเล็กจนไล่สายตาตามลำดับเหตุการณ์ไม่ติด */}
+                          <div className="flex w-7 shrink-0 flex-col items-center">
+                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] leading-none ring-2 ring-white dark:ring-[#151a10]"
+                              style={{ background: `${FEED_DOT[feedKindOf(f)]}1F`, color: FEED_DOT[feedKindOf(f)] }}>
+                              {FEED_ICON[f.kind] ?? "•"}
+                            </span>
                             <span className="mt-1 w-px flex-1 bg-[#EEF2F0] dark:bg-white/10" />
                           </div>
-                          <div className="min-w-0 flex-1 pb-0.5">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${FEED_TAG[feedKindOf(f)]}`}>{FEED_LABEL[feedKindOf(f)]}</span>
-                              <span className="text-[10.5px] text-[#9AA8A0]">{fmtDateTime(f.at)}</span>
-                              {f.by && <span className="text-[10.5px] text-[#9AA8A0]">· {f.by}</span>}
-                            </div>
+                          <div className="min-w-0 flex-1">
+                            {/* วัน-เวลาอยู่นอกการ์ด เหมือนหัวข้อของเหตุการณ์ · เนื้อหาอยู่ในการ์ดขาว
+                                แยกสองชั้นแบบนี้ทำให้กวาดสายตาหา "เมื่อไหร่" ได้โดยไม่ต้องอ่านเนื้อใน */}
+                            <p className="text-[11px] tabular-nums text-[#9AA8A0]">
+                              {fmtDateTime(f.at)}{f.by ? ` · ${f.by}` : ""}
+                            </p>
+                            <div className="mt-1 rounded-lg border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-white/[0.03] px-2.5 py-2 shadow-sm">
+                            <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${FEED_TAG[feedKindOf(f)]}`}>{FEED_LABEL[feedKindOf(f)]}</span>
 
                             {f.kind === "status" && (
                               <div className="mt-1">
@@ -2873,6 +2597,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                                 )}
                               </div>
                             )}
+                            </div>
                           </div>
                         </div>
                       ))
