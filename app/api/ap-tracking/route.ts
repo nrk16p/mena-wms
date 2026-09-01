@@ -5,13 +5,15 @@ import {
   parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apUrgency, nextThursday, todayICT,
   resolveCreditTerm,
   AP_STAGES, compactDocNos, docNosText, ictDate,
-  apSinceOf, inApScope, monthInApScope,
+  apSinceOf, inApScope, monthInApScope, addDays, inDateRange,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
 
 export const dynamic = "force-dynamic"
 
 const MD = process.env.MONGO_DB ?? "master_data"
+// เพดานแถวของโหมด "ช่วงวันที่กดส่งบัญชี" (ข้ามเดือน) — ดูเหตุผลที่จุดใช้งาน
+const SENT_RANGE_MAX = 6000
 type Doc = Record<string, unknown>
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()
 
@@ -71,6 +73,12 @@ export async function GET(req: NextRequest) {
     // เส้น go-live — ใบก่อนวันนี้เป็นของกระบวนการ Excel เดิม (ดูเหตุผลเต็มที่ AP_GO_LIVE)
     // เปิดย้อนหลังได้ด้วย ?since=YYYY-MM-DD (ต้องเป็นวันที่จริง ไม่งั้นถอยไปใช้ค่า go-live)
     const since     = apSinceOf(sp.get("since"))
+    // ช่วง "วันที่จัดซื้อกดส่งบัญชี" — ใส่มาเมื่อไหร่ = เปลี่ยนแกนการค้นทั้งคิวรี (ดูบล็อก 1)
+    // ค่าที่ไม่ใช่ YYYY-MM-DD ถือว่าไม่ได้ส่งมา ไม่ใช่ error — กันพารามิเตอร์เพี้ยนทำหน้าพัง
+    const ymd       = (v: string | null) => (/^\d{4}-\d{2}-\d{2}$/.test(v?.trim() ?? "") ? v!.trim() : "")
+    const sentFrom  = ymd(sp.get("sentFrom"))
+    const sentTo    = ymd(sp.get("sentTo"))
+    const sentRange = Boolean(sentFrom || sentTo)
 
     const client = await clientPromise
     const atms   = client.db("atms")
@@ -85,21 +93,51 @@ export async function GET(req: NextRequest) {
     // 1) แถว DD ของเดือนที่เลือก (+ ย้อนหลัง carryoverMonths เดือนสำหรับใบค้าง) — bounded เสมอ
     // เดือนที่จบไปทั้งเดือนก่อน go-live ตัดทิ้งตั้งแต่ตอนประกอบ $or — ไม่ต้องให้ Mongo สแกนหาเลย
     // (นี่คือตัวที่ทำให้เปิดหน้าแล้วได้ 11,203 แถว/8.4 วิ และเดือน ก.ค. ชนเพดานจนข้อมูลถูกตัด)
-    const months  = (carryover ? [month, ...prevMonths(month, carryoverMonths)] : [month])
-      .filter((m) => monthInApScope(m, since))
-
-    // ทุกเดือนในหน้าต่างอยู่ก่อน go-live หมด = ไม่มีอะไรให้ดูจริง ๆ — คืนผลว่างโดยไม่ยิงคิวรี
-    // ($or: [] เป็น error ของ Mongo ด้วย ห้ามปล่อยให้หลุดไปถึงฐานข้อมูล)
-    if (!months.length) {
-      return NextResponse.json({ rows: [], summary: emptySummary(limit, since, todayICT()) })
-    }
-
-    const match: Record<string, unknown> = { $or: months.map((m) => ({ received_at: { $regex: monthRe(m) } })) }
+    const match: Record<string, unknown> = {}
     if (warehouse) match.warehouse = warehouse
     if (supplier)  match.supplier  = supplier
     // แถวคืนสต๊อกภายใน (supplier ว่างและ purchase_order ว่างทั้งคู่ ใช้ withdraw_ref แทน) ไม่ใช่ใบเจ้าหนี้ค้างจ่าย
     // — ตัดออกจากผลลัพธ์เริ่มต้นตั้งแต่ชั้น query กัน flood หน้าติดตามเจ้าหนี้ ขอดูได้ด้วย includeInternal=1
     if (!includeInternal) match.$nor = [{ supplier: "", purchase_order: "" }]
+
+    // โหมดช่วงวันที่กดส่งบัญชี: กลับด้านคิวรี — ตั้งต้นจาก ap_tracking แทน deposit_header
+    // เพราะ sentMarkedAt อยู่ที่นั่นที่เดียว และ collection เล็กกว่ามาก (8.5k vs 17.3k ใบ ณ 01/09/2026)
+    // อีกทั้งใบที่ยังไม่เคยกดส่งไม่มี sentMarkedAt เลย จึงถูกตัดออกตั้งแต่ชั้นฐานข้อมูล
+    // ผลคือ "ข้ามทุกเดือน" ได้จริง โดยขนาดถูกจำกัดด้วยช่วงวันที่แทนที่จะเป็นเดือนที่เลือก
+    // (ตัวเลือกเดือนกรองด้วย received_at — ใบที่รับของ มิ.ย. แต่กดส่ง ส.ค. เดิมหาไม่เจอในเดือนไหนเลย)
+    let codesInRange: string[] = []
+    let rangeTruncated = false
+    if (sentRange) {
+      // sentMarkedAt เก็บเป็น ISO UTC เต็ม (new Date().toISOString()) เทียบ string ได้ตรง ๆ
+      // แต่ขอบวันที่ผู้ใช้ใส่เป็นเวลาไทย (UTC+7) — ขยายกรอบ ±1 วันที่ชั้นฐาน แล้วกรองแม่นด้วย
+      // ictDate อีกที ปลอดภัยกว่าคำนวณ offset ในคิวรีแล้วพลาดขอบวัน
+      const cond: Record<string, unknown> = { $gt: "" }   // ตัดใบที่ยกเลิกส่ง (เขียนทับเป็น "") ทิ้ง
+      if (sentFrom) cond.$gte = `${addDays(sentFrom, -1)}T00:00:00.000Z`
+      if (sentTo)   cond.$lte = `${addDays(sentTo, 1)}T23:59:59.999Z`
+      const marked = await md.collection("ap_tracking")
+        .find({ sentMarkedAt: cond }, { projection: { _id: 0, depositCode: 1, sentMarkedAt: 1 } })
+        .toArray() as Doc[]
+      const hit = marked
+        .filter((m) => inDateRange(ictDate(s(m.sentMarkedAt)), sentFrom, sentTo))
+        .sort((a, b) => s(b.sentMarkedAt).localeCompare(s(a.sentMarkedAt)))   // ใหม่ก่อน — ที่ถูกตัดคือของเก่าเสมอ
+      // เพดานของโหมดนี้: วัดจริง ~628 bytes/แถว · 6,000 แถว ≈ 3.8MB ยังไม่ชนเพดาน 4.5MB ของ Vercel
+      // (ลากทั้งชุด 8,523 ใบ ≈ 5.4MB = หน้าพังทั้งหน้าแบบเดียวกับที่เคยเจอตอนลาก carryover หลายเดือน)
+      rangeTruncated = hit.length > SENT_RANGE_MAX
+      codesInRange = hit.slice(0, SENT_RANGE_MAX).map((m) => s(m.depositCode)).filter(Boolean)
+      if (!codesInRange.length) {
+        return NextResponse.json({ rows: [], summary: emptySummary(limit, since, todayICT()) })
+      }
+      match.deposit_code = { $in: codesInRange }
+    } else {
+      const months = (carryover ? [month, ...prevMonths(month, carryoverMonths)] : [month])
+        .filter((m) => monthInApScope(m, since))
+      // ทุกเดือนในหน้าต่างอยู่ก่อน go-live หมด = ไม่มีอะไรให้ดูจริง ๆ — คืนผลว่างโดยไม่ยิงคิวรี
+      // ($or: [] เป็น error ของ Mongo ด้วย ห้ามปล่อยให้หลุดไปถึงฐานข้อมูล)
+      if (!months.length) {
+        return NextResponse.json({ rows: [], summary: emptySummary(limit, since, todayICT()) })
+      }
+      match.$or = months.map((m) => ({ received_at: { $regex: monthRe(m) } }))
+    }
 
     // เรียง "ล่าสุดก่อน" ต้องแปลง received_at (string "DD/MM/YYYY HH:mm") เป็น date จริงก่อน —
     // sort ตรง ๆ บน string จะเรียงตามวันของเดือน (31/07 มาก่อน 04/08) และถ้าไม่ sort เลย Mongo
@@ -195,7 +233,10 @@ export async function GET(req: NextRequest) {
         ...(t?.paid ? { paid: t.paid as { paymentNos?: string[] } } : {}),
         note:        s(t?.note),
         status:      apStatusOf(docs, sentDate),
-        carryover:   receivedAt.slice(0, 7) !== monthPrefix,
+        // "ค้างยกมา" = ใบของเดือนอื่นที่โผล่มาในเดือนที่เปิดอยู่ — ไม่มีความหมายในโหมดช่วงวันที่กดส่ง
+        // เพราะไม่ได้ยึดเดือนใดเป็นหลัก · ปล่อยให้เป็น true จะโดน showInTable ตัดทิ้งเกือบทั้งชุด
+        // (ใบในโหมดนี้แทบทุกใบสถานะ "ส่งบัญชีแล้ว" อยู่แล้ว) = ตารางว่างทั้งที่คิวรีเจอของ
+        carryover:   sentRange ? false : receivedAt.slice(0, 7) !== monthPrefix,
         poTotal:     parseAmount(po?.["รวม"]),
         poDue:       parseDmy(po?.["กำหนดส่งสินค้า"]),
         poStatus:    s(po?.["สถานะการรับสินค้า"]),
@@ -271,7 +312,7 @@ export async function GET(req: NextRequest) {
     // ผลลัพธ์เรียงใหม่→เก่า ดังนั้นที่ถูก limit ตัดทิ้งคือแถวที่เก่ากว่าแถวสุดท้ายที่ได้มาเสมอ
     // ถ้าแถวเก่าสุดที่ได้มายังอยู่ก่อน go-live อยู่แล้ว ของที่ถูกตัดยิ่งเก่ากว่า = นอกสโคปทั้งหมด ไม่ได้หาย
     const oldestHead = heads[heads.length - 1]
-    const truncated  = heads.length >= limit && inApScope(parseDmy(oldestHead?.received_at), since)
+    const truncated  = rangeTruncated || (heads.length >= limit && inApScope(parseDmy(oldestHead?.received_at), since))
     return NextResponse.json({
       rows,
       summary: {

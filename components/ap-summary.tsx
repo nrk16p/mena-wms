@@ -37,7 +37,7 @@ const TERM_GROUPS: { label: string; terms: string[] }[] = [
 export function ApHeader({
   summary, loading, month, onMonth, q, onQ, onRefresh,
   tab, onTab, warehouse, onWarehouse, warehouses, totalShown,
-  sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today,
+  sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today, crossMonth,
   canPull, pulling, pullProgress, onPull,
   crossHits, onGotoHit,
   viewBy, onViewBy,
@@ -61,6 +61,8 @@ export function ApHeader({
   sentView: boolean
   sentFrom: string
   sentTo: string
+  // true = ตั้งช่วงวันที่กดส่งอยู่ → เซิร์ฟเวอร์ค้นข้ามทุกเดือน ตัวเลือกเดือนไม่มีผล
+  crossMonth: boolean
   onSentRange: (from: string, to: string) => void
   groupSent: boolean
   onGroupSent: (v: boolean) => void
@@ -110,13 +112,22 @@ export function ApHeader({
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center rounded-lg border border-gray-200 dark:border-white/10">
-            <button onClick={() => onMonth(shiftMonth(month, -1))} aria-label="เดือนก่อนหน้า"
-              className="rounded-l-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-white/5"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="min-w-[8.5rem] px-2 text-center text-sm">{monthLabel(month)}</span>
-            <button onClick={() => onMonth(shiftMonth(month, 1))} aria-label="เดือนถัดไป"
-              className="rounded-r-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-white/5"><ChevronRight className="h-4 w-4" /></button>
-          </div>
+          {/* ตั้งช่วงวันที่กดส่งอยู่ = ค้นข้ามทุกเดือน ตัวเลือกเดือนไม่มีผล — ต้องบอกให้เห็น
+              ไม่งั้นคนกดลูกศรเปลี่ยนเดือนแล้วตัวเลขไม่ขยับ จะนึกว่าหน้าค้างหรือข้อมูลผิด */}
+          {crossMonth ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-sm text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-900/20 dark:text-emerald-300"
+              title="กำลังกรองด้วยช่วงวันที่กดส่งบัญชี — ดึงจากทุกเดือน ไม่จำกัดเดือนที่เลือก">
+              <CalendarRange className="h-4 w-4" />ทุกเดือน
+            </span>
+          ) : (
+            <div className="inline-flex items-center rounded-lg border border-gray-200 dark:border-white/10">
+              <button onClick={() => onMonth(shiftMonth(month, -1))} aria-label="เดือนก่อนหน้า"
+                className="rounded-l-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-white/5"><ChevronLeft className="h-4 w-4" /></button>
+              <span className="min-w-[8.5rem] px-2 text-center text-sm">{monthLabel(month)}</span>
+              <button onClick={() => onMonth(shiftMonth(month, 1))} aria-label="เดือนถัดไป"
+                className="rounded-r-lg px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-white/5"><ChevronRight className="h-4 w-4" /></button>
+            </div>
+          )}
 
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
@@ -200,8 +211,10 @@ export function ApHeader({
         <span className={`pb-0.5 pr-1 text-xs text-gray-400 ${NUM}`}>
           {/* "ทั้งหมด" เคยหมายถึงเดือนนี้ + ใบค้างยกมา — ตั้งแต่โหลดทีละเดือนแล้วมันคือเดือนนี้ล้วน
               ต้องเขียนให้ตรง ไม่งั้นคนจะนึกว่าใบค้างเดือนก่อนถูกนับรวมอยู่ด้วย */}
-          {loading && !summary ? `กำลังโหลด ${monthLabel(month)}…`
-            : tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้` : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
+          {loading && !summary ? `กำลังโหลด ${crossMonth ? "ทุกเดือน" : monthLabel(month)}…`
+            : tab ? `${totalShown.toLocaleString("th-TH")} ใบในแท็บนี้`
+            : crossMonth ? `ทุกเดือน ${totalShown.toLocaleString("th-TH")} ใบ`
+            : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
         </span>
         </div>
       </div>

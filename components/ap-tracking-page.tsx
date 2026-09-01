@@ -142,6 +142,14 @@ export function ApTrackingPage() {
   // ผลค้นข้ามเดือน — null = ยังไม่ได้ค้น/ไม่เข้าเงื่อนไข · [] = ค้นแล้วไม่เจอที่ไหนเลย
   const [crossHits, setCrossHits] = useState<ApCrossHit[] | null>(null)
 
+  // ช่วงวันที่กดส่งที่ "มีผลจริง" — ว่างเมื่อแถบนั้นไม่ได้โชว์ (แท็บอื่น) เพื่อไม่ให้ค่าค้างจากแท็บก่อน
+  // แอบเปลี่ยนผลของแท็บที่ไม่มีแถบนี้ · ใช้เป็น dep ของ load ตรง ๆ ด้วย จะได้ไม่ต้องใส่ tab เข้าไป
+  // (ใส่ tab เป็น dep = สลับแท็บทีไรยิงคิวรีใหม่ทุกครั้ง ทั้งที่การกรองตามแท็บทำฝั่ง client อยู่แล้ว)
+  const apiSentFrom = SENT_STAGES.includes(tab as ApStage) ? sentFrom : ""
+  const apiSentTo   = SENT_STAGES.includes(tab as ApStage) ? sentTo   : ""
+  // โหมดข้ามเดือน: เซิร์ฟเวอร์ค้นจากวันที่กดส่งทั้งฐาน ไม่สนเดือนที่เลือก
+  const crossMonth  = Boolean(apiSentFrom || apiSentTo)
+
   // ทุกตัวกรองต้องพากลับหน้า 1 และล้างการเลือกค้าง (ใบที่เลือกไว้อาจหลุดจากผลลัพธ์ใหม่ไปแล้ว)
   // ทำที่ตัวจัดการเหตุการณ์ ไม่ใช่ใน useEffect — setState ใน effect ทำให้ render ซ้อนโดยไม่จำเป็น
   const applyFilter = (fn: () => void) => { fn(); setPage(1); setSelected(new Set()) }
@@ -172,6 +180,10 @@ export function ApTrackingPage() {
       const params = new URLSearchParams({ month })
       if (warehouse) params.set("warehouse", warehouse)
       if (q)         params.set("q", q)
+      // ตั้งช่วงวันที่กดส่งเมื่อไหร่ = ให้เซิร์ฟเวอร์ค้นข้ามทุกเดือนให้ (เดือนที่เลือกถูกมองข้าม)
+      // เดิมกรองในหน่วยความจำจากแถวของเดือนที่โหลดมาเท่านั้น ใบที่รับของคนละเดือนกับวันกดส่งจึงหาไม่เจอ
+      if (apiSentFrom) params.set("sentFrom", apiSentFrom)
+      if (apiSentTo)   params.set("sentTo", apiSentTo)
       const res  = await fetch(`/api/ap-tracking?${params.toString()}`, { signal: ac.signal })
       const data = await res.json()
       if (seq !== loadSeq.current) return
@@ -191,7 +203,7 @@ export function ApTrackingPage() {
     } finally {
       if (seq === loadSeq.current) { setLoading(false); setPending(false) }
     }
-  }, [month, warehouse, q])
+  }, [month, warehouse, q, apiSentFrom, apiSentTo])
 
   // โหลดครั้งแรกทันที · เปลี่ยนเดือน/คลัง/คำค้นหลังจากนั้นหน่วง 400ms (กดรัว ๆ = ยิงคิวรีหนักทุกครั้ง)
   const firstLoad = useRef(true)
@@ -557,7 +569,9 @@ export function ApTrackingPage() {
 
   // เดือนที่เลือกอยู่ก่อนเส้น go-live ทั้งเดือนหรือไม่ — ใช้ helper ตัวเดียวกับที่ API ใช้ตัดเดือน
   const scopeSince = summary?.since || AP_GO_LIVE
-  const monthOutOfScope = !monthInApScope(month, scopeSince)
+  // โหมดข้ามเดือนไม่ได้ยึดเดือนใดเป็นหลัก — เช็คนี้จึงไม่มีความหมาย และถ้าปล่อยไว้จะขึ้นข้อความ
+  // "เดือนนี้อยู่ก่อนวันที่ระบบเริ่มติดตาม" ทั้งที่กำลังค้นทั้งฐานอยู่
+  const monthOutOfScope = !crossMonth && !monthInApScope(month, scopeSince)
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -584,8 +598,12 @@ export function ApTrackingPage() {
         warehouses={warehouses}
         totalShown={shown.length}
         sentView={sentView}
-        sentFrom={sentFrom} sentTo={sentTo}
-        onSentRange={(from, to) => applyFilter(() => { setSentFrom(from); setSentTo(to) })}
+        sentFrom={sentFrom} sentTo={sentTo} crossMonth={crossMonth}
+        onSentRange={(from, to) => applyFilter(() => {
+          // ช่วงวันที่ยิงคิวรีใหม่แล้ว (ข้ามเดือน) — ตั้ง pending เหมือนเปลี่ยนเดือน ไม่งั้นระหว่าง
+          // debounce 400ms ตารางจะโชว์แถวของช่วงเก่าค้างอยู่ราวกับเป็นผลของช่วงใหม่
+          setSentFrom(from); setSentTo(to); setPending(true)
+        })}
         groupSent={groupSent} onGroupSent={(v) => applyFilter(() => setGroupSent(v))}
         sentDays={dayGroups.length}
         today={today}
@@ -674,7 +692,8 @@ export function ApTrackingPage() {
             </div>
             <div className="text-xs">ใบรับของก่อนวันดังกล่าวจัดการในไฟล์ Excel ของกระบวนการเดิม จึงไม่ถูกดึงเข้ามา</div>
           </div>
-        ) : (tab || q ? "ไม่มีใบในขั้นนี้" : "ยังไม่มีใบรับของในเดือนนี้")}
+        ) : crossMonth ? "ไม่มีใบที่กดส่งบัญชีในช่วงวันที่นี้ (ค้นจากทุกเดือนแล้ว)"
+          : (tab || q ? "ไม่มีใบในขั้นนี้" : "ยังไม่มีใบรับของในเดือนนี้")}
       />
       )}
 
