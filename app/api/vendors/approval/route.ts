@@ -51,7 +51,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "ไม่มีอะไรให้บันทึก" }, { status: 400 })
     }
 
-    await setVendorApproval(vendor, patch, session?.user?.name || email)
+    await setVendorApproval(vendor, patch, session?.user?.name || email, email)
     return NextResponse.json({ ok: true, vendor, ...patch })
   } catch (e) {
     console.error("[vendors/approval] PATCH", e)

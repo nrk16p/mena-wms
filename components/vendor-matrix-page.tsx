@@ -2,18 +2,21 @@
 
 // ตารางความสามารถอู่ — แถว = อู่ · คอลัมน์ = ประเภทการซ่อม (ยานยนต์) S30–S101
 // จัดซื้อติ๊กว่าอู่ไหนทำงานประเภทไหนได้ ติ๊กแล้วบันทึกทันทีทีละช่อง
+// ทุกการติ๊กถูกบันทึกว่าใครทำเมื่อไหร่ (ดูย้อนหลังได้จากไอคอนนาฬิกาหลังชื่ออู่)
 //
 // ในช่องมีตัวเลขประวัติจาง ๆ = จำนวนครั้งที่อู่นี้เคยทำงานกลุ่มนั้นจริงจากใบรับของ
 // ให้ติ๊กโดยมีหลักฐาน ไม่ใช่ติ๊กจากความจำ · คอลัมน์ "อู่ใน" ไม่มีตัวเลขเพราะเป็น
 // ช่างในบริษัท ไม่ได้จ้าง vendor (ดู historyApplies ใน lib/vendor-core)
 import { useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Download, Search } from "lucide-react"
+import { Download, History, Search } from "lucide-react"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
 import { WORKS_OF_SERVICE, type VendorSummary } from "@/lib/vendor-core"
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
+import { VendorLogDrawer } from "@/components/vendor-log-drawer"
+import { describeVendorLog, fmtLogAt, latestByCode, type VendorLogRow } from "@/lib/vendor-log"
 
 const GROUP_ORDER: RepairGroup[] = ["CM", "PM", "T", "ทำความสะอาด", "แย็กโม่", "AC", "OTH"]
 
@@ -46,6 +49,9 @@ export function VendorMatrixPage() {
   const [outsideOnly, setOutsideOnly] = useState(true)
   const [tickedOnly, setTickedOnly] = useState(false)
   const [saving, setSaving] = useState("")
+  // ลิ้นชักประวัติ + ประวัติรายช่องของอู่ที่เคยเปิดดูแล้ว (เอามาเติม tooltip ไม่ต้องยิงซ้ำ)
+  const [logFor, setLogFor] = useState<string | null>(null)
+  const [cellLog, setCellLog] = useState<Record<string, Map<string, VendorLogRow>>>({})
   // ทับผลที่เพิ่งติ๊กบนข้อมูลเดิม จะได้ไม่ต้องโหลดทั้งหน้าใหม่ทุกคลิก
   const [patched, setPatched] = useState<Record<string, string[]>>({})
 
@@ -279,7 +285,7 @@ export function VendorMatrixPage() {
   return (
     <VendorShell
       title="อู่ทั้งหมด — ตารางความสามารถ"
-      subtitle="จัดซื้อติ๊กว่าอู่ไหนทำงานประเภทไหนได้ · ตัวเลขจาง ๆ ในช่องคือจำนวนครั้งที่เคยทำจริง"
+      subtitle="จัดซื้อติ๊กว่าอู่ไหนทำงานประเภทไหนได้ · ระบบบันทึกชื่อผู้ติ๊กทุกครั้ง · ตัวเลขจาง ๆ ในช่องคือจำนวนครั้งที่เคยทำจริง"
       data={data} loading={loading} error={error} reload={reload}
     >
       {data && (
@@ -435,16 +441,32 @@ export function VendorMatrixPage() {
                   return (
                     <tr key={v.vendor}>
                       <td
-                        title={`${num(v.jobs)} ครั้ง · ${baht(v.baht)} · ล่าสุด ${ymThai(v.lastYm)}`}
+                        title={
+                          `${num(v.jobs)} ครั้ง · ${baht(v.baht)} · ล่าสุด ${ymThai(v.lastYm)}` +
+                          (v.codesBy ? `\n\nติ๊กล่าสุดโดย ${v.codesBy} · ${fmtLogAt(v.codesAt)}` : "")
+                        }
                         style={{
                           ...NAMECOL, minWidth: 240, maxWidth: 300, padding: "6px 12px",
                           borderBottom: "1px solid #F3F4F6", borderRight: "1px solid #E5E7EB",
                           fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         }}
                       >
-                        {v.vendor}
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.vendor}</span>
+                          <button
+                            onClick={() => setLogFor(v.vendor)}
+                            title="ดูประวัติว่าใครติ๊กอะไรไว้บ้าง"
+                            style={{
+                              border: "none", background: "transparent", cursor: "pointer",
+                              color: "#B8C4BC", padding: 0, display: "inline-flex", flexShrink: 0,
+                            }}
+                          >
+                            <History size={13} />
+                          </button>
+                        </span>
                         <span style={{ display: "block", fontSize: 10.5, color: "#9AA8A0", fontWeight: 400 }}>
                           {num(v.jobs)} ครั้ง · {ymThai(v.lastYm)}
+                          {v.codesBy && ` · ติ๊กโดย ${v.codesBy}`}
                         </span>
                       </td>
                       <td style={{ padding: "6px 8px", borderBottom: "1px solid #F3F4F6", borderRight: "1px solid #E5E7EB" }}>
@@ -467,6 +489,7 @@ export function VendorMatrixPage() {
                         const on = ticked.has(c.code)
                         const n = c.side === "อู่นอก" ? (hist.get(c.work) ?? 0) : 0
                         const key = `${v.vendor}|${c.code}`
+                        const last = cellLog[v.vendor]?.get(c.code)
                         return (
                           <td
                             key={c.code}
@@ -474,7 +497,8 @@ export function VendorMatrixPage() {
                               `${v.vendor}\n${c.code} · ${c.label}` +
                               (n > 0
                                 ? `\n\nเคยทำงานกลุ่มนี้ ${num(n)} ครั้ง (จากใบรับของจริง)\nตัวเลขเป็นระดับกลุ่มงาน ต้นทางไม่ได้แยกงานย่อยละเอียดเท่าทะเบียน`
-                                : c.side === "อู่ใน" ? "\n\nอู่ใน = ช่างในบริษัท ไม่มีประวัติการจ้าง" : "\n\nยังไม่เคยมีประวัติงานกลุ่มนี้")
+                                : c.side === "อู่ใน" ? "\n\nอู่ใน = ช่างในบริษัท ไม่มีประวัติการจ้าง" : "\n\nยังไม่เคยมีประวัติงานกลุ่มนี้") +
+                              (last ? `\n\n${describeVendorLog(last)}\nโดย ${last.by || last.byEmail} · ${fmtLogAt(last.at)}` : "")
                             }
                             onClick={() => isAdmin && !saving && toggle(v, c.code)}
                             style={{
@@ -514,8 +538,15 @@ export function VendorMatrixPage() {
 
           <p style={{ fontSize: 11.5, color: "#9AA8A0", marginTop: 10 }}>
             คอลัมน์เรียงตามหมวด CM → PM → T → ทำความสะอาด → แย็กโม่ → AC → OTH ·
-            ชี้ที่หัวคอลัมน์เพื่อดูรหัสและชื่อเต็ม · ชี้ที่ช่องเพื่อดูที่มาของตัวเลขประวัติ
+            ชี้ที่หัวคอลัมน์เพื่อดูรหัสและชื่อเต็ม · ชี้ที่ช่องเพื่อดูที่มาของตัวเลขประวัติ ·
+            ทุกการติ๊กถูกบันทึกว่าใครทำเมื่อไหร่ กดไอคอน <History size={11} style={{ verticalAlign: -1 }} /> หลังชื่ออู่เพื่อดูย้อนหลัง
           </p>
+
+          <VendorLogDrawer
+            vendor={logFor}
+            onClose={() => setLogFor(null)}
+            onLoaded={(vendor, rows) => setCellLog((c) => ({ ...c, [vendor]: latestByCode(rows) }))}
+          />
         </>
       )}
     </VendorShell>

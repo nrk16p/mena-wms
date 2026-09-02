@@ -143,8 +143,13 @@ export type VendorApproval = {
   codes: string[]
   status: "approved" | "rejected" | "pending"
   note?: string
+  /** คนที่แตะ "การอนุมัติ" ล่าสุด (สถานะ/หมายเหตุ) */
   by?: string
   at?: string
+  /** คนที่แตะ "รายการติ๊ก" ล่าสุด — แยกช่องกับ by/at เพราะเดิมเขียนทับกัน
+   *  คนอนุมัติจึงกลบชื่อคนติ๊กไปเงียบ ๆ · ประวัติรายครั้งอยู่ที่ vendor_capability_log */
+  codesBy?: string
+  codesAt?: string
 }
 
 /** สะพานระหว่างประเภทที่แกะได้จากข้อมูลจัดซื้อ กับงานตามทะเบียนฝ่ายยานยนต์
@@ -240,6 +245,9 @@ export type VendorSummary = {
   note?: string
   by?: string
   at?: string
+  /** คนติ๊กความสามารถล่าสุด + เวลา (ISO) — รายละเอียดรายครั้งดูที่ประวัติ */
+  codesBy?: string
+  codesAt?: string
 }
 
 export type VendorPayload = {
@@ -396,6 +404,7 @@ export function buildVendorPayload(
       didTypes: (didByVendor.get(vendor) ?? []).sort((x, y) => y.baht - x.baht),
       warehouses: [...a.wh].sort(),
       note: ap?.note, by: ap?.by, at: ap?.at,
+      codesBy: ap?.codesBy, codesAt: ap?.codesAt,
     }
   }).sort((a, b) => b.baht - a.baht)
 

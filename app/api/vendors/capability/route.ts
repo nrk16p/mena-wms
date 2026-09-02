@@ -30,7 +30,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: `ไม่รู้จักรหัสประเภทการซ่อม: ${code}` }, { status: 400 })
     }
 
-    await setVendorCapability(vendor, code, on, session?.user?.name || email)
+    await setVendorCapability(vendor, code, on, session?.user?.name || email, email)
     return NextResponse.json({ ok: true, vendor, code, on })
   } catch (e) {
     console.error("[vendors/capability] PATCH", e)

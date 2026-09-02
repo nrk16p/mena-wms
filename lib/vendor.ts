@@ -6,6 +6,7 @@ import {
   buildVendorPayload, seedServiceTypeFromName, serviceTypeFromGroup, isRealVendor,
   type VendorRawRow, type LabourCode, type VendorApproval, type VendorPayload, type ServiceType,
 } from "@/lib/vendor-core"
+import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
 
 const MASTER_DB = process.env.MONGO_DB ?? "master_data"
 const CODE_COLL = "labour_code_master"
@@ -163,45 +164,97 @@ export async function setLabourCode(
   )
 }
 
+/** เขียนสมุดบันทึกทีละบรรทัด — append อย่างเดียว ไม่มีการแก้ของเดิม
+ *  ไม่ throw ออกไป: ประวัติหายดีกว่าคนติ๊กแล้วเด้ง error ทั้งที่ค่าถูกบันทึกไปแล้ว
+ *  (ถ้าเขียนไม่ผ่านจะเห็นใน log ของ Vercel) */
+async function writeVendorLog(entries: VendorLogEntry[]): Promise<void> {
+  if (!entries.length) return
+  try {
+    const client = await clientPromise
+    const col = client.db(MASTER_DB).collection<VendorLogEntry>(VENDOR_LOG_COLL)
+    await col.createIndex({ vendor: 1, at: -1 }).catch(() => {})
+    await col.insertMany(entries, { ordered: false })
+  } catch (e) {
+    console.error("[vendor-log] write failed", e)
+  }
+}
+
+/** ประวัติการแก้ของอู่รายนี้ — ใหม่ไปเก่า */
+export async function listVendorLog(vendor: string, limit = 300): Promise<VendorLogEntry[]> {
+  const client = await clientPromise
+  return (await client.db(MASTER_DB).collection<VendorLogEntry>(VENDOR_LOG_COLL)
+    .find({ vendor }, { projection: { _id: 0 } })
+    .sort({ at: -1 })
+    .limit(limit)
+    .toArray()) as VendorLogEntry[]
+}
+
 /** ติ๊ก/เอาติ๊กออก ของคู่ (อู่ × รหัสประเภทการซ่อม) — บันทึกทีละช่อง
- *  ใช้ $addToSet/$pull แทนการเขียนทั้ง array กัน 2 คนติ๊กพร้อมกันแล้วทับกันหาย */
+ *  ใช้ $addToSet/$pull แทนการเขียนทั้ง array กัน 2 คนติ๊กพร้อมกันแล้วทับกันหาย
+ *
+ *  by/at ของการติ๊กแยกเป็น codesBy/codesAt ไม่ปนกับ by/at ของการอนุมัติ —
+ *  เดิมสองเรื่องเขียนทับช่องเดียวกัน คนอนุมัติจึงกลบชื่อคนติ๊กไปเงียบ ๆ */
 export async function setVendorCapability(
-  vendor: string, code: string, on: boolean, by: string
+  vendor: string, code: string, on: boolean, by: string, byEmail = ""
 ): Promise<void> {
   const client = await clientPromise
   const col = client.db(MASTER_DB).collection<VendorApproval>(AP_COLL)
   await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
-  const at = new Date().toISOString()
-  await col.updateOne(
+  const at = new Date()
+  // เอาเอกสารก่อนแก้มาด้วย จะได้รู้ว่าคลิกนี้เปลี่ยนค่าจริงไหม — ติ๊กซ้ำของเดิม
+  // ไม่ควรมีบรรทัดในประวัติ ไม่งั้นสมุดจะเต็มไปด้วยการกดที่ไม่ได้เปลี่ยนอะไร
+  const before = await col.findOneAndUpdate(
     { vendor },
     {
       ...(on ? { $addToSet: { codes: code } } : { $pull: { codes: code } }),
-      $set: { by, at },
+      $set: { codesBy: by, codesAt: at.toISOString() },
       $setOnInsert: { vendor, status: "pending" as const },
     },
-    { upsert: true }
+    { upsert: true, returnDocument: "before" }
   )
+  const had = (before?.codes ?? []).includes(code)
+  if (had === on) return
+  await writeVendorLog([{
+    vendor, action: on ? "tick" : "untick", code, by, byEmail, at,
+  }])
 }
 
 export async function setVendorApproval(
   vendor: string,
   patch: { status?: VendorApproval["status"]; codes?: string[]; note?: string },
-  by: string
+  by: string,
+  byEmail = ""
 ): Promise<void> {
   const client = await clientPromise
   const col = client.db(MASTER_DB).collection<VendorApproval>(AP_COLL)
   await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
-  const $set: Record<string, unknown> = { by, at: new Date().toISOString() }
+  const at = new Date()
+  const $set: Record<string, unknown> = { by, at: at.toISOString() }
   if (patch.status !== undefined) $set.status = patch.status
-  if (patch.codes  !== undefined) $set.codes  = patch.codes
+  if (patch.codes  !== undefined) { $set.codes = patch.codes; $set.codesBy = by; $set.codesAt = at.toISOString() }
   if (patch.note   !== undefined) $set.note   = patch.note
-  await col.updateOne(
+  const before = await col.findOneAndUpdate(
     { vendor },
     { $set, $setOnInsert: {
         vendor,
         ...(patch.status === undefined ? { status: "pending" as const } : {}),
         ...(patch.codes  === undefined ? { codes: [] } : {}),
     } },
-    { upsert: true }
+    { upsert: true, returnDocument: "before" }
   )
+
+  const log: VendorLogEntry[] = []
+  const prevStatus = before?.status ?? "pending"
+  if (patch.status !== undefined && patch.status !== prevStatus) {
+    log.push({ vendor, action: "status", from: prevStatus, to: patch.status, by, byEmail, at })
+  }
+  if (patch.note !== undefined && patch.note !== (before?.note ?? "")) {
+    log.push({ vendor, action: "note", from: before?.note ?? "", to: patch.note, by, byEmail, at })
+  }
+  if (patch.codes !== undefined) {
+    const prev = [...(before?.codes ?? [])].sort().join(" ")
+    const next = [...patch.codes].sort().join(" ")
+    if (prev !== next) log.push({ vendor, action: "codes", from: prev, to: next, by, byEmail, at })
+  }
+  await writeVendorLog(log)
 }
