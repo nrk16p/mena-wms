@@ -1,8 +1,8 @@
 "use client"
 
 // ตารางความสามารถอู่ — แถว = อู่ · คอลัมน์ = ประเภทการซ่อม (ยานยนต์) S30–S101
-// จัดซื้อติ๊กว่าอู่ไหนทำงานประเภทไหนได้ ติ๊กแล้วบันทึกทันทีทีละช่อง
-// ทุกการติ๊กถูกบันทึกว่าใครทำเมื่อไหร่ (ดูย้อนหลังได้จากไอคอนนาฬิกาหลังชื่ออู่)
+// ทุกคนที่ล็อกอินติ๊กได้ ติ๊กแล้วบันทึกทันทีทีละช่อง และบันทึกชื่อคนติ๊กไว้ทุกครั้ง
+// (ดูย้อนหลังได้จากไอคอนนาฬิกาหลังชื่ออู่) · เปลี่ยน "สถานะอนุมัติ" ได้เฉพาะแอดมิน
 //
 // ในช่องมีตัวเลขประวัติจาง ๆ = จำนวนครั้งที่อู่นี้เคยทำงานกลุ่มนั้นจริงจากใบรับของ
 // ให้ติ๊กโดยมีหลักฐาน ไม่ใช่ติ๊กจากความจำ · คอลัมน์ "อู่ใน" ไม่มีตัวเลขเพราะเป็น
@@ -40,8 +40,11 @@ function historyByWork(v: VendorSummary): Map<string, number> {
 
 export function VendorMatrixPage() {
   const { data, loading, error, reload } = useVendors()
-  const { data: session } = useSession()
+  const { data: session, status: authStatus } = useSession()
   const isAdmin = session?.user?.role === "admin"
+  // ติ๊กความสามารถ = ใครก็ได้ที่ล็อกอิน (มีประวัติกำกับทุกครั้ง)
+  // ส่วนสถานะอนุมัติยังเป็นการตัดสินใจเชิงจัดซื้อ จึงยังล็อกไว้ที่แอดมิน
+  const canTick = authStatus === "authenticated"
   const [q, setQ] = useState("")
   const [groups, setGroups] = useState<RepairGroup[]>([])
   const [whs, setWhs] = useState<string[]>([])
@@ -285,7 +288,7 @@ export function VendorMatrixPage() {
   return (
     <VendorShell
       title="อู่ทั้งหมด — ตารางความสามารถ"
-      subtitle="จัดซื้อติ๊กว่าอู่ไหนทำงานประเภทไหนได้ · ระบบบันทึกชื่อผู้ติ๊กทุกครั้ง · ตัวเลขจาง ๆ ในช่องคือจำนวนครั้งที่เคยทำจริง"
+      subtitle="ทุกคนติ๊กได้ว่าอู่ไหนทำงานประเภทไหนได้ · ระบบบันทึกชื่อผู้ติ๊กทุกครั้ง · ตัวเลขจาง ๆ ในช่องคือจำนวนครั้งที่เคยทำจริง"
       data={data} loading={loading} error={error} reload={reload}
     >
       {data && (
@@ -312,7 +315,9 @@ export function VendorMatrixPage() {
             <span style={{ fontSize: 12, color: "#9AA8A0" }}>
               {num(rows.length)} อู่ · {cols.length} คอลัมน์ · ติ๊กแล้ว {num(totalTicked)} ช่อง
             </span>
-            {!isAdmin && <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· ดูได้อย่างเดียว</span>}
+            {!isAdmin && (
+              <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· เปลี่ยนสถานะอนุมัติได้เฉพาะแอดมิน</span>
+            )}
             <button
               onClick={() => void exportXlsx()}
               title="ส่งออกตามที่กรองอยู่ตอนนี้ · ช่องประเภทการซ่อมคลิกติ๊กได้ในไฟล์ (☑/☐) · 2 ชีต"
@@ -500,12 +505,12 @@ export function VendorMatrixPage() {
                                 : c.side === "อู่ใน" ? "\n\nอู่ใน = ช่างในบริษัท ไม่มีประวัติการจ้าง" : "\n\nยังไม่เคยมีประวัติงานกลุ่มนี้") +
                               (last ? `\n\n${describeVendorLog(last)}\nโดย ${last.by || last.byEmail} · ${fmtLogAt(last.at)}` : "")
                             }
-                            onClick={() => isAdmin && !saving && toggle(v, c.code)}
+                            onClick={() => canTick && !saving && toggle(v, c.code)}
                             style={{
                               textAlign: "center", padding: 0, width: 34, minWidth: 34,
                               borderBottom: "1px solid #F3F4F6",
                               background: on ? "#E7F6EC" : n > 0 ? "#FCFDFC" : "#fff",
-                              cursor: isAdmin ? "pointer" : "default",
+                              cursor: canTick ? "pointer" : "default",
                               opacity: saving === key ? 0.4 : 1,
                             }}
                           >

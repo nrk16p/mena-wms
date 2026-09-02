@@ -4,7 +4,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { isAdmin } from "@/lib/roles"
 import { setVendorCapability } from "@/lib/vendor"
 import { byCode } from "@/lib/repair-type-master"
 
@@ -14,9 +13,11 @@ export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     const email = session?.user?.email ?? ""
-    // การกำหนดว่าอู่ไหนทำอะไรได้เป็นการตัดสินใจของจัดซื้อ — คนอื่นดูได้แต่แก้ไม่ได้
-    if (!isAdmin(email)) {
-      return NextResponse.json({ error: "ต้องเป็นแอดมิน/จัดซื้อ จึงจะแก้ตารางนี้ได้" }, { status: 403 })
+    // เปิดให้ทุกคนที่ล็อกอินติ๊กได้ (2026-09-02) — ความรู้ว่าอู่ไหนทำอะไรได้อยู่กับคนหน้างาน
+    // ไม่ได้อยู่กับจัดซื้อคนเดียว · ที่กล้าเปิดเพราะทุกการติ๊กถูกบันทึกลง vendor_capability_log
+    // ว่าใครทำเมื่อไหร่ ย้อนดูได้ทั้งหมด · ส่วน "สถานะอนุมัติ" ยังเป็นของแอดมินเหมือนเดิม
+    if (!email) {
+      return NextResponse.json({ error: "ต้องล็อกอินก่อนจึงจะแก้ตารางนี้ได้" }, { status: 401 })
     }
 
     const body = await req.json().catch(() => ({}))
