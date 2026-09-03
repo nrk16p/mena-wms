@@ -308,6 +308,7 @@ export function ApTrackingPage() {
       "ซัพพลายเออร์": r.supplier,
       "PO": r.purchaseOrder,
       "ทะเบียนรถ": r.vehicle ?? "",
+      "เบอร์รถ": r.fleetNo ?? "",
       "ยอดเงิน": r.amount,
       "เครดิตเทอม": r.creditTerm,
       "ประเภทการส่ง": r.pay?.type || r.sentType,
@@ -322,7 +323,7 @@ export function ApTrackingPage() {
       "หมายเหตุ": r.note,
     }))
     const ws = XLSX.utils.json_to_sheet(data)
-    ws["!cols"] = [14, 11, 16, 30, 13, 12, 12, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))
+    ws["!cols"] = [14, 11, 16, 30, 13, 12, 10, 12, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))
     const wb = XLSX.utils.book_new()
     const label = tab === "sent" ? "ส่งบัญชีแล้ว" : tab === "paid" ? "จ่ายแล้ว" : "ผ่าน"
     XLSX.utils.book_append_sheet(wb, ws, label)
@@ -346,6 +347,7 @@ export function ApTrackingPage() {
       "ซัพพลายเออร์": r.supplier,
       "PO": r.purchaseOrder,
       "ทะเบียนรถ": r.vehicle ?? "",
+      "เบอร์รถ": r.fleetNo ?? "",
       "ยอดเงิน": r.amount,
       "เครดิตเทอม": r.creditTerm,
       "ประเภทการส่ง": r.pay?.type || r.sentType,
@@ -359,7 +361,7 @@ export function ApTrackingPage() {
       "เลขที่ใบวางบิล": (r.docNos.billingNoteNos ?? []).join(", "),
       "หมายเหตุ": r.note,
     })
-    const WIDTHS = [14, 11, 16, 30, 13, 12, 12, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))
+    const WIDTHS = [14, 11, 16, 30, 13, 12, 10, 12, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))
     const addSheet = (wb: ReturnType<typeof XLSX.utils.book_new>, rowsIn: ApRow[], name: string) => {
       const ws = XLSX.utils.json_to_sheet(rowsIn.map(flat))
       ws["!cols"] = WIDTHS

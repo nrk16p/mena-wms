@@ -77,8 +77,13 @@ function ApDepositRow({
             ? <a href={atmsPoUrl(r.poId)} target="_blank" rel="noreferrer" title="เปิด PO ใน ATMS"
                 className="text-sky-700 underline-offset-2 hover:underline dark:text-sky-400">· {r.purchaseOrder} ↗</a>
             : <span>· {r.purchaseOrder}</span>)}
-          {/* ทะเบียนรถจาก PO — คนหน้างานจำงานด้วยทะเบียน ไม่ใช่เลขใบ */}
-          {r.vehicle && <span className="text-sky-700 dark:text-sky-400">· 🚚 {r.vehicle}</span>}
+          {/* ทะเบียนรถจาก PO + เบอร์รถจาก vehicle master — คนหน้างานจำงานด้วยเบอร์รถ/ทะเบียน ไม่ใช่เลขใบ
+              เบอร์รถไม่ครบทุกคัน (97.7%) จึงต้องยอมให้มีแต่ทะเบียนได้ */}
+          {r.vehicle && (
+            <span className="text-sky-700 dark:text-sky-400">
+              · 🚚 {r.fleetNo ? `${r.fleetNo} · ${r.vehicle}` : r.vehicle}
+            </span>
+          )}
           {r.carryover && <span className="text-amber-600">· ค้างยกมา</span>}
         </div>
         {/* ข้อมูลขั้นของงานที่คนอ่านต้องรู้ต่อจากเลขใบ — ไม่ต้องมีคอลัมน์สถานะแยก

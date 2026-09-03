@@ -40,9 +40,10 @@ export type ApRow = {
   pay?: ApPay
   // หลักฐานจ่ายจริงจากการเงิน — วันนี้นำเข้าจากไฟล์ อนาคตดึงจากระบบการเงินตรง (ดู source)
   paid?: ApPaid
-  // ทะเบียนรถ (จาก PO) + หมายเหตุ (จาก PR — มีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง)
+  // ทะเบียนรถ (จาก PO) + เบอร์รถ (จาก vehicle master) + หมายเหตุ (จาก PR — มีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง)
   // มีเฉพาะแถวที่ข้อมูลต้นทางมีจริง
   vehicle?: string
+  fleetNo?: string
   prNote?: string
   status: ApStatus; carryover: boolean
   poTotal: number; poDue: string; poStatus: string

@@ -176,6 +176,22 @@ export async function GET(req: NextRequest) {
         ).toArray() as Doc[]
       : []
     const prNoteBy = new Map(prs.map((x) => [s(x["ใบขอสั่งซื้อ (PR)"]), s(x["หมายเหตุ"])]))
+
+    // เบอร์รถต่อทะเบียน — logic เดียวกับ /api/pr: vehicle_daily (snapshot ล่าสุด 1 แถว/คัน)
+    // เป็นหลัก · vehiclemaster เป็น fallback สำหรับรถที่ไม่อยู่ใน daily
+    // จำกัดด้วย $in เฉพาะทะเบียนที่โผล่ในผลลัพธ์ ไม่ลากทั้ง collection มาทุกครั้ง
+    // vehiclemaster.เลขรถ เก็บสตริง "NaN" ไว้ 457/1,803 แถว ต้องกรองทิ้ง ไม่งั้นตารางขึ้นคำว่า NaN
+    const plates = [...new Set(pos.map((p) => s(p["ยานพาหนะ"])).filter(Boolean))]
+    const [vmDocs, vdDocs] = plates.length
+      ? await Promise.all([
+          atms.collection("vehiclemaster").find({ "ทะเบียน": { $in: plates } }, { projection: { _id: 0, "ทะเบียน": 1, "เลขรถ": 1 } }).toArray() as Promise<Doc[]>,
+          atms.collection("vehicle_daily").find({ "ทะเบียน": { $in: plates } }, { projection: { _id: 0, "ทะเบียน": 1, "เบอร์รถ": 1 } }).toArray() as Promise<Doc[]>,
+        ])
+      : [[] as Doc[], [] as Doc[]]
+    const cleanFleet = (v: unknown) => { const t = s(v); return t === "NaN" ? "" : t }
+    const fleetByPlate = new Map<string, string>()
+    for (const v of vmDocs) { const p = s(v["ทะเบียน"]), f = cleanFleet(v["เลขรถ"]);  if (p && f) fleetByPlate.set(p, f) }
+    for (const v of vdDocs) { const p = s(v["ทะเบียน"]), f = cleanFleet(v["เบอร์รถ"]); if (p && f) fleetByPlate.set(p, f) }   // daily สดกว่า — ทับค่า master
     const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
     // เก็บ override แยกจากเทอมของ master — ลำดับความสำคัญคิดรายใบใน resolveCreditTerm
     // atmsTerm คือค่าที่ sync มาจาก ATMS · creditTerm เป็น fallback ให้แถวเก่าที่ seed จาก Excel
@@ -243,6 +259,7 @@ export async function GET(req: NextRequest) {
         // ทะเบียนรถจาก PO + หมายเหตุจาก PR — ใส่เฉพาะแถวที่มีจริง ไม่แบกคีย์ว่างทั้งตาราง
         // หมายเหตุตัดที่ 300 ตัวอักษร (ของจริงยาวได้มาก) — พอให้ค้นเจอและอ่าน tooltip รู้เรื่อง
         ...(s(po?.["ยานพาหนะ"]) ? { vehicle: s(po?.["ยานพาหนะ"]) } : {}),
+        ...(fleetByPlate.get(s(po?.["ยานพาหนะ"])) ? { fleetNo: fleetByPlate.get(s(po?.["ยานพาหนะ"]))! } : {}),
         ...(prNoteBy.get(s(po?.["ใบขอสั่งซื้อ (PR)"])) ? { prNote: prNoteBy.get(s(po?.["ใบขอสั่งซื้อ (PR)"]))!.slice(0, 300) } : {}),
       }
     })
