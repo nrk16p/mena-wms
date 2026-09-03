@@ -55,11 +55,19 @@ function vatRule(warehouse: string): "incl" | "excl" {
   return "excl"
 }
 
-// ความสัมพันธ์ยอดจริง PR↔PO
+// เกณฑ์ผ่อนปรนการปัดเศษ PR↔PO (บาท) — ATMS คิดยอด PO ย้อนจากราคาเสนอที่เป็นเลขกลม
+// เช่น เสนอ 142,500 รวม VAT → ถอด VAT ได้ฐาน 133,177.57 ขณะที่ PR = 4,439.25 × 30 = 133,177.50
+// ฐานภาษีจึงเพี้ยนตั้งแต่ระดับสตางค์ถึงหลักบาท เกิดทั้งสาขา incl และ excl
+// วัดจริง ก.ค.–ก.ย. 2569: ส่วนต่างจากการปัดเศษกระจุกอยู่ ≤ 1 บาท ส่วนที่ต่างกันจริงกระโดดไป > 5 บาท
+const AMOUNT_TOLERANCE = 1
+
+// ความสัมพันธ์ยอดจริง PR↔PO — เลือกความสัมพันธ์ที่ "ใกล้กว่า" เพื่อไม่ให้ใบยอดน้อย
+// (PR ≤ ~14 บาท ที่ VAT ไม่ถึง 1 บาท) ถูกตัดสินเป็น eq ทั้งที่จริงเป็น po7
 function relationOf(prTotal: number, poTotal: number): "eq" | "po7" | "other" {
-  if (Math.abs(prTotal - poTotal) < 0.01) return "eq"          // เท่ากัน
-  if (Math.abs(poTotal - prTotal * 1.07) < 0.05) return "po7"  // PO = PR + VAT 7%
-  return "other"
+  const dEq  = Math.abs(poTotal - prTotal)          // เท่ากัน
+  const dVat = Math.abs(poTotal - prTotal * 1.07)   // PO = PR + VAT 7%
+  if (Math.min(dEq, dVat) > AMOUNT_TOLERANCE) return "other"
+  return dEq <= dVat ? "eq" : "po7"
 }
 
 // สถานะสรุป: ถูกต้องตามกฎสาขา (ok) / ผิดปกติ (anomaly) / ยังไม่มี PO (no_po)

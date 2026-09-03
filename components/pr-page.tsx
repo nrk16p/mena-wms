@@ -313,7 +313,8 @@ export function PrPage() {
   }, [rows, q, warehouse, dept])
 
   // PO ยอดเกิน PR (เกิน VAT 7%) — ต้องตรวจราคาที่แพงขึ้น
-  const isPoOver = (r: Row) => r.po_count > 0 && r.po_total > r.total * 1.07 + 0.05
+  // ผ่อน 1 บาทให้การปัดเศษของ ATMS เท่ากับ AMOUNT_TOLERANCE ใน /api/pr
+  const isPoOver = (r: Row) => r.po_count > 0 && r.po_total > r.total * 1.07 + 1
   const poOverCount = useMemo(() => baseFiltered.filter(isPoOver).length, [baseFiltered])
 
   const stageCounts = useMemo(() => {
