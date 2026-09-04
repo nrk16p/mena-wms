@@ -6,7 +6,7 @@ import {
   type LayerDoc, type IssueDoc, type DeadstockPayload,
 } from "@/lib/deadstock-core"
 import { fetchOnOrderBySku } from "@/lib/on-order"
-import { fetchRequesterByPr } from "@/lib/pr-snapshot"
+import { fetchPrDetailIdByPr, fetchRequesterByPr } from "@/lib/pr-snapshot"
 
 /** ยุบข้อมูลฝั่ง Mongo ก่อนเสมอ — ดึงแถวดิบ 54k แถวใช้ 152 วินาที ส่วนยุบก่อนใช้ 1.7 วินาที */
 async function fetchRaw(): Promise<{ layers: LayerDoc[]; issues: IssueDoc[] }> {
@@ -39,8 +39,16 @@ export async function getDeadstock(force = false): Promise<DeadstockPayload> {
   const data = buildPayload(layers, issues, asOf, onOrder)
   // ผู้ขอซื้ออยู่ที่หัวใบ PR คนละ collection กับ stockmovement — เติมหลัง build เพราะเพิ่งรู้ตอนนี้
   // ว่าใบไหน "ค้างจริง" (~364 ใบ วัดจริง 25/08/2026) $in จึงเล็กกว่าการยิงทุกใบรับที่เคยมี (~2,500)
-  const requesters = await fetchRequesterByPr(client, data.pending.map((p) => p.prCode ?? ""))
-  for (const row of data.pending) row.requester = (row.prCode && requesters.get(row.prCode)) || null
+  // detail_id สำหรับลิงก์ตรงเข้าหน้าใบ PR ใน ATMS ก็อยู่อีก collection — ยิงคู่กันไปเลย ชุด $in เดียวกัน
+  const pendingPrCodes = data.pending.map((p) => p.prCode ?? "")
+  const [requesters, detailIds] = await Promise.all([
+    fetchRequesterByPr(client, pendingPrCodes),
+    fetchPrDetailIdByPr(client, pendingPrCodes),
+  ])
+  for (const row of data.pending) {
+    row.requester = (row.prCode && requesters.get(row.prCode)) || null
+    row.prDetailId = (row.prCode && detailIds.get(row.prCode)) || null
+  }
   globalThis._deadstockCache = { at: Date.now(), data }
   return data
 }

@@ -39,6 +39,32 @@ export async function fetchRequesterByPr(client: MongoClient, prCodes: string[])
   return out
 }
 
+/** detail_id (เลข id หน้า view ใน ATMS) รายใบ PR — ใช้ทำลิงก์ตรง purchase.request/view/id/<id>
+ *  อ่านจาก purchase_request_items (pipeline api-ncac สร้าง index บน pr_code ให้แล้ว) ยุบด้วย $group
+ *  เพื่อไม่ลากรายการสินค้าทุกบรรทัดกลับมา · bounded ด้วย prCodes ที่ผู้เรียกส่ง · พังก็คืน Map ว่าง
+ *  ใบที่ pipeline ยังไม่เคยเก็บรายการ (เช่น PR ปี 2568 ที่ backfill แค่หัวใบ) จะไม่อยู่ใน Map — ผู้เรียกใช้ลิงก์ fallback */
+export async function fetchPrDetailIdByPr(client: MongoClient, prCodes: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const codes = [...new Set(prCodes.map((c) => c.trim()).filter(Boolean))]
+  if (!codes.length) return out
+  try {
+    const docs = (await client.db("atms").collection("purchase_request_items")
+      .aggregate([
+        { $match: { pr_code: { $in: codes }, detail_id: { $nin: [null, ""] } } },
+        { $group: { _id: "$pr_code", detailId: { $first: "$detail_id" } } },
+      ], { maxTimeMS: 20_000 })
+      .toArray()) as Doc[]
+    for (const d of docs) {
+      const pr = s(d._id)
+      const id = s(d.detailId)
+      if (pr && id) out.set(pr, id)
+    }
+  } catch (e) {
+    console.error("[pr-snapshot] fetchPrDetailIdByPr ", e)
+  }
+  return out
+}
+
 // ดึง snapshot หลาย PR ในชุดเดียว (bounded ตามจำนวน ticket ที่เปิดอยู่)
 export async function fetchPrSnapshots(client: MongoClient, prCodes: string[]): Promise<Map<string, PrSnapshot>> {
   const out = new Map<string, PrSnapshot>()

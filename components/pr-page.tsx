@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, Fragment } from "react"
 import { FileText, Search, RefreshCw, X, ChevronRight } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
+import { atmsPrUrl, atmsPoUrl } from "@/lib/atms-links"
 
 type Cmp = "ok" | "anomaly" | "no_po"
 type VatRule = "incl" | "excl"
@@ -132,13 +133,6 @@ function dueInfo(expected: string): { days: number; overdue: boolean } | null {
 
 const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const bahtShort = (n: number) => Math.round(n).toLocaleString("th-TH")   // ตารางกระชับ (ไม่มีทศนิยม)
-// ลิงก์ไปหน้า ATMS — ใช้ view/id ตรงถ้ามี detail_id (กัน ?code หลุดหลัง login), ไม่งั้น fallback ?code=
-const atmsPr = (code: string, id?: string) => id
-  ? `https://www.mena-atms.com/inv/purchase.request/view/id/${id}`
-  : `https://www.mena-atms.com/inv/purchase.request/index?code=${encodeURIComponent(code)}`
-const atmsPo = (code: string, id?: string) => id
-  ? `https://www.mena-atms.com/inv/purchase.order/view/id/${id}`
-  : `https://www.mena-atms.com/inv/purchase.order/index?code=${encodeURIComponent(code)}`
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const mitr = { fontFamily: "'Mitr', sans-serif" }
 
@@ -667,7 +661,7 @@ export function PrPage() {
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EAF6EE] dark:bg-[#1B8C4B]/10 text-[#1B8C4B]"><FileText size={18} /></div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <a href={atmsPr(detail.pr_code, detail.pr_detail_id)} target="_blank" rel="noopener noreferrer" className="text-[16px] font-bold text-[#1B8C4B] hover:underline" style={mitr} title="เปิดใน ATMS">{detail.pr_code} ↗</a>
+                    <a href={atmsPrUrl(detail.pr_code, detail.pr_detail_id)} target="_blank" rel="noopener noreferrer" className="text-[16px] font-bold text-[#1B8C4B] hover:underline" style={mitr} title="เปิดใน ATMS">{detail.pr_code} ↗</a>
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STAGE_META[detail.stage].cls}`}>
                       <span className="h-1.5 w-1.5 rounded-full" style={{ background: STAGE_META[detail.stage].dot }} />{STAGE_META[detail.stage].full}
                     </span>
@@ -898,7 +892,7 @@ export function PrPage() {
                       <tbody>
                         {detail.pos.map((po) => (
                           <tr key={po.code} className="border-b border-[#F4F7F5] dark:border-white/5">
-                            <td className="px-3 py-2 font-medium"><a href={atmsPo(po.code, po.detail_id)} target="_blank" rel="noopener noreferrer" className="text-[#1B8C4B] hover:underline" title="เปิดใน ATMS">{po.code} ↗</a></td>
+                            <td className="px-3 py-2 font-medium"><a href={atmsPoUrl(po.code, po.detail_id)} target="_blank" rel="noopener noreferrer" className="text-[#1B8C4B] hover:underline" title="เปิดใน ATMS">{po.code} ↗</a></td>
                             <td className="px-3 py-2 whitespace-nowrap text-[#4B5F54] dark:text-gray-400">{fmtDate(po.date)}</td>
                             <td className="px-3 py-2 text-[#4B5F54] dark:text-gray-400">{po.supplier || "—"}</td>
                             <td className="px-3 py-2 whitespace-nowrap text-right font-semibold text-[#14271C] dark:text-white">{baht(po.total)}</td>

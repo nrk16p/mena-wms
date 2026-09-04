@@ -6,6 +6,7 @@ import * as XLSX from "xlsx"
 import { swalError, swalToast } from "@/lib/swal"
 import { BucketBadge, DeadstockShell, RepurchaseBadge, StatusBadge, SummaryCards, baht, mitr, thaiDate, useDeadstock } from "@/components/deadstock-shared"
 import { AGE_BUCKETS, ACTION_LABEL, DEADSTOCK_ACTIONS, layerKey, type ActionKey } from "@/lib/deadstock-core"
+import { atmsPrUrl } from "@/lib/atms-links"
 
 const BUCKET_LABEL = Object.fromEntries(AGE_BUCKETS.map((b) => [b.key, b])) as Record<string, (typeof AGE_BUCKETS)[number]>
 
@@ -464,10 +465,25 @@ export function DeadstockPendingPage() {
                       <div style={sub}>{r.fleetNo ?? "—"}</div>
                     </td>
 
-                    {/* ผู้ขอซื้อ — ชื่อคน (ตัวหลัก) + เลขใบ PR (บรรทัดรอง) ตามกลับไปถามได้จากสองอย่างนี้ */}
+                    {/* ผู้ขอซื้อ — ชื่อคน (ตัวหลัก) + เลขใบ PR (บรรทัดรอง) ตามกลับไปถามได้จากสองอย่างนี้
+                        เลข PR เป็นลิงก์เปิดใบใน ATMS (แท็บใหม่) — ลิงก์ตรง view/id ถ้ารู้ id ไม่งั้นค้นด้วยเลขใบ */}
                     <td style={{ padding: "9px 12px", whiteSpace: "nowrap", verticalAlign: "top" }}>
                       <div>{r.requester ?? <span style={{ color: "#D1D5DB" }}>{NO_REQUESTER}</span>}</div>
-                      <div style={{ ...sub, fontFamily: "monospace" }}>{r.prCode ?? "—"}</div>
+                      <div style={{ ...sub, fontFamily: "monospace" }}>
+                        {r.prCode ? (
+                          <a
+                            href={atmsPrUrl(r.prCode, r.prDetailId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={r.prDetailId ? "เปิดใบ PR ใน ATMS" : "ค้นใบ PR ใน ATMS (ต้อง login ATMS อยู่ก่อน)"}
+                            style={{ color: "#1B8C4B", fontWeight: 600, textDecoration: "none" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline" }}
+                            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none" }}
+                          >
+                            {r.prCode} ↗
+                          </a>
+                        ) : "—"}
+                      </div>
                     </td>
 
                     {/* สินค้า — ชื่อ (ตัวหลัก) + รหัส · กลุ่ม (บรรทัดรอง) */}

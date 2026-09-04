@@ -156,6 +156,9 @@ export type PendingRow = {
   /** ผู้ขอซื้อจากหัวใบ PR — ไม่ได้อยู่ใน stockmovement จึงเติมทีหลังใน lib/deadstock.ts
    *  (ตรรกะล้วนที่นี่ query ไม่ได้ · แพตเทิร์นเดียวกับ newerCount ที่เติมย้อนหลัง) */
   requester: string | null
+  /** id หน้า view ของใบ PR ใน ATMS (จาก purchase_request_items) — เติมทีหลังใน lib/deadstock.ts เช่นกัน
+   *  null เมื่อ pipeline ยังไม่เคยเก็บรายการของใบนั้น (เช่น PR ปี 2568 ที่ backfill แค่หัวใบ) → ลิงก์ fallback ?code= */
+  prDetailId: string | null
   itemCode: string
   itemName: string
   itemGroup: string
@@ -432,6 +435,7 @@ export function buildPayload(
         fleetNo: fleetNoFromNote(r.note),
         prCode: prCodeFromNote(r.note),
         requester: null, // เติมใน lib/deadstock.ts เมื่อรู้ว่าใบไหนค้างจริงแล้ว จะได้ยิง $in เท่าที่แสดง
+        prDetailId: null, // เติมใน lib/deadstock.ts พร้อม requester
         itemCode: r.itemCode,
         itemName: r.itemName,
         itemGroup: r.itemGroup,
