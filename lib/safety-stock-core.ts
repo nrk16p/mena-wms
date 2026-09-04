@@ -348,8 +348,27 @@ export const ON_ORDER_MAX_AGE_DAYS = 90
 export const ON_ORDER_PR_CODES_MAX = 5
 /** บรรทัด PR กลุ่มค่าแรงไม่ใช่ของเข้าสต๊อก (ค่าปะยาง ค่าเชื่อม ฯลฯ) — นับรวมจะทำให้ตัวเลขเพี้ยน */
 const LABOUR_GROUP_RE = /^ค่าแรง/
+/** ใบ PR ที่ฝ่ายสโตร์ยกเลิกแล้ว — ATMS ไม่มีฟิลด์สถานะยกเลิกของ PR จึงดูได้จากหมายเหตุเท่านั้น
+ *  (เคสจริง 04/09/2026: SBPR26060316 หมายเหตุ "ยกเลิก" แต่ยังถูกนับเป็นของกำลังมา 8 ชิ้นให้ LB03SS00540) */
+const CANCELLED_NOTE_RE = /ยกเลิก/
 
-export type PrHeadRef = { code: string; date: string; warehouse: string; plate: string }
+/** prefix เลข PR ที่สาขาของคลังนั้นเปิดเอง — เลข PR ขึ้นต้นด้วยรหัส "สาขาที่เปิดใบ" (LBPR/SBPR/KKPR) ไม่ใช่คลังปลายทาง
+ *  ใบที่ prefix ไม่ตรงคลัง = สาขาอื่นเปิดใบให้ส่งเข้าคลังนี้ (วัดจริง 04/09/2026: ปี 2026 KKPR→คลังลาดกระบัง 6 ใบ,
+ *  SBPR→คลังลาดกระบัง 17 ใบ) ของเข้าคลังนี้จริงจึงยังนับ แค่ต้องบอกผู้ใช้ให้รู้ว่าทำไมมีเลขสาขาอื่นโผล่ในแท็บนี้ */
+export const PR_PREFIX_BY_INVENTORY: Record<string, string> = { "4": "LBPR", "3": "SBPR", "11": "KKPR" }
+export function isCrossBranchPr(prCode: string, inventoryId: string): boolean {
+  const own = PR_PREFIX_BY_INVENTORY[inventoryId]
+  return !!own && !prCode.startsWith(own)
+}
+
+export type PrHeadRef = {
+  code: string; date: string; warehouse: string; plate: string
+  /** สถานะอนุมัติจาก `purchase_requests["is approved"]` — false = ยังไม่ผ่านอนุมัติ ไม่นับเป็นของกำลังมา
+   *  null/ไม่ใส่ = ไม่รู้ (ใบก่อน ก.ค. 2026 ที่ scraper ยังไม่ได้แกะไอคอน) นับต่อเหมือนเดิม ห้ามตัดทิ้งทั้งกอง */
+  approved?: boolean | null
+  /** `หมายเหตุ` ของใบ — ATMS ไม่มีสถานะ "ยกเลิก" ของ PR ฝ่ายสโตร์เขียนคำนี้ไว้ในหมายเหตุแทน */
+  note?: string
+}
 export type PoHeadRef = { code: string; prCode: string; receiveStatus: string }
 export type PrItemRef = { prCode: string; sku: string; amount: number; warehouse: string; group: string }
 export type PoItemRef = { poCode: string; sku: string; received: number }
@@ -389,6 +408,12 @@ export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
  *
  *  ใบที่ระบุทะเบียนรถจริงถูกตัดทิ้งทั้งใบ — เป็นอะไหล่ลงคัน ไม่ใช่ของเข้าสต๊อก (ดู isVehiclePlate)
  *  วัดจริง 25/08/2026: ใบที่ยังไม่มี DD 644 ใบ เป็นอะไหล่ลงคัน 564 ใบ เหลือของเข้าสต๊อกจริง 80 ใบ
+ *
+ *  ใบที่ยังไม่ผ่านอนุมัติ (approved === false) และใบที่หมายเหตุว่า "ยกเลิก" ไม่นับ — ของยังไม่เข้าสายพานจัดซื้อจริง
+ *  ถ้านับจะไปกด "แนะนำสั่ง" ให้ต่ำผิด (เคสจริง 04/09/2026: KKPR26070020 รอการอนุมัติ 46 วัน ทำให้ LB10PM00085
+ *  คงเหลือ 6/min 10 ถูกป้าย "มีของกำลังมา" แนะนำสั่งจาก 14 เหลือ 4) · approved null/ไม่ใส่ = ไม่รู้ นับต่อเหมือนเดิม
+ *
+ *  ใบข้ามสาขา (KKPR/SBPR ที่ช่องคลังสินค้าระบุคลังนี้) ยังนับตามช่องคลังสินค้าของ ATMS — ดู isCrossBranchPr
  */
 export function openPrQtyBySku(input: {
   prHeads: PrHeadRef[]
@@ -421,6 +446,8 @@ export function openPrQtyBySku(input: {
   for (const pr of input.prHeads) {
     if (pr.warehouse !== input.warehouse) continue
     if (isVehiclePlate(pr.plate)) continue      // ซื้อไปลงรถคันนั้น ไม่ใช่ของเข้าสต๊อก
+    if (pr.approved === false) continue         // ยังไม่ผ่านอนุมัติ = ยังไม่ได้เริ่มซื้อ (null = ไม่รู้ นับต่อ)
+    if (CANCELLED_NOTE_RE.test(pr.note ?? "")) continue   // ฝ่ายสโตร์ยกเลิกใบไว้ในหมายเหตุ
     const age = ageDaysFromDmy(pr.date, input.asOf)
     if (age === null || age < 0 || age > maxAge) continue
     const myPos = posByPr.get(pr.code) ?? []

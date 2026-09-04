@@ -14,6 +14,9 @@ const WH_KEY = "คลังสินค้า"
 const DATE_KEY = "วันที่"
 const PLATE_KEY = "ทะเบียน"
 const PO_RECEIVE_STATUS_KEY = "สถานะการรับสินค้า"
+/** ไอคอนอนุมัติที่ scraper แกะเป็น boolean — null สำหรับใบก่อน ก.ค. 2026 ที่ยังไม่ได้ re-scrape (ดู openPrQtyBySku) */
+const PR_APPROVED_KEY = "is approved"
+const PR_NOTE_KEY = "หมายเหตุ"
 
 /** "กำลังสั่งซื้อ" รายรหัสสินค้าของคลังหนึ่ง — ดึงข้อมูลจาก atms แล้วส่งต่อให้ openPrQtyBySku ตัดสิน
  *  (นิยามอยู่ที่นั่น ไฟล์นี้รับผิดชอบแค่การ query) · แยกจาก buildSnapshotRows เพื่อให้ probe เรียกได้ตรงๆ
@@ -37,12 +40,15 @@ export async function fetchOnOrderBySku(atms: Db, inventoryId: string, asOf: Dat
     const minYear = String(new Date(asOf.getTime() - ON_ORDER_MAX_AGE_DAYS * 86_400_000).getFullYear())
     const prHeadDocs = (await atms.collection("purchase_requests")
       .find({ [WH_KEY]: warehouseName, $expr: { $gte: [{ $substrCP: [`$${DATE_KEY}`, 6, 4] }, minYear] } })
-      .project({ _id: 0, [PR_KEY]: 1, [DATE_KEY]: 1, [WH_KEY]: 1, [PLATE_KEY]: 1 })
+      .project({ _id: 0, [PR_KEY]: 1, [DATE_KEY]: 1, [WH_KEY]: 1, [PLATE_KEY]: 1, [PR_APPROVED_KEY]: 1, [PR_NOTE_KEY]: 1 })
       .toArray()) as Record<string, unknown>[]
     const prHeads = prHeadDocs
       .map((d) => ({
         code: String(d[PR_KEY] ?? ""), date: String(d[DATE_KEY] ?? ""),
         warehouse: String(d[WH_KEY] ?? ""), plate: String(d[PLATE_KEY] ?? ""),
+        // boolean เท่านั้นที่ถือเป็นสถานะจริง — null/ไม่มีฟิลด์ = ไม่รู้ ส่ง null ให้ core นับต่อเหมือนเดิม
+        approved: typeof d[PR_APPROVED_KEY] === "boolean" ? (d[PR_APPROVED_KEY] as boolean) : null,
+        note: String(d[PR_NOTE_KEY] ?? ""),
       }))
       .filter((p) => {
         if (!p.code) return false

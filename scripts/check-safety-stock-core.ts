@@ -6,7 +6,7 @@ import {
   median, stdev, aduFrom, sdDailyFrom, safetyStockOf, reorderPointOf,
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
-  openPrQtyBySku, ageDaysFromDmy, isVehiclePlate, ON_ORDER_MAX_AGE_DAYS,
+  openPrQtyBySku, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, ON_ORDER_MAX_AGE_DAYS,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow,
 } from "../lib/safety-stock-core"
@@ -355,6 +355,38 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   assert.equal(isVehiclePlate(""), false)
   assert.equal(isVehiclePlate(null), false, "ช่องว่างใน DB ต้องไม่พัง")
   assert.equal(isVehiclePlate("สบ."), false, "ไม่มีตัวเลขเลย = ไม่ใช่ทะเบียนรถ")
+
+  // ใบข้ามสาขา — prefix เลข PR (KKPR/SBPR) บอก "สาขาที่เปิดใบ" ไม่ใช่คลังปลายทาง ต้องนับตามช่อง คลังสินค้า ของ ATMS
+  // (วัดจริง 04/09/2026: ปี 2026 มี KKPR→คลังลาดกระบัง 6 ใบ, SBPR→คลังลาดกระบัง 17 ใบ ของเข้าลาดกระบังจริง)
+  const cross = openPrQtyBySku({ ...base,
+    prHeads: [...base.prHeads, { code: "KKPR008", date: "21/08/2026", warehouse: WH, plate: "สบ.00000" }],
+    prItems: [...base.prItems, { prCode: "KKPR008", sku: "C3", amount: 6, warehouse: WH, group: "ระบบบำรุงรักษา" }],
+  })
+  assert.equal(cross.get("C3")?.qty, 6, "ใบที่สาขาอื่นเปิดแต่ช่องคลังสินค้าระบุคลังนี้ = ของเข้าคลังนี้จริง ต้องนับ")
+  assert.equal(isCrossBranchPr("KKPR008", "4"), true, "KKPR ในแท็บลาดกระบัง = ใบข้ามสาขา")
+  assert.equal(isCrossBranchPr("LBPR001", "4"), false)
+  assert.equal(isCrossBranchPr("SBPR005", "3"), false)
+  assert.equal(isCrossBranchPr("LBPR001", "99"), false, "คลังที่ไม่รู้ prefix ต้องไม่ฟ้องมั่ว")
+
+  // ใบที่ยังไม่อนุมัติ / ใบที่หมายเหตุว่ายกเลิก — ของยังไม่เข้าสายพานจัดซื้อจริง ห้ามนับเป็นของกำลังมา
+  // (เคสจริง 04/09/2026: KKPR26070020 รอการอนุมัติ 46 วัน กด "แนะนำสั่ง" ของ LB10PM00085 จาก 14 เหลือ 4
+  //  และ SBPR26060316 หมายเหตุ "ยกเลิก" ยังนับ 8 ชิ้นให้ LB03SS00540) · null = ข้อมูลก่อน ก.ค. 2026 ที่ scraper
+  //  ยังไม่ได้แกะสถานะอนุมัติ ต้องนับต่อเหมือนเดิม ไม่ใช่ตัดทิ้งทั้งกอง
+  const gated = openPrQtyBySku({ ...base,
+    prHeads: [...base.prHeads,
+      { code: "LBPR009", date: "21/08/2026", warehouse: WH, plate: "", approved: false },
+      { code: "LBPR010", date: "21/08/2026", warehouse: WH, plate: "", approved: true, note: "ยกเลิก" },
+      { code: "LBPR011", date: "21/08/2026", warehouse: WH, plate: "", approved: null },
+    ],
+    prItems: [...base.prItems,
+      { prCode: "LBPR009", sku: "D4", amount: 5, warehouse: WH, group: "ระบบเบรก" },
+      { prCode: "LBPR010", sku: "D4", amount: 7, warehouse: WH, group: "ระบบเบรก" },
+      { prCode: "LBPR011", sku: "D4", amount: 2, warehouse: WH, group: "ระบบเบรก" },
+    ],
+  })
+  assert.equal(gated.get("D4")?.qty, 2, "ยังไม่อนุมัติ (5) และหมายเหตุยกเลิก (7) ไม่นับ เหลือใบที่ไม่รู้สถานะ (2)")
+  assert.deepEqual(gated.get("D4")?.prCodes, ["LBPR011"])
+  assert.equal(gated.get("A1")?.qty, 13, "ใบเดิมที่ไม่มีฟิลด์ approved/note ต้องนับเหมือนเดิมทุกประการ")
 
   // คลังอื่นต้องไม่ปนกัน — เรียกด้วยชื่อคลังไหนได้ของคลังนั้น
   const sb = openPrQtyBySku({ ...base, warehouse: "คลังสระบุรี" })

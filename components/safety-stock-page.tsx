@@ -8,7 +8,7 @@ import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { bkkToday } from "@/lib/bkk-time"
 import {
-  derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID,
+  derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID, isCrossBranchPr,
   DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS,
   type SafetyStockPayload, type SnapshotRow, type WindowKey, type Status,
   type Derived, type MinVerdict, type LeadTimeSource,
@@ -339,7 +339,23 @@ function RowDialog({
               {" "}รวมกับคงเหลือแล้วเป็น <b>{num(row.stockQty + row.onOrder.qty)} {row.unit}</b>
             </div>
             <div style={{ fontSize: 11.5, color: "#3B82F6", marginTop: 3, fontFamily: "monospace" }}>
-              {row.onOrder.prCodes.join(" · ")}{row.onOrder.prCount > row.onOrder.prCodes.length ? " · …" : ""}
+              {/* เลข PR ขึ้นต้นด้วยรหัสสาขาที่เปิดใบ (KKPR/SBPR) ไม่ใช่คลังปลายทาง — ใบข้ามสาขาที่ส่งเข้าคลังนี้ต้องติดป้าย
+                  ไม่งั้นคนดูจะคิดว่าแท็บคลังกรองไม่จริง (คำถามจริง 04/09/2026 "เหมือนมีคลังขอนแก่นด้วย") */}
+              {row.onOrder.prCodes.map((p, i) => (
+                <span key={p}>
+                  {i > 0 && " · "}
+                  {p}
+                  {isCrossBranchPr(p, row.inventoryId) && (
+                    <span
+                      title="เลข PR ขึ้นต้นด้วยรหัสสาขาที่เปิดใบ แต่ช่องคลังสินค้าใน ATMS ระบุคลังนี้ — ของเข้าคลังนี้จริง"
+                      style={{ marginLeft: 4, fontFamily: "inherit", fontSize: 10, fontWeight: 700, color: "#92400E", background: "#FEF3C7", borderRadius: 4, padding: "1px 5px" }}
+                    >
+                      สาขาอื่นเปิดใบ
+                    </span>
+                  )}
+                </span>
+              ))}
+              {row.onOrder.prCount > row.onOrder.prCodes.length ? " · …" : ""}
             </div>
             <div style={{ fontSize: 11.5, color: row.onOrder.oldestDays > 30 ? "#B45309" : "#6B7280", marginTop: 3 }}>
               ใบเก่าสุดค้างมา {row.onOrder.oldestDays} วัน
@@ -347,6 +363,7 @@ function RowDialog({
             </div>
             <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4 }}>
               นับจากใบ PR ที่ซื้อเข้าสต๊อกและยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน หักส่วนที่รับไปแล้ว ·
+              {" "}ใบที่ยังไม่ผ่านอนุมัติหรือหมายเหตุว่ายกเลิกไม่นับ ·
               {" "}ใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) ไม่นับ เพราะรับเข้าแล้วเบิกออกให้รถทันที สต๊อกไม่ได้เพิ่มจริง ·
               {" "}ยอดนี้หักออกจาก &quot;แนะนำสั่ง&quot; ให้แล้ว แต่ไม่นับใน &quot;คงเหลือ&quot; เพราะของยังเบิกไม่ได้
             </div>
@@ -1038,7 +1055,7 @@ export default function SafetyStockPage() {
                       <td
                         style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }}
                         title={r.onOrder
-                          ? `PR ที่ยังไม่มีใบรับของครบ ${r.onOrder.prCount} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${r.onOrder.prCodes.join(", ")}${r.onOrder.prCount > r.onOrder.prCodes.length ? " …" : ""}`
+                          ? `PR ที่ยังไม่มีใบรับของครบ ${r.onOrder.prCount} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${r.onOrder.prCodes.map((p) => isCrossBranchPr(p, r.inventoryId) ? `${p} (สาขาอื่นเปิดใบ ส่งเข้าคลังนี้)` : p).join(", ")}${r.onOrder.prCount > r.onOrder.prCodes.length ? " …" : ""}`
                           : "ไม่มีใบ PR ที่ค้างรับของสำหรับรหัสนี้"}
                       >
                         {onOrderQtyOf(r) > 0 ? (

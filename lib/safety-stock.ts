@@ -103,7 +103,8 @@ export async function getSafetyStock(
     rows,
   }
 
-  globalThis._safetyStockCache[inventoryId] = { at: Date.now(), data }
+  // ต้องเขียนด้วย key เดียวกับที่อ่านด้านบน — เดิมเขียน [inventoryId] แต่อ่าน [cacheKey] ทำให้ cache ไม่เคย hit เลย
+  globalThis._safetyStockCache[cacheKey] = { at: Date.now(), data }
   // ผู้เรียกอาจ sort/mutate ได้ ห้ามคืนตัวเดียวกับที่ cache ไว้
   return structuredClone(data)
 }
