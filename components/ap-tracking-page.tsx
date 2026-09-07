@@ -271,6 +271,17 @@ export function ApTrackingPage() {
     if ((tab === "passed" || tab === "sent") && terms.length) {
       out = out.filter((r) => (r.creditTerm ? terms.includes(r.creditTerm) : terms.includes("none")))
     }
+    // แท็บ "ส่งบัญชีแล้ว" เรียงตาม "กดส่งเมื่อ" ใหม่ก่อน (ผู้ใช้สั่ง 07/09/2026) — ใช้ sentMarkedAt
+    // ISO เต็มเพื่อให้ใบที่กดวันเดียวกันเรียงตามเวลาด้วย · ใบนำเข้าจาก Excel ไม่มีค่านี้ไว้ท้ายสุด
+    // ตามวันที่รับของเหมือนเดิม · sort ที่นี่ที่เดียว: ตาราง มุมมองรายวัน และ Excel ทั้งสองปุ่มดึงจาก shown
+    if (tab === "sent") {
+      out = [...out].sort((a, b) => {
+        const sa = a.sentMarkedAt ?? "", sb = b.sentMarkedAt ?? ""
+        if (sa && sb) return sb.localeCompare(sa) || b.depositCode.localeCompare(a.depositCode)
+        if (sa || sb) return sa ? -1 : 1
+        return (b.receivedAt || "").localeCompare(a.receivedAt || "") || b.depositCode.localeCompare(a.depositCode)
+      })
+    }
     return out
   }, [beforeSentRange, rangeOn, sentFrom, sentTo, tab, payTypeFilter, passedFrom, passedTo, terms])
 
