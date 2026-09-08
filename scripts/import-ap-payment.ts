@@ -9,6 +9,8 @@
 //  B) "GL _ Payment Report Jan-Aug.xls.xlsx" — export ดิบ (ชีต "LKB Payment …"): PV=DocuNo · วันจ่าย=DocuDate
 //     · ยอด=PayAmnt · DD อยู่ใน InvNo เฉพาะที่ร้านคีย์เลข DD เป็นเลขใบแจ้งหนี้ (~13%) ที่เหลือสะพานผ่าน
 //     เลขตั้งหนี้ DocuNo_inv (LAPO…) → ap_tracking.voucherNos (ตรวจกับไฟล์ A ตรง 4,192/4,192 · 2026-09-08)
+//     + ชีต "LKB GL …" คอลัมน์ GLdesc ระบุเลข DD ทุกใบที่ตั้งหนี้รวมกัน (เช่น LAPO26080090 = LBDD26080132+133)
+//     ใช้เป็นชั้นแรกเพราะครบกว่า InvNo ที่ใส่ใบเดียว · ลำดับ: GLdesc ∪ InvNo → voucherNos
 //     แถวที่แมปไม่ได้ = รายจ่ายที่ไม่ใช่ใบ DD (เงินออม/เช่าซื้อ/ค่าเช่า/สระบุรี) ข้ามเงียบ ๆ
 // ใบที่มี paid = ขั้น "จ่ายแล้ว" ในหน้าเว็บ · source บอกที่มา เผื่ออนาคตดึงจากระบบการเงินตรง
 //
@@ -85,11 +87,32 @@ async function main() {
       }
     }
   }
-  let viaInv = 0, viaVoucher = 0, unmapped = 0
+  // แบบ B: ชีต GL — เลขตั้งหนี้ → เลข DD ทุกใบในคำอธิบาย (ครบกว่า InvNo ที่ใส่แค่ใบแรก)
+  const ddByGl = new Map<string, string[]>()
+  if (raw) {
+    const glName = wb.SheetNames.find((n) => {
+      const h = (XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], { header: 1, range: 0 })[0] ?? []).map((c) => s(c))
+      return h.includes("GLdesc") && h.includes("DocuNo")
+    })
+    if (glName) {
+      const g = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[glName], { header: 1, raw: true, blankrows: false })
+      const gh = (g[0] ?? []).map((c) => s(c)); const cDoc = gh.indexOf("DocuNo"), cDesc = gh.indexOf("GLdesc")
+      for (const r of g.slice(1)) {
+        const l = s(r[cDoc]); if (!l) continue
+        const list = ddByGl.get(l) ?? []
+        for (const code of parsePaymentDdCell(s(r[cDesc]))) if (!list.includes(code)) list.push(code)
+        if (list.length) ddByGl.set(l, list)
+      }
+      console.log(`ชีต GL "${glName}" · เลขตั้งหนี้ที่มีเลข DD ${ddByGl.size.toLocaleString("th-TH")}`)
+    }
+  }
+  let viaInv = 0, viaGl = 0, viaVoucher = 0, unmapped = 0
   const codesOf = (row: unknown[]): string[] => {
     const direct = parsePaymentDdCell(s(row[col.dd]))
+    if (!raw) { if (direct.length) viaInv++; return direct }
+    const gl = ddByGl.get(s(row[col.lapo])) ?? []
+    if (gl.length) { viaGl++; return [...new Set([...gl, ...direct])] }
     if (direct.length) { viaInv++; return direct }
-    if (!raw) return []
     const bridged = ddByVoucher.get(s(row[col.lapo])) ?? []
     if (bridged.length) viaVoucher++; else unmapped++
     return bridged
@@ -152,14 +175,14 @@ async function main() {
   const cur = new Map<string, Record<string, unknown>>()
   for (let i = 0; i < codeList.length; i += 2000) {
     for (const d of await col2.find({ depositCode: { $in: codeList.slice(i, i + 2000) } },
-      { projection: { _id: 0, depositCode: 1, "paid.paymentNos": 1 } }).toArray()) {
+      { projection: { _id: 0, depositCode: 1, "paid.paymentNos": 1, "paid.amount": 1 } }).toArray()) {
       cur.set(String(d.depositCode), d)
     }
   }
   const isSaraburi = (w: string) => w.includes("สระบุรี") && !w.includes("DIST")
 
   const now = new Date().toISOString()
-  let willWrite = 0, skipOld = 0, skipSaraburi = 0, skipSame = 0, newDocs = 0, sharedN = 0
+  let willWrite = 0, skipOld = 0, skipSaraburi = 0, skipSame = 0, newDocs = 0, sharedN = 0, amountFixed = 0
   const ops: Parameters<typeof col2.bulkWrite>[0] = []
   for (const [code, r] of recs) {
     if (!r.pvs.size || !r.dates.size) continue
@@ -167,9 +190,14 @@ async function main() {
     if (!h) { skipOld++; continue }                                 // ก่อน ม.ค. 69 / เลขเพี้ยน — นอกขอบเขต
     const c = cur.get(code)
     if (!c && isSaraburi(h.warehouse)) { skipSaraburi++; continue } // สระบุรีไม่มี tracking — ไม่สร้าง
-    const oldPvs = new Set(((c?.paid as { paymentNos?: string[] } | undefined)?.paymentNos) ?? [])
+    const oldPaid = c?.paid as { paymentNos?: string[]; amount?: number } | undefined
+    const oldPvs = new Set(oldPaid?.paymentNos ?? [])
     const pvs = [...r.pvs].sort()
-    if (pvs.every((p) => oldPvs.has(p)) && oldPvs.size === pvs.length) { skipSame++; continue }  // รันซ้ำ
+    const newAmount = !r.sharedOnly && r.ownAmount ? Math.round(r.ownAmount * 100) / 100 : undefined
+    const samePv = pvs.every((p) => oldPvs.has(p)) && oldPvs.size === pvs.length
+    const sameAmt = (oldPaid?.amount ?? null) === (newAmount ?? null)
+    if (samePv && sameAmt) { skipSame++; continue }  // รันซ้ำ
+    if (samePv && !sameAmt) amountFixed++
     if (!c) newDocs++
     if (r.sharedOnly) sharedN++
     const paid: Record<string, unknown> = {
@@ -178,7 +206,7 @@ async function main() {
       source: "payment-file",
       by: IMPORT_BY, at: now,
     }
-    if (!r.sharedOnly && r.ownAmount) paid.amount = Math.round(r.ownAmount * 100) / 100
+    if (newAmount != null) paid.amount = newAmount
     if (r.sharedWith.size) paid.sharedWith = [...r.sharedWith].sort()
     willWrite++
     ops.push({
@@ -196,9 +224,9 @@ async function main() {
     })
   }
 
-  console.log(`ไฟล์: ${path.basename(file)} · แถว ${rows.length - 1} · ใบ DD ไม่ซ้ำ ${recs.size.toLocaleString("th-TH")}${raw ? ` · DD จาก InvNo ${viaInv} · ผ่านเลขตั้งหนี้ ${viaVoucher} · แมปไม่ได้ (ไม่ใช่ใบ DD) ${unmapped}` : ` · แถวเลขอ่านไม่ได้ ${junkRows}`}`)
+  console.log(`ไฟล์: ${path.basename(file)} · แถว ${rows.length - 1} · ใบ DD ไม่ซ้ำ ${recs.size.toLocaleString("th-TH")}${raw ? ` · DD จากชีต GL ${viaGl} · จาก InvNo ${viaInv} · ผ่าน voucherNos ${viaVoucher} · แมปไม่ได้ (ไม่ใช่ใบ DD) ${unmapped}` : ` · แถวเลขอ่านไม่ได้ ${junkRows}`}`)
   console.log(`\n── สรุป ──────────────────────────────`)
-  console.log(`  จะบันทึกจ่ายแล้ว               ${willWrite.toLocaleString("th-TH")} ใบ  (สร้าง tracking ใหม่ ${newDocs})`)
+  console.log(`  จะบันทึกจ่ายแล้ว               ${willWrite.toLocaleString("th-TH")} ใบ  (สร้าง tracking ใหม่ ${newDocs} · PV เดิมแต่แก้ยอด ${amountFixed})`)
   console.log(`  ยอดแยกไม่ได้ (จ่ายรวมหลายใบ)    ${sharedN}  — เก็บ PV/วันจ่ายครบ แต่ไม่ใส่ยอด`)
   console.log(`  ข้าม: ก่อนขอบเขตระบบ/เลขเพี้ยน  ${skipOld}`)
   console.log(`  ข้าม: คลังสระบุรี               ${skipSaraburi}`)
