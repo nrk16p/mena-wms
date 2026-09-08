@@ -1,9 +1,9 @@
 // scripts/check-price-compare-pdf.ts — รัน: npx tsx scripts/check-price-compare-pdf.ts
 import assert from "node:assert/strict"
 import fs from "node:fs"
-import { newDoc, emptySupplier, type PriceCompare, type PcSupplier } from "../lib/price-compare"
+import { newDoc, emptySupplier, supplierTotals, fmtMoney, type PriceCompare, type PcSupplier } from "../lib/price-compare"
 import { buildPriceCompareDocDef, pdfFilename } from "../lib/price-compare-pdf"
-import { renderPdfmake } from "../lib/pdfmake-printer"
+import { renderPdfmake, seg } from "../lib/pdfmake-printer"
 
 function uh03(): PriceCompare {
   const d = newDoc({ name: "นพรัตน์ อายยืน", email: "n@mena.co.th" }) as PriceCompare
@@ -44,6 +44,25 @@ async function main() {
   { const r = buildPriceCompareDocDef({ ...uh03(), selectionReason: "ของใหม่ มือ 1" }); assert.ok(JSON.stringify(r).includes("เหตุผลที่เลือก")) }
   assert.ok(flat.includes("Supplier 4"), "ต้องพิมพ์ 4 คอลัมน์เสมอแม้มี 3 ราย")
   assert.ok(flat.includes("ผู้ได้รับเลือก"))
+  // fixture ตั้งต้นไม่มีเหตุผลทั้งสองข้อ → บรรทัดเหตุผลต้องไม่ถูกพิมพ์
+  assert.ok(!flat.includes("เหตุผลที่เลือก"), "ไม่มี selectionReason ต้องไม่มีบรรทัดเหตุผลที่เลือก")
+  assert.ok(!flat.includes("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย"), "ไม่มี fewerQuotesReason ต้องไม่มีบรรทัดนั้น")
+
+  // supplier ที่เสนอราคาแบบไม่มี VAT: ช่องภาษีขึ้น "ไม่มี VAT" และสุทธิ = ยอดหลังส่วนลด
+  const dNone = uh03()
+  dNone.suppliers[2].vatMode = "none"
+  const tNone = supplierTotals(dNone, 2)
+  assert.equal(tNone.vat, 0)
+  assert.equal(tNone.net, tNone.afterDiscount, "vatMode none: สุทธิ = ยอดหลังส่วนลด")
+  const flatNone = JSON.stringify(buildPriceCompareDocDef(dNone))
+  // ข้อความไทยทั่วไปผ่าน seg() (มี ZWSP คั่นคำ) จึงต้องเทียบกับรูปที่ seg() แล้ว
+  assert.ok(flatNone.includes(seg("ไม่มี VAT")), "ช่องภาษีของ supplier 3 ต้องขึ้น ไม่มี VAT")
+  assert.ok(flatNone.includes(fmtMoney(tNone.net)), `สุทธิ supplier 3 (none) = ${fmtMoney(tNone.net)}`)
+
+  // เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย — ป้ายหัวข้อเป็นข้อความตรงตัว ส่วนเนื้อความผ่าน seg()
+  const flatFewer = JSON.stringify(buildPriceCompareDocDef({ ...uh03(), fewerQuotesReason: "มีผู้ขายรายเดียว" }))
+  assert.ok(flatFewer.includes("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย"))
+  assert.ok(flatFewer.includes(seg("มีผู้ขายรายเดียว")))
 
   // หน้ารูปแนบ
   const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="

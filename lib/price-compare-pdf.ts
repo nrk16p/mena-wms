@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, MAX_SUPPLIERS, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, MAX_SUPPLIERS, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -125,7 +125,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const vatCell = (i: number) => {
     const s = sup(i), tt = totals[i]
     if (!s || !tt) return { text: "", ...fill(i) }
-    if (s.vatMode === "none") return { text: "ไม่มี VAT", alignment: "right", fontSize: 7, ...fill(i) }
+    if (s.vatMode === "none") return t("ไม่มี VAT", { alignment: "right", fontSize: 7, ...fill(i) })
     // ขึ้นบรรทัดเองด้วย array (ช่องกว้าง 50pt ใส่บรรทัดเดียวไม่พอ) และไม่ seg() ป้ายสั้นนี้
     if (s.vatMode === "incl") return { text: ["(รวมในราคา)", "\n", fmtMoney(tt.vat)], alignment: "right", fontSize: 7, ...fill(i) }
     return money(tt.vat, fill(i))
@@ -212,25 +212,26 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
         t(`2) เหตุผลในการเลือก : ${m?.reason ?? ""}`, { bold: true, fontSize: 8 }),
         { text: " ", margin: [0, 20, 0, 0] },                       // ที่ว่างลงนาม
         t(m?.name ?? "", { alignment: "center", fontSize: 8 }),
-        { text: `วันที่ ${m?.signedDate ? thDate(m.signedDate) : "................"}`, alignment: "center", fontSize: 8 },
+        t(`วันที่ ${m?.signedDate ? thDate(m.signedDate) : "................"}`, { alignment: "center", fontSize: 8 }),
       ],
     }
   }
   const chosen = Array.from({ length: N }, (_, i) =>
     raw(`[${doc.selectedSupplier === i + 1 ? TICK : "  "}] Supplier ${i + 1}`, { fontSize: 8 })
   )
+  const C = DEFAULT_COMMITTEE_ROLES.length   // จำนวนช่องกรรมการ — ทั้งความกว้าง แถวลงนาม และแถวตำแหน่ง ใช้ค่าเดียวกัน
   const committeeTable = {
     table: {
-      widths: [COL1_W, "*", "*", "*", "*", 74],
+      widths: [COL1_W, ...Array.from({ length: C }, () => "*"), 74],
       body: [
         [
           { rowSpan: 2, ...t("คณะกรรมการพิจารณาคัดเลือกและข้อสรุป", { alignment: "center", fontSize: 7, bold: true, fillColor: GRAY, margin: [0, 24, 0, 0] }) },
-          member(0), member(1), member(2), member(3),
+          ...Array.from({ length: C }, (_, i) => member(i)),
           { rowSpan: 2, stack: [raw("ผู้ได้รับเลือก", { bold: true, fontSize: 8, decoration: "underline", alignment: "center" }), ...chosen] },
         ],
         [
           {},
-          ...Array.from({ length: N }, (_, i) => t(doc.committee?.[i]?.role ?? "", { alignment: "center", bold: true, fontSize: 8 })),
+          ...Array.from({ length: C }, (_, i) => t(doc.committee?.[i]?.role ?? DEFAULT_COMMITTEE_ROLES[i], { alignment: "center", bold: true, fontSize: 8 })),
           {},
         ],
       ],
@@ -240,14 +241,13 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   }
 
   // ---------- เหตุผล (พิมพ์เฉพาะที่มีข้อความ) ----------
-  // หัวข้อแยกเป็นสตริงของตัวเองไม่ผ่าน seg() (ป้ายสั้น ไม่ต้องตัดคำ) แล้วต่อด้วยข้อความที่ seg() แล้ว
+  // ป้ายหัวข้อสองอันนี้เป็นข้อยกเว้นของกฎ seg() เหมือน "ผู้ได้รับเลือก"/"(รวมในราคา)" — ป้ายสั้นบรรทัดเดียว
+  // ไม่ต้องตัดคำ และ check script ค้นหาแบบตรงตัว ส่วนข้อความที่ผู้ใช้พิมพ์ต่อท้ายยังผ่าน seg() ตามปกติ
+  const reason = (label: string, value: string, top: number) =>
+    ({ text: [label, ": ", seg(value)], fontSize: 8, margin: [0, top, 0, 0] })
   const reasons = [
-    doc.selectionReason
-      ? { text: ["เหตุผลที่เลือก", ": ", seg(doc.selectionReason)], fontSize: 8, margin: [0, 3, 0, 0] }
-      : null,
-    doc.fewerQuotesReason
-      ? { text: ["เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย", ": ", seg(doc.fewerQuotesReason)], fontSize: 8, margin: [0, 2, 0, 0] }
-      : null,
+    doc.selectionReason ? reason("เหตุผลที่เลือก", doc.selectionReason, 3) : null,
+    doc.fewerQuotesReason ? reason("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย", doc.fewerQuotesReason, 2) : null,
   ].filter(Boolean)
 
   // ---------- หน้ารูปแนบ (แนวตั้ง หน้าละ 1 รูป) ----------
