@@ -29,13 +29,20 @@ const monthLabel = (yymm: string) => `${yymm.slice(2)}/25${yymm.slice(0, 2)}`   
 export function PriceCompareList() {
   const router = useRouter()
   const [rows, setRows] = useState<PcListRow[] | null>(null)
+  const [loadError, setLoadError] = useState("")
   const [q, setQ] = useState("")
   const [fStatus, setFStatus] = useState("")
   const [fMonth, setFMonth] = useState("")
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    fetch("/api/price-compare?limit=500").then((r) => r.json()).then((d) => setRows(Array.isArray(d) ? d : [])).catch(() => setRows([]))
+    fetch("/api/price-compare?limit=500")
+      .then(async (r) => {
+        const d = await r.json().catch(() => null)
+        if (!r.ok) throw new Error((d && d.error) || `โหลดไม่สำเร็จ (${r.status})`)
+        setRows(Array.isArray(d) ? d : [])
+      })
+      .catch((e) => { setRows([]); setLoadError(e instanceof Error ? e.message : "โหลดไม่สำเร็จ") })
   }, [])
 
   const months = useMemo(() => Array.from(new Set((rows ?? []).map((r) => monthOf(r.docNo)))).sort().reverse(), [rows])
@@ -46,6 +53,10 @@ export function PriceCompareList() {
       (!fMonth || monthOf(r.docNo) === fMonth) &&
       (!t || [r.docNo, r.title, r.requestDept, r.selectedName, r.preparedBy?.name].some((v) => (v ?? "").toLowerCase().includes(t))))
   }, [rows, q, fStatus, fMonth])
+
+  function open(id: string) {
+    router.push(`/price-compare/${id}`)
+  }
 
   async function create() {
     setCreating(true)
@@ -100,9 +111,23 @@ export function PriceCompareList() {
           </thead>
           <tbody>
             {rows === null && <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-400"><Loader2 className="inline animate-spin" size={16} /> กำลังโหลด…</td></tr>}
-            {rows !== null && filtered.length === 0 && <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-400">ไม่มีรายการ</td></tr>}
+            {rows !== null && filtered.length === 0 && (
+              <tr>
+                <td colSpan={9} className={`px-3 py-8 text-center ${loadError ? "text-red-600" : "text-gray-400"}`}>
+                  {loadError ? `⚠ ${loadError}` : "ไม่มีรายการ"}
+                </td>
+              </tr>
+            )}
             {filtered.map((r) => (
-              <tr key={r._id} onClick={() => router.push(`/price-compare/${r._id}`)} className="cursor-pointer border-t border-[#EEF2F0] dark:border-white/8 hover:bg-[#F6FAF7] dark:hover:bg-white/5">
+              <tr
+                key={r._id}
+                tabIndex={0}
+                role="link"
+                aria-label={`เปิด ${r.docNo}`}
+                onClick={() => open(r._id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(r._id) } }}
+                className="cursor-pointer border-t border-[#EEF2F0] dark:border-white/8 hover:bg-[#F6FAF7] dark:hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8C4B]"
+              >
                 <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{r.docNo}</td>
                 <td className="px-3 py-2 font-medium">{r.title || <span className="text-gray-400">(ยังไม่ระบุ)</span>}</td>
                 <td className="px-3 py-2">{r.requestDept}</td>
