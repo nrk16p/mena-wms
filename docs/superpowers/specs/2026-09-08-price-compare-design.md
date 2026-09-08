@@ -122,7 +122,7 @@ Unique index บน `docNo`
 
 ## 3. หน้าจอ
 
-เมนู sidebar: กลุ่ม `tracking` ("จัดการติดตามสินค้า") เพิ่มลิงก์ **"ใบเทียบราคา"** (`/price-compare`, icon `Scale` จาก lucide) ต่อจาก "ติดตามคำขอเปิด PO" และการ์ด QUICK_LINKS หน้าแรกตาม pattern เดิมของ `lib/nav.ts`
+เมนู sidebar: **กลุ่มใหม่** `price-compare` ชื่อ "เปรียบเทียบราคา" ใน `lib/nav.ts` (วางต่อจากกลุ่ม "จัดการติดตามสินค้า") มีลิงก์ **"ใบเทียบราคา"** (`/price-compare`, icon `Scale` จาก lucide, exact) — การ์ด QUICK_LINKS หน้าแรกเกิดจากกลุ่มอัตโนมัติตาม pattern เดิม
 
 ### 3.1 `/price-compare` — รายการ
 
@@ -234,7 +234,7 @@ Index: `price_compare` → `{ docNo: 1 }` unique, `{ status: 1, updatedAt: -1 }`
 | `app/api/price-compare/route.ts`, `[id]/route.ts`, `[id]/pdf/route.ts`, `[id]/log/route.ts` | ใหม่ | API |
 | `app/price-compare/page.tsx`, `[id]/page.tsx` | ใหม่ | หน้า |
 | `components/price-compare-list.tsx`, `price-compare-form.tsx`, `price-compare-matrix.tsx` | ใหม่ | UI (แยก matrix ออกเพราะเป็นส่วนที่ซับซ้อนสุด) |
-| `lib/nav.ts` | แก้ | เพิ่มเมนู |
+| `lib/nav.ts` | แก้ | เพิ่มกลุ่มเมนูใหม่ "เปรียบเทียบราคา" |
 | `next.config.ts`, `package.json` | แก้ | fonts tracing, deps |
 | `scripts/ensure-price-compare-indexes.mjs` | ใหม่ | index |
 | `scripts/seed-price-compare-uh03.mjs` | ใหม่ | ใบตัวอย่างจากต้นแบบ (ใช้ทดสอบ PDF เทียบต้นฉบับ) |
