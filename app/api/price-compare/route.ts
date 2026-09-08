@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   const filter: Record<string, unknown> = {}
   if (status) filter.status = status
-  if (month) filter.docNo = { $regex: `^PC-${month}-` }
+  if (/^\d{4}$/.test(month)) filter.docNo = { $regex: `^PC-${month}-` }   // ต้องเป็น YYMM 4 หลักเท่านั้น กัน regex ที่ผู้ใช้ส่งมาเอง
   if (q) {
     const rx = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" }
     filter.$or = [{ docNo: rx }, { title: rx }, { "suppliers.name": rx }, { requestDept: rx }]
@@ -63,7 +63,19 @@ export async function POST(req: NextRequest) {
   const now = new Date()
   const doc: Omit<PriceCompare, "_id"> = { ...base, docNo: await nextDocNo(db, bkkToday()), createdAt: toBkkIso(now), updatedAt: toBkkIso(now) }
   delete (doc as { _id?: string })._id
-  const r = await db.collection(PC_COLL).insertOne(doc)
-  await writePcLog(db, { docId: String(r.insertedId), docNo: doc.docNo, action: "create", by: me.name, byEmail: me.email, at: now, statusChange: { from: "", to: "ร่าง" } })
+
+  // เลขที่ชนกับใบที่มีอยู่ (unique index) — เช่น seed/นำเข้าเก่าที่จองเลขไว้โดยไม่ผ่าน counter → ออกเลขใหม่แล้วลองอีกครั้งเดียว
+  let r
+  try {
+    r = await db.collection(PC_COLL).insertOne(doc)
+  } catch (e) {
+    if ((e as { code?: number }).code !== 11000) throw e
+    doc.docNo = await nextDocNo(db, bkkToday())
+    r = await db.collection(PC_COLL).insertOne(doc)
+  }
+
+  try {
+    await writePcLog(db, { docId: String(r.insertedId), docNo: doc.docNo, action: "create", by: me.name, byEmail: me.email, at: now, statusChange: { from: "", to: "ร่าง" } })
+  } catch (e) { console.error("[price-compare log]", e) }   // log ล้มต้องไม่ทำให้การสร้างที่สำเร็จแล้วกลายเป็น 500
   return NextResponse.json({ ...doc, _id: String(r.insertedId) }, { status: 201 })
 }

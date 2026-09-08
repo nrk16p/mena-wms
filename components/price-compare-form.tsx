@@ -118,7 +118,8 @@ export function PriceCompareForm({ id }: { id: string }) {
 
   async function save(nextStatus?: PcStatus): Promise<boolean> {
     if (!doc) return false
-    const body = { ...doc, status: nextStatus ?? doc.status }
+    // ได้ใบเสนอราคาครบเกณฑ์แล้ว → เหตุผลเก่าที่ค้างอยู่ไม่ต้องเก็บ (ช่องกรอกถูกซ่อนไปแล้ว จะกลายเป็นข้อความค้างใน PDF)
+    const body = { ...doc, status: nextStatus ?? doc.status, ...(fullCount >= MIN_QUOTES ? { fewerQuotesReason: "" } : {}) }
     const errs = validateDoc(normalizeDoc(body))
     if (errs.length) { swalError(errs.join("\n")); return false }
     if (nextStatus) {
@@ -303,7 +304,7 @@ export function PriceCompareForm({ id }: { id: string }) {
           <div className="flex flex-wrap gap-3">
             {doc.suppliers.map((s, i) => (
               <label key={i} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2 text-sm ${doc.selectedSupplier === i + 1 ? "border-[#1B8C4B] bg-[#1B8C4B]/5" : "border-[#EEF2F0] dark:border-white/8"}`}>
-                <input type="radio" name="selected" disabled={readOnly} checked={doc.selectedSupplier === i + 1} onChange={() => patch({ selectedSupplier: i + 1 })} />
+                <input type="radio" name="selected" disabled={readOnly} checked={doc.selectedSupplier === i + 1} onChange={() => patch({ selectedSupplier: i + 1, ...(lowNet != null && i === lowNet ? { selectionReason: "" } : {}) })} />
                 <span className="font-medium">Supplier {i + 1}</span><span>{s.name}</span>
                 <span className="tabular-nums text-gray-500">{fmtMoney(supplierTotals(doc, i).net)}</span>
                 {i === lowNet && <span className="rounded bg-emerald-100 px-1.5 text-[10px] text-emerald-700">ถูกสุด</span>}

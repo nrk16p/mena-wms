@@ -24,7 +24,7 @@ export function StatusChip({ status }: { status: PcStatus }) {
 
 const fmtDate = (iso: string) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "")
 const monthOf = (docNo: string) => docNo.split("-")[1] ?? ""   // "2609"
-const monthLabel = (yymm: string) => `${yymm.slice(2)}/25${yymm.slice(0, 2)}`   // "09/2569"
+const monthLabel = (yymm: string) => `${yymm.slice(2)}/${2543 + Number(yymm.slice(0, 2))}`   // "2609" → "09/2569" (ปี พ.ศ. เต็ม)
 
 export function PriceCompareList() {
   const router = useRouter()
