@@ -1,9 +1,11 @@
 // scripts/check-price-compare-pdf.ts — รัน: npx tsx scripts/check-price-compare-pdf.ts
 import assert from "node:assert/strict"
 import fs from "node:fs"
+import { PDFDocument } from "pdf-lib"
 import { newDoc, emptySupplier, supplierTotals, fmtMoney, type PriceCompare, type PcSupplier } from "../lib/price-compare"
 import { buildPriceCompareDocDef, pdfFilename } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
+import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
 
 function uh03(): PriceCompare {
   const d = newDoc({ name: "นพรัตน์ อายยืน", email: "n@mena.co.th" }) as PriceCompare
@@ -75,6 +77,42 @@ async function main() {
   fs.mkdirSync("tmp", { recursive: true })
   fs.writeFileSync("tmp/price-compare-uh03.pdf", pdf)
   console.log("check-price-compare-pdf: OK → tmp/price-compare-uh03.pdf (เปิดเทียบกับต้นแบบหน้า 1)")
+
+  // --- ลำดับหลักฐาน: ทั่วไป → Supplier 1..N ---
+  {
+    const d = uh03()
+    const f = (n: string): any => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    d.evidenceFiles = [f("line-chat.jpg")]
+    d.suppliers[0].quotationFiles = [f("q1.jpg")]
+    d.suppliers[1].quotationFiles = [f("quote2.pdf"), f("q2b.jpg")]
+    const order = attachmentOrder(d)
+    assert.deepEqual(order.map((o) => o.file.filename), ["line-chat.jpg", "q1.jpg", "quote2.pdf", "q2b.jpg"])
+    assert.equal(order[0].heading, "หลักฐาน: line-chat.jpg")
+    assert.equal(order[2].heading, "ใบเสนอราคา Supplier 2 — คุณณัฐ: quote2.pdf")
+
+    // --- collectAttachments ด้วย fetch ปลอม: รูป = PNG 1×1 (sharp แปลงได้), pdf = เอกสาร 2 หน้า, ไฟล์เสีย = 404 ---
+    const twoPage = await PDFDocument.create(); twoPage.addPage(); twoPage.addPage()
+    const pdfBytes = await twoPage.save()
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")
+    d.suppliers[2].quotationFiles = [f("broken.jpg")]
+    const fakeFetch = (async (url: string) => {
+      if (url.endsWith("broken.jpg")) return new Response(null, { status: 404 })
+      if (url.endsWith(".pdf")) return new Response(pdfBytes, { status: 200, headers: { "content-type": "application/pdf" } })
+      return new Response(png, { status: 200, headers: { "content-type": "image/png" } })
+    }) as unknown as typeof fetch
+    const plan = await collectAttachments(d, fakeFetch)
+    assert.equal(plan.imagePages.length, 3, "รูป 3 ไฟล์")
+    assert.equal(plan.pdfInserts.length, 1)
+    assert.equal(plan.pdfInserts[0].afterImageIndex, 1, "PDF ของ supplier 2 อยู่หลังรูปที่ 2 (index 1)")
+    assert.deepEqual(plan.failed, ["broken.jpg"])
+
+    const out = await assemblePdf(d, plan)
+    const merged = await PDFDocument.load(out)
+    // หน้า 1 ฟอร์ม + รูป line-chat + รูป q1 + PDF 2 หน้า + รูป q2b + หน้าแจ้งไฟล์เสีย = 7
+    assert.equal(merged.getPageCount(), 7)
+    fs.writeFileSync("tmp/price-compare-merged.pdf", out)
+    console.log("attachments: OK → tmp/price-compare-merged.pdf")
+  }
 }
 
 main()
