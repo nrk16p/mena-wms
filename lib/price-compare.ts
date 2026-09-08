@@ -169,7 +169,7 @@ const files = (v: unknown): PcFile[] => Array.isArray(v)
       mediaId: Number(f.mediaId), batchId: str(f.batchId), filename: str(f.filename), webpUrl: str(f.webpUrl), thumbnailUrl: str(f.thumbnailUrl),
     }))
   : []
-const intInRange = (v: unknown, max: number): number | null => { const n = numOrNull(v); return n != null && Number.isInteger(n) && n >= 1 && n <= max ? n : (n == null ? null : n) }
+const intInRange = (v: unknown, max: number): number | null => { const n = numOrNull(v); return n != null && Number.isInteger(n) && n >= 1 && n <= max ? n : null }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizeDoc(input: unknown): PriceCompare {
