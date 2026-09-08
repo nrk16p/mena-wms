@@ -1,3 +1,6 @@
-export default function Page() {
-  return <div className="p-6 text-sm text-gray-500">ฟอร์มใบเทียบราคา (กำลังพัฒนา)</div>
+import { PriceCompareForm } from "@/components/price-compare-form"
+
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  return <PriceCompareForm id={id} />
 }
