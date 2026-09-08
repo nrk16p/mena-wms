@@ -20,6 +20,7 @@
 - ไฟล์แนบใช้ `ImageUpload` จาก `@/components/image-upload` (props: `onChange(images: SkuImage[])`, `initial?: SkuImage[]`, `max?`, `disabled?`) — รูปเป็น webp บน CDN, PDF ชื่อไฟล์ลงท้าย `.pdf`
 - เลขที่เอกสาร `PC-YYMM-NNN` (YY = พ.ศ. 2 หลักท้าย), VAT 7%, ปัด 2 ตำแหน่งด้วย `Math.round(x*100)/100`
 - Supplier สูงสุด 4 ราย, กรรมการ 4 ช่องเสมอ, สถานะ `ร่าง | รอลงนาม | เสร็จสิ้น`
+- กฎจัดซื้อ (จากการค้นคว้า): ฐาน VAT ต่อ supplier (`vatMode` excl/incl/none — เทียบกันที่สุทธิจริง), ใบเสนอราคาครบ ≥3 ราย ไม่งั้นต้องมี `fewerQuotesReason`, เลือกรายที่ไม่ใช่สุทธิต่ำสุดต้องมี `selectionReason`, เก็บ `quoteDate/validUntil` และเตือนเมื่อหมดอายุ
 - ทุก API ต้องมี session (401 ถ้าไม่มี) — ไม่มี public route จึงไม่ต้องแก้ `middleware.ts`
 - ฟอนต์ PDF = Sarabun อย่างเดียว ใน `fonts/` และต้องประกาศ `outputFileTracingIncludes` ใน `next.config.ts`
 - Commit ทุก task; `git pull --rebase --autostash` ก่อน commit แรกของ session; **ห้าม push** จนกว่าผู้ใช้สั่ง
@@ -68,14 +69,17 @@
   export type PcFile = { mediaId: number; batchId: string; filename: string; webpUrl: string; thumbnailUrl: string }
   export type PcItem = { name: string; qty: number; unit: string }
   export type PcConditions = { payment: string; leadTime: string; warranty: string; remark: string; bays: string; menaTrucksIn: string; statusA: string; statusB: string }
-  export type PcSupplier = { name: string; garageId?: string; note: string; prices: (number | null)[]; discount: number; conditions: PcConditions; quotationFiles: PcFile[] }
+  export type PcVatMode = "excl" | "incl" | "none"
+  export type PcSupplier = { name: string; garageId?: string; note: string; prices: (number | null)[]; discount: number; vatMode: PcVatMode; quoteDate: string; validUntil: string; conditions: PcConditions; quotationFiles: PcFile[] }
   export type PcCommittee = { role: string; name: string; email?: string; pickedSupplier: number | null; reason: string; signedDate: string }
   export type PcLinks = { prCode?: string; plate?: string; fleetNo?: string; repairExternalId?: string }
-  export type PriceCompare = { _id?: string; docNo: string; title: string; requestDept: string; preparedBy: { name: string; email: string }; revision: number; createdAt: string; updatedAt: string; status: PcStatus; items: PcItem[]; suppliers: PcSupplier[]; committee: PcCommittee[]; selectedSupplier: number | null; links: PcLinks; evidenceFiles: PcFile[]; createdBy: string; editedBy: string }
+  export type PriceCompare = { _id?: string; docNo: string; title: string; requestDept: string; preparedBy: { name: string; email: string }; revision: number; createdAt: string; updatedAt: string; status: PcStatus; items: PcItem[]; suppliers: PcSupplier[]; committee: PcCommittee[]; selectedSupplier: number | null; selectionReason: string; fewerQuotesReason: string; links: PcLinks; evidenceFiles: PcFile[]; createdBy: string; editedBy: string }
   export type PcTotals = { subtotal: number; discount: number; afterDiscount: number; vat: number; net: number }
   export const PC_STATUSES: PcStatus[]
   export const MAX_SUPPLIERS = 4
+  export const MIN_QUOTES = 3
   export const VAT_RATE = 0.07
+  export const VAT_MODE_LABEL: Record<PcVatMode, string>   // excl:"ราคาก่อน VAT", incl:"ราคารวม VAT แล้ว", none:"ไม่มี VAT"
   export const DEFAULT_COMMITTEE_ROLES: string[]   // 4 ตำแหน่งตามฟอร์ม
   export function round2(n: number): number
   export function emptyConditions(): PcConditions
@@ -86,6 +90,8 @@
   export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers">, idx: number): PcTotals
   export function lowestPerLine(doc: Pick<PriceCompare, "items" | "suppliers">): (number | null)[]   // index supplier ต่อแถว
   export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers">): number | null
+  export function completeSupplierCount(doc: Pick<PriceCompare, "items" | "suppliers">): number   // supplier ที่มีชื่อ + ราคาครบทุกแถว
+  export function isQuoteExpired(s: Pick<PcSupplier, "validUntil">, today: string): boolean
   export function isComplete(doc: PriceCompare, opts?: { requireCommitteeNames?: boolean }): { ok: boolean; missing: string[] }
   export function canTransition(from: PcStatus, to: PcStatus, doc: PriceCompare): { ok: boolean; reason?: string }
   export function normalizeDoc(input: unknown): PriceCompare   // เติม default/ตัดฟิลด์แปลก/แปลงตัวเลข
@@ -104,6 +110,7 @@ import assert from "node:assert/strict"
 import {
   newDoc, emptySupplier, supplierTotals, lowestPerLine, lowestNet, isComplete, canTransition,
   normalizeDoc, validateDoc, docNoFor, counterKeyFor, fmtMoney, lineTotal, round2,
+  completeSupplierCount, isQuoteExpired, MIN_QUOTES,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 
@@ -150,6 +157,13 @@ d.suppliers[1].discount = 300
 assert.deepEqual(supplierTotals(d, 1), { subtotal: 56300, discount: 300, afterDiscount: 56000, vat: 3920, net: 59920 })
 d.suppliers[1].discount = 0
 
+// --- vatMode: incl → สุทธิ = หลังส่วนลด, VAT แยกออกมาให้เห็น; none → VAT 0 ---
+d.suppliers[1].vatMode = "incl"
+assert.deepEqual(supplierTotals(d, 1), { subtotal: 56300, discount: 0, afterDiscount: 56300, vat: 3683.18, net: 56300 })
+d.suppliers[1].vatMode = "none"
+assert.deepEqual(supplierTotals(d, 1), { subtotal: 56300, discount: 0, afterDiscount: 56300, vat: 0, net: 56300 })
+d.suppliers[1].vatMode = "excl"
+
 // รายการที่ null ไม่ถูกนับ และ supplier ที่ไม่มีราคาเลย → 0
 d.suppliers[2].prices[0] = null
 assert.equal(supplierTotals(d, 2).subtotal, 32999.92)
@@ -164,6 +178,15 @@ assert.equal(lowestNet(d), 1, "supplier ที่ไม่มีราคาเ�
 assert.deepEqual(lowestPerLine({ items: d.items, suppliers: [] }), [null, null, null, null, null])
 assert.equal(lowestNet({ items: d.items, suppliers: [] }), null)
 
+// --- completeSupplierCount / isQuoteExpired ---
+assert.equal(MIN_QUOTES, 3)
+assert.equal(completeSupplierCount(uh03()), 3)
+{ const x = uh03(); x.suppliers[2].prices[4] = null; assert.equal(completeSupplierCount(x), 2, "ราคาไม่ครบทุกแถว ไม่นับ") }
+{ const x = uh03(); x.suppliers[2].name = ""; assert.equal(completeSupplierCount(x), 2, "ไม่มีชื่อ ไม่นับ") }
+assert.equal(isQuoteExpired({ validUntil: "2026-09-01" }, "2026-09-08"), true)
+assert.equal(isQuoteExpired({ validUntil: "2026-09-08" }, "2026-09-08"), false, "วันสุดท้ายยังใช้ได้")
+assert.equal(isQuoteExpired({ validUntil: "" }, "2026-09-08"), false, "ไม่ระบุ = ไม่เตือน")
+
 // --- isComplete ---
 const c = uh03()
 let r = isComplete(c)
@@ -176,12 +199,30 @@ assert.equal(isComplete(c).ok, true)
 c.committee[3].name = ""
 assert.equal(isComplete(c).ok, false)
 assert.equal(isComplete(c, { requireCommitteeNames: false }).ok, true)
-c.suppliers = [c.suppliers[0]]
-assert.equal(isComplete(c, { requireCommitteeNames: false }).ok, false, "ต้องมี supplier ≥2 ที่ราคาครบ")
+// กฎ 3 ราย: เหลือ 2 ราย → ต้องมีเหตุผล
+c.suppliers = [c.suppliers[0], c.suppliers[1]]
+r = isComplete(c, { requireCommitteeNames: false })
+assert.equal(r.ok, false)
+assert.ok(r.missing.some((m) => m.includes("3 ราย")))
+c.fewerQuotesReason = "อู่ที่รับงาน Rexroth มีแค่ 2 ราย"
+assert.equal(isComplete(c, { requireCommitteeNames: false }).ok, true)
+// กฎเลือกรายที่ไม่ใช่ถูกสุด: supplier 2 แพงกว่า → ต้องมี selectionReason
+c.selectedSupplier = 2
+r = isComplete(c, { requireCommitteeNames: false })
+assert.equal(r.ok, false)
+assert.ok(r.missing.some((m) => m.includes("เหตุผลที่ไม่เลือก")))
+c.selectionReason = "ของใหม่ มือ 1 รับประกัน 1 ปี"
+assert.equal(isComplete(c, { requireCommitteeNames: false }).ok, true)
+c.suppliers = [c.suppliers[0]]; c.selectedSupplier = 1
+assert.equal(isComplete(c, { requireCommitteeNames: false }).ok, true, "รายเดียว + มีเหตุผล = ผ่าน (sole source)")
+c.fewerQuotesReason = ""
+assert.equal(isComplete(c, { requireCommitteeNames: false }).ok, false)
 
 // --- canTransition ---
 const tr = uh03()
 assert.equal(canTransition("ร่าง", "รอลงนาม", tr).ok, false, "ยังไม่เลือกผู้ได้รับเลือก")
+tr.selectedSupplier = 3
+assert.equal(canTransition("ร่าง", "รอลงนาม", tr).ok, false, "เลือกรายแพงสุดโดยไม่มีเหตุผล → บล็อก")
 tr.selectedSupplier = 1
 assert.equal(canTransition("ร่าง", "รอลงนาม", tr).ok, true, "ชื่อกรรมการกรอกทีหลังได้")
 assert.equal(canTransition("รอลงนาม", "เสร็จสิ้น", tr).ok, false, "วันที่ลงนามยังไม่ครบ")
@@ -195,10 +236,16 @@ assert.equal(canTransition("ร่าง", "ร่าง", tr).ok, true)
 // --- normalizeDoc: เติม default, แปลงเลขจาก string, ตัด supplier เกิน 4, prices ยาวเท่า items ---
 const n = normalizeDoc({
   title: " งาน ", items: [{ name: "a", qty: "2", unit: "" }, { name: "b", qty: 1 }],
-  suppliers: [{ name: "x", prices: ["10"] }, {}, {}, {}, { name: "เกิน" }],
+  suppliers: [{ name: "x", prices: ["10"], vatMode: "incl", quoteDate: "2026-09-03", validUntil: "2026-10-03T00:00:00Z" }, { vatMode: "weird" }, {}, {}, { name: "เกิน" }],
   committee: [{ name: "ก" }],
   selectedSupplier: "2",
+  selectionReason: "  ของใหม่  ",
 })
+assert.equal(n.suppliers[0].vatMode, "incl")
+assert.equal(n.suppliers[0].validUntil, "2026-10-03", "ตัดเหลือ YYYY-MM-DD")
+assert.equal(n.suppliers[1].vatMode, "excl", "ค่าแปลก → default excl")
+assert.equal(n.selectionReason, "ของใหม่")
+assert.equal(n.fewerQuotesReason, "")
 assert.equal(n.title, "งาน")
 assert.equal(n.items[0].qty, 2)
 assert.equal(n.suppliers.length, 4)
@@ -258,7 +305,10 @@ Expected: FAIL — `Cannot find module '../lib/price-compare'`
 export type PcStatus = "ร่าง" | "รอลงนาม" | "เสร็จสิ้น"
 export const PC_STATUSES: PcStatus[] = ["ร่าง", "รอลงนาม", "เสร็จสิ้น"]
 export const MAX_SUPPLIERS = 4
+export const MIN_QUOTES = 3          // แนวปฏิบัติจัดซื้อ: ใบเสนอราคาครบอย่างน้อย 3 ราย ไม่งั้นต้องระบุเหตุผล
 export const VAT_RATE = 0.07
+export type PcVatMode = "excl" | "incl" | "none"
+export const VAT_MODE_LABEL: Record<PcVatMode, string> = { excl: "ราคาก่อน VAT", incl: "ราคารวม VAT แล้ว", none: "ไม่มี VAT" }
 
 // ตำแหน่งกรรมการ 4 ช่องตามฟอร์ม (ซ้าย→ขวา)
 export const DEFAULT_COMMITTEE_ROLES = [
@@ -277,6 +327,8 @@ export type PcConditions = {
 export type PcSupplier = {
   name: string; garageId?: string; note: string
   prices: (number | null)[]; discount: number
+  vatMode: PcVatMode          // ฐานราคาที่เสนอ — เทียบกันที่ "สุทธิที่ต้องจ่ายจริง"
+  quoteDate: string; validUntil: string   // YYYY-MM-DD
   conditions: PcConditions; quotationFiles: PcFile[]
 }
 export type PcCommittee = { role: string; name: string; email?: string; pickedSupplier: number | null; reason: string; signedDate: string }
@@ -289,6 +341,8 @@ export type PriceCompare = {
   status: PcStatus
   items: PcItem[]; suppliers: PcSupplier[]; committee: PcCommittee[]
   selectedSupplier: number | null
+  selectionReason: string      // บังคับเมื่อรายที่เลือกไม่ใช่สุทธิต่ำสุด
+  fewerQuotesReason: string    // บังคับเมื่อ supplier ที่ราคาครบ < MIN_QUOTES
   links: PcLinks; evidenceFiles: PcFile[]
   createdBy: string; editedBy: string
 }
@@ -300,7 +354,7 @@ export function emptyConditions(): PcConditions {
   return { payment: "", leadTime: "", warranty: "", remark: "", bays: "", menaTrucksIn: "", statusA: "", statusB: "" }
 }
 export function emptySupplier(itemCount: number): PcSupplier {
-  return { name: "", note: "", prices: Array(itemCount).fill(null), discount: 0, conditions: emptyConditions(), quotationFiles: [] }
+  return { name: "", note: "", prices: Array(itemCount).fill(null), discount: 0, vatMode: "excl", quoteDate: "", validUntil: "", conditions: emptyConditions(), quotationFiles: [] }
 }
 export function emptyCommittee(): PcCommittee[] {
   return DEFAULT_COMMITTEE_ROLES.map((role) => ({ role, name: "", email: "", pickedSupplier: null, reason: "", signedDate: "" }))
@@ -311,7 +365,7 @@ export function newDoc(preparedBy: { name: string; email: string }): Omit<PriceC
     items: [{ name: "", qty: 1, unit: "" }],
     suppliers: [emptySupplier(1)],
     committee: emptyCommittee(),
-    selectedSupplier: null, links: {}, evidenceFiles: [],
+    selectedSupplier: null, selectionReason: "", fewerQuotesReason: "", links: {}, evidenceFiles: [],
     createdBy: preparedBy.name, editedBy: preparedBy.name,
   }
 }
@@ -329,6 +383,12 @@ export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers">, i
   subtotal = round2(subtotal)
   const discount = round2(s.discount || 0)
   const afterDiscount = round2(subtotal - discount)
+  // ฐาน VAT ต่างกันต้อง normalize ก่อนเทียบ: excl บวก 7%, incl ถอด VAT ออกมาแสดงแต่สุทธิเท่าเดิม, none ไม่มี VAT
+  if (s.vatMode === "incl") {
+    const vat = round2(afterDiscount - afterDiscount / (1 + VAT_RATE))
+    return { subtotal, discount, afterDiscount, vat, net: afterDiscount }
+  }
+  if (s.vatMode === "none") return { subtotal, discount, afterDiscount, vat: 0, net: afterDiscount }
   const vat = round2(afterDiscount * VAT_RATE)
   const net = round2(afterDiscount + vat)
   return { subtotal, discount, afterDiscount, vat, net }
@@ -357,17 +417,31 @@ export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers">): numbe
   return best
 }
 
-const supplierPricesComplete = (doc: PriceCompare, s: PcSupplier) =>
+const supplierPricesComplete = (doc: Pick<PriceCompare, "items">, s: PcSupplier) =>
   doc.items.length > 0 && doc.items.every((_, i) => s.prices[i] != null)
+
+/** supplier ที่มีชื่อและราคาครบทุกแถว — นับเป็น "ใบเสนอราคาที่ใช้เทียบได้" */
+export function completeSupplierCount(doc: Pick<PriceCompare, "items" | "suppliers">): number {
+  return doc.suppliers.filter((s) => s.name.trim() && supplierPricesComplete(doc, s)).length
+}
+
+/** ใบเสนอราคาหมดอายุเมื่อ validUntil < วันนี้ (ไม่ระบุ = ไม่เตือน) */
+export const isQuoteExpired = (s: Pick<PcSupplier, "validUntil">, today: string): boolean =>
+  !!s.validUntil && s.validUntil.slice(0, 10) < today.slice(0, 10)
 
 export function isComplete(doc: PriceCompare, opts: { requireCommitteeNames?: boolean } = {}): { ok: boolean; missing: string[] } {
   const requireNames = opts.requireCommitteeNames ?? true
   const missing: string[] = []
   if (doc.items.length === 0) missing.push("รายการ")
-  const full = doc.suppliers.filter((s) => s.name.trim() && supplierPricesComplete(doc, s))
-  if (full.length < 2) missing.push("supplier อย่างน้อย 2 รายที่มีราคาครบทุกแถว")
+  const full = completeSupplierCount(doc)
+  if (full < 1) missing.push("supplier อย่างน้อย 1 รายที่มีราคาครบทุกแถว")
+  else if (full < MIN_QUOTES && !doc.fewerQuotesReason.trim()) missing.push(`ใบเสนอราคาครบ ${MIN_QUOTES} ราย หรือระบุเหตุผลที่มีน้อยกว่า ${MIN_QUOTES} ราย`)
   if (requireNames && doc.committee.some((m) => !m.name.trim())) missing.push("ชื่อกรรมการ")
   if (doc.selectedSupplier == null) missing.push("ผู้ได้รับเลือก")
+  else {
+    const low = lowestNet(doc)
+    if (low != null && doc.selectedSupplier !== low + 1 && !doc.selectionReason.trim()) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
+  }
   return { ok: missing.length === 0, missing }
 }
 
@@ -409,6 +483,8 @@ export function normalizeDoc(input: unknown): PriceCompare {
       name: str(s?.name), garageId: s?.garageId ? str(s.garageId) : undefined, note: str(s?.note),
       prices: items.map((_, i) => prices[i] ?? null),
       discount: num(s?.discount, 0),
+      vatMode: (["excl", "incl", "none"] as PcVatMode[]).includes(s?.vatMode) ? (s.vatMode as PcVatMode) : "excl",
+      quoteDate: str(s?.quoteDate).slice(0, 10), validUntil: str(s?.validUntil).slice(0, 10),
       conditions: { ...emptyConditions(), ...Object.fromEntries(Object.keys(emptyConditions()).map((k) => [k, str(c[k])])) } as PcConditions,
       quotationFiles: files(s?.quotationFiles),
     }
@@ -428,6 +504,7 @@ export function normalizeDoc(input: unknown): PriceCompare {
     createdAt: str(b.createdAt), updatedAt: str(b.updatedAt), status,
     items, suppliers, committee,
     selectedSupplier: intInRange(b.selectedSupplier, MAX_SUPPLIERS),
+    selectionReason: str(b.selectionReason), fewerQuotesReason: str(b.fewerQuotesReason),
     links: { prCode: str(l.prCode) || undefined, plate: str(l.plate) || undefined, fleetNo: str(l.fleetNo) || undefined, repairExternalId: str(l.repairExternalId) || undefined },
     evidenceFiles: files(b.evidenceFiles),
     createdBy: str(b.createdBy), editedBy: str(b.editedBy),
@@ -524,7 +601,7 @@ import { diffPriceCompare } from "../lib/price-compare-log"
   assert.deepEqual(f("items"), { field: "items", label: "รายการ", from: "5 แถว", to: "6 แถว" })
   assert.deepEqual(f("suppliers"), { field: "suppliers", label: "Supplier", from: "3 ราย", to: "2 ราย" })
   assert.deepEqual(f("links.prCode"), { field: "links.prCode", label: "PR", from: "", to: "LBPR26090001" })
-  assert.equal(ch.length, 6, "แก้ราคารายช่องต้องไม่ขึ้นใน log")
+  assert.equal(ch.length, 6, "แก้ราคารายช่องต้องไม่ขึ้นใน log (selectionReason/fewerQuotesReason ไม่เปลี่ยน)")
   assert.deepEqual(diffPriceCompare(a, a), [])
 }
 ```
@@ -559,6 +636,8 @@ const TOP_LABELS: Record<string, string> = {
   requestDept: "หน่วยงานที่ร้องขอ",
   status: "สถานะ",
   selectedSupplier: "ผู้ได้รับเลือก",
+  selectionReason: "เหตุผลที่เลือก",
+  fewerQuotesReason: "เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย",
   "links.prCode": "PR",
   "links.plate": "ทะเบียนรถ",
   "links.fleetNo": "เบอร์รถ",
@@ -866,7 +945,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "$H" -H "Content-Type: application/j
 echo "== put ok"
 curl -s -H "$H" -H "Content-Type: application/json" -X PUT $B/$ID -d '{"title":"แก้แล้ว","items":[{"name":"a","qty":2,"unit":"ชิ้น"}],"suppliers":[{"name":"s1","prices":[100]},{"name":"s2","prices":[90]}],"selectedSupplier":2,"status":"ร่าง"}' | grep -q '"title":"แก้แล้ว"'
 echo "== status ร่าง→รอลงนาม"
-curl -s -H "$H" -H "Content-Type: application/json" -X PUT $B/$ID -d '{"title":"แก้แล้ว","items":[{"name":"a","qty":2,"unit":"ชิ้น"}],"suppliers":[{"name":"s1","prices":[100]},{"name":"s2","prices":[90]}],"selectedSupplier":2,"status":"รอลงนาม"}' | grep -q '"status":"รอลงนาม"'
+curl -s -H "$H" -H "Content-Type: application/json" -X PUT $B/$ID -d '{"title":"แก้แล้ว","items":[{"name":"a","qty":2,"unit":"ชิ้น"}],"suppliers":[{"name":"s1","prices":[100]},{"name":"s2","prices":[90]}],"selectedSupplier":2,"fewerQuotesReason":"ทดสอบ 2 ราย","status":"รอลงนาม"}' | grep -q '"status":"รอลงนาม"'
 echo "== delete non-draft → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$H" -X DELETE $B/$ID | grep -q 400
 echo "== back to draft + delete"
 curl -s -H "$H" -H "Content-Type: application/json" -X PUT $B/$ID -d '{"title":"แก้แล้ว","items":[{"name":"a","qty":2,"unit":"ชิ้น"}],"suppliers":[{"name":"s1","prices":[100]},{"name":"s2","prices":[90]}],"selectedSupplier":2,"status":"ร่าง"}' >/dev/null
@@ -1088,6 +1167,8 @@ function uh03(): PriceCompare {
     s("ศศ&ณ", "ราคานี้เป็นราคาเปลี่ยน Pump + Motor ใหม่ มือ 2", [30000, 25000, 107.14, 107.14, 5000]),
   ]
   d.suppliers[0].conditions.statusA = "2"
+  d.suppliers[1].vatMode = "incl"; d.suppliers[1].quoteDate = "2026-09-03"; d.suppliers[1].validUntil = "2026-10-03"
+  d.selectionReason = ""; d.fewerQuotesReason = ""
   d.committee = d.committee.map((m, i) => ({ ...m, name: ["คุณเสถียรพงษ์ ชะเอมจันทร์", "บุญภัก พรหมมา", "", "คุณนัชภัค ขจรวุฒิเดช"][i], pickedSupplier: i === 2 ? null : 1, reason: i === 2 ? "" : "ราคาถูกสุด", signedDate: i === 2 ? "" : "2026-09-07" }))
   return d
 }
@@ -1101,7 +1182,10 @@ assert.equal(dd.defaultStyle.font, "Sarabun")
 const flat = JSON.stringify(dd)
 assert.ok(flat.includes("PC-2609-002"))
 assert.ok(flat.includes("54,238.39"), "สุทธิ supplier 1")
-assert.ok(flat.includes("60,241.00"), "สุทธิ supplier 2")
+assert.ok(flat.includes("(รวมในราคา)"), "supplier 2 เป็นราคารวม VAT")
+assert.ok(flat.includes("56,300.00"), "สุทธิ supplier 2 (incl) = หลังส่วนลด")
+assert.ok(flat.includes("3/9/2569"), "วันที่ใบเสนอราคา")
+{ const r = buildPriceCompareDocDef({ ...uh03(), selectionReason: "ของใหม่ มือ 1" }); assert.ok(JSON.stringify(r).includes("เหตุผลที่เลือก")) }
 assert.ok(flat.includes("Supplier 4"), "ต้องพิมพ์ 4 คอลัมน์เสมอแม้มี 3 ราย")
 assert.ok(flat.includes("ผู้ได้รับเลือก"))
 
@@ -1208,9 +1292,17 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const blankRows = Array.from({ length: Math.max(0, MIN_ROWS - doc.items.length) }, () => [
     " ", "", "", "", ...Array.from({ length: N }, (_, i) => [{ text: " ", ...fill(i) }, { text: " ", ...fill(i) }]).flat(),
   ])
+  // ช่อง VAT บอกฐานราคาด้วย: none → "ไม่มี VAT", incl → "(รวมในราคา) 3,683.18"
+  const vatCell = (i: number) => {
+    const s = sup(i), tt = totals[i]
+    if (!s || !tt) return money(null, fill(i))
+    if (s.vatMode === "none") return t("ไม่มี VAT", { alignment: "right", fontSize: 7, ...fill(i) })
+    if (s.vatMode === "incl") return t(`(รวมในราคา) ${fmtMoney(tt.vat)}`, { alignment: "right", fontSize: 7, ...fill(i) })
+    return money(tt.vat, fill(i))
+  }
   const sumRow = (label: string, key: keyof NonNullable<(typeof totals)[number]>, bold = false) => [
     { colSpan: 4, ...t(label, { alignment: "center", bold }) }, {}, {}, {},
-    ...Array.from({ length: N }, (_, i) => [{ text: "", ...fill(i) }, money(totals[i] ? totals[i]![key] : null, { bold, ...fill(i) })]).flat(),
+    ...Array.from({ length: N }, (_, i) => [{ text: "", ...fill(i) }, key === "vat" ? vatCell(i) : money(totals[i] ? totals[i]![key] : null, { bold, ...fill(i) })]).flat(),
   ]
   const priceTable = {
     table: {
@@ -1241,7 +1333,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     ["(4) จำนวนช่องซ่อมที่อู่มี", "bays"], ["(5) จำนวนรถMena ที่เข้าซ่อมอยู่ในขณะนี้", "menaTrucksIn"],
   ]
   const condRows = condKeys.map(([label, key], r) => [
-    r === 0 ? { rowSpan: 7, ...t("เงื่อนไขในการคัดเลือก ต้องระบุให้ครบถ้วน", { alignment: "center", fontSize: 7, fillColor: GRAY, margin: [0, 18, 0, 0] }) } : {},
+    r === 0 ? { rowSpan: 8, ...t("เงื่อนไขในการคัดเลือก ต้องระบุให้ครบถ้วน", { alignment: "center", fontSize: 7, fillColor: GRAY, margin: [0, 18, 0, 0] }) } : {},
     t(label),
     ...Array.from({ length: N }, (_, i) => [{ colSpan: 2, ...t(sup(i)?.conditions[key] ?? "", { alignment: "center" }) }, {}]).flat(),
   ])
@@ -1249,8 +1341,12 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     {}, t("(6) สถานะ ของรถMena ที่เข้าซ่อมอยู่ในขณะนี้"),
     ...Array.from({ length: N }, (_, i) => [t(`ขA - ${sup(i)?.conditions.statusA ?? ""} คัน`, { alignment: "center", fontSize: 7 }), t(`ขB - ${sup(i)?.conditions.statusB ?? ""} คัน`, { alignment: "center", fontSize: 7 })]).flat(),
   ]
+  const quoteRow = [
+    {}, t("(7) วันที่ใบเสนอราคา / ใช้ได้ถึง"),
+    ...Array.from({ length: N }, (_, i) => [t(thDate(sup(i)?.quoteDate ?? ""), { alignment: "center", fontSize: 7 }), t(thDate(sup(i)?.validUntil ?? ""), { alignment: "center", fontSize: 7 })]).flat(),
+  ]
   const condTable = {
-    table: { widths: [50, "*", ...Array.from({ length: N * 2 }, () => 52)], body: [...condRows, statusRow] },
+    table: { widths: [50, "*", ...Array.from({ length: N * 2 }, () => 52)], body: [...condRows, statusRow, quoteRow] },
     layout: { hLineColor: LINE, vLineColor: LINE, paddingTop: () => 1, paddingBottom: () => 1 },
     fontSize: 8,
   }
@@ -1283,6 +1379,12 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     fontSize: 9,
   }
 
+  // ---------- เหตุผล (พิมพ์เฉพาะที่มีข้อความ) ----------
+  const reasons = [
+    doc.selectionReason ? t(`เหตุผลที่เลือก: ${doc.selectionReason}`, { fontSize: 8 }) : null,
+    doc.fewerQuotesReason ? t(`เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย: ${doc.fewerQuotesReason}`, { fontSize: 8 }) : null,
+  ].filter(Boolean)
+
   // ---------- หน้ารูปแนบ ----------
   const attachments = imagePages.flatMap((p) => [
     { text: seg(p.heading), bold: true, fontSize: 12, pageBreak: "before", pageOrientation: "portrait", margin: [0, 0, 0, 8] },
@@ -1293,7 +1395,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     pageSize: "A4", pageOrientation: "landscape", pageMargins: [24, 20, 24, 20],
     defaultStyle: { font: "Sarabun", fontSize: 9 },
     info: { title: `${doc.docNo} ${doc.title}` },
-    content: [header, priceTable, condTable, committeeTable, ...attachments],
+    content: [header, priceTable, condTable, committeeTable, ...reasons, ...attachments],
   }
 }
 ```
@@ -1739,8 +1841,8 @@ git commit -m "price-compare: เมนูกลุ่มใหม่ + หน�
 import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
 import { GarageCombobox, inputCls, type Garage } from "@/components/garage-combobox"
 import {
-  emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS,
-  type PriceCompare, type PcItem, type PcSupplier,
+  emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS, VAT_MODE_LABEL,
+  type PriceCompare, type PcItem, type PcSupplier, type PcVatMode,
 } from "@/lib/price-compare"
 
 type Props = {
@@ -1804,6 +1906,9 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
                   )}
                 </div>
                 <input value={sp.note} disabled={readOnly} onChange={(e) => patchSupplier(s, { note: e.target.value })} placeholder="หมายเหตุ เช่น ราคานี้เป็นราคาซ่อมของเดิม" className={`${textInput} mt-1 text-xs font-normal`} />
+                <select value={sp.vatMode} disabled={readOnly} onChange={(e) => patchSupplier(s, { vatMode: e.target.value as PcVatMode })} title="ฐานราคาที่เสนอ — ระบบ normalize ให้เทียบกันที่สุทธิ" className="mt-1 w-full rounded-md border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-1.5 py-0.5 text-[11px] font-normal">
+                  {(Object.keys(VAT_MODE_LABEL) as PcVatMode[]).map((m) => <option key={m} value={m}>{VAT_MODE_LABEL[m]}</option>)}
+                </select>
               </th>
             ))}
             {!readOnly && suppliers.length < MAX_SUPPLIERS && (
@@ -1866,6 +1971,8 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
                 <td key={s} colSpan={2} className={`${td} text-right tabular-nums ${key === "net" && s === lowNet ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20" : ""}`}>
                   {key === "discount" && !readOnly
                     ? <input inputMode="decimal" value={sp.discount || ""} onChange={(e) => patchSupplier(s, { discount: numOrNull(e.target.value) ?? 0 })} placeholder="0.00" className={cellInput} />
+                    : key === "vat" && sp.vatMode !== "excl"
+                    ? <span className="px-2 text-xs text-gray-400">{sp.vatMode === "none" ? "ไม่มี VAT" : `(รวมในราคา) ${fmtMoney(totals[s].vat)}`}</span>
                     : <span className="px-2">{fmtMoney(totals[s][key])}</span>}
                 </td>
               ))}
@@ -1932,8 +2039,10 @@ import { PriceCompareMatrix } from "@/components/price-compare-matrix"
 import { StatusChip } from "@/components/price-compare-list"
 import { DEPT_MASTER } from "@/lib/order-tracking"
 import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
+import { bkkToday } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
+  completeSupplierCount, isQuoteExpired, MIN_QUOTES,
   type PriceCompare, type PcCommittee, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -1996,7 +2105,9 @@ export function PriceCompareForm({ id }: { id: string }) {
   const patchCommittee = (i: number, p: Partial<PcCommittee>) => setDoc((d) => d && ({ ...d, committee: d.committee.map((m, k) => (k === i ? { ...m, ...p } : m)) }))
 
   const readOnly = doc?.status === "เสร็จสิ้น"
+  const today = bkkToday()
   const lowNet = useMemo(() => (doc ? lowestNet(doc) : null), [doc])
+  const fullCount = useMemo(() => (doc ? completeSupplierCount(doc) : 0), [doc])
   const completeness = useMemo(() => (doc ? isComplete(doc) : { ok: false, missing: [] }), [doc])
 
   async function save(nextStatus?: PcStatus): Promise<boolean> {
@@ -2126,6 +2237,19 @@ export function PriceCompareForm({ id }: { id: string }) {
                     ))}
                   </tr>
                 ))}
+                <tr className="border-t border-[#EEF2F0] dark:border-white/8">
+                  <td className="px-2 py-1 text-xs">(7) วันที่ใบเสนอราคา</td>
+                  {doc.suppliers.map((s, i) => <td key={i} className="px-1 py-0.5"><input type="date" value={s.quoteDate} disabled={readOnly} onChange={(e) => patchSupplier(i, { quoteDate: e.target.value })} className={inputCls} /></td>)}
+                </tr>
+                <tr className="border-t border-[#EEF2F0] dark:border-white/8">
+                  <td className="px-2 py-1 text-xs">ใบเสนอราคาใช้ได้ถึง</td>
+                  {doc.suppliers.map((s, i) => (
+                    <td key={i} className="px-1 py-0.5">
+                      <input type="date" value={s.validUntil} disabled={readOnly} onChange={(e) => patchSupplier(i, { validUntil: e.target.value })} className={`${inputCls} ${isQuoteExpired(s, today) ? "border-red-400" : ""}`} />
+                      {isQuoteExpired(s, today) && <p className="mt-0.5 text-[11px] text-red-600">⚠ หมดอายุแล้ว — ขอใบใหม่ก่อนอนุมัติ</p>}
+                    </td>
+                  ))}
+                </tr>
               </tbody>
             </table>
           </div>
@@ -2177,7 +2301,16 @@ export function PriceCompareForm({ id }: { id: string }) {
             ))}
           </div>
           {doc.selectedSupplier != null && lowNet != null && doc.selectedSupplier !== lowNet + 1 && (
-            <p className="mt-2 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle size={13} /> เลือกรายที่ไม่ใช่สุทธิต่ำสุด — ควรระบุเหตุผลในช่องกรรมการ</p>
+            <div className="mt-3">
+              <p className="mb-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle size={13} /> เลือกรายที่ไม่ใช่สุทธิต่ำสุด — ต้องระบุเหตุผลก่อนส่งลงนาม</p>
+              <textarea value={doc.selectionReason} disabled={readOnly} onChange={(e) => patch({ selectionReason: e.target.value })} rows={2} placeholder="เช่น ของใหม่ มือ 1 รับประกัน 1 ปี / ส่งมอบเร็วกว่า 10 วัน" className={inputCls} />
+            </div>
+          )}
+          {fullCount < MIN_QUOTES && (
+            <div className="mt-3">
+              <p className="mb-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle size={13} /> มีใบเสนอราคาที่ราคาครบเพียง {fullCount} ราย (เกณฑ์ {MIN_QUOTES} ราย) — ต้องระบุเหตุผล</p>
+              <textarea value={doc.fewerQuotesReason} disabled={readOnly} onChange={(e) => patch({ fewerQuotesReason: e.target.value })} rows={2} placeholder="เช่น ผู้ขายที่รับงานนี้มีรายเดียว / อีกรายไม่ตอบกลับภายในกำหนด" className={inputCls} />
+            </div>
           )}
           {!completeness.ok && <p className="mt-2 text-xs text-gray-500">ยังขาด: {completeness.missing.join(", ")}</p>}
           {doc.status === "ร่าง" && (
@@ -2200,7 +2333,7 @@ Expected: ไม่มี error
 - [ ] **Step 4: ทดสอบในเบราว์เซอร์ (dev server)**
 
 1. `/price-compare` → สร้างใบ → เข้าฟอร์ม: กรอกชื่องาน, เพิ่มรายการ 3 แถว, เพิ่ม Supplier เป็น 3 ราย (เลือกอู่จาก combobox + เพิ่มอู่ใหม่ 1 ราย), ใส่ราคา → เห็นเซลล์เขียวที่ราคาต่ำสุดต่อแถวและสุทธิต่ำสุด, ยอด VAT ตรงกับที่คำนวณมือ
-2. กด "ส่งลงนาม" ก่อนเลือกผู้ได้รับเลือก → ถูกปฏิเสธพร้อมเหตุผล; เลือกแล้วส่งได้ → chip เป็น รอลงนาม
+2. กด "ส่งลงนาม" ก่อนเลือกผู้ได้รับเลือก → ถูกปฏิเสธพร้อมเหตุผล; เลือกรายแพงกว่าโดยไม่ใส่เหตุผล → ถูกปฏิเสธ; ใส่เหตุผลแล้วส่งได้ → chip เป็น รอลงนาม; ลอง supplier 2 ราย → ต้องกรอกเหตุผลน้อยกว่า 3 ราย; ตั้ง Supplier 2 เป็น "รวม VAT แล้ว" → สุทธิไม่บวก 7%; ใส่ "ใช้ได้ถึง" เป็นวันที่ผ่านมาแล้ว → ป้ายหมดอายุ
 3. อัปโหลดรูป 1 ไฟล์ + PDF 1 ไฟล์ให้ Supplier 1 → บันทึก → รีเฟรชแล้วไฟล์ยังอยู่
 4. กรอกชื่อ + วันที่ลงนามครบ 4 → "ปิดใบ" → ฟอร์มล็อก → "เปิดแก้ไข" → ครั้งที่แก้ไขเป็น 1
 5. "ดาวน์โหลด PDF" → เปิดแท็บใหม่ หน้า 1 ตรงฟอร์ม, หน้าถัดไปคือรูปและ PDF ที่แนบ
@@ -2241,7 +2374,7 @@ await col.deleteMany({ source: "seed-uh03" })
 if (process.argv.includes("--clear")) { console.log("cleared"); await client.close(); process.exit(0) }
 
 const cond = (o = {}) => ({ payment: "", leadTime: "", warranty: "", remark: "", bays: "", menaTrucksIn: "", statusA: "", statusB: "", ...o })
-const sup = (name, note, prices, extra = {}) => ({ name, note, prices, discount: 0, conditions: cond(extra), quotationFiles: [] })
+const sup = (name, note, prices, extra = {}, q = {}) => ({ name, note, prices, discount: 0, vatMode: "excl", quoteDate: "", validUntil: "", ...q, conditions: cond(extra), quotationFiles: [] })
 const now = new Date("2026-09-07T15:30:00+07:00").toISOString().replace("Z", "+07:00")
 const doc = {
   source: "seed-uh03",
@@ -2254,7 +2387,7 @@ const doc = {
   ],
   suppliers: [
     sup("ช่างหมู", "ราคานี้เป็นราคาซ่อม Pump + Motor ของเดิมติดรถ", [21000, 18900, 110.56, 180, 7000]),
-    sup("คุณณัฐ", "ราคานี้เป็นราคาเปลี่ยน Pump + Motor ใหม่ มือ 1", [30000, 18000, 100, 100, 5500]),
+    sup("คุณณัฐ", "ราคานี้เป็นราคาเปลี่ยน Pump + Motor ใหม่ มือ 1", [30000, 18000, 100, 100, 5500], {}, { quoteDate: "2026-09-03", validUntil: "2026-10-03" }),
     sup("ศศ&ณ", "ราคานี้เป็นราคาเปลี่ยน Pump + Motor ใหม่ มือ 2", [30000, 25000, 107.14, 107.14, 5000]),
   ],
   committee: [
@@ -2263,7 +2396,7 @@ const doc = {
     { role: "ผจก.ฝ่ายจัดซื้อ", name: "", email: "", pickedSupplier: null, reason: "", signedDate: "" },
     { role: "ผู้อำนวยการสายงานธุรกิจ", name: "คุณนัชภัค ขจรวุฒิเดช", email: "", pickedSupplier: 1, reason: "", signedDate: "2026-09-07" },
   ],
-  selectedSupplier: 1, links: { fleetNo: "UH03" }, evidenceFiles: [],
+  selectedSupplier: 1, selectionReason: "", fewerQuotesReason: "", links: { fleetNo: "UH03" }, evidenceFiles: [],
   createdBy: "seed", editedBy: "seed",
 }
 // ถ้าเลขที่ชนกับใบจริง (unique index) ให้ต่อท้าย -SEED
