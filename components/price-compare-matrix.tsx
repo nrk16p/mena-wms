@@ -1,6 +1,6 @@
 "use client"
 // components/price-compare-matrix.tsx — ตารางเทียบราคา รายการ × Supplier 1–4 + สรุปยอด (คำนวณสดจาก lib/price-compare)
-import { Fragment } from "react"
+import { Fragment, useEffect, useRef } from "react"
 import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import {
@@ -25,6 +25,12 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
   const low = lowestPerLine(doc)
   const lowNet = lowestNet(doc)
   const totals = suppliers.map((_, i) => supplierTotals(doc, i))
+  const cols = 4 + suppliers.length * 2 + (readOnly ? 0 : 1)
+
+  // ref แบบซิงค์ กันปัญหา stale closure: GarageCombobox เรียก onCreated แล้ว onChange ทันทีในจังหวะเดียวกัน
+  // ก่อนที่ prop garages รอบใหม่จะมาถึง — ถ้า .find อิง garages เฉยๆ จะยังไม่เห็นอู่ที่เพิ่งสร้าง
+  const garagesRef = useRef(garages)
+  useEffect(() => { garagesRef.current = garages }, [garages])
 
   const setItems = (next: PcItem[], nextSup?: PcSupplier[]) => onChange({ items: next, suppliers: nextSup ?? suppliers })
   const setSuppliers = (next: PcSupplier[]) => onChange({ items, suppliers: next })
@@ -61,7 +67,13 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
                   <span className="shrink-0 rounded bg-[#0E7490]/10 px-1.5 py-0.5 text-[10px] text-[#0E7490]">S{s + 1}</span>
                   <div className="flex-1">
                     {readOnly ? <span className="font-medium">{sp.name}</span> : (
-                      <GarageCombobox value={sp.name} garages={garages} onChange={(name) => patchSupplier(s, { name, garageId: garages.find((g) => g.name === name)?._id })} onCreated={onGarageCreated} placeholder={`Supplier ${s + 1}`} />
+                      <GarageCombobox
+                        value={sp.name}
+                        garages={garages}
+                        onChange={(name) => patchSupplier(s, { name, garageId: garagesRef.current.find((g) => g.name === name)?._id })}
+                        onCreated={(g) => { garagesRef.current = [...garagesRef.current, g]; onGarageCreated(g) }}
+                        placeholder={`Supplier ${s + 1}`}
+                      />
                     )}
                   </div>
                   {!readOnly && suppliers.length > 1 && (
@@ -74,8 +86,12 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
                 </select>
               </th>
             ))}
-            {!readOnly && suppliers.length < MAX_SUPPLIERS && (
-              <th className={`${th} w-10`}><button type="button" onClick={addSupplier} title="เพิ่ม supplier" className="rounded-md border border-dashed border-[#1B8C4B] p-1 text-[#1B8C4B] hover:bg-[#1B8C4B]/10"><Plus size={14} /></button></th>
+            {!readOnly && (
+              <th className={`${th} w-10`}>
+                {suppliers.length < MAX_SUPPLIERS && (
+                  <button type="button" onClick={addSupplier} title="เพิ่ม supplier" className="rounded-md border border-dashed border-[#1B8C4B] p-1 text-[#1B8C4B] hover:bg-[#1B8C4B]/10"><Plus size={14} /></button>
+                )}
+              </th>
             )}
           </tr>
           <tr className="text-[11px] text-gray-500">
@@ -86,7 +102,7 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
                 <th className={`${td} text-right`}>ยอดรวม</th>
               </Fragment>
             ))}
-            {!readOnly && suppliers.length < MAX_SUPPLIERS && <th className={td}></th>}
+            {!readOnly && <th className={td}></th>}
           </tr>
         </thead>
         <tbody>
@@ -124,7 +140,7 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
             </tr>
           ))}
           {!readOnly && (
-            <tr><td colSpan={4 + suppliers.length * 2 + 1} className="px-2 py-1.5">
+            <tr><td colSpan={cols} className="px-2 py-1.5">
               <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs font-medium text-[#1B8C4B] hover:underline"><Plus size={13} /> เพิ่มรายการ</button>
             </td></tr>
           )}
@@ -144,7 +160,7 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
                     : <span className="px-2">{fmtMoney(totals[s][key])}</span>}
                 </td>
               ))}
-              {!readOnly && suppliers.length < MAX_SUPPLIERS && <td className={td}></td>}
+              {!readOnly && <td className={td}></td>}
             </tr>
           ))}
         </tfoot>
