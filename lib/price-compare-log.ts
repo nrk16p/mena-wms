@@ -23,6 +23,7 @@ const TOP_LABELS: Record<string, string> = {
   "links.prCode": "PR",
   "links.plate": "ทะเบียนรถ",
   "links.fleetNo": "เบอร์รถ",
+  "links.repairExternalId": "งานซ่อมอู่นอก",
 }
 
 const supplierLabel = (doc: PriceCompare, n: number | null): string =>
