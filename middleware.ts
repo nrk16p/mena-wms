@@ -60,6 +60,15 @@ export async function middleware(request: NextRequest) {
     return withCors(NextResponse.next(), refOrigin)
   }
 
+  // ดึงข้อมูลยางรายคัน — public อ่านอย่างเดียว (ตามการตัดสินใจของทีม 2026-09-08)
+  // เปิดให้เบราว์เซอร์/แอปเรียกได้ตรง ๆ โดยไม่ต้องมี x-api-key
+  // — เขียน (POST/PUT/PATCH/DELETE) ยังต้องมี session หรือ x-api-key เหมือนเดิม
+  if (pathname === "/api/tire-change-request/lookup" && READ_METHODS.has(request.method)) {
+    const lookupOrigin = request.headers.get("origin")
+    if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), lookupOrigin)
+    return withCors(NextResponse.next(), lookupOrigin)
+  }
+
   // Mobile app access via API key
   const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
   const origin = request.headers.get("origin")
