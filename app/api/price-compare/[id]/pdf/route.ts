@@ -1,11 +1,10 @@
 // app/api/price-compare/[id]/pdf/route.ts — export PDF ใบเทียบราคา + หลักฐานแนบ
 import { NextRequest, NextResponse } from "next/server"
-import { ObjectId } from "mongodb"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { normalizeDoc } from "@/lib/price-compare"
-import { PC_COLL } from "@/lib/price-compare-db"
+import { PC_COLL, docFilter } from "@/lib/price-compare-db"
 import { pdfFilename } from "@/lib/price-compare-pdf"
 import { collectAttachments, assemblePdf } from "@/lib/price-compare-attachments"
 
@@ -13,15 +12,14 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
 const DB = process.env.MONGO_DB ?? "master_data"
-const oid = (id: string) => (/^[0-9a-f]{24}$/i.test(id) ? new ObjectId(id) : null)
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const s = await getServerSession(authOptions)
   if (!s?.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   const { id } = await params
-  const _id = oid(id)
-  if (!_id) return NextResponse.json({ error: "bad id" }, { status: 400 })
-  const raw = await (await clientPromise).db(DB).collection(PC_COLL).findOne({ _id })
+  const filter = docFilter(id)
+  if (!filter) return NextResponse.json({ error: "bad id" }, { status: 400 })
+  const raw = await (await clientPromise).db(DB).collection(PC_COLL).findOne(filter)
   if (!raw) return NextResponse.json({ error: "not found" }, { status: 404 })
   const doc = normalizeDoc(raw)
   try {

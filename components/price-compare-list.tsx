@@ -54,8 +54,8 @@ export function PriceCompareList() {
       (!t || [r.docNo, r.title, r.requestDept, r.selectedName, r.preparedBy?.name].some((v) => (v ?? "").toLowerCase().includes(t))))
   }, [rows, q, fStatus, fMonth])
 
-  function open(id: string) {
-    router.push(`/price-compare/${id}`)
+  function open(r: PcListRow) {
+    router.push(`/price-compare/${r.docNo}`)
   }
 
   async function create() {
@@ -64,7 +64,7 @@ export function PriceCompareList() {
       const res = await fetch("/api/price-compare", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || "สร้างไม่สำเร็จ")
-      router.push(`/price-compare/${d._id}`)
+      router.push(`/price-compare/${d.docNo}`)
     } catch (e) { swalError(e instanceof Error ? e.message : "สร้างไม่สำเร็จ"); setCreating(false) }
   }
 
@@ -124,8 +124,8 @@ export function PriceCompareList() {
                 tabIndex={0}
                 role="link"
                 aria-label={`เปิด ${r.docNo}`}
-                onClick={() => open(r._id)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(r._id) } }}
+                onClick={() => open(r)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(r) } }}
                 className="cursor-pointer border-t border-[#EEF2F0] dark:border-white/8 hover:bg-[#F6FAF7] dark:hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8C4B]"
               >
                 <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{r.docNo}</td>
