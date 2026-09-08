@@ -69,6 +69,14 @@ export async function middleware(request: NextRequest) {
     return withCors(NextResponse.next(), lookupOrigin)
   }
 
+  // สร้าง/แก้คำขอเปลี่ยนยาง — public เขียนได้ ไม่ต้องมี x-api-key (ตามการตัดสินใจของทีม 2026-09-08)
+  // — ถ้าจะคุมความปลอดภัยภายหลัง: ลบบล็อกนี้ออก แล้ว path จะกลับไปบังคับ session/x-api-key เอง
+  if (pathname === "/api/tire-change-request" && (request.method === "POST" || request.method === "OPTIONS")) {
+    const postOrigin = request.headers.get("origin")
+    if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), postOrigin)
+    return withCors(NextResponse.next(), postOrigin)
+  }
+
   // Mobile app access via API key
   const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
   const origin = request.headers.get("origin")
