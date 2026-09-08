@@ -6,6 +6,7 @@ import { newDoc, emptySupplier, supplierTotals, fmtMoney, type PriceCompare, typ
 import { buildPriceCompareDocDef, pdfFilename } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
 import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
+import { MEDIA_CDN_BASE, MEDIA_MAX_BYTES } from "../lib/media"
 
 function uh03(): PriceCompare {
   const d = newDoc({ name: "นพรัตน์ อายยืน", email: "n@mena.co.th" }) as PriceCompare
@@ -43,7 +44,10 @@ async function main() {
   assert.ok(flat.includes("(รวมในราคา)"), "supplier 2 เป็นราคารวม VAT")
   assert.ok(flat.includes("56,300.00"), "สุทธิ supplier 2 (incl) = หลังส่วนลด")
   assert.ok(flat.includes("3/9/2569"), "วันที่ใบเสนอราคา")
-  { const r = buildPriceCompareDocDef({ ...uh03(), selectionReason: "ของใหม่ มือ 1" }); assert.ok(JSON.stringify(r).includes("เหตุผลที่เลือก")) }
+  // เลือก supplier 2 ทั้งที่ supplier 1 ถูกที่สุด → ต้องพิมพ์เหตุผลที่เลือก
+  { const r = buildPriceCompareDocDef({ ...uh03(), selectedSupplier: 2, selectionReason: "ของใหม่ มือ 1" }); assert.ok(JSON.stringify(r).includes("เหตุผลที่เลือก")) }
+  // เลือกรายที่ถูกที่สุดอยู่แล้ว → เหตุผลที่ค้างในเอกสารต้องไม่ถูกพิมพ์
+  { const r = buildPriceCompareDocDef({ ...uh03(), selectedSupplier: 1, selectionReason: "เหตุผลเก่าค้างอยู่" }); assert.ok(!JSON.stringify(r).includes("เหตุผลที่เลือก"), "เลือกรายถูกสุดแล้วต้องไม่พิมพ์เหตุผลที่เลือก") }
   assert.ok(flat.includes("Supplier 4"), "ต้องพิมพ์ 4 คอลัมน์เสมอแม้มี 3 ราย")
   assert.ok(flat.includes("ผู้ได้รับเลือก"))
   // fixture ตั้งต้นไม่มีเหตุผลทั้งสองข้อ → บรรทัดเหตุผลต้องไม่ถูกพิมพ์
@@ -62,9 +66,17 @@ async function main() {
   assert.ok(flatNone.includes(fmtMoney(tNone.net)), `สุทธิ supplier 3 (none) = ${fmtMoney(tNone.net)}`)
 
   // เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย — ป้ายหัวข้อเป็นข้อความตรงตัว ส่วนเนื้อความผ่าน seg()
-  const flatFewer = JSON.stringify(buildPriceCompareDocDef({ ...uh03(), fewerQuotesReason: "มีผู้ขายรายเดียว" }))
+  const dFewer = uh03()
+  dFewer.suppliers = dFewer.suppliers.slice(0, 2)   // ราคาครบแค่ 2 ราย < MIN_QUOTES
+  dFewer.fewerQuotesReason = "มีผู้ขายรายเดียว"
+  const flatFewer = JSON.stringify(buildPriceCompareDocDef(dFewer))
   assert.ok(flatFewer.includes("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย"))
   assert.ok(flatFewer.includes(seg("มีผู้ขายรายเดียว")))
+  // ครบ 3 รายแล้ว → เหตุผลที่ค้างในเอกสารต้องไม่ถูกพิมพ์
+  assert.ok(
+    !JSON.stringify(buildPriceCompareDocDef({ ...uh03(), fewerQuotesReason: "เหตุผลเก่าค้างอยู่" })).includes("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย"),
+    "ใบเสนอราคาครบ 3 รายแล้วต้องไม่พิมพ์เหตุผลที่มีน้อยกว่า 3 ราย",
+  )
 
   // หน้ารูปแนบ
   const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -81,7 +93,7 @@ async function main() {
   // --- ลำดับหลักฐาน: ทั่วไป → Supplier 1..N ---
   {
     const d = uh03()
-    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `${MEDIA_CDN_BASE}/${n}`, thumbnailUrl: "" })
     d.evidenceFiles = [f("line-chat.jpg")]
     d.suppliers[0].quotationFiles = [f("q1.jpg")]
     d.suppliers[1].quotationFiles = [f("quote2.pdf"), f("q2b.jpg")]
@@ -118,7 +130,7 @@ async function main() {
   {
     const d = uh03()
     d.evidenceFiles = []
-    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `${MEDIA_CDN_BASE}/${n}`, thumbnailUrl: "" })
     d.suppliers[0].quotationFiles = [f("photo.jpg"), f("a.pdf"), f("b.pdf")]
     d.suppliers[1].quotationFiles = []
     d.suppliers[2].quotationFiles = []
@@ -149,7 +161,7 @@ async function main() {
   {
     const d = uh03()
     d.evidenceFiles = []
-    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `${MEDIA_CDN_BASE}/${n}`, thumbnailUrl: "" })
     d.suppliers[0].quotationFiles = [f("slow.jpg")]
     d.suppliers[1].quotationFiles = []
     d.suppliers[2].quotationFiles = []
@@ -162,6 +174,70 @@ async function main() {
     assert.deepEqual(plan.failed, ["slow.jpg"], "fetch ที่ไม่ตอบเกิน timeoutMs ต้องถูก abort แล้วตกไป failed")
     assert.equal(plan.imagePages.length, 0)
     console.log("attachments (fetch timeout): OK")
+  }
+
+  // --- SSRF guard + เพดานขนาด: URL นอก CDN ต้องไม่ถูก fetch เลย, ไฟล์ใหญ่เกิน MEDIA_MAX_BYTES ต้องตกไป failed[] ---
+  {
+    const d = uh03()
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `${MEDIA_CDN_BASE}/${n}`, thumbnailUrl: "" })
+    d.evidenceFiles = [
+      f("ok.jpg"),
+      { mediaId: 2, batchId: "b", filename: "metadata.jpg", webpUrl: "http://169.254.169.254/latest", thumbnailUrl: "" },
+      f("huge.jpg"),
+    ]
+    for (const s of d.suppliers) s.quotationFiles = []
+
+    const png1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")
+    const calls: string[] = []
+    const fakeFetch = (async (url: string) => {
+      calls.push(url)
+      const headers: Record<string, string> = { "content-type": "image/png" }
+      if (url.endsWith("huge.jpg")) headers["content-length"] = String(MEDIA_MAX_BYTES + 1)
+      return new Response(png1x1, { status: 200, headers })
+    }) as unknown as typeof fetch
+
+    const plan = await collectAttachments(d, fakeFetch)
+    assert.ok(!calls.some((u) => u.includes("169.254.169.254")), "URL นอก CDN ต้องไม่ถูก fetch เลย")
+    assert.equal(calls.length, 2, "fetch เฉพาะ ok.jpg กับ huge.jpg")
+    assert.deepEqual(plan.failed, ["metadata.jpg", "huge.jpg"])
+    assert.equal(plan.imagePages.length, 1, "เหลือเฉพาะไฟล์บน CDN ที่ขนาดไม่เกินเพดาน")
+    console.log("attachments (SSRF guard + size cap): OK")
+  }
+
+  // --- ฟอร์มยาวหลายหน้า: index ที่แทรก PDF ต้องอิงจำนวนหน้าฟอร์มจริง ไม่ใช่สมมติว่าฟอร์มมีหน้าเดียว ---
+  {
+    const d = uh03()
+    const N_ITEMS = 40
+    d.items = Array.from({ length: N_ITEMS }, (_, i) => ({ name: `รายการทดสอบที่ ${i + 1}`, qty: 1, unit: "ชิ้น" }))
+    d.suppliers = d.suppliers.map((s) => ({ ...s, prices: Array.from({ length: N_ITEMS }, () => 100) }))
+    d.evidenceFiles = []
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `${MEDIA_CDN_BASE}/${n}`, thumbnailUrl: "" })
+    d.suppliers[0].quotationFiles = [f("photo.jpg"), f("letter.pdf")]
+    d.suppliers[1].quotationFiles = []
+    d.suppliers[2].quotationFiles = []
+
+    const letter = await PDFDocument.create(); letter.addPage([612, 792])
+    const letterBytes = await letter.save()
+    const png1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")
+    const fakeFetch = (async (url: string) =>
+      url.endsWith(".pdf")
+        ? new Response(letterBytes, { status: 200, headers: { "content-type": "application/pdf" } })
+        : new Response(png1x1, { status: 200, headers: { "content-type": "image/png" } })) as unknown as typeof fetch
+
+    const plan = await collectAttachments(d, fakeFetch)
+    assert.equal(plan.imagePages.length, 1)
+    assert.equal(plan.pdfInserts.length, 1)
+    assert.deepEqual(plan.failed, [])
+
+    const out = await assemblePdf(d, plan)
+    const merged = await PDFDocument.load(out)
+    assert.equal(merged.getPageCount(), 2 + 1 + 1, "ฟอร์ม 2 หน้า + หน้ารูป 1 + PDF แนบ 1 หน้า")
+    const sizes = merged.getPages().map((pg) => pg.getSize())
+    const imgIdx = sizes.findIndex((z) => Math.abs(z.width - 595.28) < 0.5 && Math.abs(z.height - 841.89) < 0.5)
+    const letterIdx = sizes.findIndex((z) => Math.abs(z.width - 612) < 0.5)
+    assert.ok(imgIdx > 0, `ต้องเจอหน้ารูป A4 แนวตั้งหลังหน้าฟอร์ม (ได้ ${imgIdx})`)
+    assert.ok(letterIdx > imgIdx, `PDF แนบ (index ${letterIdx}) ต้องอยู่หลังหน้ารูป (index ${imgIdx})`)
+    console.log("attachments (multi-page form insert index): OK")
   }
 }
 

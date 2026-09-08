@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, MAX_SUPPLIERS, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, completeSupplierCount, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -245,9 +245,14 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   // ไม่ต้องตัดคำ และ check script ค้นหาแบบตรงตัว ส่วนข้อความที่ผู้ใช้พิมพ์ต่อท้ายยังผ่าน seg() ตามปกติ
   const reason = (label: string, value: string, top: number) =>
     ({ text: [label, ": ", seg(value)], fontSize: 8, margin: [0, top, 0, 0] })
+  // เงื่อนไขต้องตรงกับที่ฟอร์มใช้โชว์ช่องกรอก — ข้อความเก่าที่ค้างอยู่ (เลือกรายถูกสุดทีหลัง / ได้ใบเสนอราคาครบ 3 รายทีหลัง)
+  // ต้องไม่ถูกพิมพ์ลง PDF
+  const low = lowestNet(doc)
+  const needSelectionReason = doc.selectedSupplier != null && low != null && doc.selectedSupplier !== low + 1
+  const needFewerQuotesReason = completeSupplierCount(doc) < MIN_QUOTES
   const reasons = [
-    doc.selectionReason ? reason("เหตุผลที่เลือก", doc.selectionReason, 3) : null,
-    doc.fewerQuotesReason ? reason("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย", doc.fewerQuotesReason, 2) : null,
+    doc.selectionReason && needSelectionReason ? reason("เหตุผลที่เลือก", doc.selectionReason, 3) : null,
+    doc.fewerQuotesReason && needFewerQuotesReason ? reason("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย", doc.fewerQuotesReason, 2) : null,
   ].filter(Boolean)
 
   // ---------- หน้ารูปแนบ (แนวตั้ง หน้าละ 1 รูป) ----------

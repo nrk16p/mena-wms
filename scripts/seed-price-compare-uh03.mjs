@@ -1,5 +1,5 @@
 // scripts/seed-price-compare-uh03.mjs — ใบตัวอย่างจากต้นแบบ PC-2609-002 เพื่อเทียบ PDF กับกระดาษ
-// รัน: node scripts/seed-price-compare-uh03.mjs [--clear]   (ลบเฉพาะ source:"seed-uh03" ก่อนใส่ใหม่)
+// รัน: node scripts/seed-price-compare-uh03.mjs [--clear]   (ลบเฉพาะใบ seed ตามเลขที่ ก่อนใส่ใหม่)
 import { MongoClient } from "mongodb"
 import fs from "node:fs"
 
@@ -18,7 +18,10 @@ const client = new MongoClient(env.MONGO_URI)
 await client.connect()
 const db = client.db(env.MONGO_DB || "master_data")
 const col = db.collection("price_compare")
-await col.deleteMany({ source: "seed-uh03" })
+// ลบด้วย docNo ไม่ใช่ source — PUT ครั้งแรกจาก UI จะเขียนทับทั้งเอกสารและทำให้ field source หายไป
+// (ลบตาม source แล้วจะเก็บใบ seed ที่เคยถูกแก้ไม่ได้)
+const SEED_FILTER = { docNo: { $in: ["PC-2609-002", "PC-2609-002-SEED"] }, createdBy: "seed" }
+await col.deleteMany(SEED_FILTER)
 if (process.argv.includes("--clear")) { console.log("cleared"); await client.close(); process.exit(0) }
 
 const cond = (o = {}) => ({ payment: "", leadTime: "", warranty: "", remark: "", bays: "", menaTrucksIn: "", statusA: "", statusB: "", ...o })
@@ -50,4 +53,6 @@ const doc = {
 // ถ้าเลขที่ชนกับใบจริง (unique index) ให้ต่อท้าย -SEED
 try { const r = await col.insertOne(doc); console.log("inserted", doc.docNo, r.insertedId) }
 catch { const r = await col.insertOne({ ...doc, docNo: "PC-2609-002-SEED" }); console.log("inserted (docNo suffixed)", "PC-2609-002-SEED", r.insertedId) }
+// ดันตัวนับเดือน 2609 ให้อย่างน้อย 2 — ใบใหม่จาก API จะได้ไม่ออกเลข PC-2609-002 ซ้ำกับใบ seed นี้
+await db.collection("counters").updateOne({ _id: "price_compare:2609" }, { $max: { seq: 2 } }, { upsert: true })
 await client.close()

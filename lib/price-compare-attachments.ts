@@ -6,6 +6,7 @@ import path from "path"
 import sharp from "sharp"
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib"
 import fontkit from "@pdf-lib/fontkit"
+import { MEDIA_CDN_BASE, MEDIA_MAX_BYTES } from "./media"
 import { renderPdfmake } from "./pdfmake-printer"
 import { buildPriceCompareDocDef, type ImagePage } from "./price-compare-pdf"
 import type { PriceCompare, PcFile } from "./price-compare"
@@ -38,13 +39,23 @@ export async function collectAttachments(
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const plan: AttachmentPlan = { imagePages: [], pdfInserts: [], failed: [] }
   for (const { heading, file } of attachmentOrder(doc)) {
+    // SSRF guard: ยิงได้เฉพาะไฟล์ที่อยู่ใต้ CDN ของเราเท่านั้น — URL อื่น (metadata endpoint, intranet, file://)
+    // ตกเป็นไฟล์แนบไม่ได้ทันที โดยไม่ fetch เลย
+    if (!file.webpUrl.startsWith(MEDIA_CDN_BASE + "/")) {
+      plan.failed.push(file.filename)
+      continue
+    }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
       const res = await fetchImpl(file.webpUrl, { signal: controller.signal } as RequestInit)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      // เพดานขนาด: เชื่อ content-length ถ้ามี (ตัดก่อนโหลด) แล้วตรวจซ้ำกับ buffer จริงเผื่อ header โกหก/ไม่มี
+      const declared = Number(res.headers.get("content-length"))
+      if (Number.isFinite(declared) && declared > MEDIA_MAX_BYTES) throw new Error("too large (content-length)")
       const buf = Buffer.from(await res.arrayBuffer())
       if (buf.length === 0) throw new Error("empty")
+      if (buf.length > MEDIA_MAX_BYTES) throw new Error("too large")
       if (isPdf(file)) {
         await PDFDocument.load(buf, { ignoreEncryption: false })   // ตรวจว่าเปิดได้ก่อน
         plan.pdfInserts.push({ afterImageIndex: plan.imagePages.length - 1, bytes: new Uint8Array(buf), heading })
@@ -66,6 +77,8 @@ export async function collectAttachments(
 export async function assemblePdf(doc: PriceCompare, plan: AttachmentPlan): Promise<Uint8Array> {
   const main = await renderPdfmake(buildPriceCompareDocDef(doc, plan.imagePages))
   const out = await PDFDocument.load(main)
+  // ฟอร์มอาจยาวหลายหน้า (รายการเยอะ) — หน้ารูปแนบถูก pdfmake ต่อท้ายเสมอ จึงหักออกเพื่อรู้จำนวนหน้าฟอร์มจริง
+  const mainPages = out.getPageCount() - plan.imagePages.length
   const fallbackFont = await out.embedFont(StandardFonts.Helvetica)
 
   // ฝัง Sarabun ให้ pdf-lib วาดข้อความไทยได้ (ป้ายหัวข้อ PDF แนบ + รายชื่อไฟล์เสีย) — ถ้าฝังไม่สำเร็จให้ถอยไปใช้ Helvetica แทน
@@ -83,7 +96,7 @@ export async function assemblePdf(doc: PriceCompare, plan: AttachmentPlan): Prom
   for (const ins of plan.pdfInserts) {
     const src = await PDFDocument.load(ins.bytes)
     const pages = await out.copyPages(src, src.getPageIndices())
-    const at = 1 + ins.afterImageIndex + 1 + added
+    const at = mainPages + ins.afterImageIndex + 1 + added
     pages.forEach((p, i) => out.insertPage(at + i, p))
     added += pages.length
 
@@ -98,8 +111,15 @@ export async function assemblePdf(doc: PriceCompare, plan: AttachmentPlan): Prom
 
   if (plan.failed.length) {
     const page = out.addPage([595.28, 841.89])
-    page.drawText("Attachments that could not be included:", { x: 48, y: 780, size: 14, font })
-    plan.failed.forEach((name, i) => page.drawText(`- ${name}`, { x: 60, y: 750 - i * 20, size: 11, font }))
+    // ชื่อไฟล์มาจากผู้ใช้ — อักขระที่ font ฝังไม่ครอบคลุมทำให้ drawText โยน ห้ามให้ export ทั้งฉบับล้ม
+    try {
+      page.drawText("Attachments that could not be included:", { x: 48, y: 780, size: 14, font })
+    } catch { /* ข้ามหัวข้อถ้าวาดไม่ได้ */ }
+    plan.failed.forEach((name, i) => {
+      try {
+        page.drawText(`- ${name}`, { x: 60, y: 750 - i * 20, size: 11, font })
+      } catch { /* ข้ามชื่อไฟล์ที่วาดไม่ได้ */ }
+    })
   }
   return out.save()
 }

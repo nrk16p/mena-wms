@@ -45,6 +45,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (errs.length) return NextResponse.json({ error: errs.join(" · "), errors: errs }, { status: 400 })
   const tr = canTransition(before.status, next.status, next)
   if (!tr.ok) return NextResponse.json({ error: tr.reason ?? "เปลี่ยนสถานะไม่ได้" }, { status: 400 })
+  // ล็อกฝั่ง server: ใบที่ปิดแล้วห้ามบันทึกทับ (UI ตั้ง readOnly ไว้ แต่ client เก่า/เรียก API ตรงเลี่ยงได้)
+  if (before.status === "เสร็จสิ้น" && next.status === "เสร็จสิ้น")
+    return NextResponse.json({ error: "ใบปิดแล้ว — กด \"เปิดแก้ไข\" ก่อนบันทึก" }, { status: 409 })
 
   const now = new Date()
   next.updatedAt = toBkkIso(now)
@@ -56,11 +59,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (w.matchedCount === 0) return NextResponse.json({ error: "not found" }, { status: 404 })
 
   const changes = diffPriceCompare(before, next)
-  await writePcLog(db, {
-    docId: String(raw._id), docNo: next.docNo, action: before.status !== next.status ? "status" : "update",
-    by: user.name, byEmail: user.email, at: now, changes,
-    ...(before.status !== next.status ? { statusChange: { from: before.status, to: next.status } } : {}),
-  })
+  try {
+    await writePcLog(db, {
+      docId: String(raw._id), docNo: next.docNo, action: before.status !== next.status ? "status" : "update",
+      by: user.name, byEmail: user.email, at: now, changes,
+      ...(before.status !== next.status ? { statusChange: { from: before.status, to: next.status } } : {}),
+    })
+  } catch (e) { console.error("[price-compare log]", e) }   // log ล้มต้องไม่ทำให้การบันทึกที่สำเร็จแล้วกลายเป็น 500
   return NextResponse.json(next)
 }
 
@@ -77,6 +82,8 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (raw.status !== "ร่าง") return NextResponse.json({ error: "ลบได้เฉพาะใบสถานะร่าง" }, { status: 400 })
   const w = await db.collection(PC_COLL).deleteOne({ _id: raw._id })
   if (w.deletedCount === 0) return NextResponse.json({ error: "not found" }, { status: 404 })
-  await writePcLog(db, { docId: String(raw._id), docNo: String(raw.docNo ?? ""), action: "delete", by: user.name, byEmail: user.email, at: new Date() })
+  try {
+    await writePcLog(db, { docId: String(raw._id), docNo: String(raw.docNo ?? ""), action: "delete", by: user.name, byEmail: user.email, at: new Date() })
+  } catch (e) { console.error("[price-compare log]", e) }   // log ล้มต้องไม่ทำให้การลบที่สำเร็จแล้วกลายเป็น 500
   return NextResponse.json({ ok: true })
 }
