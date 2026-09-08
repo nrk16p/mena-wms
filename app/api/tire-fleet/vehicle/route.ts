@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const branch = searchParams.get("branch")?.trim() ?? ""
   const plate  = searchParams.get("plate")?.trim()  ?? ""
-  const odoParam = Number(String(searchParams.get("odometer") ?? "").replace(/,/g, "")) || 0
+  // รับได้ทั้ง odometer และ currentOdometer — mobile app ส่งชื่อเดียวกับ body ตอน POST
+  const odoRaw   = searchParams.get("odometer") ?? searchParams.get("currentOdometer") ?? ""
+  const odoParam = Number(String(odoRaw).replace(/,/g, "")) || 0
 
   if (!branch) return NextResponse.json({ error: "branch is required" }, { status: 400 })
   if (!plate)  return NextResponse.json({ error: "plate is required" }, { status: 400 })

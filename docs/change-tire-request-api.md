@@ -53,7 +53,7 @@ GET /api/tire-change-request/lookup?branch=latkrabang&plate=สบ.71-3569&odome
 ```
 
 endpoint นี้รวมข้อ A–D ทั้งหมด **และคำนวณทุกคอลัมน์ให้แล้วฝั่ง server** — mobile ไม่ต้องคำนวณเอง
-ส่ง `odometer` = เลขไมล์ปัจจุบันจากฟอร์ม (ส่งแบบมี comma ได้)
+ส่ง `odometer` = เลขไมล์ปัจจุบันจากฟอร์ม (ส่งแบบมี comma ได้ / ใช้ชื่อ `currentOdometer` แทนก็ได้)
 
 Response:
 
