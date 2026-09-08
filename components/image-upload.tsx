@@ -243,6 +243,8 @@ export function ImageUpload({
   }
 
   async function removeItem(item: UploadItem) {
+    // เอกสารถูกล็อก (เช่น ใบเทียบราคาสถานะเสร็จสิ้น) — ห้ามลบไฟล์แนบ
+    if (disabled) return
     // ไฟล์ที่อัปโหลดสำเร็จแล้ว → ถามยืนยันก่อนลบ (tile ที่ error/กำลังอัปโหลด ลบได้เลย)
     if (item.status === "done") {
       const ok = await swalDeleteConfirm(`ลบไฟล์ ${item.filename}?`)
@@ -360,14 +362,16 @@ export function ImageUpload({
                     <Download size={15} />
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => removeItem(item)}
-                  title="ลบรูป"
-                  className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-red-500 shadow hover:bg-red-500 hover:text-white"
-                >
-                  <Trash2 size={15} />
-                </button>
+                {!disabled && (
+                  <button
+                    type="button"
+                    onClick={() => removeItem(item)}
+                    title="ลบรูป"
+                    className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-red-500 shadow hover:bg-red-500 hover:text-white"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
               </div>
 
               {/* done badge */}

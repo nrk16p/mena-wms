@@ -110,7 +110,9 @@ export function PriceCompareForm({ id }: { id: string }) {
   const today = bkkToday()
   const lowNet = useMemo(() => (doc ? lowestNet(doc) : null), [doc])
   const fullCount = useMemo(() => (doc ? completeSupplierCount(doc) : 0), [doc])
-  const completeness = useMemo<{ ok: boolean; missing: string[] }>(() => (doc ? isComplete(doc) : { ok: false, missing: [] }), [doc])
+  // ให้ตรงกับเกณฑ์ที่ canTransition ใช้จริง: ตอนร่างยังไม่บังคับชื่อกรรมการ
+  const completeness = useMemo<{ ok: boolean; missing: string[] }>(
+    () => (doc ? isComplete(doc, { requireCommitteeNames: doc.status !== "ร่าง" }) : { ok: false, missing: [] }), [doc])
 
   async function save(nextStatus?: PcStatus): Promise<boolean> {
     if (!doc) return false
@@ -145,7 +147,8 @@ export function PriceCompareForm({ id }: { id: string }) {
     setSaved(JSON.stringify(doc)); router.push("/price-compare")
   }
   async function downloadPdf() {
-    if (dirty) { const ok = await swalConfirm("มีการแก้ไขที่ยังไม่บันทึก", "บันทึกก่อนสร้าง PDF?"); if (!ok.isConfirmed) return; if (!(await save())) return }
+    // เอกสารล็อกแล้วแก้อะไรไม่ได้ → ไม่ต้องถามบันทึก (save() จะทำให้ revision เดินฟรี)
+    if (dirty && !readOnly) { const ok = await swalConfirm("มีการแก้ไขที่ยังไม่บันทึก", "บันทึกก่อนสร้าง PDF?"); if (!ok.isConfirmed) return; if (!(await save())) return }
     setPdfBusy(true)
     try {
       const r = await fetch(`/api/price-compare/${id}/pdf`)
@@ -218,9 +221,9 @@ export function PriceCompareForm({ id }: { id: string }) {
             <Field label="วันที่เริ่มจัดทำ"><input value={fmtDT(doc.createdAt)} disabled className={`${inputCls} opacity-70`} /></Field>
             <Field label="ครั้งที่แก้ไข / แก้ไขล่าสุด"><input value={`${doc.revision} · ${fmtDT(doc.updatedAt)}`} disabled className={`${inputCls} opacity-70`} /></Field>
             <div className="grid grid-cols-3 gap-2">
-              <Field label="PR (ถ้ามี)"><input value={doc.links.prCode ?? ""} disabled={readOnly} onChange={(e) => patch({ links: { ...doc.links, prCode: e.target.value } })} className={inputCls} /></Field>
-              <Field label="ทะเบียนรถ"><input value={doc.links.plate ?? ""} disabled={readOnly} onChange={(e) => patch({ links: { ...doc.links, plate: e.target.value } })} className={inputCls} /></Field>
-              <Field label="เบอร์รถ"><input value={doc.links.fleetNo ?? ""} disabled={readOnly} onChange={(e) => patch({ links: { ...doc.links, fleetNo: e.target.value } })} className={inputCls} /></Field>
+              <Field label="PR (ถ้ามี)"><input value={doc.links.prCode ?? ""} disabled={readOnly} onChange={(e) => patch({ links: { ...doc.links, prCode: e.target.value || undefined } })} className={inputCls} /></Field>
+              <Field label="ทะเบียนรถ"><input value={doc.links.plate ?? ""} disabled={readOnly} onChange={(e) => patch({ links: { ...doc.links, plate: e.target.value || undefined } })} className={inputCls} /></Field>
+              <Field label="เบอร์รถ"><input value={doc.links.fleetNo ?? ""} disabled={readOnly} onChange={(e) => patch({ links: { ...doc.links, fleetNo: e.target.value || undefined } })} className={inputCls} /></Field>
             </div>
           </div>
         </Card>
@@ -238,19 +241,19 @@ export function PriceCompareForm({ id }: { id: string }) {
                   <tr key={key} className="border-t border-[#EEF2F0] dark:border-white/8">
                     <td className="px-2 py-1 text-xs">{label}</td>
                     {doc.suppliers.map((s, i) => (
-                      <td key={i} className="px-1 py-0.5"><input value={s.conditions[key]} disabled={readOnly} onChange={(e) => patchSupplier(i, { conditions: { ...s.conditions, [key]: e.target.value } })} className={inputCls} /></td>
+                      <td key={i} className="px-1 py-0.5"><input aria-label={`${label} — S${i + 1}`} value={s.conditions[key]} disabled={readOnly} onChange={(e) => patchSupplier(i, { conditions: { ...s.conditions, [key]: e.target.value } })} className={inputCls} /></td>
                     ))}
                   </tr>
                 ))}
                 <tr className="border-t border-[#EEF2F0] dark:border-white/8">
                   <td className="px-2 py-1 text-xs">(7) วันที่ใบเสนอราคา</td>
-                  {doc.suppliers.map((s, i) => <td key={i} className="px-1 py-0.5"><input type="date" value={s.quoteDate} disabled={readOnly} onChange={(e) => patchSupplier(i, { quoteDate: e.target.value })} className={inputCls} /></td>)}
+                  {doc.suppliers.map((s, i) => <td key={i} className="px-1 py-0.5"><input type="date" aria-label={`วันที่ใบเสนอราคา — S${i + 1}`} value={s.quoteDate} disabled={readOnly} onChange={(e) => patchSupplier(i, { quoteDate: e.target.value })} className={inputCls} /></td>)}
                 </tr>
                 <tr className="border-t border-[#EEF2F0] dark:border-white/8">
                   <td className="px-2 py-1 text-xs">ใบเสนอราคาใช้ได้ถึง</td>
                   {doc.suppliers.map((s, i) => (
                     <td key={i} className="px-1 py-0.5">
-                      <input type="date" value={s.validUntil} disabled={readOnly} onChange={(e) => patchSupplier(i, { validUntil: e.target.value })} className={`${inputCls} ${isQuoteExpired(s, today) ? "border-red-400" : ""}`} />
+                      <input type="date" aria-label={`ใบเสนอราคาใช้ได้ถึง — S${i + 1}`} value={s.validUntil} disabled={readOnly} onChange={(e) => patchSupplier(i, { validUntil: e.target.value })} className={`${inputCls} ${isQuoteExpired(s, today) ? "border-red-400" : ""}`} />
                       {isQuoteExpired(s, today) && <p className="mt-0.5 text-[11px] text-red-600">⚠ หมดอายุแล้ว — ขอใบใหม่ก่อนอนุมัติ</p>}
                     </td>
                   ))}
@@ -263,7 +266,7 @@ export function PriceCompareForm({ id }: { id: string }) {
         <Card title="4. หลักฐาน (ใบเสนอราคา / แชท LINE)" color="#0891B2">
           <div className="grid gap-4 md:grid-cols-2">
             {doc.suppliers.map((s, i) => (
-              <div key={`${i}-${uploadKey}`} className="rounded-xl border border-dashed border-[#E2E8E4] dark:border-white/10 p-3">
+              <div key={`${i}-${doc.suppliers.length}-${uploadKey}`} className="rounded-xl border border-dashed border-[#E2E8E4] dark:border-white/10 p-3">
                 <p className="mb-2 text-xs font-semibold">ใบเสนอราคา Supplier {i + 1} — {s.name || "(ยังไม่ระบุ)"} <span className="font-normal text-gray-400">รูปหรือ PDF</span></p>
                 <ImageUpload initial={s.quotationFiles} disabled={readOnly} max={10} onChange={(imgs) => setSupplierFiles(i, imgs)} />
               </div>
