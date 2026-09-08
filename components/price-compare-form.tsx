@@ -13,7 +13,7 @@ import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
-  completeSupplierCount, isQuoteExpired, MIN_QUOTES,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
   type PriceCompare, type PcCommittee, type PcFile, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -73,6 +73,8 @@ export function PriceCompareForm({ id }: { id: string }) {
         if (!d) { swalError("ไม่พบใบเทียบราคา"); router.push("/price-compare"); return }
         setUploadKey((k) => k + 1)
         setDoc(d); setSaved(JSON.stringify(d))
+        // ลิงก์เก่าเปิดด้วย ObjectId — พาไป URL แบบเลขที่เอกสาร (canonical) เมื่อโหลดสำเร็จ
+        if (!isDocNo(id)) router.replace(`/price-compare/${d.docNo}`)
       })
   }, [id, router])
   useEffect(() => { load() }, [load])

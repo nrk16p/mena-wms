@@ -236,5 +236,8 @@ function yymm(bkkDate: string): string {
 export const docNoFor = (bkkDate: string, seq: number): string => `PC-${yymm(bkkDate)}-${String(seq).padStart(3, "0")}`
 export const counterKeyFor = (bkkDate: string): string => `price_compare:${yymm(bkkDate)}`
 
+/** true เมื่อ string เป็นเลขที่เอกสารรูปแบบ PC-YYMM-NNN (ใช้แยกจาก ObjectId ในเส้นทาง [id]) */
+export const isDocNo = (s: string): boolean => /^PC-\d{4}-\d{3}$/.test(s)
+
 export const fmtMoney = (n: number | null | undefined): string =>
   n == null ? "" : n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })

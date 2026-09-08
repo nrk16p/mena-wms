@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import {
   newDoc, emptySupplier, supplierTotals, lowestPerLine, lowestNet, isComplete, canTransition,
   normalizeDoc, validateDoc, docNoFor, counterKeyFor, fmtMoney, lineTotal, round2,
-  completeSupplierCount, isQuoteExpired, MIN_QUOTES,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 import { diffPriceCompare } from "../lib/price-compare-log"
@@ -183,6 +183,12 @@ assert.equal(docNoFor("2026-09-07", 2), "PC-2609-002")
 assert.equal(docNoFor("2026-12-31", 123), "PC-2612-123")
 assert.equal(docNoFor("2027-01-01", 1), "PC-2701-001")
 assert.equal(counterKeyFor("2026-09-07"), "price_compare:2609")
+
+// --- isDocNo: แยก docNo (PC-YYMM-NNN) จาก ObjectId/ค่าอื่นๆ สำหรับเส้นทาง [id] ---
+assert.equal(isDocNo("PC-2609-008"), true)
+assert.equal(isDocNo("pc-2609-008"), false, "ต้องเป็นตัวพิมพ์ใหญ่")
+assert.equal(isDocNo("PC-2609-8"), false, "ลำดับต้อง 3 หลัก")
+assert.equal(isDocNo("6a9fc6e4c66edda96557faac"), false, "24-hex ไม่ใช่ docNo")
 
 // --- fmtMoney ---
 assert.equal(fmtMoney(50690), "50,690.00")
