@@ -18,7 +18,7 @@
 - "วันนี้"/เวลา ต้องใช้ `bkkToday()`, `toBkkIso()` จาก `@/lib/bkk-time` (Vercel รัน UTC — ห้าม `new Date().toISOString().slice(0,10)`)
 - ห้ามใช้ `window.confirm`/`alert` — ใช้ `swalConfirm/swalDeleteConfirm/swalToast/swalError` จาก `@/lib/swal`
 - ไฟล์แนบใช้ `ImageUpload` จาก `@/components/image-upload` (props: `onChange(images: SkuImage[])`, `initial?: SkuImage[]`, `max?`, `disabled?`) — รูปเป็น webp บน CDN, PDF ชื่อไฟล์ลงท้าย `.pdf`
-- เลขที่เอกสาร `PC-YYMM-NNN` (YY = พ.ศ. 2 หลักท้าย), VAT 7%, ปัด 2 ตำแหน่งด้วย `Math.round(x*100)/100`
+- เลขที่เอกสาร `PC-YYMM-NNN` (YY = **ค.ศ.** 2 หลักท้าย ตามฟอร์มต้นแบบ PC-2609-002 = ก.ย. 2026), VAT 7%, ปัด 2 ตำแหน่งด้วย `Math.round(x*100)/100`
 - Supplier สูงสุด 4 ราย, กรรมการ 4 ช่องเสมอ, สถานะ `ร่าง | รอลงนาม | เสร็จสิ้น`
 - กฎจัดซื้อ (จากการค้นคว้า): ฐาน VAT ต่อ supplier (`vatMode` excl/incl/none — เทียบกันที่สุทธิจริง), ใบเสนอราคาครบ ≥3 ราย ไม่งั้นต้องมี `fewerQuotesReason`, เลือกรายที่ไม่ใช่สุทธิต่ำสุดต้องมี `selectionReason`, เก็บ `quoteDate/validUntil` และเตือนเมื่อหมดอายุ
 - ทุก API ต้องมี session (401 ถ้าไม่มี) — ไม่มี public route จึงไม่ต้องแก้ `middleware.ts`
@@ -277,7 +277,7 @@ assert.ok(validateDoc(bad6).some((m) => m.includes("กรรมการ")))
 const bad7 = uh03(); bad7.suppliers[0].prices = [1]
 assert.ok(validateDoc(bad7).some((m) => m.includes("ราคา")))
 
-// --- docNo / counter key (ปี พ.ศ. 2 หลักท้าย + เดือน) ---
+// --- docNo / counter key (ปี ค.ศ. 2 หลักท้าย + เดือน — ตามฟอร์มต้นแบบ PC-2609-002 ลงวันที่ 7/9/2569) ---
 assert.equal(docNoFor("2026-09-07", 2), "PC-2609-002")
 assert.equal(docNoFor("2026-12-31", 123), "PC-2612-123")
 assert.equal(docNoFor("2027-01-01", 1), "PC-2701-001")
@@ -530,10 +530,9 @@ export function validateDoc(doc: PriceCompare): string[] {
   return errs
 }
 
-/* ---------- เลขที่เอกสาร PC-YYMM-NNN (พ.ศ.) ---------- */
+/* ---------- เลขที่เอกสาร PC-YYMM-NNN (YY = ค.ศ. 2 หลักท้าย ตามฟอร์มต้นแบบ PC-2609-002 = ก.ย. 2026) ---------- */
 function yymm(bkkDate: string): string {
-  const y = parseInt(bkkDate.slice(0, 4), 10) + 543
-  return `${String(y).slice(-2)}${bkkDate.slice(5, 7)}`
+  return `${bkkDate.slice(2, 4)}${bkkDate.slice(5, 7)}`
 }
 export const docNoFor = (bkkDate: string, seq: number): string => `PC-${yymm(bkkDate)}-${String(seq).padStart(3, "0")}`
 export const counterKeyFor = (bkkDate: string): string => `price_compare:${yymm(bkkDate)}`
