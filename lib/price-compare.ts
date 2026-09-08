@@ -229,10 +229,9 @@ export function validateDoc(doc: PriceCompare): string[] {
   return errs
 }
 
-/* ---------- เลขที่เอกสาร PC-YYMM-NNN (พ.ศ.) ---------- */
+/* ---------- เลขที่เอกสาร PC-YYMM-NNN (YY = ค.ศ. 2 หลักท้าย ตามฟอร์มต้นแบบ PC-2609-002 = ก.ย. 2026) ---------- */
 function yymm(bkkDate: string): string {
-  const y = parseInt(bkkDate.slice(0, 4), 10) + 543
-  return `${String(y).slice(-2)}${bkkDate.slice(5, 7)}`
+  return `${bkkDate.slice(2, 4)}${bkkDate.slice(5, 7)}`
 }
 export const docNoFor = (bkkDate: string, seq: number): string => `PC-${yymm(bkkDate)}-${String(seq).padStart(3, "0")}`
 export const counterKeyFor = (bkkDate: string): string => `price_compare:${yymm(bkkDate)}`
