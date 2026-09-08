@@ -15,7 +15,7 @@ import {
   Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
   Landmark, Layers, LayoutDashboard, MapPin, PackageSearch, PackageX,
-  PlusCircle, ShieldCheck, TableProperties, Truck, Wrench,
+  PlusCircle, Scale, ShieldCheck, TableProperties, Truck, Wrench,
 } from "lucide-react"
 
 export type NavItem = {
@@ -141,6 +141,17 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "วิธีอ่านสถานะและตัวกรอง" },
       { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen,
         desc: "ขั้นตอนแจ้งเรื่อง-รับเรื่อง-ปิดงาน" },
+    ],
+  },
+  {
+    key: "price-compare",
+    label: "เปรียบเทียบราคา",
+    homeDesc: "แบบบันทึกผลการเปรียบเทียบราคา (5,000 บาทขึ้นไป) และ export PDF",
+    homeIcon: Scale, color: "#0E7490", bg: "#E0F2FE", homeOrder: 11,
+    collapsible: true,
+    items: [
+      { href: "/price-compare", label: "ใบเทียบราคา", icon: Scale, exact: true,
+        desc: "เทียบ supplier 1–4 · บันทึกผลกรรมการ · PDF" },
     ],
   },
   {
