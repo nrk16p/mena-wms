@@ -12,6 +12,6 @@ export async function nextDocNo(db: Db, bkkDate: string): Promise<string> {
     { $inc: { seq: 1 } },
     { upsert: true, returnDocument: "after" },
   )
-  const seq = r?.seq ?? 1
-  return docNoFor(bkkDate, seq)
+  if (!r || typeof r.seq !== "number") throw new Error("nextDocNo: counter update returned no document")
+  return docNoFor(bkkDate, r.seq)
 }

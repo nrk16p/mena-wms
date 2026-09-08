@@ -194,7 +194,7 @@ assert.equal(fmtMoney(null), "")
   const a = uh03(), b = uh03()
   b.title = "Pump UH03"; b.status = "รอลงนาม"; b.selectedSupplier = 1
   b.items.push({ name: "เพิ่ม", qty: 1, unit: "ชิ้น" }); b.suppliers.forEach((s) => s.prices.push(null))
-  b.suppliers.pop(); b.links.prCode = "LBPR26090001"
+  b.suppliers.pop(); b.links.prCode = "LBPR26090001"; b.links.repairExternalId = "abc123"
   const ch = diffPriceCompare(a, b)
   const f = (name: string) => ch.find((c) => c.field === name)
   assert.deepEqual(f("title"), { field: "title", label: "ชื่อสินค้า/งานซ่อม", from: "Pump + Motor UH03", to: "Pump UH03" })
@@ -203,7 +203,8 @@ assert.equal(fmtMoney(null), "")
   assert.deepEqual(f("items"), { field: "items", label: "รายการ", from: "5 แถว", to: "6 แถว" })
   assert.deepEqual(f("suppliers"), { field: "suppliers", label: "Supplier", from: "3 ราย", to: "2 ราย" })
   assert.deepEqual(f("links.prCode"), { field: "links.prCode", label: "PR", from: "", to: "LBPR26090001" })
-  assert.equal(ch.length, 6, "แก้ราคารายช่องต้องไม่ขึ้นใน log (selectionReason/fewerQuotesReason ไม่เปลี่ยน)")
+  assert.deepEqual(f("links.repairExternalId"), { field: "links.repairExternalId", label: "งานซ่อมอู่นอก", from: "", to: "abc123" })
+  assert.equal(ch.length, 7, "เพิ่ม links.repairExternalId; แก้ราคารายช่องต้องไม่ขึ้นใน log (selectionReason/fewerQuotesReason ไม่เปลี่ยน)")
   assert.deepEqual(diffPriceCompare(a, a), [])
 }
 
