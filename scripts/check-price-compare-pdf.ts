@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import { PDFDocument } from "pdf-lib"
-import { newDoc, emptySupplier, supplierTotals, fmtMoney, type PriceCompare, type PcSupplier } from "../lib/price-compare"
+import { newDoc, emptySupplier, supplierTotals, fmtMoney, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
 import { buildPriceCompareDocDef, pdfFilename } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
 import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
@@ -81,7 +81,7 @@ async function main() {
   // --- ลำดับหลักฐาน: ทั่วไป → Supplier 1..N ---
   {
     const d = uh03()
-    const f = (n: string): any => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
     d.evidenceFiles = [f("line-chat.jpg")]
     d.suppliers[0].quotationFiles = [f("q1.jpg")]
     d.suppliers[1].quotationFiles = [f("quote2.pdf"), f("q2b.jpg")]
@@ -118,7 +118,7 @@ async function main() {
   {
     const d = uh03()
     d.evidenceFiles = []
-    const f = (n: string): any => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
     d.suppliers[0].quotationFiles = [f("photo.jpg"), f("a.pdf"), f("b.pdf")]
     d.suppliers[1].quotationFiles = []
     d.suppliers[2].quotationFiles = []
@@ -149,7 +149,7 @@ async function main() {
   {
     const d = uh03()
     d.evidenceFiles = []
-    const f = (n: string): any => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    const f = (n: string): PcFile => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
     d.suppliers[0].quotationFiles = [f("slow.jpg")]
     d.suppliers[1].quotationFiles = []
     d.suppliers[2].quotationFiles = []

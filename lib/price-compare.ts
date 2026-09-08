@@ -171,7 +171,7 @@ const files = (v: unknown): PcFile[] => Array.isArray(v)
   : []
 const intInRange = (v: unknown, max: number): number | null => { const n = numOrNull(v); return n != null && Number.isInteger(n) && n >= 1 && n <= max ? n : null }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any -- input เป็น unknown จาก JSON body/DB, cast เป็น any ภายในฟังก์ชัน normalize นี้เท่านั้นเพื่อ narrow เอง */
 export function normalizeDoc(input: unknown): PriceCompare {
   const b = (input && typeof input === "object" ? input : {}) as Record<string, any>
   const items: PcItem[] = (Array.isArray(b.items) ? b.items : []).map((it: any) => ({ name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit) }))
@@ -209,6 +209,7 @@ export function normalizeDoc(input: unknown): PriceCompare {
     createdBy: str(b.createdBy), editedBy: str(b.editedBy),
   }
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function validateDoc(doc: PriceCompare): string[] {
   const errs: string[] = []
