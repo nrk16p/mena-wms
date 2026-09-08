@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
     const sentFrom  = ymd(sp.get("sentFrom"))
     const sentTo    = ymd(sp.get("sentTo"))
     const sentRange = Boolean(sentFrom || sentTo)
-    // โหมด "ทั้งปี" (แท็บรายเจ้าหนี้ ปีนี้ → export ใบทั้งหมดของเจ้าเดียว) — รับ ?year=YYYY แต่ **มีผลเฉพาะ
+    // โหมด "ทั้งปี" (แท็บรายเจ้าหนี้ (รายปี) → export ใบทั้งหมดของเจ้าเดียว) — รับ ?year=YYYY แต่ **มีผลเฉพาะ
     // เมื่อส่ง supplier มาด้วย** เพราะทั้งปีทั้งฐานคือ ~13k แถว ≈ 7MB ชนเพดาน 4.5MB ของ Vercel
     // ส่วนเจ้าเดียวใหญ่สุดหลักร้อยแถว ยังห่างเพดานมาก · year ที่ไม่ใช่ 4 หลักถือว่าไม่ได้ส่งมา
     const rawYear   = sp.get("year")?.trim() ?? ""

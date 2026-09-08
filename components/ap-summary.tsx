@@ -204,7 +204,7 @@ export function ApHeader({
           className={`-mb-px ml-2 flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition ${yearView
             ? "border-[#14271C] font-medium text-[#14271C] dark:border-white dark:text-white"
             : "border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}>
-          <Building2 className="h-3.5 w-3.5" />รายเจ้าหนี้ ปีนี้
+          <Building2 className="h-3.5 w-3.5" />รายเจ้าหนี้ (รายปี)
         </button>
         <div className="ml-auto flex items-center gap-2 pb-1.5">
           {!yearView && (
