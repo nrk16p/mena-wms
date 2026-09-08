@@ -2,8 +2,14 @@
 // รัน (ดูอย่างเดียว):  npx tsx scripts/import-ap-payment.ts [ไฟล์]
 // รัน (เขียนจริง):     npx tsx scripts/import-ap-payment.ts [ไฟล์] --write
 //
-// นำเข้าหลักฐานจ่ายจริงจากไฟล์การเงิน "Payment LKB Jan-Jul 2026.xlsx" (1 แถว = 1 invoice
-// ต่อการจ่าย) → ap_tracking.paid = { paymentNos (เลข PV), date (วันจ่ายล่าสุด), amount, ... }
+// นำเข้าหลักฐานจ่ายจริงจากไฟล์การเงิน (1 แถว = 1 invoice ต่อการจ่าย)
+// → ap_tracking.paid = { paymentNos (เลข PV), date (วันจ่ายล่าสุด), amount, ... }
+// รองรับ 2 แบบ (ตรวจจากหัวคอลัมน์อัตโนมัติ):
+//  A) "Payment LKB Jan-Jul 2026.xlsx" — การเงินเติมคอลัมน์ "DD No." / "Payment No." / "Pay date" ให้เอง
+//  B) "GL _ Payment Report Jan-Aug.xls.xlsx" — export ดิบ (ชีต "LKB Payment …"): PV=DocuNo · วันจ่าย=DocuDate
+//     · ยอด=PayAmnt · DD อยู่ใน InvNo เฉพาะที่ร้านคีย์เลข DD เป็นเลขใบแจ้งหนี้ (~13%) ที่เหลือสะพานผ่าน
+//     เลขตั้งหนี้ DocuNo_inv (LAPO…) → ap_tracking.voucherNos (ตรวจกับไฟล์ A ตรง 4,192/4,192 · 2026-09-08)
+//     แถวที่แมปไม่ได้ = รายจ่ายที่ไม่ใช่ใบ DD (เงินออม/เช่าซื้อ/ค่าเช่า/สระบุรี) ข้ามเงียบ ๆ
 // ใบที่มี paid = ขั้น "จ่ายแล้ว" ในหน้าเว็บ · source บอกที่มา เผื่ออนาคตดึงจากระบบการเงินตรง
 //
 // กติกาผู้ใช้ยืนยัน 21/08/2026:
@@ -39,16 +45,21 @@ async function main() {
   const file = args.find((a) => !a.startsWith("--")) ?? DEFAULT_FILE
 
   const wb = XLSX.read(readFileSync(file), { cellDates: false, dense: true })
-  const ws = wb.Sheets[wb.SheetNames[0]]
+  // แบบ B มีหลายชีต (GL + Payment) — เลือกชีตที่มีคอลัมน์ DocuNo_inv (ชีต Payment)
+  const pick = wb.SheetNames.find((n) => {
+    const h = (XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], { header: 1, range: 0 })[0] ?? []).map((c) => s(c))
+    return h.includes("DD No.") || h.includes("DocuNo_inv")
+  }) ?? wb.SheetNames[0]
+  const ws = wb.Sheets[pick]
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, blankrows: false })
   const head = (rows[0] ?? []).map((c) => s(c))
-  const col = {
-    dd: head.findIndex((h) => h.startsWith("DD")),
-    pv: head.findIndex((h) => h.startsWith("Payment No")),
-    date: head.findIndex((h) => h.startsWith("Pay date")),
-    amt: head.findIndex((h) => h === "PayAmnt"),
-  }
+  const raw = !head.some((h) => h.startsWith("DD No"))
+  const col = raw
+    ? { dd: head.indexOf("InvNo"), pv: head.indexOf("DocuNo"), date: head.indexOf("DocuDate"), amt: head.indexOf("PayAmnt"), lapo: head.indexOf("DocuNo_inv") }
+    : { dd: head.findIndex((h) => h.startsWith("DD")), pv: head.findIndex((h) => h.startsWith("Payment No")),
+        date: head.findIndex((h) => h.startsWith("Pay date")), amt: head.findIndex((h) => h === "PayAmnt"), lapo: -1 }
   if (col.dd < 0 || col.pv < 0 || col.date < 0) throw new Error("หาคอลัมน์ DD/Payment No./Pay date ไม่เจอ")
+  console.log(`ชีต "${pick}" · รูปแบบ ${raw ? "B (export ดิบ — DD จาก InvNo + สะพานเลขตั้งหนี้)" : "A (มีคอลัมน์ DD No.)"}`)
 
   const env = readFileSync(path.join(process.cwd(), ".env"), "utf8")
   const uri = env.match(/^MONGO_URI=(.+)$/m)![1].trim().replace(/^["']|["']$/g, "")
@@ -57,12 +68,38 @@ async function main() {
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15_000 })
   await client.connect()
 
+  const col2 = client.db(mdName).collection("ap_tracking")
+
+  // แบบ B: สะพานเลขตั้งหนี้ (DocuNo_inv) → ใบ DD ผ่าน ap_tracking.voucherNos (LAPO เดียวครอบหลายใบได้)
+  const ddByVoucher = new Map<string, string[]>()
+  if (raw) {
+    const vouchers = [...new Set(rows.slice(1).map((r) => s(r[col.lapo])).filter(Boolean))]
+    for (let i = 0; i < vouchers.length; i += 2000) {
+      for (const d of await col2.find({ voucherNos: { $in: vouchers.slice(i, i + 2000) } },
+        { projection: { _id: 0, depositCode: 1, voucherNos: 1 } }).toArray()) {
+        for (const v of (d.voucherNos as string[] | undefined) ?? []) {
+          const list = ddByVoucher.get(v) ?? []
+          if (!list.includes(String(d.depositCode))) list.push(String(d.depositCode))
+          ddByVoucher.set(v, list)
+        }
+      }
+    }
+  }
+  let viaInv = 0, viaVoucher = 0, unmapped = 0
+  const codesOf = (row: unknown[]): string[] => {
+    const direct = parsePaymentDdCell(s(row[col.dd]))
+    if (direct.length) { viaInv++; return direct }
+    if (!raw) return []
+    const bridged = ddByVoucher.get(s(row[col.lapo])) ?? []
+    if (bridged.length) viaVoucher++; else unmapped++
+    return bridged
+  }
+
   // ยอดหัวใบจาก ATMS — ใช้แยกยอดของแถวที่จ่ายครอบหลายใบ + เป็นตัวกรอง "อยู่ในขอบเขตระบบ"
   const recs = new Map<string, Rec>()
   const allCodes = new Set<string>()
-  for (const row of rows.slice(1)) {
-    for (const code of parsePaymentDdCell(s(row[col.dd]))) allCodes.add(code)
-  }
+  const rowCodes = rows.slice(1).map((row) => codesOf(row))
+  for (const codes of rowCodes) for (const code of codes) allCodes.add(code)
   const headBy = new Map<string, { amount: number; warehouse: string }>()
   const codeList = [...allCodes]
   for (let i = 0; i < codeList.length; i += 2000) {
@@ -73,28 +110,45 @@ async function main() {
     }
   }
 
+  // แบบ B: เลขตั้งหนี้เดียวครอบหลายใบ DD และอาจจ่ายหลายงวดคนละแถว → รวมยอดจ่ายต่อเลขตั้งหนี้ก่อนค่อยแยก
+  const voucherTotal = new Map<string, number>()
+  if (raw) for (const [i, row] of rows.slice(1).entries()) {
+    if (rowCodes[i].length < 2) continue
+    const v = s(row[col.lapo])
+    voucherTotal.set(v, (voucherTotal.get(v) ?? 0) + parseAmount(row[col.amt]))
+  }
+  const voucherSplitDone = new Set<string>()
+  // ตัวคูณแยกยอด: ยอดจ่ายรวม VAT แต่ยอดหัวใบ DD ของคลังนอก DIST/สระบุรี ไม่รวม VAT (กติกาเดียวกับ /pr)
+  const splitFactor = (headSum: number, paid: number): number | null =>
+    Math.abs(headSum - paid) <= 1 ? 1 : Math.abs(headSum * 1.07 - paid) <= 1 ? 1.07 : null
+
   let junkRows = 0
-  for (const row of rows.slice(1)) {
-    const codes = parsePaymentDdCell(s(row[col.dd]))
-    if (!codes.length) { if (s(row[col.dd])) junkRows++; continue }
+  for (const [i, row] of rows.slice(1).entries()) {
+    const codes = rowCodes[i]
+    if (!codes.length) { if (!raw && s(row[col.dd])) junkRows++; continue }
     const pv = s(row[col.pv])
     const d = ymd(row[col.date])
     const amt = parseAmount(row[col.amt])
-    // แถวครอบหลายใบ: แยกยอดเมื่อผลบวกยอดหัวใบตรงกับยอดจ่าย (±1)
+    // แถวครอบหลายใบ: แยกยอดเมื่อผลบวกยอดหัวใบ (หรือ ×1.07) ตรงกับยอดจ่าย (±1)
     const headSum = codes.reduce((n, c) => n + (headBy.get(c)?.amount ?? 0), 0)
-    const splitOk = codes.length === 1 || Math.abs(headSum - amt) <= 1
+    const voucher = raw ? s(row[col.lapo]) : ""
+    const groupAmt = voucherTotal.get(voucher) ?? amt
+    const factor = codes.length === 1 ? 1 : splitFactor(headSum, groupAmt)
     for (const code of codes) {
       const r = recs.get(code) ?? { pvs: new Set(), dates: new Set(), ownAmount: 0, sharedWith: new Set(), sharedOnly: false }
       if (pv) r.pvs.add(pv)
       if (d) r.dates.add(d)
       if (codes.length === 1) r.ownAmount += amt
-      else if (splitOk) r.ownAmount += headBy.get(code)?.amount ?? 0
+      else if (factor != null) {
+        // แบ่งครั้งเดียวต่อเลขตั้งหนี้ (แถวงวดถัดไปของเลขเดียวกันไม่บวกซ้ำ)
+        if (!voucher || !voucherSplitDone.has(voucher)) r.ownAmount += Math.round((headBy.get(code)?.amount ?? 0) * factor * 100) / 100
+      }
       else { r.sharedOnly = true; codes.filter((c) => c !== code).forEach((c) => r.sharedWith.add(c)) }
       recs.set(code, r)
     }
+    if (voucher && codes.length > 1) voucherSplitDone.add(voucher)
   }
 
-  const col2 = client.db(mdName).collection("ap_tracking")
   const cur = new Map<string, Record<string, unknown>>()
   for (let i = 0; i < codeList.length; i += 2000) {
     for (const d of await col2.find({ depositCode: { $in: codeList.slice(i, i + 2000) } },
@@ -142,7 +196,7 @@ async function main() {
     })
   }
 
-  console.log(`ไฟล์: ${path.basename(file)} · แถว ${rows.length - 1} · ใบ DD ไม่ซ้ำ ${recs.size.toLocaleString("th-TH")} · แถวเลขอ่านไม่ได้ ${junkRows}`)
+  console.log(`ไฟล์: ${path.basename(file)} · แถว ${rows.length - 1} · ใบ DD ไม่ซ้ำ ${recs.size.toLocaleString("th-TH")}${raw ? ` · DD จาก InvNo ${viaInv} · ผ่านเลขตั้งหนี้ ${viaVoucher} · แมปไม่ได้ (ไม่ใช่ใบ DD) ${unmapped}` : ` · แถวเลขอ่านไม่ได้ ${junkRows}`}`)
   console.log(`\n── สรุป ──────────────────────────────`)
   console.log(`  จะบันทึกจ่ายแล้ว               ${willWrite.toLocaleString("th-TH")} ใบ  (สร้าง tracking ใหม่ ${newDocs})`)
   console.log(`  ยอดแยกไม่ได้ (จ่ายรวมหลายใบ)    ${sharedN}  — เก็บ PV/วันจ่ายครบ แต่ไม่ใส่ยอด`)
