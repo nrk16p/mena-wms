@@ -16,7 +16,7 @@ async function me() {
   const s = await getServerSession(authOptions)
   return s?.user ? { name: s.user.name || s.user.email || "", email: s.user.email || "" } : null
 }
-const oid = (id: string) => (ObjectId.isValid(id) ? new ObjectId(id) : null)
+const oid = (id: string) => (/^[0-9a-f]{24}$/i.test(id) ? new ObjectId(id) : null)
 
 export async function GET(_req: NextRequest, { params }: Params) {
   if (!(await me())) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
@@ -54,7 +54,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
   next.revision = before.status === "ร่าง" ? before.revision : before.revision + 1
   const { _id: _drop, ...toSave } = next
   void _drop
-  await col.replaceOne({ _id }, toSave as Omit<PriceCompare, "_id">)
+  const w = await col.replaceOne({ _id }, toSave as Omit<PriceCompare, "_id">)
+  if (w.matchedCount === 0) return NextResponse.json({ error: "not found" }, { status: 404 })
 
   const changes = diffPriceCompare(before, next)
   await writePcLog(db, {
@@ -76,7 +77,8 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const raw = await db.collection(PC_COLL).findOne({ _id })
   if (!raw) return NextResponse.json({ error: "not found" }, { status: 404 })
   if (raw.status !== "ร่าง") return NextResponse.json({ error: "ลบได้เฉพาะใบสถานะร่าง" }, { status: 400 })
-  await db.collection(PC_COLL).deleteOne({ _id })
+  const w = await db.collection(PC_COLL).deleteOne({ _id })
+  if (w.deletedCount === 0) return NextResponse.json({ error: "not found" }, { status: 404 })
   await writePcLog(db, { docId: id, docNo: String(raw.docNo ?? ""), action: "delete", by: user.name, byEmail: user.email, at: new Date() })
   return NextResponse.json({ ok: true })
 }
