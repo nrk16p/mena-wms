@@ -41,6 +41,7 @@ Base URL (production): https://mena-wms.vercel.app
 Header ทุก request:    x-api-key: <MOBILE_API_KEY>   (ขอจาก admin)
 ยกเว้น GET /api/tire-change-request/lookup — public อ่านได้เลย ไม่ต้องมี x-api-key
 ยกเว้น POST /api/tire-change-request — public เขียนได้เลย ไม่ต้องมี x-api-key
+ยกเว้น POST /api/tire-change-request/{id}/items — public เขียนได้เลย ไม่ต้องมี x-api-key
 ```
 
 - key ผิด/ไม่ส่ง → `401 {"error":"Unauthorized — login session or valid x-api-key required"}`

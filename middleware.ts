@@ -71,7 +71,10 @@ export async function middleware(request: NextRequest) {
 
   // สร้าง/แก้คำขอเปลี่ยนยาง — public เขียนได้ ไม่ต้องมี x-api-key (ตามการตัดสินใจของทีม 2026-09-08)
   // — ถ้าจะคุมความปลอดภัยภายหลัง: ลบบล็อกนี้ออก แล้ว path จะกลับไปบังคับ session/x-api-key เอง
-  if (pathname === "/api/tire-change-request" && (request.method === "POST" || request.method === "OPTIONS")) {
+  // .../[id]/items — เพิ่มรายการยางเข้าใบคำขอ (ขั้นที่ 2 ของ flow เดียวกัน) ก็เปิด public ด้วย
+  //   ครอบเฉพาะ /items ตรง ๆ — /items/[itemId] (แก้/ลบรายเส้น) ยังต้องมี session หรือ x-api-key
+  const isPublicItemsPost = /^\/api\/tire-change-request\/[^/]+\/items$/.test(pathname)
+  if ((pathname === "/api/tire-change-request" || isPublicItemsPost) && (request.method === "POST" || request.method === "OPTIONS")) {
     const postOrigin = request.headers.get("origin")
     if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), postOrigin)
     return withCors(NextResponse.next(), postOrigin)
