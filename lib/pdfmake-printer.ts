@@ -53,15 +53,16 @@ export function fixThaiMarks(s: string): string {
   return s.replace(/([่-๋])ำ/g, "ํ$1า")
 }
 
-// ตัดคำไทยด้วย Intl.Segmenter → แทรก ZWSP ให้ pdfmake ขึ้นบรรทัดถูก (ห้ามใช้กับเลข/ทะเบียนที่มี "-")
+// ตัดคำไทยด้วย Intl.Segmenter -> แทรก ZWSP (U+200B) ให้ pdfmake ขึ้นบรรทัดถูก (ห้ามใช้กับเลข/ทะเบียนที่มี "-")
+// ก่อน ๆ/ฯ ใส่ NBSP (U+00A0) แทน space ธรรมดา กัน ๆ/ฯ ขึ้นต้นบรรทัดเดี่ยว ๆ — ทุกอักขระที่มองไม่เห็นเขียนเป็น \u escape ตรง ๆ ในซอร์ส
 const SEG = new Intl.Segmenter("th", { granularity: "word" })
 export function seg(s: string | null | undefined): string {
   if (!s) return ""
   return Array.from(SEG.segment(s), (x) => x.segment)
-    .join("​")
-    .replace(/​([)\]”’ๆฯ,.:;!?%])/g, "$1")
-    .replace(/([([“‘])​/g, "$1")
-    .replace(/​? ​?([ๆฯ])/g, " $1")
-    .replace(/ผู้​/g, "ผู้")
-    .replace(/([่-๋])ำ/g, "ํ$1า")
+    .join("\u200B")
+    .replace(/\u200B([)\]\u201d\u2019\u0e46\u0e2f,.:;!?%])/g, "$1")
+    .replace(/([([\u201c\u2018])\u200B/g, "$1")
+    .replace(/\u200B? \u200B?([\u0e46\u0e2f])/g, "\u00A0$1")
+    .replace(/\u0e1c\u0e39\u0e49\u200B/g, "\u0e1c\u0e39\u0e49")
+    .replace(/([\u0e48-\u0e4b])\u0e33/g, "\u0e4d$1\u0e32")
 }

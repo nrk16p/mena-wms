@@ -8,6 +8,10 @@ async function main() {
   assert.equal(fixThaiMarks("ค้ำ"), "คํ้า")
   assert.ok(seg("ผู้จัดทำ").includes("ผู้จัด"), "ผู้ ต้องไม่ถูกแยกจากคำถัดไป")
   assert.equal(seg(""), "")
+  // ก่อน ๆ/ฯ ต้องเป็น NBSP (U+00A0) ไม่ใช่ space ธรรมดา (U+0020) -- กัน ๆ/ฯ ขึ้นต้นบรรทัดเดี่ยว
+  assert.ok(seg("ต่าง ๆ").endsWith("\u00A0ๆ"))
+  assert.ok(!seg("ต่าง ๆ").includes(" ๆ"))
+  assert.ok(seg("ราคา ฯลฯ").includes("\u00A0ฯ"))
 
   const pdf = await renderPdfmake({
     pageSize: "A4", pageOrientation: "landscape",
