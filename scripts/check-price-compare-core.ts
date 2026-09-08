@@ -7,6 +7,7 @@ import {
   completeSupplierCount, isQuoteExpired, MIN_QUOTES,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
+import { diffPriceCompare } from "../lib/price-compare-log"
 
 // --- ใบต้นแบบ PC-2609-002 (Pump + Motor UH03) 3 supplier 5 รายการ ---
 function uh03(): PriceCompare {
@@ -187,5 +188,23 @@ assert.equal(counterKeyFor("2026-09-07"), "price_compare:2609")
 assert.equal(fmtMoney(50690), "50,690.00")
 assert.equal(fmtMoney(3548.3), "3,548.30")
 assert.equal(fmtMoney(null), "")
+
+// --- diffPriceCompare (lib/price-compare-log.ts — pure ส่วน diff) ---
+{
+  const a = uh03(), b = uh03()
+  b.title = "Pump UH03"; b.status = "รอลงนาม"; b.selectedSupplier = 1
+  b.items.push({ name: "เพิ่ม", qty: 1, unit: "ชิ้น" }); b.suppliers.forEach((s) => s.prices.push(null))
+  b.suppliers.pop(); b.links.prCode = "LBPR26090001"
+  const ch = diffPriceCompare(a, b)
+  const f = (name: string) => ch.find((c) => c.field === name)
+  assert.deepEqual(f("title"), { field: "title", label: "ชื่อสินค้า/งานซ่อม", from: "Pump + Motor UH03", to: "Pump UH03" })
+  assert.equal(f("status")?.to, "รอลงนาม")
+  assert.deepEqual(f("selectedSupplier"), { field: "selectedSupplier", label: "ผู้ได้รับเลือก", from: "", to: "Supplier 1 (ช่างหมู)" })
+  assert.deepEqual(f("items"), { field: "items", label: "รายการ", from: "5 แถว", to: "6 แถว" })
+  assert.deepEqual(f("suppliers"), { field: "suppliers", label: "Supplier", from: "3 ราย", to: "2 ราย" })
+  assert.deepEqual(f("links.prCode"), { field: "links.prCode", label: "PR", from: "", to: "LBPR26090001" })
+  assert.equal(ch.length, 6, "แก้ราคารายช่องต้องไม่ขึ้นใน log (selectionReason/fewerQuotesReason ไม่เปลี่ยน)")
+  assert.deepEqual(diffPriceCompare(a, a), [])
+}
 
 console.log("check-price-compare-core: OK")
