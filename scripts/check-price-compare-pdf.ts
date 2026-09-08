@@ -113,6 +113,56 @@ async function main() {
     fs.writeFileSync("tmp/price-compare-merged.pdf", out)
     console.log("attachments: OK → tmp/price-compare-merged.pdf")
   }
+
+  // --- ลำดับการแทรกต้องคงที่เมื่อ PDF สองไฟล์ afterImageIndex ตรงกัน (supplier เดียวอัปโหลด PDF สองไฟล์ ไม่มีรูปคั่น) ---
+  {
+    const d = uh03()
+    d.evidenceFiles = []
+    const f = (n: string): any => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    d.suppliers[0].quotationFiles = [f("photo.jpg"), f("a.pdf"), f("b.pdf")]
+    d.suppliers[1].quotationFiles = []
+    d.suppliers[2].quotationFiles = []
+
+    const a4 = await PDFDocument.create(); a4.addPage([595.28, 841.89])
+    const letter = await PDFDocument.create(); letter.addPage([612, 792])
+    const png1x1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")
+    const aBytes = await a4.save(), bBytes = await letter.save()
+    const fakeFetch = (async (url: string) => {
+      if (url.endsWith("a.pdf")) return new Response(aBytes, { status: 200, headers: { "content-type": "application/pdf" } })
+      if (url.endsWith("b.pdf")) return new Response(bBytes, { status: 200, headers: { "content-type": "application/pdf" } })
+      return new Response(png1x1, { status: 200, headers: { "content-type": "image/png" } })
+    }) as unknown as typeof fetch
+
+    const plan = await collectAttachments(d, fakeFetch)
+    assert.equal(plan.pdfInserts.length, 2)
+    assert.ok(plan.pdfInserts.every((p) => p.afterImageIndex === 0), "ทั้งสอง PDF ชี้ afterImageIndex เดียวกัน (หลังรูปเดียวที่มี)")
+
+    const out = await assemblePdf(d, plan)
+    const merged = await PDFDocument.load(out)
+    assert.equal(merged.getPageCount(), 4, "1 ฟอร์ม + 1 รูป + 2 หน้า PDF (a.pdf, b.pdf)")
+    assert.ok(Math.abs(merged.getPage(2).getSize().width - 595.28) < 0.1, "หน้า index 2 = a.pdf (A4)")
+    assert.ok(Math.abs(merged.getPage(3).getSize().width - 612) < 0.1, "หน้า index 3 = b.pdf (Letter) — ต้องไม่สลับลำดับ")
+    console.log("attachments (stable order, same afterImageIndex): OK")
+  }
+
+  // --- fetch timeout: ไฟล์ที่ไม่มีวันตอบ ต้องตกไปที่ failed[] แทนที่จะค้างตลอดกาล ---
+  {
+    const d = uh03()
+    d.evidenceFiles = []
+    const f = (n: string): any => ({ mediaId: 1, batchId: "b", filename: n, webpUrl: `https://cdn.test/${n}`, thumbnailUrl: "" })
+    d.suppliers[0].quotationFiles = [f("slow.jpg")]
+    d.suppliers[1].quotationFiles = []
+    d.suppliers[2].quotationFiles = []
+    const hangingFetch = ((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")))
+      })) as unknown as typeof fetch
+
+    const plan = await collectAttachments(d, hangingFetch, { timeoutMs: 100 })
+    assert.deepEqual(plan.failed, ["slow.jpg"], "fetch ที่ไม่ตอบเกิน timeoutMs ต้องถูก abort แล้วตกไป failed")
+    assert.equal(plan.imagePages.length, 0)
+    console.log("attachments (fetch timeout): OK")
+  }
 }
 
 main()
