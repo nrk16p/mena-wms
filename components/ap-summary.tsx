@@ -1,6 +1,6 @@
 "use client"
 
-import { CalendarRange, ChevronLeft, ChevronRight, CloudDownload, FileDown, RefreshCw, Search } from "lucide-react"
+import { Building2, CalendarRange, ChevronLeft, ChevronRight, CloudDownload, FileDown, RefreshCw, Search } from "lucide-react"
 import { AP_STAGES, CREDIT_TERMS, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
 import { NUM as NUMCLS } from "@/components/ap-style"
 import type { ApCrossHit } from "@/components/ap-types"
@@ -95,6 +95,8 @@ export function ApHeader({
   monthlyBasis: string
 }) {
   const rangeOn = Boolean(sentFrom || sentTo)
+  // แท็บสรุปรายเจ้าหนี้ทั้งปีมีตัวเลือกปีของตัวเอง — ตัวเลือกเดือน/สลับมุมมอง/ตัวนับใบของเดือนไม่มีความหมาย
+  const yearView = tab === "suppliers"
   // ปุ่มลัดที่ "ตรงกับช่วงที่เลือกอยู่พอดี" ถึงจะขึ้นไฮไลต์ — เลือกวันเองแล้วต้องไม่มีปุ่มไหนติดค้าง
   const activePreset = SENT_PRESETS.find((p) => {
     const r = apRangeOf(p.key, today)
@@ -114,7 +116,7 @@ export function ApHeader({
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {/* ตั้งช่วงวันที่กดส่งอยู่ = ค้นข้ามทุกเดือน ตัวเลือกเดือนไม่มีผล — ต้องบอกให้เห็น
               ไม่งั้นคนกดลูกศรเปลี่ยนเดือนแล้วตัวเลขไม่ขยับ จะนึกว่าหน้าค้างหรือข้อมูลผิด */}
-          {crossMonth ? (
+          {yearView ? null : crossMonth ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-sm text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-900/20 dark:text-emerald-300"
               title="กำลังกรองด้วยช่วงวันที่กดส่งบัญชี — ดึงจากทุกเดือน ไม่จำกัดเดือนที่เลือก">
               <CalendarRange className="h-4 w-4" />ทุกเดือน
@@ -197,7 +199,15 @@ export function ApHeader({
             </button>
           )
         })}
+        {/* สรุปรายเจ้าหนี้ทั้งปี — ไม่ใช่ขั้นของงาน จึงไม่มีตัวนับจาก summary (ยอดของมันโหลดแยกทั้งปี) */}
+        <button onClick={() => onTab(yearView ? "" : "suppliers")} title="ยุบทุกใบของทั้งปีเป็นแถวละเจ้าหนี้ พร้อมส่งออก Excel รายเจ้า"
+          className={`-mb-px ml-2 flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition ${yearView
+            ? "border-[#14271C] font-medium text-[#14271C] dark:border-white dark:text-white"
+            : "border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}>
+          <Building2 className="h-3.5 w-3.5" />รายเจ้าหนี้ ปีนี้
+        </button>
         <div className="ml-auto flex items-center gap-2 pb-1.5">
+          {!yearView && (
           <div className="inline-flex overflow-hidden rounded-lg border border-gray-200 text-xs dark:border-white/10">
             {([["invoice", "รายใบ"], ["supplier", "รายเจ้าหนี้"]] as const).map(([v, label]) => (
               <button key={v} onClick={() => onViewBy(v)}
@@ -208,6 +218,8 @@ export function ApHeader({
               </button>
             ))}
           </div>
+          )}
+        {!yearView && (
         <span className={`pb-0.5 pr-1 text-xs text-gray-400 ${NUM}`}>
           {/* "ทั้งหมด" เคยหมายถึงเดือนนี้ + ใบค้างยกมา — ตั้งแต่โหลดทีละเดือนแล้วมันคือเดือนนี้ล้วน
               ต้องเขียนให้ตรง ไม่งั้นคนจะนึกว่าใบค้างเดือนก่อนถูกนับรวมอยู่ด้วย */}
@@ -216,6 +228,7 @@ export function ApHeader({
             : crossMonth ? `ทุกเดือน ${totalShown.toLocaleString("th-TH")} ใบ`
             : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
         </span>
+        )}
         </div>
       </div>
 

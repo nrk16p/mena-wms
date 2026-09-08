@@ -11,6 +11,8 @@ import { CARD, NUM, baht, mitr } from "@/components/ap-style"
 import { ApHeader } from "@/components/ap-summary"
 import { ApTable } from "@/components/ap-table"
 import { ApSupplierTable } from "@/components/ap-supplier-table"
+import { ApSupplierYearPanel } from "@/components/ap-supplier-year"
+import { AP_FLAT_WIDTHS, apFlatRow } from "@/components/ap-export"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
 import type { ApCoverRow, ApFinanceItem } from "@/lib/ap-tracking"
@@ -244,7 +246,8 @@ export function ApTrackingPage() {
   const beforeSentRange = useMemo(() => {
     let out = rows
     // แท็บ = ขั้นของงาน (1 ใบอยู่ได้ขั้นเดียว ดู apStage) — ตัวกรองหลักของหน้า
-    if (tab) out = out.filter((r) => apStage(r) === tab)
+    // ("suppliers" ไม่ใช่ขั้น — แท็บนั้นไม่ใช้ตารางรายใบ แต่กันไว้ไม่ให้กรองจนว่างเวลากลับมา)
+    if (tab && tab !== "suppliers") out = out.filter((r) => apStage(r) === tab)
     if (warehouse) out = out.filter((r) => r.warehouse === warehouse)
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
@@ -312,29 +315,8 @@ export function ApTrackingPage() {
       XLSX.writeFile(wb, `ใบปะหน้าสกท_${today}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
       return
     }
-    const data = shown.map((r) => ({
-      "เลขใบรับของ": r.depositCode,
-      "วันที่รับของ": r.receivedAt,
-      "คลัง": r.warehouse,
-      "ซัพพลายเออร์": r.supplier,
-      "PO": r.purchaseOrder,
-      "ทะเบียนรถ": r.vehicle ?? "",
-      "เบอร์รถ": r.fleetNo ?? "",
-      "ยอดเงิน": r.amount,
-      "เครดิตเทอม": r.creditTerm,
-      "ประเภทการส่ง": r.pay?.type || r.sentType,
-      "กดส่งเมื่อ": r.sentMarkedDate ?? "",
-      "ผ่านเมื่อ": (r.review?.at ?? "").slice(0, 10),
-      "ตรวจโดย": r.review?.by ?? "",
-      "กำหนดจ่าย": r.pay?.payDate ?? "",
-      "จ่ายจริง": r.paid?.date ?? "",
-      "เลข PV": (r.paid?.paymentNos ?? []).join(", "),
-      "เลขที่ Voucher": (r.docNos.voucherNos ?? []).join(", "),
-      "เลขที่ใบวางบิล": (r.docNos.billingNoteNos ?? []).join(", "),
-      "หมายเหตุ": r.note,
-    }))
-    const ws = XLSX.utils.json_to_sheet(data)
-    ws["!cols"] = [14, 11, 16, 30, 13, 12, 10, 12, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))
+    const ws = XLSX.utils.json_to_sheet(shown.map(apFlatRow))
+    ws["!cols"] = AP_FLAT_WIDTHS
     const wb = XLSX.utils.book_new()
     const label = tab === "sent" ? "ส่งบัญชีแล้ว" : tab === "paid" ? "จ่ายแล้ว" : "ผ่าน"
     XLSX.utils.book_append_sheet(wb, ws, label)
@@ -351,31 +333,9 @@ export function ApTrackingPage() {
    *  ใช้ตารางแบนเสมอ ไม่ใช่ฟอร์มใบปะหน้า เพราะไฟล์นี้มีไว้เอาไปวิเคราะห์ต่อ */
   async function exportMonthly() {
     const XLSX = await import("xlsx")
-    const flat = (r: ApRow) => ({
-      "เลขใบรับของ": r.depositCode,
-      "วันที่รับของ": r.receivedAt,
-      "คลัง": r.warehouse,
-      "ซัพพลายเออร์": r.supplier,
-      "PO": r.purchaseOrder,
-      "ทะเบียนรถ": r.vehicle ?? "",
-      "เบอร์รถ": r.fleetNo ?? "",
-      "ยอดเงิน": r.amount,
-      "เครดิตเทอม": r.creditTerm,
-      "ประเภทการส่ง": r.pay?.type || r.sentType,
-      "กดส่งเมื่อ": r.sentMarkedDate ?? "",
-      "ผ่านเมื่อ": ictDate(r.review?.at ?? ""),
-      "ตรวจโดย": r.review?.by ?? "",
-      "กำหนดจ่าย": r.pay?.payDate ?? "",
-      "จ่ายจริง": r.paid?.date ?? "",
-      "เลข PV": (r.paid?.paymentNos ?? []).join(", "),
-      "เลขที่ Voucher": (r.docNos.voucherNos ?? []).join(", "),
-      "เลขที่ใบวางบิล": (r.docNos.billingNoteNos ?? []).join(", "),
-      "หมายเหตุ": r.note,
-    })
-    const WIDTHS = [14, 11, 16, 30, 13, 12, 10, 12, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))
     const addSheet = (wb: ReturnType<typeof XLSX.utils.book_new>, rowsIn: ApRow[], name: string) => {
-      const ws = XLSX.utils.json_to_sheet(rowsIn.map(flat))
-      ws["!cols"] = WIDTHS
+      const ws = XLSX.utils.json_to_sheet(rowsIn.map(apFlatRow))
+      ws["!cols"] = AP_FLAT_WIDTHS
       XLSX.utils.book_append_sheet(wb, ws, name)
     }
 
@@ -678,7 +638,12 @@ export function ApTrackingPage() {
         </div>
       )}
 
-      {viewBy === "supplier" ? (
+      {tab === "suppliers" ? (
+        // สรุปทั้งปีแถวละเจ้า — โหลดแยกจากเดือนที่เลือก (ดูเหตุผลใน component) · กดชื่อเจ้า = กลับแท็บทั้งหมด
+        // พร้อมกรองชื่อเจ้านั้นในเดือนที่เปิดอยู่ · คลัง+คำค้นใช้ร่วมกับหน้าหลัก
+        <ApSupplierYearPanel warehouse={warehouse} q={q}
+          onPick={(name) => applyFilter(() => { setTab(""); setViewBy("invoice"); setQ(name) })} />
+      ) : viewBy === "supplier" ? (
         <ApSupplierTable rows={supplierRows} loading={busy} onPick={pickSupplier} />
       ) : (
       <ApTable

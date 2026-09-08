@@ -887,3 +887,68 @@ export function thaiDate(iso: string): string {
   if (!m) return "—"
   return `${+m[3]} ${TH_MONTHS[+m[2] - 1]} ${(+m[1] + 543) % 100}`
 }
+
+// ---------------------------------------------------------------------------
+// สรุปรายเจ้าหนี้ "ทั้งปี" (แท็บ รายเจ้าหนี้ ปีนี้ · เพิ่ม 08/09/2026)
+// ทั้งปีมีใบ ~13k แถว ≈ 7MB ถ้าส่งแถวดิบจะชนเพดาน 4.5MB ของ Vercel (บทเรียนเดียวกับ carryover)
+// จึงยุบเป็นแถวละเจ้าที่ฝั่งเซิร์ฟเวอร์แล้วส่งเฉพาะตัวเลข — ฟังก์ชันนี้เป็น pure function เพื่อให้
+// ทดสอบได้โดยไม่ต้องต่อฐาน · ขั้นของงานต้องคิดด้วย apStage ตัวเดียวกับหน้าหลักเสมอ
+// ---------------------------------------------------------------------------
+export type ApSupplierYearInput = {
+  supplier: string
+  purchaseOrder: string
+  amount: number
+  receivedAt: string       // YYYY-MM-DD
+  stage: ApStage
+}
+
+export type ApSupplierYearRow = {
+  supplier: string
+  dd: number
+  po: number
+  amount: number
+  // ยอดที่ยังไม่จบวงจร (ทุกขั้นยกเว้น "จ่ายแล้ว") — คำถามหลักของบัญชี "ยังค้างเจ้านี้เท่าไหร่"
+  unpaidAmount: number
+  stages: Record<ApStage, { n: number; amount: number }>
+  months: number           // จำนวนเดือนที่มีใบ (ใช้ดูว่าเจ้าประจำหรือเจ้าจร)
+  firstReceivedAt: string
+  lastReceivedAt: string
+}
+
+export function aggregateSupplierYear(items: ApSupplierYearInput[]): ApSupplierYearRow[] {
+  type Acc = ApSupplierYearRow & { _po: Set<string>; _months: Set<string> }
+  const m = new Map<string, Acc>()
+  for (const it of items) {
+    const name = it.supplier || "(ไม่ระบุเจ้าหนี้)"
+    let row = m.get(name)
+    if (!row) {
+      row = {
+        supplier: name, dd: 0, po: 0, amount: 0, unpaidAmount: 0,
+        stages: Object.fromEntries(AP_STAGES.map((st) => [st.key, { n: 0, amount: 0 }])) as Acc["stages"],
+        months: 0, firstReceivedAt: "", lastReceivedAt: "",
+        _po: new Set(), _months: new Set(),
+      }
+      m.set(name, row)
+    }
+    row.dd++
+    row.amount += it.amount
+    if (it.stage !== "paid") row.unpaidAmount += it.amount
+    row.stages[it.stage].n++
+    row.stages[it.stage].amount += it.amount
+    if (it.purchaseOrder) row._po.add(it.purchaseOrder)
+    if (it.receivedAt) {
+      row._months.add(it.receivedAt.slice(0, 7))
+      if (!row.firstReceivedAt || it.receivedAt < row.firstReceivedAt) row.firstReceivedAt = it.receivedAt
+      if (it.receivedAt > row.lastReceivedAt) row.lastReceivedAt = it.receivedAt
+    }
+  }
+  return [...m.values()]
+    .map(({ _po, _months, ...row }) => ({ ...row, po: _po.size, months: _months.size }))
+    .sort((a, b) => b.amount - a.amount || a.supplier.localeCompare(b.supplier, "th"))
+}
+
+/** เดือนทั้งหมดของปี "YYYY-01" … "YYYY-12" — ปีที่ไม่ใช่ตัวเลข 4 หลักคืน [] */
+export function monthsOfYear(year: string): string[] {
+  if (!/^\d{4}$/.test(year)) return []
+  return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`)
+}

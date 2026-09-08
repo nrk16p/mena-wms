@@ -5,7 +5,7 @@ import {
   parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apUrgency, nextThursday, todayICT,
   resolveCreditTerm,
   AP_STAGES, compactDocNos, docNosText, ictDate,
-  apSinceOf, inApScope, monthInApScope, addDays, inDateRange,
+  apSinceOf, inApScope, monthInApScope, monthsOfYear, addDays, inDateRange,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
 
@@ -41,6 +41,7 @@ const prevMonths = (ym: string, n: number) => {
 }
 
 // GET /api/ap-tracking?month=YYYY-MM&carryover=1&carryoverMonths=6&warehouse=&supplier=&status=&q=&limit=&includeInternal=
+//   หรือ ?year=YYYY&supplier=ชื่อ (ทั้งปีของเจ้าเดียว — year ถูกมองข้ามถ้าไม่มี supplier ดูเหตุผลด้านล่าง)
 //
 // carryover ปิดเป็นค่าตั้งต้นตั้งแต่ 18/08/2026 — หน้าโหลด "ทีละเดือน" ตามที่ผู้ใช้สั่ง
 // เหตุผล: พอย้าย go-live มา 01/01/2026 ทุกเดือนเข้าสโคปหมด การลากใบค้างยกมา 6 เดือนทำให้
@@ -79,6 +80,12 @@ export async function GET(req: NextRequest) {
     const sentFrom  = ymd(sp.get("sentFrom"))
     const sentTo    = ymd(sp.get("sentTo"))
     const sentRange = Boolean(sentFrom || sentTo)
+    // โหมด "ทั้งปี" (แท็บรายเจ้าหนี้ ปีนี้ → export ใบทั้งหมดของเจ้าเดียว) — รับ ?year=YYYY แต่ **มีผลเฉพาะ
+    // เมื่อส่ง supplier มาด้วย** เพราะทั้งปีทั้งฐานคือ ~13k แถว ≈ 7MB ชนเพดาน 4.5MB ของ Vercel
+    // ส่วนเจ้าเดียวใหญ่สุดหลักร้อยแถว ยังห่างเพดานมาก · year ที่ไม่ใช่ 4 หลักถือว่าไม่ได้ส่งมา
+    const rawYear   = sp.get("year")?.trim() ?? ""
+    const yearMode  = Boolean(supplier) && !sentRange && /^\d{4}$/.test(rawYear)
+    const year      = yearMode ? rawYear : ""
 
     const client = await clientPromise
     const atms   = client.db("atms")
@@ -129,7 +136,7 @@ export async function GET(req: NextRequest) {
       }
       match.deposit_code = { $in: codesInRange }
     } else {
-      const months = (carryover ? [month, ...prevMonths(month, carryoverMonths)] : [month])
+      const months = (yearMode ? monthsOfYear(year) : carryover ? [month, ...prevMonths(month, carryoverMonths)] : [month])
         .filter((m) => monthInApScope(m, since))
       // ทุกเดือนในหน้าต่างอยู่ก่อน go-live หมด = ไม่มีอะไรให้ดูจริง ๆ — คืนผลว่างโดยไม่ยิงคิวรี
       // ($or: [] เป็น error ของ Mongo ด้วย ห้ามปล่อยให้หลุดไปถึงฐานข้อมูล)
@@ -252,7 +259,8 @@ export async function GET(req: NextRequest) {
         // "ค้างยกมา" = ใบของเดือนอื่นที่โผล่มาในเดือนที่เปิดอยู่ — ไม่มีความหมายในโหมดช่วงวันที่กดส่ง
         // เพราะไม่ได้ยึดเดือนใดเป็นหลัก · ปล่อยให้เป็น true จะโดน showInTable ตัดทิ้งเกือบทั้งชุด
         // (ใบในโหมดนี้แทบทุกใบสถานะ "ส่งบัญชีแล้ว" อยู่แล้ว) = ตารางว่างทั้งที่คิวรีเจอของ
-        carryover:   sentRange ? false : receivedAt.slice(0, 7) !== monthPrefix,
+        // โหมดทั้งปีก็ไม่ยึดเดือนใดเป็นหลักเช่นกัน — ทุกใบของปีนั้นคือ "ในช่วง" ไม่ใช่ค้างยกมา
+        carryover:   sentRange || yearMode ? false : receivedAt.slice(0, 7) !== monthPrefix,
         poTotal:     parseAmount(po?.["รวม"]),
         poDue:       parseDmy(po?.["กำหนดส่งสินค้า"]),
         poStatus:    s(po?.["สถานะการรับสินค้า"]),
@@ -284,7 +292,7 @@ export async function GET(req: NextRequest) {
     //   สรุป    = ยังนับใบค้างยกมาที่ "ส่งบัญชีในเดือนที่กำลังดูอยู่" ด้วย
     // ถ้าตัดออกก่อนคิดสรุป ยอด "เข้าโอนพฤหัสนี้" จะขาดไปทั้งใบ เช่น ใบวันที่ 25/07 ที่ติ๊กครบแล้ว
     // ตั้งนอกรอบ 14/08 — เปิดหน้าเดือน 08 เพื่อรวมยอดโอนวันพฤหัส แล้วโอนขาดไปเท่ายอดใบนั้น
-    const sentInView  = (r: typeof rows[number]) => r.sentDate.slice(0, 7) === month
+    const sentInView  = (r: typeof rows[number]) => (yearMode ? r.sentDate.slice(0, 4) === year : r.sentDate.slice(0, 7) === month)
     const showInTable = (r: typeof rows[number]) => !r.carryover || r.status !== "ส่งบัญชีแล้ว"
     const countRows   = rows.filter((r) => showInTable(r) || sentInView(r))
     rows = rows.filter(showInTable)
