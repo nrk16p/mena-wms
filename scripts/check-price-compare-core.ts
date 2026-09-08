@@ -153,6 +153,12 @@ assert.equal(n.selectedSupplier, 2)
 assert.equal(n.status, "ร่าง")
 assert.deepEqual(n.evidenceFiles, [])
 
+// --- normalizeDoc: intInRange ต้อง null ค่านอกช่วง/ไม่ใช่จำนวนเต็ม ไม่ใช่ปล่อยผ่าน ---
+assert.equal(normalizeDoc({ selectedSupplier: 999 }).selectedSupplier, null)
+assert.equal(normalizeDoc({ selectedSupplier: 0 }).selectedSupplier, null)
+assert.equal(normalizeDoc({ selectedSupplier: 2.5 }).selectedSupplier, null)
+assert.equal(normalizeDoc({ committee: [{ pickedSupplier: 7 }] }).committee[0].pickedSupplier, null)
+
 // --- validateDoc ---
 assert.deepEqual(validateDoc(uh03()), [])
 const bad = uh03()
@@ -171,7 +177,7 @@ assert.ok(validateDoc(bad6).some((m) => m.includes("กรรมการ")))
 const bad7 = uh03(); bad7.suppliers[0].prices = [1]
 assert.ok(validateDoc(bad7).some((m) => m.includes("ราคา")))
 
-// --- docNo / counter key (ปี พ.ศ. 2 หลักท้าย + เดือน) ---
+// --- docNo / counter key (ปี ค.ศ. 2 หลักท้าย + เดือน — ตามฟอร์มต้นแบบ PC-2609-002 ลงวันที่ 7/9/2569) ---
 assert.equal(docNoFor("2026-09-07", 2), "PC-2609-002")
 assert.equal(docNoFor("2026-12-31", 123), "PC-2612-123")
 assert.equal(docNoFor("2027-01-01", 1), "PC-2701-001")
