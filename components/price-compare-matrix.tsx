@@ -5,8 +5,8 @@ import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
 import { VendorCombobox } from "@/components/vendor-combobox"
 import { SkuPicker, type SkuHit } from "@/components/sku-picker"
 import {
-  emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS, VAT_MODE_LABEL,
-  effectiveLineSupplier, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine,
+  emptySupplier, supplierTotals, lowestNet, fmtMoney, lineTotal, MAX_SUPPLIERS, VAT_MODE_LABEL,
+  effectiveLineSupplier, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine, renumberAfterRemoval,
   type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals,
 } from "@/lib/price-compare"
 
@@ -22,7 +22,7 @@ const numOrNull = (v: string): number | null => { if (v.trim() === "") return nu
 
 export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   const { items, suppliers, lineSupplier } = doc
-  const low = lowestPerLine(doc)
+  const low = pickLowestPerLine(doc)   // 1-based, เทียบหลัง VAT — เกณฑ์เดียวกับ isComplete/PDF
   const lowNet = lowestNet(doc)
   const totals = suppliers.map((_, i) => supplierTotals(doc, i))
   const cols = 4 + suppliers.length * 2 + (readOnly ? 0 : 1)
@@ -60,7 +60,12 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
     })
   }
   const addSupplier = () => suppliers.length < MAX_SUPPLIERS && onChange({ suppliers: [...suppliers, emptySupplier(items.length)] })
-  const removeSupplier = (s: number) => onChange({ suppliers: suppliers.filter((_, i) => i !== s) })
+  // ลบคอลัมน์แล้วเลขลำดับของเจ้าที่อยู่ถัดไปเลื่อนขึ้น — การมอบหมายรายบรรทัดต้องเลื่อนตาม ไม่งั้นชี้ผิดเจ้าเงียบๆ
+  // (selectedSupplier / committee[].pickedSupplier เลื่อนที่ onMatrixChange ในฟอร์ม เพราะไม่ได้อยู่ในพื้นที่ของตารางนี้)
+  const removeSupplier = (s: number) => onChange({
+    suppliers: suppliers.filter((_, i) => i !== s),
+    lineSupplier: lineSupplier.map((v) => renumberAfterRemoval(v, s)),
+  })
 
   const th = "px-2 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 border-b border-[#E2E8E4] dark:border-white/10"
   const td = "px-1 py-0.5 border-b border-[#EEF2F0] dark:border-white/8 align-middle"
@@ -153,7 +158,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
               <td className={td}><input value={it.unit} disabled={readOnly} onChange={(e) => patchItem(r, { unit: e.target.value })} placeholder="หน่วย" className={textInput} /></td>
               {suppliers.map((sp, s) => {
                 const p = sp.prices[r] ?? null
-                const best = low[r] === s && p != null
+                const best = low[r] === s + 1 && p != null
                 const picked = lineSupplier[r] === s + 1                                  // เลือกรายบรรทัดไว้จริง
                 const fallback = !picked && effectiveLineSupplier(doc, r) === s + 1        // ไม่ได้เลือกเอง แต่ตกมาที่ผู้ได้รับเลือกทั้งใบ
                 return (
@@ -169,7 +174,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                         className="h-3.5 w-3.5 shrink-0 accent-[#1B8C4B]" />
                       <span aria-hidden className={`w-2.5 shrink-0 text-center text-xs font-bold ${picked ? "text-emerald-700 dark:text-emerald-300" : "text-transparent"}`}>✓</span>
                       <input inputMode="decimal" value={p ?? ""} disabled={readOnly} onChange={(e) => setPrice(s, r, numOrNull(e.target.value))} placeholder="—" className={cellInput} />
-                      <span className={`w-24 shrink-0 text-right text-xs tabular-nums ${best ? "font-semibold text-emerald-700" : "text-gray-500"}`}>{p != null ? fmtMoney(Math.round(it.qty * p * 100) / 100) : ""}</span>
+                      <span className={`w-24 shrink-0 text-right text-xs tabular-nums ${best ? "font-semibold text-emerald-700" : "text-gray-500"}`}>{p != null ? fmtMoney(lineTotal(it, p)) : ""}</span>
                     </div>
                   </td>
                 )
@@ -204,7 +209,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
             </tr>
           ))}
           {/* โหมดผสม: ยอดที่ตกกับแต่ละเจ้าตามที่เลือกรายบรรทัด (ไม่ปันส่วนส่วนลดท้ายใบ) */}
-          {pickedCount > 0 && mt && (
+          {mixedAll && mt && (
             <Fragment>
               <tr className="border-t border-dashed border-[#E2E8E4] dark:border-white/10">
                 <td colSpan={4} className={`${td} px-2 py-1 text-right text-xs text-gray-600 dark:text-gray-300`}>ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)</td>

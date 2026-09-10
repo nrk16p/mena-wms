@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, lowestNet, completeSupplierCount, allLinesAwarded, mixedTotals, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -61,6 +61,19 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const supCols = Array.from({ length: N * 2 }, () => SUP_W)
   // โหมดผสม = ทุกแถวถูกมอบหมาย supplier แล้ว และคิดยอดได้จริง (mixedTotals จะเป็น null ถ้าเจ้าที่ชี้ไว้ไม่ได้เสนอราคาแถวนั้น)
   const mixed = allLinesAwarded(doc) ? mixedTotals(doc) : null
+
+  // ---------- บรรทัดเหตุผลท้ายหน้า (ตัดสินตั้งแต่ตอนนี้ เพราะโควตาแถวว่างต้องหักตามจำนวนบรรทัดที่จะพิมพ์) ----------
+  // เงื่อนไขต้องตรงกับที่ฟอร์มใช้โชว์ช่องกรอก — ข้อความเก่าที่ค้างอยู่ (เลือกรายถูกสุดทีหลัง / ได้ใบเสนอราคาครบ 3 รายทีหลัง)
+  // ต้องไม่ถูกพิมพ์ลง PDF
+  const low = lowestNet(doc)
+  const lp = pickLowestPerLine(doc)
+  // เกณฑ์เดียวกับ isComplete/ฟอร์ม: เลือกทั้งใบ → เทียบกับรายสุทธิต่ำสุด; โหมดผสม → เทียบรายแถวหลัง VAT
+  const needSelectionReason = doc.selectedSupplier != null
+    ? (low != null && doc.selectedSupplier !== low + 1)
+    : (mixed != null && doc.items.some((_, i) => lp[i] != null && doc.lineSupplier[i] !== lp[i]))
+  const needFewerQuotesReason = completeSupplierCount(doc) < MIN_QUOTES
+  const showSelectionReason = !!doc.selectionReason && needSelectionReason
+  const showFewerQuotesReason = !!doc.fewerQuotesReason && needFewerQuotesReason
 
   // ---------- ส่วนหัว ----------
   const logoCell = LOGO
@@ -130,8 +143,9 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
       { colSpan: 2, ...t(sup(i)?.note ?? "", { fontSize: 7, alignment: "center", bold: true, ...fill(i) }) }, {},
     ]).flat(),
   ]
-  // โหมดผสมเพิ่มแถวสรุปอีก 2 แถว จึงคืนโควตาแถวว่างไป 2 แถวเพื่อให้ฟอร์มยังจบในหน้าเดียว (เอกสารเลือกทั้งใบไม่เปลี่ยน)
-  const minRows = MIN_ROWS - (mixed ? 2 : 0)
+  // โหมดผสมเพิ่มแถวสรุปอีก 2 แถว + หมายเหตุส่วนลด และอาจมีบรรทัดเหตุผลอีก จึงคืนโควตาแถวว่างตามจำนวนนั้น
+  // เพื่อให้ฟอร์มยังจบในหน้าเดียว (เอกสารเลือกทั้งใบไม่เปลี่ยน — พอดีหน้าอยู่แล้วที่ MIN_ROWS)
+  const minRows = MIN_ROWS - (mixed ? 2 + (showSelectionReason ? 1 : 0) + (showFewerQuotesReason ? 1 : 0) : 0)
   const blankRows = Array.from({ length: Math.max(0, minRows - doc.items.length - 2) }, emptyRow)
 
   // ช่อง VAT บอกฐานราคาด้วย: none → "ไม่มี VAT", incl → "(รวมในราคา) / 3,683.18"
@@ -280,14 +294,9 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   // ไม่ต้องตัดคำ และ check script ค้นหาแบบตรงตัว ส่วนข้อความที่ผู้ใช้พิมพ์ต่อท้ายยังผ่าน seg() ตามปกติ
   const reason = (label: string, value: string, top: number) =>
     ({ text: [label, ": ", seg(value)], fontSize: 8, margin: [0, top, 0, 0] })
-  // เงื่อนไขต้องตรงกับที่ฟอร์มใช้โชว์ช่องกรอก — ข้อความเก่าที่ค้างอยู่ (เลือกรายถูกสุดทีหลัง / ได้ใบเสนอราคาครบ 3 รายทีหลัง)
-  // ต้องไม่ถูกพิมพ์ลง PDF
-  const low = lowestNet(doc)
-  const needSelectionReason = doc.selectedSupplier != null && low != null && doc.selectedSupplier !== low + 1
-  const needFewerQuotesReason = completeSupplierCount(doc) < MIN_QUOTES
   const reasons = [
-    doc.selectionReason && needSelectionReason ? reason("เหตุผลที่เลือก", doc.selectionReason, 3) : null,
-    doc.fewerQuotesReason && needFewerQuotesReason ? reason("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย", doc.fewerQuotesReason, 2) : null,
+    showSelectionReason ? reason("เหตุผลที่เลือก", doc.selectionReason, 3) : null,
+    showFewerQuotesReason ? reason("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย", doc.fewerQuotesReason, 2) : null,
     // ยอดผสมคิดจากราคาต่อแถวล้วนๆ — ส่วนลดท้ายใบเป็นข้อตกลงของทั้งใบเสนอราคา จึงอ้างไม่ได้เมื่อซื้อแค่บางรายการ
     mixed ? t(MIX_DISCOUNT_NOTE, { fontSize: 8, margin: [0, 2, 0, 0] }) : null,
   ].filter(Boolean)

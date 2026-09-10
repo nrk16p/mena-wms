@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import { PDFDocument } from "pdf-lib"
-import { newDoc, emptySupplier, supplierTotals, fmtMoney, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
+import { newDoc, emptySupplier, supplierTotals, fmtMoney, pickLowestPerLine, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
 import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
 import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
@@ -113,6 +113,23 @@ async function main() {
   }
   assert.ok(flatMix.includes(seg(MIX_DISCOUNT_NOTE)), "ต้องมีหมายเหตุว่าส่วนลดไม่ถูกนำมาคิด")
   assert.ok((flatMix.match(/√/g) ?? []).length >= 5, "ต้องติ๊กเซลล์ราคาที่เลือกครบทั้ง 5 แถว")
+  // เลือกถูกสุดทุกแถวอยู่แล้ว → เหตุผลที่ค้างในเอกสารต้องไม่ถูกพิมพ์ (เกณฑ์เดียวกับโหมดเลือกทั้งใบ)
+  assert.ok(
+    !JSON.stringify(buildPriceCompareDocDef({ ...dMix, selectionReason: "เหตุผลเก่าค้างอยู่" })).includes("เหตุผลที่เลือก"),
+    "โหมดผสมที่เลือกถูกสุดทุกแถวต้องไม่พิมพ์เหตุผลที่เลือก",
+  )
+
+  // --- โหมดผสมที่ไม่ได้เลือกถูกสุดทุกแถว: แถว 1 ใช้คุณณัฐ (30,000) แทนช่างหมู (21,000) → ต้องพิมพ์เหตุผล ---
+  const dMixReason = uh03()
+  dMixReason.selectedSupplier = null
+  dMixReason.suppliers[1].vatMode = "excl"
+  dMixReason.lineSupplier = [2, 2, 2, 2, 3]
+  dMixReason.selectionReason = "ของใหม่ มือ 1"
+  const ddMixReason = buildPriceCompareDocDef(dMixReason)
+  const flatMixReason = JSON.stringify(ddMixReason)
+  assert.deepEqual(pickLowestPerLine(dMixReason)[0], 1, "แถว 1 ที่ถูกสุดคือ Supplier 1 — fixture นี้จงใจเลือกไม่ตรง")
+  assert.ok(flatMixReason.includes("เหตุผลที่เลือก"), "โหมดผสมที่มีแถวไม่ถูกสุด ต้องมีป้ายเหตุผลที่เลือก")
+  assert.ok(flatMixReason.includes(seg("ของใหม่ มือ 1")), "ต้องพิมพ์ข้อความเหตุผลที่ผู้ใช้กรอกจริง")
 
   // มี supplier ครบ 4 ราย → ไม่เหลือช่องว่างในตาราง ยอดรวมผสมต้องมาเป็นบรรทัดใต้ตารางแทน
   {
@@ -127,12 +144,12 @@ async function main() {
   }
 
   // ฟอร์มโหมดผสมต้องยังจบในหน้าเดียวเหมือนเอกสารเลือกทั้งใบ
-  for (const [name, def] of [["uh03", dd], ["mixed", ddMix]] as const) {
+  for (const [name, def] of [["uh03", dd], ["mixed", ddMix], ["mixed-reason", ddMixReason]] as const) {
     const out = await renderPdfmake(def)
     assert.equal((await PDFDocument.load(out)).getPageCount(), 1, `ฟอร์ม ${name} ต้องเป็นหน้าเดียว`)
-    if (name === "mixed") { fs.mkdirSync("tmp", { recursive: true }); fs.writeFileSync("tmp/price-compare-mixed.pdf", out) }
+    if (name !== "uh03") { fs.mkdirSync("tmp", { recursive: true }); fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out) }
   }
-  console.log("mixed mode: OK → tmp/price-compare-mixed.pdf")
+  console.log("mixed mode: OK → tmp/price-compare-mixed.pdf, tmp/price-compare-mixed-reason.pdf")
 
   // หน้ารูปแนบ
   const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="

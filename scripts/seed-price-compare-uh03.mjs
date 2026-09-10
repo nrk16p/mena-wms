@@ -67,6 +67,8 @@ if (process.argv.includes("--mixed")) {
     lineSupplier: [1, 2, 2, 2, 3],
     selectedSupplier: null,
     selectionReason: "",
+    // ใบนี้ไม่ได้เลือก supplier รายเดียวทั้งใบ — ช่อง "เลือก supplier ลำดับที่" ของกรรมการจึงต้องว่าง ไม่ใช่ค้าง 1 จากใบต้นแบบ
+    committee: docRest.committee.map((m) => ({ ...m, pickedSupplier: null, reason: "" })),
     status: "รอลงนาม",
     createdBy: "seed", editedBy: "seed",
   }

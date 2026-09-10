@@ -13,7 +13,7 @@ import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
-  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, mixedGap, pickLowestPerLine,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, mixedGap, pickLowestPerLine, renumberAfterRemoval,
   type PriceCompare, type PcCommittee, type PcFile, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -136,9 +136,18 @@ export function PriceCompareForm({ id }: { id: string }) {
       : mixedAll && doc.items.some((_, i) => lowPerLine[i] != null && doc.lineSupplier[i] !== lowPerLine[i]))
 
   // เลือกครบทุกแถว = โหมดผสมเต็มใบ → ผู้ได้รับเลือกทั้งใบไม่มีความหมายอีก ล้างทิ้งในแพตช์เดียวกัน (ไม่ให้ค้างไปโผล่ใน PDF/list)
+  // และเมื่อตารางลบคอลัมน์ supplier ทิ้ง เลขลำดับที่อ้างอยู่นอกตาราง (ผู้ได้รับเลือกทั้งใบ + ที่กรรมการเลือก) ต้องเลื่อนตาม
+  // ด้วยกฎเดียวกับ lineSupplier — ตารางเลื่อนของตัวเองมาแล้ว ที่เหลือเลื่อนตรงนี้
   const onMatrixChange = (p: Partial<Pick<PriceCompare, "items" | "suppliers" | "lineSupplier">>) => setDoc((d) => {
     if (!d) return d
     const next = { ...d, ...p }
+    if (p.suppliers && p.suppliers.length < d.suppliers.length) {
+      // ตารางลบด้วย filter จึงคง object identity ของเจ้าที่เหลือไว้ — ช่องแรกที่ไม่ตรงกันคือช่องที่ถูกลบ (ลบท้ายสุด = ไม่มีช่องไหนต่าง)
+      const at = d.suppliers.findIndex((sp, i) => p.suppliers![i] !== sp)
+      const removedIdx0 = at === -1 ? d.suppliers.length - 1 : at
+      next.selectedSupplier = renumberAfterRemoval(next.selectedSupplier, removedIdx0)
+      next.committee = next.committee.map((m) => ({ ...m, pickedSupplier: renumberAfterRemoval(m.pickedSupplier, removedIdx0) }))
+    }
     if (allLinesAwarded(next) && next.selectedSupplier != null) next.selectedSupplier = null
     return next
   })

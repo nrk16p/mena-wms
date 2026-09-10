@@ -42,4 +42,22 @@ for r in rows:
 print(f'ok: {len(rows)} rows')
 "
 echo "== sku-search: q สั้นกว่า 2 ตัว → 200 []"; curl -s -H "$H" -G --data-urlencode "q=x" "$B/sku-search" | grep -q '^\[\]$'
+
+# ใบ seed โหมดผสม (สร้างด้วย node scripts/seed-price-compare-uh03.mjs --mixed) — ถ้าไม่มีก็ข้าม ไม่ seed เอง
+echo "== mixed list row (PC-2609-999)"
+MIXED_ROW=$(curl -s -H "$H" -G --data-urlencode "q=PC-2609-999" "$B")
+if echo "$MIXED_ROW" | grep -q '"docNo":"PC-2609-999"'; then
+  echo "$MIXED_ROW" | python3 -c "
+import json,sys
+rows = [r for r in json.load(sys.stdin) if r['docNo'] == 'PC-2609-999']
+assert len(rows) == 1, f'ต้องเจอใบเดียว: {len(rows)}'
+r = rows[0]
+assert r['selectedName'] == 'ผสม 3 เจ้า', f\"selectedName ผิด: {r['selectedName']}\"
+assert r['selectedNet'] == 50076, f\"selectedNet ผิด: {r['selectedNet']}\"
+assert r['selectedSupplier'] is None, f\"selectedSupplier ต้องเป็น null: {r['selectedSupplier']}\"
+print('ok: mixed row')
+"
+else
+  echo "skip mixed-list check"
+fi
 echo "check-price-compare-api: OK"

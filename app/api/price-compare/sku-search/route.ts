@@ -19,7 +19,8 @@ async function requireSession() {
 export async function GET(req: NextRequest) {
   const me = await requireSession()
   if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
-  const q = req.nextUrl.searchParams.get("q")?.trim() || ""
+  // ตัดที่ 64 ตัวก่อนทำเป็น regex — คำค้นยาวๆ ไม่ได้ช่วยหาอะไรเจอ แต่ทำให้ Mongo ไล่ scan ด้วย pattern ยาวโดยเปล่าประโยชน์
+  const q = (req.nextUrl.searchParams.get("q")?.trim() || "").slice(0, 64)
   if (q.length < 2) return NextResponse.json([])
 
   const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")

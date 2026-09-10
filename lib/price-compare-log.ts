@@ -42,11 +42,15 @@ export function diffPriceCompare(a: PriceCompare, b: PriceCompare): PcChange[] {
     if (from !== to) out.push({ field: f, label: TOP_LABELS[f], from, to })
   }
   if (a.items.length !== b.items.length) out.push({ field: "items", label: "รายการ", from: `${a.items.length} แถว`, to: `${b.items.length} แถว` })
-  // โหมดผสม: สรุปเป็น "เลือกแล้วกี่แถวจากทั้งหมด" — ยังไม่ diff ว่าแถวไหนเปลี่ยนเจ้า (เจตนาเดียวกับที่ไม่ diff ราคารายช่อง)
+  // โหมดผสม: สรุปเป็น "เลือกแล้วกี่แถวจากทั้งหมด" + เวกเตอร์ผู้ได้รับมอบหมายรายแถว (- = ยังไม่เลือก)
+  // เวกเตอร์ทำให้การสลับเจ้าโดยจำนวนแถวเท่าเดิม (เช่น [1,2,2] → [2,1,2]) ยังตรวจสอบย้อนหลังได้ — เป็นข้อมูลชี้ขาดว่าใครได้งาน
+  // ส่วนการเพิ่ม/ลบรายการทั้งที่ยังไม่เลือกสักแถว ไม่ต้องขึ้นบรรทัดนี้ (มีบรรทัด "รายการ" บอกอยู่แล้ว)
   const picked = (d: PriceCompare) => (d.lineSupplier ?? []).filter((v) => v != null).length
+  const vec = (d: PriceCompare) => (d.lineSupplier ?? []).map((v) => v ?? "-").join(",")
   const pa = picked(a), pb = picked(b)
-  if (pa !== pb || a.items.length !== b.items.length) {
-    out.push({ field: "lineSupplier", label: "เลือกรายบรรทัด", from: `${pa}/${a.items.length} แถว`, to: `${pb}/${b.items.length} แถว` })
+  const va = vec(a), vb = vec(b)
+  if (pa !== pb || va !== vb || (a.items.length !== b.items.length && (pa > 0 || pb > 0))) {
+    out.push({ field: "lineSupplier", label: "เลือกรายบรรทัด", from: `${pa}/${a.items.length} แถว (${va})`, to: `${pb}/${b.items.length} แถว (${vb})` })
   }
   if (a.suppliers.length !== b.suppliers.length) out.push({ field: "suppliers", label: "Supplier", from: `${a.suppliers.length} ราย`, to: `${b.suppliers.length} ราย` })
   return out

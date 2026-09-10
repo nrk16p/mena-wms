@@ -101,18 +101,6 @@ export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers">, i
   return { subtotal, discount, afterDiscount, vat, net }
 }
 
-// index ของ supplier ที่ราคาต่อหน่วยต่ำสุดในแต่ละแถว (เฉพาะรายที่เสนอราคา) — null ถ้าไม่มีใครเสนอ
-export function lowestPerLine(doc: Pick<PriceCompare, "items" | "suppliers">): (number | null)[] {
-  return doc.items.map((_, i) => {
-    let best: number | null = null, bestPrice = Infinity
-    doc.suppliers.forEach((s, si) => {
-      const p = s.prices[i]
-      if (p != null && p < bestPrice) { bestPrice = p; best = si }
-    })
-    return best
-  })
-}
-
 // index ของ supplier ที่สุทธิต่ำสุด — นับเฉพาะรายที่มีราคาอย่างน้อย 1 รายการ
 export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers">): number | null {
   let best: number | null = null, bestNet = Infinity
@@ -139,6 +127,15 @@ function lineNet(doc: Pick<PriceCompare, "items" | "suppliers">, lineIdx: number
 /** supplier ที่ถูกกำหนดให้ใช้จริงสำหรับรายการนี้ — ใช้ lineSupplier ถ้าระบุไว้ ไม่งั้น fallback ไปที่ selectedSupplier ของทั้งใบ */
 export function effectiveLineSupplier(doc: Pick<PriceCompare, "selectedSupplier" | "lineSupplier">, lineIdx: number): number | null {
   return doc.lineSupplier[lineIdx] ?? doc.selectedSupplier
+}
+
+/** เลื่อนเลขลำดับ supplier (1-based) หลังลบคอลัมน์ที่ตำแหน่ง removedIdx0 (0-based)
+ *  เจ้าที่ถูกลบ → null (การมอบหมายนั้นหายไปพร้อมคอลัมน์), เจ้าที่อยู่หลังจากนั้นเลื่อนขึ้น 1, เจ้าก่อนหน้าคงเดิม
+ *  ใช้ร่วมกันทั้ง lineSupplier ในตาราง และ selectedSupplier / committee[].pickedSupplier ในฟอร์ม */
+export function renumberAfterRemoval(v: number | null, removedIdx0: number): number | null {
+  if (v == null) return v
+  if (v === removedIdx0 + 1) return null
+  return v > removedIdx0 + 1 ? v - 1 : v
 }
 
 /** true เมื่อทุกรายการถูกกำหนด supplier ของตัวเองแล้ว (โหมด mix เต็มรูปแบบ ไม่ต้องพึ่ง selectedSupplier ของทั้งใบเลย) */
@@ -291,6 +288,9 @@ export function normalizeDoc(input: unknown): PriceCompare {
   })
   const lineSupplierRaw: any[] = Array.isArray(b.lineSupplier) ? b.lineSupplier : []
   const lineSupplier: (number | null)[] = items.map((_, i) => intInRange(lineSupplierRaw[i], MAX_SUPPLIERS))
+  // เลือกครบทุกแถวแล้ว = โหมดผสมเต็มใบ → selectedSupplier ของทั้งใบไม่มีความหมายอีก ล้างทิ้งตั้งแต่ normalize
+  // (ไม่งั้นจะเหลือสถานะ "ตั้งไว้ทั้งคู่" ที่ UI/PDF/list ตีความคนละแบบ — ฟอร์มล้างให้อยู่แล้ว นี่คือด่านสุดท้ายฝั่ง server/DB)
+  const allAwarded = items.length > 0 && lineSupplier.every((v) => v != null)
   const rawCommittee: any[] = Array.isArray(b.committee) ? b.committee : []
   const committee: PcCommittee[] = DEFAULT_COMMITTEE_ROLES.map((role, i) => {
     const m = rawCommittee[i] ?? {}
@@ -305,7 +305,7 @@ export function normalizeDoc(input: unknown): PriceCompare {
     revision: Math.max(0, Math.floor(num(b.revision, 0))),
     createdAt: str(b.createdAt), updatedAt: str(b.updatedAt), status,
     items, suppliers, committee,
-    selectedSupplier: intInRange(b.selectedSupplier, MAX_SUPPLIERS), lineSupplier,
+    selectedSupplier: allAwarded ? null : intInRange(b.selectedSupplier, MAX_SUPPLIERS), lineSupplier,
     selectionReason: str(b.selectionReason), fewerQuotesReason: str(b.fewerQuotesReason),
     links: { prCode: str(l.prCode) || undefined, plate: str(l.plate) || undefined, fleetNo: str(l.fleetNo) || undefined, repairExternalId: str(l.repairExternalId) || undefined },
     evidenceFiles: files(b.evidenceFiles),
@@ -327,6 +327,8 @@ export function validateDoc(doc: PriceCompare): string[] {
   })
   const n = doc.suppliers.length
   if (doc.selectedSupplier != null && (doc.selectedSupplier < 1 || doc.selectedSupplier > n)) errs.push(`ผู้ได้รับเลือกต้องอยู่ระหว่าง Supplier 1–${n}`)
+  // normalizeDoc ล้างให้อยู่แล้ว — ด่านนี้กันเอกสารที่ประกอบมือ/มาจาก DB เก่าที่ยังตั้งค้างทั้งคู่ (ตีความยอดสุทธิได้สองแบบ)
+  if (doc.selectedSupplier != null && allLinesAwarded(doc)) errs.push("เลือกทั้งใบและเลือกรายบรรทัดครบทุกแถวพร้อมกันไม่ได้")
   if (doc.lineSupplier.length !== doc.items.length) errs.push("จำนวนช่องเลือก supplier ต่อรายการไม่ตรงกับรายการ")
   doc.lineSupplier.forEach((ls, i) => {
     if (ls == null) return
