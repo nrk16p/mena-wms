@@ -2,7 +2,7 @@
 // ตรรกะล้วนของฟอร์มขอราคาอู่ (Vendor RFQ) — import ได้แค่ทะเบียนประเภทการซ่อม
 // เพื่อให้ทดสอบตรง ๆ ด้วย tsx และให้ฝั่งจอ/ฝั่ง API ใช้กฎชุดเดียวกัน
 // spec: docs/superpowers/specs/2026-09-10-vendor-rfq-design.md
-import { REPAIR_TYPES, byCode } from "@/lib/repair-type-master"
+import { REPAIR_TYPES } from "@/lib/repair-type-master"
 
 export type RfqSection = "labour" | "parts"
 export type RfqStatus = "สร้างแล้ว" | "กำลังกรอก" | "ส่งแล้ว" | "ยืนยันแล้ว" | "ส่งกลับแก้" | "ยกเลิก"
@@ -69,7 +69,7 @@ export const SHEET_OF_CODE: Record<string, string> = (() => {
 
 export function sheetsForVendor(codes: string[]): string[] {
   const set = new Set<string>([SVC_SHEET])
-  for (const c of codes) { const s = SHEET_OF_CODE[c]; if (s && byCode(c)) set.add(s) }
+  for (const c of codes) { const s = SHEET_OF_CODE[c]; if (s) set.add(s) }
   return SHEET_ORDER.filter((s) => set.has(s))
 }
 
