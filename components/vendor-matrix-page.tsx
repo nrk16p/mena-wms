@@ -14,6 +14,7 @@ import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
 import { historyByWork, AUTO_APPROVE_RULE, MONTHS_BACK, VENDOR_KINDS, type VendorSummary, type VendorKind } from "@/lib/vendor-core"
+import { mapsLink } from "@/lib/rfq-core"
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
 import { VendorLogDrawer } from "@/components/vendor-log-drawer"
 import { RfqCreateModal } from "@/components/rfq-create-modal"
@@ -508,6 +509,11 @@ export function VendorMatrixPage() {
                             style={{ flexShrink: 0 }}
                           />
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.vendor}</span>
+                          {v.location && (
+                            <a href={mapsLink(v.location.lat, v.location.lng)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                              title={`ที่ตั้งอู่ (อู่กรอกเอง${v.location.address ? ` · ${v.location.address}` : ""})`}
+                              style={{ flexShrink: 0, textDecoration: "none", fontSize: 12 }}>📍</a>
+                          )}
                           <button
                             onClick={() => setLogFor(v.vendor)}
                             title="ดูประวัติว่าใครติ๊กอะไรไว้บ้าง"
@@ -521,6 +527,7 @@ export function VendorMatrixPage() {
                         </span>
                         <span style={{ display: "block", fontSize: 10.5, color: "#9AA8A0", fontWeight: 400 }}>
                           {num(v.jobs)} ครั้ง · {ymThai(v.lastYm)}
+                          {v.capacity && ` · ช่องซ่อม ${v.capacity.bays} (ห${v.capacity.heavy}/ก${v.capacity.mid}/บ${v.capacity.light})`}
                           {v.codesBy && ` · ติ๊กโดย ${v.codesBy}`}
                         </span>
                       </td>

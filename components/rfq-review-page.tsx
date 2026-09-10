@@ -7,7 +7,7 @@ import { Download } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { canApproveVendor } from "@/lib/roles"
 import { bkkToday } from "@/lib/bkk-time"
-import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
+import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
 import { mitr } from "@/components/vendor-shared"
 import { thDate, thDateTime } from "@/components/rfq-vendor-shared"
 
@@ -71,6 +71,15 @@ export function RfqReviewPage({ id }: { id: string }) {
         <Box title="ความคืบหน้า">ค่าแรง {pg.labour.done}/{pg.labour.total} · อะไหล่ {pg.parts.done}/{pg.parts.total}<br /><span style={{ color: "#6B7C72" }}>เปิด {thDateTime(inv.openedAt)} · ส่ง {thDateTime(inv.submittedAt)}</span></Box>
         <Box title="การยืนยัน">{inv.confirm ? <>ราคามีผล {thDate(inv.confirm.validFrom)} – {thDate(inv.confirm.validTo)}<br /><span style={{ color: "#6B7C72" }}>โดย {inv.confirm.by} · {thDateTime(inv.confirm.at)}{inv.confirm.note && ` · ${inv.confirm.note}`}</span></> : inv.returnNote ? <span style={{ color: "#C2410C" }}>ส่งกลับแก้: {inv.returnNote}</span> : <span style={{ color: "#9AA8A0" }}>—</span>}</Box>
         {inv.submitNote && <Box title="หมายเหตุจากอู่">{inv.submitNote}</Box>}
+        {inv.profile && (
+          <Box title="ข้อมูลอู่ (อู่กรอกเอง)">
+            {inv.profile.lat !== undefined
+              ? <a href={mapsLink(inv.profile.lat, inv.profile.lng!)} target="_blank" rel="noreferrer" style={{ color: "#1D4ED8" }}>📍 เปิดแผนที่ ({inv.profile.lat}, {inv.profile.lng})</a>
+              : <span style={{ color: "#9AA8A0" }}>ไม่มีพิกัด</span>}
+            {inv.profile.address && <div style={{ color: "#6B7C72" }}>{inv.profile.address}</div>}
+            <div style={{ marginTop: 4 }}>ช่องซ่อม {inv.profile.capacity.bays} ช่อง <span style={{ color: "#6B7C72" }}>(หนัก {inv.profile.capacity.heavy} · กลาง {inv.profile.capacity.mid} · เบา {inv.profile.capacity.light})</span></div>
+          </Box>
+        )}
       </div>
       {inv.status === "ส่งแล้ว" && (
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>

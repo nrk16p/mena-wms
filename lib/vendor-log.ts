@@ -18,6 +18,7 @@ export type VendorLogAction =
   | "note"     // แก้หมายเหตุ
   | "codes"    // ตั้งรายการติ๊กใหม่ทั้งชุด (มาจาก API อนุมัติที่ส่ง codes มาทีเดียว)
   | "kind"     // เปลี่ยนประเภทคู่ค้า (อู่ / ร้านอะไหล่)
+  | "profile"  // อู่ส่งข้อมูลตัวเอง (พิกัด/ประเภทงานที่แจ้ง) ผ่านลิงก์ขอราคา
 
 /** 1 บรรทัดในสมุดบันทึก — เขียนแล้วห้ามแก้ (ตามชื่อว่าประวัติ) */
 export type VendorLogEntry = {
@@ -60,6 +61,7 @@ export function describeVendorLog(e: Pick<VendorLogRow, "action" | "code" | "fro
     case "status": return `เปลี่ยนสถานะอนุมัติ: ${statusTh(e.from)} → ${statusTh(e.to)}`
     case "note":   return e.to ? `แก้หมายเหตุ: ${e.to}` : "ลบหมายเหตุ"
     case "kind":   return `เปลี่ยนประเภทคู่ค้า: ${e.from || "ยังไม่ระบุ"} → ${e.to || "ยังไม่ระบุ"}`
+    case "profile": return `อู่ส่งข้อมูลตัวเองผ่านลิงก์ขอราคา: ${e.to || "—"}`
     case "codes": {
       const n = (e.to ?? "").split(" ").filter(Boolean).length
       return `ตั้งรายการติ๊กใหม่ทั้งชุด (${n} ประเภท)`

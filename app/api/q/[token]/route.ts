@@ -1,8 +1,8 @@
 // app/api/q/[token]/route.ts — ฝั่งอู่ ไม่มี session · token คือสิทธิ์
 import { NextRequest, NextResponse } from "next/server"
 import { bkkToday } from "@/lib/bkk-time"
-import { getInviteByToken, getCatalog, markOpened, saveContact, saveAnswers, httpError } from "@/lib/rfq"
-import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, partKey, jobsForInvite, partsForInvite, type RfqAnswer, type RfqPartAnswer, type RfqInvite } from "@/lib/rfq-core"
+import { getInviteByToken, getCatalog, markOpened, saveContact, saveAnswers, saveProfile, httpError } from "@/lib/rfq"
+import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, validateProfile, parseLatLng, partKey, jobsForInvite, partsForInvite, type RfqAnswer, type RfqPartAnswer, type RfqInvite } from "@/lib/rfq-core"
 
 export const dynamic = "force-dynamic"
 type Params = { params: Promise<{ token: string }> }
@@ -13,6 +13,20 @@ function publicView(inv: RfqInvite, today: string) {
   void _c; void _b; void _i
   return { ...rest, effective: effectiveStatus(inv, today), canWrite: canVendorWrite(inv, today),
     priceValidTo: inv.confirm?.validTo ?? null }   // อู่เห็นได้แค่ว่าราคาตัวเองมีผลถึงเมื่อไหร่
+}
+
+/** ลิงก์ย่อ Google Maps (maps.app.goo.gl / goo.gl/maps) ไม่มีพิกัดในตัว — ตาม redirect ไปหาลิงก์ยาวฝั่ง server
+ *  จำกัดโดเมนที่ยอมตาม + timeout 5 วิ · ไม่สำเร็จก็แค่ไม่ได้พิกัด ไม่ล้ม */
+async function expandMapUrl(url: string): Promise<string> {
+  try {
+    const u = new URL(url)
+    if (!/^(maps\.app\.goo\.gl|goo\.gl|maps\.google\.com|www\.google\.com|google\.com|g\.co)$/.test(u.hostname)) return url
+    if (parseLatLng(url)) return url
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 5000)
+    const r = await fetch(url, { redirect: "follow", signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0" } })
+    clearTimeout(t)
+    return r.url || url
+  } catch { return url }
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -36,6 +50,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!inv) return NextResponse.json({ error: "not found" }, { status: 404 })
   const body = await req.json().catch(() => ({}))
   try {
+    if (body.profile !== undefined) {
+      const raw = (body.profile && typeof body.profile === "object" ? body.profile : {}) as Record<string, unknown>
+      const mapUrl = String(raw.mapUrl ?? "").trim()
+      const expanded = mapUrl ? await expandMapUrl(mapUrl) : ""
+      // ถ้าอู่ไม่ได้พิมพ์พิกัดเอง ให้ดึงจากลิงก์ที่ตามมาแล้ว
+      const fromLink = raw.lat === undefined || raw.lat === "" ? parseLatLng(expanded) : null
+      const p = validateProfile({ ...raw, mapUrl, ...(fromLink ? { lat: fromLink.lat, lng: fromLink.lng } : {}) })
+      if (typeof p === "string") return NextResponse.json({ error: p }, { status: 400 })
+      const saved = await saveProfile(token, p)
+      return NextResponse.json({ ok: true, profile: saved })
+    }
     if (body.contact !== undefined) {
       const c = validateContact(body.contact)
       if (typeof c === "string") return NextResponse.json({ error: c }, { status: 400 })

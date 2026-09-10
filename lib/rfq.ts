@@ -5,8 +5,9 @@ import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   newToken, effectiveStatus, canTransition, canVendorWrite, progress, SVC_SHEET, SHEET_ORDER,
   type RfqInvite, type RfqJob, type RfqPart, type RfqAnswer, type RfqPartAnswer, type RfqContact,
-  type RfqLogEntry, type RfqSection, type EffectiveStatus,
+  type RfqLogEntry, type RfqSection, type EffectiveStatus, type RfqProfile,
 } from "@/lib/rfq-core"
+import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 export const INVITE_COLL = "rfq_invites"
@@ -164,6 +165,40 @@ export async function saveAnswers(token: string, items: Record<string, RfqAnswer
   await col.updateOne({ token }, { $set })
 }
 
+export async function saveProfile(token: string, p: Omit<RfqProfile, "at">): Promise<RfqProfile> {
+  const col = await invites()
+  const before = await col.findOne({ token })
+  if (!before) throw new Error("404:ไม่พบลิงก์")
+  if (!canVendorWrite(before, bkkToday())) throw new Error("409:ลิงก์นี้ปิดรับแล้ว")
+  if (!before.contact) throw new Error("409:กรุณากรอกข้อมูลผู้ติดต่อก่อน")
+  const now = toBkkIso(new Date())
+  const profile: RfqProfile = { ...p, at: now }
+  await col.updateOne({ token }, { $set: { profile, updatedAt: now } })
+  return profile
+}
+
+/** ตอนอู่กดส่ง: คัดลอกข้อมูลอู่ (พิกัด + กำลังการซ่อม) ไปที่ทะเบียน AVL (vendor_approval)
+ *  ไม่แตะ codes/สถานะที่จัดซื้อดูแล · ลง vendor_capability_log ด้วย */
+async function copyProfileToVendor(inv: RfqInvite, by: string, byEmail: string): Promise<void> {
+  const p = inv.profile
+  if (!p) return
+  try {
+    const d = await db()
+    const at = new Date()
+    const $set: Document = { capacity: { ...p.capacity, by, at: at.toISOString() } }
+    if (p.lat !== undefined && p.lng !== undefined) $set.location = { lat: p.lat, lng: p.lng, mapUrl: p.mapUrl, address: p.address, by, at: at.toISOString() }
+    await d.collection("vendor_approval").updateOne(
+      { vendor: inv.vendor },
+      { $set, $setOnInsert: { vendor: inv.vendor, status: "pending", codes: [] } },
+      { upsert: true }
+    )
+    const c = p.capacity
+    const note = `ช่องซ่อม ${c.bays} (หนัก ${c.heavy} / กลาง ${c.mid} / เบา ${c.light})${p.lat !== undefined ? ` · พิกัด ${p.lat},${p.lng}` : ""}${p.address ? ` · ${p.address}` : ""}`
+    const log: VendorLogEntry = { vendor: inv.vendor, action: "profile", to: note, by, byEmail, at }
+    await d.collection<VendorLogEntry>(VENDOR_LOG_COLL).insertOne(log)
+  } catch (e) { console.error("[rfq] copyProfileToVendor", e) }
+}
+
 export async function submitInvite(token: string, submitNote: string): Promise<RfqInvite> {
   const col = await invites()
   const before = await col.findOne({ token })
@@ -173,6 +208,7 @@ export async function submitInvite(token: string, submitNote: string): Promise<R
   const now = toBkkIso(new Date())
   await col.updateOne({ token }, { $set: { status: "ส่งแล้ว", submittedAt: now, submitNote: submitNote.slice(0, 500), updatedAt: now } })
   await writeLog([{ inviteId: String(before._id), action: "submit", from: before.status, to: "ส่งแล้ว", by: before.contact.name, byEmail: before.contact.email, note: submitNote.slice(0, 500), at: new Date() }])
+  await copyProfileToVendor(serialize(before), `${before.contact.name} (อู่ ผ่านลิงก์)`, before.contact.email)
   return serialize({ ...before, status: "ส่งแล้ว", submittedAt: now, submitNote, updatedAt: now })
 }
 

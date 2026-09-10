@@ -26,6 +26,20 @@ export type RfqPartAnswer = {
   skip: boolean; priceL?: number; priceS?: number; sameAsL: boolean
   brand: string; warrantyMonths?: number; leadDays?: number; note: string; at: string
 }
+/** กำลังการซ่อมของอู่ = จำนวนช่องซ่อม แยก หนัก/กลาง/เบา (ผู้ใช้นิยาม 2026-09-10) */
+export type RfqCapacity = { bays: number; heavy: number; mid: number; light: number }
+
+/** ข้อมูลอู่ที่อู่กรอกเอง (ผู้ใช้ขอ 2026-09-10): กำลังการซ่อม + พิกัด · ส่งแล้วจะถูกคัดลอกไป vendor_approval */
+export type RfqProfile = {
+  capacity: RfqCapacity
+  lat?: number
+  lng?: number
+  /** ลิงก์ Google Maps ที่อู่วางมา (เก็บไว้ดูต้นทาง) */
+  mapUrl: string
+  address: string
+  at: string
+}
+
 export type RfqContact = { name: string; phone: string; email: string; confirmedVendor: boolean; at: string }
 export type RfqConfirm = { by: string; email: string; at: string; validFrom: string; validTo: string; note: string }
 export type RfqInvite = {
@@ -35,6 +49,7 @@ export type RfqInvite = {
   jobCodes?: string[]
   title: string; deadline: string; status: RfqStatus
   contact: RfqContact | null; openedAt: string | null
+  profile?: RfqProfile | null
   items: Record<string, RfqAnswer>; parts: Record<string, RfqPartAnswer>
   submittedAt: string | null; submitNote: string
   confirm: RfqConfirm | null; returnNote: string
@@ -223,6 +238,62 @@ export function validateContact(x: unknown): Omit<RfqContact, "at"> | string {
   if (!o.confirmedVendor) return "กรุณาติ๊กยืนยันชื่ออู่"
   return { name, phone, email, confirmedVendor: true }
 }
+
+// ── พิกัดจากลิงก์แผนที่ ───────────────────────────────────────────────────────
+/** ดึง lat,lng จากข้อความ/ลิงก์ Google Maps รูปแบบที่เจอบ่อย:
+ *  "13.7563, 100.5018" · …/@13.7563,100.5018,17z · ?q=13.7,100.5 · ?ll=… · /place/…/@… · !3d13.7!4d100.5
+ *  ลิงก์ย่อ maps.app.goo.gl ไม่มีพิกัดในตัว ต้องให้ server ตามลิงก์ก่อน (ดู expandMapUrl ใน route) */
+export function parseLatLng(text: string): { lat: number; lng: number } | null {
+  const t = (text ?? "").trim()
+  if (!t) return null
+  const pats = [
+    /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,
+    /[?&](?:q|ll|query|center|destination)=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+    /^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/,
+  ]
+  for (const re of pats) {
+    const m = re.exec(t)
+    if (!m) continue
+    const lat = Number(m[1]), lng = Number(m[2])
+    if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng }
+  }
+  return null
+}
+
+const bayNum = (v: unknown): number | string => {
+  if (v === undefined || v === null || v === "") return 0
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < 0 || n > 999) return "จำนวนช่องต้องเป็นเลขจำนวนเต็ม 0–999"
+  return n
+}
+
+/** ตรวจข้อมูลอู่จากฟอร์ม — ช่องซ่อมเป็นจำนวนเต็ม (ถ้าไม่ใส่รวม ใช้ผลบวก หนัก+กลาง+เบา) · พิกัดต้องมีทั้งคู่หรือไม่มีเลย */
+export function validateProfile(x: unknown): Omit<RfqProfile, "at"> | string {
+  const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>
+  const c = (o.capacity && typeof o.capacity === "object" ? o.capacity : {}) as Record<string, unknown>
+  const heavy = bayNum(c.heavy), mid = bayNum(c.mid), light = bayNum(c.light), baysRaw = bayNum(c.bays)
+  for (const v of [heavy, mid, light, baysRaw]) if (typeof v === "string") return v
+  const sum = (heavy as number) + (mid as number) + (light as number)
+  const bays = (baysRaw as number) || sum
+  if (bays < sum) return "ช่องซ่อมรวมต้องไม่น้อยกว่าผลรวม หนัก+กลาง+เบา"
+  const capacity: RfqCapacity = { bays, heavy: heavy as number, mid: mid as number, light: light as number }
+  const mapUrl = String(o.mapUrl ?? "").trim().slice(0, 500)
+  const address = String(o.address ?? "").trim().slice(0, 300)
+  let lat: number | undefined, lng: number | undefined
+  const hasLat = o.lat !== undefined && o.lat !== null && o.lat !== "", hasLng = o.lng !== undefined && o.lng !== null && o.lng !== ""
+  if (hasLat !== hasLng) return "พิกัดต้องมีทั้ง lat และ lng"
+  if (hasLat) {
+    lat = Number(o.lat); lng = Number(o.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return "พิกัดไม่ถูกต้อง"
+  } else {
+    const p = parseLatLng(mapUrl)
+    if (p) { lat = p.lat; lng = p.lng }
+  }
+  return { capacity, mapUrl, address, ...(lat !== undefined && lng !== undefined ? { lat, lng } : {}) }
+}
+
+export const mapsLink = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`
 
 // ── วันที่ (YYYY-MM-DD ล้วน ไม่ยุ่งกับ timezone) ──────────────────────────────
 const pad = (n: number) => String(n).padStart(2, "0")

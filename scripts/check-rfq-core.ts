@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   sheetsForVendor, newToken, effectiveStatus, canVendorWrite, canTransition, progress, partKey,
   applySameAsL, validateAnswer, validatePartAnswer, validateContact, addDays, addMonths, SHEET_ORDER, jobsForInvite, partsForInvite,
+  parseLatLng, validateProfile,
   type RfqInvite, type RfqJob, type RfqPart,
 } from "../lib/rfq-core"
 
@@ -105,5 +106,30 @@ assert.equal(addDays("2026-09-10", 14), "2026-09-24")
 assert.equal(addDays("2026-12-25", 10), "2027-01-04")
 assert.equal(addMonths("2026-09-10", 12), "2027-09-10")
 assert.equal(addMonths("2026-01-31", 1), "2026-02-28", "ปลายเดือนไม่ล้น")
+
+// พิกัดจากลิงก์แผนที่
+assert.deepEqual(parseLatLng("https://www.google.com/maps/place/xx/@13.7563309,100.5017651,17z/data=!3m1"), { lat: 13.7563309, lng: 100.5017651 })
+assert.deepEqual(parseLatLng("https://maps.google.com/?q=13.75,100.50"), { lat: 13.75, lng: 100.5 })
+assert.deepEqual(parseLatLng("https://www.google.com/maps/search/?api=1&query=13.7,100.5"), { lat: 13.7, lng: 100.5 })
+assert.deepEqual(parseLatLng("…/data=!3m1!4b1!4m5!3m4!1s0x0:0x0!8m2!3d13.75!4d100.51"), { lat: 13.75, lng: 100.51 })
+assert.deepEqual(parseLatLng("13.7563, 100.5018"), { lat: 13.7563, lng: 100.5018 })
+assert.equal(parseLatLng("https://maps.app.goo.gl/AbCdEf"), null, "ลิงก์ย่อไม่มีพิกัด")
+assert.equal(parseLatLng("999,999"), null)
+// validateProfile — กำลังการซ่อม + พิกัด
+const prof = validateProfile({ capacity: { heavy: "2", mid: 3, light: 1 }, mapUrl: "https://maps.google.com/?q=13.75,100.50", address: " ถ.สุขุมวิท " })
+assert.notEqual(typeof prof, "string")
+if (typeof prof !== "string") {
+  assert.deepEqual(prof.capacity, { bays: 6, heavy: 2, mid: 3, light: 1 }, "ไม่ใส่รวม = ผลบวก")
+  assert.equal(prof.lat, 13.75); assert.equal(prof.lng, 100.5); assert.equal(prof.address, "ถ.สุขุมวิท")
+}
+const prof2 = validateProfile({ capacity: { bays: 8, heavy: 2, mid: 3, light: 1 } })
+if (typeof prof2 !== "string") assert.equal(prof2.capacity.bays, 8, "ใส่รวมเองมากกว่าผลบวกได้ (ช่องอเนกประสงค์)")
+assert.equal(typeof validateProfile({ capacity: { bays: 3, heavy: 2, mid: 3 } }), "string", "รวมน้อยกว่าผลบวกไม่รับ")
+assert.equal(typeof validateProfile({ capacity: { heavy: -1 } }), "string")
+assert.equal(typeof validateProfile({ capacity: { heavy: 1.5 } }), "string")
+assert.equal(typeof validateProfile({ lat: 13.7 }), "string", "lat เดี่ยว ๆ ไม่รับ")
+assert.equal(typeof validateProfile({ lat: "x", lng: "y" }), "string")
+const p2 = validateProfile({ lat: "13.7", lng: "100.5", mapUrl: "" })
+if (typeof p2 !== "string") { assert.equal(p2.lng, 100.5, "lat/lng ที่พิมพ์เองชนะลิงก์"); assert.deepEqual(p2.capacity, { bays: 0, heavy: 0, mid: 0, light: 0 }) }
 
 console.log("✅ rfq-core: ผ่านทั้งหมด")

@@ -17,6 +17,8 @@ export function RfqVendorHub({ token }: { token: string }) {
       <VendorHeader invite={invite} />
       <StatusNotice invite={invite} />
       {invite.contact && <div style={{ ...V.muted, marginBottom: 10 }}>ผู้ติดต่อ: {invite.contact.name} · {invite.contact.phone || invite.contact.email}</div>}
+      <SectionCard href={`/q/${token}/profile`} title="ข้อมูลอู่" desc="จำนวนช่องซ่อม หนัก/กลาง/เบา · ที่ตั้ง (ลิงก์แผนที่ / GPS)" done={invite.profile ? (invite.profile.lat !== undefined ? 2 : 1) : 0} total={2} color="#7C3AED"
+        label={!invite.profile ? "ยังไม่ได้กรอก" : `ช่องซ่อม ${invite.profile.capacity.bays} · ${invite.profile.lat !== undefined ? "มีพิกัดแล้ว" : "ยังไม่มีพิกัด"}`} />
       {invite.sections.includes("labour") && <SectionCard href={`/q/${token}/labour`} title="ค่าแรง" desc="งานช่างมาตรฐาน · เสนอรายชั่วโมงหรือเหมา เบา/กลาง/หนัก" done={pg.labour.done} total={pg.labour.total} color="#1B8C4B" />}
       {invite.sections.includes("parts") && <SectionCard href={`/q/${token}/parts`} title="อะไหล่" desc="ราคาต่อหน่วย Mixer L / S · ยี่ห้อ · รับประกัน · ส่งมอบ" done={pg.parts.done} total={pg.parts.total} color="#1D4ED8" />}
       {invite.canWrite && <SubmitBox token={token} invite={invite} blank={(pg.labour.total - pg.labour.done) + (pg.parts.total - pg.parts.done)} onDone={reload} />}
@@ -25,7 +27,7 @@ export function RfqVendorHub({ token }: { token: string }) {
   )
 }
 
-function SectionCard({ href, title, desc, done, total, color }: { href: string; title: string; desc: string; done: number; total: number; color: string }) {
+function SectionCard({ href, title, desc, done, total, color, label }: { href: string; title: string; desc: string; done: number; total: number; color: string; label?: string }) {
   const pct = total ? Math.round((done / total) * 100) : 0
   return (
     <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
@@ -34,7 +36,7 @@ function SectionCard({ href, title, desc, done, total, color }: { href: string; 
           <div style={{ fontSize: 18, fontWeight: 600 }}>{title}</div>
           <div style={V.muted}>{desc}</div>
           <div style={{ marginTop: 8, height: 6, borderRadius: 999, background: "#EEF3EF", overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: color }} /></div>
-          <div style={{ ...V.muted, marginTop: 4 }}>กรอกแล้ว {done}/{total} รายการ</div>
+          <div style={{ ...V.muted, marginTop: 4 }}>{label ?? `กรอกแล้ว ${done}/${total} รายการ`}</div>
         </div>
         <span style={{ fontSize: 22, color }}>›</span>
       </div>
