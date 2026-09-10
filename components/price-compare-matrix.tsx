@@ -3,6 +3,7 @@
 import { Fragment } from "react"
 import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
 import { VendorCombobox } from "@/components/vendor-combobox"
+import { SkuPicker, type SkuHit } from "@/components/sku-picker"
 import {
   emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS, VAT_MODE_LABEL,
   effectiveLineSupplier, allLinesAwarded, mixedNet, bestMixNet,
@@ -130,7 +131,22 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                   )}
                 </div>
               </td>
-              <td className={td}><input value={it.name} disabled={readOnly} onChange={(e) => patchItem(r, { name: e.target.value })} placeholder="ชื่อรายการ" className={textInput} /></td>
+              <td className={td}>
+                <div className="flex items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    <SkuPicker
+                      value={it.name}
+                      disabled={readOnly}
+                      placeholder="ชื่อรายการ"
+                      onChange={(name) => patchItem(r, { name, sku: undefined })}
+                      onPick={(hit: SkuHit) => patchItem(r, { name: `${hit.code} : ${hit.name}`, unit: it.unit || hit.unit, sku: hit.code })}
+                    />
+                  </div>
+                  {it.sku && (
+                    <span title={it.sku} className="shrink-0 rounded bg-[#1B8C4B]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#1B8C4B]">SKU</span>
+                  )}
+                </div>
+              </td>
               <td className={td}><input type="number" min={0} step="any" value={it.qty} disabled={readOnly} onChange={(e) => patchItem(r, { qty: parseFloat(e.target.value) || 0 })} className={cellInput} /></td>
               <td className={td}><input value={it.unit} disabled={readOnly} onChange={(e) => patchItem(r, { unit: e.target.value })} placeholder="หน่วย" className={textInput} /></td>
               {suppliers.map((sp, s) => {

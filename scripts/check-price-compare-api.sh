@@ -24,4 +24,22 @@ test "$(curl -s -H "$H" $B/$DOCNO/log | grep -o '"action"' | wc -l)" -ge 4
 echo "== delete"; curl -s -H "$H" -X DELETE $B/$DOCNO | grep -q '"ok":true'
 echo "== unknown docNo → 404"; curl -s -o /dev/null -w "%{http_code}\n" -H "$H" $B/PC-0000-000 | grep -q 404
 echo "== not a key (bad id) → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$H" $B/not-a-key | grep -q 400
+
+# หมายเหตุ: ใช้ -G --data-urlencode เพราะคำค้นเป็นภาษาไทย (UTF-8 หลายไบต์) — curl ที่ใส่ต่อท้าย URL ตรงๆ
+# ไม่เข้ารหัส %XX ให้เอง ทำให้ HTTP parser ของ Next.js ปฏิเสธเป็น 400 ก่อนถึงโค้ดแอปเลย (คนละสาเหตุกับ session)
+echo "== sku-search: no session → 401"; curl -s -o /dev/null -w "%{http_code}\n" -G --data-urlencode "q=น้ำมัน" "$B/sku-search" | grep -q 401
+echo "== sku-search: q=น้ำมัน → 200, ≤20 แถว, ไม่มี code ซ้ำ"
+SKU_RES=$(curl -s -H "$H" -G --data-urlencode "q=น้ำมัน" "$B/sku-search")
+echo "$SKU_RES" | python3 -c "
+import json,sys
+rows = json.load(sys.stdin)
+assert isinstance(rows, list), 'ต้องเป็น array'
+assert len(rows) <= 20, f'เกิน 20 แถว: {len(rows)}'
+codes = [r['code'] for r in rows]
+assert len(codes) == len(set(codes)), 'มี code ซ้ำ'
+for r in rows:
+    assert r['code'] != '-', 'ต้องตัด code \"-\" ออก'
+print(f'ok: {len(rows)} rows')
+"
+echo "== sku-search: q สั้นกว่า 2 ตัว → 200 []"; curl -s -H "$H" -G --data-urlencode "q=x" "$B/sku-search" | grep -q '^\[\]$'
 echo "check-price-compare-api: OK"

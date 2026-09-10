@@ -18,7 +18,7 @@ export const DEFAULT_COMMITTEE_ROLES = [
 ]
 
 export type PcFile = { mediaId: number; batchId: string; filename: string; webpUrl: string; thumbnailUrl: string }
-export type PcItem = { name: string; qty: number; unit: string }
+export type PcItem = { name: string; qty: number; unit: string; sku?: string }
 export type PcConditions = {
   payment: string; leadTime: string; warranty: string; remark: string
   bays: string; menaTrucksIn: string; statusA: string; statusB: string
@@ -265,7 +265,7 @@ const intInRange = (v: unknown, max: number): number | null => { const n = numOr
 /* eslint-disable @typescript-eslint/no-explicit-any -- input เป็น unknown จาก JSON body/DB, cast เป็น any ภายในฟังก์ชัน normalize นี้เท่านั้นเพื่อ narrow เอง */
 export function normalizeDoc(input: unknown): PriceCompare {
   const b = (input && typeof input === "object" ? input : {}) as Record<string, any>
-  const items: PcItem[] = (Array.isArray(b.items) ? b.items : []).map((it: any) => ({ name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit) }))
+  const items: PcItem[] = (Array.isArray(b.items) ? b.items : []).map((it: any) => ({ name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit), sku: str(it?.sku) || undefined }))
   const suppliers: PcSupplier[] = (Array.isArray(b.suppliers) ? b.suppliers : []).slice(0, MAX_SUPPLIERS).map((s: any) => {
     const c = s?.conditions ?? {}
     const prices = Array.isArray(s?.prices) ? s.prices.map(numOrNull) : []

@@ -269,6 +269,14 @@ assert.equal(n.selectedSupplier, 2)
 assert.equal(n.status, "ร่าง")
 assert.deepEqual(n.evidenceFiles, [])
 
+// --- normalizeDoc: sku (รหัสสินค้า ATMS จาก SkuPicker) — เก็บแบบตัดช่องว่าง, ว่าง/ไม่มี → undefined ---
+{
+  const ns = normalizeDoc({ items: [{ name: "a", qty: 1, sku: "  S9WR001  " }, { name: "b", qty: 1, sku: "" }, { name: "c", qty: 1 }] })
+  assert.equal(ns.items[0].sku, "S9WR001", "ตัดช่องว่างหน้า-หลัง")
+  assert.equal(ns.items[1].sku, undefined, "sku ว่าง → undefined ไม่ใช่ \"\"")
+  assert.equal(ns.items[2].sku, undefined, "ไม่ส่ง sku มา → undefined")
+}
+
 // --- normalizeDoc: intInRange ต้อง null ค่านอกช่วง/ไม่ใช่จำนวนเต็ม ไม่ใช่ปล่อยผ่าน ---
 assert.equal(normalizeDoc({ selectedSupplier: 999 }).selectedSupplier, null)
 assert.equal(normalizeDoc({ selectedSupplier: 0 }).selectedSupplier, null)
