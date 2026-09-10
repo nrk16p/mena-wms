@@ -136,8 +136,14 @@ export type LabourCode = {
   at?: string
 }
 
+/** ประเภทคู่ค้า — อู่ (รับงานซ่อม) หรือ ร้านอะไหล่ (ขายของ) · ว่าง = ยังไม่ระบุ (ผู้ใช้ขอ 2026-09-10) */
+export const VENDOR_KINDS = ["อู่", "ร้านอะไหล่"] as const
+export type VendorKind = (typeof VENDOR_KINDS)[number]
+
 export type VendorApproval = {
   vendor: string
+  /** ประเภทคู่ค้า · ไม่มี = ยังไม่ระบุ */
+  kind?: VendorKind
   /** รหัสประเภทการซ่อมที่จัดซื้อติ๊กว่าอู่รายนี้ทำได้ (S30–S101 ดู lib/repair-type-master)
    *  เก็บเป็นรหัสไม่ใช่ชื่อ เพราะชื่อยาวและสะกดไม่นิ่ง ส่วนรหัสเป็นคีย์ถาวรของฝ่ายยานยนต์ */
   codes: string[]
@@ -289,6 +295,7 @@ export type VendorSummary = {
   lastYm: string
   monthsSince: number
   status: VendorApproval["status"]
+  kind?: VendorKind
   /** รหัสประเภทการซ่อมที่จัดซื้อติ๊กไว้ */
   codes: string[]
   /** ประเภทที่เคยทำจริง เรียงตามยอดเงินมากไปน้อย */
@@ -454,6 +461,7 @@ export function buildVendorPayload(
       vendor, jobs: a.jobs, baht: r2(a.baht), lastYm: a.lastYm,
       monthsSince: monthsBetweenYm(a.lastYm, asOfYm),
       status: ap?.status ?? "pending",
+      kind: ap?.kind,
       codes: ap?.codes ?? [],
       didTypes: (didByVendor.get(vendor) ?? []).sort((x, y) => y.baht - x.baht),
       warehouses: [...a.wh].sort(),

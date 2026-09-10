@@ -215,6 +215,8 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "งานประเภทนี้ใช้อู่ไหนได้บ้าง" },
       { href: "/vendors", label: "ตารางความสามารถอู่", icon: Factory, exact: true,
         desc: "ติ๊กว่าอู่ไหนทำงานประเภทไหนได้" },
+      { href: "/rfq", label: "ใบขอราคาอู่", icon: FileText, exact: false,
+        desc: "ลิงก์ขอราคา · ตรวจและยืนยันใบเสนอราคา" },
       { href: "/vendors/labour-codes", label: "ตั้งค่ารหัสค่าแรง", icon: TableProperties, exact: true,
         adminOnly: true, desc: "จับคู่รหัสค่าแรงกับประเภทงาน" },
     ],

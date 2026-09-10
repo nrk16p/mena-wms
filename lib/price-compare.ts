@@ -23,9 +23,13 @@ export type PcConditions = {
   payment: string; leadTime: string; warranty: string; remark: string
   bays: string; menaTrucksIn: string; statusA: string; statusB: string
 }
+// ตัวเลือกเกรดอื่นของรายการเดียวกัน (เช่น ของแท้/เทียบเบอร์ 1/เทียบเบอร์ 2) ที่ supplier รายนี้เสนอมา
+// นอกเหนือจากราคาที่ใช้จริงอยู่ตอนนี้ใน PcSupplier.prices[i] — promotePriceOption() ใช้สลับให้กลายเป็นราคาใช้จริง
+export type PcPriceOption = { label: string; price: number | null }
 export type PcSupplier = {
   name: string; garageId?: string; note: string
   prices: (number | null)[]; discount: number
+  extraOptions: PcPriceOption[][]   // ยาวเท่า items เสมอ — extraOptions[i] คือ list ตัวเลือกเกรดเสริมของรายการที่ i
   vatMode: PcVatMode          // ฐานราคาที่เสนอ — เทียบกันที่ "สุทธิที่ต้องจ่ายจริง"
   quoteDate: string; validUntil: string   // YYYY-MM-DD
   conditions: PcConditions; quotationFiles: PcFile[]
@@ -40,7 +44,10 @@ export type PriceCompare = {
   status: PcStatus
   items: PcItem[]; suppliers: PcSupplier[]; committee: PcCommittee[]
   selectedSupplier: number | null
-  selectionReason: string      // บังคับเมื่อรายที่เลือกไม่ใช่สุทธิต่ำสุด
+  // เลือก supplier แยกเป็นรายการ (1-based, ยาวเท่า items) เผื่อ mix ข้าม supplier เพื่อให้ได้ราคารวมที่ดีที่สุด
+  // null ในตำแหน่งไหน = รายการนั้นยังไม่กำหนดเอง ใช้ selectedSupplier ของทั้งใบแทน (ดู effectiveLineSupplier)
+  lineSupplier: (number | null)[]
+  selectionReason: string      // บังคับเมื่อรายที่เลือกไม่ใช่สุทธิต่ำสุด (ทั้งโหมดเลือกทั้งใบและโหมด mix รายบรรทัด)
   fewerQuotesReason: string    // บังคับเมื่อ supplier ที่ราคาครบ < MIN_QUOTES
   links: PcLinks; evidenceFiles: PcFile[]
   createdBy: string; editedBy: string
@@ -53,7 +60,10 @@ export function emptyConditions(): PcConditions {
   return { payment: "", leadTime: "", warranty: "", remark: "", bays: "", menaTrucksIn: "", statusA: "", statusB: "" }
 }
 export function emptySupplier(itemCount: number): PcSupplier {
-  return { name: "", note: "", prices: Array(itemCount).fill(null), discount: 0, vatMode: "excl", quoteDate: "", validUntil: "", conditions: emptyConditions(), quotationFiles: [] }
+  return {
+    name: "", note: "", prices: Array(itemCount).fill(null), extraOptions: Array.from({ length: itemCount }, () => []),
+    discount: 0, vatMode: "excl", quoteDate: "", validUntil: "", conditions: emptyConditions(), quotationFiles: [],
+  }
 }
 export function emptyCommittee(): PcCommittee[] {
   return DEFAULT_COMMITTEE_ROLES.map((role) => ({ role, name: "", email: "", pickedSupplier: null, reason: "", signedDate: "" }))
@@ -64,7 +74,7 @@ export function newDoc(preparedBy: { name: string; email: string }): Omit<PriceC
     items: [{ name: "", qty: 1, unit: "" }],
     suppliers: [emptySupplier(1)],
     committee: emptyCommittee(),
-    selectedSupplier: null, selectionReason: "", fewerQuotesReason: "", links: {}, evidenceFiles: [],
+    selectedSupplier: null, lineSupplier: [null], selectionReason: "", fewerQuotesReason: "", links: {}, evidenceFiles: [],
     createdBy: preparedBy.name, editedBy: preparedBy.name,
   }
 }
@@ -93,6 +103,36 @@ export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers">, i
   return { subtotal, discount, afterDiscount, vat, net }
 }
 
+/** เพิ่มตัวเลือกเกรดสำหรับรายการหนึ่ง — ไม่แตะราคาใช้จริงใน prices[i] จนกว่าจะ promote */
+export function addPriceOption(s: PcSupplier, lineIdx: number, opt: PcPriceOption): PcSupplier {
+  return { ...s, extraOptions: s.extraOptions.map((arr, i) => (i === lineIdx ? [...arr, opt] : arr)) }
+}
+
+/** ลบตัวเลือกเกรดออกจากรายการหนึ่ง (optIdx = ตำแหน่งใน extraOptions[lineIdx]) */
+export function removePriceOption(s: PcSupplier, lineIdx: number, optIdx: number): PcSupplier {
+  return { ...s, extraOptions: s.extraOptions.map((arr, i) => (i === lineIdx ? arr.filter((_, j) => j !== optIdx) : arr)) }
+}
+
+/** แก้ label/price ของตัวเลือกเกรดที่มีอยู่แล้ว (ยังไม่ promote) */
+export function updatePriceOption(s: PcSupplier, lineIdx: number, optIdx: number, patch: Partial<PcPriceOption>): PcSupplier {
+  return { ...s, extraOptions: s.extraOptions.map((arr, i) => (i === lineIdx ? arr.map((o, j) => (j === optIdx ? { ...o, ...patch } : o)) : arr)) }
+}
+
+/** สลับตัวเลือกเกรด (optIdx) ให้กลายเป็นราคาใช้จริงของรายการนั้น — ราคาที่เคยใช้อยู่ก่อน (ถ้ามี) จะถูกเก็บกลับเข้า extraOptions แทน เพื่อไม่ให้ข้อมูลหาย */
+export function promotePriceOption(s: PcSupplier, lineIdx: number, optIdx: number): PcSupplier {
+  const opts = s.extraOptions[lineIdx] ?? []
+  const chosen = opts[optIdx]
+  if (!chosen) return s
+  const prevPrice = s.prices[lineIdx] ?? null
+  const rest = opts.filter((_, j) => j !== optIdx)
+  const nextOpts = prevPrice != null ? [...rest, { label: "ราคาเดิม", price: prevPrice }] : rest
+  return {
+    ...s,
+    prices: s.prices.map((p, i) => (i === lineIdx ? chosen.price : p)),
+    extraOptions: s.extraOptions.map((arr, i) => (i === lineIdx ? nextOpts : arr)),
+  }
+}
+
 // index ของ supplier ที่ราคาต่อหน่วยต่ำสุดในแต่ละแถว (เฉพาะรายที่เสนอราคา) — null ถ้าไม่มีใครเสนอ
 export function lowestPerLine(doc: Pick<PriceCompare, "items" | "suppliers">): (number | null)[] {
   return doc.items.map((_, i) => {
@@ -116,6 +156,54 @@ export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers">): numbe
   return best
 }
 
+/** ราคาสุทธิของรายการหนึ่ง ถ้าใช้ supplier รายที่ระบุ (รวม VAT ตามเงื่อนไขของ supplier รายนั้น) — ไม่รวมส่วนลดท้ายใบ เพราะส่วนลดเป็นข้อตกลงระดับทั้งใบเสนอราคา ไม่ใช่ต่อรายการ */
+export function lineNetFor(doc: Pick<PriceCompare, "items" | "suppliers">, lineIdx: number, supplierIdx: number): number | null {
+  const s = doc.suppliers[supplierIdx]
+  const it = doc.items[lineIdx]
+  if (!s || !it) return null
+  const lt = lineTotal(it, s.prices[lineIdx] ?? null)
+  if (lt == null) return null
+  if (s.vatMode === "incl" || s.vatMode === "none") return lt
+  return round2(lt * (1 + VAT_RATE))
+}
+
+/** supplier ที่ถูกกำหนดให้ใช้จริงสำหรับรายการนี้ — ใช้ lineSupplier ถ้าระบุไว้ ไม่งั้น fallback ไปที่ selectedSupplier ของทั้งใบ */
+export function effectiveLineSupplier(doc: Pick<PriceCompare, "selectedSupplier" | "lineSupplier">, lineIdx: number): number | null {
+  return doc.lineSupplier[lineIdx] ?? doc.selectedSupplier
+}
+
+/** true เมื่อทุกรายการถูกกำหนด supplier ของตัวเองแล้ว (โหมด mix เต็มรูปแบบ ไม่ต้องพึ่ง selectedSupplier ของทั้งใบเลย) */
+export function allLinesAwarded(doc: Pick<PriceCompare, "items" | "lineSupplier">): boolean {
+  return doc.items.length > 0 && doc.lineSupplier.length === doc.items.length && doc.lineSupplier.every((v) => v != null)
+}
+
+/** ยอดรวมแบบ "ผสม supplier ต่อรายการ" ตาม effectiveLineSupplier ของแต่ละแถว — null ถ้ามีแถวไหนยังไม่มี supplier ให้ใช้เลย */
+export function mixedNet(doc: Pick<PriceCompare, "items" | "suppliers" | "selectedSupplier" | "lineSupplier">): number | null {
+  let sum = 0
+  for (let i = 0; i < doc.items.length; i++) {
+    const si = effectiveLineSupplier(doc, i)
+    if (si == null) return null
+    const net = lineNetFor(doc, i, si - 1)
+    if (net == null) return null
+    sum += net
+  }
+  return round2(sum)
+}
+
+/** ยอดรวมที่ถูกที่สุดเท่าที่เป็นไปได้ ถ้าเลือก supplier ถูกสุดทุกแถว (ไม่สนใครถูกเลือกจริง) — ใช้เทียบว่า mix ที่เลือกจริงห่างจาก mix ที่ดีที่สุดแค่ไหน */
+export function bestMixNet(doc: Pick<PriceCompare, "items" | "suppliers">): number | null {
+  const low = lowestPerLine(doc)
+  let sum = 0
+  for (let i = 0; i < doc.items.length; i++) {
+    const li = low[i]
+    if (li == null) return null
+    const net = lineNetFor(doc, i, li)
+    if (net == null) return null
+    sum += net
+  }
+  return round2(sum)
+}
+
 const supplierPricesComplete = (doc: Pick<PriceCompare, "items">, s: PcSupplier) =>
   doc.items.length > 0 && doc.items.every((_, i) => s.prices[i] != null)
 
@@ -136,10 +224,16 @@ export function isComplete(doc: PriceCompare, opts: { requireCommitteeNames?: bo
   if (full < 1) missing.push("supplier อย่างน้อย 1 รายที่มีราคาครบทุกแถว")
   else if (full < MIN_QUOTES && !doc.fewerQuotesReason.trim()) missing.push(`ใบเสนอราคาครบ ${MIN_QUOTES} ราย หรือระบุเหตุผลที่มีน้อยกว่า ${MIN_QUOTES} ราย`)
   if (requireNames && doc.committee.some((m) => !m.name.trim())) missing.push("ชื่อกรรมการ")
-  if (doc.selectedSupplier == null) missing.push("ผู้ได้รับเลือก")
-  else {
+  const mixed = allLinesAwarded(doc)   // โหมด mix เต็มรูปแบบ: ทุกรายการกำหนด supplier ของตัวเองแล้ว ไม่ต้องพึ่ง selectedSupplier ของทั้งใบ
+  if (doc.selectedSupplier == null && !mixed) missing.push("ผู้ได้รับเลือก")
+  else if (doc.selectedSupplier != null) {
     const low = lowestNet(doc)
     if (low != null && doc.selectedSupplier !== low + 1 && !doc.selectionReason.trim()) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
+  } else {
+    // โหมด mix: ถ้ามีรายการไหนไม่ได้เลือกถูกสุดของรายการนั้น ต้องมีเหตุผลรวม (ใช้ selectionReason เดียวกัน)
+    const low = lowestPerLine(doc)
+    const anyNotLowest = doc.items.some((_, i) => low[i] != null && doc.lineSupplier[i] !== (low[i] as number) + 1)
+    if (anyNotLowest && !doc.selectionReason.trim()) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
   }
   return { ok: missing.length === 0, missing }
 }
@@ -151,7 +245,7 @@ export function canTransition(from: PcStatus, to: PcStatus, doc: PriceCompare): 
     return r.ok ? { ok: true } : { ok: false, reason: `ยังขาด: ${r.missing.join(", ")}` }
   }
   if (from === "รอลงนาม" && to === "เสร็จสิ้น") {
-    if (doc.selectedSupplier == null) return { ok: false, reason: "ยังไม่เลือกผู้ได้รับเลือก" }
+    if (doc.selectedSupplier == null && !allLinesAwarded(doc)) return { ok: false, reason: "ยังไม่เลือกผู้ได้รับเลือก" }
     if (doc.committee.some((m) => !m.name.trim() || !m.signedDate)) return { ok: false, reason: "ชื่อและวันที่ลงนามของกรรมการยังไม่ครบ 4 ช่อง" }
     return { ok: true }
   }
@@ -178,9 +272,14 @@ export function normalizeDoc(input: unknown): PriceCompare {
   const suppliers: PcSupplier[] = (Array.isArray(b.suppliers) ? b.suppliers : []).slice(0, MAX_SUPPLIERS).map((s: any) => {
     const c = s?.conditions ?? {}
     const prices = Array.isArray(s?.prices) ? s.prices.map(numOrNull) : []
+    const extraOptionsRaw = Array.isArray(s?.extraOptions) ? s.extraOptions : []
     return {
       name: str(s?.name), garageId: s?.garageId ? str(s.garageId) : undefined, note: str(s?.note),
       prices: items.map((_, i) => prices[i] ?? null),
+      extraOptions: items.map((_, i) => {
+        const arr = Array.isArray(extraOptionsRaw[i]) ? extraOptionsRaw[i] : []
+        return arr.filter((o: any) => o && typeof o === "object").map((o: any) => ({ label: str(o.label), price: numOrNull(o.price) }))
+      }),
       discount: num(s?.discount, 0),
       vatMode: (["excl", "incl", "none"] as PcVatMode[]).includes(s?.vatMode) ? (s.vatMode as PcVatMode) : "excl",
       quoteDate: str(s?.quoteDate).slice(0, 10), validUntil: str(s?.validUntil).slice(0, 10),
@@ -188,6 +287,8 @@ export function normalizeDoc(input: unknown): PriceCompare {
       quotationFiles: files(s?.quotationFiles),
     }
   })
+  const lineSupplierRaw: any[] = Array.isArray(b.lineSupplier) ? b.lineSupplier : []
+  const lineSupplier: (number | null)[] = items.map((_, i) => intInRange(lineSupplierRaw[i], MAX_SUPPLIERS))
   const rawCommittee: any[] = Array.isArray(b.committee) ? b.committee : []
   const committee: PcCommittee[] = DEFAULT_COMMITTEE_ROLES.map((role, i) => {
     const m = rawCommittee[i] ?? {}
@@ -202,7 +303,7 @@ export function normalizeDoc(input: unknown): PriceCompare {
     revision: Math.max(0, Math.floor(num(b.revision, 0))),
     createdAt: str(b.createdAt), updatedAt: str(b.updatedAt), status,
     items, suppliers, committee,
-    selectedSupplier: intInRange(b.selectedSupplier, MAX_SUPPLIERS),
+    selectedSupplier: intInRange(b.selectedSupplier, MAX_SUPPLIERS), lineSupplier,
     selectionReason: str(b.selectionReason), fewerQuotesReason: str(b.fewerQuotesReason),
     links: { prCode: str(l.prCode) || undefined, plate: str(l.plate) || undefined, fleetNo: str(l.fleetNo) || undefined, repairExternalId: str(l.repairExternalId) || undefined },
     evidenceFiles: files(b.evidenceFiles),
@@ -221,9 +322,15 @@ export function validateDoc(doc: PriceCompare): string[] {
     if (s.prices.length !== doc.items.length) errs.push(`Supplier ${i + 1}: จำนวนช่องราคาไม่ตรงกับรายการ`)
     if (s.prices.some((p) => p != null && p < 0)) errs.push(`Supplier ${i + 1}: ราคาติดลบไม่ได้`)
     if (s.discount < 0) errs.push(`Supplier ${i + 1}: ส่วนลดติดลบไม่ได้`)
+    if (s.extraOptions.length !== doc.items.length) errs.push(`Supplier ${i + 1}: จำนวนช่องตัวเลือกเสริมไม่ตรงกับรายการ`)
+    if (s.extraOptions.some((opts) => opts.some((o) => o.price != null && o.price < 0))) errs.push(`Supplier ${i + 1}: ราคาตัวเลือกเสริมติดลบไม่ได้`)
   })
   const n = doc.suppliers.length
   if (doc.selectedSupplier != null && (doc.selectedSupplier < 1 || doc.selectedSupplier > n)) errs.push(`ผู้ได้รับเลือกต้องอยู่ระหว่าง Supplier 1–${n}`)
+  if (doc.lineSupplier.length !== doc.items.length) errs.push("จำนวนช่องเลือก supplier ต่อรายการไม่ตรงกับรายการ")
+  doc.lineSupplier.forEach((ls, i) => {
+    if (ls != null && (ls < 1 || ls > n)) errs.push(`รายการที่ ${i + 1}: เลือก supplier ลำดับที่ ${ls} ซึ่งไม่มี`)
+  })
   doc.committee.forEach((m, i) => {
     if (m.pickedSupplier != null && (m.pickedSupplier < 1 || m.pickedSupplier > n)) errs.push(`กรรมการช่องที่ ${i + 1}: เลือก supplier ลำดับที่ ${m.pickedSupplier} ซึ่งไม่มี`)
   })

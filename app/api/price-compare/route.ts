@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
-import { newDoc, normalizeDoc, supplierTotals, lowestNet, type PriceCompare } from "@/lib/price-compare"
+import { newDoc, normalizeDoc, supplierTotals, lowestNet, allLinesAwarded, mixedNet, type PriceCompare } from "@/lib/price-compare"
 import { PC_COLL, nextDocNo } from "@/lib/price-compare-db"
 import { writePcLog } from "@/lib/price-compare-log"
 
@@ -39,12 +39,13 @@ export async function GET(req: NextRequest) {
   const items = rows.map((r) => {
     const d = normalizeDoc(r)
     const li = lowestNet(d)
+    const mixed = d.selectedSupplier == null && allLinesAwarded(d)   // ตัดสินใจแล้วผ่านการปักธงแยกรายรายการ ไม่ใช่เลือก supplier เดียวทั้งใบ
     return {
       _id: String(r._id), docNo: d.docNo, title: d.title, requestDept: d.requestDept, status: d.status,
       preparedBy: d.preparedBy, updatedAt: d.updatedAt, createdAt: d.createdAt, revision: d.revision,
       supplierCount: d.suppliers.length, selectedSupplier: d.selectedSupplier,
-      selectedName: d.selectedSupplier ? d.suppliers[d.selectedSupplier - 1]?.name ?? "" : "",
-      selectedNet: d.selectedSupplier ? supplierTotals(d, d.selectedSupplier - 1).net : null,
+      selectedName: mixed ? "ผสมหลายเจ้า (mix)" : d.selectedSupplier ? d.suppliers[d.selectedSupplier - 1]?.name ?? "" : "",
+      selectedNet: mixed ? mixedNet(d) : d.selectedSupplier ? supplierTotals(d, d.selectedSupplier - 1).net : null,
       lowestNet: li == null ? null : supplierTotals(d, li).net,
     }
   })

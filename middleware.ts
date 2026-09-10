@@ -42,6 +42,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // ฟอร์มขอราคาอู่ (Vendor RFQ): อู่เปิดจากลิงก์ ไม่มี session — token ในเส้นทางคือสิทธิ์ (ตรวจใน route เอง)
+  if (pathname.startsWith("/q/") || pathname.startsWith("/api/q/")) {
+    return NextResponse.next()
+  }
+
   // Public read-only sync API + คู่มือ API สำหรับทีมภายนอก (ไม่ต้อง login / ไม่ต้องมี api key)
   if (pathname === "/repair-external/api-guide") {
     return NextResponse.next()

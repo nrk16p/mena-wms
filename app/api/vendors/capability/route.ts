@@ -4,8 +4,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { setVendorCapability } from "@/lib/vendor"
+import { setVendorCapability, setVendorKind } from "@/lib/vendor"
 import { byCode } from "@/lib/repair-type-master"
+import { VENDOR_KINDS, type VendorKind } from "@/lib/vendor-core"
 
 export const dynamic = "force-dynamic"
 
@@ -22,10 +23,21 @@ export async function PATCH(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}))
     const vendor = String(body.vendor ?? "").trim()
+    if (!vendor) return NextResponse.json({ error: "ไม่พบชื่ออู่" }, { status: 400 })
+
+    // { vendor, kind } = ตั้งประเภทคู่ค้า (คอลัมน์ "ประเภท") — สิทธิ์เดียวกับการติ๊ก
+    if (body.kind !== undefined) {
+      const kind = String(body.kind ?? "").trim()
+      if (kind && !(VENDOR_KINDS as readonly string[]).includes(kind)) {
+        return NextResponse.json({ error: `ประเภทไม่ถูกต้อง: ${kind}` }, { status: 400 })
+      }
+      await setVendorKind(vendor, kind as VendorKind | "", session?.user?.name || email, email)
+      return NextResponse.json({ ok: true, vendor, kind })
+    }
+
     const code   = String(body.code ?? "").trim().toUpperCase()
     const on     = body.on === true
 
-    if (!vendor) return NextResponse.json({ error: "ไม่พบชื่ออู่" }, { status: 400 })
     // รหัสต้องมีอยู่จริงในทะเบียนฝ่ายยานยนต์ ไม่งั้นข้อมูลจะเน่าเงียบ ๆ
     if (!byCode(code)) {
       return NextResponse.json({ error: `ไม่รู้จักรหัสประเภทการซ่อม: ${code}` }, { status: 400 })
