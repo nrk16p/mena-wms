@@ -32,8 +32,9 @@ export async function POST(req: NextRequest) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return NextResponse.json({ error: "วันปิดรับไม่ถูกต้อง" }, { status: 400 })
     const raw = Array.isArray(body.invites) ? body.invites : []
     if (!raw.length || raw.length > 200) return NextResponse.json({ error: "เลือกอู่ 1–200 ราย" }, { status: 400 })
-    const { sheets: known } = await catalogSummary()
+    const { sheets: known, jobs: knownJobs } = await catalogSummary()
     const knownSet = new Set(known.map((s) => s.sheet))
+    const jobSheet = new Map(knownJobs.map((j) => [j.jobCode, j.sheet]))
     const vendorsInDb = new Set((await (await clientPromise).db(DB).collection("vendor_approval").find({}, { projection: { vendor: 1 } }).toArray()).map((v) => v.vendor as string))
     const invites = []
     for (const r of raw) {
@@ -41,7 +42,10 @@ export async function POST(req: NextRequest) {
       if (!vendor || !vendorsInDb.has(vendor)) return NextResponse.json({ error: `ไม่พบอู่ใน AVL: ${vendor || "(ว่าง)"}` }, { status: 400 })
       const sheets = (Array.isArray(r.sheets) ? r.sheets : []).map(String).filter((s: string) => knownSet.has(s) && SHEET_ORDER.includes(s))
       const sections = (Array.isArray(r.sections) ? r.sections : ["labour", "parts"]).filter((s: string): s is RfqSection => s === "labour" || s === "parts")
-      invites.push({ vendor, sheets, sections })
+      // ข้อย่อย: รับเฉพาะรหัสงานที่มีจริงและอยู่ในชีตที่ให้ · ว่าง = ทุกงาน
+      const rawCodes: string[] = Array.isArray(r.jobCodes) ? r.jobCodes.map((c: unknown) => String(c)) : []
+      const jobCodes = [...new Set(rawCodes)].filter((c) => sheets.includes(jobSheet.get(c) ?? ""))
+      invites.push({ vendor, sheets, sections, jobCodes })
     }
     const created = await createInvites({ title, deadline, invites }, user)
     const origin = req.nextUrl.origin

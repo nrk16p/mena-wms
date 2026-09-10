@@ -2,7 +2,7 @@
 import assert from "node:assert/strict"
 import {
   sheetsForVendor, newToken, effectiveStatus, canVendorWrite, canTransition, progress, partKey,
-  applySameAsL, validateAnswer, validatePartAnswer, validateContact, addDays, addMonths, SHEET_ORDER,
+  applySameAsL, validateAnswer, validatePartAnswer, validateContact, addDays, addMonths, SHEET_ORDER, jobsForInvite, partsForInvite,
   type RfqInvite, type RfqJob, type RfqPart,
 } from "../lib/rfq-core"
 
@@ -59,6 +59,13 @@ const pg = progress(inv, jobs, parts)
 assert.deepEqual(pg.labour, { done: 1, total: 3 }, "C อยู่ชีตที่ไม่ได้ให้ ไม่นับ")
 assert.deepEqual(pg.parts, { done: 1, total: 1 })
 assert.deepEqual(progress({ ...inv, sections: ["labour"] }, jobs, parts).parts, { done: 0, total: 0 }, "ไม่ให้ส่วนอะไหล่ = 0/0")
+// เลือกข้อย่อย: jobCodes จำกัดงานในชีต · ว่าง = ทุกงาน · อะไหล่ไม่เกี่ยว
+assert.deepEqual(jobsForInvite({ sheets: ["S45", "SVC"], sections: ["labour", "parts"] }, jobs).map((j) => j.jobCode), ["A", "B", "D"])
+assert.deepEqual(jobsForInvite({ sheets: ["S45", "SVC"], sections: ["labour"], jobCodes: ["B", "C"] }, jobs).map((j) => j.jobCode), ["B"], "C อยู่ชีตที่ไม่ได้ให้ ไม่โผล่")
+assert.deepEqual(jobsForInvite({ sheets: ["S45"], sections: ["labour"], jobCodes: [] }, jobs).map((j) => j.jobCode), ["A", "B"], "ว่าง = ทุกงาน")
+assert.deepEqual(jobsForInvite({ sheets: ["S45"], sections: ["parts"] }, jobs), [], "ไม่เปิดส่วนค่าแรง")
+assert.deepEqual(partsForInvite({ sheets: ["S45"], sections: ["labour", "parts"] }, parts).map((p) => p.sku), ["X"])
+assert.deepEqual(progress({ ...inv, jobCodes: ["A"] }, jobs, parts).labour, { done: 1, total: 1 }, "นับเฉพาะข้อย่อยที่เลือก")
 
 // sameAsL
 const a = applySameAsL({ mode: "lump", L: { light: 1000, mid: 2000, heavy: 3000 }, S: { light: 5 }, sameAsL: true, note: "", at: "" })

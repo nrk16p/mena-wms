@@ -31,6 +31,8 @@ export type RfqConfirm = { by: string; email: string; at: string; validFrom: str
 export type RfqInvite = {
   _id?: string
   token: string; vendor: string; sheets: string[]; sections: RfqSection[]; catalogVersion: number
+  /** เลือกข้อย่อย (งานช่าง) เฉพาะบางงานในชีตที่ให้ · ไม่มี/ว่าง = ทุกงานของชีตนั้น (ผู้ใช้ขอ 2026-09-10) */
+  jobCodes?: string[]
   title: string; deadline: string; status: RfqStatus
   contact: RfqContact | null; openedAt: string | null
   items: Record<string, RfqAnswer>; parts: Record<string, RfqPartAnswer>
@@ -116,17 +118,32 @@ export const STATUS_META: Record<EffectiveStatus, { bg: string; fg: string }> = 
   "หมดอายุ":    { bg: "#F4F4F5", fg: "#9CA3AF" },
 }
 
-// ── ความคืบหน้า ──────────────────────────────────────────────────────────────
+// ── งาน/อะไหล่ที่ใบนี้ให้เสนอ ────────────────────────────────────────────────
 export function partKey(sheet: string, sku: string): string { return `${sheet}|${sku}` }
 
+/** งานช่างที่ใบนี้ให้เสนอ: อยู่ในชีตที่ให้ และ (ถ้าเลือกข้อย่อยไว้) อยู่ในรายการที่เลือก · ส่วน labour ต้องเปิด */
+export function jobsForInvite(inv: Pick<RfqInvite, "sheets" | "sections" | "jobCodes">, jobs: RfqJob[]): RfqJob[] {
+  if (!inv.sections.includes("labour")) return []
+  const sheets = new Set(inv.sheets)
+  const pick = inv.jobCodes?.length ? new Set(inv.jobCodes) : null
+  return jobs.filter((j) => sheets.has(j.sheet) && (!pick || pick.has(j.jobCode)))
+}
+
+/** อะไหล่ที่ใบนี้ให้เสนอ: ตามชีตทั้งชุด (ยังไม่มีเลือกข้อย่อยฝั่งอะไหล่) · ส่วน parts ต้องเปิด */
+export function partsForInvite(inv: Pick<RfqInvite, "sheets" | "sections">, parts: RfqPart[]): RfqPart[] {
+  if (!inv.sections.includes("parts")) return []
+  const sheets = new Set(inv.sheets)
+  return parts.filter((p) => sheets.has(p.sheet))
+}
+
+// ── ความคืบหน้า ──────────────────────────────────────────────────────────────
+
 export function progress(
-  inv: Pick<RfqInvite, "items" | "parts" | "sheets" | "sections">,
+  inv: Pick<RfqInvite, "items" | "parts" | "sheets" | "sections" | "jobCodes">,
   jobs: RfqJob[], parts: RfqPart[]
 ): { labour: { done: number; total: number }; parts: { done: number; total: number } } {
-  const sheets = new Set(inv.sheets)
-  const hasL = inv.sections.includes("labour"), hasP = inv.sections.includes("parts")
-  const js = hasL ? jobs.filter((j) => sheets.has(j.sheet)) : []
-  const ps = hasP ? parts.filter((p) => sheets.has(p.sheet)) : []
+  const js = jobsForInvite(inv, jobs)
+  const ps = partsForInvite(inv, parts)
   return {
     labour: { done: js.filter((j) => !!inv.items[j.jobCode]).length, total: js.length },
     parts:  { done: ps.filter((p) => !!inv.parts[partKey(p.sheet, p.sku)]).length, total: ps.length },

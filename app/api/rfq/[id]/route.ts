@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { canApproveVendor } from "@/lib/roles"
 import { getInvite, getCatalog, actOnInvite, httpError } from "@/lib/rfq"
+import { jobsForInvite, partsForInvite } from "@/lib/rfq-core"
 
 export const dynamic = "force-dynamic"
 type Params = { params: Promise<{ id: string }> }
@@ -18,12 +19,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const invite = await getInvite(id)
   if (!invite) return NextResponse.json({ error: "not found" }, { status: 404 })
   const cat = await getCatalog(invite.catalogVersion)
-  const sheets = new Set(invite.sheets)
-  return NextResponse.json({
-    invite,
-    jobs: invite.sections.includes("labour") ? cat.jobs.filter((j) => sheets.has(j.sheet)) : [],
-    parts: invite.sections.includes("parts") ? cat.parts.filter((p) => sheets.has(p.sheet)) : [],
-  })
+  return NextResponse.json({ invite, jobs: jobsForInvite(invite, cat.jobs), parts: partsForInvite(invite, cat.parts) })
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {

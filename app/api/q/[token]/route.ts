@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { bkkToday } from "@/lib/bkk-time"
 import { getInviteByToken, getCatalog, markOpened, saveContact, saveAnswers, httpError } from "@/lib/rfq"
-import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, partKey, type RfqAnswer, type RfqPartAnswer, type RfqInvite } from "@/lib/rfq-core"
+import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, partKey, jobsForInvite, partsForInvite, type RfqAnswer, type RfqPartAnswer, type RfqInvite } from "@/lib/rfq-core"
 
 export const dynamic = "force-dynamic"
 type Params = { params: Promise<{ token: string }> }
@@ -21,12 +21,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (!inv) return NextResponse.json({ error: "not found" }, { status: 404 })
   if (!inv.openedAt) await markOpened(token)
   const cat = await getCatalog(inv.catalogVersion)
-  const sheets = new Set(inv.sheets)
   const today = bkkToday()
   return NextResponse.json({
     invite: publicView({ ...inv, openedAt: inv.openedAt ?? today }, today),
-    jobs: inv.sections.includes("labour") ? cat.jobs.filter((j) => sheets.has(j.sheet)) : [],
-    parts: inv.sections.includes("parts") ? cat.parts.filter((p) => sheets.has(p.sheet)) : [],
+    jobs: jobsForInvite(inv, cat.jobs),
+    parts: partsForInvite(inv, cat.parts),
     today,
   })
 }
@@ -46,9 +45,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const items: Record<string, RfqAnswer> = {}
     const parts: Record<string, RfqPartAnswer> = {}
     const cat = await getCatalog(inv.catalogVersion)
-    const sheets = new Set(inv.sheets)
-    const jobOk = new Set(cat.jobs.filter((j) => sheets.has(j.sheet)).map((j) => j.jobCode))
-    const partOk = new Set(cat.parts.filter((p) => sheets.has(p.sheet)).map((p) => partKey(p.sheet, p.sku)))
+    const jobOk = new Set(jobsForInvite(inv, cat.jobs).map((j) => j.jobCode))
+    const partOk = new Set(partsForInvite(inv, cat.parts).map((p) => partKey(p.sheet, p.sku)))
     let n = 0
     for (const [k, v] of Object.entries((body.items ?? {}) as Record<string, unknown>)) {
       if (!jobOk.has(k) || /[.$]/.test(k)) return NextResponse.json({ error: `ไม่มีงาน ${k} ในใบนี้` }, { status: 400 })
