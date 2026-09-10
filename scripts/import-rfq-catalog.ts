@@ -49,6 +49,17 @@ async function main() {
   if (unknownSheets.length) throw new Error(`ชีตที่ไม่อยู่ใน SHEET_ORDER: ${unknownSheets.join(", ")}`)
   const dupJobs = allJobs.map((j) => j.jobCode).filter((c, i, arr) => arr.indexOf(c) !== i)
   if (dupJobs.length) throw new Error(`jobCode ซ้ำ: ${[...new Set(dupJobs)].join(", ")}`)
+  const bySheetSku = new Map<string, Omit<RfqPart, "version" | "active">[]>()
+  for (const p of allParts) {
+    const key = `${p.sheet}|${p.sku}`
+    const arr = bySheetSku.get(key) ?? []
+    arr.push(p); bySheetSku.set(key, arr)
+  }
+  for (const arr of bySheetSku.values()) {
+    if (arr.length < 2) continue
+    const names = arr.map((p) => `"${p.name}"`).join(" / ")
+    console.warn(`⚠️ SKU ซ้ำในชีต ${arr[0].sheet}: ${arr[0].sku} — ${names} (เก็บแถวหลังสุด — แก้ที่ไฟล์ต้นฉบับ)`)
+  }
   console.log(`\nรวม งาน ${allJobs.length} · อะไหล่ ${allParts.length}`)
   if (!apply) { console.log("(dry run — ใส่ --apply เพื่อเขียนจริง)"); process.exit(0) }
 
@@ -66,8 +77,10 @@ async function main() {
   await partCol.bulkWrite(allParts.map((p) => ({ updateOne: { filter: { sheet: p.sheet, sku: p.sku }, update: { $set: { ...p, version, active: true } }, upsert: true } })))
   const j0 = await jobCol.updateMany({ version: { $lt: version }, active: true }, { $set: { active: false } })
   const p0 = await partCol.updateMany({ version: { $lt: version }, active: true }, { $set: { active: false } })
-  await meta.updateOne({ _id: "latest" as never }, { $set: { version, importedAt: new Date().toISOString(), jobs: allJobs.length, parts: allParts.length } }, { upsert: true })
-  console.log(`✅ version ${version} · งาน ${allJobs.length} · อะไหล่ ${allParts.length} · ปิดใช้ของเก่า งาน ${j0.modifiedCount} อะไหล่ ${p0.modifiedCount}`)
+  const jobsPersisted = await jobCol.countDocuments({ active: true })
+  const partsPersisted = await partCol.countDocuments({ active: true })
+  await meta.updateOne({ _id: "latest" as never }, { $set: { version, importedAt: new Date().toISOString(), jobs: jobsPersisted, parts: partsPersisted } }, { upsert: true })
+  console.log(`✅ version ${version} · งาน parsed ${allJobs.length}/persisted ${jobsPersisted} · อะไหล่ parsed ${allParts.length}/persisted ${partsPersisted} · ปิดใช้ของเก่า งาน ${j0.modifiedCount} อะไหล่ ${p0.modifiedCount}`)
   process.exit(0)
 }
 main().catch((e) => { console.error(e); process.exit(1) })
