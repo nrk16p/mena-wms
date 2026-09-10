@@ -411,6 +411,19 @@ assert.equal(fmtMoney(null), "")
   const c = uh03(); c.lineSupplier = [3, 2, 2, 2, 1]
   assert.deepEqual(diffPriceCompare(b, c), [{ field: "lineSupplier", label: "เลือกรายบรรทัด", from: "5/5 แถว (1,2,2,2,3)", to: "5/5 แถว (3,2,2,2,1)" }])
   assert.deepEqual(diffPriceCompare(c, c), [], "ไม่เปลี่ยนอะไรเลย = ไม่มี diff")
+  // เพิ่มรายการในใบที่ยังไม่เลือกสักแถว: addItem ต่อ null ท้าย lineSupplier ด้วย → เวกเตอร์ยาวไม่เท่ากัน
+  // แต่ยังไม่มีใครได้งานสักแถว จึงต้องไม่ขึ้นบรรทัดนี้ (บรรทัด "รายการ" บอกไปแล้ว)
+  const n0 = uh03()
+  const n1 = uh03(); n1.items.push({ name: "เพิ่ม", qty: 1, unit: "ชิ้น" }); n1.suppliers.forEach((sp) => sp.prices.push(null)); n1.lineSupplier.push(null)
+  assert.equal(diffPriceCompare(n0, n1).find((x) => x.field === "lineSupplier"), undefined,
+    "ยังไม่เลือกสักแถวทั้งสองฝั่ง → เวกเตอร์ที่ยาวไม่เท่ากันต้องไม่ทำให้ขึ้น log")
+  assert.ok(diffPriceCompare(n0, n1).some((x) => x.field === "items"), "แต่ต้องยังมีบรรทัดรายการ")
+  // ใบเดียวกันแต่มีการเลือกอยู่แล้ว 1 แถว → เวกเตอร์ยาวขึ้นต้องขึ้น log (ตัวหารเปลี่ยนจริง)
+  const k0 = uh03(); k0.lineSupplier = [1, null, null, null, null]
+  const k1 = uh03(); k1.items.push({ name: "เพิ่ม", qty: 1, unit: "ชิ้น" }); k1.suppliers.forEach((sp) => sp.prices.push(null)); k1.lineSupplier = [1, null, null, null, null, null]
+  assert.deepEqual(diffPriceCompare(k0, k1).find((x) => x.field === "lineSupplier"),
+    { field: "lineSupplier", label: "เลือกรายบรรทัด", from: "1/5 แถว (1,-,-,-,-)", to: "1/6 แถว (1,-,-,-,-,-)" })
+
   // เพิ่มรายการในใบที่ "มี" การเลือกอยู่แล้ว → ตัวหารเปลี่ยน ต้องขึ้น log
   const e = uh03(); e.lineSupplier = [1, 2, 2, 2, 3]
   const g = uh03(); g.lineSupplier = [1, 2, 2, 2, 3]; g.items.push({ name: "เพิ่ม", qty: 1, unit: "ชิ้น" }); g.suppliers.forEach((sp) => sp.prices.push(null))
