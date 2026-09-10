@@ -1,8 +1,8 @@
 "use client"
 // components/price-compare-matrix.tsx — ตารางเทียบราคา รายการ × Supplier 1–4 + สรุปยอด (คำนวณสดจาก lib/price-compare)
-import { Fragment, useEffect, useRef } from "react"
+import { Fragment } from "react"
 import { Plus, Trash2, ArrowUp, ArrowDown, Star } from "lucide-react"
-import { GarageCombobox, type Garage } from "@/components/garage-combobox"
+import { VendorCombobox } from "@/components/vendor-combobox"
 import {
   emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS, VAT_MODE_LABEL,
   addPriceOption, removePriceOption, promotePriceOption, updatePriceOption,
@@ -12,8 +12,6 @@ import {
 
 type Props = {
   doc: PriceCompare
-  garages: Garage[]
-  onGarageCreated: (g: Garage) => void
   onChange: (patch: Partial<Pick<PriceCompare, "items" | "suppliers" | "lineSupplier">>) => void
   readOnly?: boolean
 }
@@ -22,7 +20,7 @@ const cellInput = "w-full rounded-md border border-transparent bg-transparent px
 const textInput = "w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm focus:border-[#1B8C4B] focus:bg-white dark:focus:bg-[#0f1117] focus:outline-none"
 const numOrNull = (v: string): number | null => { if (v.trim() === "") return null; const n = parseFloat(v.replace(/,/g, "")); return isFinite(n) ? n : null }
 
-export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, readOnly }: Props) {
+export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   const { items, suppliers, lineSupplier } = doc
   const low = lowestPerLine(doc)
   const lowNet = lowestNet(doc)
@@ -31,11 +29,6 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
   const mixed = allLinesAwarded(doc)
   const mNet = mixedNet(doc)
   const bNet = bestMixNet(doc)
-
-  // ref แบบซิงค์ กันปัญหา stale closure: GarageCombobox เรียก onCreated แล้ว onChange ทันทีในจังหวะเดียวกัน
-  // ก่อนที่ prop garages รอบใหม่จะมาถึง — ถ้า .find อิง garages เฉยๆ จะยังไม่เห็นอู่ที่เพิ่งสร้าง
-  const garagesRef = useRef(garages)
-  useEffect(() => { garagesRef.current = garages }, [garages])
 
   const patchItem = (r: number, p: Partial<PcItem>) => onChange({ items: items.map((it, i) => (i === r ? { ...it, ...p } : it)) })
   const patchSupplier = (s: number, p: Partial<PcSupplier>) => onChange({ suppliers: suppliers.map((sp, i) => (i === s ? { ...sp, ...p } : sp)) })
@@ -86,11 +79,11 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
                   <span className="shrink-0 rounded bg-[#0E7490]/10 px-1.5 py-0.5 text-[10px] text-[#0E7490]">S{s + 1}</span>
                   <div className="flex-1">
                     {readOnly ? <span className="font-medium">{sp.name}</span> : (
-                      <GarageCombobox
+                      // S1–S4 เลือกได้เฉพาะจากรายชื่อ AVL (/vendors) — ไม่มีพิมพ์ชื่อใหม่ (ผู้ใช้กำหนด 2026-09-10)
+                      // garageId ของเดิม (garage_master) เลิกผูก: คีย์ถาวรคือชื่ออู่ตาม AVL
+                      <VendorCombobox
                         value={sp.name}
-                        garages={garages}
-                        onChange={(name) => patchSupplier(s, { name, garageId: garagesRef.current.find((g) => g.name === name)?._id })}
-                        onCreated={(g) => { garagesRef.current = [...garagesRef.current, g]; onGarageCreated(g) }}
+                        onChange={(v) => patchSupplier(s, { name: v?.vendor ?? "", garageId: undefined })}
                         placeholder={`Supplier ${s + 1}`}
                       />
                     )}

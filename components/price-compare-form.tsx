@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, FileDown, Trash2, Loader2, History, AlertTriangle } from "lucide-react"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
-import { inputCls, type Garage } from "@/components/garage-combobox"
+import { inputCls } from "@/components/garage-combobox"
 import { PriceCompareMatrix } from "@/components/price-compare-matrix"
 import { StatusChip } from "@/components/price-compare-list"
 import { DEPT_MASTER } from "@/lib/order-tracking"
@@ -56,7 +56,6 @@ export function PriceCompareForm({ id }: { id: string }) {
   const router = useRouter()
   const [doc, setDoc] = useState<PriceCompare | null>(null)
   const [saved, setSaved] = useState<string>("")           // JSON ล่าสุดที่บันทึกแล้ว เพื่อรู้ว่า dirty
-  const [garages, setGarages] = useState<Garage[]>([])
   const [logs, setLogs] = useState<LogRow[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
@@ -78,12 +77,6 @@ export function PriceCompareForm({ id }: { id: string }) {
       })
   }, [id, router])
   useEffect(() => { load() }, [load])
-  useEffect(() => {
-    fetch("/api/garage-master")
-      .then((r) => r.json())
-      .then((g: unknown) => setGarages(Array.isArray(g) ? g.map((x) => ({ _id: String(x._id), name: String(x.name ?? "") })) : []))
-      .catch(() => setGarages([]))
-  }, [])
   const loadLogs = useCallback(() => {
     fetch(`/api/price-compare/${id}/log`)
       .then((r) => r.json())
@@ -232,7 +225,7 @@ export function PriceCompareForm({ id }: { id: string }) {
         </Card>
 
         <Card title="2. ตารางเทียบราคา" color="#EA580C">
-          <PriceCompareMatrix doc={doc} garages={garages} onGarageCreated={(g) => setGarages((gs) => [...gs, g])} onChange={(p) => patch(p)} readOnly={readOnly} />
+          <PriceCompareMatrix doc={doc} onChange={(p) => patch(p)} readOnly={readOnly} />
         </Card>
 
         <Card title="3. เงื่อนไขในการคัดเลือก" color="#2563EB">
