@@ -1,11 +1,10 @@
 "use client"
 // components/price-compare-matrix.tsx — ตารางเทียบราคา รายการ × Supplier 1–4 + สรุปยอด (คำนวณสดจาก lib/price-compare)
 import { Fragment } from "react"
-import { Plus, Trash2, ArrowUp, ArrowDown, Star } from "lucide-react"
+import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
 import { VendorCombobox } from "@/components/vendor-combobox"
 import {
   emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS, VAT_MODE_LABEL,
-  addPriceOption, removePriceOption, promotePriceOption, updatePriceOption,
   effectiveLineSupplier, allLinesAwarded, mixedNet, bestMixNet,
   type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals,
 } from "@/lib/price-compare"
@@ -40,12 +39,12 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
 
   const addItem = () => onChange({
     items: [...items, { name: "", qty: 1, unit: "" }],
-    suppliers: suppliers.map((sp) => ({ ...sp, prices: [...sp.prices, null], extraOptions: [...sp.extraOptions, []] })),
+    suppliers: suppliers.map((sp) => ({ ...sp, prices: [...sp.prices, null] })),
     lineSupplier: [...lineSupplier, null],
   })
   const removeItem = (r: number) => onChange({
     items: items.filter((_, i) => i !== r),
-    suppliers: suppliers.map((sp) => ({ ...sp, prices: sp.prices.filter((_, i) => i !== r), extraOptions: sp.extraOptions.filter((_, i) => i !== r) })),
+    suppliers: suppliers.map((sp) => ({ ...sp, prices: sp.prices.filter((_, i) => i !== r) })),
     lineSupplier: lineSupplier.filter((_, i) => i !== r),
   })
   const moveItem = (r: number, dir: -1 | 1) => {
@@ -54,7 +53,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
     const swap = <T,>(arr: T[]) => { const a = [...arr]; [a[r], a[j]] = [a[j], a[r]]; return a }
     onChange({
       items: swap(items),
-      suppliers: suppliers.map((sp) => ({ ...sp, prices: swap(sp.prices), extraOptions: swap(sp.extraOptions) })),
+      suppliers: suppliers.map((sp) => ({ ...sp, prices: swap(sp.prices) })),
       lineSupplier: swap(lineSupplier),
     })
   }
@@ -138,41 +137,16 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                 const p = sp.prices[r] ?? null
                 const best = low[r] === s && p != null
                 const awarded = effectiveLineSupplier(doc, r) === s + 1
-                const opts = sp.extraOptions[r] ?? []
                 return (
                   <td key={s} colSpan={2} className={`${td} ${best ? "bg-emerald-50 dark:bg-emerald-900/20" : ""} ${awarded ? "ring-1 ring-inset ring-[#1B8C4B]" : ""}`}>
                     <div className="flex items-center gap-1">
-                      {!readOnly ? (
-                        <button type="button" onClick={() => toggleLineAward(r, s + 1)}
-                          title={awarded ? "เลิกกำหนด — กลับไปใช้ผู้ได้รับเลือกของทั้งใบ" : "ใช้ supplier นี้สำหรับรายการนี้ (mix ข้าม supplier)"}
-                          className={awarded ? "shrink-0 text-[#1B8C4B]" : "shrink-0 text-gray-300 hover:text-gray-500"}>
-                          <Star size={12} fill={awarded ? "currentColor" : "none"} />
-                        </button>
-                      ) : awarded ? <Star size={12} className="shrink-0 text-[#1B8C4B]" fill="currentColor" /> : null}
+                      {/* TODO(Task 3): radio "ใช้เจ้านี้" ต่อเซลล์ — ตอนนี้ยังเป็น checkbox ชั่วคราวเพื่อคง plumbing ของ lineSupplier ไว้ */}
+                      <input type="checkbox" checked={awarded} disabled={readOnly || p == null} onChange={() => toggleLineAward(r, s + 1)}
+                        title={awarded ? "เลิกกำหนด — กลับไปใช้ผู้ได้รับเลือกของทั้งใบ" : "ใช้ supplier นี้สำหรับรายการนี้ (ผสมข้าม supplier)"}
+                        className="h-3 w-3 shrink-0 accent-[#1B8C4B]" />
                       <input inputMode="decimal" value={p ?? ""} disabled={readOnly} onChange={(e) => setPrice(s, r, numOrNull(e.target.value))} placeholder="—" className={cellInput} />
                       <span className={`w-24 shrink-0 text-right text-xs tabular-nums ${best ? "font-semibold text-emerald-700" : "text-gray-500"}`}>{p != null ? fmtMoney(Math.round(it.qty * p * 100) / 100) : ""}</span>
                     </div>
-                    {(opts.length > 0 || !readOnly) && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                        {opts.map((opt, oi) => (
-                          <span key={oi} className="inline-flex items-center gap-0.5 rounded bg-gray-100 dark:bg-white/5 px-1 py-0.5 text-[10px] text-gray-500">
-                            {readOnly ? (
-                              <span>{opt.label || "เกรด"}: {fmtMoney(opt.price)}</span>
-                            ) : (
-                              <>
-                                <input value={opt.label} onChange={(e) => patchSupplier(s, updatePriceOption(sp, r, oi, { label: e.target.value }))} placeholder="เกรด" className="w-12 bg-transparent outline-none" />
-                                <input inputMode="decimal" value={opt.price ?? ""} onChange={(e) => patchSupplier(s, updatePriceOption(sp, r, oi, { price: numOrNull(e.target.value) }))} placeholder="ราคา" className="w-14 bg-transparent text-right outline-none" />
-                                <button type="button" title="ใช้ราคานี้แทน" onClick={() => patchSupplier(s, promotePriceOption(sp, r, oi))} className="font-medium text-[#1B8C4B] hover:underline">ใช้</button>
-                                <button type="button" title="ลบตัวเลือกนี้" onClick={() => patchSupplier(s, removePriceOption(sp, r, oi))} className="text-gray-400 hover:text-red-600"><Trash2 size={9} /></button>
-                              </>
-                            )}
-                          </span>
-                        ))}
-                        {!readOnly && (
-                          <button type="button" onClick={() => patchSupplier(s, addPriceOption(sp, r, { label: "", price: null }))} className="text-[10px] font-medium text-[#0E7490] hover:underline">+เกรด</button>
-                        )}
-                      </div>
-                    )}
                   </td>
                 )
               })}
@@ -209,11 +183,10 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
             <tr className="border-t border-dashed border-[#E2E8E4] dark:border-white/10">
               <td colSpan={cols} className="px-2 py-1.5 text-xs text-gray-500">
                 <span className="mr-4 inline-flex items-center gap-1">
-                  <Star size={10} className="text-[#1B8C4B]" fill="currentColor" />
-                  ยอดรวมตามธงที่ปัก{mixed ? "" : " + ผู้ได้รับเลือกทั้งใบ (แถวที่ยังไม่ปักธง)"}:
+                  ยอดรวมแบบผสม{mixed ? "" : " + ผู้ได้รับเลือกทั้งใบ (แถวที่ยังไม่เลือกเอง)"}:
                   <b className="text-gray-700 dark:text-gray-200">{mNet != null ? fmtMoney(mNet) : "—"}</b>
                 </span>
-                {bNet != null && <span className="inline-flex items-center gap-1">ถ้าปักธงถูกสุดทุกแถว: <b className="text-emerald-700">{fmtMoney(bNet)}</b></span>}
+                {bNet != null && <span className="inline-flex items-center gap-1">ถ้าเลือกถูกสุดทุกแถว: <b className="text-emerald-700">{fmtMoney(bNet)}</b></span>}
               </td>
             </tr>
           )}

@@ -5,8 +5,7 @@ import {
   newDoc, emptySupplier, supplierTotals, lowestPerLine, lowestNet, isComplete, canTransition,
   normalizeDoc, validateDoc, docNoFor, counterKeyFor, fmtMoney, lineTotal, round2,
   completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
-  addPriceOption, removePriceOption, promotePriceOption, updatePriceOption,
-  lineNetFor, effectiveLineSupplier, allLinesAwarded, mixedNet, bestMixNet,
+  effectiveLineSupplier, allLinesAwarded, mixedTotals, mixedNet, pickLowestPerLine, bestMixNet,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 import { diffPriceCompare } from "../lib/price-compare-log"
@@ -76,31 +75,9 @@ assert.equal(lowestNet(d), 1, "supplier ที่ไม่มีราคาเ�
 assert.deepEqual(lowestPerLine({ items: d.items, suppliers: [] }), [null, null, null, null, null])
 assert.equal(lowestNet({ items: d.items, suppliers: [] }), null)
 
-// --- addPriceOption / removePriceOption / promotePriceOption (เกรดหลาย option ต่อรายการ) ---
-{
-  const s0 = uh03().suppliers[0]   // ช่างหมู prices[0] = 21000 (Pump Rexroth)
-  const withOpt = addPriceOption(s0, 0, { label: "เทียบเบอร์ 1", price: 15000 })
-  assert.deepEqual(withOpt.extraOptions[0], [{ label: "เทียบเบอร์ 1", price: 15000 }])
-  assert.equal(withOpt.prices[0], 21000, "แค่เพิ่มตัวเลือก ไม่แตะราคาใช้จริง")
-  const promoted = promotePriceOption(withOpt, 0, 0)
-  assert.equal(promoted.prices[0], 15000, "promote แล้วราคาใช้จริงเปลี่ยนเป็นตัวเลือกที่เลือก")
-  assert.deepEqual(promoted.extraOptions[0], [{ label: "ราคาเดิม", price: 21000 }], "ราคาเดิมถูกเก็บกลับเข้า extraOptions แทน")
-  const removed = removePriceOption(promoted, 0, 0)
-  assert.deepEqual(removed.extraOptions[0], [], "ลบตัวเลือกออกได้")
-  assert.equal(promotePriceOption(s0, 0, 5), s0, "promote index ที่ไม่มีจริง ไม่ทำอะไร คืน supplier เดิม")
-  const updated = updatePriceOption(withOpt, 0, 0, { label: "เทียบเบอร์ 2", price: 16000 })
-  assert.deepEqual(updated.extraOptions[0], [{ label: "เทียบเบอร์ 2", price: 16000 }])
-}
-
-// --- lineNetFor / effectiveLineSupplier / allLinesAwarded / mixedNet / bestMixNet (mix ข้าม supplier ต่อรายการ) ---
+// --- effectiveLineSupplier / allLinesAwarded (พื้นฐานโหมดผสม) ---
 {
   const m = uh03()
-  // line 2 = น้ำมัน HYD. qty18, ช่างหมู 110.56/หน่วย, vatMode excl → 18*110.56=1990.08 *1.07 = 2129.39
-  assert.equal(lineNetFor(m, 2, 0), 2129.39)
-  assert.equal(lineNetFor(m, 1, 99), null, "supplier index ไม่มีจริง → null")
-  const m2 = uh03(); m2.suppliers[1].vatMode = "incl"
-  assert.equal(lineNetFor(m2, 1, 1), 18000, "vatMode incl/none ไม่บวก VAT ซ้ำ — ใช้ยอดตรงๆ")
-
   assert.equal(effectiveLineSupplier(m, 0), null, "ยังไม่กำหนดทั้งคู่ → null")
   m.selectedSupplier = 2
   assert.equal(effectiveLineSupplier(m, 0), 2, "ไม่ระบุ lineSupplier ต่อแถว → fallback ไป selectedSupplier ทั้งใบ")
@@ -112,9 +89,71 @@ assert.equal(lowestNet({ items: d.items, suppliers: [] }), null)
   assert.equal(allLinesAwarded({ items: d.items, lineSupplier: [1] }), false, "ความยาวไม่ตรง items")
   const mixDoc = uh03(); mixDoc.lineSupplier = [1, 2, 2, 2, 1]
   assert.equal(allLinesAwarded(mixDoc), true)
-  assert.equal(mixedNet(uh03()), null, "ยังไม่กำหนด supplier ให้บางแถว → null")
-  assert.equal(mixedNet(mixDoc), 52216, "รวมยอดตาม supplier ที่กำหนดแยกรายแถว")
-  assert.equal(bestMixNet(mixDoc), 50076, "ถ้าเลือกถูกสุดทุกแถว (ไม่สนว่าเลือกจริงเป็นใคร)")
+}
+
+// --- mixedTotals: แยกยอดต่อเจ้า คิด VAT ทีเดียวต่อเจ้า ไม่ปันส่วนส่วนลด ---
+{
+  const m = uh03(); m.lineSupplier = [1, 2, 2, 2, 3]
+  const mt = mixedTotals(m)
+  assert.ok(mt, "ทุกแถวมีเจ้าที่เสนอราคา → คำนวณได้")
+  assert.deepEqual(mt!.perSupplier[0], { subtotal: 21000, vat: 1470, net: 22470, lines: 1 }, "ช่างหมู: Pump 21,000")
+  assert.deepEqual(mt!.perSupplier[1], { subtotal: 20800, vat: 1456, net: 22256, lines: 3 }, "คุณณัฐ: 18,000 + 100×18 + 100×10")
+  assert.deepEqual(mt!.perSupplier[2], { subtotal: 5000, vat: 350, net: 5350, lines: 1 }, "ศศ&ณ: ค่าแรง 5,000")
+  assert.equal(mt!.grand, 50076)
+  assert.equal(mt!.suppliersUsed, 3)
+  assert.equal(mixedNet(m), 50076, "mixedNet = grand ของ mixedTotals")
+
+  // ส่วนลดท้ายใบไม่ถูกนำมาคิดในโหมดผสม
+  const disc = uh03(); disc.lineSupplier = [1, 2, 2, 2, 3]; disc.suppliers[1].discount = 5000
+  assert.equal(mixedNet(disc), 50076, "ส่วนลดท้ายใบไม่ถูกปันส่วนเข้าโหมดผสม")
+
+  // vatMode ต่อเจ้าในโหมดผสม: incl = สุทธิเท่า subtotal (ถอด VAT ออกมาแสดง), none = ไม่มี VAT
+  const vi = uh03(); vi.lineSupplier = [1, 2, 2, 2, 3]; vi.suppliers[1].vatMode = "incl"
+  const mi = mixedTotals(vi)!
+  assert.deepEqual(mi.perSupplier[1], { subtotal: 20800, vat: 1360.75, net: 20800, lines: 3 }, "incl: 20,800 − 20,800/1.07 = 1,360.75")
+  assert.equal(mi.grand, round2(22470 + 20800 + 5350))
+  const vn = uh03(); vn.lineSupplier = [1, 2, 2, 2, 3]; vn.suppliers[1].vatMode = "none"
+  const mn = mixedTotals(vn)!
+  assert.deepEqual(mn.perSupplier[1], { subtotal: 20800, vat: 0, net: 20800, lines: 3 })
+  assert.equal(mn.grand, round2(22470 + 20800 + 5350))
+
+  // เจ้าที่ไม่ได้รับแถวไหนเลยยังอยู่ในผลลัพธ์ (เรียงตรงกับ doc.suppliers) แต่ lines = 0
+  const one = uh03(); one.lineSupplier = [1, 1, 1, 1, 1]
+  const mo = mixedTotals(one)!
+  assert.equal(mo.suppliersUsed, 1)
+  assert.deepEqual(mo.perSupplier.map((x) => x.lines), [5, 0, 0])
+  assert.equal(mo.grand, supplierTotals(one, 0).net, "มอบให้เจ้าเดียวทุกแถว = สุทธิของเจ้านั้น (ไม่มีส่วนลด)")
+
+  // แถวที่ยังไม่มีเจ้า / ชี้ไปเจ้าที่ไม่ได้เสนอราคา → null
+  assert.equal(mixedTotals(uh03()), null, "ยังไม่กำหนด supplier ให้บางแถว และไม่มี selectedSupplier → null")
+  assert.equal(mixedNet(uh03()), null)
+  const gap = uh03(); gap.lineSupplier = [1, 2, 2, 2, 3]; gap.suppliers[2].prices[4] = null
+  assert.equal(mixedTotals(gap), null, "เจ้าที่ถูกเลือกไม่ได้เสนอราคาแถวนั้น → null")
+  const fb = uh03(); fb.selectedSupplier = 1; fb.lineSupplier = [null, 2, 2, 2, 3]
+  assert.equal(mixedNet(fb), 50076, "แถวที่ไม่ระบุ fallback ไป selectedSupplier ทั้งใบ")
+}
+
+// --- pickLowestPerLine / bestMixNet: เทียบ "หลัง VAT" ต่อแถว ---
+{
+  const m = uh03()
+  assert.deepEqual(pickLowestPerLine(m), [1, 2, 2, 2, 3], "1-based; ทุกเจ้า excl → ผลเท่ากับ lowestPerLine +1")
+  assert.equal(bestMixNet(m), 50076, "= grand ของ mixedTotals ตาม pickLowestPerLine")
+  const mixDoc = uh03(); mixDoc.lineSupplier = [1, 2, 2, 2, 1]
+  assert.equal(mixedNet(mixDoc), 52216, "เลือกช่างหมูทำค่าแรงแทน → แพงกว่า best 2,140")
+  assert.equal(bestMixNet(mixDoc), 50076, "best ไม่ขึ้นกับว่าเลือกจริงเป็นใคร")
+
+  // เจ้าที่เสนอ "รวม VAT แล้ว" อาจถูกกว่าทั้งที่ราคาป้ายสูงกว่า — ต้องเทียบหลัง VAT ไม่ใช่ก่อน VAT
+  const v = uh03()
+  v.suppliers[1].vatMode = "incl"; v.suppliers[1].prices[0] = 22000   // 22,000 รวม VAT แล้ว < 21,000 × 1.07 = 22,470
+  assert.equal(lowestPerLine(v)[0], 0, "เทียบก่อน VAT: ช่างหมู 21,000 ดูถูกกว่า")
+  assert.equal(pickLowestPerLine(v)[0], 2, "เทียบหลัง VAT: คุณณัฐ 22,000 (incl) ถูกกว่า 22,470")
+  assert.equal(bestMixNet(v), round2(22000 + 18000 + 1800 + 1000 + 5350), "best ใช้ราคาหลัง VAT ของเจ้าที่ชนะแต่ละแถว")
+
+  assert.deepEqual(pickLowestPerLine({ items: d.items, suppliers: [] }), [null, null, null, null, null])
+  assert.equal(bestMixNet({ items: d.items, suppliers: [] }), null, "ไม่มีเจ้าไหนเสนอราคาเลย → null")
+  const gap = uh03(); gap.suppliers.forEach((sp) => { sp.prices[3] = null })
+  assert.equal(pickLowestPerLine(gap)[3], null)
+  assert.equal(bestMixNet(gap), null, "มีแถวที่ไม่มีใครเสนอราคา → null")
 }
 
 // --- completeSupplierCount / isQuoteExpired ---
@@ -163,11 +202,21 @@ assert.equal(isComplete(c, { requireCommitteeNames: false }).ok, false)
   mc.lineSupplier = [1, 2, 2, 2, 3]   // ตรงกับ lowestPerLine ทุกแถว (ถูกสุดพอดี) → ไม่ต้องมีเหตุผล
   assert.equal(isComplete(mc, { requireCommitteeNames: false }).ok, true, "mix ที่ถูกสุดทุกแถวอยู่แล้ว ไม่ต้องมีเหตุผล")
   mc.lineSupplier = [1, 1, 1, 1, 1]   // ไม่ตรง lowestPerLine ที่แถว 2-4 (ควรเป็น supplier 2)
-  let rm = isComplete(mc, { requireCommitteeNames: false })
+  const rm = isComplete(mc, { requireCommitteeNames: false })
   assert.equal(rm.ok, false)
   assert.ok(rm.missing.some((m) => m.includes("เหตุผลที่ไม่เลือก")))
   mc.selectionReason = "เลือกช่างหมูทั้งหมดเพื่อความสะดวกส่งอู่เดียว"
   assert.equal(isComplete(mc, { requireCommitteeNames: false }).ok, true)
+
+  // "ถูกสุด" ในโหมด mix วัดหลัง VAT: คุณณัฐเสนอแบบรวม VAT 22,000 < ช่างหมู 21,000+7% = 22,470
+  const vc = uh03(); vc.committee = vc.committee.map((m) => ({ ...m, name: "กรรมการ" }))
+  vc.suppliers[1].vatMode = "incl"; vc.suppliers[1].prices[0] = 22000
+  vc.lineSupplier = [1, 2, 2, 2, 3]
+  const rv = isComplete(vc, { requireCommitteeNames: false })
+  assert.equal(rv.ok, false, "แถว 1 เลือกช่างหมูซึ่งแพงกว่าหลัง VAT → ต้องมีเหตุผล")
+  assert.ok(rv.missing.some((m) => m.includes("เหตุผลที่ไม่เลือก")))
+  vc.lineSupplier = [2, 2, 2, 2, 3]
+  assert.equal(isComplete(vc, { requireCommitteeNames: false }).ok, true, "เลือกถูกสุดหลัง VAT ทุกแถว = ไม่ต้องมีเหตุผล")
 }
 
 // --- canTransition ---
@@ -226,15 +275,15 @@ assert.equal(normalizeDoc({ selectedSupplier: 0 }).selectedSupplier, null)
 assert.equal(normalizeDoc({ selectedSupplier: 2.5 }).selectedSupplier, null)
 assert.equal(normalizeDoc({ committee: [{ pickedSupplier: 7 }] }).committee[0].pickedSupplier, null)
 
-// --- normalizeDoc: extraOptions (เกรดหลาย option) + lineSupplier (mix ต่อรายการ) ---
+// --- normalizeDoc: ทิ้ง extraOptions ของเอกสารเก่า (ร่าง multi-grade ที่ถูกตัดทิ้ง) + lineSupplier (mix ต่อรายการ) ---
 {
   const n2 = normalizeDoc({
     items: [{ name: "a", qty: 1 }, { name: "b", qty: 1 }],
     suppliers: [{ name: "x", prices: [10, 20], extraOptions: [[{ label: "เทียบ", price: "5" }], "not-array"] }],
     lineSupplier: ["1", 99, null],
   })
-  assert.deepEqual(n2.suppliers[0].extraOptions[0], [{ label: "เทียบ", price: 5 }], "แปลง label/price จาก string")
-  assert.deepEqual(n2.suppliers[0].extraOptions[1], [], "ค่าที่ไม่ใช่ array กลายเป็น []")
+  assert.equal("extraOptions" in n2.suppliers[0], false, "extraOptions ที่ค้างในเอกสารเก่าถูกทิ้ง ไม่ throw")
+  assert.deepEqual(n2.suppliers[0].prices, [10, 20], "ราคายังปกติ")
   assert.deepEqual(n2.lineSupplier, [1, null], "ยาวเท่า items เสมอ; ค่านอกช่วง (99) → null")
   assert.deepEqual(normalizeDoc({}).lineSupplier, [], "ไม่มี items เลย → lineSupplier ว่างเปล่าตาม")
 }
@@ -256,14 +305,13 @@ const bad6 = uh03(); bad6.committee[0].pickedSupplier = 9
 assert.ok(validateDoc(bad6).some((m) => m.includes("กรรมการ")))
 const bad7 = uh03(); bad7.suppliers[0].prices = [1]
 assert.ok(validateDoc(bad7).some((m) => m.includes("ราคา")))
-const bad8 = uh03(); bad8.suppliers[0].extraOptions = [[]]
-assert.ok(validateDoc(bad8).some((m) => m.includes("ตัวเลือกเสริม")), "extraOptions ยาวไม่เท่า items")
-const bad9 = uh03(); bad9.suppliers[0].extraOptions[0] = [{ label: "x", price: -5 }]
-assert.ok(validateDoc(bad9).some((m) => m.includes("ตัวเลือกเสริม")), "ราคาตัวเลือกเสริมติดลบ")
 const bad10 = uh03(); bad10.lineSupplier = [1]
 assert.ok(validateDoc(bad10).some((m) => m.includes("เลือก supplier ต่อรายการ")), "lineSupplier ยาวไม่เท่า items")
 const bad11 = uh03(); bad11.lineSupplier = [9, null, null, null, null]
 assert.ok(validateDoc(bad11).some((m) => m.includes("ซึ่งไม่มี")), "lineSupplier ชี้ไป supplier ที่ไม่มีจริง")
+const bad12 = uh03(); bad12.suppliers[1].prices[2] = null; bad12.lineSupplier = [1, 2, 2, 2, 3]
+assert.ok(validateDoc(bad12).some((m) => m === "แถว 3: เจ้าที่เลือกไม่ได้เสนอราคา"), "เลือกเจ้าที่ไม่ได้เสนอราคาแถวนั้น")
+{ const ok12 = uh03(); ok12.lineSupplier = [1, 2, 2, 2, 3]; assert.deepEqual(validateDoc(ok12), [], "เลือกครบและทุกเจ้าเสนอราคาจริง = ผ่าน") }
 
 // --- docNo / counter key (ปี ค.ศ. 2 หลักท้าย + เดือน — ตามฟอร์มต้นแบบ PC-2609-002 ลงวันที่ 7/9/2569) ---
 assert.equal(docNoFor("2026-09-07", 2), "PC-2609-002")
