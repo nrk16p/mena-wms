@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { isAdmin } from "@/lib/roles"
+import { canApproveVendor } from "@/lib/roles"
 import { setVendorApproval } from "@/lib/vendor"
 import { byCode } from "@/lib/repair-type-master"
 
@@ -16,9 +16,9 @@ export async function PATCH(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     const email = session?.user?.email ?? ""
-    // อนุมัติผู้ขายเป็นการตัดสินใจเชิงจัดซื้อ — คนทั่วไปดูได้ แต่แก้ไม่ได้
-    if (!isAdmin(email)) {
-      return NextResponse.json({ error: "ต้องเป็นแอดมินจึงจะอนุมัติอู่ได้" }, { status: 403 })
+    // อนุมัติผู้ขายเป็นการตัดสินใจเชิงจัดซื้อ — คนทั่วไปดูได้ แต่แก้ไม่ได้ (แอดมิน + ผู้อนุมัติอู่ใน lib/roles)
+    if (!canApproveVendor(email)) {
+      return NextResponse.json({ error: "ต้องเป็นแอดมินหรือผู้อนุมัติอู่จึงจะเปลี่ยนสถานะได้" }, { status: 403 })
     }
 
     const body = await req.json().catch(() => ({}))

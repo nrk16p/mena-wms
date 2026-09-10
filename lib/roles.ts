@@ -8,6 +8,18 @@ export function isAdmin(email: string | null | undefined): boolean {
   return ADMIN_EMAILS.has(email ?? "")
 }
 
+// ── ผู้อนุมัติอู่ (AVL) ─────────────────────────────────────────────────────
+// เปลี่ยน "สถานะอนุมัติ" ในหน้า /vendors ได้ โดยไม่ต้องเป็นแอดมินทั้งระบบ
+// (ผู้ใช้ขอเพิ่ม natchaphak.k + nopparut.a 2026-09-10) · แอดมินทำได้เสมอ
+export const VENDOR_APPROVER_EMAILS = new Set<string>([
+  "natchaphak.k@menatransport.co.th",
+  "nopparut.a@menatransport.co.th",
+])
+
+export function canApproveVendor(email: string | null | undefined): boolean {
+  return isAdmin(email) || VENDOR_APPROVER_EMAILS.has(email ?? "")
+}
+
 // ── ฝ่ายบัญชี ────────────────────────────────────────────────────────────────
 // ใช้กับ "บัญชีตรวจเอกสาร" ในหน้า /ap-tracking — คนนอกฝ่ายเห็นผลตรวจได้แต่แก้ไม่ได้
 // ระบุสิทธิ์ 2 ทางเพื่อไม่ให้ติดล็อกฝั่งใดฝั่งหนึ่ง:

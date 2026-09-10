@@ -17,6 +17,7 @@ import { historyByWork, AUTO_APPROVE_RULE, MONTHS_BACK, type VendorSummary } fro
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
 import { VendorLogDrawer } from "@/components/vendor-log-drawer"
 import { describeVendorLog, fmtLogAt, latestByCode, type VendorLogRow } from "@/lib/vendor-log"
+import { canApproveVendor } from "@/lib/roles"
 
 const GROUP_ORDER: RepairGroup[] = ["CM", "PM", "T", "ทำความสะอาด", "แย็กโม่", "AC", "OTH"]
 
@@ -29,9 +30,10 @@ const STATUS_META: Record<VendorSummary["status"], { th: string; bg: string; fg:
 export function VendorMatrixPage() {
   const { data, loading, error, reload } = useVendors()
   const { data: session, status: authStatus } = useSession()
-  const isAdmin = session?.user?.role === "admin"
+  // สถานะอนุมัติ = แอดมิน + ผู้อนุมัติอู่ (ลิสต์ใน lib/roles) — ฝั่ง API เช็คซ้ำอีกชั้น
+  const isAdmin = canApproveVendor(session?.user?.email)
   // ติ๊กความสามารถ = ใครก็ได้ที่ล็อกอิน (มีประวัติกำกับทุกครั้ง)
-  // ส่วนสถานะอนุมัติยังเป็นการตัดสินใจเชิงจัดซื้อ จึงยังล็อกไว้ที่แอดมิน
+  // ส่วนสถานะอนุมัติยังเป็นการตัดสินใจเชิงจัดซื้อ จึงล็อกไว้ที่คนที่กำหนด
   const canTick = authStatus === "authenticated"
   const [q, setQ] = useState("")
   const [groups, setGroups] = useState<RepairGroup[]>([])
@@ -314,7 +316,7 @@ export function VendorMatrixPage() {
               </span>
             )}
             {!isAdmin && (
-              <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· เปลี่ยนสถานะอนุมัติได้เฉพาะแอดมิน</span>
+              <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· เปลี่ยนสถานะอนุมัติได้เฉพาะแอดมินและผู้อนุมัติอู่</span>
             )}
             <button
               onClick={() => void exportXlsx()}
