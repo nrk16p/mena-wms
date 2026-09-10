@@ -6,7 +6,7 @@ import { VendorCombobox } from "@/components/vendor-combobox"
 import { SkuPicker, type SkuHit } from "@/components/sku-picker"
 import {
   emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS, VAT_MODE_LABEL,
-  effectiveLineSupplier, allLinesAwarded, mixedNet, bestMixNet,
+  effectiveLineSupplier, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine,
   type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals,
 } from "@/lib/price-compare"
 
@@ -26,8 +26,9 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   const lowNet = lowestNet(doc)
   const totals = suppliers.map((_, i) => supplierTotals(doc, i))
   const cols = 4 + suppliers.length * 2 + (readOnly ? 0 : 1)
-  const mixed = allLinesAwarded(doc)
-  const mNet = mixedNet(doc)
+  const mixedAll = allLinesAwarded(doc)
+  const pickedCount = lineSupplier.filter((v) => v != null).length
+  const mt = mixedTotals(doc)      // null เมื่อยังมีแถวที่ไม่มีเจ้าที่ใช้ได้จริง (ไม่ได้เลือก + ไม่มีผู้ได้รับเลือกทั้งใบ)
   const bNet = bestMixNet(doc)
 
   const patchItem = (r: number, p: Partial<PcItem>) => onChange({ items: items.map((it, i) => (i === r ? { ...it, ...p } : it)) })
@@ -65,7 +66,8 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   const td = "px-1 py-0.5 border-b border-[#EEF2F0] dark:border-white/8 align-middle"
 
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="overflow-x-auto">
       <table className="min-w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
@@ -152,14 +154,20 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
               {suppliers.map((sp, s) => {
                 const p = sp.prices[r] ?? null
                 const best = low[r] === s && p != null
-                const awarded = effectiveLineSupplier(doc, r) === s + 1
+                const picked = lineSupplier[r] === s + 1                                  // เลือกรายบรรทัดไว้จริง
+                const fallback = !picked && effectiveLineSupplier(doc, r) === s + 1        // ไม่ได้เลือกเอง แต่ตกมาที่ผู้ได้รับเลือกทั้งใบ
                 return (
-                  <td key={s} colSpan={2} className={`${td} ${best ? "bg-emerald-50 dark:bg-emerald-900/20" : ""} ${awarded ? "ring-1 ring-inset ring-[#1B8C4B]" : ""}`}>
+                  <td key={s} colSpan={2} className={`${td} ${picked ? "bg-emerald-100 dark:bg-emerald-900/40" : best ? "bg-emerald-50 dark:bg-emerald-900/20" : ""} ${fallback ? "ring-1 ring-inset ring-[#1B8C4B]" : ""}`}>
                     <div className="flex items-center gap-1">
-                      {/* TODO(Task 3): radio "ใช้เจ้านี้" ต่อเซลล์ — ตอนนี้ยังเป็น checkbox ชั่วคราวเพื่อคง plumbing ของ lineSupplier ไว้ */}
-                      <input type="checkbox" checked={awarded} disabled={readOnly || p == null} onChange={() => toggleLineAward(r, s + 1)}
-                        title={awarded ? "เลิกกำหนด — กลับไปใช้ผู้ได้รับเลือกของทั้งใบ" : "ใช้ supplier นี้สำหรับรายการนี้ (ผสมข้าม supplier)"}
-                        className="h-3 w-3 shrink-0 accent-[#1B8C4B]" />
+                      {/* radio ต่อเซลล์: กลุ่มเดียวกันทั้งแถว (เลือกได้เจ้าเดียว) — คลิกซ้ำที่อันที่เลือกอยู่ = ล้างแถวนั้น
+                          click ยิงก่อน change เสมอ; ถ้าอันนี้ถูกเลือกอยู่แล้ว change จะไม่ยิง จึงต้องล้างจาก onClick */}
+                      <input type="radio" name={`pc-line-${r}`} checked={picked} disabled={readOnly || p == null}
+                        aria-label={`ใช้ Supplier ${s + 1} สำหรับแถว ${r + 1}`}
+                        onClick={() => { if (picked && !readOnly) toggleLineAward(r, s + 1) }}
+                        onChange={() => toggleLineAward(r, s + 1)}
+                        title={picked ? "กดซ้ำเพื่อล้างการเลือกของแถวนี้" : "ใช้ supplier นี้สำหรับรายการนี้ (ผสมข้าม supplier)"}
+                        className="h-3.5 w-3.5 shrink-0 accent-[#1B8C4B]" />
+                      <span aria-hidden className={`w-2.5 shrink-0 text-center text-xs font-bold ${picked ? "text-emerald-700 dark:text-emerald-300" : "text-transparent"}`}>✓</span>
                       <input inputMode="decimal" value={p ?? ""} disabled={readOnly} onChange={(e) => setPrice(s, r, numOrNull(e.target.value))} placeholder="—" className={cellInput} />
                       <span className={`w-24 shrink-0 text-right text-xs tabular-nums ${best ? "font-semibold text-emerald-700" : "text-gray-500"}`}>{p != null ? fmtMoney(Math.round(it.qty * p * 100) / 100) : ""}</span>
                     </div>
@@ -195,19 +203,52 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
               {!readOnly && <td className={td}></td>}
             </tr>
           ))}
-          {suppliers.length > 1 && (mNet != null || bNet != null) && (
-            <tr className="border-t border-dashed border-[#E2E8E4] dark:border-white/10">
-              <td colSpan={cols} className="px-2 py-1.5 text-xs text-gray-500">
-                <span className="mr-4 inline-flex items-center gap-1">
-                  ยอดรวมแบบผสม{mixed ? "" : " + ผู้ได้รับเลือกทั้งใบ (แถวที่ยังไม่เลือกเอง)"}:
-                  <b className="text-gray-700 dark:text-gray-200">{mNet != null ? fmtMoney(mNet) : "—"}</b>
-                </span>
-                {bNet != null && <span className="inline-flex items-center gap-1">ถ้าเลือกถูกสุดทุกแถว: <b className="text-emerald-700">{fmtMoney(bNet)}</b></span>}
+          {/* โหมดผสม: ยอดที่ตกกับแต่ละเจ้าตามที่เลือกรายบรรทัด (ไม่ปันส่วนส่วนลดท้ายใบ) */}
+          {pickedCount > 0 && mt && (
+            <Fragment>
+              <tr className="border-t border-dashed border-[#E2E8E4] dark:border-white/10">
+                <td colSpan={4} className={`${td} px-2 py-1 text-right text-xs text-gray-600 dark:text-gray-300`}>ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)</td>
+                {suppliers.map((_, s) => (
+                  <td key={s} colSpan={2} className={`${td} text-right tabular-nums`}>
+                    <span className="px-2">{mt.perSupplier[s].lines > 0 ? fmtMoney(mt.perSupplier[s].subtotal) : <span className="text-gray-300 dark:text-gray-600">—</span>}</span>
+                  </td>
+                ))}
+                {!readOnly && <td className={td}></td>}
+              </tr>
+              <tr className="font-semibold">
+                <td colSpan={4} className={`${td} px-2 py-1 text-right text-xs text-gray-600 dark:text-gray-300`}>
+                  สุทธิที่เลือก{readOnly && <span className="ml-2 text-emerald-700 dark:text-emerald-300">รวมสุทธิแบบผสม {fmtMoney(mt.grand)}</span>}
+                </td>
+                {suppliers.map((_, s) => (
+                  <td key={s} colSpan={2} className={`${td} text-right tabular-nums ${mt.perSupplier[s].lines > 0 ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+                    <span className="px-2">{mt.perSupplier[s].lines > 0 ? fmtMoney(mt.perSupplier[s].net) : <span className="font-normal text-gray-300 dark:text-gray-600">—</span>}</span>
+                  </td>
+                ))}
+                {!readOnly && <td title="รวมสุทธิแบบผสม" className={`${td} whitespace-nowrap px-1 text-right tabular-nums text-emerald-700 dark:text-emerald-300`}>{fmtMoney(mt.grand)}</td>}
+              </tr>
+            </Fragment>
+          )}
+          {pickedCount > 0 && (
+            <tr>
+              <td colSpan={cols} className="px-2 py-1.5 text-[11px] text-gray-500">
+                ส่วนลดท้ายใบไม่ถูกนำมาคิดเมื่อเลือก supplier รายบรรทัด
+                {bNet != null && <> · ถ้าเลือกถูกสุดทุกแถว: <b className="text-emerald-700 dark:text-emerald-300">{fmtMoney(bNet)}</b></>}
+                {!mixedAll && <> · เลือกรายบรรทัดแล้ว {pickedCount}/{items.length} แถว — แถวที่เหลือใช้ผู้ได้รับเลือกทั้งใบ</>}
               </td>
             </tr>
           )}
         </tfoot>
       </table>
+      </div>
+      {!readOnly && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <button type="button" onClick={() => setLineSupplier(pickLowestPerLine(doc))}
+            className="rounded-lg border border-[#1B8C4B] px-3 py-1 font-semibold text-[#1B8C4B] hover:bg-[#1B8C4B]/10">เลือกถูกสุดทุกแถว</button>
+          <button type="button" disabled={pickedCount === 0} onClick={() => setLineSupplier(items.map(() => null))}
+            className="rounded-lg border px-3 py-1 text-gray-600 dark:border-white/10 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-40">ล้างการเลือกรายแถว</button>
+          <span className="text-gray-400">เลือก supplier รายบรรทัดแล้ว {pickedCount}/{items.length} แถว</span>
+        </div>
+      )}
     </div>
   )
 }

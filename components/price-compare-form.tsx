@@ -13,7 +13,7 @@ import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
-  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedNet,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine,
   type PriceCompare, type PcCommittee, type PcFile, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -108,6 +108,39 @@ export function PriceCompareForm({ id }: { id: string }) {
   // ให้ตรงกับเกณฑ์ที่ canTransition ใช้จริง: ตอนร่างยังไม่บังคับชื่อกรรมการ
   const completeness = useMemo<{ ok: boolean; missing: string[] }>(
     () => (doc ? isComplete(doc, { requireCommitteeNames: doc.status !== "ร่าง" }) : { ok: false, missing: [] }), [doc])
+  // --- โหมดผสม (เลือก supplier รายบรรทัด) ---
+  const mixedAll = doc ? allLinesAwarded(doc) : false
+  const pickedCount = doc ? doc.lineSupplier.filter((v) => v != null).length : 0
+  const mixTotals = useMemo(() => (doc ? mixedTotals(doc) : null), [doc])
+  const bestNet = useMemo(() => (doc ? bestMixNet(doc) : null), [doc])
+  const lowPerLine = useMemo(() => (doc ? pickLowestPerLine(doc) : []), [doc])
+  // ต้องมีเหตุผลเมื่อ: เลือกทั้งใบแต่ไม่ใช่รายสุทธิต่ำสุด หรือ เลือกผสมแล้วมีแถวที่ไม่ได้เลือกเจ้าที่ถูกสุด (เกณฑ์เดียวกับ isComplete)
+  const needReason = doc != null && (
+    doc.selectedSupplier != null
+      ? lowNet != null && doc.selectedSupplier !== lowNet + 1
+      : mixedAll && doc.items.some((_, i) => lowPerLine[i] != null && doc.lineSupplier[i] !== lowPerLine[i]))
+
+  // เลือกครบทุกแถว = โหมดผสมเต็มใบ → ผู้ได้รับเลือกทั้งใบไม่มีความหมายอีก ล้างทิ้งในแพตช์เดียวกัน (ไม่ให้ค้างไปโผล่ใน PDF/list)
+  const onMatrixChange = (p: Partial<Pick<PriceCompare, "items" | "suppliers" | "lineSupplier">>) => setDoc((d) => {
+    if (!d) return d
+    const next = { ...d, ...p }
+    if (allLinesAwarded(next) && next.selectedSupplier != null) next.selectedSupplier = null
+    return next
+  })
+  // เลือกผู้ได้รับเลือกทั้งใบ ทับการเลือกรายบรรทัดที่ทำไว้ → ถามก่อนล้าง
+  async function selectWholeDoc(i: number) {
+    if (!doc) return
+    if (doc.lineSupplier.some((v) => v != null)) {
+      const ok = await swalConfirm(`ใช้ Supplier ${i + 1} ทั้งใบ?`, "การเลือก supplier รายบรรทัดที่ทำไว้จะถูกล้างทั้งหมด")
+      if (!ok.isConfirmed) return
+    }
+    patch({ selectedSupplier: i + 1, lineSupplier: doc.items.map(() => null), ...(lowNet != null && i === lowNet ? { selectionReason: "" } : {}) })
+  }
+  async function backToWholeDoc() {
+    if (!doc) return
+    const ok = await swalConfirm("กลับไปเลือกผู้ได้รับเลือกทั้งใบ?", "การเลือก supplier รายบรรทัดทั้งหมดจะถูกล้าง")
+    if (ok.isConfirmed) patch({ lineSupplier: doc.items.map(() => null) })
+  }
 
   async function save(nextStatus?: PcStatus): Promise<boolean> {
     if (!doc) return false
@@ -225,7 +258,7 @@ export function PriceCompareForm({ id }: { id: string }) {
         </Card>
 
         <Card title="2. ตารางเทียบราคา" color="#EA580C">
-          <PriceCompareMatrix doc={doc} onChange={(p) => patch(p)} readOnly={readOnly} />
+          <PriceCompareMatrix doc={doc} onChange={onMatrixChange} readOnly={readOnly} />
         </Card>
 
         <Card title="3. เงื่อนไขในการคัดเลือก" color="#2563EB">
@@ -294,27 +327,56 @@ export function PriceCompareForm({ id }: { id: string }) {
         </Card>
 
         <Card title="6. สรุปผล — ผู้ได้รับเลือก" color="#DC2626">
-          <div className="flex flex-wrap gap-3">
-            {doc.suppliers.map((s, i) => (
-              <label key={i} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2 text-sm ${doc.selectedSupplier === i + 1 ? "border-[#1B8C4B] bg-[#1B8C4B]/5" : "border-[#EEF2F0] dark:border-white/8"}`}>
-                <input type="radio" name="selected" disabled={readOnly} checked={doc.selectedSupplier === i + 1} onChange={() => patch({ selectedSupplier: i + 1, ...(lowNet != null && i === lowNet ? { selectionReason: "" } : {}) })} />
-                <span className="font-medium">Supplier {i + 1}</span><span>{s.name}</span>
-                <span className="tabular-nums text-gray-500">{fmtMoney(supplierTotals(doc, i).net)}</span>
-                {i === lowNet && <span className="rounded bg-emerald-100 px-1.5 text-[10px] text-emerald-700">ถูกสุด</span>}
-              </label>
-            ))}
-          </div>
-          {allLinesAwarded(doc) ? (
-            <p className="mt-2 text-xs text-gray-500">
-              ปักธงเลือก supplier แยกรายรายการครบทุกแถวในตารางด้านบนแล้ว (mix) — ไม่ต้องเลือกผู้ได้รับเลือกทั้งใบซ้ำ
-              ยอดรวมตามที่ปักธง: <b className="text-gray-700 dark:text-gray-200">{fmtMoney(mixedNet(doc))}</b>
-            </p>
+          {mixedAll ? (
+            /* โหมดผสม: เลือก supplier ครบทุกแถวแล้ว — ซ่อน radio ทั้งใบ ไม่ให้เลือกซ้ำซ้อนกัน */
+            <div className="rounded-xl border border-[#1B8C4B]/40 bg-[#1B8C4B]/5 p-3">
+              <p className="text-sm font-semibold text-[#1B8C4B]">เลือกรายบรรทัด (ผสม {mixTotals?.suppliersUsed ?? 0} เจ้า)</p>
+              <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
+                สุทธิรวมแบบผสม <b className="tabular-nums">{fmtMoney(mixTotals?.grand)}</b>
+                {bestNet != null && mixTotals != null && (
+                  <> · ต่ำสุดที่เป็นไปได้ <b className="tabular-nums">{fmtMoney(bestNet)}</b>{" "}
+                    <span className={mixTotals.grand > bestNet ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}>
+                      (+{fmtMoney(Math.round((mixTotals.grand - bestNet) * 100) / 100)} บาท)
+                    </span>
+                  </>
+                )}
+              </p>
+              {mixTotals && (
+                <p className="mt-1 text-xs text-gray-500">
+                  {mixTotals.perSupplier.map((ps, i) => (ps.lines > 0 ? `${doc.suppliers[i].name || `Supplier ${i + 1}`} ${ps.lines} แถว ${fmtMoney(ps.net)}` : null))
+                    .filter(Boolean).join(" · ")}
+                </p>
+              )}
+              <p className="mt-1 text-[11px] text-gray-500">ส่วนลดท้ายใบไม่ถูกนำมาคิดเมื่อเลือกผสม — คิดจากราคาต่อแถว × จำนวน แล้วบวก VAT ตามฐานราคาของแต่ละเจ้า</p>
+              {!readOnly && (
+                <button type="button" onClick={backToWholeDoc} className="mt-2 rounded-lg border border-[#1B8C4B] px-3 py-1 text-xs font-semibold text-[#1B8C4B] hover:bg-[#1B8C4B]/10">กลับไปเลือกทั้งใบ</button>
+              )}
+            </div>
           ) : (
-            <p className="mt-2 text-xs text-gray-400">หรือปักธง <span className="text-[#1B8C4B]">★</span> เลือก supplier แยกเป็นรายรายการในตารางด้านบนแทนได้ ถ้าอยากผสมหลายเจ้าเพื่อให้ได้ราคารวมที่ดีที่สุด</p>
+            <>
+              <div className="flex flex-wrap gap-3">
+                {doc.suppliers.map((s, i) => (
+                  <label key={i} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2 text-sm ${doc.selectedSupplier === i + 1 ? "border-[#1B8C4B] bg-[#1B8C4B]/5" : "border-[#EEF2F0] dark:border-white/8"}`}>
+                    <input type="radio" name="selected" aria-label={`ผู้ได้รับเลือกทั้งใบ: Supplier ${i + 1}`} disabled={readOnly} checked={doc.selectedSupplier === i + 1} onChange={() => void selectWholeDoc(i)} />
+                    <span className="font-medium">Supplier {i + 1}</span><span>{s.name}</span>
+                    <span className="tabular-nums text-gray-500">{fmtMoney(supplierTotals(doc, i).net)}</span>
+                    {i === lowNet && <span className="rounded bg-emerald-100 px-1.5 text-[10px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">ถูกสุด</span>}
+                  </label>
+                ))}
+              </div>
+              {pickedCount > 0 ? (
+                <p className="mt-2 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle size={13} /> เลือกรายบรรทัดยังไม่ครบ ({pickedCount}/{doc.items.length}) — แถวที่เหลือจะใช้ผู้ได้รับเลือกทั้งใบ เลือกให้ครบทุกแถวเพื่อใช้โหมดผสมเต็มใบ
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-gray-400">หรือเลือก supplier แยกเป็นรายบรรทัดในตารางด้านบน (ปุ่ม “เลือกถูกสุดทุกแถว”) ถ้าอยากผสมหลายเจ้าเพื่อให้ได้ราคารวมที่ดีที่สุด</p>
+              )}
+            </>
           )}
-          {doc.selectedSupplier != null && lowNet != null && doc.selectedSupplier !== lowNet + 1 && (
+          {needReason && (
             <div className="mt-3">
-              <p className="mb-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle size={13} /> เลือกรายที่ไม่ใช่สุทธิต่ำสุด — ต้องระบุเหตุผลก่อนส่งลงนาม</p>
+              <p className="mb-1 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400"><AlertTriangle size={13} />
+                {mixedAll ? "มีแถวที่ไม่ได้เลือกเจ้าที่ถูกสุดของแถวนั้น" : "เลือกรายที่ไม่ใช่สุทธิต่ำสุด"} — ต้องระบุเหตุผลก่อนส่งลงนาม</p>
               <textarea value={doc.selectionReason} disabled={readOnly} onChange={(e) => patch({ selectionReason: e.target.value })} rows={2} placeholder="เช่น ของใหม่ มือ 1 รับประกัน 1 ปี / ส่งมอบเร็วกว่า 10 วัน" className={inputCls} />
             </div>
           )}
