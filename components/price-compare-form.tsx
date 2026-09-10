@@ -13,7 +13,7 @@ import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
-  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedNet,
   type PriceCompare, type PcCommittee, type PcFile, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -311,6 +311,14 @@ export function PriceCompareForm({ id }: { id: string }) {
               </label>
             ))}
           </div>
+          {allLinesAwarded(doc) ? (
+            <p className="mt-2 text-xs text-gray-500">
+              ปักธงเลือก supplier แยกรายรายการครบทุกแถวในตารางด้านบนแล้ว (mix) — ไม่ต้องเลือกผู้ได้รับเลือกทั้งใบซ้ำ
+              ยอดรวมตามที่ปักธง: <b className="text-gray-700 dark:text-gray-200">{fmtMoney(mixedNet(doc))}</b>
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-gray-400">หรือปักธง <span className="text-[#1B8C4B]">★</span> เลือก supplier แยกเป็นรายรายการในตารางด้านบนแทนได้ ถ้าอยากผสมหลายเจ้าเพื่อให้ได้ราคารวมที่ดีที่สุด</p>
+          )}
           {doc.selectedSupplier != null && lowNet != null && doc.selectedSupplier !== lowNet + 1 && (
             <div className="mt-3">
               <p className="mb-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle size={13} /> เลือกรายที่ไม่ใช่สุทธิต่ำสุด — ต้องระบุเหตุผลก่อนส่งลงนาม</p>

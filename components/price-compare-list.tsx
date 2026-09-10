@@ -132,7 +132,7 @@ export function PriceCompareList() {
                 <td className="px-3 py-2 font-medium">{r.title || <span className="text-gray-400">(ยังไม่ระบุ)</span>}</td>
                 <td className="px-3 py-2">{r.requestDept}</td>
                 <td className="px-3 py-2 text-center">{r.supplierCount}</td>
-                <td className="px-3 py-2">{r.selectedSupplier ? `${r.selectedSupplier}. ${r.selectedName}` : <span className="text-gray-400">—</span>}</td>
+                <td className="px-3 py-2">{r.selectedName ? (r.selectedSupplier ? `${r.selectedSupplier}. ${r.selectedName}` : r.selectedName) : <span className="text-gray-400">—</span>}</td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {r.selectedNet != null ? fmtMoney(r.selectedNet) : r.lowestNet != null ? <span className="text-gray-400" title="สุทธิต่ำสุด (ยังไม่เลือก)">{fmtMoney(r.lowestNet)}</span> : ""}
                 </td>

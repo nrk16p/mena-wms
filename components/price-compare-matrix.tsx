@@ -1,10 +1,12 @@
 "use client"
 // components/price-compare-matrix.tsx — ตารางเทียบราคา รายการ × Supplier 1–4 + สรุปยอด (คำนวณสดจาก lib/price-compare)
 import { Fragment, useEffect, useRef } from "react"
-import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
+import { Plus, Trash2, ArrowUp, ArrowDown, Star } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import {
   emptySupplier, supplierTotals, lowestPerLine, lowestNet, fmtMoney, MAX_SUPPLIERS, VAT_MODE_LABEL,
+  addPriceOption, removePriceOption, promotePriceOption, updatePriceOption,
+  effectiveLineSupplier, allLinesAwarded, mixedNet, bestMixNet,
   type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals,
 } from "@/lib/price-compare"
 
@@ -12,7 +14,7 @@ type Props = {
   doc: PriceCompare
   garages: Garage[]
   onGarageCreated: (g: Garage) => void
-  onChange: (patch: Pick<PriceCompare, "items" | "suppliers">) => void
+  onChange: (patch: Partial<Pick<PriceCompare, "items" | "suppliers" | "lineSupplier">>) => void
   readOnly?: boolean
 }
 
@@ -21,33 +23,50 @@ const textInput = "w-full rounded-md border border-transparent bg-transparent px
 const numOrNull = (v: string): number | null => { if (v.trim() === "") return null; const n = parseFloat(v.replace(/,/g, "")); return isFinite(n) ? n : null }
 
 export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, readOnly }: Props) {
-  const { items, suppliers } = doc
+  const { items, suppliers, lineSupplier } = doc
   const low = lowestPerLine(doc)
   const lowNet = lowestNet(doc)
   const totals = suppliers.map((_, i) => supplierTotals(doc, i))
   const cols = 4 + suppliers.length * 2 + (readOnly ? 0 : 1)
+  const mixed = allLinesAwarded(doc)
+  const mNet = mixedNet(doc)
+  const bNet = bestMixNet(doc)
 
   // ref แบบซิงค์ กันปัญหา stale closure: GarageCombobox เรียก onCreated แล้ว onChange ทันทีในจังหวะเดียวกัน
   // ก่อนที่ prop garages รอบใหม่จะมาถึง — ถ้า .find อิง garages เฉยๆ จะยังไม่เห็นอู่ที่เพิ่งสร้าง
   const garagesRef = useRef(garages)
   useEffect(() => { garagesRef.current = garages }, [garages])
 
-  const setItems = (next: PcItem[], nextSup?: PcSupplier[]) => onChange({ items: next, suppliers: nextSup ?? suppliers })
-  const setSuppliers = (next: PcSupplier[]) => onChange({ items, suppliers: next })
-  const patchItem = (r: number, p: Partial<PcItem>) => setItems(items.map((it, i) => (i === r ? { ...it, ...p } : it)))
-  const patchSupplier = (s: number, p: Partial<PcSupplier>) => setSuppliers(suppliers.map((sp, i) => (i === s ? { ...sp, ...p } : sp)))
+  const patchItem = (r: number, p: Partial<PcItem>) => onChange({ items: items.map((it, i) => (i === r ? { ...it, ...p } : it)) })
+  const patchSupplier = (s: number, p: Partial<PcSupplier>) => onChange({ suppliers: suppliers.map((sp, i) => (i === s ? { ...sp, ...p } : sp)) })
   const setPrice = (s: number, r: number, v: number | null) => patchSupplier(s, { prices: suppliers[s].prices.map((p, i) => (i === r ? v : p)) })
+  const setLineSupplier = (next: (number | null)[]) => onChange({ lineSupplier: next })
+  // ปัก/ถอนธง "ใช้ supplier รายนี้สำหรับรายการนี้" — กดซ้ำที่ธงเดิม = ถอนธง (กลับไป fallback ผู้ได้รับเลือกทั้งใบ)
+  const toggleLineAward = (r: number, supplierNum: number) =>
+    setLineSupplier(lineSupplier.map((v, i) => (i === r ? (v === supplierNum ? null : supplierNum) : v)))
 
-  const addItem = () => setItems([...items, { name: "", qty: 1, unit: "" }], suppliers.map((sp) => ({ ...sp, prices: [...sp.prices, null] })))
-  const removeItem = (r: number) => setItems(items.filter((_, i) => i !== r), suppliers.map((sp) => ({ ...sp, prices: sp.prices.filter((_, i) => i !== r) })))
+  const addItem = () => onChange({
+    items: [...items, { name: "", qty: 1, unit: "" }],
+    suppliers: suppliers.map((sp) => ({ ...sp, prices: [...sp.prices, null], extraOptions: [...sp.extraOptions, []] })),
+    lineSupplier: [...lineSupplier, null],
+  })
+  const removeItem = (r: number) => onChange({
+    items: items.filter((_, i) => i !== r),
+    suppliers: suppliers.map((sp) => ({ ...sp, prices: sp.prices.filter((_, i) => i !== r), extraOptions: sp.extraOptions.filter((_, i) => i !== r) })),
+    lineSupplier: lineSupplier.filter((_, i) => i !== r),
+  })
   const moveItem = (r: number, dir: -1 | 1) => {
     const j = r + dir
     if (j < 0 || j >= items.length) return
     const swap = <T,>(arr: T[]) => { const a = [...arr]; [a[r], a[j]] = [a[j], a[r]]; return a }
-    setItems(swap(items), suppliers.map((sp) => ({ ...sp, prices: swap(sp.prices) })))
+    onChange({
+      items: swap(items),
+      suppliers: suppliers.map((sp) => ({ ...sp, prices: swap(sp.prices), extraOptions: swap(sp.extraOptions) })),
+      lineSupplier: swap(lineSupplier),
+    })
   }
-  const addSupplier = () => suppliers.length < MAX_SUPPLIERS && setSuppliers([...suppliers, emptySupplier(items.length)])
-  const removeSupplier = (s: number) => setSuppliers(suppliers.filter((_, i) => i !== s))
+  const addSupplier = () => suppliers.length < MAX_SUPPLIERS && onChange({ suppliers: [...suppliers, emptySupplier(items.length)] })
+  const removeSupplier = (s: number) => onChange({ suppliers: suppliers.filter((_, i) => i !== s) })
 
   const th = "px-2 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 border-b border-[#E2E8E4] dark:border-white/10"
   const td = "px-1 py-0.5 border-b border-[#EEF2F0] dark:border-white/8 align-middle"
@@ -125,12 +144,42 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
               {suppliers.map((sp, s) => {
                 const p = sp.prices[r] ?? null
                 const best = low[r] === s && p != null
+                const awarded = effectiveLineSupplier(doc, r) === s + 1
+                const opts = sp.extraOptions[r] ?? []
                 return (
-                  <td key={s} colSpan={2} className={`${td} ${best ? "bg-emerald-50 dark:bg-emerald-900/20" : ""}`}>
+                  <td key={s} colSpan={2} className={`${td} ${best ? "bg-emerald-50 dark:bg-emerald-900/20" : ""} ${awarded ? "ring-1 ring-inset ring-[#1B8C4B]" : ""}`}>
                     <div className="flex items-center gap-1">
+                      {!readOnly ? (
+                        <button type="button" onClick={() => toggleLineAward(r, s + 1)}
+                          title={awarded ? "เลิกกำหนด — กลับไปใช้ผู้ได้รับเลือกของทั้งใบ" : "ใช้ supplier นี้สำหรับรายการนี้ (mix ข้าม supplier)"}
+                          className={awarded ? "shrink-0 text-[#1B8C4B]" : "shrink-0 text-gray-300 hover:text-gray-500"}>
+                          <Star size={12} fill={awarded ? "currentColor" : "none"} />
+                        </button>
+                      ) : awarded ? <Star size={12} className="shrink-0 text-[#1B8C4B]" fill="currentColor" /> : null}
                       <input inputMode="decimal" value={p ?? ""} disabled={readOnly} onChange={(e) => setPrice(s, r, numOrNull(e.target.value))} placeholder="—" className={cellInput} />
                       <span className={`w-24 shrink-0 text-right text-xs tabular-nums ${best ? "font-semibold text-emerald-700" : "text-gray-500"}`}>{p != null ? fmtMoney(Math.round(it.qty * p * 100) / 100) : ""}</span>
                     </div>
+                    {(opts.length > 0 || !readOnly) && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                        {opts.map((opt, oi) => (
+                          <span key={oi} className="inline-flex items-center gap-0.5 rounded bg-gray-100 dark:bg-white/5 px-1 py-0.5 text-[10px] text-gray-500">
+                            {readOnly ? (
+                              <span>{opt.label || "เกรด"}: {fmtMoney(opt.price)}</span>
+                            ) : (
+                              <>
+                                <input value={opt.label} onChange={(e) => patchSupplier(s, updatePriceOption(sp, r, oi, { label: e.target.value }))} placeholder="เกรด" className="w-12 bg-transparent outline-none" />
+                                <input inputMode="decimal" value={opt.price ?? ""} onChange={(e) => patchSupplier(s, updatePriceOption(sp, r, oi, { price: numOrNull(e.target.value) }))} placeholder="ราคา" className="w-14 bg-transparent text-right outline-none" />
+                                <button type="button" title="ใช้ราคานี้แทน" onClick={() => patchSupplier(s, promotePriceOption(sp, r, oi))} className="font-medium text-[#1B8C4B] hover:underline">ใช้</button>
+                                <button type="button" title="ลบตัวเลือกนี้" onClick={() => patchSupplier(s, removePriceOption(sp, r, oi))} className="text-gray-400 hover:text-red-600"><Trash2 size={9} /></button>
+                              </>
+                            )}
+                          </span>
+                        ))}
+                        {!readOnly && (
+                          <button type="button" onClick={() => patchSupplier(s, addPriceOption(sp, r, { label: "", price: null }))} className="text-[10px] font-medium text-[#0E7490] hover:underline">+เกรด</button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 )
               })}
@@ -163,6 +212,18 @@ export function PriceCompareMatrix({ doc, garages, onGarageCreated, onChange, re
               {!readOnly && <td className={td}></td>}
             </tr>
           ))}
+          {suppliers.length > 1 && (mNet != null || bNet != null) && (
+            <tr className="border-t border-dashed border-[#E2E8E4] dark:border-white/10">
+              <td colSpan={cols} className="px-2 py-1.5 text-xs text-gray-500">
+                <span className="mr-4 inline-flex items-center gap-1">
+                  <Star size={10} className="text-[#1B8C4B]" fill="currentColor" />
+                  ยอดรวมตามธงที่ปัก{mixed ? "" : " + ผู้ได้รับเลือกทั้งใบ (แถวที่ยังไม่ปักธง)"}:
+                  <b className="text-gray-700 dark:text-gray-200">{mNet != null ? fmtMoney(mNet) : "—"}</b>
+                </span>
+                {bNet != null && <span className="inline-flex items-center gap-1">ถ้าปักธงถูกสุดทุกแถว: <b className="text-emerald-700">{fmtMoney(bNet)}</b></span>}
+              </td>
+            </tr>
+          )}
         </tfoot>
       </table>
     </div>
