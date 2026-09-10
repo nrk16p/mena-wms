@@ -70,7 +70,7 @@ export function RfqListPage() {
       </div>
       <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead><tr style={{ background: "#F6FAF7", textAlign: "left" }}>{["อู่", "รอบ", "ชีต", "สถานะ", "ค่าแรง", "อะไหล่", "เปิดล่าสุด", "ส่งเมื่อ", "ปิดรับ", "ราคามีผลถึง", ""].map((h) => <th key={h} style={{ padding: "8px 10px", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+          <thead><tr style={{ background: "#F6FAF7", textAlign: "left" }}>{["อู่", "รอบ", "ชีต", "สถานะ", "ค่าแรง", "อะไหล่", "เปิดครั้งแรก", "ส่งเมื่อ", "ปิดรับ", "ราคามีผลถึง", ""].map((h) => <th key={h} style={{ padding: "8px 10px", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
           <tbody>
             {loading && <tr><td colSpan={11} style={{ padding: 20, color: "#9AA8A0" }}>กำลังโหลด…</td></tr>}
             {!loading && !shown.length && <tr><td colSpan={11} style={{ padding: 20, color: "#9AA8A0" }}>ไม่มีรายการ</td></tr>}

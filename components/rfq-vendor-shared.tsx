@@ -59,7 +59,7 @@ export function useAutosave(token: string) {
     if (!Object.keys(q.items).length && !Object.keys(q.parts).length) return
     setState("saving")
     try {
-      const r = await fetch(`/api/q/${token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(q) })
+      const r = await fetch(`/api/q/${token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(q), keepalive: true })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
       setState("saved"); setSavedAt(new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }))
@@ -78,7 +78,21 @@ export function useAutosave(token: string) {
     if (n >= 20) { await flush(); return }
     timer.current = setTimeout(() => void flush(), 600)
   }, [flush])
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  // ออกจากหน้า/ปิดแอปก่อนครบ 600ms ต้องส่งของค้างออกไปก่อน ไม่งั้นช่องสุดท้ายหายเงียบ ๆ
+  // (fetch ใน flush ใช้ keepalive ให้รอดตอน unload) · ใช้ ref เพื่อให้ cleanup เรียก flush ตัวล่าสุด
+  const flushRef = useRef(flush)
+  useEffect(() => { flushRef.current = flush }, [flush])
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden") void flushRef.current() }
+    window.addEventListener("pagehide", onHide)
+    document.addEventListener("visibilitychange", onHide)
+    return () => {
+      window.removeEventListener("pagehide", onHide)
+      document.removeEventListener("visibilitychange", onHide)
+      if (timer.current) clearTimeout(timer.current)
+      void flushRef.current()
+    }
+  }, [])
   return { save, flush, state, savedAt, errorMsg }
 }
 

@@ -113,8 +113,8 @@ function TierBlock({ title, color, mode, t, ro, onChange }: { title: string; col
     <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: color + "0D", border: `1px solid ${color}33` }}>
       <div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 6 }}>{title}</div>
       {mode === "hourly"
-        ? <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><TierField k="rate" label="อัตรา ฿/ชม." {...f} /><TierField k="hours" label="ชม.มาตรฐาน" {...f} /></div>
-        : <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}><TierField k="light" label="เหมา เบา" {...f} /><TierField k="mid" label="เหมา กลาง" {...f} /><TierField k="heavy" label="เหมา หนัก" {...f} /></div>}
+        ? <div key="hourly" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}><TierField k="rate" label="อัตรา ฿/ชม." {...f} /><TierField k="hours" label="ชม.มาตรฐาน" {...f} /></div>
+        : <div key="lump" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}><TierField k="light" label="เหมา เบา" {...f} /><TierField k="mid" label="เหมา กลาง" {...f} /><TierField k="heavy" label="เหมา หนัก" {...f} /></div>}
     </div>
   )
 }

@@ -94,6 +94,8 @@ export function VendorMatrixPage() {
   )
 
   const totalTicked = rows.reduce((a, v) => a + v.codes.length, 0)
+  // นับเฉพาะที่ยังอยู่ในแถวที่กรองแสดง — ติ๊กไว้แล้วเปลี่ยนตัวกรอง จะได้ตรงกับที่ modal ได้รับ
+  const pickedShown = rows.filter((v) => picked.has(v.vendor)).length
   // นับจากทั้งหน้าไม่ใช่แถวที่กรอง — ตัวเลขนี้ตอบว่า "ระบบทำอะไรไปแล้ว" ไม่ใช่ "กำลังดูอะไรอยู่"
   const autoApprovedCount = (data?.vendors ?? []).filter((v) => v.status === "approved" && v.autoApproved).length
   const AUTO_RULE_HINT =
@@ -324,11 +326,11 @@ export function VendorMatrixPage() {
             )}
             <button
               onClick={() => setRfqOpen(true)}
-              disabled={!picked.size}
+              disabled={!pickedShown}
               title="สร้างลิงก์ขอราคาให้อู่ที่เลือก (ติ๊กช่องหน้าชื่ออู่)"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto", padding: "7px 12px", borderRadius: 8, border: "none", background: picked.size ? "#1B8C4B" : "#E5E7EB", color: picked.size ? "#fff" : "#9CA3AF", fontSize: 13, fontWeight: 600, cursor: picked.size ? "pointer" : "not-allowed" }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto", padding: "7px 12px", borderRadius: 8, border: "none", background: pickedShown ? "#1B8C4B" : "#E5E7EB", color: pickedShown ? "#fff" : "#9CA3AF", fontSize: 13, fontWeight: 600, cursor: pickedShown ? "pointer" : "not-allowed" }}
             >
-              <FileText size={14} /> ขอราคา{picked.size ? ` (${picked.size})` : ""}
+              <FileText size={14} /> ขอราคา{pickedShown ? ` (${pickedShown})` : ""}
             </button>
             <button
               onClick={() => void exportXlsx()}

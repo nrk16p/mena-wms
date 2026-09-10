@@ -34,7 +34,11 @@ export async function getCatalog(version?: number) {
   const d = await db()
   const meta = await d.collection(META_COLL).findOne<{ version: number }>({ _id: "latest" as never })
   const v = version ?? meta?.version ?? 0
-  const filter = version ? { version: { $lte: v } } : { active: true }   // ใบเก่าเห็นงานรุ่นที่ตัวเองสร้าง (รวมที่ถูกถอดภายหลัง)
+  // ใบเก่าต้องเห็นงานชุดเดียวกับตอนสร้าง: แถวที่ "มีอยู่แล้ว" ตอนรุ่น v (firstVersion ≤ v) และ
+  // "ยังไม่ถูกถอด" ก่อนรุ่น v (version = รุ่นล่าสุดที่แถวโผล่ ≥ v) · แถวเก่าก่อนมี firstVersion ถือว่ามีมาตั้งแต่แรก
+  const filter = version
+    ? { version: { $gte: v }, $or: [{ firstVersion: { $lte: v } }, { firstVersion: { $exists: false } }] }
+    : { active: true }
   const [jobs, parts] = await Promise.all([
     d.collection<RfqJob>(JOB_COLL).find(filter, { projection: { _id: 0 } }).sort({ sheet: 1, seq: 1 }).toArray(),
     d.collection<RfqPart>(PART_COLL).find(filter, { projection: { _id: 0 } }).sort({ sheet: 1, seq: 1 }).toArray(),

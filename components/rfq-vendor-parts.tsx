@@ -5,6 +5,8 @@ import { SHEET_ORDER, partKey, type RfqPartAnswer, type RfqPart } from "@/lib/rf
 import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, toNum } from "@/components/rfq-vendor-shared"
 
 const EMPTY: RfqPartAnswer = { skip: false, sameAsL: true, brand: "", note: "", at: "" }
+const isBlank = (a: RfqPartAnswer) =>
+  !a.skip && a.priceL === undefined && a.priceS === undefined && !a.brand && a.warrantyMonths === undefined && a.leadDays === undefined && !a.note
 
 export function RfqVendorParts({ token }: { token: string }) {
   const { data, loading, error, setLocal } = useInvite(token)
@@ -31,6 +33,8 @@ export function RfqVendorParts({ token }: { token: string }) {
     const cur = partsRef.current[k] ?? EMPTY
     let next: RfqPartAnswer = { ...cur, ...patch }
     if (next.sameAsL) next = { ...next, priceS: next.priceL }
+    // แตะช่องแล้วออกโดยไม่พิมพ์ ไม่ถือว่า "กรอกแล้ว" — ไม่งั้นจัดซื้อแยกไม่ออกว่าอู่ตั้งใจเว้นหรือแค่ผ่านตา
+    if (!partsRef.current[k] && isBlank(next)) return
     partsRef.current = { ...partsRef.current, [k]: next }
     setLocal((d) => ({ ...d, invite: { ...d.invite, parts: { ...d.invite.parts, [k]: next } } }))
     void save({ parts: { [k]: next } })

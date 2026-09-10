@@ -19,7 +19,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (!invite) return NextResponse.json({ error: "not found" }, { status: 404 })
   const cat = await getCatalog(invite.catalogVersion)
   const sheets = new Set(invite.sheets)
-  return NextResponse.json({ invite, jobs: cat.jobs.filter((j) => sheets.has(j.sheet)), parts: cat.parts.filter((p) => sheets.has(p.sheet)) })
+  return NextResponse.json({
+    invite,
+    jobs: invite.sections.includes("labour") ? cat.jobs.filter((j) => sheets.has(j.sheet)) : [],
+    parts: invite.sections.includes("parts") ? cat.parts.filter((p) => sheets.has(p.sheet)) : [],
+  })
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
