@@ -2,7 +2,7 @@
 // หน้าอะไหล่: ชีตละขั้น · แถวละรายการ กะทัดรัด · ค้นหาในชีต · "ไม่มีจำหน่าย"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { SHEET_ORDER, partKey, type RfqPartAnswer, type RfqPart } from "@/lib/rfq-core"
-import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, toNum } from "@/components/rfq-vendor-shared"
+import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, NeedContact, toNum } from "@/components/rfq-vendor-shared"
 
 const EMPTY: RfqPartAnswer = { skip: false, sameAsL: true, brand: "", note: "", at: "" }
 const isBlank = (a: RfqPartAnswer) =>
@@ -19,6 +19,8 @@ export function RfqVendorParts({ token }: { token: string }) {
   useEffect(() => { if (data) partsRef.current = data.invite.parts }, [data])
   if (loading) return <div style={V.page}><div style={V.muted}>กำลังโหลด…</div></div>
   if (error || !data) return <div style={V.page}><div style={{ ...V.card, color: "#B91C1C" }}>{error || "โหลดไม่สำเร็จ"}</div></div>
+  // เปิดลิงก์ตรงมาหน้านี้โดยยังไม่กรอกผู้ติดต่อ → API จะปฏิเสธการบันทึกทุกช่อง ส่งกลับไปหน้าหลักก่อน
+  if (!data.invite.contact && data.invite.canWrite) return <NeedContact token={token} />
   const { invite, parts } = data
   const ro = !invite.canWrite
   const sheet = sheets[step]

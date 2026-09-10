@@ -2,7 +2,7 @@
 // หน้าค่าแรง: ชีตละขั้น · การ์ดละงาน · รายชั่วโมง / เหมา / ไม่รับงาน · Mixer L แล้ว S (+ "S เหมือน L")
 import { useEffect, useMemo, useRef, useState } from "react"
 import { SHEET_ORDER, type RfqAnswer, type RfqJob, type Tier } from "@/lib/rfq-core"
-import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, toNum } from "@/components/rfq-vendor-shared"
+import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, NeedContact, toNum } from "@/components/rfq-vendor-shared"
 
 const EMPTY: RfqAnswer = { mode: "lump", L: {}, S: {}, sameAsL: true, note: "", at: "" }
 
@@ -16,6 +16,8 @@ export function RfqVendorLabour({ token }: { token: string }) {
   useEffect(() => { if (data) itemsRef.current = data.invite.items }, [data])
   if (loading) return <div style={V.page}><div style={V.muted}>กำลังโหลด…</div></div>
   if (error || !data) return <div style={V.page}><div style={{ ...V.card, color: "#B91C1C" }}>{error || "โหลดไม่สำเร็จ"}</div></div>
+  // เปิดลิงก์ตรงมาหน้านี้โดยยังไม่กรอกผู้ติดต่อ → API จะปฏิเสธการบันทึกทุกช่อง ส่งกลับไปหน้าหลักก่อน
+  if (!data.invite.contact && data.invite.canWrite) return <NeedContact token={token} />
   const { invite, jobs } = data
   const ro = !invite.canWrite
   const sheet = sheets[step]
@@ -60,7 +62,7 @@ export function RfqVendorLabour({ token }: { token: string }) {
               <span style={{ ...V.muted, fontVariantNumeric: "tabular-nums" }}>{job.seq}.</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15.5, fontWeight: 600, lineHeight: 1.3 }}>{job.name}</div>
-                <div style={V.muted}>{job.jobCode} · ชม.อ้างอิง L {job.refHoursL ?? "—"} / S {job.refHoursS ?? "—"}</div>
+                <div style={V.muted}>{job.jobCode}</div>
               </div>
             </div>
             <button onClick={() => setOpenScope((o) => ({ ...o, [job.jobCode]: !so }))} style={{ ...V.btn, minHeight: 32, padding: "4px 10px", fontSize: 12.5, marginTop: 8, background: "#F6FAF7" }}>{so ? "ซ่อน" : "ดู"}ขอบเขตงาน + เกณฑ์ เบา/กลาง/หนัก</button>
@@ -101,9 +103,15 @@ export function RfqVendorLabour({ token }: { token: string }) {
   )
 }
 
+/** คำอธิบายใต้หัวช่อง — อู่ที่ไม่คุ้นฟอร์มต้องอ่านแล้วรู้ทันทีว่าช่องนี้กรอกอะไร */
+const TIER_HINT: Partial<Record<keyof Tier, string>> = {
+  rate:  "ค่าแรงต่อชั่วโมง",
+  hours: "จำนวนชั่วโมงที่ใช้ในการซ่อม",
+}
+
 function TierField({ k, label, t, ro, onChange }: { k: keyof Tier; label: string; t: Tier; ro: boolean; onChange: (p: Partial<Tier>) => void }) {
   return (
-    <div><label style={V.label}>{label}</label><input style={V.input} inputMode="decimal" disabled={ro} defaultValue={t[k] ?? ""} placeholder="฿" onBlur={(e) => onChange({ [k]: toNum(e.target.value) })} /></div>
+    <div><label style={V.label}>{label}{TIER_HINT[k] && <span style={{ display: "block", fontWeight: 400, color: "#7C8B82", fontSize: 11.5 }}>{TIER_HINT[k]}</span>}</label><input style={V.input} inputMode="decimal" disabled={ro} defaultValue={t[k] ?? ""} placeholder="฿" onBlur={(e) => onChange({ [k]: toNum(e.target.value) })} /></div>
   )
 }
 

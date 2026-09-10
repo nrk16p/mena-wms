@@ -135,6 +135,18 @@ export function StatusNotice({ invite }: { invite: PublicInvite }) {
   }
 }
 
+/** เข้าหน้าค่าแรง/อะไหล่ก่อนกรอกผู้ติดต่อ — พาไปหน้าหลักซึ่งจะโชว์ขั้นยืนยันตัวตนเอง */
+export function NeedContact({ token }: { token: string }) {
+  return (
+    <div style={V.page}>
+      <div style={{ ...V.card, textAlign: "center" }}>
+        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>กรุณากรอกข้อมูลผู้ติดต่อก่อนเริ่มกรอกราคา</div>
+        <Link href={`/q/${token}`} style={{ ...V.btnPrimary, display: "inline-block", textDecoration: "none", width: "auto", padding: "12px 24px" }}>ไปกรอกข้อมูลผู้ติดต่อ</Link>
+      </div>
+    </div>
+  )
+}
+
 export const thDate = (ymd: string | null | undefined) => {
   if (!ymd) return "—"
   const [y, m, d] = ymd.slice(0, 10).split("-").map(Number)
