@@ -248,8 +248,9 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     }
   }
   // โหมดผสมไม่มี supplier รายเดียวให้ติ๊ก — พิมพ์บรรทัดเดียวบอกว่าเลือกรายบรรทัดจากกี่เจ้า
+  // (ประกอบเป็น array เพื่อให้คำไทยผ่าน seg() ตามกฎ ส่วน [√] กับตัวเลขเป็นป้ายสั้นที่ไม่ต้องตัดคำ)
   const chosen = mixed
-    ? [raw(`[${TICK}] เลือกรายบรรทัด (ผสม ${mixed.suppliersUsed} เจ้า)`, { fontSize: 7 })]
+    ? [{ text: [`[${TICK}] `, seg("เลือกรายบรรทัด"), ` (ผสม ${mixed.suppliersUsed} `, seg("เจ้า"), ")"], fontSize: 7 }]
     : Array.from({ length: N }, (_, i) =>
       raw(`[${doc.selectedSupplier === i + 1 ? TICK : "  "}] Supplier ${i + 1}`, { fontSize: 8 })
     )

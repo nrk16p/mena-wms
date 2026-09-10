@@ -90,13 +90,27 @@ async function main() {
   dMix.lineSupplier = [1, 2, 2, 2, 3]
   const ddMix = buildPriceCompareDocDef(dMix)
   const flatMix = JSON.stringify(ddMix)
-  assert.ok(flatMix.includes("เลือกรายบรรทัด (ผสม 3 เจ้า)"), "ช่องผู้ได้รับเลือกต้องบอกว่าเลือกรายบรรทัดจากกี่เจ้า")
+  // ป้ายประกอบจาก array (คำไทยผ่าน seg()) จึงเทียบทีละชิ้นแทนการค้นทั้งประโยค
+  assert.ok(
+    flatMix.includes(`[√] `) && flatMix.includes(seg("เลือกรายบรรทัด")) && flatMix.includes(" (ผสม 3 ") && flatMix.includes(seg("เจ้า")),
+    "ช่องผู้ได้รับเลือกต้องบอกว่าเลือกรายบรรทัดจากกี่เจ้า",
+  )
   assert.ok(!flatMix.includes("[√] Supplier"), "โหมดผสมต้องไม่ติ๊ก Supplier รายใดรายหนึ่ง")
   assert.ok(flatMix.includes(seg(MIX_SUBTOTAL_LABEL)) && flatMix.includes(seg(MIX_NET_LABEL)), "ต้องมีสองแถวสรุปโหมดผสม")
   assert.ok(flatMix.includes("22,470.00"), "สุทธิที่เลือกของ supplier 1 (21,000 + VAT)")
   assert.ok(flatMix.includes("22,256.00"), "สุทธิที่เลือกของ supplier 2 (20,800 + VAT)")
   assert.ok(flatMix.includes("5,350.00"), "สุทธิที่เลือกของ supplier 3 (5,000 + VAT)")
   assert.ok(flatMix.includes("50,076.00"), "ยอดรวมผสมอยู่ในช่อง Supplier 4 ที่ว่าง")
+  // ปักหมุด branch grandInTable: ยอดรวมต้องอยู่ในคู่ช่องของ Supplier 4 ในแถว "สุทธิที่เลือก" ไม่ใช่บรรทัดใต้ตาราง
+  {
+    const body = ((ddMix.content as Record<string, unknown>[])[1].table as { body: Record<string, unknown>[][] }).body
+    const netRow = body.find((r) => r[0]?.text === seg(MIX_NET_LABEL))
+    assert.ok(netRow, "ต้องมีแถวสุทธิที่เลือกในตารางเทียบราคา")
+    const grandCell = netRow![netRow!.length - 2]   // คู่ช่องสุดท้าย = Supplier 4 (ช่องหลังเป็น placeholder ของ colSpan)
+    assert.equal(grandCell.colSpan, 2, "ยอดรวมผสมกินสองช่องของ Supplier 4")
+    const txt = (grandCell.text as string[]).join("")
+    assert.ok(txt.includes(seg("รวมผสม")) && txt.includes("50,076.00"), `ช่อง Supplier 4 ต้องเป็นยอดรวมผสม (ได้ "${txt}")`)
+  }
   assert.ok(flatMix.includes(seg(MIX_DISCOUNT_NOTE)), "ต้องมีหมายเหตุว่าส่วนลดไม่ถูกนำมาคิด")
   assert.ok((flatMix.match(/√/g) ?? []).length >= 5, "ต้องติ๊กเซลล์ราคาที่เลือกครบทั้ง 5 แถว")
 
