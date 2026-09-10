@@ -13,7 +13,7 @@ import { Download, History, Search } from "lucide-react"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
-import { WORKS_OF_SERVICE, AUTO_APPROVE_RULE, MONTHS_BACK, type VendorSummary } from "@/lib/vendor-core"
+import { historyByWork, AUTO_APPROVE_RULE, MONTHS_BACK, type VendorSummary } from "@/lib/vendor-core"
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
 import { VendorLogDrawer } from "@/components/vendor-log-drawer"
 import { describeVendorLog, fmtLogAt, latestByCode, type VendorLogRow } from "@/lib/vendor-log"
@@ -24,18 +24,6 @@ const STATUS_META: Record<VendorSummary["status"], { th: string; bg: string; fg:
   approved: { th: "อนุมัติ",   bg: "#ECFDF5", fg: "#047857" },
   rejected: { th: "ไม่อนุมัติ", bg: "#FEF2F2", fg: "#B91C1C" },
   pending:  { th: "รอพิจารณา",  bg: "#F4F4F5", fg: "#52525B" },
-}
-
-/** ประวัติของอู่รายนี้ต่อ "งาน" ตามทะเบียน — ประเภทฝั่งจัดซื้อ 1 ตัวจับได้หลายงาน
- *  (เช่น "ระบบยาง" ครอบ 5 งานย่อย) ตัวเลขจึงเป็นระดับกลุ่มงาน ไม่ใช่รายงานย่อย */
-function historyByWork(v: VendorSummary): Map<string, number> {
-  const out = new Map<string, number>()
-  for (const d of v.didTypes) {
-    for (const w of WORKS_OF_SERVICE[d.serviceType] ?? []) {
-      out.set(w, (out.get(w) ?? 0) + d.jobs)
-    }
-  }
-  return out
 }
 
 export function VendorMatrixPage() {

@@ -4,7 +4,7 @@ import clientPromise from "@/lib/mongo"
 import {
   DB_NAME, COLL_NAME, INVENTORY_IDS, MONTHS_BACK, ymBack, ymOf,
   buildVendorPayload, seedServiceTypeFromName, serviceTypeFromGroup, isRealVendor,
-  autoApproveCandidates, AUTO_APPROVE_BY,
+  autoApproveCandidates, codesByRule, AUTO_APPROVE_BY,
   type VendorRawRow, type LabourCode, type VendorApproval, type VendorPayload, type ServiceType,
 } from "@/lib/vendor-core"
 import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
@@ -116,6 +116,38 @@ export async function getVendors(force = false): Promise<VendorPayload> {
  *  filter ซ้ำเงื่อนไขของ autoApproveCandidates จงใจ — กันเขียนทับสถานะที่คนเพิ่งเปลี่ยน
  *  ระหว่างที่ payload ถูกคำนวณ · เขียนสำเร็จเท่านั้นจึงลงประวัติ (E11000 = ไม่ match แล้ว
  *  upsert เลยชนดัชนี = มีคนตั้งสถานะไปก่อน ข้ามอย่างเงียบ ๆ) */
+/** ติ๊กประเภทการซ่อมเป็นชุดตามเกณฑ์ codesByRule (ช่องที่มีประวัติ ≥20 ครั้ง) — **รันครั้งเดียวด้วยมือ**
+ *  ผ่าน scripts/tick-vendor-codes-once.ts เช่นเดียวกับการอนุมัติ · $addToSet เพิ่มอย่างเดียว
+ *  ไม่เคยเอาติ๊กของคนออก · ลงประวัติเป็น tick รายช่องด้วยชื่อ "ระบบอัตโนมัติ" เหมือนคนติ๊ก
+ *  จะได้อ่านในลิ้นชักประวัติด้วยตัวแปลข้อความเดิม · คืนจำนวนช่องที่ติ๊กเพิ่มจริง */
+export async function tickVendorCodesByRule(payload: VendorPayload): Promise<{ vendors: number; cells: number }> {
+  const client = await clientPromise
+  const col = client.db(MASTER_DB).collection<VendorApproval>(AP_COLL)
+  await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
+  const at = new Date()
+  const atIso = at.toISOString()
+  const log: VendorLogEntry[] = []
+  let vendors = 0
+  for (const v of payload.vendors) {
+    const add = codesByRule(v)
+    if (!add.length) continue
+    // อ่านของจริงก่อนเขียน — payload อาจเก่ากว่าที่คนเพิ่งติ๊ก ลงประวัติเฉพาะช่องที่เพิ่มจริง
+    const before = await col.findOneAndUpdate(
+      { vendor: v.vendor },
+      { $addToSet: { codes: { $each: add } }, $set: { codesBy: AUTO_APPROVE_BY, codesAt: atIso },
+        $setOnInsert: { vendor: v.vendor, status: "pending" as const } },
+      { upsert: true, returnDocument: "before" }
+    )
+    const had = new Set(before?.codes ?? [])
+    const added = add.filter((c) => !had.has(c))
+    if (!added.length) continue
+    vendors += 1
+    for (const code of added) log.push({ vendor: v.vendor, action: "tick", code, by: AUTO_APPROVE_BY, byEmail: "", at })
+  }
+  await writeVendorLog(log)
+  return { vendors, cells: log.length }
+}
+
 export async function approveVendorsByRule(payload: VendorPayload): Promise<string[]> {
   const cands = autoApproveCandidates(payload.vendors)
   if (!cands.length) return []

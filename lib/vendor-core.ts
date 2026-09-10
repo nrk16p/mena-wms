@@ -190,6 +190,34 @@ export function historyApplies(code: string): boolean {
   return byCode(code)?.side === "อู่นอก"
 }
 
+/** ประวัติของอู่รายนี้ต่อ "งาน" ตามทะเบียน — ประเภทฝั่งจัดซื้อ 1 ตัวจับได้หลายงาน
+ *  (เช่น "ระบบยาง" ครอบ 5 งานย่อย) ตัวเลขจึงเป็นระดับกลุ่มงาน ไม่ใช่รายงานย่อย
+ *  ใช้ทั้งตัวเลขจาง ๆ ในช่องติ๊กบนจอ และเกณฑ์ติ๊กเป็นชุด — ต้องเป็นตัวเดียวกัน
+ *  ไม่งั้นคนเห็นเลข 25 ในช่องแต่ระบบไม่ติ๊กให้ จะงง */
+export function historyByWork(v: Pick<VendorSummary, "didTypes">): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const d of v.didTypes) {
+    for (const w of WORKS_OF_SERVICE[d.serviceType] ?? []) {
+      out.set(w, (out.get(w) ?? 0) + d.jobs)
+    }
+  }
+  return out
+}
+
+/** รหัสอู่นอกที่ "ควรติ๊กเพิ่ม" ตามเกณฑ์ (ผู้ใช้สั่ง 10/09/2026): ช่องไหนมีประวัติ ≥ minJobs ครั้ง
+ *  ติ๊กช่องนั้น · คืนเฉพาะที่ยังไม่ได้ติ๊ก — เพิ่มอย่างเดียว ไม่เคยเอาติ๊กของคนออก
+ *  · คอลัมน์อู่ในไม่มีประวัติ (historyApplies) จึงไม่มีวันถูกติ๊กจากเกณฑ์นี้ */
+export function codesByRule(
+  v: Pick<VendorSummary, "didTypes" | "codes">,
+  minJobs = AUTO_APPROVE_RULE.minJobs
+): string[] {
+  const hist = historyByWork(v)
+  const have = new Set(v.codes)
+  return REPAIR_TYPES
+    .filter((r) => r.side === "อู่นอก" && !have.has(r.code) && (hist.get(r.work) ?? 0) >= minJobs)
+    .map((r) => r.code)
+}
+
 /** รหัสทั้งหมดของหมวดหนึ่ง — ใช้ตอนกรองคอลัมน์ในตารางติ๊ก */
 export function codesOfGroup(group: RepairGroup): string[] {
   return REPAIR_TYPES.filter((r) => r.group === group).map((r) => r.code)

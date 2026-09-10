@@ -1,10 +1,11 @@
 // scripts/check-vendor-core.ts
 // รัน: npx tsx scripts/check-vendor-core.ts   (repo ไม่มี test framework — assert ตามแพตเทิร์น check-deadstock-core.ts)
 import assert from "node:assert/strict"
+import { byCode } from "../lib/repair-type-master"
 import {
   isRealVendor, serviceTypeFromGroup, seedServiceTypeFromName, monthsBetweenYm,
   median, tierOf, resolveServiceType, buildVendorPayload, TIER_RULE, UNCLASSIFIED,
-  AUTO_APPROVE_RULE, autoApproveCandidates,
+  AUTO_APPROVE_RULE, autoApproveCandidates, historyByWork, codesByRule,
   type VendorRawRow, type LabourCode, type VendorApproval,
 } from "../lib/vendor-core"
 
@@ -177,5 +178,24 @@ assert.deepEqual(cands.map((c) => c.vendor), ["ผ่าน พอดีเก�
 const p5 = buildVendorPayload(raw, [], [{ vendor: "อู่ ก ข", codes: [], status: "approved", autoApproved: true }], "2026-08", "2024-09")
 assert.equal(p5.vendors.find((v) => v.vendor === "อู่ ก ข")!.autoApproved, true)
 assert.equal(p5.vendors.find((v) => v.vendor === "อู่ ง")!.autoApproved, undefined)
+
+// --- codesByRule: ติ๊กช่องที่มีประวัติ ≥20 ครั้ง เฉพาะอู่นอก เพิ่มอย่างเดียว ---
+const tyreV = { codes: ["S45"], didTypes: [
+  { serviceType: "ระบบยาง" as const, jobs: 48, baht: 0 },
+  { serviceType: "ระบบโม่" as const, jobs: 25, baht: 0 },
+  { serviceType: "ระบบเครื่องยนต์" as const, jobs: 19, baht: 0 },
+] }
+const hw = historyByWork(tyreV)
+assert.equal(hw.get("ปะยาง"), 48, "ระบบยาง กระจายไปทุกงานย่อยของยาง")
+assert.equal(hw.get("ระบบโม่"), 25)
+const tick = codesByRule(tyreV)
+const tickRows = tick.map((c) => byCode(c)!)
+assert.ok(tick.length > 0)
+assert.ok(tickRows.every((r) => r.side === "อู่นอก"), "ห้ามติ๊กคอลัมน์อู่ใน")
+assert.ok(tickRows.some((r) => r.work === "ปะยาง") && tickRows.some((r) => r.work === "เปลี่ยนยาง"), "ยาง 48 ครั้ง → ติ๊กงานยางทุกตัว")
+assert.ok(!tickRows.some((r) => r.work === "ระบบเครื่องยนต์"), "19 ครั้ง ไม่ถึงเกณฑ์")
+assert.ok(!tick.includes("S45"), "ที่ติ๊กอยู่แล้วไม่คืนซ้ำ")
+assert.deepEqual(codesByRule({ codes: [], didTypes: [] }), [])
+assert.deepEqual(codesByRule({ codes: [], didTypes: [{ serviceType: UNCLASSIFIED, jobs: 999, baht: 0 }] }), [], "ยังไม่จัดประเภท ไม่รู้ว่างานอะไร ห้ามติ๊ก")
 
 console.log("✅ vendor-core: ผ่านทั้งหมด")
