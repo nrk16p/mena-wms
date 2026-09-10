@@ -13,7 +13,7 @@ import { Download, FileText, History, Search } from "lucide-react"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
-import { historyByWork, AUTO_APPROVE_RULE, MONTHS_BACK, type VendorSummary } from "@/lib/vendor-core"
+import { historyByWork, AUTO_APPROVE_RULE, MONTHS_BACK, VENDOR_KINDS, type VendorSummary, type VendorKind } from "@/lib/vendor-core"
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
 import { VendorLogDrawer } from "@/components/vendor-log-drawer"
 import { RfqCreateModal } from "@/components/rfq-create-modal"
@@ -50,6 +50,8 @@ export function VendorMatrixPage() {
   const [patched, setPatched] = useState<Record<string, string[]>>({})
   // เลือกอู่เพื่อสร้างลิงก์ขอราคา (ปุ่ม "ขอราคา" ในแถบเครื่องมือ)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  // ประเภทคู่ค้าที่เพิ่งตั้ง ทับบนข้อมูลเดิม (ไม่ต้องโหลดทั้งหน้าใหม่)
+  const [kindPatched, setKindPatched] = useState<Record<string, VendorKind | "">>({})
   const [rfqOpen, setRfqOpen] = useState(false)
 
   // ตัวเลือกในช่องกรองประเภทงาน — โชว์เฉพาะฝั่งที่กำลังแสดงอยู่ จะได้ไม่เลือกคอลัมน์
@@ -141,6 +143,24 @@ export function VendorMatrixPage() {
     }
   }
 
+  async function setKind(vendor: string, kind: VendorKind | "") {
+    const prev = kindPatched[vendor]
+    setKindPatched((m) => ({ ...m, [vendor]: kind }))
+    try {
+      const r = await fetch("/api/vendors/capability", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendor, kind }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
+      swalToast("success", "บันทึกแล้ว")
+    } catch (e) {
+      setKindPatched((m) => (prev === undefined ? (() => { const n = { ...m }; delete n[vendor]; return n })() : { ...m, [vendor]: prev }))
+      swalError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   /** ส่งออกตามที่เห็นบนจอ (ตัวกรองมีผลด้วย) — คนกดปุ่มคาดหวังไฟล์ที่ตรงกับที่กำลังดูอยู่
    *
    *  ช่องประเภทการซ่อมเป็น "ช่องติ๊ก" ที่คลิกเลือกได้ใน Excel — ทำด้วย data validation
@@ -157,7 +177,7 @@ export function VendorMatrixPage() {
     const FONT = "Tahoma"           // มีครบทุกเครื่อง Windows และมีสระ/วรรณยุกต์ไทยครบ
     const BRAND = "FF1B8C4B"
     const TICK = "☑", UNTICK = "☐"
-    const FIXED = ["อู่", "สถานะ", "ครั้ง", "มูลค่า", "ล่าสุด", "คลัง"]
+    const FIXED = ["อู่", "สถานะ", "ประเภท", "ครั้ง", "มูลค่า", "ล่าสุด", "คลัง"]
 
     /** เลข column → ตัวอักษร Excel (77 คอลัมน์ = เกิน Z ต้องรองรับ AA, BZ) */
     const col = (n: number): string => {
@@ -184,7 +204,7 @@ export function VendorMatrixPage() {
     for (const v of rows) {
       const ticked = new Set(v.codes)
       ws.addRow([
-        v.vendor, STATUS_META[v.status].th, v.jobs, v.baht, ymThai(v.lastYm), v.warehouses.join(", "),
+        v.vendor, STATUS_META[v.status].th, kindPatched[v.vendor] ?? v.kind ?? "", v.jobs, v.baht, ymThai(v.lastYm), v.warehouses.join(", "),
         ...cols.map((c) => (ticked.has(c.code) ? TICK : UNTICK)),
       ])
     }
@@ -438,6 +458,9 @@ export function VendorMatrixPage() {
                   <th style={{ ...TH, padding: "8px 10px", borderBottom: "1px solid #E5E7EB", borderRight: "1px solid #E5E7EB", whiteSpace: "nowrap" }}>
                     สถานะ
                   </th>
+                  <th title="อู่ = รับงานซ่อม · ร้านอะไหล่ = ขายของ" style={{ ...TH, padding: "8px 10px", borderBottom: "1px solid #E5E7EB", borderRight: "1px solid #E5E7EB", whiteSpace: "nowrap" }}>
+                    ประเภท
+                  </th>
                   {cols.map((c) => (
                     <th
                       key={c.code}
@@ -527,6 +550,29 @@ export function VendorMatrixPage() {
                             ⚙ ตามเกณฑ์
                           </span>
                         )}
+                      </td>
+                      <td style={{ padding: "6px 8px", borderBottom: "1px solid #F3F4F6", borderRight: "1px solid #E5E7EB" }}>
+                        {(() => {
+                          const kind = kindPatched[v.vendor] ?? v.kind ?? ""
+                          return (
+                            <select
+                              value={kind}
+                              disabled={!canTick}
+                              title="ประเภทคู่ค้า — ทุกคนที่ล็อกอินตั้งได้ มีประวัติทุกครั้ง"
+                              onChange={(e) => void setKind(v.vendor, e.target.value as VendorKind | "")}
+                              style={{
+                                ...mitr, fontSize: 11, padding: "3px 6px", borderRadius: 6,
+                                border: "1px solid #E5E7EB", fontWeight: 600,
+                                background: kind === "อู่" ? "#EFF6FF" : kind === "ร้านอะไหล่" ? "#FFF7ED" : "#FAFAFA",
+                                color: kind === "อู่" ? "#1D4ED8" : kind === "ร้านอะไหล่" ? "#C2410C" : "#9CA3AF",
+                                cursor: canTick ? "pointer" : "not-allowed",
+                              }}
+                            >
+                              <option value="">ยังไม่ระบุ</option>
+                              {VENDOR_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                            </select>
+                          )
+                        })()}
                       </td>
                       {cols.map((c) => {
                         const on = ticked.has(c.code)

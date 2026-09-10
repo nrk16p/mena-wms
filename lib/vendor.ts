@@ -5,7 +5,7 @@ import {
   DB_NAME, COLL_NAME, INVENTORY_IDS, MONTHS_BACK, ymBack, ymOf,
   buildVendorPayload, seedServiceTypeFromName, serviceTypeFromGroup, isRealVendor,
   autoApproveCandidates, codesByRule, AUTO_APPROVE_BY,
-  type VendorRawRow, type LabourCode, type VendorApproval, type VendorPayload, type ServiceType,
+  type VendorRawRow, type LabourCode, type VendorApproval, type VendorPayload, type ServiceType, type VendorKind,
 } from "@/lib/vendor-core"
 import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
 
@@ -286,6 +286,23 @@ export async function setVendorCapability(
   await writeVendorLog([{
     vendor, action: on ? "tick" : "untick", code, by, byEmail, at,
   }])
+}
+
+/** ตั้งประเภทคู่ค้า (อู่ / ร้านอะไหล่ / ว่าง) — ทุกคนที่ล็อกอินตั้งได้เหมือนการติ๊ก มีประวัติทุกครั้ง
+ *  ไม่แตะ by/at ของการอนุมัติ และไม่แตะ codesBy/codesAt */
+export async function setVendorKind(vendor: string, kind: VendorKind | "", by: string, byEmail = ""): Promise<void> {
+  const client = await clientPromise
+  const col = client.db(MASTER_DB).collection<VendorApproval>(AP_COLL)
+  await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
+  const at = new Date()
+  const before = await col.findOneAndUpdate(
+    { vendor },
+    { ...(kind ? { $set: { kind } } : { $unset: { kind: "" } }), $setOnInsert: { vendor, status: "pending" as const, codes: [] } },
+    { upsert: true, returnDocument: "before" }
+  )
+  const prev = before?.kind ?? ""
+  if (prev === kind) return
+  await writeVendorLog([{ vendor, action: "kind", from: prev, to: kind, by, byEmail, at }])
 }
 
 export async function setVendorApproval(
