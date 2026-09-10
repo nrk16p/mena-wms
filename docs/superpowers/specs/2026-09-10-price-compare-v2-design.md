@@ -1,6 +1,6 @@
 # ใบเทียบราคา v2 — เพิ่มรายการจากรหัสสินค้า ATMS + เลือก supplier รายบรรทัด — Design
 
-วันที่: 2026-09-10 · สถานะ: **ร่าง รอผู้ใช้อนุมัติ** · ต่อยอดจาก `2026-09-08-price-compare-design.md` (v1 อยู่บน production แล้ว)
+วันที่: 2026-09-10 · สถานะ: **อนุมัติแล้ว (ok 2026-09-10)** — ปรับให้ตรงกับโค้ดที่อยู่บน main แล้ว (ร่าง agent ถูก merge ผ่าน bb492b9 + AVL combobox 189ed24) · ต่อยอดจาก `2026-09-08-price-compare-design.md` (v1 อยู่บน production แล้ว)
 
 ## 0. ที่มา
 
@@ -31,31 +31,17 @@
 
 ## B. เลือก supplier รายบรรทัด (architectural)
 
-**Data model**
-```ts
-PriceCompare.selectionMode: "document" | "line"   // default "document" (เอกสารเก่าทุกใบ)
-PcItem.pickedSupplier: number | null              // 1..N ใช้เมื่อ selectionMode === "line"
-```
-- โหมด document = พฤติกรรม v1 ทั้งหมด (selectedSupplier + กรรมการ + เหตุผล)
-- โหมด line: `selectedSupplier` ต้องเป็น null; ทุกแถวที่มีราคาต้องมี `pickedSupplier` ที่มีราคาในแถวนั้น (validateDoc)
+**ฐานที่มีอยู่บน main แล้ว (ร่างที่ไม่ผ่าน review — ต้องรีวิว/ทดสอบใน v2):** `lib/price-compare.ts` มี `PriceCompare.lineSupplier: (number|null)[]` (ยาวเท่า items, 1-based, null = ใช้ `selectedSupplier` ของทั้งใบ — `effectiveLineSupplier`), `allLinesAwarded`, `mixedNet`, `bestMixNet`, `lineNetFor`; isComplete ผ่านเมื่อ selectedSupplier หรือ allLinesAwarded; selectionReason บังคับเมื่อแถวใดไม่เลือกถูกสุด; validateDoc ตรวจความยาว/ช่วงของ lineSupplier. **เก็บโมเดลนี้ไว้** (ไม่ใช้ `selectionMode` แยก — โหมดผสม = ทุกแถวมี lineSupplier) และเพิ่มสิ่งที่ยังขาด:
 
-**คำนวณ (pure, lib/price-compare.ts)**
-- `lineSelectionTotals(doc)` → ต่อ supplier: subtotal ของแถวที่เลือกเจ้านั้น → หัก discount ตามสัดส่วน? **ไม่** — ส่วนลดเป็นของทั้งใบเสนอราคา ไม่ปันส่วน; ในโหมด line ใช้ส่วนลด = 0 และแสดงหมายเหตุใน UI ว่า "ส่วนลดไม่ถูกนำมาคิดเมื่อเลือกผสม" (ผู้ใช้ตกลงราคาสุทธิใหม่ได้ในช่องหมายเหตุ) → vat ตาม vatMode ของ supplier นั้น → net; `mixedNet` = ผลรวม net ของทุก supplier ที่ถูกเลือก
-- `bestMixedNet(doc)` = ผลรวมของราคาต่ำสุดต่อแถว (ก่อน VAT ปรับตาม vatMode ของเจ้าที่ถูกสุดในแถวนั้น) — ใช้เทียบว่าการเลือกผสมของผู้ใช้ห่างจากดีที่สุดเท่าไร
-- `isComplete`: โหมด line → ทุกแถวมี pickedSupplier; ถ้ามีแถวใดที่ pickedSupplier ≠ supplier ถูกสุดของแถว → ต้องมี `selectionReason` (ข้อความเดียวทั้งใบ); MIN_QUOTES นับ supplier ที่ราคาครบเหมือนเดิม
-- `canTransition`: ใช้ isComplete เดิม
+1. **ตัด multi-grade ออกทั้งหมด** (`PcPriceOption`, `PcSupplier.extraOptions`, add/remove/update/promotePriceOption, ปุ่ม "+เกรด"/Star ใน matrix) — normalizeDoc ต้องทน field `extraOptions` ที่ค้างในเอกสารเก่าโดยทิ้งเงียบๆ; log diff ไม่สน
+2. **UI เลือกรายบรรทัด**: ทุกเซลล์ราคาที่มีค่ามี radio เล็ก "ใช้เจ้านี้" (แทน Star); เซลล์ที่เลือกพื้นเขียวเข้ม + ✓; ปุ่ม "เลือกถูกสุดทุกแถว" และ "ล้างการเลือกรายแถว"; footer เพิ่มแถว "ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)" ต่อ supplier; §6 สรุปผล แสดง "สุทธิรวมแบบผสม X · ต่ำสุดที่เป็นไปได้ Y (+Z)" เมื่อ allLinesAwarded และซ่อน radio ทั้งใบ (หรือแสดงว่า "เลือกรายบรรทัดอยู่") — เลือกทั้งใบ (radio Supplier N) ยังใช้ได้เมื่อไม่มี lineSupplier
+3. **ส่วนลด**: โหมดผสมไม่ปันส่วนส่วนลด (mixedNet ใช้ราคาต่อแถว × qty + VAT ตาม vatMode ของเจ้านั้น) — แสดงหมายเหตุใน UI/PDF "ส่วนลดไม่ถูกนำมาคิดเมื่อเลือกผสม"
+4. **ยอดรวมโหมดผสม (pure)**: `mixedTotals(doc)` → ต่อ supplier `{ subtotal(ที่เลือก), vat, net }` + `grand` — ใช้ทั้ง UI/PDF/list; `bestMixNet` ต้องคิด VAT ตาม vatMode ของเจ้าที่ถูกสุดในแต่ละแถว (ตรวจ/แก้)
+5. **API/list/log**: list `selectedNet` = mixedNet เมื่อ allLinesAwarded, `selectedName` = "ผสม N เจ้า"; log diff เพิ่มสรุป "เลือกรายบรรทัด N/M แถว"
+6. **PDF**: เซลล์ที่เลือกมี ✓ หน้าราคา; บล็อกใหม่ใต้สรุปยอด 2 แถว "ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)" / "สุทธิที่เลือก" ต่อ supplier + ช่องขวาสุด "รวมสุทธิแบบผสม"; ช่อง "ผู้ได้รับเลือก" พิมพ์ `[√] เลือกรายบรรทัด (ผสม N เจ้า)`; กรรมการลงนามครั้งเดียว
+7. **AVL combobox** (`components/vendor-combobox.tsx`, จาก session อื่น): คงไว้ ไม่แตะ
 
-**API:** `PUT` ผ่าน normalizeDoc/validateDoc ใหม่; list API เพิ่ม `selectionMode` และ `selectedNet` = mixedNet ในโหมด line; log diff เพิ่มฟิลด์ `selectionMode`
-
-**UI**
-- หัวการ์ด §6 สรุปผล: toggle "เลือกทั้งใบ / เลือกรายบรรทัด" (เปลี่ยนโหมดล้างค่าของอีกโหมด พร้อม swalConfirm)
-- โหมด line: matrix เพิ่มปุ่ม radio เล็กในทุกเซลล์ราคา (เลือกเจ้านี้สำหรับแถวนี้), เซลล์ที่เลือกพื้นเขียวเข้ม, แถว footer ใหม่ "ที่เลือก (ยอดรวมต่อเจ้า)" + กล่องสรุป "สุทธิรวมแบบผสม X บาท · ต่ำสุดที่เป็นไปได้ Y บาท (+Z)"; ปุ่ม "เลือกถูกสุดทุกแถว" เติมอัตโนมัติ
-- selectionReason แสดงเมื่อมีแถวที่ไม่เลือกถูกสุด
-
-**PDF**
-- โหมด line: เซลล์ที่เลือกมี ✓ หน้าราคา; ใต้ตารางสรุปยอดเพิ่มบล็อก 2 แถว "ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)" และ "สุทธิที่เลือก" ต่อ supplier + ช่องขวาสุด "รวมสุทธิแบบผสม"; ช่อง "ผู้ได้รับเลือก" พิมพ์ `[√] เลือกรายบรรทัด (ผสม N เจ้า)`; กรรมการลงนามครั้งเดียวเหมือนเดิม
-
-**ไม่ทำ:** เกรด/option หลายราคาต่อเซลล์ (ข้อ C), ปันส่วนส่วนลด, เปลี่ยนจำนวนคอลัมน์
+**ไม่ทำ:** เกรด/option หลายราคาต่อเซลล์, ปันส่วนส่วนลด, เปลี่ยนจำนวนคอลัมน์ (คง 4)
 
 ## ลำดับทำ
-A ก่อน (1 task, ~1 ชม.) → B (5 tasks: core+tests, API/log, matrix+form, PDF, QA/seed) บน branch `feat/price-compare-v2` จาก origin/main ใน worktree `master-sku-web-pc` เท่านั้น (ห้ามแตะ checkout หลักที่ session อื่นใช้)
+T1 ตัด multi-grade + ทดสอบ core โหมดผสม → T2 SKU picker (A) → T3 matrix/form UX โหมดผสม → T4 PDF + list + log → T5 QA/build บน branch `feat/price-compare-v2` จาก origin/main ใน worktree `master-sku-web-pc` เท่านั้น (ห้ามแตะ checkout หลักที่ session อื่นใช้)
