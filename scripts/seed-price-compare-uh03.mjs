@@ -1,5 +1,7 @@
 // scripts/seed-price-compare-uh03.mjs — ใบตัวอย่างจากต้นแบบ PC-2609-002 เพื่อเทียบ PDF กับกระดาษ
-// รัน: node scripts/seed-price-compare-uh03.mjs [--clear]   (ลบเฉพาะใบ seed ตามเลขที่ ก่อนใส่ใหม่)
+// รัน: node scripts/seed-price-compare-uh03.mjs [--clear] [--mixed]
+//   --mixed  เพิ่มใบที่สอง PC-2609-999 (รายการ/suppliers เดียวกัน) เลือก supplier รายบรรทัด [1,2,2,2,3] เพื่อทดสอบโหมดผสม
+//   --clear  ลบใบ seed ทั้งหมด (ทั้ง PC-2609-002 และ PC-2609-999) แล้วจบโดยไม่ใส่ใหม่
 import { MongoClient } from "mongodb"
 import fs from "node:fs"
 
@@ -20,7 +22,7 @@ const db = client.db(env.MONGO_DB || "master_data")
 const col = db.collection("price_compare")
 // ลบด้วย docNo ไม่ใช่ source — PUT ครั้งแรกจาก UI จะเขียนทับทั้งเอกสารและทำให้ field source หายไป
 // (ลบตาม source แล้วจะเก็บใบ seed ที่เคยถูกแก้ไม่ได้)
-const SEED_FILTER = { docNo: { $in: ["PC-2609-002", "PC-2609-002-SEED"] }, createdBy: "seed" }
+const SEED_FILTER = { docNo: { $in: ["PC-2609-002", "PC-2609-002-SEED", "PC-2609-999"] }, createdBy: "seed" }
 await col.deleteMany(SEED_FILTER)
 if (process.argv.includes("--clear")) { console.log("cleared"); await client.close(); process.exit(0) }
 
@@ -53,6 +55,25 @@ const doc = {
 // ถ้าเลขที่ชนกับใบจริง (unique index) ให้ต่อท้าย -SEED
 try { const r = await col.insertOne(doc); console.log("inserted", doc.docNo, r.insertedId) }
 catch { const r = await col.insertOne({ ...doc, docNo: "PC-2609-002-SEED" }); console.log("inserted (docNo suffixed)", "PC-2609-002-SEED", r.insertedId) }
+
+if (process.argv.includes("--mixed")) {
+  // ใบตัวอย่างโหมดผสม: รายการ/suppliers เดียวกับ UH03 แต่เลือก supplier รายบรรทัด [1,2,2,2,3]
+  // สุทธิรวมผสมที่คำนวณได้ = 50,076 บาท (sup1: 21000+7%=22470, sup2: 18000+1800+1000=20800+7%=22256, sup3: 5000+7%=5350 → 50076)
+  // insertOne ด้านบนแอบใส่ _id เข้าไปใน doc ให้ (mutates in place) — ต้องตัดทิ้งก่อน spread ไม่งั้นชนกัน
+  const { _id, ...docRest } = doc
+  const mixedDoc = {
+    ...docRest,
+    docNo: "PC-2609-999",
+    lineSupplier: [1, 2, 2, 2, 3],
+    selectedSupplier: null,
+    selectionReason: "",
+    status: "รอลงนาม",
+    createdBy: "seed", editedBy: "seed",
+  }
+  try { const r = await col.insertOne(mixedDoc); console.log("inserted", mixedDoc.docNo, r.insertedId) }
+  catch { const r = await col.insertOne({ ...mixedDoc, docNo: "PC-2609-999-SEED" }); console.log("inserted (docNo suffixed)", "PC-2609-999-SEED", r.insertedId) }
+}
+
 // ดันตัวนับเดือน 2609 ให้อย่างน้อย 2 — ใบใหม่จาก API จะได้ไม่ออกเลข PC-2609-002 ซ้ำกับใบ seed นี้
 await db.collection("counters").updateOne({ _id: "price_compare:2609" }, { $max: { seq: 2 } }, { upsert: true })
 await client.close()
