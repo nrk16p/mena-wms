@@ -42,6 +42,12 @@ export function diffPriceCompare(a: PriceCompare, b: PriceCompare): PcChange[] {
     if (from !== to) out.push({ field: f, label: TOP_LABELS[f], from, to })
   }
   if (a.items.length !== b.items.length) out.push({ field: "items", label: "รายการ", from: `${a.items.length} แถว`, to: `${b.items.length} แถว` })
+  // โหมดผสม: สรุปเป็น "เลือกแล้วกี่แถวจากทั้งหมด" — ยังไม่ diff ว่าแถวไหนเปลี่ยนเจ้า (เจตนาเดียวกับที่ไม่ diff ราคารายช่อง)
+  const picked = (d: PriceCompare) => (d.lineSupplier ?? []).filter((v) => v != null).length
+  const pa = picked(a), pb = picked(b)
+  if (pa !== pb || a.items.length !== b.items.length) {
+    out.push({ field: "lineSupplier", label: "เลือกรายบรรทัด", from: `${pa}/${a.items.length} แถว`, to: `${pb}/${b.items.length} แถว` })
+  }
   if (a.suppliers.length !== b.suppliers.length) out.push({ field: "suppliers", label: "Supplier", from: `${a.suppliers.length} ราย`, to: `${b.suppliers.length} ราย` })
   return out
 }

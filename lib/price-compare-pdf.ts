@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, lowestNet, completeSupplierCount, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, completeSupplierCount, allLinesAwarded, mixedTotals, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -14,6 +14,10 @@ const GRAY = "#D9D9D9"     // สีคอลัมน์ Supplier 2 ตาม�
 const LINE = "#000000"
 const MIN_ROWS = 16        // จำนวนแถวรายการขั้นต่ำ (เติมแถวว่างให้เหมือนฟอร์มกระดาษ) — มากกว่านี้แล้วล้นหน้า
 const TICK = "√"      // Sarabun ไม่มี U+2713 ✓ — ใช้ √ แทน
+// ป้ายของบล็อกสรุปโหมดผสม — export ให้ check script อ้างตัวเดียวกัน (ข้อความไทยพิมพ์ผ่าน seg() จึงเทียบตรงตัวไม่ได้)
+export const MIX_SUBTOTAL_LABEL = "ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)"
+export const MIX_NET_LABEL = "สุทธิที่เลือก"
+export const MIX_DISCOUNT_NOTE = "ส่วนลดไม่ถูกนำมาคิดเมื่อเลือกผสม"
 const SUP_W = 50           // ความกว้างคอลัมน์ราคาแต่ละช่อง (4 supplier × 2 ช่อง)
 const COL1_W = 36          // คอลัมน์ซ้ายสุด: "ลำดับ" / ป้ายเทาของบล็อกเงื่อนไข-กรรมการ (กว้างเท่ากันทั้ง 3 ตาราง)
 
@@ -55,6 +59,8 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const totals = Array.from({ length: N }, (_, i) => (sup(i) ? supplierTotals(doc, i) : null))
   const fill = (i: number) => (i === 1 ? { fillColor: GRAY } : {})   // ฟอร์มเดิมทำคอลัมน์ Supplier 2 เป็นสีเทา
   const supCols = Array.from({ length: N * 2 }, () => SUP_W)
+  // โหมดผสม = ทุกแถวถูกมอบหมาย supplier แล้ว และคิดยอดได้จริง (mixedTotals จะเป็น null ถ้าเจ้าที่ชี้ไว้ไม่ได้เสนอราคาแถวนั้น)
+  const mixed = allLinesAwarded(doc) ? mixedTotals(doc) : null
 
   // ---------- ส่วนหัว ----------
   const logoCell = LOGO
@@ -105,7 +111,12 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     cell(String(r + 1)), t(it.name), cell(String(it.qty)), t(it.unit, { alignment: "center" }),
     ...Array.from({ length: N }, (_, i) => {
       const p = sup(i)?.prices[r] ?? null
-      return [money(p, fill(i)), money(lineTotal(it, p), fill(i))]
+      // เซลล์ที่ถูกเลือกใช้จริงในโหมดผสม ติ๊กหน้าราคาต่อหน่วย (ยังชิดขวาเหมือนช่องราคาอื่น)
+      const picked = p != null && doc.lineSupplier[r] === i + 1
+      return [
+        picked ? { text: `${TICK} ${fmtMoney(p)}`, alignment: "right", bold: true, ...fill(i) } : money(p, fill(i)),
+        money(lineTotal(it, p), fill(i)),
+      ]
     }).flat(),
   ])
   const emptyRow = () => [
@@ -119,7 +130,9 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
       { colSpan: 2, ...t(sup(i)?.note ?? "", { fontSize: 7, alignment: "center", bold: true, ...fill(i) }) }, {},
     ]).flat(),
   ]
-  const blankRows = Array.from({ length: Math.max(0, MIN_ROWS - doc.items.length - 2) }, emptyRow)
+  // โหมดผสมเพิ่มแถวสรุปอีก 2 แถว จึงคืนโควตาแถวว่างไป 2 แถวเพื่อให้ฟอร์มยังจบในหน้าเดียว (เอกสารเลือกทั้งใบไม่เปลี่ยน)
+  const minRows = MIN_ROWS - (mixed ? 2 : 0)
+  const blankRows = Array.from({ length: Math.max(0, minRows - doc.items.length - 2) }, emptyRow)
 
   // ช่อง VAT บอกฐานราคาด้วย: none → "ไม่มี VAT", incl → "(รวมในราคา) / 3,683.18"
   const vatCell = (i: number) => {
@@ -137,6 +150,23 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
       key === "vat" ? vatCell(i) : money(totals[i] ? totals[i]![key] : null, { bold, ...fill(i) }),
     ]).flat(),
   ]
+  // แถวสรุปโหมดผสม: ยอดของแต่ละเจ้าเฉพาะแถวที่เจ้านั้นได้รับ (เจ้าที่ไม่ได้รับแถวไหนเลยเว้นว่าง)
+  const mixRow = (label: string, key: "subtotal" | "net", bold = false) => [
+    { colSpan: 2, ...t(label, { alignment: "center", bold }) }, {}, {}, {},
+    ...Array.from({ length: N }, (_, i) => {
+      const ps = mixed && sup(i) ? mixed.perSupplier[i] : null
+      return [{ text: "", ...fill(i) }, ps && ps.lines > 0 ? money(ps[key], { bold, ...fill(i) }) : { text: "", ...fill(i) }]
+    }).flat(),
+  ]
+  // คอลัมน์ Supplier 4 ว่าง (มีไม่ถึง 4 ราย) → ยัดยอดรวมผสมลงในที่ว่างนั้น ไม่งั้นต้องพิมพ์เป็นบรรทัดใต้ตาราง
+  const grandInTable = !!mixed && !sup(N - 1)
+  const mixRows = mixed
+    ? [mixRow(MIX_SUBTOTAL_LABEL, "subtotal"), mixRow(MIX_NET_LABEL, "net", true)]
+    : []
+  if (mixed && grandInTable) {
+    mixRows[1].splice(4 + (N - 1) * 2, 2, { colSpan: 2, text: [seg("รวมผสม"), " ", fmtMoney(mixed.grand)], alignment: "center", bold: true }, {})
+  }
+
   const priceTable = {
     table: {
       headerRows: 3,
@@ -160,6 +190,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
         sumRow("รวมราคาหลังส่วนลด", "afterDiscount"),
         sumRow("ภาษีมูลค่าเพิ่ม 7 %", "vat"),
         sumRow("รวมราคาทั้งหมด (สุทธิ)", "net", true),
+        ...mixRows,
       ],
     },
     layout: gridLayout(0.8),
@@ -216,9 +247,12 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
       ],
     }
   }
-  const chosen = Array.from({ length: N }, (_, i) =>
-    raw(`[${doc.selectedSupplier === i + 1 ? TICK : "  "}] Supplier ${i + 1}`, { fontSize: 8 })
-  )
+  // โหมดผสมไม่มี supplier รายเดียวให้ติ๊ก — พิมพ์บรรทัดเดียวบอกว่าเลือกรายบรรทัดจากกี่เจ้า
+  const chosen = mixed
+    ? [raw(`[${TICK}] เลือกรายบรรทัด (ผสม ${mixed.suppliersUsed} เจ้า)`, { fontSize: 7 })]
+    : Array.from({ length: N }, (_, i) =>
+      raw(`[${doc.selectedSupplier === i + 1 ? TICK : "  "}] Supplier ${i + 1}`, { fontSize: 8 })
+    )
   const C = DEFAULT_COMMITTEE_ROLES.length   // จำนวนช่องกรรมการ — ทั้งความกว้าง แถวลงนาม และแถวตำแหน่ง ใช้ค่าเดียวกัน
   const committeeTable = {
     table: {
@@ -253,7 +287,14 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const reasons = [
     doc.selectionReason && needSelectionReason ? reason("เหตุผลที่เลือก", doc.selectionReason, 3) : null,
     doc.fewerQuotesReason && needFewerQuotesReason ? reason("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย", doc.fewerQuotesReason, 2) : null,
+    // ยอดผสมคิดจากราคาต่อแถวล้วนๆ — ส่วนลดท้ายใบเป็นข้อตกลงของทั้งใบเสนอราคา จึงอ้างไม่ได้เมื่อซื้อแค่บางรายการ
+    mixed ? t(MIX_DISCOUNT_NOTE, { fontSize: 8, margin: [0, 2, 0, 0] }) : null,
   ].filter(Boolean)
+
+  // มี Supplier ครบ 4 คอลัมน์จนไม่เหลือที่ว่างในตาราง → ยอดรวมผสมมาเป็นบรรทัดใต้ตารางแทน
+  const grandLine = mixed && !grandInTable
+    ? [{ text: [seg("รวมผสม"), " ", fmtMoney(mixed.grand)], fontSize: 8, bold: true, alignment: "right", margin: [0, 1, 0, 0] }]
+    : []
 
   // ---------- หน้ารูปแนบ (แนวตั้ง หน้าละ 1 รูป) ----------
   const attachments = imagePages.flatMap((p) => [
@@ -266,6 +307,6 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     defaultStyle: { font: "Sarabun", fontSize: 9 },
     info: { title: `${doc.docNo} ${doc.title}` },
     // บล็อกกรรมการห้ามถูกตัดกลางหน้า (unbreakable) — ถ้ารายการเยอะจนล้น ให้ยกไปทั้งบล็อกที่หน้าถัดไป
-    content: [header, priceTable, condTable, { stack: [committeeTable], unbreakable: true }, ...reasons, ...attachments],
+    content: [header, priceTable, ...grandLine, condTable, { stack: [committeeTable], unbreakable: true }, ...reasons, ...attachments],
   }
 }

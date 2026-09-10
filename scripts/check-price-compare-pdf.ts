@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import { PDFDocument } from "pdf-lib"
 import { newDoc, emptySupplier, supplierTotals, fmtMoney, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
-import { buildPriceCompareDocDef, pdfFilename } from "../lib/price-compare-pdf"
+import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
 import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
 import { MEDIA_CDN_BASE, MEDIA_MAX_BYTES } from "../lib/media"
@@ -77,6 +77,48 @@ async function main() {
     !JSON.stringify(buildPriceCompareDocDef({ ...uh03(), fewerQuotesReason: "เหตุผลเก่าค้างอยู่" })).includes("เหตุผลที่มีใบเสนอราคาน้อยกว่า 3 ราย"),
     "ใบเสนอราคาครบ 3 รายแล้วต้องไม่พิมพ์เหตุผลที่มีน้อยกว่า 3 ราย",
   )
+
+  // เอกสารเลือกทั้งใบต้องไม่มีบล็อกสรุปโหมดผสมโผล่มา
+  assert.ok(!flat.includes(seg(MIX_SUBTOTAL_LABEL)), "เลือกทั้งใบต้องไม่มีแถวยอดที่เลือกจากเจ้านี้")
+  assert.ok(!flat.includes(seg(MIX_DISCOUNT_NOTE)), "เลือกทั้งใบต้องไม่มีหมายเหตุส่วนลดของโหมดผสม")
+
+  // --- โหมดผสม: เลือก supplier รายบรรทัด [1,2,2,2,3] ---
+  // vatMode ของ supplier 2 ตั้งกลับเป็น excl เพื่อให้ยอดตรงกับ fixture ของ check-price-compare-core (ทุกเจ้าเป็น excl)
+  const dMix = uh03()
+  dMix.selectedSupplier = null
+  dMix.suppliers[1].vatMode = "excl"
+  dMix.lineSupplier = [1, 2, 2, 2, 3]
+  const ddMix = buildPriceCompareDocDef(dMix)
+  const flatMix = JSON.stringify(ddMix)
+  assert.ok(flatMix.includes("เลือกรายบรรทัด (ผสม 3 เจ้า)"), "ช่องผู้ได้รับเลือกต้องบอกว่าเลือกรายบรรทัดจากกี่เจ้า")
+  assert.ok(!flatMix.includes("[√] Supplier"), "โหมดผสมต้องไม่ติ๊ก Supplier รายใดรายหนึ่ง")
+  assert.ok(flatMix.includes(seg(MIX_SUBTOTAL_LABEL)) && flatMix.includes(seg(MIX_NET_LABEL)), "ต้องมีสองแถวสรุปโหมดผสม")
+  assert.ok(flatMix.includes("22,470.00"), "สุทธิที่เลือกของ supplier 1 (21,000 + VAT)")
+  assert.ok(flatMix.includes("22,256.00"), "สุทธิที่เลือกของ supplier 2 (20,800 + VAT)")
+  assert.ok(flatMix.includes("5,350.00"), "สุทธิที่เลือกของ supplier 3 (5,000 + VAT)")
+  assert.ok(flatMix.includes("50,076.00"), "ยอดรวมผสมอยู่ในช่อง Supplier 4 ที่ว่าง")
+  assert.ok(flatMix.includes(seg(MIX_DISCOUNT_NOTE)), "ต้องมีหมายเหตุว่าส่วนลดไม่ถูกนำมาคิด")
+  assert.ok((flatMix.match(/√/g) ?? []).length >= 5, "ต้องติ๊กเซลล์ราคาที่เลือกครบทั้ง 5 แถว")
+
+  // มี supplier ครบ 4 ราย → ไม่เหลือช่องว่างในตาราง ยอดรวมผสมต้องมาเป็นบรรทัดใต้ตารางแทน
+  {
+    const d4 = uh03()
+    d4.selectedSupplier = null
+    d4.suppliers[1].vatMode = "excl"
+    d4.suppliers.push({ ...emptySupplier(5), name: "เจ้าที่สี่", prices: [40000, 40000, 200, 200, 9000] })
+    d4.lineSupplier = [1, 2, 2, 2, 3]
+    const dd4 = buildPriceCompareDocDef(d4)
+    const line = (dd4.content as { text?: unknown }[]).find((c) => JSON.stringify(c.text ?? "").includes("50,076.00"))
+    assert.ok(line, "supplier ครบ 4 ราย → ยอดรวมผสมต้องเป็นบรรทัดใต้ตาราง")
+  }
+
+  // ฟอร์มโหมดผสมต้องยังจบในหน้าเดียวเหมือนเอกสารเลือกทั้งใบ
+  for (const [name, def] of [["uh03", dd], ["mixed", ddMix]] as const) {
+    const out = await renderPdfmake(def)
+    assert.equal((await PDFDocument.load(out)).getPageCount(), 1, `ฟอร์ม ${name} ต้องเป็นหน้าเดียว`)
+    if (name === "mixed") { fs.mkdirSync("tmp", { recursive: true }); fs.writeFileSync("tmp/price-compare-mixed.pdf", out) }
+  }
+  console.log("mixed mode: OK → tmp/price-compare-mixed.pdf")
 
   // หน้ารูปแนบ
   const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="

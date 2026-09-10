@@ -363,8 +363,21 @@ assert.equal(fmtMoney(null), "")
   assert.deepEqual(f("suppliers"), { field: "suppliers", label: "Supplier", from: "3 ราย", to: "2 ราย" })
   assert.deepEqual(f("links.prCode"), { field: "links.prCode", label: "PR", from: "", to: "LBPR26090001" })
   assert.deepEqual(f("links.repairExternalId"), { field: "links.repairExternalId", label: "งานซ่อมอู่นอก", from: "", to: "abc123" })
-  assert.equal(ch.length, 7, "เพิ่ม links.repairExternalId; แก้ราคารายช่องต้องไม่ขึ้นใน log (selectionReason/fewerQuotesReason ไม่เปลี่ยน)")
+  // b เพิ่มรายการอีก 1 แถว (lineSupplier ยังว่างทั้งคู่) → ตัวหารเปลี่ยน จึงมีสรุป "เลือกรายบรรทัด" ด้วย
+  assert.deepEqual(f("lineSupplier"), { field: "lineSupplier", label: "เลือกรายบรรทัด", from: "0/5 แถว", to: "0/6 แถว" })
+  assert.equal(ch.length, 8, "เพิ่ม links.repairExternalId + lineSupplier; แก้ราคารายช่องต้องไม่ขึ้นใน log (selectionReason/fewerQuotesReason ไม่เปลี่ยน)")
   assert.deepEqual(diffPriceCompare(a, a), [])
+}
+
+// --- diff: เลือก supplier รายบรรทัดเพิ่ม/ลด ต้องขึ้น log แม้จำนวนรายการเท่าเดิม ---
+{
+  const a = uh03(), b = uh03()
+  b.lineSupplier = [1, 2, 2, 2, 3]
+  const ch = diffPriceCompare(a, b)
+  assert.deepEqual(ch, [{ field: "lineSupplier", label: "เลือกรายบรรทัด", from: "0/5 แถว", to: "5/5 แถว" }])
+  // เปลี่ยนเจ้าในแถวเดิมโดยจำนวนแถวที่เลือกเท่าเดิม = ไม่ขึ้น log (เจตนาเดียวกับที่ไม่ diff ราคารายช่อง)
+  const c = uh03(); c.lineSupplier = [3, 2, 2, 2, 1]
+  assert.deepEqual(diffPriceCompare(b, c), [])
 }
 
 console.log("check-price-compare-core: OK")
