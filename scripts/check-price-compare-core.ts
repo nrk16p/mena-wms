@@ -5,7 +5,7 @@ import {
   newDoc, emptySupplier, supplierTotals, lowestPerLine, lowestNet, isComplete, canTransition,
   normalizeDoc, validateDoc, docNoFor, counterKeyFor, fmtMoney, lineTotal, round2,
   completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
-  effectiveLineSupplier, allLinesAwarded, mixedTotals, mixedNet, pickLowestPerLine, bestMixNet,
+  effectiveLineSupplier, allLinesAwarded, mixedTotals, mixedNet, pickLowestPerLine, bestMixNet, mixedGap,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 import { diffPriceCompare } from "../lib/price-compare-log"
@@ -141,6 +141,16 @@ assert.equal(lowestNet({ items: d.items, suppliers: [] }), null)
   const mixDoc = uh03(); mixDoc.lineSupplier = [1, 2, 2, 2, 1]
   assert.equal(mixedNet(mixDoc), 52216, "เลือกช่างหมูทำค่าแรงแทน → แพงกว่า best 2,140")
   assert.equal(bestMixNet(mixDoc), 50076, "best ไม่ขึ้นกับว่าเลือกจริงเป็นใคร")
+
+  // --- mixedGap: ส่วนต่างจากทางเลือกที่ถูกที่สุด (UI การ์ดโหมดผสมแสดง "(+Z บาท)") ---
+  const gapBest = uh03(); gapBest.lineSupplier = [1, 2, 2, 2, 3]
+  assert.equal(mixedGap(gapBest), 0, "เลือกถูกสุดทุกแถว → ส่วนต่าง 0")
+  const gapOff = uh03(); gapOff.lineSupplier = [2, 2, 2, 2, 3]   // แถว 1 ใช้คุณณัฐ 30,000 แทนช่างหมู 21,000
+  assert.equal(mixedGap(gapOff), round2(30000 * 1.07 - 21000 * 1.07), "ต่างกันแค่แถวแรก = ส่วนต่างหลัง VAT ของแถวนั้น")
+  assert.equal(mixedGap(gapOff), 9630)
+  assert.equal(mixedGap(gapOff), round2(mixedTotals(gapOff)!.grand - 50076), "= grand ที่เลือกจริง − bestMixNet")
+  assert.equal(mixedGap(mixDoc), 2140, "เลือกช่างหมูทำค่าแรง (7,000) แทนศศ&ณ (5,000) → 2,000 × 1.07")
+  assert.equal(mixedGap(uh03()), null, "ยังไม่เลือกแถวไหนเลยและไม่มีผู้ได้รับเลือกทั้งใบ → null")
 
   // เจ้าที่เสนอ "รวม VAT แล้ว" อาจถูกกว่าทั้งที่ราคาป้ายสูงกว่า — ต้องเทียบหลัง VAT ไม่ใช่ก่อน VAT
   const v = uh03()

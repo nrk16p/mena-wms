@@ -1,6 +1,6 @@
 "use client"
 // components/price-compare-form.tsx — ฟอร์มใบเทียบราคาหน้าเดียวเลื่อนลง (pattern เดียวกับ repair-external)
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, FileDown, Trash2, Loader2, History, AlertTriangle } from "lucide-react"
 import { ImageUpload } from "@/components/image-upload"
@@ -13,7 +13,7 @@ import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
-  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, mixedGap, pickLowestPerLine,
   type PriceCompare, type PcCommittee, type PcFile, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -51,6 +51,20 @@ function Card({ title, color, children }: { title: string; color: string; childr
 const Field = ({ label, children }: { label: string; children: ReactNode }) => (
   <label className="block text-xs text-gray-500 dark:text-gray-400">{label}<div className="mt-1">{children}</div></label>
 )
+
+/** radio "ผู้ได้รับเลือกทั้งใบ" — การเลือกต้องผ่าน swal ยืนยันก่อนเมื่อมีการเลือกรายบรรทัดค้างอยู่ จุดดำจึงต้องมาจาก state เท่านั้น
+ *  ปล่อยเป็น controlled radio ธรรมดา: React (restoreControlledState ของ radio group) เขียนค่า checked กลับตาม props
+ *  ทันทีหลัง event จบ → ระหว่างรอ swal และเมื่อกดยกเลิก จุดดำไม่ขยับ, พอ state เปลี่ยนจริงค่อยติ๊กตาม (ตรวจแล้วทั้ง 2 ทาง)
+ *  ห้ามใส่ e.preventDefault() ใน onClick: จะทำให้ restore ค้างที่ค่าเดิมจนจุดดำไม่ติ๊กหลังกดยืนยัน (ทดสอบแล้วพัง)
+ *  effect เป็นตาข่ายกันพลาด — บังคับ DOM ให้ตรงกับ state ทุกครั้งที่ผู้ได้รับเลือกเปลี่ยน */
+function WholeDocRadio({ num, selected, disabled, onPick }: { num: number; selected: boolean; disabled?: boolean; onPick: () => void }) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (ref.current) ref.current.checked = selected }, [selected])
+  return (
+    <input ref={ref} type="radio" name="selected" aria-label={`ผู้ได้รับเลือกทั้งใบ: Supplier ${num}`}
+      disabled={disabled} checked={selected} onChange={() => { if (!disabled) onPick() }} />
+  )
+}
 
 export function PriceCompareForm({ id }: { id: string }) {
   const router = useRouter()
@@ -113,6 +127,7 @@ export function PriceCompareForm({ id }: { id: string }) {
   const pickedCount = doc ? doc.lineSupplier.filter((v) => v != null).length : 0
   const mixTotals = useMemo(() => (doc ? mixedTotals(doc) : null), [doc])
   const bestNet = useMemo(() => (doc ? bestMixNet(doc) : null), [doc])
+  const gap = useMemo(() => (doc ? mixedGap(doc) : null), [doc])   // ยอดทั้งหมดมาจาก lib เท่านั้น — ห้ามคำนวณเองใน JSX
   const lowPerLine = useMemo(() => (doc ? pickLowestPerLine(doc) : []), [doc])
   // ต้องมีเหตุผลเมื่อ: เลือกทั้งใบแต่ไม่ใช่รายสุทธิต่ำสุด หรือ เลือกผสมแล้วมีแถวที่ไม่ได้เลือกเจ้าที่ถูกสุด (เกณฑ์เดียวกับ isComplete)
   const needReason = doc != null && (
@@ -128,13 +143,13 @@ export function PriceCompareForm({ id }: { id: string }) {
     return next
   })
   // เลือกผู้ได้รับเลือกทั้งใบ ทับการเลือกรายบรรทัดที่ทำไว้ → ถามก่อนล้าง
-  async function selectWholeDoc(i: number) {
+  async function selectWholeDoc(num: number) {           // num = ลำดับ supplier แบบ 1-based
     if (!doc) return
     if (doc.lineSupplier.some((v) => v != null)) {
-      const ok = await swalConfirm(`ใช้ Supplier ${i + 1} ทั้งใบ?`, "การเลือก supplier รายบรรทัดที่ทำไว้จะถูกล้างทั้งหมด")
-      if (!ok.isConfirmed) return
+      const ok = await swalConfirm(`ใช้ Supplier ${num} ทั้งใบ?`, "การเลือก supplier รายบรรทัดที่ทำไว้จะถูกล้างทั้งหมด")
+      if (!ok.isConfirmed) return                        // ยกเลิก = ไม่แตะอะไรเลย (radio ยังชี้ค่าเดิมเพราะคุมด้วย state ล้วน)
     }
-    patch({ selectedSupplier: i + 1, lineSupplier: doc.items.map(() => null), ...(lowNet != null && i === lowNet ? { selectionReason: "" } : {}) })
+    patch({ selectedSupplier: num, lineSupplier: doc.items.map(() => null), ...(lowNet != null && num === lowNet + 1 ? { selectionReason: "" } : {}) })
   }
   async function backToWholeDoc() {
     if (!doc) return
@@ -333,10 +348,10 @@ export function PriceCompareForm({ id }: { id: string }) {
               <p className="text-sm font-semibold text-[#1B8C4B]">เลือกรายบรรทัด (ผสม {mixTotals?.suppliersUsed ?? 0} เจ้า)</p>
               <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
                 สุทธิรวมแบบผสม <b className="tabular-nums">{fmtMoney(mixTotals?.grand)}</b>
-                {bestNet != null && mixTotals != null && (
+                {bestNet != null && gap != null && (
                   <> · ต่ำสุดที่เป็นไปได้ <b className="tabular-nums">{fmtMoney(bestNet)}</b>{" "}
-                    <span className={mixTotals.grand > bestNet ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}>
-                      (+{fmtMoney(Math.round((mixTotals.grand - bestNet) * 100) / 100)} บาท)
+                    <span className={gap > 0 ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}>
+                      (+{fmtMoney(gap)} บาท)
                     </span>
                   </>
                 )}
@@ -357,7 +372,7 @@ export function PriceCompareForm({ id }: { id: string }) {
               <div className="flex flex-wrap gap-3">
                 {doc.suppliers.map((s, i) => (
                   <label key={i} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2 text-sm ${doc.selectedSupplier === i + 1 ? "border-[#1B8C4B] bg-[#1B8C4B]/5" : "border-[#EEF2F0] dark:border-white/8"}`}>
-                    <input type="radio" name="selected" aria-label={`ผู้ได้รับเลือกทั้งใบ: Supplier ${i + 1}`} disabled={readOnly} checked={doc.selectedSupplier === i + 1} onChange={() => void selectWholeDoc(i)} />
+                    <WholeDocRadio num={i + 1} selected={doc.selectedSupplier === i + 1} disabled={readOnly} onPick={() => void selectWholeDoc(i + 1)} />
                     <span className="font-medium">Supplier {i + 1}</span><span>{s.name}</span>
                     <span className="tabular-nums text-gray-500">{fmtMoney(supplierTotals(doc, i).net)}</span>
                     {i === lowNet && <span className="rounded bg-emerald-100 px-1.5 text-[10px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">ถูกสุด</span>}

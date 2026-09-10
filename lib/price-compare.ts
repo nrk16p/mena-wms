@@ -201,6 +201,15 @@ export function bestMixNet(doc: Pick<PriceCompare, "items" | "suppliers">): numb
   return mixedTotals({ items: doc.items, suppliers: doc.suppliers, selectedSupplier: null, lineSupplier: pickLowestPerLine(doc) })?.grand ?? null
 }
 
+/** ส่วนต่างระหว่างสุทธิรวมที่เลือกอยู่จริงกับสุทธิรวมที่ต่ำที่สุดเท่าที่เป็นไปได้ (บาท, ≥ 0 ตามนิยาม)
+ *  null เมื่อคำนวณฝั่งใดฝั่งหนึ่งไม่ได้ — UI ใช้แสดง "(+Z บาท)" ในการ์ดโหมดผสม */
+export function mixedGap(doc: Pick<PriceCompare, "items" | "suppliers" | "selectedSupplier" | "lineSupplier">): number | null {
+  const cur = mixedNet(doc)
+  const best = bestMixNet(doc)
+  if (cur == null || best == null) return null
+  return round2(cur - best)
+}
+
 const supplierPricesComplete = (doc: Pick<PriceCompare, "items">, s: PcSupplier) =>
   doc.items.length > 0 && doc.items.every((_, i) => s.prices[i] != null)
 
