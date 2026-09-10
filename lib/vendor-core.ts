@@ -150,6 +150,9 @@ export type VendorApproval = {
    *  คนอนุมัติจึงกลบชื่อคนติ๊กไปเงียบ ๆ · ประวัติรายครั้งอยู่ที่ vendor_capability_log */
   codesBy?: string
   codesAt?: string
+  /** true = สถานะมาจากการอนุมัติเป็นชุดตาม AUTO_APPROVE_RULE (สคริปต์ครั้งเดียว)
+   *  false = คนเคยตั้งสถานะเองแล้ว สคริปต์ต้องไม่แตะอีก · ไม่มี = ไม่เคยผ่านทั้งสองทาง */
+  autoApproved?: boolean
 }
 
 /** สะพานระหว่างประเภทที่แกะได้จากข้อมูลจัดซื้อ กับงานตามทะเบียนฝ่ายยานยนต์
@@ -203,6 +206,27 @@ export const TIER_LABEL: Record<Tier, { th: string; hint: string }> = {
 /** เกณฑ์ "ตัวหลัก" — ตั้งเป็นค่ากลางไว้ที่เดียว จะได้ปรับทีเดียวแล้วขยับทั้งหน้า */
 export const TIER_RULE = { minJobs: 5, activeMonths: 6 }
 
+/** เกณฑ์อนุมัติเป็นชุด (ผู้ใช้ตกลง 10/09/2026): ใช้บริการ ≥20 ครั้งในหน้าต่าง 24 เดือน
+ *  และยังใช้อยู่ (ครั้งล่าสุดไม่เกิน 12 เดือน) — อู่ที่ผ่านเกณฑ์ถือว่าพิสูจน์ตัวเองด้วยงานจริงแล้ว
+ *  · ใช้กับสคริปต์รันครั้งเดียว (scripts/approve-vendors-once.ts) **ไม่ใช่** กติกาถาวรของหน้า —
+ *  ผู้ใช้ย้ำว่าไม่เอาแบบอัตโนมัติตลอด · การอนุมัติ "ติด" ไปเลย ตกเกณฑ์ทีหลังไม่ถอน */
+export const AUTO_APPROVE_RULE = { minJobs: 20, activeMonths: 12 }
+
+export const AUTO_APPROVE_BY = "ระบบอัตโนมัติ"
+
+/** อู่ที่สคริปต์ควรอนุมัติให้ในรอบนี้ — เฉพาะที่ยัง "รอพิจารณา" และคนไม่เคยตั้งสถานะเอง
+ *  (autoApproved === false คือร่องรอยว่าคนแตะแล้ว: ดึงกลับมารอเองก็ต้องเคารพ) */
+export function autoApproveCandidates<T extends Pick<VendorSummary, "vendor" | "jobs" | "monthsSince" | "status" | "autoApproved">>(
+  vendors: T[]
+): T[] {
+  return vendors.filter((v) =>
+    v.status === "pending" &&
+    v.autoApproved !== false &&
+    v.jobs >= AUTO_APPROVE_RULE.minJobs &&
+    v.monthsSince <= AUTO_APPROVE_RULE.activeMonths
+  )
+}
+
 /** 1 แถวในตาราง "อู่ไหนทำงานประเภทนี้ได้บ้าง" */
 export type VendorServiceRow = {
   vendor: string
@@ -248,6 +272,8 @@ export type VendorSummary = {
   /** คนติ๊กความสามารถล่าสุด + เวลา (ISO) — รายละเอียดรายครั้งดูที่ประวัติ */
   codesBy?: string
   codesAt?: string
+  /** สถานะมาจากระบบอัตโนมัติ (true) หรือคนเคยตั้งเอง (false) — ดู VendorApproval */
+  autoApproved?: boolean
 }
 
 export type VendorPayload = {
@@ -405,6 +431,7 @@ export function buildVendorPayload(
       warehouses: [...a.wh].sort(),
       note: ap?.note, by: ap?.by, at: ap?.at,
       codesBy: ap?.codesBy, codesAt: ap?.codesAt,
+      autoApproved: ap?.autoApproved,
     }
   }).sort((a, b) => b.baht - a.baht)
 

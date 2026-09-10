@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import {
   isRealVendor, serviceTypeFromGroup, seedServiceTypeFromName, monthsBetweenYm,
   median, tierOf, resolveServiceType, buildVendorPayload, TIER_RULE, UNCLASSIFIED,
+  AUTO_APPROVE_RULE, autoApproveCandidates,
   type VendorRawRow, type LabourCode, type VendorApproval,
 } from "../lib/vendor-core"
 
@@ -155,5 +156,26 @@ assert.equal(vkx.jobs, 12)
 assert.equal(vkx.baht, 104_000)
 assert.equal(vkx.status, "approved")
 assert.deepEqual(vkx.codes, ["S45"])
+
+// --- autoApproveCandidates: อนุมัติอัตโนมัติเมื่อใช้บ่อยพอ + ยังใช้อยู่ ---
+assert.deepEqual(AUTO_APPROVE_RULE, { minJobs: 20, activeMonths: 12 }, "เกณฑ์ที่ผู้ใช้ตกลง 10/09/2026")
+const V = (vendor: string, jobs: number, monthsSince: number, status: VendorApproval["status"] = "pending", autoApproved?: boolean) =>
+  ({ vendor, jobs, baht: 0, lastYm: "2026-08", monthsSince, status, codes: [], didTypes: [], warehouses: [], autoApproved })
+const cands = autoApproveCandidates([
+  V("ผ่าน พอดีเกณฑ์", 20, 12),
+  V("ผ่าน เยอะ", 500, 0),
+  V("งานน้อย", 19, 0),
+  V("หายไปนาน", 40, 13),
+  V("อนุมัติอยู่แล้ว", 40, 0, "approved"),
+  V("คนสั่งไม่อนุมัติ", 40, 0, "rejected"),
+  V("คนดึงกลับมารอเอง", 40, 0, "pending", false),
+  V("เคยอัตโนมัติแล้วยังรอ", 40, 0, "pending", true),
+])
+assert.deepEqual(cands.map((c) => c.vendor), ["ผ่าน พอดีเกณฑ์", "ผ่าน เยอะ", "เคยอัตโนมัติแล้วยังรอ"])
+
+// สรุปรายอู่ต้องส่ง autoApproved ติดไปด้วย จอจะได้ติดป้าย "อัตโนมัติ"
+const p5 = buildVendorPayload(raw, [], [{ vendor: "อู่ ก ข", codes: [], status: "approved", autoApproved: true }], "2026-08", "2024-09")
+assert.equal(p5.vendors.find((v) => v.vendor === "อู่ ก ข")!.autoApproved, true)
+assert.equal(p5.vendors.find((v) => v.vendor === "อู่ ง")!.autoApproved, undefined)
 
 console.log("✅ vendor-core: ผ่านทั้งหมด")

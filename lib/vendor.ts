@@ -4,6 +4,7 @@ import clientPromise from "@/lib/mongo"
 import {
   DB_NAME, COLL_NAME, INVENTORY_IDS, MONTHS_BACK, ymBack, ymOf,
   buildVendorPayload, seedServiceTypeFromName, serviceTypeFromGroup, isRealVendor,
+  autoApproveCandidates, AUTO_APPROVE_BY,
   type VendorRawRow, type LabourCode, type VendorApproval, type VendorPayload, type ServiceType,
 } from "@/lib/vendor-core"
 import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
@@ -106,6 +107,42 @@ export async function getVendors(force = false): Promise<VendorPayload> {
     readApprovals(),
   ])
   return buildVendorPayload(raw, codes, approvals, ymOf(asOf), fromYm)
+}
+
+/** อนุมัติอู่ที่เข้าเกณฑ์ AUTO_APPROVE_RULE เป็นชุด — **รันครั้งเดียวด้วยมือ** ผ่าน
+ *  scripts/approve-vendors-once.ts ไม่ได้ผูกกับการเปิดหน้า (ผู้ใช้ย้ำ 10/09/2026: "not always auto,
+ *  just one time") อู่ที่เข้าเกณฑ์ทีหลังต้องให้แอดมินกดเอง หรือรันสคริปต์ซ้ำเมื่อสั่ง
+ *
+ *  filter ซ้ำเงื่อนไขของ autoApproveCandidates จงใจ — กันเขียนทับสถานะที่คนเพิ่งเปลี่ยน
+ *  ระหว่างที่ payload ถูกคำนวณ · เขียนสำเร็จเท่านั้นจึงลงประวัติ (E11000 = ไม่ match แล้ว
+ *  upsert เลยชนดัชนี = มีคนตั้งสถานะไปก่อน ข้ามอย่างเงียบ ๆ) */
+export async function approveVendorsByRule(payload: VendorPayload): Promise<string[]> {
+  const cands = autoApproveCandidates(payload.vendors)
+  if (!cands.length) return []
+  const client = await clientPromise
+  const col = client.db(MASTER_DB).collection<VendorApproval>(AP_COLL)
+  await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
+  const at = new Date()
+  const atIso = at.toISOString()
+  const log: VendorLogEntry[] = []
+  const done: string[] = []
+  for (const v of cands) {
+    try {
+      const r = await col.updateOne(
+        { vendor: v.vendor, status: "pending", autoApproved: { $ne: false } },
+        { $set: { status: "approved", autoApproved: true, by: AUTO_APPROVE_BY, at: atIso },
+          $setOnInsert: { vendor: v.vendor, codes: [] } },
+        { upsert: true }
+      )
+      if (!r.modifiedCount && !r.upsertedCount) continue
+      done.push(v.vendor)
+      log.push({ vendor: v.vendor, action: "status", from: "pending", to: "approved", by: AUTO_APPROVE_BY, byEmail: "", at })
+    } catch (e) {
+      if (!(e instanceof Error && /E11000/.test(e.message))) console.error("[vendor] approve-by-rule", v.vendor, e)
+    }
+  }
+  await writeVendorLog(log)
+  return done
 }
 
 /** รายการรหัสค่าแรงสำหรับหน้าตั้งค่า — sync รหัสที่โผล่ในข้อมูลจริงเข้ามาก่อน
@@ -230,7 +267,8 @@ export async function setVendorApproval(
   await col.createIndex({ vendor: 1 }, { unique: true }).catch(() => {})
   const at = new Date()
   const $set: Record<string, unknown> = { by, at: at.toISOString() }
-  if (patch.status !== undefined) $set.status = patch.status
+  // คนตั้งสถานะเอง = ปิดประตูอัตโนมัติสำหรับอู่รายนี้ถาวร (ดึงกลับมา "รอพิจารณา" ก็ต้องไม่ถูกอนุมัติซ้ำ)
+  if (patch.status !== undefined) { $set.status = patch.status; $set.autoApproved = false }
   if (patch.codes  !== undefined) { $set.codes = patch.codes; $set.codesBy = by; $set.codesAt = at.toISOString() }
   if (patch.note   !== undefined) $set.note   = patch.note
   const before = await col.findOneAndUpdate(
