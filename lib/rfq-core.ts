@@ -161,7 +161,11 @@ export function applySameAsL(a: RfqAnswer): RfqAnswer {
   return a.sameAsL ? { ...a, S: { ...a.L } } : a
 }
 export function applyPartSameAsL(a: RfqPartAnswer): RfqPartAnswer {
-  return a.sameAsL ? { ...a, priceS: a.priceL } : a
+  if (!a.sameAsL) return a
+  // ไม่ตั้ง priceS เป็น undefined ทิ้งไว้ — Mongo driver จะเก็บเป็น null แล้วฝั่งจอเจอ null แทน "ไม่กรอก"
+  const { priceS: _drop, ...rest } = a
+  void _drop
+  return a.priceL === undefined ? rest : { ...rest, priceS: a.priceL }
 }
 
 export function validateAnswer(x: unknown): RfqAnswer | string {

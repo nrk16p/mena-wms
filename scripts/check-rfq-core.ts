@@ -84,6 +84,9 @@ assert.equal(typeof validatePartAnswer({ priceL: -5 }), "string")
 const pk = validatePartAnswer({ skip: false, priceL: 120.5, sameAsL: true, brand: "NOK", leadDays: "7" })
 assert.notEqual(typeof pk, "string")
 if (typeof pk !== "string") { assert.equal(pk.priceS, 120.5); assert.equal(pk.leadDays, 7) }
+const pkSkip = validatePartAnswer({ skip: true, sameAsL: true })
+assert.notEqual(typeof pkSkip, "string")
+if (typeof pkSkip !== "string") assert.ok(!("priceS" in pkSkip), "sameAsL โดยไม่มี priceL ต้องไม่สร้าง priceS (กัน null ใน Mongo)")
 // validateContact
 assert.equal(typeof validateContact({ name: "ก", phone: "", email: "" }), "string", "ต้องมีเบอร์หรืออีเมล")
 assert.equal(typeof validateContact({ name: "", phone: "081", email: "" }), "string")

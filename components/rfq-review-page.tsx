@@ -12,7 +12,7 @@ import { mitr } from "@/components/vendor-shared"
 import { thDate, thDateTime } from "@/components/rfq-vendor-shared"
 
 type Data = { invite: RfqInvite; jobs: RfqJob[]; parts: RfqPart[] }
-const fmt = (n: number | undefined) => n === undefined ? "" : n.toLocaleString("th-TH")
+const fmt = (n: number | null | undefined) => n == null ? "" : n.toLocaleString("th-TH")
 const td = { padding: "6px 8px", borderBottom: "1px solid #F3F4F6", fontSize: 12.5, verticalAlign: "top" as const }
 const th = { ...td, fontWeight: 600, background: "#F6FAF7", whiteSpace: "nowrap" as const }
 
