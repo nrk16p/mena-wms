@@ -9,13 +9,14 @@
 // ช่างในบริษัท ไม่ได้จ้าง vendor (ดู historyApplies ใน lib/vendor-core)
 import { useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Download, History, Search } from "lucide-react"
+import { Download, FileText, History, Search } from "lucide-react"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
 import { historyByWork, AUTO_APPROVE_RULE, MONTHS_BACK, type VendorSummary } from "@/lib/vendor-core"
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
 import { VendorLogDrawer } from "@/components/vendor-log-drawer"
+import { RfqCreateModal } from "@/components/rfq-create-modal"
 import { describeVendorLog, fmtLogAt, latestByCode, type VendorLogRow } from "@/lib/vendor-log"
 import { canApproveVendor } from "@/lib/roles"
 
@@ -47,6 +48,9 @@ export function VendorMatrixPage() {
   const [cellLog, setCellLog] = useState<Record<string, Map<string, VendorLogRow>>>({})
   // ทับผลที่เพิ่งติ๊กบนข้อมูลเดิม จะได้ไม่ต้องโหลดทั้งหน้าใหม่ทุกคลิก
   const [patched, setPatched] = useState<Record<string, string[]>>({})
+  // เลือกอู่เพื่อสร้างลิงก์ขอราคา (ปุ่ม "ขอราคา" ในแถบเครื่องมือ)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [rfqOpen, setRfqOpen] = useState(false)
 
   // ตัวเลือกในช่องกรองประเภทงาน — โชว์เฉพาะฝั่งที่กำลังแสดงอยู่ จะได้ไม่เลือกคอลัมน์
   // ที่ถูกสวิตช์ "เฉพาะอู่นอก" ซ่อนไว้แล้วงงว่าทำไมไม่ขึ้น
@@ -319,10 +323,18 @@ export function VendorMatrixPage() {
               <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· เปลี่ยนสถานะอนุมัติได้เฉพาะแอดมินและผู้อนุมัติอู่</span>
             )}
             <button
+              onClick={() => setRfqOpen(true)}
+              disabled={!picked.size}
+              title="สร้างลิงก์ขอราคาให้อู่ที่เลือก (ติ๊กช่องหน้าชื่ออู่)"
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto", padding: "7px 12px", borderRadius: 8, border: "none", background: picked.size ? "#1B8C4B" : "#E5E7EB", color: picked.size ? "#fff" : "#9CA3AF", fontSize: 13, fontWeight: 600, cursor: picked.size ? "pointer" : "not-allowed" }}
+            >
+              <FileText size={14} /> ขอราคา{picked.size ? ` (${picked.size})` : ""}
+            </button>
+            <button
               onClick={() => void exportXlsx()}
               title="ส่งออกตามที่กรองอยู่ตอนนี้ · ช่องประเภทการซ่อมคลิกติ๊กได้ในไฟล์ (☑/☐) · 2 ชีต"
               style={{
-                display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto",
+                display: "inline-flex", alignItems: "center", gap: 6,
                 padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB",
                 background: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
               }}
@@ -412,6 +424,13 @@ export function VendorMatrixPage() {
                     padding: "8px 12px", fontWeight: 700, color: "#374151",
                     borderBottom: "1px solid #E5E7EB", borderRight: "1px solid #E5E7EB",
                   }}>
+                    <input
+                      type="checkbox"
+                      title="เลือกทุกอู่ที่แสดง (สำหรับขอราคา)"
+                      checked={rows.length > 0 && rows.every((v) => picked.has(v.vendor))}
+                      onChange={(e) => setPicked(e.target.checked ? new Set(rows.map((v) => v.vendor)) : new Set())}
+                      style={{ marginRight: 8, verticalAlign: -2 }}
+                    />
                     อู่ ({num(rows.length)})
                   </th>
                   <th style={{ ...TH, padding: "8px 10px", borderBottom: "1px solid #E5E7EB", borderRight: "1px solid #E5E7EB", whiteSpace: "nowrap" }}>
@@ -457,6 +476,12 @@ export function VendorMatrixPage() {
                         }}
                       >
                         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={picked.has(v.vendor)}
+                            onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(v.vendor); else n.delete(v.vendor); return n })}
+                            style={{ flexShrink: 0 }}
+                          />
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.vendor}</span>
                           <button
                             onClick={() => setLogFor(v.vendor)}
@@ -563,6 +588,12 @@ export function VendorMatrixPage() {
             onClose={() => setLogFor(null)}
             onLoaded={(vendor, rows) => setCellLog((c) => ({ ...c, [vendor]: latestByCode(rows) }))}
           />
+          {rfqOpen && (
+            <RfqCreateModal
+              vendors={rows.filter((v) => picked.has(v.vendor)).map((v) => ({ vendor: v.vendor, codes: v.codes }))}
+              onClose={() => setRfqOpen(false)}
+            />
+          )}
         </>
       )}
     </VendorShell>
