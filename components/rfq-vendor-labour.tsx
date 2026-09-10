@@ -1,6 +1,6 @@
 "use client"
 // หน้าค่าแรง: ชีตละขั้น · การ์ดละงาน · รายชั่วโมง / เหมา / ไม่รับงาน · Mixer L แล้ว S (+ "S เหมือน L")
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { SHEET_ORDER, type RfqAnswer, type RfqJob, type Tier } from "@/lib/rfq-core"
 import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, toNum } from "@/components/rfq-vendor-shared"
 
@@ -12,6 +12,8 @@ export function RfqVendorLabour({ token }: { token: string }) {
   const [step, setStep] = useState(0)
   const [openScope, setOpenScope] = useState<Record<string, boolean>>({})
   const sheets = useMemo(() => data ? SHEET_ORDER.filter((s) => data.invite.sheets.includes(s) && data.jobs.some((j) => j.sheet === s)) : [], [data])
+  const itemsRef = useRef<Record<string, RfqAnswer>>({})
+  useEffect(() => { if (data) itemsRef.current = data.invite.items }, [data])
   if (loading) return <div style={V.page}><div style={V.muted}>กำลังโหลด…</div></div>
   if (error || !data) return <div style={V.page}><div style={{ ...V.card, color: "#B91C1C" }}>{error || "โหลดไม่สำเร็จ"}</div></div>
   const { invite, jobs } = data
@@ -21,11 +23,15 @@ export function RfqVendorLabour({ token }: { token: string }) {
   const doneIn = (s: string) => jobs.filter((j) => j.sheet === s && invite.items[j.jobCode]).length
   const totalIn = (s: string) => jobs.filter((j) => j.sheet === s).length
 
-  function update(job: RfqJob, patch: Partial<RfqAnswer>) {
+  // อ่านค่าล่าสุดจาก ref ไม่ใช่จาก closure ตอน render — กดข้ามช่องเร็ว ๆ บนมือถือ
+  // สอง blur อาจมาก่อน React จะ render ใหม่ ถ้าใช้ค่าจาก closure ช่องก่อนหน้าจะถูกทับหาย
+  function update(job: RfqJob, patch: Partial<RfqAnswer> & { Lp?: Partial<Tier>; Sp?: Partial<Tier> }) {
     if (ro) return
-    const cur = invite.items[job.jobCode] ?? EMPTY
-    let next: RfqAnswer = { ...cur, ...patch }
+    const cur = itemsRef.current[job.jobCode] ?? EMPTY
+    const { Lp, Sp, ...rest } = patch
+    let next: RfqAnswer = { ...cur, ...rest, L: { ...cur.L, ...(Lp ?? {}) }, S: { ...cur.S, ...(Sp ?? {}) } }
     if (next.sameAsL) next = { ...next, S: { ...next.L } }
+    itemsRef.current = { ...itemsRef.current, [job.jobCode]: next }
     setLocal((d) => ({ ...d, invite: { ...d.invite, items: { ...d.invite.items, [job.jobCode]: next } } }))
     void save({ items: { [job.jobCode]: next } })
   }
@@ -70,11 +76,11 @@ export function RfqVendorLabour({ token }: { token: string }) {
             </div>
             {a && a.mode !== "skip" && (
               <>
-                <TierBlock title="Mixer L (10 ล้อ)" color="#1B8C4B" mode={a.mode} t={a.L} ro={ro} onChange={(L) => update(job, { L })} />
+                <TierBlock title="Mixer L (10 ล้อ)" color="#1B8C4B" mode={a.mode} t={a.L} ro={ro} onChange={(Lp) => update(job, { Lp })} />
                 <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "10px 0 4px", fontSize: 13.5 }}>
                   <input type="checkbox" checked={a.sameAsL} disabled={ro} onChange={(e) => update(job, { sameAsL: e.target.checked })} style={{ width: 18, height: 18 }} /> Mixer S ราคาเดียวกับ L
                 </label>
-                {!a.sameAsL && <TierBlock title="Mixer S (6 ล้อ)" color="#1D4ED8" mode={a.mode} t={a.S} ro={ro} onChange={(S) => update(job, { S })} />}
+                {!a.sameAsL && <TierBlock title="Mixer S (6 ล้อ)" color="#1D4ED8" mode={a.mode} t={a.S} ro={ro} onChange={(Sp) => update(job, { Sp })} />}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8, marginTop: 10 }}>
                   <div><label style={V.label}>รับประกัน (เดือน)</label><input style={V.input} inputMode="decimal" disabled={ro} defaultValue={a.warrantyMonths ?? ""} onBlur={(e) => update(job, { warrantyMonths: toNum(e.target.value) })} /></div>
                   <div><label style={V.label}>หมายเหตุ</label><input style={V.input} disabled={ro} defaultValue={a.note} maxLength={500} onBlur={(e) => update(job, { note: e.target.value })} /></div>
@@ -95,13 +101,13 @@ export function RfqVendorLabour({ token }: { token: string }) {
   )
 }
 
-function TierField({ k, label, t, ro, onChange }: { k: keyof Tier; label: string; t: Tier; ro: boolean; onChange: (t: Tier) => void }) {
+function TierField({ k, label, t, ro, onChange }: { k: keyof Tier; label: string; t: Tier; ro: boolean; onChange: (p: Partial<Tier>) => void }) {
   return (
-    <div><label style={V.label}>{label}</label><input style={V.input} inputMode="decimal" disabled={ro} defaultValue={t[k] ?? ""} placeholder="฿" onBlur={(e) => onChange({ ...t, [k]: toNum(e.target.value) })} /></div>
+    <div><label style={V.label}>{label}</label><input style={V.input} inputMode="decimal" disabled={ro} defaultValue={t[k] ?? ""} placeholder="฿" onBlur={(e) => onChange({ [k]: toNum(e.target.value) })} /></div>
   )
 }
 
-function TierBlock({ title, color, mode, t, ro, onChange }: { title: string; color: string; mode: "hourly" | "lump"; t: Tier; ro: boolean; onChange: (t: Tier) => void }) {
+function TierBlock({ title, color, mode, t, ro, onChange }: { title: string; color: string; mode: "hourly" | "lump"; t: Tier; ro: boolean; onChange: (p: Partial<Tier>) => void }) {
   const f = { t, ro, onChange }
   return (
     <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: color + "0D", border: `1px solid ${color}33` }}>

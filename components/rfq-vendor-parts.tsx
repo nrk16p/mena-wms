@@ -1,6 +1,6 @@
 "use client"
 // หน้าอะไหล่: ชีตละขั้น · แถวละรายการ กะทัดรัด · ค้นหาในชีต · "ไม่มีจำหน่าย"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { SHEET_ORDER, partKey, type RfqPartAnswer, type RfqPart } from "@/lib/rfq-core"
 import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, toNum } from "@/components/rfq-vendor-shared"
 
@@ -13,6 +13,8 @@ export function RfqVendorParts({ token }: { token: string }) {
   const [q, setQ] = useState("")
   const [open, setOpen] = useState<string | null>(null)   // แถวที่กางช่อง ยี่ห้อ/รับประกัน/ส่งมอบ/หมายเหตุ
   const sheets = useMemo(() => data ? SHEET_ORDER.filter((s) => data.invite.sheets.includes(s) && data.parts.some((p) => p.sheet === s)) : [], [data])
+  const partsRef = useRef<Record<string, RfqPartAnswer>>({})
+  useEffect(() => { if (data) partsRef.current = data.invite.parts }, [data])
   if (loading) return <div style={V.page}><div style={V.muted}>กำลังโหลด…</div></div>
   if (error || !data) return <div style={V.page}><div style={{ ...V.card, color: "#B91C1C" }}>{error || "โหลดไม่สำเร็จ"}</div></div>
   const { invite, parts } = data
@@ -25,9 +27,11 @@ export function RfqVendorParts({ token }: { token: string }) {
   function update(p: RfqPart, patch: Partial<RfqPartAnswer>) {
     if (ro) return
     const k = partKey(p.sheet, p.sku)
-    const cur = invite.parts[k] ?? EMPTY
+    // อ่านจาก ref กัน blur สองช่องติดกันทับกัน (ดูหมายเหตุในหน้าค่าแรง)
+    const cur = partsRef.current[k] ?? EMPTY
     let next: RfqPartAnswer = { ...cur, ...patch }
     if (next.sameAsL) next = { ...next, priceS: next.priceL }
+    partsRef.current = { ...partsRef.current, [k]: next }
     setLocal((d) => ({ ...d, invite: { ...d.invite, parts: { ...d.invite.parts, [k]: next } } }))
     void save({ parts: { [k]: next } })
   }
