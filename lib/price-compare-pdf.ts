@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, hasGrades, supplierCoversSelection, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -19,6 +19,9 @@ const GRADE_MARK = "–"   // spec ใช้ "├ เกรด:" แต่ Sarab
 export const MIX_SUBTOTAL_LABEL = "ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)"
 export const MIX_NET_LABEL = "สุทธิที่เลือก"
 export const MIX_DISCOUNT_NOTE = "ส่วนลดไม่ถูกนำมาคิดเมื่อเลือกผสม"
+// โหมดเกรด: ยอดต่อเจ้าคิดตามเกรดที่เลือก — ป้ายแถวสุทธิบอกไว้ และเจ้าที่คิดครบไม่ได้พิมพ์ GRADE_PARTIAL แทนยอดบางส่วน
+export const GRADE_NET_LABEL = "รวมราคาทั้งหมด (สุทธิ) ตามเกรดที่เลือก"
+export const GRADE_PARTIAL = "ไม่ครบ"
 const SUP_W = 50           // ความกว้างคอลัมน์ราคาแต่ละช่อง (4 supplier × 2 ช่อง)
 const COL1_W = 36          // คอลัมน์ซ้ายสุด: "ลำดับ" / ป้ายเทาของบล็อกเงื่อนไข-กรรมการ (กว้างเท่ากันทั้ง 3 ตาราง)
 
@@ -62,6 +65,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const supCols = Array.from({ length: N * 2 }, () => SUP_W)
   // โหมดผสม = ทุกแถวถูกมอบหมาย supplier แล้ว และคิดยอดได้จริง (mixedTotals จะเป็น null ถ้าเจ้าที่ชี้ไว้ไม่ได้เสนอราคาแถวนั้น)
   const mixed = allLinesAwarded(doc) ? mixedTotals(doc) : null
+  const gradeMode = hasGrades(doc)   // กติกาข้อ 4: มีรายการหลายเกรด = เลือกรายบรรทัดทั้งใบ
 
   // ---------- บรรทัดเหตุผลท้ายหน้า (ตัดสินตั้งแต่ตอนนี้ เพราะโควตาแถวว่างต้องหักตามจำนวนบรรทัดที่จะพิมพ์) ----------
   // เงื่อนไขต้องตรงกับที่ฟอร์มใช้โชว์ช่องกรอก — ข้อความเก่าที่ค้างอยู่ (เลือกรายถูกสุดทีหลัง / ได้ใบเสนอราคาครบ 3 รายทีหลัง)
@@ -178,11 +182,15 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     if (s.vatMode === "incl") return { text: ["(รวมในราคา)", "\n", fmtMoney(tt.vat)], alignment: "right", fontSize: 7, ...fill(i) }
     return money(tt.vat, fill(i))
   }
+  // โหมดเกรด: supplierTotals นับแค่เกรดที่เลือก — เจ้าที่ยังไม่เลือกเกรด / ไม่ได้เสนอราคาเกรดที่เลือก จะได้ยอดต่ำเพราะขาดรายการ
+  // จึงพิมพ์ "ไม่ครบ" แทนยอดบางส่วน (ยกเว้นแถวส่วนลดซึ่งเป็นตัวเลขที่เจ้าเสนอเอง); เจ้าที่ไม่มีตัวตนเว้นว่างตามเดิม
+  const partial = (i: number) => gradeMode && !!sup(i) && !supplierCoversSelection(doc, i)
   const sumRow = (label: string, key: keyof PcTotals, bold = false) => [
     { colSpan: 2, ...t(label, { alignment: "center", bold }) }, {}, {}, {},
     ...Array.from({ length: N }, (_, i) => [
       { text: "", ...fill(i) },
-      key === "vat" ? vatCell(i) : money(totals[i] ? totals[i]![key] : null, { bold, ...fill(i) }),
+      key !== "discount" && partial(i) ? t(GRADE_PARTIAL, { alignment: "right", fontSize: 7, ...fill(i) })
+        : key === "vat" ? vatCell(i) : money(totals[i] ? totals[i]![key] : null, { bold, ...fill(i) }),
     ]).flat(),
   ]
   // แถวสรุปโหมดผสม: ยอดของแต่ละเจ้าเฉพาะแถวที่เจ้านั้นได้รับ (เจ้าที่ไม่ได้รับแถวไหนเลยเว้นว่าง)
@@ -224,7 +232,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
         sumRow("ส่วนลด", "discount"),
         sumRow("รวมราคาหลังส่วนลด", "afterDiscount"),
         sumRow("ภาษีมูลค่าเพิ่ม 7 %", "vat"),
-        sumRow("รวมราคาทั้งหมด (สุทธิ)", "net", true),
+        sumRow(gradeMode ? GRADE_NET_LABEL : "รวมราคาทั้งหมด (สุทธิ)", "net", true),
         ...mixRows,
       ],
     },
@@ -284,8 +292,11 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   }
   // โหมดผสมไม่มี supplier รายเดียวให้ติ๊ก — พิมพ์บรรทัดเดียวบอกว่าเลือกรายบรรทัดจากกี่เจ้า
   // (ประกอบเป็น array เพื่อให้คำไทยผ่าน seg() ตามกฎ ส่วน [√] กับตัวเลขเป็นป้ายสั้นที่ไม่ต้องตัดคำ)
+  // ใบมีเกรดที่ยังเลือกไม่ครบ: ไม่มีการเลือกทั้งใบ (กติกาข้อ 4) — ช่อง [ ] Supplier N จะชวนให้ติ๊กทั้งใบ จึงบอกสถานะแทน
   const chosen = mixed
     ? [{ text: [`[${TICK}] `, seg("เลือกรายบรรทัด"), ` (ผสม ${mixed.suppliersUsed} `, seg("เจ้า"), ")"], fontSize: 7 }]
+    : gradeMode
+    ? [t("เลือกรายบรรทัด (ยังไม่ครบ)", { fontSize: 7 })]
     : Array.from({ length: N }, (_, i) =>
       raw(`[${doc.selectedSupplier === i + 1 ? TICK : "  "}] Supplier ${i + 1}`, { fontSize: 8 })
     )

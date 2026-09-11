@@ -4,7 +4,7 @@ import fs from "node:fs"
 import { createHash } from "node:crypto"
 import { PDFDocument } from "pdf-lib"
 import { newDoc, emptySupplier, supplierTotals, fmtMoney, pickLowestPerLine, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
-import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE } from "../lib/price-compare-pdf"
+import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE, GRADE_NET_LABEL, GRADE_PARTIAL } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
 import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
 import { MEDIA_CDN_BASE, MEDIA_MAX_BYTES } from "../lib/media"
@@ -255,6 +255,25 @@ async function main() {
     assert.ok(flatG.includes("30,816.00"), "รวมผสม 30,816.00")
     assert.ok(!flatG.includes("เหตุผลที่เลือก"), "เลือกถูกสุดทุกรายการ → ไม่ต้องพิมพ์เหตุผล")
 
+    // (final review I-1) ยอดต่อเจ้าในโหมดเกรด: เจ้าที่ไม่ได้เสนอเกรดที่เลือก (S2/S3 ไม่มีราคาซ่อมเดิม) พิมพ์ "ไม่ครบ" แทนยอดบางส่วน
+    // cell ของเจ้า i (0-based) ในแถวสรุป: index 4 + 2i = ช่องว่าง, 5 + 2i = ยอด
+    const sumRowOf = (b: Cell[][], label: string) => b.find((r) => r[0]?.text === seg(label))
+    const netG = sumRowOf(body, GRADE_NET_LABEL)
+    assert.ok(netG, "แถวสุทธิในโหมดเกรดใช้ป้าย GRADE_NET_LABEL")
+    assert.ok(String(netG![0].text).replace(/\u200B/g, "").includes("ตามเกรดที่เลือก"), "ป้ายแถวสุทธิบอกว่าคิดตามเกรดที่เลือก")
+    assert.ok(!sumRowOf(body, "รวมราคาทั้งหมด (สุทธิ)"), "โหมดเกรดไม่ใช้ป้ายสุทธิแบบเดิม")
+    assert.equal(netG![5].text, "34,015.39", "S1 คิดครบ: ซ่อมเดิม 21,000 + HYD/เกียร์/ค่าแรง = 31,790.08 + VAT")
+    assert.equal(netG![7].text, seg(GRADE_PARTIAL), "S2 ไม่ได้เสนอราคาซ่อมเดิม → ไม่ครบ")
+    assert.equal(netG![9].text, seg(GRADE_PARTIAL), "S3 ไม่ได้เสนอราคาซ่อมเดิม → ไม่ครบ")
+    assert.equal(netG![11].text, "", "ไม่มี Supplier 4 → เว้นว่าง ไม่ใช่ ไม่ครบ")
+    for (const label of ["รวมราคา ก่อนภาษี", "รวมราคาหลังส่วนลด", "ภาษีมูลค่าเพิ่ม 7 %"]) {
+      const row = sumRowOf(body, label)!
+      assert.ok(row[7].text === seg(GRADE_PARTIAL) && row[9].text === seg(GRADE_PARTIAL), `${label}: S2/S3 ไม่ครบ`)
+      assert.notEqual(row[5].text, seg(GRADE_PARTIAL), `${label}: S1 มียอด`)
+    }
+    const discG = sumRowOf(body, "ส่วนลด")!
+    assert.ok([5, 7, 9].every((k) => discG[k].text === "0.00"), "แถวส่วนลดยังพิมพ์ตัวเลขที่เจ้าเสนอ ไม่แทนด้วย ไม่ครบ")
+
     // เลือก มือ 2·S3 แทน → รวมผสม 35,096 + ต้องพิมพ์เหตุผลที่เลือก
     const alt = gradesDoc()
     alt.lineSupplier = [null, 3, null, 2, 2, 3]
@@ -266,23 +285,33 @@ async function main() {
     const altBody = priceTableOf(ddAlt).body
     assert.equal(gradeRowOf(altBody, "มือ 2")![8].text, "√ 25,000.00", "ติ๊กที่ มือ 2·S3 (ช่องราคาต่อหน่วยของ S3 = index 8)")
     assert.ok(!JSON.stringify(gradeRowOf(altBody, "ซ่อมเดิม")).includes("√"), "ย้ายการเลือกแล้ว ซ่อมเดิมต้องไม่มีติ๊ก")
+    const netAlt = sumRowOf(altBody, GRADE_NET_LABEL)!
+    assert.ok(netAlt[5].text === seg(GRADE_PARTIAL) && netAlt[7].text === seg(GRADE_PARTIAL), "ALT: S1/S2 ไม่ได้เสนอ มือ 2 → ไม่ครบ")
+    assert.equal(netAlt[9].text, fmtMoney(supplierTotals(alt, 2).net), "ALT: S3 คิดครบ (มือ 2 25,000)")
 
     // กลุ่มค้าง (ยังไม่เลือกเกรด) → ไม่มีบล็อกผสม แต่แถวหัวรายการ/เกรดยังพิมพ์ครบ
     const open = gradesDoc(); open.lineSupplier = [null, null, null, 2, 2, 3]
-    const flatOpen = JSON.stringify(buildPriceCompareDocDef(open))
+    const ddOpen = buildPriceCompareDocDef(open)
+    const flatOpen = JSON.stringify(ddOpen)
     assert.ok(!flatOpen.includes(seg(MIX_NET_LABEL)) && flatOpen.includes(seg("เกรด: ซ่อมเดิม")), "กลุ่มค้าง: ไม่มียอดผสม แต่ยังมีแถวเกรด")
+    // (final review M-1) ร่างเกรดที่ Pump ยังไม่เลือกเกรด: ช่องผู้ได้รับเลือกบอกสถานะ ไม่ใช่ช่องติ๊ก [ ] Supplier N ของการเลือกทั้งใบ
+    assert.ok(flatOpen.includes(seg("เลือกรายบรรทัด (ยังไม่ครบ)")), "ช่องผู้ได้รับเลือก = เลือกรายบรรทัด (ยังไม่ครบ)")
+    assert.ok(!flatOpen.includes("] Supplier"), "ใบมีเกรดต้องไม่มีช่องติ๊ก Supplier ทั้งใบ")
+    assert.ok(!flatG.includes("] Supplier") && !flatG.includes(seg("เลือกรายบรรทัด (ยังไม่ครบ)")), "เลือกครบแล้ว → ใช้ป้ายโหมดผสมตามเดิม")
+    const netOpen = sumRowOf(priceTableOf(ddOpen).body, GRADE_NET_LABEL)!
+    assert.ok([5, 7, 9].every((k) => netOpen[k].text === seg(GRADE_PARTIAL)), "Pump ยังไม่เลือกเกรด → ทุกเจ้า ไม่ครบ")
 
     // เอกสารไม่มีเกรด: ไม่มีแถวเกรด และ cell ครบทุกแถวเหมือนเดิม (docDefinition ต้องเหมือนเดิมทุกไบต์ — ตรวจเทียบก่อน/หลังตอนแก้)
     assert.ok(!flat.includes(seg("เกรด")) && !flatMix.includes(seg("เกรด")), "เอกสารไม่มีเกรดต้องไม่มีแถวเกรด")
     const plain = priceTableOf(dd)
     assert.ok(plain.body.every((r) => r.length === plain.widths.length))
 
-    for (const [name, def] of [["grades", ddG], ["grades-alt", ddAlt]] as const) {
+    for (const [name, def] of [["grades", ddG], ["grades-alt", ddAlt], ["grades-open", ddOpen]] as const) {
       const out = await renderPdfmake(def)
       assert.equal((await PDFDocument.load(out)).getPageCount(), 1, `ฟอร์ม ${name} ต้องเป็นหน้าเดียว`)
       fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out)
     }
-    console.log("grades: OK → tmp/price-compare-grades.pdf, tmp/price-compare-grades-alt.pdf")
+    console.log("grades: OK → tmp/price-compare-grades.pdf, tmp/price-compare-grades-alt.pdf, tmp/price-compare-grades-open.pdf")
   }
 
   // หน้ารูปแนบ

@@ -163,7 +163,10 @@ export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers"> & 
 }
 
 // index ของ supplier ที่สุทธิต่ำสุด — นับเฉพาะรายที่มีราคาอย่างน้อย 1 รายการในแถวที่นับ (ยอดก็คิดจากแถวที่นับ)
+// มีรายการหลายเกรด → null: ยอดต่อเจ้านับแค่เกรดที่เลือก (เจ้าที่ไม่ได้เสนอเกรดนั้นยอดต่ำเพราะขาดรายการ) จึงชี้ "ถูกสุดทั้งใบ" ไม่ได้
+// ใบมีเกรดเทียบกันที่ pickLowestPerLine / bestMixNet แทน (กติกาข้อ 4: เลือกรายบรรทัดทั้งใบ)
 export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers"> & LineSupplierOpt): number | null {
+  if (hasGrades(doc)) return null
   const counted = countedRows(doc)
   let best: number | null = null, bestNet = Infinity
   doc.suppliers.forEach((s, si) => {
@@ -172,6 +175,18 @@ export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers"> & LineS
     if (net < bestNet) { bestNet = net; best = si }
   })
   return best
+}
+
+/** ยอดต่อเจ้าของใบที่มีเกรด "คิดครบ" หรือไม่: ทุกรายการต้องชี้ได้แถวเดียว (กลุ่มขนาด 1 = แถวนั้น, กลุ่มหลายเกรด = แถวที่เลือกแถวเดียว)
+ *  และเจ้านี้ต้องเสนอราคาแถวนั้น — false เมื่อไม่มี supplier ลำดับนี้ / มีกลุ่มที่ยังไม่เลือกเกรดหรือเลือกเกิน 1 เกรด
+ *  UI/PDF ใช้ตัดสินว่าจะแสดงยอดต่อเจ้า หรือ "ไม่ครบ" แทนยอดบางส่วนที่ชวนเข้าใจผิด (ใช้เฉพาะเมื่อ hasGrades) */
+export function supplierCoversSelection(doc: Pick<PriceCompare, "items" | "suppliers"> & LineSupplierOpt, idx: number): boolean {
+  const s = doc.suppliers[idx]
+  if (!s) return false
+  return groupsOf(doc).every((g) => {
+    const rows = g.rows.length === 1 ? g.rows : pickedRows(doc, g)
+    return rows.length === 1 && s.prices[rows[0]] != null
+  })
 }
 
 /** ราคาสุทธิของรายการหนึ่ง ถ้าใช้ supplier รายที่ระบุ (รวม VAT ตามเงื่อนไขของ supplier รายนั้น) — ไม่รวมส่วนลดท้ายใบ เพราะส่วนลดเป็นข้อตกลงระดับทั้งใบเสนอราคา ใช้ไม่ได้เมื่อซื้อแค่บางรายการ
@@ -378,9 +393,14 @@ export function normalizeDoc(input: unknown): PriceCompare {
     return { name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit), sku: str(it?.sku) || undefined, ...(group ? { group, ...(grade ? { grade } : {}) } : {}) }
   })
   // ชื่อ/จำนวน/หน่วย/sku เป็นของทั้งรายการ: คัดลอกจากแถวแรกของกลุ่มไปทุกแถวเกรด กันข้อมูลแตก
+  // group ที่เหลือแถวเดียว = รายการธรรมดา → ถอด group/grade ออก ให้รูปทรงเหมือนรายการธรรมดาทุกประการ
   const items: PcItem[] = rawItems.slice()
   for (const g of groupsOf({ items: rawItems })) {
-    if (g.rows.length < 2) continue
+    if (g.rows.length < 2) {
+      const it = rawItems[g.rows[0]]
+      if (it.group) items[g.rows[0]] = { name: it.name, qty: it.qty, unit: it.unit, sku: it.sku }
+      continue
+    }
     const head = rawItems[g.rows[0]]
     for (const r of g.rows.slice(1)) {
       const { group, grade } = rawItems[r]

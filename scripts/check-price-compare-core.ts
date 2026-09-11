@@ -6,7 +6,7 @@ import {
   normalizeDoc, validateDoc, docNoFor, counterKeyFor, fmtMoney, lineTotal, round2,
   completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
   effectiveLineSupplier, allLinesAwarded, mixedTotals, mixedNet, pickLowestPerLine, bestMixNet, mixedGap, renumberAfterRemoval,
-  groupsOf, countedRows, hasGrades, newGroupId,
+  groupsOf, countedRows, hasGrades, newGroupId, supplierCoversSelection,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 import { diffPriceCompare } from "../lib/price-compare-log"
@@ -542,8 +542,7 @@ const named = (x: PriceCompare) => { x.committee = x.committee.map((m) => ({ ...
   assert.equal(supplierTotals(g, 2).subtotal, 32999.92, "เลือก มือ 2 → S3 นับ 25,000")
   assert.equal(supplierTotals(g, 0).subtotal, 10790.08)
   assert.equal(supplierTotals({ items: g.items, suppliers: g.suppliers }, 1).subtotal, 8300, "ไม่ส่ง lineSupplier = ยังไม่เลือกเกรด")
-  const nets = g.suppliers.map((_, i) => supplierTotals(g, i).net)
-  assert.equal(lowestNet(g), nets.indexOf(Math.min(...nets)), "lowestNet เทียบยอดจากแถวที่นับ")
+  assert.equal(lowestNet(g), null, "ใบมีเกรด → lowestNet null (ยอดต่อเจ้านับแค่เกรดที่เลือก ชี้ถูกสุดทั้งใบไม่ได้)")
 
   assert.equal(completeSupplierCount(gradesDoc()), 3, "ครบ = เสนออย่างน้อย 1 เกรดของทุกรายการ")
   const x = gradesDoc(); x.suppliers[1].prices[0] = null
@@ -756,6 +755,48 @@ const named = (x: PriceCompare) => { x.committee = x.committee.map((m) => ({ ...
   const me = { name: "นพรัตน์ อายยืน", email: "n@mena.co.th" }
   const base = normalizeDoc({ ...newDoc(me), ...{}, preparedBy: me, status: "ร่าง", revision: 0, createdBy: me.name, editedBy: me.name })
   assert.deepEqual(validateDoc(base), [], "สร้างใบใหม่เปล่าๆ ต้องผ่าน")
+}
+
+// ======================================================================
+// --- final review ---
+// (I-1) supplierCoversSelection: ยอดต่อเจ้าในโหมดเกรดคิดครบไหม (UI/PDF แสดง "ไม่ครบ" แทนยอดบางส่วน); lowestNet = null ในใบมีเกรด
+{
+  const covers = (x: PriceCompare) => x.suppliers.map((_, i) => supplierCoversSelection(x, i))
+  const best = gradesDoc(); best.lineSupplier = [...BEST]
+  assert.deepEqual(covers(best), [true, false, false], "BEST: ซ่อมเดิมมีราคาแค่ S1")
+  assert.deepEqual(covers(gradesDoc()), [false, false, false], "ยังไม่เลือกเกรดไหนเลย → ไม่มีเจ้าไหนคิดครบ")
+  const open = gradesDoc(); open.lineSupplier = [...OPEN]
+  assert.deepEqual(covers(open), [false, false, false], "กลุ่ม Pump ค้าง → ไม่มีเจ้าไหนคิดครบ")
+  const alt = gradesDoc(); alt.lineSupplier = [...ALT]
+  assert.deepEqual(covers(alt), [false, false, true], "ALT: มือ 2 มีราคาแค่ S3")
+  const two = gradesDoc(); two.lineSupplier = [2, null, 1, 2, 2, 3]
+  assert.deepEqual(covers(two), [false, false, false], "เลือกเกิน 1 เกรด = กำกวม → ไม่ครบ")
+  assert.equal(supplierCoversSelection(best, 3), false, "ไม่มี supplier ลำดับนี้")
+  const hole = gradesDoc(); hole.lineSupplier = [...BEST]; hole.suppliers[0].prices[4] = null
+  assert.equal(supplierCoversSelection(hole, 0), false, "รายการธรรมดาที่เจ้านี้ไม่ได้เสนอราคา → ไม่ครบ")
+
+  assert.equal(lowestNet(best), null, "ใบมีเกรด → lowestNet null")
+  assert.equal(lowestNet(gradesDoc()), null)
+  assert.equal(lowestNet(alt), null)
+  assert.equal(lowestNet(uh03()), 0, "ใบธรรมดา: lowestNet เหมือนเดิม")
+}
+
+// (M-3) normalizeDoc: group ที่เหลือแถวเดียว = รายการธรรมดา → ถอด group/grade ออก (รูปทรงเดียวกับรายการธรรมดา)
+{
+  const n1 = normalizeDoc({
+    items: [{ name: "Pump", qty: 1, unit: "ตัว", group: "g-lone1", grade: "มือ 1" }, { name: "ค่าแรง", qty: 1, unit: "งาน" }],
+    suppliers: [{ name: "x", prices: [100, 200] }], lineSupplier: [1, null],
+  })
+  assert.equal("group" in n1.items[0], false, "g-lone1 แถวเดียว → ไม่มี key group")
+  assert.equal("grade" in n1.items[0], false, "g-lone1 แถวเดียว → ไม่มี key grade")
+  assert.deepEqual(n1.items[0], { name: "Pump", qty: 1, unit: "ตัว", sku: undefined }, "รูปทรงเหมือนรายการธรรมดา")
+  assert.deepEqual(Object.keys(n1.items[0]), Object.keys(n1.items[1]), "ลำดับ key เหมือนแถวธรรมดา")
+  assert.deepEqual(n1.lineSupplier, [1, null], "การเลือกของแถวนั้นคงไว้")
+  assert.equal(hasGrades(n1), false)
+  // กลุ่ม 2 เกรดยังคง group/grade ตามเดิม
+  const n2 = normalizeDoc({ ...gradesDoc(), lineSupplier: [...BEST] })
+  assert.equal(n2.items[0].group, PUMP)
+  assert.equal(n2.items[2].grade, "ซ่อมเดิม")
 }
 
 console.log("check-price-compare-core: OK")

@@ -119,6 +119,7 @@ export function PriceCompareForm({ id }: { id: string }) {
 
   const readOnly = doc?.status === "เสร็จสิ้น"
   const today = bkkToday()
+  // ใบมีเกรด → null จาก lib (ยอดต่อเจ้านับแค่เกรดที่เลือก) — ป้าย "ถูกสุด"/radio ทั้งใบอยู่ในบล็อกที่ไม่แสดงในโหมดเกรดอยู่แล้ว
   const lowNet = useMemo(() => (doc ? lowestNet(doc) : null), [doc])
   const fullCount = useMemo(() => (doc ? completeSupplierCount(doc) : 0), [doc])
   // ให้ตรงกับเกณฑ์ที่ canTransition ใช้จริง: ตอนร่างยังไม่บังคับชื่อกรรมการ
@@ -147,6 +148,11 @@ export function PriceCompareForm({ id }: { id: string }) {
   const onMatrixChange = (p: Partial<Pick<PriceCompare, "items" | "suppliers" | "lineSupplier">>) => setDoc((d) => {
     if (!d) return d
     const next = { ...d, ...p }
+    // ตารางไม่เคยแก้ไฟล์แนบ — patch ที่สร้างก่อน swal ยืนยัน (เช่น ลบรายการหลายเกรด) ถือ suppliers ชุดเก่า ซึ่งอาจยังไม่มีไฟล์ที่อัปโหลดเสร็จ
+    // ระหว่างรอยืนยัน → จำนวน supplier เท่าเดิม = คง quotationFiles ปัจจุบันจาก state เสมอ (ลบคอลัมน์ = สั้นกว่า ใช้ทางด้านล่าง)
+    if (p.suppliers && p.suppliers.length === d.suppliers.length) {
+      next.suppliers = p.suppliers.map((sp, i) => (sp.quotationFiles === d.suppliers[i].quotationFiles ? sp : { ...sp, quotationFiles: d.suppliers[i].quotationFiles }))
+    }
     if (p.suppliers && p.suppliers.length < d.suppliers.length) {
       // ตารางลบด้วย filter จึงคง object identity ของเจ้าที่เหลือไว้ — ช่องแรกที่ไม่ตรงกันคือช่องที่ถูกลบ (ลบท้ายสุด = ไม่มีช่องไหนต่าง)
       const at = d.suppliers.findIndex((sp, i) => p.suppliers![i] !== sp)
@@ -363,13 +369,14 @@ export function PriceCompareForm({ id }: { id: string }) {
             /* มีรายการหลายเกรด: ไม่มีการเลือกทั้งใบ — เลือกเกรด + เจ้าในตารางทีละรายการ แล้วบอกว่ารายการไหนยังค้าง */
             <div className="mb-3 rounded-xl border border-[#7C3AED]/30 bg-[#7C3AED]/5 p-3">
               <p className="text-sm font-semibold text-[#7C3AED]">มีรายการหลายเกรด — เลือกเกรดและเจ้ารายบรรทัด</p>
-              {lineGaps.length > 0 ? (
+              {/* "ครบ" ตัดสินจาก allLinesAwarded ไม่ใช่จากรายการที่กรองด้วย regex ว่าง — รายการว่างแต่ยังไม่ครบ = ไม่แสดงอะไรเพิ่ม ("ยังขาด" ด้านล่างบอกอยู่แล้ว) */}
+              {mixedAll ? (
+                <p className="mt-1 text-xs text-gray-500">เลือกครบทุกรายการแล้ว</p>
+              ) : lineGaps.length > 0 ? (
                 <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-amber-700 dark:text-amber-400">
                   {lineGaps.map((m, i) => <li key={i}>{m}</li>)}
                 </ul>
-              ) : (
-                <p className="mt-1 text-xs text-gray-500">เลือกครบทุกรายการแล้ว</p>
-              )}
+              ) : null}
             </div>
           )}
           {mixedAll ? (

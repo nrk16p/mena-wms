@@ -9,7 +9,7 @@ import { swalConfirm } from "@/lib/swal"
 import {
   emptySupplier, supplierTotals, lowestNet, fmtMoney, lineTotal, MAX_SUPPLIERS, VAT_MODE_LABEL,
   effectiveLineSupplier, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine, renumberAfterRemoval,
-  groupsOf, hasGrades, newGroupId,
+  groupsOf, hasGrades, newGroupId, supplierCoversSelection,
   type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals, type PcGroup,
 } from "@/lib/price-compare"
 
@@ -28,9 +28,11 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   const groups = groupsOf(doc)                 // รายการ (กลุ่ม) ตามลำดับ — รายการธรรมดา = กลุ่มขนาด 1
   const gradeMode = hasGrades(doc)             // มีรายการหลายเกรด → ทั้งใบเลือกรายบรรทัด (กติกาข้อ 4)
   const low = pickLowestPerLine(doc)   // 1-based, เทียบหลัง VAT, group-aware (1 ช่องต่อรายการ) — เกณฑ์เดียวกับ isComplete/PDF
-  // มีรายการหลายเกรด: supplierTotals/lowestNet นับเฉพาะเกรดที่เลือก (ยอดบางส่วนโดยนิยาม) → ไม่ชี้ "สุทธิต่ำสุดทั้งใบ" ให้เข้าใจผิด
-  const lowNet = gradeMode ? null : lowestNet(doc)
+  // มีรายการหลายเกรด: lowestNet คืน null (ยอดต่อเจ้านับแค่เกรดที่เลือก) → ไม่ชี้ "สุทธิต่ำสุดทั้งใบ" ให้เข้าใจผิด
+  const lowNet = lowestNet(doc)
   const totals = suppliers.map((_, i) => supplierTotals(doc, i))
+  // โหมดเกรด: เจ้าที่คิดยอดตามเกรดที่เลือกไม่ครบ (ยังไม่เลือกเกรด / ไม่ได้เสนอราคาเกรดที่เลือก) → แสดง "ไม่ครบ" แทนยอดบางส่วน (เกณฑ์เดียวกับ PDF)
+  const covers = suppliers.map((_, i) => !gradeMode || supplierCoversSelection(doc, i))
   const cols = 4 + suppliers.length * 2 + (readOnly ? 0 : 1)
   const mixedAll = allLinesAwarded(doc)
   const pickedCount = lineSupplier.filter((v) => v != null).length
@@ -318,7 +320,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
         </tbody>
         <tfoot className="text-sm">
           {([
-            ["รวมราคา ก่อนภาษี", "subtotal", true], ["ส่วนลด", "discount", false], ["รวมราคาหลังส่วนลด", "afterDiscount", false], ["ภาษีมูลค่าเพิ่ม 7%", "vat", false], ["รวมราคาทั้งหมด (สุทธิ)", "net", true],
+            ["รวมราคา ก่อนภาษี", "subtotal", true], ["ส่วนลด", "discount", false], ["รวมราคาหลังส่วนลด", "afterDiscount", false], ["ภาษีมูลค่าเพิ่ม 7%", "vat", false], [gradeMode ? "รวมราคาทั้งหมด (สุทธิ) ตามเกรดที่เลือก" : "รวมราคาทั้งหมด (สุทธิ)", "net", true],
           ] as [string, keyof PcTotals, boolean][]).map(([label, key, bold]) => (
             <tr key={key} className={bold ? "font-semibold" : ""}>
               <td colSpan={4} className={`${td} px-2 py-1 text-right text-xs text-gray-600 dark:text-gray-300`}>{label}</td>
@@ -326,6 +328,8 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                 <td key={s} colSpan={2} className={`${td} text-right tabular-nums ${key === "net" && s === lowNet ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20" : ""}`}>
                   {key === "discount" && !readOnly
                     ? <input inputMode="decimal" value={sp.discount || ""} onChange={(e) => patchSupplier(s, { discount: numOrNull(e.target.value) ?? 0 })} placeholder="0.00" className={cellInput} />
+                    : key !== "discount" && !covers[s]
+                    ? <span title="ยังคิดยอดตามเกรดที่เลือกไม่ได้ — ยังไม่เลือกเกรดครบทุกรายการ หรือเจ้านี้ไม่ได้เสนอราคาเกรดที่เลือก" className="px-2 text-xs font-normal text-amber-700 dark:text-amber-400">ไม่ครบ</span>
                     : key === "vat" && sp.vatMode !== "excl"
                     ? <span className="px-2 text-xs text-gray-400">{sp.vatMode === "none" ? "ไม่มี VAT" : `(รวมในราคา) ${fmtMoney(totals[s].vat)}`}</span>
                     : <span className="px-2">{fmtMoney(totals[s][key])}</span>}
@@ -362,7 +366,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
           {(pickedCount > 0 || gradeMode) && (
             <tr>
               <td colSpan={cols} className="px-2 py-1.5 text-[11px] text-gray-500">
-                {gradeMode && <>ยอดรวมต่อเจ้าด้านบนนับเฉพาะเกรดที่เลือก · </>}
+                {gradeMode && covers.some((c) => !c) && <>“ไม่ครบ” = ยังไม่เลือกเกรด หรือเจ้านั้นไม่ได้เสนอราคาเกรดที่เลือก · </>}
                 ส่วนลดท้ายใบไม่ถูกนำมาคิดเมื่อเลือก supplier รายบรรทัด
                 {bNet != null && <> · ถ้าเลือกถูกสุดทุกแถว: <b className="text-emerald-700 dark:text-emerald-300">{fmtMoney(bNet)}</b></>}
                 {!mixedAll && (gradeMode
