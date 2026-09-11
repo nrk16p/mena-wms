@@ -124,11 +124,20 @@ export function hasGrades(doc: Pick<PriceCompare, "items">): boolean {
   return groupsOf(doc).some((g) => g.rows.length > 1)
 }
 
-/** id กลุ่มสุ่มสั้น เช่น g-k3x9ab (ห้าม import — ใช้ Math.random; 36^6 ≈ 2 พันล้าน ชนกันในใบเดียวแทบเป็นไปไม่ได้) */
-export function newGroupId(): string {
+/** รูปแบบ group id ที่ยอมรับ (normalizeDoc ทิ้ง group ที่ไม่ตรงรูปแบบ → กลายเป็นรายการธรรมดา กันชนกับ key สังเคราะห์ `#<i>`) */
+const GROUP_ID_RE = /^g-[a-z0-9]{1,16}$/
+
+/** id กลุ่มสุ่มสั้น เช่น g-k3x9ab (ห้าม import — ใช้ Math.random; 36^6 ≈ 2 พันล้าน)
+ *  ส่ง existing (group ที่มีในใบอยู่แล้ว) มาเพื่อสุ่มใหม่เมื่อชน — สูงสุด 10 ครั้ง */
+export function newGroupId(existing?: Iterable<string>): string {
   const abc = "abcdefghijklmnopqrstuvwxyz0123456789"
-  let id = "g-"
-  for (let k = 0; k < 6; k++) id += abc[Math.floor(Math.random() * abc.length)]
+  const taken = new Set(existing ?? [])
+  let id = ""
+  for (let tries = 0; tries < 10; tries++) {
+    id = "g-"
+    for (let k = 0; k < 6; k++) id += abc[Math.floor(Math.random() * abc.length)]
+    if (!taken.has(id)) break
+  }
   return id
 }
 
@@ -295,24 +304,39 @@ export function isComplete(doc: PriceCompare, opts: { requireCommitteeNames?: bo
   if (full < 1) missing.push("supplier อย่างน้อย 1 รายที่มีราคาครบทุกแถว")
   else if (full < MIN_QUOTES && !doc.fewerQuotesReason.trim()) missing.push(`ใบเสนอราคาครบ ${MIN_QUOTES} ราย หรือระบุเหตุผลที่มีน้อยกว่า ${MIN_QUOTES} ราย`)
   if (requireNames && doc.committee.some((m) => !m.name.trim())) missing.push("ชื่อกรรมการ")
-  const groups = groupsOf(doc)
-  const unresolved = groups.filter((g) => g.rows.length > 1 && pickedRows(doc, g).length === 0)
-  unresolved.forEach((g) => missing.push(`ยังไม่เลือกเกรด: ${doc.items[g.rows[0]].name || `รายการที่ ${groups.indexOf(g) + 1}`}`))
   const mixed = allLinesAwarded(doc)   // โหมด mix เต็มรูปแบบ: ทุกรายการกำหนด supplier ของตัวเองแล้ว ไม่ต้องพึ่ง selectedSupplier ของทั้งใบ
-  if (doc.selectedSupplier == null && !mixed) {
-    // ขาดแค่การเลือกเกรด (รายการธรรมดาเลือกเจ้าครบแล้ว) → บรรทัด "ยังไม่เลือกเกรด" บอกแล้ว ไม่ต้องขึ้น "ผู้ได้รับเลือก" ซ้ำ
-    const plainUnpicked = groups.some((g) => g.rows.length === 1 && doc.lineSupplier[g.rows[0]] == null)
-    if (unresolved.length === 0 || plainUnpicked) missing.push("ผู้ได้รับเลือก")
-  } else if (doc.selectedSupplier != null) {
+  if (hasGrades(doc)) {
+    // กติกาข้อ 4: มีรายการหลายเกรด = เลือกรายบรรทัดทั้งใบ (ไม่มีช่องเลือกทั้งใบให้กด) → บอกเป็นรายรายการว่าขาดอะไร ไม่ใช่ "ผู้ได้รับเลือก"
+    if (!mixed) missing.push(...lineSelectionGaps(doc))
+    else if (mixNeedsReason(doc)) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
+  } else if (doc.selectedSupplier == null && !mixed) missing.push("ผู้ได้รับเลือก")
+  else if (doc.selectedSupplier != null) {
     const low = lowestNet(doc)
     if (low != null && doc.selectedSupplier !== low + 1 && !doc.selectionReason.trim()) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
-  } else {
-    // โหมด mix: ถ้ามีรายการไหนไม่ได้เลือกถูกสุดของรายการนั้น ต้องมีเหตุผลรวม (ใช้ selectionReason เดียวกัน)
-    const low = pickLowestPerLine(doc)   // 1-based, เทียบหลัง VAT เหมือน bestMixNet
-    const anyNotLowest = doc.items.some((_, i) => low[i] != null && doc.lineSupplier[i] !== low[i])
-    if (anyNotLowest && !doc.selectionReason.trim()) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
-  }
+  } else if (mixNeedsReason(doc)) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
   return { ok: missing.length === 0, missing }
+}
+
+/** โหมด mix: ถ้ามีรายการไหนไม่ได้เลือกถูกสุดของรายการนั้น ต้องมีเหตุผลรวม (ใช้ selectionReason เดียวกัน)
+ *  เทียบรายแถวกับ pickLowestPerLine (1-based, หลัง VAT, group-aware — เลือกเกรดอื่นในกลุ่ม = แถวถูกสุดของกลุ่มไม่ตรง) */
+function mixNeedsReason(doc: PriceCompare): boolean {
+  const low = pickLowestPerLine(doc)
+  const anyNotLowest = doc.items.some((_, i) => low[i] != null && doc.lineSupplier[i] !== low[i])
+  return anyNotLowest && !doc.selectionReason.trim()
+}
+
+/** สิ่งที่ยังขาดในการเลือกรายบรรทัด (ใช้กับเอกสารที่มีรายการหลายเกรด) — อ้างชื่อรายการ ไม่มีชื่อ → "รายการที่ N" (นับต่อรายการ)
+ *  ไม่ว่างเสมอเมื่อ !allLinesAwarded(doc) */
+function lineSelectionGaps(doc: Pick<PriceCompare, "items" | "lineSupplier">): string[] {
+  const out: string[] = []
+  groupsOf(doc).forEach((g, gi) => {
+    const label = doc.items[g.rows[0]].name || `รายการที่ ${gi + 1}`
+    const picks = pickedRows(doc, g).length
+    if (picks > 1) out.push(`เลือกได้ไม่เกิน 1 เกรด: ${label}`)
+    else if (picks === 0) out.push(g.rows.length > 1 ? `ยังไม่เลือกเกรด: ${label}` : `ยังไม่เลือกเจ้า: ${label}`)
+  })
+  if (out.length === 0 && !allLinesAwarded(doc)) out.push("จำนวนช่องเลือก supplier ต่อรายการไม่ตรงกับรายการ")
+  return out
 }
 
 export function canTransition(from: PcStatus, to: PcStatus, doc: PriceCompare): { ok: boolean; reason?: string } {
@@ -322,7 +346,9 @@ export function canTransition(from: PcStatus, to: PcStatus, doc: PriceCompare): 
     return r.ok ? { ok: true } : { ok: false, reason: `ยังขาด: ${r.missing.join(", ")}` }
   }
   if (from === "รอลงนาม" && to === "เสร็จสิ้น") {
-    if (doc.selectedSupplier == null && !allLinesAwarded(doc)) return { ok: false, reason: "ยังไม่เลือกผู้ได้รับเลือก" }
+    if (hasGrades(doc)) {
+      if (!allLinesAwarded(doc)) return { ok: false, reason: lineSelectionGaps(doc).join(", ") }
+    } else if (doc.selectedSupplier == null && !allLinesAwarded(doc)) return { ok: false, reason: "ยังไม่เลือกผู้ได้รับเลือก" }
     if (doc.committee.some((m) => !m.name.trim() || !m.signedDate)) return { ok: false, reason: "ชื่อและวันที่ลงนามของกรรมการยังไม่ครบ 4 ช่อง" }
     return { ok: true }
   }
@@ -346,7 +372,8 @@ const intInRange = (v: unknown, max: number): number | null => { const n = numOr
 export function normalizeDoc(input: unknown): PriceCompare {
   const b = (input && typeof input === "object" ? input : {}) as Record<string, any>
   const rawItems: PcItem[] = (Array.isArray(b.items) ? b.items : []).map((it: any) => {
-    const group = str(it?.group), grade = str(it?.grade)
+    const rawGroup = str(it?.group), grade = str(it?.grade)
+    const group = GROUP_ID_RE.test(rawGroup) ? rawGroup : ""   // ไม่ตรงรูปแบบ newGroupId → ถือเป็นรายการธรรมดา
     // รายการธรรมดาไม่มี key group/grade งอกออกมา (รูปทรงเอกสารเดิมคงเดิม); grade ไม่มีความหมายถ้าไม่มี group
     return { name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit), sku: str(it?.sku) || undefined, ...(group ? { group, ...(grade ? { grade } : {}) } : {}) }
   })
@@ -430,7 +457,8 @@ export function validateDoc(doc: PriceCompare): string[] {
   groups.forEach((g, gi) => {
     if (g.rows.length < 2) return
     const name = doc.items[g.rows[0]]?.name
-    const label = `รายการที่ ${gi + 1}${name ? ` (${name})` : ""}`
+    // อ้างด้วยชื่อรายการ — "รายการที่ N" ในข้อความอื่นของ validateDoc นับต่อแถว จะสับสนกับลำดับต่อรายการ
+    const label = name ? `รายการ "${name}"` : `รายการไม่มีชื่อ (ลำดับที่ ${gi + 1})`
     if (g.rows.some((r, k) => k > 0 && r !== g.rows[k - 1] + 1)) errs.push(`${label}: แถวเกรดของรายการเดียวกันต้องอยู่ติดกัน`)
     if (pickedRows(doc, g).length > 1) errs.push(`${label}: เลือกได้ไม่เกิน 1 เกรด`)
     if (g.rows.some((r) => !(doc.items[r].grade ?? "").trim())) errs.push(`${label}: ต้องระบุชื่อเกรดทุกแถว`)

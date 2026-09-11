@@ -610,7 +610,7 @@ const named = (x: PriceCompare) => { x.committee = x.committee.map((m) => ({ ...
   assert.equal("grade" in ng.items[3], false)
   assert.equal(ng.selectedSupplier, null, "มีรายการหลายเกรด → ล้างการเลือกทั้งใบ")
   assert.deepEqual(ng.lineSupplier, [null, null, 1, null])
-  const nsku = normalizeDoc({ items: [{ name: "a", qty: 1, group: "g1", grade: "A" }, { name: "b", qty: 1, sku: "X", group: "g1", grade: "B" }] })
+  const nsku = normalizeDoc({ items: [{ name: "a", qty: 1, group: "g-1", grade: "A" }, { name: "b", qty: 1, sku: "X", group: "g-1", grade: "B" }] })
   assert.equal(nsku.items[1].sku, undefined, "แถวแรกไม่มี sku → ทั้งกลุ่มไม่มี sku")
   // เอกสารเดิม: รูปทรง item ไม่เปลี่ยน (ไม่มี key group/grade งอก)
   const plain = normalizeDoc(uh03())
@@ -635,6 +635,127 @@ const named = (x: PriceCompare) => { x.committee = x.committee.map((m) => ({ ...
   const sw = diffPriceCompare(s1, s2)
   assert.equal(sw.find((x) => x.field === "grades"), undefined, "เปลี่ยนเกรดที่เลือก ไม่เปลี่ยนจำนวนเกรด")
   assert.ok(sw.some((x) => x.field === "lineSupplier"), "การเปลี่ยนเกรดที่เลือกขึ้นผ่านเวกเตอร์ lineSupplier")
+}
+
+// ======================================================================
+// --- review round 1 ---
+// (1) โหมดเกรด: ข้อความขาดต้องเป็นสิ่งที่ผู้ใช้ทำได้จริง (ไม่มีช่อง "ผู้ได้รับเลือก" ให้กดในเอกสารที่มีเกรด)
+{
+  const up = gradesDoc(); up.lineSupplier = [null, null, 1, null, 2, 3]   // HYD ยังไม่เลือกเจ้า
+  const ru = isComplete(up, { requireCommitteeNames: false })
+  assert.ok(ru.missing.includes("ยังไม่เลือกเจ้า: น้ำมัน HYD."), JSON.stringify(ru.missing))
+  assert.ok(!ru.missing.includes("ผู้ได้รับเลือก"), "เอกสารที่มีเกรดต้องไม่ขึ้น ผู้ได้รับเลือก")
+  // แม้เอกสาร (ไม่ผ่าน normalize) ตั้ง selectedSupplier ไว้ ก็ยังต้องเลือกรายบรรทัด (กติกาข้อ 4)
+  const upSel = gradesDoc(); upSel.selectedSupplier = 2; upSel.lineSupplier = [null, null, 1, null, 2, 3]
+  assert.ok(isComplete(upSel, { requireCommitteeNames: false }).missing.includes("ยังไม่เลือกเจ้า: น้ำมัน HYD."))
+
+  const dbl = gradesDoc(); dbl.lineSupplier = [2, null, 1, 2, 2, 3]
+  const rd = isComplete(dbl, { requireCommitteeNames: false })
+  assert.ok(rd.missing.includes("เลือกได้ไม่เกิน 1 เกรด: Pump Rexroth"), JSON.stringify(rd.missing))
+  assert.ok(!rd.missing.includes("ผู้ได้รับเลือก"))
+
+  const noName = gradesDoc(); noName.items[3] = { ...noName.items[3], name: "" }; noName.lineSupplier = [null, null, 1, null, 2, 3]
+  assert.ok(isComplete(noName, { requireCommitteeNames: false }).missing.includes("ยังไม่เลือกเจ้า: รายการที่ 2"), "ไม่มีชื่อ → ลำดับนับต่อรายการ (Pump = 1, HYD = 2)")
+
+  // missing ไม่ว่างเสมอเมื่อยังเลือกไม่ครบ (รวมกรณี lineSupplier ยาวเกิน items)
+  const variants: (number | null)[][] = [OPEN, [null, null, 1, null, 2, 3], [2, null, 1, 2, 2, 3], [null, null, null, null, null, null], [null, null, 1, 2, 2, 3, 1]]
+  for (const v of variants) {
+    const x = gradesDoc(); x.lineSupplier = [...v]
+    assert.equal(allLinesAwarded(x), false)
+    assert.ok(isComplete(x, { requireCommitteeNames: false }).missing.length > 0, `ต้องบอกว่าขาดอะไร (${v.join(",")})`)
+  }
+
+  // เอกสารธรรมดายังใช้ "ผู้ได้รับเลือก" ตามเดิม
+  const plain = uh03(); plain.lineSupplier = [1, null, null, null, null]
+  const rp = isComplete(plain, { requireCommitteeNames: false })
+  assert.ok(rp.missing.includes("ผู้ได้รับเลือก"))
+  assert.ok(!rp.missing.some((m) => m.startsWith("ยังไม่เลือกเจ้า")), "เอกสารธรรมดาไม่ใช้ข้อความรายรายการ")
+
+  // canTransition รอลงนาม → เสร็จสิ้น ใช้ข้อความเดียวกัน
+  const signed = (x: PriceCompare) => { x.committee = x.committee.map((m) => ({ ...m, name: "ก", signedDate: "2026-09-11" })); return x }
+  const tu = signed(gradesDoc()); tu.lineSupplier = [null, null, 1, null, 2, 3]
+  assert.deepEqual(canTransition("รอลงนาม", "เสร็จสิ้น", tu), { ok: false, reason: "ยังไม่เลือกเจ้า: น้ำมัน HYD." })
+  const to = signed(gradesDoc()); to.lineSupplier = [...OPEN]
+  assert.deepEqual(canTransition("รอลงนาม", "เสร็จสิ้น", to), { ok: false, reason: "ยังไม่เลือกเกรด: Pump Rexroth" })
+  const toSel = signed(gradesDoc()); toSel.selectedSupplier = 1; toSel.lineSupplier = [...OPEN]
+  assert.equal(canTransition("รอลงนาม", "เสร็จสิ้น", toSel).ok, false, "selectedSupplier ไม่ช่วยให้ข้ามการเลือกเกรด")
+  const tb = signed(gradesDoc()); tb.lineSupplier = [...BEST]
+  assert.equal(canTransition("รอลงนาม", "เสร็จสิ้น", tb).ok, true)
+  assert.deepEqual(canTransition("รอลงนาม", "เสร็จสิ้น", signed(uh03())), { ok: false, reason: "ยังไม่เลือกผู้ได้รับเลือก" }, "เอกสารธรรมดาข้อความเดิม")
+}
+
+// (2) normalizeDoc รับ group เฉพาะรูปแบบ newGroupId — อย่างอื่น (เช่น "#3" ที่ชนกับ key สังเคราะห์) = รายการธรรมดา
+{
+  const ng = normalizeDoc({ items: [
+    { name: "a", qty: 1, group: "#3", grade: "A" }, { name: "b", qty: 1, group: "#3", grade: "B" },
+    { name: "c", qty: 1, group: "G-UPPER", grade: "C" }, { name: "d", qty: 1, group: "g-", grade: "D" },
+    { name: "e", qty: 1, group: " g-ok1 ", grade: "E" }, { name: "f", qty: 1, group: "g-ok1", grade: "F" },
+  ] })
+  for (const i of [0, 1, 2, 3]) {
+    assert.equal("group" in ng.items[i], false, `แถว ${i}: group ผิดรูปแบบ → ไม่มี group`)
+    assert.equal("grade" in ng.items[i], false)
+  }
+  assert.equal(ng.items[0].name, "a", "ไม่ถูก sync เพราะไม่ใช่กลุ่ม")
+  assert.equal(ng.items[1].name, "b")
+  assert.equal(ng.items[4].group, "g-ok1")
+  assert.equal(ng.items[5].name, "e", "group ถูกรูปแบบ → sync ตามปกติ")
+  assert.equal(normalizeDoc({ items: [{ name: "x", qty: 1, group: `g-${"a".repeat(17)}` }] }).items[0].group, undefined, "ยาวเกิน 16 ตัว")
+}
+
+// (3) newGroupId(existing): สุ่มใหม่เมื่อชน (สูงสุด 10 ครั้ง); เรียกแบบไม่มีอาร์กิวเมนต์ได้ตามเดิม
+{
+  const realRandom = Math.random
+  try {
+    let n = 0
+    Math.random = () => (n++ < 6 ? 0 : 1.5 / 36)            // ครั้งแรก g-aaaaaa, ครั้งถัดไป g-bbbbbb
+    assert.equal(newGroupId(["g-aaaaaa"]), "g-bbbbbb", "ชนกับที่มีอยู่ → สุ่มใหม่")
+    n = 0
+    assert.equal(newGroupId(new Set(["g-zzzzzz"])), "g-aaaaaa", "ไม่ชน → ใช้ครั้งแรก (รับ Iterable ใดก็ได้)")
+    let calls = 0
+    Math.random = () => { calls++; return 0 }
+    assert.equal(newGroupId(["g-aaaaaa"]), "g-aaaaaa", "ชนตลอด → หยุดที่ 10 ครั้ง ไม่วนไม่รู้จบ")
+    assert.equal(calls, 60, "10 ครั้ง × 6 ตัวอักษร")
+  } finally {
+    Math.random = realRandom
+  }
+  assert.match(newGroupId(), /^g-[a-z0-9]{6}$/)
+}
+
+// (4) validateDoc: ข้อความกลุ่มอ้างชื่อรายการ ไม่ใช่ "รายการที่ N" (ชนกับข้อความที่นับต่อแถว)
+{
+  const two = gradesDoc(); two.lineSupplier = [2, null, 1, 2, 2, 3]
+  assert.ok(validateDoc(two).includes(`รายการ "Pump Rexroth": เลือกได้ไม่เกิน 1 เกรด`), JSON.stringify(validateDoc(two)))
+  const gap = gradesDoc(); gap.items[4] = { ...gap.items[4], group: PUMP, grade: "แยก" }
+  assert.ok(validateDoc(gap).includes(`รายการ "Pump Rexroth": แถวเกรดของรายการเดียวกันต้องอยู่ติดกัน`))
+  const blank = gradesDoc(); blank.items[1] = { ...blank.items[1], grade: "" }
+  assert.ok(validateDoc(blank).includes(`รายการ "Pump Rexroth": ต้องระบุชื่อเกรดทุกแถว`))
+  const anon = gradesDoc(); anon.items = anon.items.map((it, i) => (i < 3 ? { ...it, name: "" } : it)); anon.lineSupplier = [2, null, 1, 2, 2, 3]
+  assert.ok(validateDoc(anon).includes("รายการไม่มีชื่อ (ลำดับที่ 1): เลือกได้ไม่เกิน 1 เกรด"), JSON.stringify(validateDoc(anon)))
+}
+
+// (5) normalizeDoc sync กลุ่มที่ไม่ได้เริ่มแถวแรกของใบ (รายการธรรมดาก่อน แล้วกลุ่ม 2 เกรด)
+{
+  const ns = normalizeDoc({
+    items: [
+      { name: "ค่าแรง", qty: 1, unit: "งาน" },
+      { name: "Pump Rexroth", qty: 2, unit: "ตัว", sku: "S9PU001", group: "g-pump02", grade: "มือ 1" },
+      { name: "เพี้ยน", qty: 5, unit: "", sku: "ZZ", group: "g-pump02", grade: "มือ 2" },
+    ],
+    suppliers: [{ name: "x", prices: [100, 200, 150] }],
+    lineSupplier: [1, null, 1],
+  })
+  assert.deepEqual(ns.items[0], { name: "ค่าแรง", qty: 1, unit: "งาน", sku: undefined }, "แถวธรรมดาก่อนกลุ่มไม่ถูกแตะ")
+  assert.deepEqual(ns.items[1], { name: "Pump Rexroth", qty: 2, unit: "ตัว", sku: "S9PU001", group: "g-pump02", grade: "มือ 1" })
+  assert.deepEqual(ns.items[2], { name: "Pump Rexroth", qty: 2, unit: "ตัว", sku: "S9PU001", group: "g-pump02", grade: "มือ 2" }, "sync จากแถวแรกของกลุ่ม (index 1)")
+  assert.deepEqual(groupsOf(ns).map((g) => g.rows), [[0], [1, 2]])
+  assert.equal(mixedNet(ns), round2((100 + 150 * 2) * 1.07), "นับเฉพาะเกรดที่เลือก (มือ 2 ×2)")
+}
+
+// (6) POST /api/price-compare: ค่าเริ่มต้นจาก newDoc (หน้า list ส่ง "{}") ต้องผ่าน validateDoc
+{
+  const me = { name: "นพรัตน์ อายยืน", email: "n@mena.co.th" }
+  const base = normalizeDoc({ ...newDoc(me), ...{}, preparedBy: me, status: "ร่าง", revision: 0, createdBy: me.name, editedBy: me.name })
+  assert.deepEqual(validateDoc(base), [], "สร้างใบใหม่เปล่าๆ ต้องผ่าน")
 }
 
 console.log("check-price-compare-core: OK")

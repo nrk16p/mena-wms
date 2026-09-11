@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
-import { newDoc, normalizeDoc, supplierTotals, lowestNet, allLinesAwarded, mixedTotals, type PriceCompare } from "@/lib/price-compare"
+import { newDoc, normalizeDoc, validateDoc, supplierTotals, lowestNet, allLinesAwarded, mixedTotals, type PriceCompare } from "@/lib/price-compare"
 import { PC_COLL, nextDocNo } from "@/lib/price-compare-db"
 import { writePcLog } from "@/lib/price-compare-log"
 
@@ -59,6 +59,9 @@ export async function POST(req: NextRequest) {
   if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   const body = await req.json().catch(() => ({}))
   const base = normalizeDoc({ ...newDoc(me), ...body, preparedBy: me, status: "ร่าง", revision: 0, createdBy: me.name, editedBy: me.name })
+  // ด่านเดียวกับ PUT — ตรวจก่อนออกเลขที่ เพื่อไม่ให้ใบที่ผิดรูป (เช่น เกรดไม่ติดกัน / เลือก 2 เกรด) เผาเลขใน counter
+  const errs = validateDoc(base)
+  if (errs.length) return NextResponse.json({ error: errs.join(" · "), errors: errs }, { status: 400 })
 
   const client = await clientPromise
   const db = client.db(DB)
