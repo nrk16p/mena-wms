@@ -13,7 +13,7 @@ import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
-  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, mixedGap, pickLowestPerLine, renumberAfterRemoval,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, mixedGap, pickLowestPerLine, renumberAfterRemoval, hasGrades,
   type PriceCompare, type PcCommittee, type PcFile, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -24,6 +24,8 @@ const COND_FIELDS: [keyof PcConditions, string][] = [
   ["remark", "หมายเหตุ (ถ้ามี)"], ["bays", "(4) จำนวนช่องซ่อมที่อู่มี"], ["menaTrucksIn", "(5) จำนวนรถ Mena ที่เข้าซ่อมอยู่"],
   ["statusA", "(6) สถานะ ขA (คัน)"], ["statusB", "(6) สถานะ ขB (คัน)"],
 ]
+// รายการของ isComplete ที่เป็น "กลุ่มค้าง" ของโหมดเลือกรายบรรทัด (เอกสารมีรายการหลายเกรด) — แสดงเป็นรายชื่อใน §6 แยกจาก "ยังขาด"
+const LINE_GAP_RE = /^(ยังไม่เลือกเกรด|ยังไม่เลือกเจ้า|เลือกได้ไม่เกิน 1 เกรด): /
 const NEXT_STATUS: Record<PcStatus, { to: PcStatus; label: string }[]> = {
   "ร่าง":      [{ to: "รอลงนาม", label: "ส่งลงนาม" }],
   "รอลงนาม":   [{ to: "เสร็จสิ้น", label: "ปิดใบ (ลงนามครบ)" }, { to: "ร่าง", label: "ถอยกลับเป็นร่าง" }],
@@ -129,6 +131,10 @@ export function PriceCompareForm({ id }: { id: string }) {
   const bestNet = useMemo(() => (doc ? bestMixNet(doc) : null), [doc])
   const gap = useMemo(() => (doc ? mixedGap(doc) : null), [doc])   // ยอดทั้งหมดมาจาก lib เท่านั้น — ห้ามคำนวณเองใน JSX
   const lowPerLine = useMemo(() => (doc ? pickLowestPerLine(doc) : []), [doc])
+  // มีรายการหลายเกรด = ทั้งใบเลือกรายบรรทัด (กติกาข้อ 4): ไม่มีการเลือกทั้งใบ, บอกรายชื่อรายการที่ยังไม่ได้เลือกเกรด/เจ้า
+  const gradeMode = doc ? hasGrades(doc) : false
+  const lineGaps = gradeMode ? completeness.missing.filter((m) => LINE_GAP_RE.test(m)) : []
+  const otherMissing = gradeMode ? completeness.missing.filter((m) => !LINE_GAP_RE.test(m)) : completeness.missing
   // ต้องมีเหตุผลเมื่อ: เลือกทั้งใบแต่ไม่ใช่รายสุทธิต่ำสุด หรือ เลือกผสมแล้วมีแถวที่ไม่ได้เลือกเจ้าที่ถูกสุด (เกณฑ์เดียวกับ isComplete)
   const needReason = doc != null && (
     doc.selectedSupplier != null
@@ -149,6 +155,8 @@ export function PriceCompareForm({ id }: { id: string }) {
       next.committee = next.committee.map((m) => ({ ...m, pickedSupplier: renumberAfterRemoval(m.pickedSupplier, removedIdx0) }))
     }
     if (allLinesAwarded(next) && next.selectedSupplier != null) next.selectedSupplier = null
+    // เพิ่งมีรายการหลายเกรด (+เกรด) → ทั้งใบเป็นโหมดเลือกรายบรรทัด ผู้ได้รับเลือกทั้งใบใช้ไม่ได้อีก (normalizeDoc/validateDoc ก็บังคับเช่นกัน)
+    if (hasGrades(next) && next.selectedSupplier != null) next.selectedSupplier = null
     return next
   })
   // เลือกผู้ได้รับเลือกทั้งใบ ทับการเลือกรายบรรทัดที่ทำไว้ → ถามก่อนล้าง
@@ -351,6 +359,19 @@ export function PriceCompareForm({ id }: { id: string }) {
         </Card>
 
         <Card title="6. สรุปผล — ผู้ได้รับเลือก" color="#DC2626">
+          {gradeMode && (
+            /* มีรายการหลายเกรด: ไม่มีการเลือกทั้งใบ — เลือกเกรด + เจ้าในตารางทีละรายการ แล้วบอกว่ารายการไหนยังค้าง */
+            <div className="mb-3 rounded-xl border border-[#7C3AED]/30 bg-[#7C3AED]/5 p-3">
+              <p className="text-sm font-semibold text-[#7C3AED]">มีรายการหลายเกรด — เลือกเกรดและเจ้ารายบรรทัด</p>
+              {lineGaps.length > 0 ? (
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-amber-700 dark:text-amber-400">
+                  {lineGaps.map((m, i) => <li key={i}>{m}</li>)}
+                </ul>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">เลือกครบทุกรายการแล้ว</p>
+              )}
+            </div>
+          )}
           {mixedAll ? (
             /* โหมดผสม: เลือก supplier ครบทุกแถวแล้ว — ซ่อน radio ทั้งใบ ไม่ให้เลือกซ้ำซ้อนกัน */
             <div className="rounded-xl border border-[#1B8C4B]/40 bg-[#1B8C4B]/5 p-3">
@@ -372,11 +393,11 @@ export function PriceCompareForm({ id }: { id: string }) {
                 </p>
               )}
               <p className="mt-1 text-[11px] text-gray-500">ส่วนลดท้ายใบไม่ถูกนำมาคิดเมื่อเลือกผสม — คิดจากราคาต่อแถว × จำนวน แล้วบวก VAT ตามฐานราคาของแต่ละเจ้า</p>
-              {!readOnly && (
+              {!readOnly && !gradeMode && (
                 <button type="button" onClick={backToWholeDoc} className="mt-2 rounded-lg border border-[#1B8C4B] px-3 py-1 text-xs font-semibold text-[#1B8C4B] hover:bg-[#1B8C4B]/10">กลับไปเลือกทั้งใบ</button>
               )}
             </div>
-          ) : (
+          ) : gradeMode ? null : (
             <>
               <div className="flex flex-wrap gap-3">
                 {doc.suppliers.map((s, i) => (
@@ -400,7 +421,7 @@ export function PriceCompareForm({ id }: { id: string }) {
           {needReason && (
             <div className="mt-3">
               <p className="mb-1 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400"><AlertTriangle size={13} />
-                {mixedAll ? "มีแถวที่ไม่ได้เลือกเจ้าที่ถูกสุดของแถวนั้น" : "เลือกรายที่ไม่ใช่สุทธิต่ำสุด"} — ต้องระบุเหตุผลก่อนส่งลงนาม</p>
+                {gradeMode ? "มีรายการที่ไม่ได้เลือกเกรด/เจ้าที่ถูกสุดของรายการนั้น" : mixedAll ? "มีแถวที่ไม่ได้เลือกเจ้าที่ถูกสุดของแถวนั้น" : "เลือกรายที่ไม่ใช่สุทธิต่ำสุด"} — ต้องระบุเหตุผลก่อนส่งลงนาม</p>
               <textarea value={doc.selectionReason} disabled={readOnly} onChange={(e) => patch({ selectionReason: e.target.value })} rows={2} placeholder="เช่น ของใหม่ มือ 1 รับประกัน 1 ปี / ส่งมอบเร็วกว่า 10 วัน" className={inputCls} />
             </div>
           )}
@@ -410,7 +431,7 @@ export function PriceCompareForm({ id }: { id: string }) {
               <textarea value={doc.fewerQuotesReason} disabled={readOnly} onChange={(e) => patch({ fewerQuotesReason: e.target.value })} rows={2} placeholder="เช่น ผู้ขายที่รับงานนี้มีรายเดียว / อีกรายไม่ตอบกลับภายในกำหนด" className={inputCls} />
             </div>
           )}
-          {!completeness.ok && <p className="mt-2 text-xs text-gray-500">ยังขาด: {completeness.missing.join(", ")}</p>}
+          {!completeness.ok && otherMissing.length > 0 && <p className="mt-2 text-xs text-gray-500">ยังขาด: {otherMissing.join(", ")}</p>}
           {doc.status === "ร่าง" && (
             <button onClick={remove} className="mt-4 inline-flex items-center gap-1 text-xs text-red-600 hover:underline"><Trash2 size={13} /> ลบใบร่างนี้</button>
           )}
