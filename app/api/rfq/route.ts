@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { createInvites, listInvites, catalogSummary, httpError } from "@/lib/rfq"
-import { SHEET_ORDER, type RfqSection } from "@/lib/rfq-core"
+import { SHEET_ORDER, validateCustomJobs, type RfqSection } from "@/lib/rfq-core"
 import clientPromise from "@/lib/mongo"
 
 export const dynamic = "force-dynamic"
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return NextResponse.json({ error: "วันปิดรับไม่ถูกต้อง" }, { status: 400 })
     const raw = Array.isArray(body.invites) ? body.invites : []
     if (!raw.length || raw.length > 200) return NextResponse.json({ error: "เลือกอู่ 1–200 ราย" }, { status: 400 })
-    const { sheets: known, jobs: knownJobs } = await catalogSummary()
+    const { sheets: known, jobs: knownJobs, version } = await catalogSummary()
     const knownSet = new Set(known.map((s) => s.sheet))
     const jobSheet = new Map(knownJobs.map((j) => [j.jobCode, j.sheet]))
     const vendorsInDb = new Set((await (await clientPromise).db(DB).collection("vendor_approval").find({}, { projection: { vendor: 1 } }).toArray()).map((v) => v.vendor as string))
@@ -45,7 +45,11 @@ export async function POST(req: NextRequest) {
       // ข้อย่อย: รับเฉพาะรหัสงานที่มีจริงและอยู่ในชีตที่ให้ · ว่าง = ทุกงาน
       const rawCodes: string[] = Array.isArray(r.jobCodes) ? r.jobCodes.map((c: unknown) => String(c)) : []
       const jobCodes = [...new Set(rawCodes)].filter((c) => sheets.includes(jobSheet.get(c) ?? ""))
-      invites.push({ vendor, sheets, sections, jobCodes })
+      const sheetsWithSvc = [...new Set([...sheets, "SVC"])]
+      const customJobs = validateCustomJobs(r.customJobs, sheetsWithSvc, version)
+      if (typeof customJobs === "string") return NextResponse.json({ error: customJobs }, { status: 400 })
+      for (const cj of customJobs) cj.sheetTitle = known.find((k) => k.sheet === cj.sheet)?.title ?? cj.sheetTitle
+      invites.push({ vendor, sheets, sections, jobCodes, customJobs })
     }
     const created = await createInvites({ title, deadline, invites }, user)
     const origin = req.nextUrl.origin

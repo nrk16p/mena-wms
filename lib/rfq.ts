@@ -78,7 +78,7 @@ export async function listLog(id: string): Promise<RfqLogEntry[]> {
 
 // ── สร้าง / รายการ / อ่าน ────────────────────────────────────────────────────
 export async function createInvites(
-  input: { title: string; deadline: string; invites: { vendor: string; sheets: string[]; sections: RfqSection[]; jobCodes?: string[] }[] },
+  input: { title: string; deadline: string; invites: { vendor: string; sheets: string[]; sections: RfqSection[]; jobCodes?: string[]; customJobs?: RfqJob[] }[] },
   by: { name: string; email: string }
 ): Promise<RfqInvite[]> {
   const col = await invites()
@@ -89,13 +89,14 @@ export async function createInvites(
     sheets: SHEET_ORDER.filter((s) => i.sheets.includes(s) || s === SVC_SHEET),
     sections: i.sections.length ? i.sections : ["labour", "parts"],
     ...(i.jobCodes?.length ? { jobCodes: i.jobCodes } : {}),
+    ...(i.customJobs?.length ? { customJobs: i.customJobs } : {}),
     catalogVersion: version, title: input.title, deadline: input.deadline, status: "สร้างแล้ว",
     contact: null, openedAt: null, items: {}, parts: {}, submittedAt: null, submitNote: "",
     confirm: null, returnNote: "", createdBy: by, createdAt: now, updatedAt: now,
   }))
   const r = await col.insertMany(docs)
   const out = docs.map((d, i) => ({ ...d, _id: String(r.insertedIds[i]) }))
-  await writeLog(out.map((d) => ({ inviteId: d._id!, action: "create" as const, to: "สร้างแล้ว", by: by.name, byEmail: by.email, at: new Date(), note: `${d.sheets.join(" ")} · ${d.sections.join("+")}${d.jobCodes?.length ? ` · เลือกข้อย่อย ${d.jobCodes.length} งาน` : ""}` })))
+  await writeLog(out.map((d) => ({ inviteId: d._id!, action: "create" as const, to: "สร้างแล้ว", by: by.name, byEmail: by.email, at: new Date(), note: `${d.sheets.join(" ")} · ${d.sections.join("+")}${d.jobCodes?.length ? ` · เลือกข้อย่อย ${d.jobCodes.length} งาน` : ""}${d.customJobs?.length ? ` · หัวข้อเพิ่ม ${d.customJobs.length}` : ""}` })))
   return out
 }
 

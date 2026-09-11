@@ -7,7 +7,7 @@ import { Download } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { canApproveVendor } from "@/lib/roles"
 import { bkkToday } from "@/lib/bkk-time"
-import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
+import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, isCustomJob, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
 import { mitr } from "@/components/vendor-shared"
 import { thDate, thDateTime } from "@/components/rfq-vendor-shared"
 
@@ -101,7 +101,7 @@ export function RfqReviewPage({ id }: { id: string }) {
               <thead><tr>{["#", "งาน", "แบบ", "L ฿/ชม.", "L ชม.", "L เบา", "L กลาง", "L หนัก", "S ฿/ชม.", "S ชม.", "S เบา", "S กลาง", "S หนัก", "ประกัน", "หมายเหตุ"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>{list.map((j) => { const a = inv.items[j.jobCode]; return (
                 <tr key={j.jobCode} style={{ background: !a ? "#FFFBEB" : a.mode === "skip" ? "#FAFAFA" : "#fff" }}>
-                  <td style={td}>{j.seq}</td><td style={{ ...td, minWidth: 200 }}>{j.name}<div style={{ fontSize: 11, color: "#9AA8A0" }}>{j.jobCode} · อ้างอิง L {j.refHoursL ?? "—"} / S {j.refHoursS ?? "—"} ชม.</div></td>
+                  <td style={td}>{j.seq}</td><td style={{ ...td, minWidth: 200 }}>{j.name}<div style={{ fontSize: 11, color: isCustomJob(j.jobCode) ? "#B45309" : "#9AA8A0" }}>{isCustomJob(j.jobCode) ? "หัวข้อเพิ่มเอง" : `${j.jobCode} · อ้างอิง L ${j.refHoursL ?? "—"} / S ${j.refHoursS ?? "—"} ชม.`}</div></td>
                   <td style={td}>{!a ? <span style={{ color: "#92400E" }}>ไม่กรอก</span> : a.mode === "skip" ? "ไม่รับงาน" : a.mode === "hourly" ? "รายชั่วโมง" : "เหมา"}</td>
                   <td style={td}>{fmt(a?.L.rate)}</td><td style={td}>{fmt(a?.L.hours)}</td><td style={td}>{fmt(a?.L.light)}</td><td style={td}>{fmt(a?.L.mid)}</td><td style={td}>{fmt(a?.L.heavy)}</td>
                   <td style={td}>{fmt(a?.S.rate)}</td><td style={td}>{fmt(a?.S.hours)}</td><td style={td}>{fmt(a?.S.light)}</td><td style={td}>{fmt(a?.S.mid)}</td><td style={td}>{fmt(a?.S.heavy)}</td>

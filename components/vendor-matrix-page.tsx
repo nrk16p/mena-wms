@@ -43,6 +43,8 @@ export function VendorMatrixPage() {
   const [pickedCodes, setPickedCodes] = useState<string[]>([])
   const [outsideOnly, setOutsideOnly] = useState(true)
   const [tickedOnly, setTickedOnly] = useState(false)
+  // กรองตามสถานะอนุมัติ — ตอบคำถาม "งานนี้ใครเป็น AVL บ้าง" ได้ในหน้าเดียว (ผู้ใช้ถาม 2026-09-11)
+  const [fStatus, setFStatus] = useState<VendorSummary["status"] | "">("")
   const [saving, setSaving] = useState("")
   // ลิ้นชักประวัติ + ประวัติรายช่องของอู่ที่เคยเปิดดูแล้ว (เอามาเติม tooltip ไม่ต้องยิงซ้ำ)
   const [logFor, setLogFor] = useState<string | null>(null)
@@ -81,14 +83,17 @@ export function VendorMatrixPage() {
     if (!data) return []
     const rx = q.trim() ? new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null
     const w = whs.length ? new Set(whs) : null
+    // "ติ๊กแล้ว" นับเฉพาะคอลัมน์ที่กำลังแสดง — เลือกประเภท S31 แล้วติ๊กกล่องนี้ = อู่ที่ติ๊ก S31 เท่านั้น
+    const shown = new Set(cols.map((c) => c.code))
     return data.vendors
       .map((v) => ({ ...v, codes: patched[v.vendor] ?? v.codes }))
       .filter((v) =>
         (!rx || rx.test(v.vendor)) &&
-        (!tickedOnly || v.codes.length > 0) &&
+        (!tickedOnly || v.codes.some((c) => shown.has(c))) &&
+        (!fStatus || v.status === fStatus) &&
         // อู่รายเดียวรับงานได้หลายคลัง เลือกคลังไหนก็ให้ติดมาถ้ามีงานที่คลังนั้น
         (!w || v.warehouses.some((x) => w.has(x))))
-  }, [data, q, tickedOnly, patched, whs])
+  }, [data, q, tickedOnly, patched, whs, cols, fStatus])
 
   /** คลังทั้งหมดที่พบในข้อมูลจริง — ไม่ hardcode เผื่อขอบเขตเปลี่ยน */
   const allWarehouses = useMemo(
@@ -330,10 +335,19 @@ export function VendorMatrixPage() {
               <input type="checkbox" checked={outsideOnly} onChange={(e) => setOutsideOnly(e.target.checked)} />
               เฉพาะคอลัมน์อู่นอก
             </label>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
+            <label title="นับเฉพาะคอลัมน์ที่กำลังแสดงอยู่ — เลือกประเภทงานก่อนแล้วติ๊ก จะได้อู่ที่ทำงานนั้นได้" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
               <input type="checkbox" checked={tickedOnly} onChange={(e) => setTickedOnly(e.target.checked)} />
-              เฉพาะอู่ที่ติ๊กแล้ว
+              เฉพาะอู่ที่ติ๊กแล้ว{pickedCodes.length ? ` (${pickedCodes.join(", ")})` : ""}
             </label>
+            <select
+              value={fStatus}
+              onChange={(e) => setFStatus(e.target.value as VendorSummary["status"] | "")}
+              title="กรองตามสถานะอนุมัติ"
+              style={{ ...mitr, fontSize: 12.5, padding: "6px 8px", borderRadius: 8, border: "1px solid #E5E7EB", background: fStatus ? STATUS_META[fStatus].bg : "#fff", color: fStatus ? STATUS_META[fStatus].fg : "#374151", fontWeight: fStatus ? 700 : 400 }}
+            >
+              <option value="">ทุกสถานะ</option>
+              {(["approved", "pending", "rejected"] as const).map((st) => <option key={st} value={st}>{STATUS_META[st].th}</option>)}
+            </select>
             <span style={{ fontSize: 12, color: "#9AA8A0" }}>
               {num(rows.length)} อู่ · {cols.length} คอลัมน์ · ติ๊กแล้ว {num(totalTicked)} ช่อง
             </span>

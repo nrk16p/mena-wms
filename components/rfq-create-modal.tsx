@@ -11,6 +11,7 @@ import { thDate } from "@/components/rfq-vendor-shared"
 
 type SheetInfo = { sheet: string; title: string; jobs: number; parts: number }
 type JobInfo = { sheet: string; seq: number; jobCode: string; name: string }
+type CustomJob = { sheet: string; name: string; scope: string; tierCriteria: string }
 
 /** ชื่อย่อของชีตไว้ในหัวตาราง — ชื่อเต็มจากแคตตาล็อกยาวเกินช่อง */
 const SHEET_SHORT: Record<string, string> = {
@@ -26,6 +27,11 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
   // เลือกข้อย่อย (งานช่าง) รายอู่ — ไม่มี key = ทุกงานของชีตที่ให้ · เปิดแผงแล้วค่อยสร้างชุดเต็ม
   const [picks, setPicks] = useState<Record<string, Set<string>>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
+  // เปิดแผงข้อย่อยแล้วเลื่อนไปที่ชีตนั้น (คลิกตัวเลขในช่อง ✓)
+  const [focusSheet, setFocusSheet] = useState<string | null>(null)
+  // หัวข้อที่จัดซื้อเพิ่มเอง รายอู่ (นอกแคตตาล็อก) — ส่งไปกับใบนี้เท่านั้น
+  const [custom, setCustom] = useState<Record<string, CustomJob[]>>({})
+  const [draft, setDraft] = useState<Record<string, CustomJob>>({})   // key = `${vendor}|${sheet}`
   const [title, setTitle] = useState(`ขอราคางานช่าง Mixer ${new Date().toLocaleDateString("th-TH", { month: "short", year: "2-digit" })}`)
   const [deadline, setDeadline] = useState(addDays(bkkToday(), 14))
   const [sections, setSections] = useState<RfqSection[]>(["labour", "parts"])
@@ -51,12 +57,26 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
       return { ...pm, [vendor]: n }
     })
   }
-  const openPicks = (vendor: string) => {
+  const openPicks = (vendor: string, sheet?: string) => {
     setPicks((pm) => pm[vendor] ? pm : { ...pm, [vendor]: new Set(jobsOf(sheets[vendor]).map((j) => j.jobCode)) })
-    setExpanded((e) => (e === vendor ? null : vendor))
+    setExpanded((e) => (sheet ? vendor : e === vendor ? null : vendor))
+    setFocusSheet(sheet ?? null)
+  }
+  /** จำนวนงานที่เลือก/ทั้งหมด ของชีตหนึ่งของอู่หนึ่ง — โชว์ในช่อง ✓ ให้เห็นว่าเลือกไม่ครบ */
+  const sheetCount = (vendor: string, sheet: string) => {
+    const all = jobs.filter((j) => j.sheet === sheet); const p = picks[vendor]
+    return { all: all.length, chosen: p ? all.filter((j) => p.has(j.jobCode)).length : all.length }
   }
   const toggleJob = (vendor: string, code: string) => setPicks((pm) => { const n = new Set(pm[vendor]); if (n.has(code)) n.delete(code); else n.add(code); return { ...pm, [vendor]: n } })
   const setSheetJobs = (vendor: string, sheet: string, on: boolean) => setPicks((pm) => { const n = new Set(pm[vendor]); for (const j of jobs) if (j.sheet === sheet) { if (on) n.add(j.jobCode); else n.delete(j.jobCode) } return { ...pm, [vendor]: n } })
+  const draftKey = (vendor: string, sheet: string) => `${vendor}|${sheet}`
+  const addCustom = (vendor: string, sheet: string) => {
+    const d = draft[draftKey(vendor, sheet)]
+    if (!d?.name.trim()) return
+    setCustom((m) => ({ ...m, [vendor]: [...(m[vendor] ?? []), { ...d, sheet, name: d.name.trim() }] }))
+    setDraft((m) => ({ ...m, [draftKey(vendor, sheet)]: { sheet, name: "", scope: "", tierCriteria: "" } }))
+  }
+  const removeCustom = (vendor: string, idx: number) => setCustom((m) => ({ ...m, [vendor]: (m[vendor] ?? []).filter((_, i) => i !== idx) }))
   /** จำนวนที่เลือก / ทั้งหมด ของอู่ · ส่ง jobCodes เฉพาะเมื่อเลือกไม่ครบ */
   const pickInfo = (vendor: string) => {
     const all = jobsOf(sheets[vendor]); const p = picks[vendor]
@@ -68,7 +88,7 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
     if (!sections.length) { swalError("เลือกอย่างน้อย 1 ส่วน (ค่าแรง/อะไหล่)"); return }
     setBusy(true)
     try {
-      const r = await fetch("/api/rfq", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, deadline, invites: vendors.map((v) => ({ vendor: v.vendor, sheets: [...sheets[v.vendor]], sections, jobCodes: pickInfo(v.vendor).codes })) }) })
+      const r = await fetch("/api/rfq", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, deadline, invites: vendors.map((v) => ({ vendor: v.vendor, sheets: [...sheets[v.vendor]], sections, jobCodes: pickInfo(v.vendor).codes, customJobs: (custom[v.vendor] ?? []).filter((c) => sheets[v.vendor].has(c.sheet)) })) }) })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.error ?? "สร้างไม่สำเร็จ")
       setCreated(d.invites)
@@ -93,7 +113,7 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
                 {(["labour", "parts"] as const).map((s) => <label key={s} style={{ marginRight: 12, fontSize: 13 }}><input type="checkbox" checked={sections.includes(s)} onChange={(e) => setSections((c) => e.target.checked ? [...new Set([...c, s])] : c.filter((x) => x !== s))} /> {s === "labour" ? "ค่าแรง" : "อะไหล่"}</label>)}
               </div>
             </div>
-            <div style={{ fontSize: 12, color: "#6B7C72", marginBottom: 6 }}>ค่าตั้งต้นของชีตมาจากช่องที่ติ๊กในตารางความสามารถ · SVC (งานพื้นฐาน) ให้ทุกอู่ · คลิกช่องเพื่อเพิ่ม/ลด · กด “เลือกข้อย่อย” เพื่อให้เสนอเฉพาะบางงานในชีต</div>
+            <div style={{ fontSize: 12, color: "#6B7C72", marginBottom: 6 }}>ค่าตั้งต้นของชีตมาจากช่องที่ติ๊กในตารางความสามารถ · SVC (งานพื้นฐาน) ให้ทุกอู่ · คลิก ✓ เพื่อเพิ่ม/ลดทั้งชีต · <b>คลิกตัวเลขใต้ ✓ (เช่น 28/28) เพื่อเลือกส่งเฉพาะบางงาน</b></div>
             <div style={{ overflowX: "auto", border: "1px solid #E5E7EB", borderRadius: 10 }}>
               <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: 760 }}>
                 <thead><tr style={{ background: "#F6FAF7" }}>
@@ -112,10 +132,26 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
                     <Fragment key={v.vendor}>
                       <tr style={{ borderTop: "1px solid #F3F4F6" }}>
                         <td style={{ padding: 6, fontWeight: 600, whiteSpace: "nowrap", position: "sticky", left: 0, background: "#fff" }}>{v.vendor}</td>
-                        {cols.map((s) => { const on = sheets[v.vendor].has(s); return <td key={s} onClick={() => toggle(v.vendor, s)} title={s === SVC_SHEET ? "งานพื้นฐานให้ทุกอู่" : on ? "คลิกเพื่อเอาออก" : "คลิกเพื่อเพิ่ม"} style={{ padding: 6, textAlign: "center", cursor: s === SVC_SHEET ? "default" : "pointer", background: on ? "#ECFDF5" : "#fff", color: on ? "#047857" : "#D1D5DB", fontWeight: 700 }}>{on ? "✓" : "·"}</td> })}
+                        {cols.map((s) => {
+                          const on = sheets[v.vendor].has(s)
+                          const c = on ? sheetCount(v.vendor, s) : null
+                          const partial = !!c && c.chosen < c.all
+                          return (
+                            <td key={s} onClick={() => toggle(v.vendor, s)} title={s === SVC_SHEET ? "งานพื้นฐานให้ทุกอู่" : on ? "คลิกเพื่อเอาออก · คลิกตัวเลขเพื่อเลือกข้อย่อย" : "คลิกเพื่อเพิ่ม"} style={{ padding: "4px 6px", textAlign: "center", cursor: s === SVC_SHEET ? "default" : "pointer", background: on ? (partial ? "#ECFEFF" : "#ECFDF5") : "#fff", color: on ? (partial ? "#0E7490" : "#047857") : "#D1D5DB", fontWeight: 700, lineHeight: 1.1 }}>
+                              {on ? "✓" : "·"}
+                              {c && (
+                                <span
+                                  onClick={(e) => { e.stopPropagation(); openPicks(v.vendor, s) }}
+                                  title="เลือกข้อย่อยของชีตนี้"
+                                  style={{ display: "block", fontSize: 10, fontWeight: 600, color: partial ? "#0E7490" : "#6B7C72", textDecoration: "underline dotted", cursor: "pointer" }}
+                                >{c.chosen}/{c.all}</span>
+                              )}
+                            </td>
+                          )
+                        })}
                         <td style={{ padding: 6, whiteSpace: "nowrap" }}>
                           <button type="button" onClick={() => openPicks(v.vendor)} style={{ ...mitr, padding: "3px 10px", borderRadius: 999, fontSize: 11.5, border: `1px solid ${info.codes ? "#0E7490" : "#E5E7EB"}`, background: info.codes ? "#ECFEFF" : "#fff", color: info.codes ? "#0E7490" : "#374151", cursor: "pointer" }}>
-                            {isOpen ? "ซ่อน" : "เลือกข้อย่อย"} · {info.chosen}/{info.all} งาน
+                            {isOpen ? "ซ่อน" : "เลือกข้อย่อย"} · {info.chosen}/{info.all} งาน{(custom[v.vendor] ?? []).filter((c) => sheets[v.vendor].has(c.sheet)).length ? ` +${(custom[v.vendor] ?? []).filter((c) => sheets[v.vendor].has(c.sheet)).length} เพิ่ม` : ""}
                           </button>
                         </td>
                       </tr>
@@ -123,12 +159,12 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
                         <tr>
                           <td colSpan={cols.length + 2} style={{ padding: "6px 10px 10px", background: "#FAFCFB", borderTop: "1px dashed #E5E7EB" }}>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
-                              {cols.filter((s) => sheets[v.vendor].has(s)).map((s) => {
+                              {[...cols.filter((s) => sheets[v.vendor].has(s))].sort((a, b) => (a === focusSheet ? -1 : b === focusSheet ? 1 : 0)).map((s) => {
                                 const list = jobs.filter((j) => j.sheet === s)
                                 const p = picks[v.vendor] ?? new Set<string>()
                                 const n = list.filter((j) => p.has(j.jobCode)).length
                                 return (
-                                  <div key={s} style={{ border: "1px solid #E5E7EB", borderRadius: 8, background: "#fff", padding: 8 }}>
+                                  <div key={s} style={{ border: `1px solid ${s === focusSheet ? "#0E7490" : "#E5E7EB"}`, borderRadius: 8, background: "#fff", padding: 8 }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                       <b style={{ fontSize: 12 }}>{s} · {SHEET_SHORT[s] ?? s}</b>
                                       <span style={{ fontSize: 11, color: "#6B7C72" }}>{n}/{list.length}</span>
@@ -143,6 +179,28 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
                                         <span><span style={{ color: "#9CA3AF" }}>{j.seq}.</span> {j.name} <span style={{ color: "#B8C4BC" }}>{j.jobCode}</span></span>
                                       </label>
                                     ))}
+                                    {(custom[v.vendor] ?? []).map((c, idx) => c.sheet !== s ? null : (
+                                      <div key={idx} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 11.5, padding: "3px 6px", marginTop: 2, background: "#FFFBEB", borderRadius: 6 }}>
+                                        <span style={{ color: "#B45309", fontWeight: 700 }}>+</span>
+                                        <span style={{ flex: 1 }}>{c.name}{c.scope && <span style={{ display: "block", color: "#92400E" }}>ขอบเขต: {c.scope}</span>}{c.tierCriteria && <span style={{ display: "block", color: "#92400E" }}>เกณฑ์: {c.tierCriteria}</span>}</span>
+                                        <button type="button" onClick={() => removeCustom(v.vendor, idx)} title="ลบหัวข้อนี้" style={{ border: "none", background: "transparent", color: "#B91C1C", cursor: "pointer", fontSize: 12 }}>✕</button>
+                                      </div>
+                                    ))}
+                                    {(() => {
+                                      const k = draftKey(v.vendor, s)
+                                      const d = draft[k] ?? { sheet: s, name: "", scope: "", tierCriteria: "" }
+                                      const upd = (patch: Partial<CustomJob>) => setDraft((m) => ({ ...m, [k]: { ...d, ...patch } }))
+                                      const small = { ...inp, width: "100%", boxSizing: "border-box" as const, fontSize: 11.5, padding: "5px 8px" }
+                                      return (
+                                        <div style={{ marginTop: 6, borderTop: "1px dashed #E5E7EB", paddingTop: 6 }}>
+                                          <div style={{ fontSize: 11, fontWeight: 600, color: "#B45309", marginBottom: 4 }}>+ เพิ่มหัวข้อใหม่ในชีตนี้ (นอกแคตตาล็อก)</div>
+                                          <input value={d.name} onChange={(e) => upd({ name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(v.vendor, s) } }} placeholder="ชื่องาน เช่น ล้างดรัมด้านใน" maxLength={200} style={small} />
+                                          <input value={d.scope} onChange={(e) => upd({ scope: e.target.value })} placeholder="ขอบเขตงานที่รวมในราคา (ไม่บังคับ)" maxLength={500} style={{ ...small, marginTop: 4 }} />
+                                          <input value={d.tierCriteria} onChange={(e) => upd({ tierCriteria: e.target.value })} placeholder="เกณฑ์ เบา/กลาง/หนัก (ไม่บังคับ)" maxLength={500} style={{ ...small, marginTop: 4 }} />
+                                          <button type="button" disabled={!d.name.trim()} onClick={() => addCustom(v.vendor, s)} style={{ ...mitr, marginTop: 4, padding: "4px 10px", borderRadius: 6, border: "1px solid #F59E0B", background: d.name.trim() ? "#FFFBEB" : "#fff", color: d.name.trim() ? "#B45309" : "#D1D5DB", fontSize: 11.5, cursor: d.name.trim() ? "pointer" : "not-allowed" }}>เพิ่มหัวข้อ</button>
+                                        </div>
+                                      )
+                                    })()}
                                   </div>
                                 )
                               })}
