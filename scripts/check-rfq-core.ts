@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import {
   sheetsForVendor, newToken, effectiveStatus, canVendorWrite, canTransition, progress, partKey,
   applySameAsL, validateAnswer, validatePartAnswer, validateContact, addDays, addMonths, SHEET_ORDER, jobsForInvite, partsForInvite,
-  parseLatLng, validateProfile,
+  parseLatLng, validateProfile, validateCustomJobs, isCustomJob,
   type RfqInvite, type RfqJob, type RfqPart,
 } from "../lib/rfq-core"
 
@@ -67,6 +67,18 @@ assert.deepEqual(jobsForInvite({ sheets: ["S45"], sections: ["labour"], jobCodes
 assert.deepEqual(jobsForInvite({ sheets: ["S45"], sections: ["parts"] }, jobs), [], "ไม่เปิดส่วนค่าแรง")
 assert.deepEqual(partsForInvite({ sheets: ["S45"], sections: ["labour", "parts"] }, parts).map((p) => p.sku), ["X"])
 assert.deepEqual(progress({ ...inv, jobCodes: ["A"] }, jobs, parts).labour, { done: 1, total: 1 }, "นับเฉพาะข้อย่อยที่เลือก")
+// หัวข้อเพิ่มเอง
+const cj = validateCustomJobs([{ sheet: "S45", name: " ล้างดรัมด้านใน " }, { sheet: "S45", name: "เชื่อมใบกวน", scope: "x" }, { sheet: "SVC", name: "เดินทางนอกพื้นที่" }], ["S45", "SVC"], 2)
+assert.notEqual(typeof cj, "string")
+if (typeof cj !== "string") {
+  assert.deepEqual(cj.map((j) => j.jobCode), ["X-S45-1", "X-S45-2", "X-SVC-1"])
+  assert.equal(cj[0].name, "ล้างดรัมด้านใน"); assert.equal(cj[0].seq, 901); assert.ok(isCustomJob(cj[0].jobCode))
+  const merged = jobsForInvite({ sheets: ["S45", "SVC"], sections: ["labour"], jobCodes: ["A"], customJobs: cj }, jobs)
+  assert.deepEqual(merged.map((j) => j.jobCode), ["A", "X-S45-1", "X-S45-2", "X-SVC-1"], "หัวข้อเพิ่มต่อท้ายชีตตัวเอง ไม่ถูกตัดโดยการเลือกข้อย่อย (D ถูกตัดเพราะไม่ได้เลือก)")
+}
+assert.equal(typeof validateCustomJobs([{ sheet: "S37", name: "x" }], ["S45"], 2), "string", "ชีตที่ไม่ได้ให้")
+assert.equal(typeof validateCustomJobs([{ sheet: "S45", name: "" }], ["S45"], 2), "string", "ไม่มีชื่อ")
+assert.deepEqual(validateCustomJobs(undefined, ["S45"], 2), [])
 
 // sameAsL
 const a = applySameAsL({ mode: "lump", L: { light: 1000, mid: 2000, heavy: 3000 }, S: { light: 5 }, sameAsL: true, note: "", at: "" })

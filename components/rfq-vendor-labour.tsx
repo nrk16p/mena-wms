@@ -1,7 +1,7 @@
 "use client"
 // หน้าค่าแรง: ชีตละขั้น · การ์ดละงาน · รายชั่วโมง / เหมา / ไม่รับงาน · Mixer L แล้ว S (+ "S เหมือน L")
 import { useEffect, useMemo, useRef, useState } from "react"
-import { SHEET_ORDER, type RfqAnswer, type RfqJob, type Tier } from "@/lib/rfq-core"
+import { SHEET_ORDER, isCustomJob, type RfqAnswer, type RfqJob, type Tier } from "@/lib/rfq-core"
 import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, NeedContact, toNum } from "@/components/rfq-vendor-shared"
 
 const EMPTY: RfqAnswer = { mode: "lump", L: {}, S: {}, sameAsL: true, note: "", at: "" }
@@ -62,7 +62,7 @@ export function RfqVendorLabour({ token }: { token: string }) {
               <span style={{ ...V.muted, fontVariantNumeric: "tabular-nums" }}>{job.seq}.</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15.5, fontWeight: 600, lineHeight: 1.3 }}>{job.name}</div>
-                <div style={V.muted}>{job.jobCode}</div>
+                <div style={V.muted}>{isCustomJob(job.jobCode) ? <span style={{ color: "#B45309", fontWeight: 600 }}>หัวข้อเพิ่มเติมจากฝ่ายจัดซื้อ</span> : job.jobCode}</div>
               </div>
             </div>
             <button onClick={() => setOpenScope((o) => ({ ...o, [job.jobCode]: !so }))} style={{ ...V.btn, minHeight: 32, padding: "4px 10px", fontSize: 12.5, marginTop: 8, background: "#F6FAF7" }}>{so ? "ซ่อน" : "ดู"}ขอบเขตงาน + เกณฑ์ เบา/กลาง/หนัก</button>

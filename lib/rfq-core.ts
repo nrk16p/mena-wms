@@ -47,6 +47,8 @@ export type RfqInvite = {
   token: string; vendor: string; sheets: string[]; sections: RfqSection[]; catalogVersion: number
   /** เลือกข้อย่อย (งานช่าง) เฉพาะบางงานในชีตที่ให้ · ไม่มี/ว่าง = ทุกงานของชีตนั้น (ผู้ใช้ขอ 2026-09-10) */
   jobCodes?: string[]
+  /** หัวข้อที่จัดซื้อเพิ่มเองตอนสร้างลิงก์ (นอกแคตตาล็อก) — อยู่กับใบนี้เท่านั้น jobCode ขึ้นต้น "X-" (ผู้ใช้ขอ 2026-09-11) */
+  customJobs?: RfqJob[]
   title: string; deadline: string; status: RfqStatus
   contact: RfqContact | null; openedAt: string | null
   profile?: RfqProfile | null
@@ -137,11 +139,40 @@ export const STATUS_META: Record<EffectiveStatus, { bg: string; fg: string }> = 
 export function partKey(sheet: string, sku: string): string { return `${sheet}|${sku}` }
 
 /** งานช่างที่ใบนี้ให้เสนอ: อยู่ในชีตที่ให้ และ (ถ้าเลือกข้อย่อยไว้) อยู่ในรายการที่เลือก · ส่วน labour ต้องเปิด */
-export function jobsForInvite(inv: Pick<RfqInvite, "sheets" | "sections" | "jobCodes">, jobs: RfqJob[]): RfqJob[] {
+export function jobsForInvite(inv: Pick<RfqInvite, "sheets" | "sections" | "jobCodes" | "customJobs">, jobs: RfqJob[]): RfqJob[] {
   if (!inv.sections.includes("labour")) return []
   const sheets = new Set(inv.sheets)
   const pick = inv.jobCodes?.length ? new Set(inv.jobCodes) : null
-  return jobs.filter((j) => sheets.has(j.sheet) && (!pick || pick.has(j.jobCode)))
+  const fromCatalog = jobs.filter((j) => sheets.has(j.sheet) && (!pick || pick.has(j.jobCode)))
+  // หัวข้อที่เพิ่มเองมาต่อท้ายชีตของตัวเอง (จัดซื้อตั้งใจเพิ่ม จึงไม่ต้องผ่านการเลือกข้อย่อย)
+  const custom = (inv.customJobs ?? []).filter((j) => sheets.has(j.sheet))
+  const order = (s: string) => SHEET_ORDER.indexOf(s)
+  return [...fromCatalog, ...custom].sort((a, b) => order(a.sheet) - order(b.sheet) || a.seq - b.seq)
+}
+
+export const CUSTOM_JOB_PREFIX = "X-"
+export const isCustomJob = (code: string) => code.startsWith(CUSTOM_JOB_PREFIX)
+
+/** ตรวจหัวข้อที่เพิ่มเอง (จาก modal) → RfqJob พร้อมรหัส X-<ชีต>-<ลำดับ> · seq 900+ ให้ต่อท้ายงานแคตตาล็อก */
+export function validateCustomJobs(x: unknown, sheets: string[], version: number): RfqJob[] | string {
+  if (!Array.isArray(x)) return []
+  const out: RfqJob[] = []
+  const per: Record<string, number> = {}
+  for (const raw of x.slice(0, 50)) {
+    const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>
+    const sheet = String(o.sheet ?? "").trim()
+    const name = String(o.name ?? "").trim().slice(0, 200)
+    if (!sheets.includes(sheet)) return `หัวข้อเพิ่ม "${name || "?"}" อยู่ในชีตที่ไม่ได้ให้ (${sheet || "ว่าง"})`
+    if (!name) return "หัวข้อเพิ่มต้องมีชื่องาน"
+    per[sheet] = (per[sheet] ?? 0) + 1
+    out.push({
+      sheet, sheetTitle: String(o.sheetTitle ?? "").trim().slice(0, 120), seq: 900 + per[sheet],
+      jobCode: `${CUSTOM_JOB_PREFIX}${sheet}-${per[sheet]}`, name,
+      scope: String(o.scope ?? "").trim().slice(0, 500), tierCriteria: String(o.tierCriteria ?? "").trim().slice(0, 500),
+      refHoursL: null, refHoursS: null, version, active: true,
+    })
+  }
+  return out
 }
 
 /** อะไหล่ที่ใบนี้ให้เสนอ: ตามชีตทั้งชุด (ยังไม่มีเลือกข้อย่อยฝั่งอะไหล่) · ส่วน parts ต้องเปิด */
