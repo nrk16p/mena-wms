@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     // มีรายการหลายเกรด: lowestNet/supplierTotals นับเฉพาะเกรดที่เลือก (กลุ่มค้าง = ไม่นับทั้งกลุ่ม) จึงเป็นยอดบางส่วน
     // → ช่อง "สุทธิต่ำสุด (ยังไม่เลือก)" ใช้สุทธิผสมที่ถูกสุดเท่าที่เป็นไปได้ (bestMixNet, null ถ้าคิดไม่ได้) แทน
     const grades = hasGrades(d)
-    const li = grades ? null : lowestNet(d)
+    const li = grades ? null : lowestNet(d)   // index เจ้าที่สุทธิต่ำสุด — ใช้เฉพาะใบไม่มีเกรด (ใบมีเกรดใช้ bestMixNet ด้านล่าง)
     // ตัดสินใจแล้วผ่านการปักธงแยกรายรายการ (ชนะการเลือกทั้งใบ) — null เมื่อคิดยอดผสมไม่ได้ แล้วตกกลับไปใช้ selectedSupplier
     const mixed = allLinesAwarded(d) ? mixedTotals(d) : null
     return {

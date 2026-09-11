@@ -1,6 +1,7 @@
 // scripts/check-price-compare-pdf.ts — รัน: npx tsx scripts/check-price-compare-pdf.ts
 import assert from "node:assert/strict"
 import fs from "node:fs"
+import { createHash } from "node:crypto"
 import { PDFDocument } from "pdf-lib"
 import { newDoc, emptySupplier, supplierTotals, fmtMoney, pickLowestPerLine, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
 import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE } from "../lib/price-compare-pdf"
@@ -179,6 +180,50 @@ async function main() {
     if (name !== "uh03") { fs.mkdirSync("tmp", { recursive: true }); fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out) }
   }
   console.log("mixed mode: OK → tmp/price-compare-mixed.pdf, tmp/price-compare-mixed-reason.pdf")
+
+  // --- snapshot: docDefinition ของเอกสารที่ไม่มีเกรด ต้องเหมือนโค้ดก่อนฟีเจอร์เกรดทุกไบต์ ---
+  // hash = sha1(JSON.stringify(buildPriceCompareDocDef(fixture))) — literal ด้านล่างสร้างจาก lib/price-compare-pdf.ts @ ea4033f
+  // (ก่อนแถวเกรดใน PDF) กับ fixture ชุดเดียวกันนี้ จึงพิสูจน์ว่าการสร้างแถวจาก groupsOf + โควตาแถวหัวรายการไม่เปลี่ยน PDF ของใบเดิม
+  // fixture ทุกตัวใช้ค่าตายตัว (createdAt/updatedAt เป็น literal, newDoc ไม่มี new Date()/id สุ่ม) — hash รวมโลโก้ fonts/mena-mark.png ด้วย
+  // เปลี่ยนเลย์เอาต์โดยตั้งใจ (หรือเปลี่ยนโลโก้): เปิดดู PDF จริงให้ถูกต้องก่อน แล้วรัน
+  //   PC_PDF_SNAPSHOT_PRINT=1 npx tsx scripts/check-price-compare-pdf.ts
+  // เพื่อพิมพ์ hash ชุดใหม่ (โหมดนี้พิมพ์อย่างเดียว ไม่ assert) แล้วนำมาแทน literal ในคอมมิตเดียวกับการเปลี่ยนเลย์เอาต์
+  // ห้ามอัปเดต hash เพียงเพื่อให้ test ผ่าน ถ้าไม่ได้ตั้งใจเปลี่ยนหน้าตา PDF ของใบเดิม
+  {
+    const mixOf = (ls: (number | null)[], reason = "") => {
+      const d = uh03(); d.selectedSupplier = null; d.suppliers[1].vatMode = "excl"; d.lineSupplier = ls; d.selectionReason = reason; return d
+    }
+    const fewer = () => { const d = uh03(); d.suppliers = d.suppliers.slice(0, 2); d.fewerQuotesReason = "มีผู้ขายรายเดียว"; return d }
+    const four = () => {
+      const d = mixOf([1, 2, 2, 2, 3])
+      d.suppliers.push({ ...emptySupplier(5), name: "เจ้าที่สี่", prices: [40000, 40000, 200, 200, 9000] }); return d
+    }
+    const long40 = () => {
+      const d = uh03()
+      d.items = Array.from({ length: 40 }, (_, i) => ({ name: `รายการทดสอบที่ ${i + 1}`, qty: 1, unit: "ชิ้น" }))
+      d.suppliers = d.suppliers.map((sp) => ({ ...sp, prices: Array.from({ length: 40 }, () => 100) })); return d
+    }
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    const cases: [name: string, def: unknown, sha1: string][] = [
+      ["uh03", buildPriceCompareDocDef(uh03()), "8dd10695e769f268b49c3e38936726954dd91b3b"],
+      ["uh03-sel2-reason", buildPriceCompareDocDef({ ...uh03(), selectedSupplier: 2, selectionReason: "ของใหม่ มือ 1" }), "f7ac7298ca19c75ba6ce1d5dfd666eefed04ea0e"],
+      ["fewer", buildPriceCompareDocDef(fewer()), "5707080be5812ee31b1fd63c46e096a40911e025"],
+      ["mixed", buildPriceCompareDocDef(mixOf([1, 2, 2, 2, 3])), "a9e566fc5d3c14402bcaa86dec9604039a472cdc"],
+      ["mixed-reason", buildPriceCompareDocDef(mixOf([2, 2, 2, 2, 3], "ของใหม่ มือ 1")), "b1672d428ea3cb511f61ca47909ce483ca338f6e"],
+      ["mixed4", buildPriceCompareDocDef(four()), "5682d161aa5f1c3c59c591c838f2302865090956"],
+      ["long40", buildPriceCompareDocDef(long40()), "514ff3d816d14b6f283990030c0fe50fac4efc62"],
+      ["image", buildPriceCompareDocDef(uh03(), [{ heading: "หลักฐาน: ใบเสนอราคา Supplier 1 — ช่างหมู", pngBase64: png }]), "f4e826b46599c30dadd9df5d879704a73c3a0036"],
+    ]
+    const sha1 = (def: unknown) => createHash("sha1").update(JSON.stringify(def)).digest("hex")
+    if (process.env.PC_PDF_SNAPSHOT_PRINT) {
+      for (const [name, def] of cases) console.log(`snapshot ${name}: ${sha1(def)}`)
+    } else {
+      for (const [name, def, want] of cases) {
+        assert.equal(sha1(def), want, `docDefinition ของ fixture ${name} เปลี่ยนจากก่อนฟีเจอร์เกรด (ea4033f) — ถ้าตั้งใจเปลี่ยนเลย์เอาต์ ดูวิธีอัปเดตในคอมเมนต์ด้านบน`)
+      }
+      console.log(`snapshot: ${cases.length} plain/mixed docDefinitions byte-identical to ea4033f — OK`)
+    }
+  }
 
   // --- เกรดแถวย่อย: แถวหัวรายการ + แถวเกรด, ติ๊กที่เกรด·เจ้าที่เลือก, ยอดจาก lib (โหมดผสมเมื่อเลือกครบทุกรายการ) ---
   {
