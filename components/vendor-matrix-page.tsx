@@ -12,7 +12,7 @@ import { useSession } from "next-auth/react"
 import { Download, FileText, History, Search } from "lucide-react"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
-import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
+import { REPAIR_TYPES, GROUP_LABEL, byCode, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
 import { historyByWork, VENDOR_KINDS, type VendorSummary, type VendorKind } from "@/lib/vendor-core"
 import { mapsLink } from "@/lib/rfq-core"
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
@@ -102,6 +102,25 @@ export function VendorMatrixPage() {
   )
 
   const totalTicked = rows.reduce((a, v) => a + v.codes.length, 0)
+
+  // การ์ดสรุป: AVL ต่อหมวด = อู่ที่ "อนุมัติ" และติ๊กงานอู่นอกในหมวดนั้นอย่างน้อย 1 ช่อง (นับจากทั้งหน้า ไม่ใช่แถวที่กรอง)
+  const avlSummary = useMemo(() => {
+    const vs = (data?.vendors ?? []).map((v) => ({ ...v, codes: patched[v.vendor] ?? v.codes }))
+    const approved = vs.filter((v) => v.status === "approved")
+    const perGroup = GROUP_ORDER.map((g) => ({
+      g,
+      n: approved.filter((v) => v.codes.some((c) => { const r = byCode(c); return !!r && r.side === "อู่นอก" && r.group === g })).length,
+    }))
+    return { total: approved.length, ticked: approved.filter((v) => v.codes.length > 0).length, perGroup }
+  }, [data, patched])
+  const quickGroup = groups.length === 1 && fStatus === "approved" && tickedOnly && !pickedCodes.length ? groups[0] : null
+  /** คลิกการ์ดหมวด = เห็น AVL ของหมวดนั้นทันที (กรอง หมวด+อนุมัติ+ติ๊กแล้ว) · คลิกซ้ำ = ล้าง */
+  const quickView = (g: RepairGroup | null) => {
+    if (g === null || quickGroup === g) { setGroups([]); setFStatus(""); setTickedOnly(false); return }
+    setGroups([g]); setFStatus("approved"); setTickedOnly(true); setPickedCodes([])
+  }
+  const clearFilters = () => { setQ(""); setGroups([]); setWhs([]); setPickedCodes([]); setTickedOnly(false); setFStatus("") }
+  const hasFilter = !!q || groups.length > 0 || whs.length > 0 || pickedCodes.length > 0 || tickedOnly || !!fStatus
   // นับเฉพาะที่ยังอยู่ในแถวที่กรองแสดง — ติ๊กไว้แล้วเปลี่ยนตัวกรอง จะได้ตรงกับที่ modal ได้รับ
   const pickedShown = rows.filter((v) => picked.has(v.vendor)).length
 
@@ -315,6 +334,35 @@ export function VendorMatrixPage() {
     >
       {data && (
         <>
+          {/* การ์ดสรุป AVL ต่อหมวด — กดการ์ดเพื่อกรองดูรายชื่อของหมวดนั้นทันที */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 8, marginBottom: 12 }}>
+            <button
+              onClick={() => { if (fStatus === "approved" && !groups.length && !tickedOnly) { setFStatus("") } else { setGroups([]); setTickedOnly(false); setPickedCodes([]); setFStatus("approved") } }}
+              title="อู่ที่สถานะอนุมัติทั้งหมด · คลิกเพื่อกรอง"
+              style={{ ...mitr, textAlign: "left", padding: "10px 12px", borderRadius: 12, cursor: "pointer", border: `1px solid ${fStatus === "approved" && !groups.length ? "#1B8C4B" : "#E5E7EB"}`, background: fStatus === "approved" && !groups.length ? "#ECFDF5" : "#fff" }}
+            >
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#047857", lineHeight: 1.1 }}>{num(avlSummary.total)}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#14271C" }}>AVL ทั้งหมด</div>
+              <div style={{ fontSize: 10.5, color: "#9AA8A0" }}>ติ๊กแล้ว {num(avlSummary.ticked)} ราย</div>
+            </button>
+            {avlSummary.perGroup.map(({ g, n }) => {
+              const on = quickGroup === g
+              return (
+                <button
+                  key={g}
+                  onClick={() => quickView(g)}
+                  title={`AVL ที่ทำงานหมวด ${GROUP_LABEL[g]} (อนุมัติ + ติ๊กอย่างน้อย 1 ช่อง) · คลิกเพื่อกรอง`}
+                  style={{ ...mitr, textAlign: "left", padding: "10px 12px", borderRadius: 12, cursor: "pointer", border: `1px solid ${on ? "#1B8C4B" : "#E5E7EB"}`, background: on ? "#ECFDF5" : "#fff" }}
+                >
+                  <div style={{ fontSize: 22, fontWeight: 700, color: n ? "#14271C" : "#B8C4BC", lineHeight: 1.1 }}>{num(n)}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#14271C" }}>{g}</div>
+                  <div style={{ fontSize: 10.5, color: "#9AA8A0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{GROUP_LABEL[g]}</div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* ตัวกรอง — แถวเดียว: ค้นหา · คลัง · สถานะ · ประเภทงาน · ติ๊กแล้ว/อู่นอก · ล้าง */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
             <div style={{ position: "relative" }}>
               <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: "#9CA3AF" }} />
@@ -322,33 +370,52 @@ export function VendorMatrixPage() {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="ค้นหาชื่ออู่"
-                style={{ ...mitr, padding: "8px 12px 8px 30px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13, width: 240 }}
+                style={{ ...mitr, padding: "8px 12px 8px 30px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13, width: 200 }}
               />
             </div>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}
-              title="อู่ในคือช่างในบริษัท ไม่ได้จ้าง vendor จึงซ่อนไว้ก่อน">
-              <input type="checkbox" checked={outsideOnly} onChange={(e) => setOutsideOnly(e.target.checked)} />
-              เฉพาะคอลัมน์อู่นอก
-            </label>
-            <label title="นับเฉพาะคอลัมน์ที่กำลังแสดงอยู่ — เลือกประเภทงานก่อนแล้วติ๊ก จะได้อู่ที่ทำงานนั้นได้" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
-              <input type="checkbox" checked={tickedOnly} onChange={(e) => setTickedOnly(e.target.checked)} />
-              เฉพาะอู่ที่ติ๊กแล้ว{pickedCodes.length ? ` (${pickedCodes.join(", ")})` : ""}
-            </label>
+            <select
+              value={whs[0] ?? ""}
+              onChange={(e) => setWhs(e.target.value ? [e.target.value] : [])}
+              title="คลัง — อู่รายเดียวรับงานได้หลายคลัง"
+              style={{ ...mitr, fontSize: 12.5, padding: "7px 8px", borderRadius: 8, border: "1px solid #E5E7EB", background: whs.length ? "#ECFEFF" : "#fff", color: whs.length ? "#0E7490" : "#374151", fontWeight: whs.length ? 700 : 400 }}
+            >
+              <option value="">ทุกคลัง</option>
+              {allWarehouses.map((w) => <option key={w} value={w}>{w.replace(/^คลัง/, "")}</option>)}
+            </select>
             <select
               value={fStatus}
               onChange={(e) => setFStatus(e.target.value as VendorSummary["status"] | "")}
-              title="กรองตามสถานะอนุมัติ"
-              style={{ ...mitr, fontSize: 12.5, padding: "6px 8px", borderRadius: 8, border: "1px solid #E5E7EB", background: fStatus ? STATUS_META[fStatus].bg : "#fff", color: fStatus ? STATUS_META[fStatus].fg : "#374151", fontWeight: fStatus ? 700 : 400 }}
+              title="สถานะอนุมัติ"
+              style={{ ...mitr, fontSize: 12.5, padding: "7px 8px", borderRadius: 8, border: "1px solid #E5E7EB", background: fStatus ? STATUS_META[fStatus].bg : "#fff", color: fStatus ? STATUS_META[fStatus].fg : "#374151", fontWeight: fStatus ? 700 : 400 }}
             >
               <option value="">ทุกสถานะ</option>
               {(["approved", "pending", "rejected"] as const).map((st) => <option key={st} value={st}>{STATUS_META[st].th}</option>)}
             </select>
-            <span style={{ fontSize: 12, color: "#9AA8A0" }}>
+            <div style={{ minWidth: 260, flex: "1 1 260px", maxWidth: 480 }} title="เลือกประเภทงานเจาะจง (หลายตัวได้) — เลือกแล้วตัวกรองหมวดจากการ์ดถูกข้าม">
+              <MultiSelectCombobox
+                options={codeOptions}
+                values={pickedCodes}
+                onChange={setPickedCodes}
+                placeholder="ประเภทงานซ่อม — ทุกประเภท"
+              />
+            </div>
+            <label title="นับเฉพาะคอลัมน์ที่กำลังแสดงอยู่ — เลือกประเภทงานก่อนแล้วติ๊ก จะได้อู่ที่ทำงานนั้นได้" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+              <input type="checkbox" checked={tickedOnly} onChange={(e) => setTickedOnly(e.target.checked)} />
+              ติ๊กแล้ว{pickedCodes.length ? ` (${pickedCodes.join(", ")})` : groups.length ? ` (${groups.join(", ")})` : ""}
+            </label>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" }}
+              title="อู่ในคือช่างในบริษัท ไม่ได้จ้าง vendor จึงซ่อนไว้ก่อน">
+              <input type="checkbox" checked={outsideOnly} onChange={(e) => setOutsideOnly(e.target.checked)} />
+              คอลัมน์อู่นอก
+            </label>
+            {hasFilter && (
+              <button onClick={clearFilters} style={{ ...mitr, padding: "6px 10px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: "1px solid #E5E7EB", background: "#fff", color: "#6B7280" }}>
+                ล้างตัวกรอง
+              </button>
+            )}
+            <span style={{ fontSize: 12, color: "#9AA8A0", whiteSpace: "nowrap" }}>
               {num(rows.length)} อู่ · {cols.length} คอลัมน์ · ติ๊กแล้ว {num(totalTicked)} ช่อง
             </span>
-            {!isAdmin && (
-              <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· เปลี่ยนสถานะอนุมัติได้เฉพาะแอดมินและผู้อนุมัติอู่</span>
-            )}
             <button
               onClick={() => setRfqOpen(true)}
               disabled={!pickedShown}
@@ -369,78 +436,9 @@ export function VendorMatrixPage() {
               <Download size={14} /> Excel
             </button>
           </div>
-
-          {/* กรองคลัง — อู่แต่ละพื้นที่คนละชุดกัน จัดซื้อที่ดูแลคนละคลังจะได้ไม่ต้องเลื่อนผ่านอู่ที่ไม่เกี่ยว */}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "#6B7280", fontWeight: 600 }}>คลัง:</span>
-            {allWarehouses.map((w) => {
-              const on = whs.includes(w)
-              return (
-                <button
-                  key={w}
-                  onClick={() => setWhs((c) => (on ? c.filter((x) => x !== w) : [...c, w]))}
-                  style={{
-                    padding: "5px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer",
-                    border: on ? "1px solid #0E7490" : "1px solid #E5E7EB",
-                    background: on ? "#0E7490" : "#fff", color: on ? "#fff" : "#374151",
-                    fontWeight: on ? 700 : 500,
-                  }}
-                >
-                  {w.replace(/^คลัง/, "")}
-                </button>
-              )
-            })}
-            {whs.length > 0 && (
-              <button onClick={() => setWhs([])}
-                style={{ padding: "5px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: "1px solid #E5E7EB", background: "#fff" }}>
-                ล้าง
-              </button>
-            )}
-          </div>
-
-          {/* กรองประเภทงานเจาะจง — เลือกได้หลายตัว ใช้ตอนอยากเทียบแค่ 2-3 ประเภท
-              ไม่ต้องเลื่อนผ่านคอลัมน์ที่ไม่เกี่ยว · เลือกแล้วจะชนะตัวกรองหมวดด้านล่าง */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "#6B7280", fontWeight: 600, whiteSpace: "nowrap" }}>ประเภทงานซ่อม:</span>
-            <div style={{ minWidth: 320, flex: "1 1 320px", maxWidth: 620 }}>
-              <MultiSelectCombobox
-                options={codeOptions}
-                values={pickedCodes}
-                onChange={setPickedCodes}
-                placeholder="— ทุกประเภท (เลือกเจาะจงได้หลายตัว) —"
-              />
-            </div>
-            {pickedCodes.length > 0 && (
-              <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>เลือก {pickedCodes.length} ประเภท · ตัวกรองหมวดถูกข้าม</span>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, alignItems: "center", opacity: pickedCodes.length ? 0.45 : 1 }}>
-            <span style={{ fontSize: 12, color: "#6B7280", fontWeight: 600 }}>หมวด:</span>
-            {GROUP_ORDER.map((g) => {
-              const on = groups.includes(g)
-              return (
-                <button
-                  key={g}
-                  onClick={() => setGroups((c) => (on ? c.filter((x) => x !== g) : [...c, g]))}
-                  style={{
-                    padding: "5px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer",
-                    border: on ? "1px solid #1B8C4B" : "1px solid #E5E7EB",
-                    background: on ? "#1B8C4B" : "#fff", color: on ? "#fff" : "#374151",
-                    fontWeight: on ? 700 : 500,
-                  }}
-                >
-                  {g} · {GROUP_LABEL[g]}
-                </button>
-              )
-            })}
-            {groups.length > 0 && (
-              <button onClick={() => setGroups([])}
-                style={{ padding: "5px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: "1px solid #E5E7EB", background: "#fff" }}>
-                ล้าง
-              </button>
-            )}
-          </div>
+          {!isAdmin && (
+            <div style={{ fontSize: 11.5, color: "#9AA8A0", marginBottom: 8 }}>เปลี่ยนสถานะอนุมัติได้เฉพาะแอดมินและผู้อนุมัติอู่ · ติ๊กความสามารถได้ทุกคน</div>
+          )}
 
           <div style={{ overflow: "auto", maxHeight: "72vh", border: "1px solid #E5E7EB", borderRadius: 12, background: "#fff" }}>
             <table style={{ borderCollapse: "separate", borderSpacing: 0, fontSize: 12.5 }}>
