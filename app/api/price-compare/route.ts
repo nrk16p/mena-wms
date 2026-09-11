@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
-import { newDoc, normalizeDoc, validateDoc, supplierTotals, lowestNet, allLinesAwarded, mixedTotals, type PriceCompare } from "@/lib/price-compare"
+import { newDoc, normalizeDoc, validateDoc, supplierTotals, lowestNet, allLinesAwarded, mixedTotals, hasGrades, bestMixNet, type PriceCompare } from "@/lib/price-compare"
 import { PC_COLL, nextDocNo } from "@/lib/price-compare-db"
 import { writePcLog } from "@/lib/price-compare-log"
 
@@ -38,7 +38,10 @@ export async function GET(req: NextRequest) {
   const rows = await client.db(DB).collection(PC_COLL).find(filter).sort({ updatedAt: -1 }).limit(limit).toArray()
   const items = rows.map((r) => {
     const d = normalizeDoc(r)
-    const li = lowestNet(d)
+    // มีรายการหลายเกรด: lowestNet/supplierTotals นับเฉพาะเกรดที่เลือก (กลุ่มค้าง = ไม่นับทั้งกลุ่ม) จึงเป็นยอดบางส่วน
+    // → ช่อง "สุทธิต่ำสุด (ยังไม่เลือก)" ใช้สุทธิผสมที่ถูกสุดเท่าที่เป็นไปได้ (bestMixNet, null ถ้าคิดไม่ได้) แทน
+    const grades = hasGrades(d)
+    const li = grades ? null : lowestNet(d)
     // ตัดสินใจแล้วผ่านการปักธงแยกรายรายการ (ชนะการเลือกทั้งใบ) — null เมื่อคิดยอดผสมไม่ได้ แล้วตกกลับไปใช้ selectedSupplier
     const mixed = allLinesAwarded(d) ? mixedTotals(d) : null
     return {
@@ -47,7 +50,7 @@ export async function GET(req: NextRequest) {
       supplierCount: d.suppliers.length, selectedSupplier: mixed ? null : d.selectedSupplier,
       selectedName: mixed ? `ผสม ${mixed.suppliersUsed} เจ้า` : d.selectedSupplier ? d.suppliers[d.selectedSupplier - 1]?.name ?? "" : "",
       selectedNet: mixed ? mixed.grand : d.selectedSupplier ? supplierTotals(d, d.selectedSupplier - 1).net : null,
-      lowestNet: li == null ? null : supplierTotals(d, li).net,
+      lowestNet: grades ? bestMixNet(d) : li == null ? null : supplierTotals(d, li).net,
     }
   })
   return NextResponse.json(items)

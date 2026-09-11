@@ -30,6 +30,35 @@ function uh03(): PriceCompare {
   return d
 }
 
+// เกรดเป็นแถวย่อยของรายการ (spec 2026-09-11-price-compare-grades-design.md) — ตรงกับ gradesDoc ใน check-price-compare-core
+// Pump Rexroth 1 ตัว 3 เกรด: มือ 1 [—, 30,000, 30,000] · มือ 2 [—, —, 25,000] · ซ่อมเดิม [21,000, —, —] + HYD/เกียร์/ค่าแรง — ทุกเจ้า excl
+// lineSupplier = ถูกสุดต่อรายการ (pickLowestPerLine) → [null, null, 1, 2, 2, 3]
+function gradesDoc(): PriceCompare {
+  const d = newDoc({ name: "นพรัตน์ อายยืน", email: "n@mena.co.th" }) as PriceCompare
+  d.docNo = "PC-2609-998"; d.createdAt = "2026-09-11T09:00:00.000+07:00"; d.updatedAt = d.createdAt
+  d.title = "Pump UH03 (เทียบเกรด)"; d.requestDept = "ยานยนต์"; d.selectedSupplier = null
+  const pump = (grade: string) => ({ name: "Pump Rexroth", qty: 1, unit: "ตัว", group: "g-pump01", grade })
+  d.items = [
+    pump("มือ 1"), pump("มือ 2"), pump("ซ่อมเดิม"),
+    { name: "น้ำมัน HYD.", qty: 18, unit: "ลิตร" }, { name: "น้ำมันเกียร์", qty: 10, unit: "ลิตร" },
+    { name: "ค่าแรงซ่อม+ประกอบทดสอบ", qty: 1, unit: "งาน" },
+  ]
+  const s = (name: string, prices: (number | null)[]): PcSupplier => ({ ...emptySupplier(6), name, prices })
+  d.suppliers = [
+    s("ช่างหมู", [null, null, 21000, 110.56, 180, 7000]),
+    s("คุณณัฐ", [30000, null, null, 100, 100, 5500]),
+    s("ศศ&ณ", [30000, 25000, null, 107.14, 107.14, 5000]),
+  ]
+  d.lineSupplier = pickLowestPerLine(d)
+  return d
+}
+
+type Cell = Record<string, unknown>
+const priceTableOf = (dd: { content: unknown[] }) => (dd.content[1] as { table: { widths: unknown[]; body: Cell[][] } }).table
+/** แถวเกรดในตารางเทียบราคา — ช่องรายการเป็น array [เครื่องหมาย, seg("เกรด: <ชื่อ>")] */
+const gradeRowOf = (body: Cell[][], grade: string) =>
+  body.find((r) => Array.isArray(r[1]?.text) && (r[1].text as string[]).includes(seg(`เกรด: ${grade}`)))
+
 // wrapped in an async IIFE: this repo's tsx runs scripts as CJS, which rejects top-level await
 async function main() {
   assert.equal(pdfFilename(uh03()), "PC-2609-002 Pump + Motor UH03.pdf")
@@ -150,6 +179,66 @@ async function main() {
     if (name !== "uh03") { fs.mkdirSync("tmp", { recursive: true }); fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out) }
   }
   console.log("mixed mode: OK → tmp/price-compare-mixed.pdf, tmp/price-compare-mixed-reason.pdf")
+
+  // --- เกรดแถวย่อย: แถวหัวรายการ + แถวเกรด, ติ๊กที่เกรด·เจ้าที่เลือก, ยอดจาก lib (โหมดผสมเมื่อเลือกครบทุกรายการ) ---
+  {
+    const g = gradesDoc()
+    assert.deepEqual(g.lineSupplier, [null, null, 1, 2, 2, 3], "ถูกสุดต่อรายการ = ซ่อมเดิม·S1, HYD·S2, เกียร์·S2, ค่าแรง·S3")
+    const ddG = buildPriceCompareDocDef(g)
+    const flatG = JSON.stringify(ddG)
+    const { widths, body } = priceTableOf(ddG)
+    assert.ok(body.every((r) => r.length === widths.length), "ทุกแถว (หัวรายการ/เกรด/ธรรมดา/สรุป) ต้องมี cell เท่ากับจำนวนคอลัมน์")
+    for (const gr of ["มือ 1", "มือ 2", "ซ่อมเดิม"]) assert.ok(flatG.includes(seg(`เกรด: ${gr}`)), `ต้องมีแถวเกรด ${gr}`)
+
+    // แถวหัวรายการ: ลำดับ 1 + ชื่อ/จำนวน/หน่วย ช่องราคาเว้นว่าง; แถวเกรดตามมาทันที ไม่มีลำดับ
+    const head = body.findIndex((r) => r[1]?.text === seg("Pump Rexroth"))
+    assert.ok(head > 0, "ต้องมีแถวหัวรายการ Pump Rexroth")
+    assert.equal(body[head][0].text, "1")
+    assert.ok(body[head].slice(4).every((c) => !c.text), "แถวหัวรายการไม่มีราคา")
+    assert.deepEqual([1, 2, 3].map((k) => body[head + k]), ["มือ 1", "มือ 2", "ซ่อมเดิม"].map((gr) => gradeRowOf(body, gr)), "แถวเกรดเรียงต่อจากหัวรายการตามลำดับ")
+    assert.ok([1, 2, 3].every((k) => body[head + k][0].text === ""), "แถวเกรดไม่มีเลขลำดับ")
+    // ลำดับนับต่อรายการ: HYD เป็นรายการที่ 2 ไม่ใช่แถวที่ 4
+    assert.equal(body.find((r) => r[1]?.text === seg("น้ำมัน HYD."))![0].text, "2")
+
+    // ติ๊ก √ ที่ ซ่อมเดิม·S1 (ช่องราคาต่อหน่วยของ S1 = index 4) และเกรดที่ไม่ได้เลือกไม่มีติ๊ก
+    assert.equal(gradeRowOf(body, "ซ่อมเดิม")![4].text, "√ 21,000.00", "ติ๊กที่ ซ่อมเดิม·S1")
+    assert.ok(!JSON.stringify(gradeRowOf(body, "มือ 1")).includes("√") && !JSON.stringify(gradeRowOf(body, "มือ 2")).includes("√"), "เกรดที่ไม่ได้เลือกต้องไม่มีติ๊ก")
+
+    // ยอดโหมดผสม (group-aware จาก lib): S1 22,470 · S2 2,996 · S3 5,350 → รวมผสม 30,816
+    assert.ok(flatG.includes(seg(MIX_NET_LABEL)), "เลือกครบทุกรายการ → มีบล็อกสรุปโหมดผสม")
+    assert.ok(flatG.includes("22,470.00") && flatG.includes("2,996.00") && flatG.includes("5,350.00"), "สุทธิที่เลือกต่อเจ้า")
+    assert.ok(flatG.includes("30,816.00"), "รวมผสม 30,816.00")
+    assert.ok(!flatG.includes("เหตุผลที่เลือก"), "เลือกถูกสุดทุกรายการ → ไม่ต้องพิมพ์เหตุผล")
+
+    // เลือก มือ 2·S3 แทน → รวมผสม 35,096 + ต้องพิมพ์เหตุผลที่เลือก
+    const alt = gradesDoc()
+    alt.lineSupplier = [null, 3, null, 2, 2, 3]
+    alt.selectionReason = "ต้องการของใหม่ มือ 2"
+    const ddAlt = buildPriceCompareDocDef(alt)
+    const flatAlt = JSON.stringify(ddAlt)
+    assert.ok(flatAlt.includes("35,096.00"), "รวมผสมเมื่อเลือก มือ 2·S3 = 35,096.00")
+    assert.ok(flatAlt.includes("เหตุผลที่เลือก") && flatAlt.includes(seg("ต้องการของใหม่ มือ 2")), "ไม่ได้เลือกถูกสุด → ต้องพิมพ์เหตุผล")
+    const altBody = priceTableOf(ddAlt).body
+    assert.equal(gradeRowOf(altBody, "มือ 2")![8].text, "√ 25,000.00", "ติ๊กที่ มือ 2·S3 (ช่องราคาต่อหน่วยของ S3 = index 8)")
+    assert.ok(!JSON.stringify(gradeRowOf(altBody, "ซ่อมเดิม")).includes("√"), "ย้ายการเลือกแล้ว ซ่อมเดิมต้องไม่มีติ๊ก")
+
+    // กลุ่มค้าง (ยังไม่เลือกเกรด) → ไม่มีบล็อกผสม แต่แถวหัวรายการ/เกรดยังพิมพ์ครบ
+    const open = gradesDoc(); open.lineSupplier = [null, null, null, 2, 2, 3]
+    const flatOpen = JSON.stringify(buildPriceCompareDocDef(open))
+    assert.ok(!flatOpen.includes(seg(MIX_NET_LABEL)) && flatOpen.includes(seg("เกรด: ซ่อมเดิม")), "กลุ่มค้าง: ไม่มียอดผสม แต่ยังมีแถวเกรด")
+
+    // เอกสารไม่มีเกรด: ไม่มีแถวเกรด และ cell ครบทุกแถวเหมือนเดิม (docDefinition ต้องเหมือนเดิมทุกไบต์ — ตรวจเทียบก่อน/หลังตอนแก้)
+    assert.ok(!flat.includes(seg("เกรด")) && !flatMix.includes(seg("เกรด")), "เอกสารไม่มีเกรดต้องไม่มีแถวเกรด")
+    const plain = priceTableOf(dd)
+    assert.ok(plain.body.every((r) => r.length === plain.widths.length))
+
+    for (const [name, def] of [["grades", ddG], ["grades-alt", ddAlt]] as const) {
+      const out = await renderPdfmake(def)
+      assert.equal((await PDFDocument.load(out)).getPageCount(), 1, `ฟอร์ม ${name} ต้องเป็นหน้าเดียว`)
+      fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out)
+    }
+    console.log("grades: OK → tmp/price-compare-grades.pdf, tmp/price-compare-grades-alt.pdf")
+  }
 
   // หน้ารูปแนบ
   const png1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="

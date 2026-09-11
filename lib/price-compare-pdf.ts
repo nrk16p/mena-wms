@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, lowestNet, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -14,6 +14,7 @@ const GRAY = "#D9D9D9"     // สีคอลัมน์ Supplier 2 ตาม�
 const LINE = "#000000"
 const MIN_ROWS = 16        // จำนวนแถวรายการขั้นต่ำ (เติมแถวว่างให้เหมือนฟอร์มกระดาษ) — มากกว่านี้แล้วล้นหน้า
 const TICK = "√"      // Sarabun ไม่มี U+2713 ✓ — ใช้ √ แทน
+const GRADE_MARK = "–"   // spec ใช้ "├ เกรด:" แต่ Sarabun ไม่มีอักษรเส้นกล่อง (U+251C ├ / U+2514 └) — ใช้ขีดสั้น (en dash) + ย่อหน้าแทน
 // ป้ายของบล็อกสรุปโหมดผสม — export ให้ check script อ้างตัวเดียวกัน (ข้อความไทยพิมพ์ผ่าน seg() จึงเทียบตรงตัวไม่ได้)
 export const MIX_SUBTOTAL_LABEL = "ยอดที่เลือกจากเจ้านี้ (ก่อน VAT)"
 export const MIX_NET_LABEL = "สุทธิที่เลือก"
@@ -120,18 +121,36 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
     cell("ราคา/หน่วย", { fontSize: 7, ...fill(i) }), t("ยอดรวม", { alignment: "center", fontSize: 7, ...fill(i) }),
   ]).flat()
 
-  const itemRows = doc.items.map((it, r) => [
-    cell(String(r + 1)), t(it.name), cell(String(it.qty)), t(it.unit, { alignment: "center" }),
-    ...Array.from({ length: N }, (_, i) => {
-      const p = sup(i)?.prices[r] ?? null
-      // เซลล์ที่ถูกเลือกใช้จริงในโหมดผสม ติ๊กหน้าราคาต่อหน่วย (ยังชิดขวาเหมือนช่องราคาอื่น)
-      const picked = p != null && doc.lineSupplier[r] === i + 1
-      return [
-        picked ? { text: `${TICK} ${fmtMoney(p)}`, alignment: "right", bold: true, ...fill(i) } : money(p, fill(i)),
-        money(lineTotal(it, p), fill(i)),
-      ]
-    }).flat(),
-  ])
+  // ช่องราคา/ยอดรวมของแถว r ครบทุก supplier (N × 2 ช่อง)
+  const priceCells = (r: number) => Array.from({ length: N }, (_, i) => {
+    const p = sup(i)?.prices[r] ?? null
+    // เซลล์ที่ถูกเลือกใช้จริงในโหมดผสม ติ๊กหน้าราคาต่อหน่วย (ยังชิดขวาเหมือนช่องราคาอื่น)
+    const picked = p != null && doc.lineSupplier[r] === i + 1
+    return [
+      picked ? { text: `${TICK} ${fmtMoney(p)}`, alignment: "right", bold: true, ...fill(i) } : money(p, fill(i)),
+      money(lineTotal(doc.items[r], p), fill(i)),
+    ]
+  }).flat()
+  // แถวรายการสร้างต่อ "รายการ" (กลุ่ม) — ลำดับนับต่อรายการ ไม่ใช่ต่อแถว
+  //   รายการธรรมดา (กลุ่มขนาด 1) → แถวเดียวเหมือนเดิมทุกไบต์ (เอกสารไม่มีเกรด docDefinition ต้องไม่เปลี่ยน)
+  //   รายการหลายเกรด → แถวหัวรายการ (ลำดับ/ชื่อ/จำนวน/หน่วย ช่องราคาเว้นว่าง) + แถวละเกรด (ราคาต่อเจ้า + ติ๊กที่เกรด·เจ้าที่เลือก)
+  // ทุกแถวต้องมี cell เท่ากับจำนวนคอลัมน์ (4 + N × 2 นับ placeholder ของ colSpan) ไม่งั้น pdfmake วาดตารางเพี้ยน
+  const groups = groupsOf(doc)
+  const itemRows = groups.flatMap((g, n) => {
+    const it = doc.items[g.rows[0]]   // ชื่อ/จำนวน/หน่วยเป็นของทั้งกลุ่ม (normalizeDoc sync ไว้แล้ว)
+    const lead = [cell(String(n + 1)), t(it.name), cell(String(it.qty)), t(it.unit, { alignment: "center" })]
+    if (g.rows.length === 1) return [[...lead, ...priceCells(g.rows[0])]]
+    return [
+      [...lead, ...Array.from({ length: N }, (_, i) => [{ colSpan: 2, text: "", ...fill(i) }, {}]).flat()],
+      ...g.rows.map((r) => [
+        { text: "" },
+        // ประกอบเป็น array: เครื่องหมายนำหน้าไม่ต้องตัดคำ ส่วน "เกรด: <ชื่อเกรด>" ผ่าน seg() ตามกฎ (check script ค้นหา seg("เกรด: มือ 1"))
+        { text: [`${GRADE_MARK} `, seg(`เกรด: ${doc.items[r].grade ?? ""}`)], margin: [6, 0, 0, 0] },
+        cell(String(it.qty)), t(it.unit, { alignment: "center" }),
+        ...priceCells(r),
+      ]),
+    ]
+  })
   const emptyRow = () => [
     { text: " " }, {}, {}, {},
     ...Array.from({ length: N }, (_, i) => [{ text: " ", ...fill(i) }, { text: " ", ...fill(i) }]).flat(),
@@ -146,7 +165,9 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   // โหมดผสมเพิ่มแถวสรุปอีก 2 แถว + หมายเหตุส่วนลด และอาจมีบรรทัดเหตุผลอีก จึงคืนโควตาแถวว่างตามจำนวนนั้น
   // เพื่อให้ฟอร์มยังจบในหน้าเดียว (เอกสารเลือกทั้งใบไม่เปลี่ยน — พอดีหน้าอยู่แล้วที่ MIN_ROWS)
   const minRows = MIN_ROWS - (mixed ? 2 + (showSelectionReason ? 1 : 0) + (showFewerQuotesReason ? 1 : 0) : 0)
-  const blankRows = Array.from({ length: Math.max(0, minRows - doc.items.length - 2) }, emptyRow)
+  // แถวหัวรายการของรายการหลายเกรดเป็นแถวเพิ่มจาก items → กินโควตาแถวว่างเหมือนแถวรายการ (ไม่มีเกรด = หัก 0)
+  const headerRows = groups.filter((g) => g.rows.length > 1).length
+  const blankRows = Array.from({ length: Math.max(0, minRows - doc.items.length - headerRows - 2) }, emptyRow)
 
   // ช่อง VAT บอกฐานราคาด้วย: none → "ไม่มี VAT", incl → "(รวมในราคา) / 3,683.18"
   const vatCell = (i: number) => {

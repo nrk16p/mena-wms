@@ -60,4 +60,24 @@ print('ok: mixed row')
 else
   echo "skip mixed-list check"
 fi
+
+# ใบ seed เทียบเกรด (node scripts/seed-price-compare-uh03.mjs --grades) — ถ้าไม่มีก็ข้าม ไม่ seed เอง
+# lowestNet ของใบที่มีเกรดต้องเป็น bestMixNet (30,816) ไม่ใช่สุทธิของเจ้าเดียวที่นับแค่เกรดที่เลือก (เดิมได้ 8,559.91)
+echo "== grades list row (PC-2609-998)"
+GRADES_ROW=$(curl -s -H "$H" -G --data-urlencode "q=PC-2609-998" "$B")
+if echo "$GRADES_ROW" | grep -q '"docNo":"PC-2609-998"'; then
+  echo "$GRADES_ROW" | python3 -c "
+import json,sys
+rows = [r for r in json.load(sys.stdin) if r['docNo'] == 'PC-2609-998']
+assert len(rows) == 1, f'ต้องเจอใบเดียว: {len(rows)}'
+r = rows[0]
+assert r['selectedName'] == 'ผสม 3 เจ้า', f\"selectedName ผิด: {r['selectedName']}\"
+assert r['selectedNet'] == 30816, f\"selectedNet ผิด: {r['selectedNet']}\"
+assert r['selectedSupplier'] is None, f\"selectedSupplier ต้องเป็น null: {r['selectedSupplier']}\"
+assert r['lowestNet'] == 30816, f\"lowestNet ของใบเกรดต้องเป็น bestMixNet 30816: {r['lowestNet']}\"
+print('ok: grades row')
+"
+else
+  echo "skip grades-list check"
+fi
 echo "check-price-compare-api: OK"
