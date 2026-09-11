@@ -6,6 +6,7 @@ import {
   normalizeDoc, validateDoc, docNoFor, counterKeyFor, fmtMoney, lineTotal, round2,
   completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
   effectiveLineSupplier, allLinesAwarded, mixedTotals, mixedNet, pickLowestPerLine, bestMixNet, mixedGap, renumberAfterRemoval,
+  groupsOf, countedRows, hasGrades, newGroupId,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 import { diffPriceCompare } from "../lib/price-compare-log"
@@ -429,6 +430,211 @@ assert.equal(fmtMoney(null), "")
   const g = uh03(); g.lineSupplier = [1, 2, 2, 2, 3]; g.items.push({ name: "เพิ่ม", qty: 1, unit: "ชิ้น" }); g.suppliers.forEach((sp) => sp.prices.push(null))
   assert.deepEqual(diffPriceCompare(e, g).find((x) => x.field === "lineSupplier"),
     { field: "lineSupplier", label: "เลือกรายบรรทัด", from: "5/5 แถว (1,2,2,2,3)", to: "5/6 แถว (1,2,2,2,3)" })
+}
+
+// ======================================================================
+// --- เกรดเป็นแถวย่อยของรายการ (spec 2026-09-11-price-compare-grades-design.md) ---
+// Pump Rexroth 1 ตัว มี 3 เกรด (กลุ่มเดียวกัน แถวติดกัน): มือ 1 [—, 30,000, 30,000] · มือ 2 [—, —, 25,000] · ซ่อมเดิม [21,000, —, —]
+// + HYD/เกียร์/ค่าแรงเดิมจาก uh03 — ทุกเจ้า excl
+const PUMP = "g-pump01"
+function gradesDoc(): PriceCompare {
+  const d = newDoc({ name: "นพรัตน์ อายยืน", email: "n@mena.co.th" }) as PriceCompare
+  d.docNo = "PC-2609-998"; d.createdAt = "2026-09-11T09:00:00.000+07:00"; d.updatedAt = d.createdAt
+  d.title = "Pump UH03 (เทียบเกรด)"; d.requestDept = "ยานยนต์"
+  d.items = [
+    { name: "Pump Rexroth", qty: 1, unit: "ตัว", group: PUMP, grade: "มือ 1" },
+    { name: "Pump Rexroth", qty: 1, unit: "ตัว", group: PUMP, grade: "มือ 2" },
+    { name: "Pump Rexroth", qty: 1, unit: "ตัว", group: PUMP, grade: "ซ่อมเดิม" },
+    { name: "น้ำมัน HYD.", qty: 18, unit: "ลิตร" },
+    { name: "น้ำมันเกียร์", qty: 10, unit: "ลิตร" },
+    { name: "ค่าแรงซ่อม+ประกอบทดสอบ", qty: 1, unit: "งาน" },
+  ]
+  const s = (name: string, prices: (number | null)[]): PcSupplier => ({ ...emptySupplier(6), name, prices })
+  d.suppliers = [
+    s("ช่างหมู", [null, null, 21000, 110.56, 180, 7000]),
+    s("คุณณัฐ", [30000, null, null, 100, 100, 5500]),
+    s("ศศ&ณ",  [30000, 25000, null, 107.14, 107.14, 5000]),
+  ]
+  d.lineSupplier = d.items.map(() => null)
+  return d
+}
+const BEST = [null, null, 1, 2, 2, 3]          // ซ่อมเดิม·S1, HYD·S2, เกียร์·S2, ค่าแรง·S3
+const ALT = [null, 3, null, 2, 2, 3]           // เลือก มือ 2·S3 แทน
+const OPEN = [null, null, null, 2, 2, 3]       // กลุ่ม Pump ยังไม่เลือกเกรด
+const named = (x: PriceCompare) => { x.committee = x.committee.map((m) => ({ ...m, name: "กรรมการ" })); return x }
+
+// --- groupsOf / countedRows / hasGrades / newGroupId ---
+{
+  const g = gradesDoc()
+  const gs = groupsOf(g)
+  assert.deepEqual(gs.map((x) => x.rows), [[0, 1, 2], [3], [4], [5]], "เรียงตามลำดับ; รายการธรรมดา = กลุ่มขนาด 1")
+  assert.equal(gs[0].key, PUMP)
+  assert.equal(new Set(gs.map((x) => x.key)).size, 4, "key ของรายการธรรมดาไม่ชนกัน/ไม่ชนกับ group จริง")
+  assert.deepEqual(groupsOf(uh03()).map((x) => x.rows), [[0], [1], [2], [3], [4]], "เอกสารเดิมทุกแถวเป็นกลุ่มขนาด 1")
+
+  assert.deepEqual(countedRows(g), [false, false, false, true, true, true], "กลุ่มค้าง → ไม่นับทุกแถวของกลุ่ม")
+  g.lineSupplier = [...BEST]
+  assert.deepEqual(countedRows(g), [false, false, true, true, true, true], "กลุ่มหลายเกรด → นับเฉพาะแถวที่เลือก")
+  assert.deepEqual(countedRows(uh03()), [true, true, true, true, true], "เอกสารเดิมนับทุกแถวแม้ยังไม่เลือก")
+
+  assert.equal(hasGrades(gradesDoc()), true)
+  assert.equal(hasGrades(uh03()), false)
+  const lone = uh03(); lone.items[0] = { ...lone.items[0], group: "g-lone", grade: "มือ 1" }
+  assert.equal(hasGrades(lone), false, "group ที่เหลือแถวเดียว = รายการธรรมดา")
+
+  const id1 = newGroupId(), id2 = newGroupId()
+  assert.match(id1, /^g-[a-z0-9]{6}$/)
+  assert.notEqual(id1, id2)
+}
+
+// --- pickLowestPerLine / mixedTotals / bestMixNet / mixedGap (group-aware) ---
+{
+  const g = gradesDoc()
+  assert.deepEqual(pickLowestPerLine(g), BEST, "ต่อกลุ่มเลือกคู่ (เกรด, เจ้า) ที่สุทธิหลัง VAT ต่ำสุด; แถวอื่นในกลุ่ม = null")
+  g.lineSupplier = [...BEST]
+  const mt = mixedTotals(g)!
+  assert.ok(mt)
+  assert.deepEqual(mt.perSupplier[0], { subtotal: 21000, vat: 1470, net: 22470, lines: 1 }, "S1: ซ่อมเดิม 21,000")
+  assert.deepEqual(mt.perSupplier[1], { subtotal: 2800, vat: 196, net: 2996, lines: 2 }, "S2: 100×18 + 100×10")
+  assert.deepEqual(mt.perSupplier[2], { subtotal: 5000, vat: 350, net: 5350, lines: 1 }, "S3: ค่าแรง 5,000")
+  assert.equal(mt.grand, 30816)
+  assert.equal(mt.suppliersUsed, 3)
+  assert.equal(mixedNet(g), 30816)
+  assert.equal(bestMixNet(g), 30816)
+  assert.equal(mixedGap(g), 0)
+  assert.equal(allLinesAwarded(g), true, "ทุกกลุ่มเลือกครบ 1 แถว")
+
+  const alt = gradesDoc(); alt.lineSupplier = [...ALT]
+  assert.equal(mixedNet(alt), 35096, "มือ 2·S3 25,000 + ค่าแรง 5,000 → S3 32,100")
+  assert.equal(mixedGap(alt), 4280)
+  assert.equal(allLinesAwarded(alt), true)
+
+  const open = gradesDoc(); open.lineSupplier = [...OPEN]
+  assert.equal(mixedTotals(open), null, "กลุ่มค้าง → null")
+  assert.equal(mixedGap(open), null)
+  assert.equal(allLinesAwarded(open), false)
+
+  const two = gradesDoc(); two.lineSupplier = [2, null, 1, 2, 2, 3]
+  assert.equal(mixedTotals(two), null, "เลือก 2 เกรดในกลุ่มเดียว = กำกวม → null (validateDoc ปฏิเสธ)")
+  assert.equal(allLinesAwarded(two), false)
+
+  // รายการธรรมดายัง fallback ไป selectedSupplier ทั้งใบได้ตามเดิม (เอกสารที่ไม่ผ่าน normalize)
+  const fb = gradesDoc(); fb.selectedSupplier = 2; fb.lineSupplier = [null, null, 1, null, null, 3]
+  assert.equal(mixedNet(fb), 30816, "HYD/เกียร์ fallback ไป S2")
+  // แต่กลุ่มหลายเกรดไม่ fallback — ต้องเลือกเกรดเอง
+  const fb2 = gradesDoc(); fb2.selectedSupplier = 3; fb2.lineSupplier = [null, null, null, 2, 2, 3]
+  assert.equal(mixedTotals(fb2), null, "กลุ่มหลายเกรดไม่ใช้ selectedSupplier แทนการเลือกเกรด")
+
+  const none = gradesDoc(); none.suppliers.forEach((sp) => { sp.prices[0] = null; sp.prices[1] = null; sp.prices[2] = null })
+  assert.deepEqual(pickLowestPerLine(none), [null, null, null, 2, 2, 3], "ไม่มีใครเสนอราคาเกรดไหนเลย → ทั้งกลุ่ม null")
+  assert.equal(bestMixNet(none), null)
+}
+
+// --- supplierTotals / lowestNet / completeSupplierCount: คิดจากแถวที่นับ ---
+{
+  const g = gradesDoc()
+  assert.equal(supplierTotals(g, 0).subtotal, 10790.08, "กลุ่มค้าง: ไม่นับเกรดไหนเลย (1,990.08 + 1,800 + 7,000)")
+  assert.equal(supplierTotals(g, 2).subtotal, 7999.92)
+  g.lineSupplier = [...BEST]
+  assert.equal(supplierTotals(g, 0).subtotal, 31790.08, "นับเฉพาะเกรดที่เลือก (ซ่อมเดิม 21,000)")
+  assert.equal(supplierTotals(g, 2).subtotal, 7999.92, "S3 ไม่ได้เสนอราคาเกรดที่เลือก → ไม่มียอดกลุ่มนี้")
+  g.lineSupplier = [...ALT]
+  assert.equal(supplierTotals(g, 2).subtotal, 32999.92, "เลือก มือ 2 → S3 นับ 25,000")
+  assert.equal(supplierTotals(g, 0).subtotal, 10790.08)
+  assert.equal(supplierTotals({ items: g.items, suppliers: g.suppliers }, 1).subtotal, 8300, "ไม่ส่ง lineSupplier = ยังไม่เลือกเกรด")
+  const nets = g.suppliers.map((_, i) => supplierTotals(g, i).net)
+  assert.equal(lowestNet(g), nets.indexOf(Math.min(...nets)), "lowestNet เทียบยอดจากแถวที่นับ")
+
+  assert.equal(completeSupplierCount(gradesDoc()), 3, "ครบ = เสนออย่างน้อย 1 เกรดของทุกรายการ")
+  const x = gradesDoc(); x.suppliers[1].prices[0] = null
+  assert.equal(completeSupplierCount(x), 2, "S2 ไม่ได้เสนอเกรดไหนของ Pump เลย → ไม่ครบ")
+}
+
+// --- isComplete / canTransition ---
+{
+  const g = named(gradesDoc()); g.lineSupplier = [...BEST]
+  assert.deepEqual(isComplete(g).missing, [], "เลือกถูกสุดทุกกลุ่ม ไม่ต้องมีเหตุผล")
+  assert.equal(canTransition("ร่าง", "รอลงนาม", g).ok, true)
+
+  const alt = gradesDoc(); alt.lineSupplier = [...ALT]
+  const ra = isComplete(alt, { requireCommitteeNames: false })
+  assert.ok(ra.missing.includes("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด"), `เลือก มือ 2·S3 ไม่ใช่ถูกสุด (ได้ ${JSON.stringify(ra.missing)})`)
+  alt.selectionReason = "มือ 2 รับประกัน 6 เดือน ซ่อมเดิมไม่มีประกัน"
+  assert.equal(isComplete(alt, { requireCommitteeNames: false }).ok, true)
+
+  const open = gradesDoc(); open.lineSupplier = [...OPEN]
+  const ro = isComplete(open, { requireCommitteeNames: false })
+  assert.ok(ro.missing.includes("ยังไม่เลือกเกรด: Pump Rexroth"), `กลุ่มค้าง (ได้ ${JSON.stringify(ro.missing)})`)
+  assert.ok(!ro.missing.includes("ผู้ได้รับเลือก"), "เลือกรายการธรรมดาครบแล้ว — ขาดแค่เกรด ไม่ต้องขึ้น ผู้ได้รับเลือก ซ้ำ")
+  assert.equal(canTransition("ร่าง", "รอลงนาม", open).ok, false)
+  assert.equal(canTransition("รอลงนาม", "เสร็จสิ้น", open).ok, false, "กลุ่มค้าง = ยังเลือกไม่ครบ")
+}
+
+// --- validateDoc ---
+{
+  const ok = gradesDoc(); ok.lineSupplier = [...BEST]
+  assert.deepEqual(validateDoc(ok), [])
+  assert.deepEqual(validateDoc(gradesDoc()), [], "กลุ่มค้างยังบันทึกร่างได้ (isComplete เป็นด่านส่งลงนาม)")
+
+  const two = gradesDoc(); two.lineSupplier = [2, null, 1, 2, 2, 3]
+  assert.ok(validateDoc(two).some((m) => m.includes("เลือกได้ไม่เกิน 1 เกรด")), JSON.stringify(validateDoc(two)))
+
+  const gap = gradesDoc(); gap.items[4] = { ...gap.items[4], group: PUMP, grade: "แยก" }
+  assert.ok(validateDoc(gap).some((m) => m.includes("ต้องอยู่ติดกัน")), JSON.stringify(validateDoc(gap)))
+
+  const blank = gradesDoc(); blank.items[1] = { ...blank.items[1], grade: "  " }
+  assert.ok(validateDoc(blank).some((m) => m.includes("ชื่อเกรด")), JSON.stringify(validateDoc(blank)))
+  const noGrade = gradesDoc(); delete noGrade.items[2].grade
+  assert.ok(validateDoc(noGrade).some((m) => m.includes("ชื่อเกรด")))
+
+  const whole = gradesDoc(); whole.selectedSupplier = 1; whole.lineSupplier = [null, null, 1, null, null, null]
+  assert.ok(validateDoc(whole).some((m) => m.includes("หลายเกรด")), "มีรายการหลายเกรด = เลือกรายบรรทัดทั้งใบ ห้ามเลือกทั้งใบ")
+}
+
+// --- normalizeDoc: รับ group/grade, sync ชื่อ/จำนวน/หน่วย/sku ในกลุ่ม, hasGrades → selectedSupplier = null ---
+{
+  const ng = normalizeDoc({
+    items: [
+      { name: " Pump Rexroth ", qty: "1", unit: "ตัว", sku: " S9PU001 ", group: " g-pump01 ", grade: " มือ 1 " },
+      { name: "ชื่อเพี้ยน", qty: 3, unit: "ชิ้น", group: "g-pump01", grade: "มือ 2" },
+      { name: "", qty: 0, unit: "", sku: "OTHER", group: "g-pump01", grade: "ซ่อมเดิม" },
+      { name: "น้ำมัน HYD.", qty: 18, unit: "ลิตร", group: "", grade: "" },
+    ],
+    suppliers: [{ name: "x", prices: [null, null, 21000, 110.56] }],
+    selectedSupplier: 1, lineSupplier: [null, null, 1, null],
+  })
+  assert.deepEqual(ng.items[0], { name: "Pump Rexroth", qty: 1, unit: "ตัว", sku: "S9PU001", group: "g-pump01", grade: "มือ 1" })
+  assert.deepEqual(ng.items[1], { name: "Pump Rexroth", qty: 1, unit: "ตัว", sku: "S9PU001", group: "g-pump01", grade: "มือ 2" }, "sync จากแถวแรกของกลุ่ม")
+  assert.deepEqual(ng.items[2], { name: "Pump Rexroth", qty: 1, unit: "ตัว", sku: "S9PU001", group: "g-pump01", grade: "ซ่อมเดิม" }, "sku ก็ sync")
+  assert.equal("group" in ng.items[3], false, "group ว่าง → ไม่มี key (รายการธรรมดา)")
+  assert.equal("grade" in ng.items[3], false)
+  assert.equal(ng.selectedSupplier, null, "มีรายการหลายเกรด → ล้างการเลือกทั้งใบ")
+  assert.deepEqual(ng.lineSupplier, [null, null, 1, null])
+  const nsku = normalizeDoc({ items: [{ name: "a", qty: 1, group: "g1", grade: "A" }, { name: "b", qty: 1, sku: "X", group: "g1", grade: "B" }] })
+  assert.equal(nsku.items[1].sku, undefined, "แถวแรกไม่มี sku → ทั้งกลุ่มไม่มี sku")
+  // เอกสารเดิม: รูปทรง item ไม่เปลี่ยน (ไม่มี key group/grade งอก)
+  const plain = normalizeDoc(uh03())
+  assert.deepEqual(Object.keys(plain.items[0]).sort(), ["name", "qty", "sku", "unit"])
+  assert.deepEqual(normalizeDoc({ ...gradesDoc(), lineSupplier: [...BEST] }).lineSupplier, BEST)
+}
+
+// --- diffPriceCompare: สรุปจำนวนแถวเกรด ---
+{
+  const a = gradesDoc(), b = gradesDoc()
+  b.items.splice(3, 0, { name: "Pump Rexroth", qty: 1, unit: "ตัว", group: PUMP, grade: "ของเทียบ" })
+  b.suppliers.forEach((sp) => sp.prices.splice(3, 0, null)); b.lineSupplier.splice(3, 0, null)
+  const ch = diffPriceCompare(a, b)
+  assert.deepEqual(ch.find((x) => x.field === "grades"), { field: "grades", label: "เกรด", from: "3 เกรด", to: "4 เกรด" })
+  const p = uh03()
+  const q = uh03(); q.items[4] = { ...q.items[4] }
+  const fromPlain = gradesDoc()
+  assert.deepEqual(diffPriceCompare(p, fromPlain).find((x) => x.field === "grades"), { field: "grades", label: "เกรด", from: "0 เกรด", to: "3 เกรด" })
+  assert.equal(diffPriceCompare(p, q).find((x) => x.field === "grades"), undefined, "เอกสารเดิมไม่มีบรรทัดเกรด")
+  const s1 = gradesDoc(); s1.lineSupplier = [...BEST]
+  const s2 = gradesDoc(); s2.lineSupplier = [...ALT]
+  const sw = diffPriceCompare(s1, s2)
+  assert.equal(sw.find((x) => x.field === "grades"), undefined, "เปลี่ยนเกรดที่เลือก ไม่เปลี่ยนจำนวนเกรด")
+  assert.ok(sw.some((x) => x.field === "lineSupplier"), "การเปลี่ยนเกรดที่เลือกขึ้นผ่านเวกเตอร์ lineSupplier")
 }
 
 console.log("check-price-compare-core: OK")

@@ -18,7 +18,12 @@ export const DEFAULT_COMMITTEE_ROLES = [
 ]
 
 export type PcFile = { mediaId: number; batchId: string; filename: string; webpUrl: string; thumbnailUrl: string }
-export type PcItem = { name: string; qty: number; unit: string; sku?: string }
+export type PcItem = {
+  name: string; qty: number; unit: string; sku?: string
+  // เกรด = แถวย่อยของรายการ: แถวที่ group เดียวกัน (ต้องอยู่ติดกัน) คือรายการเดียวที่มีหลายเกรด ใช้ชื่อ/จำนวน/หน่วย/sku ร่วมกัน
+  // grade = ชื่อเกรดของแถวนั้น (มือ 1 / มือ 2 / ซ่อมของเดิม); ไม่มี group = รายการธรรมดา (กลุ่มขนาด 1)
+  group?: string; grade?: string
+}
 export type PcConditions = {
   payment: string; leadTime: string; warranty: string; remark: string
   bays: string; menaTrucksIn: string; statusA: string; statusB: string
@@ -82,11 +87,58 @@ export function lineTotal(item: PcItem, price: number | null): number | null {
   return round2(item.qty * price)
 }
 
-export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers">, idx: number): PcTotals {
+/* ---------- เกรด: แถวแบน + group key (prices / lineSupplier ยังเป็นรายแถวเหมือนเดิม) ---------- */
+export type PcGroup = { key: string; rows: number[] }
+type LineSupplierOpt = { lineSupplier?: (number | null)[] }
+
+/** กลุ่มของรายการตามลำดับที่ปรากฏครั้งแรก; แถวที่ไม่มี group = กลุ่มขนาด 1 ใช้ key สังเคราะห์ `#<index>`
+ *  รวมตาม key แม้แถวไม่ติดกัน (เอกสารผิดรูป — validateDoc แจ้ง) เพื่อให้กติกา "เลือกได้ 1 เกรดต่อรายการ" ยังคุมทั้งกลุ่ม */
+export function groupsOf(doc: Pick<PriceCompare, "items">): PcGroup[] {
+  const out: PcGroup[] = []
+  const byKey = new Map<string, PcGroup>()
+  doc.items.forEach((it, i) => {
+    if (!it.group) { out.push({ key: `#${i}`, rows: [i] }); return }
+    const hit = byKey.get(it.group)
+    if (hit) { hit.rows.push(i); return }
+    const g = { key: it.group, rows: [i] }
+    byKey.set(it.group, g)
+    out.push(g)
+  })
+  return out
+}
+
+const pickedRows = (doc: LineSupplierOpt, g: PcGroup): number[] => g.rows.filter((i) => doc.lineSupplier?.[i] != null)
+
+/** แถวที่นับเข้ายอดรวม: กลุ่มขนาด 1 นับเสมอ; กลุ่มหลายเกรดนับเฉพาะแถวที่เลือก (มี lineSupplier) — ยังไม่เลือก = ไม่นับทั้งกลุ่ม */
+export function countedRows(doc: Pick<PriceCompare, "items"> & LineSupplierOpt): boolean[] {
+  const out = doc.items.map(() => false)
+  for (const g of groupsOf(doc)) {
+    if (g.rows.length === 1) out[g.rows[0]] = true
+    else for (const i of pickedRows(doc, g)) out[i] = true
+  }
+  return out
+}
+
+/** มีรายการที่มีหลายเกรดอย่างน้อย 1 รายการ → ทั้งใบเป็นโหมดเลือกรายบรรทัด (ไม่มีการเลือกทั้งใบ) */
+export function hasGrades(doc: Pick<PriceCompare, "items">): boolean {
+  return groupsOf(doc).some((g) => g.rows.length > 1)
+}
+
+/** id กลุ่มสุ่มสั้น เช่น g-k3x9ab (ห้าม import — ใช้ Math.random; 36^6 ≈ 2 พันล้าน ชนกันในใบเดียวแทบเป็นไปไม่ได้) */
+export function newGroupId(): string {
+  const abc = "abcdefghijklmnopqrstuvwxyz0123456789"
+  let id = "g-"
+  for (let k = 0; k < 6; k++) id += abc[Math.floor(Math.random() * abc.length)]
+  return id
+}
+
+/** ยอดของ supplier รายหนึ่ง — คิดเฉพาะแถวที่นับ (countedRows): เกรดที่ไม่ได้เลือกไม่เข้ายอด; ไม่ส่ง lineSupplier = ยังไม่เลือกเกรดไหน */
+export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers"> & LineSupplierOpt, idx: number): PcTotals {
   const s = doc.suppliers[idx]
   if (!s) return { subtotal: 0, discount: 0, afterDiscount: 0, vat: 0, net: 0 }
+  const counted = countedRows(doc)
   let subtotal = 0
-  doc.items.forEach((it, i) => { const lt = lineTotal(it, s.prices[i] ?? null); if (lt != null) subtotal += lt })
+  doc.items.forEach((it, i) => { if (!counted[i]) return; const lt = lineTotal(it, s.prices[i] ?? null); if (lt != null) subtotal += lt })
   subtotal = round2(subtotal)
   const discount = round2(s.discount || 0)
   const afterDiscount = round2(subtotal - discount)
@@ -101,11 +153,12 @@ export function supplierTotals(doc: Pick<PriceCompare, "items" | "suppliers">, i
   return { subtotal, discount, afterDiscount, vat, net }
 }
 
-// index ของ supplier ที่สุทธิต่ำสุด — นับเฉพาะรายที่มีราคาอย่างน้อย 1 รายการ
-export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers">): number | null {
+// index ของ supplier ที่สุทธิต่ำสุด — นับเฉพาะรายที่มีราคาอย่างน้อย 1 รายการในแถวที่นับ (ยอดก็คิดจากแถวที่นับ)
+export function lowestNet(doc: Pick<PriceCompare, "items" | "suppliers"> & LineSupplierOpt): number | null {
+  const counted = countedRows(doc)
   let best: number | null = null, bestNet = Infinity
   doc.suppliers.forEach((s, si) => {
-    if (!s.prices.some((p) => p != null)) return
+    if (!s.prices.some((p, i) => p != null && counted[i])) return
     const { net } = supplierTotals(doc, si)
     if (net < bestNet) { bestNet = net; best = si }
   })
@@ -138,18 +191,28 @@ export function renumberAfterRemoval(v: number | null, removedIdx0: number): num
   return v > removedIdx0 + 1 ? v - 1 : v
 }
 
-/** true เมื่อทุกรายการถูกกำหนด supplier ของตัวเองแล้ว (โหมด mix เต็มรูปแบบ ไม่ต้องพึ่ง selectedSupplier ของทั้งใบเลย) */
+/** true เมื่อทุกรายการถูกกำหนด supplier ของตัวเองแล้ว (โหมด mix เต็มรูปแบบ ไม่ต้องพึ่ง selectedSupplier ของทั้งใบเลย)
+ *  รายการหลายเกรด = ต้องเลือกครบ 1 แถวพอดี (แถวเกรดอื่นในกลุ่มเป็น null) */
 export function allLinesAwarded(doc: Pick<PriceCompare, "items" | "lineSupplier">): boolean {
-  return doc.items.length > 0 && doc.lineSupplier.length === doc.items.length && doc.lineSupplier.every((v) => v != null)
+  return doc.items.length > 0 && doc.lineSupplier.length === doc.items.length &&
+    groupsOf(doc).every((g) => pickedRows(doc, g).length === 1)
 }
 
 /** ยอดรวมโหมดผสม — แยกยอดตาม supplier ที่ถูกมอบหมายในแต่ละแถว แล้วคิด VAT ทีเดียวต่อเจ้าตาม vatMode ของเจ้านั้น
  *  ส่วนลดท้ายใบ "ไม่" ถูกนำมาคิด: ส่วนลดเป็นข้อตกลงของทั้งใบเสนอราคา ใช้อ้างไม่ได้เมื่อซื้อจากเจ้านั้นแค่บางรายการ
- *  null เมื่อมีแถวใดยังไม่มี supplier ที่ใช้ได้จริง (ไม่ได้กำหนดและไม่มี selectedSupplier / ชี้ไปเจ้าที่ไม่มีตัวตน / เจ้านั้นไม่ได้เสนอราคาแถวนั้น) */
+ *  null เมื่อมีแถวใดยังไม่มี supplier ที่ใช้ได้จริง (ไม่ได้กำหนดและไม่มี selectedSupplier / ชี้ไปเจ้าที่ไม่มีตัวตน / เจ้านั้นไม่ได้เสนอราคาแถวนั้น)
+ *  รายการหลายเกรด: นับเฉพาะเกรดที่เลือก (ไม่ fallback ไป selectedSupplier) — ยังไม่เลือก / เลือกเกิน 1 เกรด → null */
 export function mixedTotals(doc: Pick<PriceCompare, "items" | "suppliers" | "selectedSupplier" | "lineSupplier">): PcMixedTotals | null {
   const subtotals = doc.suppliers.map(() => 0)
   const lineCounts = doc.suppliers.map(() => 0)
-  for (let i = 0; i < doc.items.length; i++) {
+  for (const g of groupsOf(doc)) {
+    let i: number
+    if (g.rows.length === 1) i = g.rows[0]
+    else {
+      const picked = pickedRows(doc, g)
+      if (picked.length !== 1) return null
+      i = picked[0]
+    }
     const si = effectiveLineSupplier(doc, i)
     if (si == null) return null
     const idx = si - 1
@@ -181,16 +244,21 @@ export function mixedNet(doc: Pick<PriceCompare, "items" | "suppliers" | "select
 }
 
 /** supplier ที่ให้ "สุทธิต่อแถวหลัง VAT" ต่ำสุดของแต่ละแถว (1-based, null ถ้าไม่มีใครเสนอราคาแถวนั้น)
- *  เทียบหลัง VAT เพราะฐานราคาที่แต่ละเจ้าเสนอไม่เหมือนกัน (excl/incl/none) — เทียบก่อน VAT จะเข้าข้างเจ้าที่เสนอแบบ excl */
+ *  เทียบหลัง VAT เพราะฐานราคาที่แต่ละเจ้าเสนอไม่เหมือนกัน (excl/incl/none) — เทียบก่อน VAT จะเข้าข้างเจ้าที่เสนอแบบ excl
+ *  รายการหลายเกรด: เลือกคู่ (เกรด, เจ้า) ที่ถูกสุดของทั้งกลุ่ม แถวเกรดอื่นในกลุ่ม = null (ราคาเท่ากัน → แถวบนสุด/เจ้าลำดับแรกชนะ) */
 export function pickLowestPerLine(doc: Pick<PriceCompare, "items" | "suppliers">): (number | null)[] {
-  return doc.items.map((_, i) => {
-    let best: number | null = null, bestNet = Infinity
-    doc.suppliers.forEach((_s, si) => {
-      const n = lineNet(doc, i, si)
-      if (n != null && n < bestNet) { bestNet = n; best = si + 1 }
-    })
-    return best
-  })
+  const out: (number | null)[] = doc.items.map(() => null)
+  for (const g of groupsOf(doc)) {
+    let bestRow = -1, bestSup = 0, bestNet = Infinity
+    for (const i of g.rows) {
+      doc.suppliers.forEach((_s, si) => {
+        const n = lineNet(doc, i, si)
+        if (n != null && n < bestNet) { bestNet = n; bestRow = i; bestSup = si + 1 }
+      })
+    }
+    if (bestRow >= 0) out[bestRow] = bestSup
+  }
+  return out
 }
 
 /** สุทธิรวมที่ต่ำที่สุดเท่าที่เป็นไปได้ ถ้าเลือกเจ้าที่ถูกสุดทุกแถว (ไม่สนว่าเลือกจริงเป็นใคร) — ใช้เทียบว่า mix ที่เลือกอยู่ห่างจากที่ดีที่สุดแค่ไหน */
@@ -208,9 +276,9 @@ export function mixedGap(doc: Pick<PriceCompare, "items" | "suppliers" | "select
 }
 
 const supplierPricesComplete = (doc: Pick<PriceCompare, "items">, s: PcSupplier) =>
-  doc.items.length > 0 && doc.items.every((_, i) => s.prices[i] != null)
+  doc.items.length > 0 && groupsOf(doc).every((g) => g.rows.some((i) => s.prices[i] != null))
 
-/** supplier ที่มีชื่อและราคาครบทุกแถว — นับเป็น "ใบเสนอราคาที่ใช้เทียบได้" */
+/** supplier ที่มีชื่อและราคาครบทุกรายการ — นับเป็น "ใบเสนอราคาที่ใช้เทียบได้" (รายการหลายเกรด: เสนออย่างน้อย 1 เกรดก็ถือว่าครบ) */
 export function completeSupplierCount(doc: Pick<PriceCompare, "items" | "suppliers">): number {
   return doc.suppliers.filter((s) => s.name.trim() && supplierPricesComplete(doc, s)).length
 }
@@ -227,9 +295,15 @@ export function isComplete(doc: PriceCompare, opts: { requireCommitteeNames?: bo
   if (full < 1) missing.push("supplier อย่างน้อย 1 รายที่มีราคาครบทุกแถว")
   else if (full < MIN_QUOTES && !doc.fewerQuotesReason.trim()) missing.push(`ใบเสนอราคาครบ ${MIN_QUOTES} ราย หรือระบุเหตุผลที่มีน้อยกว่า ${MIN_QUOTES} ราย`)
   if (requireNames && doc.committee.some((m) => !m.name.trim())) missing.push("ชื่อกรรมการ")
+  const groups = groupsOf(doc)
+  const unresolved = groups.filter((g) => g.rows.length > 1 && pickedRows(doc, g).length === 0)
+  unresolved.forEach((g) => missing.push(`ยังไม่เลือกเกรด: ${doc.items[g.rows[0]].name || `รายการที่ ${groups.indexOf(g) + 1}`}`))
   const mixed = allLinesAwarded(doc)   // โหมด mix เต็มรูปแบบ: ทุกรายการกำหนด supplier ของตัวเองแล้ว ไม่ต้องพึ่ง selectedSupplier ของทั้งใบ
-  if (doc.selectedSupplier == null && !mixed) missing.push("ผู้ได้รับเลือก")
-  else if (doc.selectedSupplier != null) {
+  if (doc.selectedSupplier == null && !mixed) {
+    // ขาดแค่การเลือกเกรด (รายการธรรมดาเลือกเจ้าครบแล้ว) → บรรทัด "ยังไม่เลือกเกรด" บอกแล้ว ไม่ต้องขึ้น "ผู้ได้รับเลือก" ซ้ำ
+    const plainUnpicked = groups.some((g) => g.rows.length === 1 && doc.lineSupplier[g.rows[0]] == null)
+    if (unresolved.length === 0 || plainUnpicked) missing.push("ผู้ได้รับเลือก")
+  } else if (doc.selectedSupplier != null) {
     const low = lowestNet(doc)
     if (low != null && doc.selectedSupplier !== low + 1 && !doc.selectionReason.trim()) missing.push("เหตุผลที่ไม่เลือกรายสุทธิต่ำสุด")
   } else {
@@ -271,7 +345,21 @@ const intInRange = (v: unknown, max: number): number | null => { const n = numOr
 /* eslint-disable @typescript-eslint/no-explicit-any -- input เป็น unknown จาก JSON body/DB, cast เป็น any ภายในฟังก์ชัน normalize นี้เท่านั้นเพื่อ narrow เอง */
 export function normalizeDoc(input: unknown): PriceCompare {
   const b = (input && typeof input === "object" ? input : {}) as Record<string, any>
-  const items: PcItem[] = (Array.isArray(b.items) ? b.items : []).map((it: any) => ({ name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit), sku: str(it?.sku) || undefined }))
+  const rawItems: PcItem[] = (Array.isArray(b.items) ? b.items : []).map((it: any) => {
+    const group = str(it?.group), grade = str(it?.grade)
+    // รายการธรรมดาไม่มี key group/grade งอกออกมา (รูปทรงเอกสารเดิมคงเดิม); grade ไม่มีความหมายถ้าไม่มี group
+    return { name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit), sku: str(it?.sku) || undefined, ...(group ? { group, ...(grade ? { grade } : {}) } : {}) }
+  })
+  // ชื่อ/จำนวน/หน่วย/sku เป็นของทั้งรายการ: คัดลอกจากแถวแรกของกลุ่มไปทุกแถวเกรด กันข้อมูลแตก
+  const items: PcItem[] = rawItems.slice()
+  for (const g of groupsOf({ items: rawItems })) {
+    if (g.rows.length < 2) continue
+    const head = rawItems[g.rows[0]]
+    for (const r of g.rows.slice(1)) {
+      const { group, grade } = rawItems[r]
+      items[r] = { name: head.name, qty: head.qty, unit: head.unit, sku: head.sku, group, ...(grade ? { grade } : {}) }
+    }
+  }
   const suppliers: PcSupplier[] = (Array.isArray(b.suppliers) ? b.suppliers : []).slice(0, MAX_SUPPLIERS).map((s: any) => {
     const c = s?.conditions ?? {}
     const prices = Array.isArray(s?.prices) ? s.prices.map(numOrNull) : []
@@ -290,7 +378,8 @@ export function normalizeDoc(input: unknown): PriceCompare {
   const lineSupplier: (number | null)[] = items.map((_, i) => intInRange(lineSupplierRaw[i], MAX_SUPPLIERS))
   // เลือกครบทุกแถวแล้ว = โหมดผสมเต็มใบ → selectedSupplier ของทั้งใบไม่มีความหมายอีก ล้างทิ้งตั้งแต่ normalize
   // (ไม่งั้นจะเหลือสถานะ "ตั้งไว้ทั้งคู่" ที่ UI/PDF/list ตีความคนละแบบ — ฟอร์มล้างให้อยู่แล้ว นี่คือด่านสุดท้ายฝั่ง server/DB)
-  const allAwarded = items.length > 0 && lineSupplier.every((v) => v != null)
+  // มีรายการหลายเกรด = ทั้งใบเป็นโหมดเลือกรายบรรทัด (spec กติกาข้อ 4) → ล้าง selectedSupplier เช่นกัน
+  const wholeDocOff = allLinesAwarded({ items, lineSupplier }) || hasGrades({ items })
   const rawCommittee: any[] = Array.isArray(b.committee) ? b.committee : []
   const committee: PcCommittee[] = DEFAULT_COMMITTEE_ROLES.map((role, i) => {
     const m = rawCommittee[i] ?? {}
@@ -305,7 +394,7 @@ export function normalizeDoc(input: unknown): PriceCompare {
     revision: Math.max(0, Math.floor(num(b.revision, 0))),
     createdAt: str(b.createdAt), updatedAt: str(b.updatedAt), status,
     items, suppliers, committee,
-    selectedSupplier: allAwarded ? null : intInRange(b.selectedSupplier, MAX_SUPPLIERS), lineSupplier,
+    selectedSupplier: wholeDocOff ? null : intInRange(b.selectedSupplier, MAX_SUPPLIERS), lineSupplier,
     selectionReason: str(b.selectionReason), fewerQuotesReason: str(b.fewerQuotesReason),
     links: { prCode: str(l.prCode) || undefined, plate: str(l.plate) || undefined, fleetNo: str(l.fleetNo) || undefined, repairExternalId: str(l.repairExternalId) || undefined },
     evidenceFiles: files(b.evidenceFiles),
@@ -336,6 +425,17 @@ export function validateDoc(doc: PriceCompare): string[] {
     // เลือกเจ้าที่ไม่ได้เสนอราคาแถวนั้น = ยอดรวมโหมดผสมคำนวณไม่ได้ (mixedTotals คืน null)
     if (doc.suppliers[ls - 1]?.prices[i] == null) errs.push(`แถว ${i + 1}: เจ้าที่เลือกไม่ได้เสนอราคา`)
   })
+  // รายการหลายเกรด: แถวต้องติดกัน, เลือกได้ไม่เกิน 1 เกรด, ทุกแถวต้องมีชื่อเกรด; และห้ามใช้การเลือกทั้งใบ (กติกาข้อ 4)
+  const groups = groupsOf(doc)
+  groups.forEach((g, gi) => {
+    if (g.rows.length < 2) return
+    const name = doc.items[g.rows[0]]?.name
+    const label = `รายการที่ ${gi + 1}${name ? ` (${name})` : ""}`
+    if (g.rows.some((r, k) => k > 0 && r !== g.rows[k - 1] + 1)) errs.push(`${label}: แถวเกรดของรายการเดียวกันต้องอยู่ติดกัน`)
+    if (pickedRows(doc, g).length > 1) errs.push(`${label}: เลือกได้ไม่เกิน 1 เกรด`)
+    if (g.rows.some((r) => !(doc.items[r].grade ?? "").trim())) errs.push(`${label}: ต้องระบุชื่อเกรดทุกแถว`)
+  })
+  if (doc.selectedSupplier != null && groups.some((g) => g.rows.length > 1)) errs.push("มีรายการหลายเกรด ต้องเลือกรายบรรทัด — ใช้การเลือกทั้งใบไม่ได้")
   doc.committee.forEach((m, i) => {
     if (m.pickedSupplier != null && (m.pickedSupplier < 1 || m.pickedSupplier > n)) errs.push(`กรรมการช่องที่ ${i + 1}: เลือก supplier ลำดับที่ ${m.pickedSupplier} ซึ่งไม่มี`)
   })

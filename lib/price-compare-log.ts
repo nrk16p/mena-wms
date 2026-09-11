@@ -1,6 +1,6 @@
 // lib/price-compare-log.ts — audit log ของใบเทียบราคา (รูปแบบเดียวกับ lib/repair-log.ts)
 import type { Db } from "mongodb"
-import type { PriceCompare } from "./price-compare"
+import { groupsOf, type PriceCompare } from "./price-compare"
 
 export const PC_LOG_COLL = "price_compare_log"
 
@@ -42,6 +42,10 @@ export function diffPriceCompare(a: PriceCompare, b: PriceCompare): PcChange[] {
     if (from !== to) out.push({ field: f, label: TOP_LABELS[f], from, to })
   }
   if (a.items.length !== b.items.length) out.push({ field: "items", label: "รายการ", from: `${a.items.length} แถว`, to: `${b.items.length} แถว` })
+  // เกรด: สรุปจำนวนแถวที่อยู่ในรายการหลายเกรด (เพิ่ม/ลบเกรด) — การเปลี่ยนเกรดที่เลือกขึ้นผ่านเวกเตอร์ lineSupplier ด้านล่างอยู่แล้ว
+  const gradeRows = (d: PriceCompare) => groupsOf(d).reduce((acc, g) => acc + (g.rows.length > 1 ? g.rows.length : 0), 0)
+  const ga = gradeRows(a), gb = gradeRows(b)
+  if (ga !== gb) out.push({ field: "grades", label: "เกรด", from: `${ga} เกรด`, to: `${gb} เกรด` })
   // โหมดผสม: สรุปเป็น "เลือกแล้วกี่แถวจากทั้งหมด" + เวกเตอร์ผู้ได้รับมอบหมายรายแถว (- = ยังไม่เลือก)
   // เวกเตอร์ทำให้การสลับเจ้าโดยจำนวนแถวเท่าเดิม (เช่น [1,2,2] → [2,1,2]) ยังตรวจสอบย้อนหลังได้ — เป็นข้อมูลชี้ขาดว่าใครได้งาน
   // ส่วนการเพิ่ม/ลบรายการทั้งที่ยังไม่เลือกสักแถว ไม่ต้องขึ้นบรรทัดนี้ (มีบรรทัด "รายการ" บอกอยู่แล้ว)
