@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, Fragment } from "react"
 import { FileText, Search, RefreshCw, X, ChevronRight } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { atmsPrUrl, atmsPoUrl } from "@/lib/atms-links"
+import { INTEL_BENCHMARK_URL, benchmarkUrl } from "@/lib/intel-links"
 
 type Cmp = "ok" | "anomaly" | "no_po"
 type VatRule = "incl" | "excl"
@@ -96,7 +97,6 @@ type BenchRow = {
 }
 type ItemsResp = { pr: string; has_pr_items: boolean; has_po_items: boolean; pr_item_count: number; po_item_count: number; rows: ItemRow[]; summary: Record<ItemStatus, number>; benchmark?: BenchRow[] | null; benchmark_month?: string }
 
-const BENCHMARK_URL = "https://mena-intelligence.vercel.app/price-benchmark"
 const ITEM_META: Record<ItemStatus, { label: string; cls: string }> = {
   ok:         { label: "ตรง",       cls: "bg-[#DCFCE7] text-[#15803D] dark:bg-green-500/15 dark:text-green-300" },
   qty:        { label: "จำนวนต่าง", cls: "bg-[#FEE2E2] text-[#DC2626] dark:bg-red-500/15 dark:text-red-300" },
@@ -702,7 +702,7 @@ export function PrPage() {
                     {items?.benchmark ? "⚖️ เทียบกับราคากลาง (ราย SKU)" : "เทียบรายการสินค้า (ราย SKU)"}
                   </span>
                   {items?.benchmark ? (
-                    <a href={BENCHMARK_URL} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-[#1B8C4B] hover:underline">
+                    <a href={INTEL_BENCHMARK_URL} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-[#1B8C4B] hover:underline">
                       Price Benchmark {items.benchmark_month ? `(${items.benchmark_month})` : ""} ↗
                     </a>
                   ) : items && (items.has_pr_items || items.has_po_items) && (
@@ -772,7 +772,7 @@ export function PrPage() {
                             </div>
                             <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[10.5px] text-[#9AA8A0]">
                               <span>💰 ถูกสุด: <b className="text-[#15803D] dark:text-green-400">{b.cheapest_supplier}</b> {bahtShort(b.cheapest_price!)} · {b.supplier_count} ร้าน · {b.record_count} ครั้งซื้อ (12 เดือน)</span>
-                              <a href={`${BENCHMARK_URL}?q=${encodeURIComponent(b.sku)}`} target="_blank" rel="noreferrer" className="font-medium text-[#1B8C4B] hover:underline">ดูใน Price Benchmark ↗</a>
+                              <a href={benchmarkUrl(b.sku)} target="_blank" rel="noreferrer" className="font-medium text-[#1B8C4B] hover:underline">ดูใน Price Benchmark ↗</a>
                             </div>
                           </div>
                         )

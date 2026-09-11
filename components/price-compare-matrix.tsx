@@ -1,9 +1,10 @@
 "use client"
 // components/price-compare-matrix.tsx — ตารางเทียบราคา รายการ × Supplier 1–4 + สรุปยอด (คำนวณสดจาก lib/price-compare)
 import { Fragment } from "react"
-import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react"
+import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink } from "lucide-react"
 import { VendorCombobox } from "@/components/vendor-combobox"
 import { SkuPicker, type SkuHit } from "@/components/sku-picker"
+import { benchmarkUrl } from "@/lib/intel-links"
 import {
   emptySupplier, supplierTotals, lowestNet, fmtMoney, lineTotal, MAX_SUPPLIERS, VAT_MODE_LABEL,
   effectiveLineSupplier, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine, renumberAfterRemoval,
@@ -151,6 +152,18 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                   </div>
                   {it.sku && (
                     <span title={it.sku} className="shrink-0 rounded bg-[#1B8C4B]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#1B8C4B]">SKU</span>
+                  )}
+                  {it.sku && (
+                    <a
+                      href={benchmarkUrl(it.sku)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="ดูราคากลางใน mena-intelligence"
+                      aria-label={`ดูราคากลางของ ${it.sku} ใน mena-intelligence`}
+                      className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-[#0E7490] hover:underline"
+                    >
+                      ราคากลาง <ExternalLink size={11} />
+                    </a>
                   )}
                 </div>
               </td>
