@@ -13,7 +13,7 @@ import { Download, FileText, History, Search } from "lucide-react"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { swalError, swalToast } from "@/lib/swal"
 import { REPAIR_TYPES, GROUP_LABEL, type RepairGroup, type RepairTypeRow } from "@/lib/repair-type-master"
-import { historyByWork, AUTO_APPROVE_RULE, MONTHS_BACK, VENDOR_KINDS, type VendorSummary, type VendorKind } from "@/lib/vendor-core"
+import { historyByWork, VENDOR_KINDS, type VendorSummary, type VendorKind } from "@/lib/vendor-core"
 import { mapsLink } from "@/lib/rfq-core"
 import { baht, num, ymThai, mitr, useVendors, VendorShell } from "@/components/vendor-shared"
 import { VendorLogDrawer } from "@/components/vendor-log-drawer"
@@ -104,11 +104,6 @@ export function VendorMatrixPage() {
   const totalTicked = rows.reduce((a, v) => a + v.codes.length, 0)
   // นับเฉพาะที่ยังอยู่ในแถวที่กรองแสดง — ติ๊กไว้แล้วเปลี่ยนตัวกรอง จะได้ตรงกับที่ modal ได้รับ
   const pickedShown = rows.filter((v) => picked.has(v.vendor)).length
-  // นับจากทั้งหน้าไม่ใช่แถวที่กรอง — ตัวเลขนี้ตอบว่า "ระบบทำอะไรไปแล้ว" ไม่ใช่ "กำลังดูอะไรอยู่"
-  const autoApprovedCount = (data?.vendors ?? []).filter((v) => v.status === "approved" && v.autoApproved).length
-  const AUTO_RULE_HINT =
-    `อนุมัติเป็นชุดครั้งเดียว (10 ก.ย. 69) ตามเกณฑ์ใช้บริการ ≥${AUTO_APPROVE_RULE.minJobs} ครั้งใน ${MONTHS_BACK} เดือน ` +
-    `และครั้งล่าสุดไม่เกิน ${AUTO_APPROVE_RULE.activeMonths} เดือน · อู่ที่เข้าเกณฑ์ทีหลังต้องให้แอดมินกดเอง`
 
   async function toggle(v: { vendor: string; codes: string[] }, code: string) {
     const on = !v.codes.includes(code)
@@ -351,11 +346,6 @@ export function VendorMatrixPage() {
             <span style={{ fontSize: 12, color: "#9AA8A0" }}>
               {num(rows.length)} อู่ · {cols.length} คอลัมน์ · ติ๊กแล้ว {num(totalTicked)} ช่อง
             </span>
-            {autoApprovedCount > 0 && (
-              <span title={AUTO_RULE_HINT} style={{ fontSize: 12, color: "#047857", cursor: "help" }}>
-                · อนุมัติตามเกณฑ์ {num(autoApprovedCount)} ราย (≥{AUTO_APPROVE_RULE.minJobs} ครั้ง)
-              </span>
-            )}
             {!isAdmin && (
               <span style={{ fontSize: 11.5, color: "#9AA8A0" }}>· เปลี่ยนสถานะอนุมัติได้เฉพาะแอดมินและผู้อนุมัติอู่</span>
             )}
@@ -560,17 +550,6 @@ export function VendorMatrixPage() {
                             <option key={s} value={s}>{STATUS_META[s].th}</option>
                           ))}
                         </select>
-                        {v.status === "approved" && v.autoApproved && (
-                          <span
-                            title={AUTO_RULE_HINT}
-                            style={{
-                              display: "block", marginTop: 3, fontSize: 10, color: "#047857",
-                              fontWeight: 600, cursor: "help", whiteSpace: "nowrap",
-                            }}
-                          >
-                            ⚙ ตามเกณฑ์
-                          </span>
-                        )}
                       </td>
                       <td style={{ padding: "6px 8px", borderBottom: "1px solid #F3F4F6", borderRight: "1px solid #E5E7EB" }}>
                         {(() => {
