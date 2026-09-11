@@ -12,6 +12,7 @@ import { ApHeader } from "@/components/ap-summary"
 import { ApTable } from "@/components/ap-table"
 import { ApSupplierTable } from "@/components/ap-supplier-table"
 import { ApSupplierYearPanel } from "@/components/ap-supplier-year"
+import { ApDdSummaryPanel } from "@/components/ap-dd-summary"
 import { AP_FLAT_WIDTHS, apFlatRow } from "@/components/ap-export"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
@@ -246,8 +247,8 @@ export function ApTrackingPage() {
   const beforeSentRange = useMemo(() => {
     let out = rows
     // แท็บ = ขั้นของงาน (1 ใบอยู่ได้ขั้นเดียว ดู apStage) — ตัวกรองหลักของหน้า
-    // ("suppliers" ไม่ใช่ขั้น — แท็บนั้นไม่ใช้ตารางรายใบ แต่กันไว้ไม่ให้กรองจนว่างเวลากลับมา)
-    if (tab && tab !== "suppliers") out = out.filter((r) => apStage(r) === tab)
+    // ("suppliers"/"ddsummary" ไม่ใช่ขั้น — สองแท็บนั้นไม่ใช้ตารางรายใบ แต่กันไว้ไม่ให้กรองจนว่างเวลากลับมา)
+    if (tab && tab !== "suppliers" && tab !== "ddsummary") out = out.filter((r) => apStage(r) === tab)
     if (warehouse) out = out.filter((r) => r.warehouse === warehouse)
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
@@ -643,6 +644,9 @@ export function ApTrackingPage() {
         // พร้อมกรองชื่อเจ้านั้นในเดือนที่เปิดอยู่ · คลัง+คำค้นใช้ร่วมกับหน้าหลัก
         <ApSupplierYearPanel warehouse={warehouse} q={q}
           onPick={(name) => applyFilter(() => { setTab(""); setViewBy("invoice"); setQ(name) })} />
+      ) : tab === "ddsummary" ? (
+        // สรุป DD สำหรับเจ้าหนี้ — โหลดเองจากเลขที่วาง (ไม่ใช้แถวของเดือนที่เปิดอยู่)
+        <ApDdSummaryPanel />
       ) : viewBy === "supplier" ? (
         <ApSupplierTable rows={supplierRows} loading={busy} onPick={pickSupplier} />
       ) : (

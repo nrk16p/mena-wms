@@ -6,6 +6,7 @@ import {
   resolveCreditTerm,
   AP_STAGES, compactDocNos, docNosText, ictDate,
   apSinceOf, inApScope, monthInApScope, monthsOfYear, addDays, inDateRange,
+  parseDdList, AP_DD_SUMMARY_MAX,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
 
@@ -42,6 +43,7 @@ const prevMonths = (ym: string, n: number) => {
 
 // GET /api/ap-tracking?month=YYYY-MM&carryover=1&carryoverMonths=6&warehouse=&supplier=&status=&q=&limit=&includeInternal=
 //   หรือ ?year=YYYY&supplier=ชื่อ (ทั้งปีของเจ้าเดียว — year ถูกมองข้ามถ้าไม่มี supplier ดูเหตุผลด้านล่าง)
+//   หรือ ?codes=LBDD…,LBDD… (แท็บสรุป DD — เลขที่ผู้ใช้วางมา ค้นตรงตัวข้ามทุกเดือน ≤ AP_DD_SUMMARY_MAX ใบ)
 //
 // carryover ปิดเป็นค่าตั้งต้นตั้งแต่ 18/08/2026 — หน้าโหลด "ทีละเดือน" ตามที่ผู้ใช้สั่ง
 // เหตุผล: พอย้าย go-live มา 01/01/2026 ทุกเดือนเข้าสโคปหมด การลากใบค้างยกมา 6 เดือนทำให้
@@ -86,6 +88,15 @@ export async function GET(req: NextRequest) {
     const rawYear   = sp.get("year")?.trim() ?? ""
     const yearMode  = Boolean(supplier) && !sentRange && /^\d{4}$/.test(rawYear)
     const year      = yearMode ? rawYear : ""
+    // โหมด "สรุป DD" (แท็บสรุป DD · เพิ่ม 11/09/2026) — ?codes= คือเลขใบที่ผู้ใช้วางมา ค้นตรงตัวข้ามทุกเดือน
+    // มาก่อนทุกโหมด (เดือน/ปี/ช่วงวันที่กดส่งไม่มีผล) · ส่ง codes มาแต่ไม่มีเลข DD เลย = ผลว่าง
+    // ห้ามถอยไปโหลดทั้งเดือน ไม่งั้นแท็บสรุปจะโชว์ทุกใบของเดือนราวกับเป็นใบที่วางมา
+    const codesRaw  = sp.get("codes")
+    const codesMode = codesRaw !== null
+    const codeList  = codesMode ? parseDdList(codesRaw ?? "") : []
+    if (codeList.length > AP_DD_SUMMARY_MAX) {
+      return NextResponse.json({ error: `สรุปได้ครั้งละไม่เกิน ${AP_DD_SUMMARY_MAX} ใบ (ส่งมา ${codeList.length} ใบ)` }, { status: 400 })
+    }
 
     const client = await clientPromise
     const atms   = client.db("atms")
@@ -114,7 +125,13 @@ export async function GET(req: NextRequest) {
     // (ตัวเลือกเดือนกรองด้วย received_at — ใบที่รับของ มิ.ย. แต่กดส่ง ส.ค. เดิมหาไม่เจอในเดือนไหนเลย)
     let codesInRange: string[] = []
     let rangeTruncated = false
-    if (sentRange) {
+    if (codesMode) {
+      // deposit_code ไม่มี index (มีแค่ deposit_id) — $in ≤ 200 เลขบนหัวใบ ~17k ใบ แบบเดียวกับโหมดช่วงวันที่ข้างล่าง
+      if (!codeList.length) {
+        return NextResponse.json({ rows: [], summary: emptySummary(limit, since, todayICT()) })
+      }
+      match.deposit_code = { $in: codeList }
+    } else if (sentRange) {
       // sentMarkedAt เก็บเป็น ISO UTC เต็ม (new Date().toISOString()) เทียบ string ได้ตรง ๆ
       // แต่ขอบวันที่ผู้ใช้ใส่เป็นเวลาไทย (UTC+7) — ขยายกรอบ ±1 วันที่ชั้นฐาน แล้วกรองแม่นด้วย
       // ictDate อีกที ปลอดภัยกว่าคำนวณ offset ในคิวรีแล้วพลาดขอบวัน
@@ -260,7 +277,8 @@ export async function GET(req: NextRequest) {
         // เพราะไม่ได้ยึดเดือนใดเป็นหลัก · ปล่อยให้เป็น true จะโดน showInTable ตัดทิ้งเกือบทั้งชุด
         // (ใบในโหมดนี้แทบทุกใบสถานะ "ส่งบัญชีแล้ว" อยู่แล้ว) = ตารางว่างทั้งที่คิวรีเจอของ
         // โหมดทั้งปีก็ไม่ยึดเดือนใดเป็นหลักเช่นกัน — ทุกใบของปีนั้นคือ "ในช่วง" ไม่ใช่ค้างยกมา
-        carryover:   sentRange || yearMode ? false : receivedAt.slice(0, 7) !== monthPrefix,
+        // โหมดสรุป DD ก็เช่นกัน — ทุกใบที่วางมาคือ "ใบที่ขอ" ถ้าติดป้ายค้างยกมา ใบที่ส่งบัญชีแล้วจะหายจากผล
+        carryover:   codesMode || sentRange || yearMode ? false : receivedAt.slice(0, 7) !== monthPrefix,
         poTotal:     parseAmount(po?.["รวม"]),
         poDue:       parseDmy(po?.["กำหนดส่งสินค้า"]),
         poStatus:    s(po?.["สถานะการรับสินค้า"]),
@@ -274,7 +292,8 @@ export async function GET(req: NextRequest) {
 
     // เดือนที่ "คร่อม" เส้น go-live จะมีทั้งใบในสโคปและนอกสโคปปนกัน — ตัดรายแถวอีกชั้น
     // (ค่า default 2026-08-01 ตรงต้นเดือนพอดี เดือนอื่นจึงไม่โดน แต่ ?since= กลางเดือนจะได้ผลถูกต้อง)
-    rows = rows.filter((r) => inApScope(r.receivedAt, since))
+    // โหมดสรุป DD ไม่ตัด — ผู้ใช้ถามเลขนี้ตรง ๆ ใบก่อน go-live ก็ควรตอบได้ถ้าฐานมีข้อมูล
+    if (!codesMode) rows = rows.filter((r) => inApScope(r.receivedAt, since))
 
     // คำค้นกรองทั้งยอดสรุปและตาราง (คลัง/ซัพพลายเออร์ถูกกรองไปแล้วตั้งแต่ $match)
     // — ยอดสรุปต้องคิดจาก "ชุดเดียวกับที่ผู้ใช้กำลังมอง" ไม่งั้นตัวเลขบนแถบสรุปขัดกับตารางข้างล่าง

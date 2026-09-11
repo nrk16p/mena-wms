@@ -73,4 +73,5 @@ export type ApCrossHit = {
 
 // แท็บของหน้า = ขั้นของงาน (ดู apStage ใน lib) · "" = ทุกใบ
 // "suppliers" = สรุปรายเจ้าหนี้ทั้งปี (ไม่ใช่ขั้นของงาน — ไม่ยึดเดือนที่เลือก ดู ApSupplierYearPanel)
-export type ApTab = "" | ApStage | "suppliers"
+// "ddsummary" = สรุป DD สำหรับเจ้าหนี้ — วางเลขใบ ได้ตาราง + ข้อความไลน์ (ไม่ใช่ขั้นของงาน ดู ApDdSummaryPanel)
+export type ApTab = "" | ApStage | "suppliers" | "ddsummary"

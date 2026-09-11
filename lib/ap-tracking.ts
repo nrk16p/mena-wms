@@ -953,3 +953,62 @@ export function monthsOfYear(year: string): string[] {
   if (!/^\d{4}$/.test(year)) return []
   return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`)
 }
+
+// ---------------------------------------------------------------------------
+// สรุป DD สำหรับเจ้าหนี้ (แท็บ "สรุป DD" · เพิ่ม 11/09/2026)
+// เจ้าหนี้ถามสถานะใบรับของมาเป็นชุด → ผู้ใช้วางเลข DD → ตาราง + ข้อความพร้อมอีโมจิไว้วางในไลน์
+// ไลน์ไม่มีตาราง (ฟอนต์กว้างไม่เท่ากัน คอลัมน์ไม่ตรง) จึงเป็น "บล็อกละใบ" บรรทัดละเรื่อง — ผู้ใช้เลือก 11/09/2026
+// ช่องไหนไม่มีข้อมูล ตัดบรรทัด/ส่วนนั้นทิ้ง ไม่ใส่ "—" ให้เจ้าหนี้งง (ผู้ใช้สั่ง "ถ้าไม่มีข้อมูลแค่ข้าม")
+// ---------------------------------------------------------------------------
+export const AP_DD_SUMMARY_MAX = 200     // ต่อครั้ง — ใช้ทั้งหน้าเว็บ (ปุ่ม) และ API (400) ให้เพดานเดียวกัน
+
+// วางมาแบบไหนก็ได้ (บรรทัดละใบ/คอมมา/แท็บ/มีเลขลำดับ/พิมพ์เล็ก) — ใช้ตัวจับเลข DD ตัวเดียวกับไฟล์การเงิน
+// คงลำดับที่วางและตัดเลขซ้ำ (parsePaymentDdCell ทำให้แล้ว)
+export function parseDdList(text: string): string[] {
+  return parsePaymentDdCell(String(text ?? "").toUpperCase())
+}
+
+export type ApDdSummaryItem = {
+  depositCode: string
+  receivedAt: string            // YYYY-MM-DD
+  supplier: string
+  vehicle?: string
+  fleetNo?: string
+  amount: number
+  creditTerm: string
+  payDate?: string              // กำหนดจ่ายที่บัญชียืนยันตอนกดผ่าน (pay.payDate) — ยังไม่ผ่านบัญชี = ไม่มี
+  paidDate?: string             // วันที่การเงินจ่ายจริง (paid.date)
+}
+
+const isYmd = (v: string | undefined) => /^\d{4}-\d{2}-\d{2}$/.test(v ?? "")
+
+// จัดกลุ่มตามเจ้า (เรียงตามเจ้าที่โผล่ก่อนในรายการ · ในกลุ่มคงลำดับเดิม) — ส่วนใหญ่วางมาเจ้าเดียว
+// หัวเจ้าจึงขึ้นครั้งเดียว · คืน "" เมื่อไม่มีใบ (ปุ่มคัดลอกปิดเอง ไม่ส่งข้อความหัวเปล่าไปไลน์)
+export function apDdSummaryText(items: ApDdSummaryItem[], todayISO: string): string {
+  if (!items.length) return ""
+  const thb = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const groups = new Map<string, ApDdSummaryItem[]>()
+  for (const it of items) {
+    const k = String(it.supplier ?? "").trim() || "(ไม่ระบุเจ้าหนี้)"
+    groups.set(k, [...(groups.get(k) ?? []), it])
+  }
+  const lines = [`📋 สรุปใบรับของ (DD) · ${thaiDate(todayISO)}`]
+  for (const [sup, its] of groups) {
+    lines.push(`🏢 ${sup}`, "")
+    for (const it of its) {
+      lines.push(`📦 ${it.depositCode}${isYmd(it.receivedAt) ? ` · รับ ${thaiDate(it.receivedAt)}` : ""}`)
+      const plate = String(it.vehicle ?? "").trim()
+      const fleet = String(it.fleetNo ?? "").trim()
+      const car = [plate, fleet ? `เบอร์ ${fleet}` : ""].filter(Boolean).join(" · ")
+      if (car) lines.push(`🚚 ${car}`)
+      const term = String(it.creditTerm ?? "").trim()
+      lines.push(`💰 ${thb(it.amount)} บาท${term ? ` · เครดิต ${term}` : ""}`)
+      if (isYmd(it.payDate)) lines.push(`📅 กำหนดจ่าย ${thaiDate(it.payDate!)}`)
+      if (isYmd(it.paidDate)) lines.push(`✅ จ่ายแล้ว ${thaiDate(it.paidDate!)}`)
+      lines.push("")
+    }
+  }
+  const total = items.reduce((n, it) => n + it.amount, 0)
+  lines.push(`🧾 รวม ${items.length.toLocaleString("th-TH")} ใบ · ${thb(total)} บาท`)
+  return lines.join("\n")
+}
