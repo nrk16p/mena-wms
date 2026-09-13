@@ -3,7 +3,7 @@
 import { Fragment } from "react"
 import { Paperclip } from "lucide-react"
 import {
-  AP_DOC_FIELDS, apUrgency, atmsPoUrl, docChecked, isDocSetComplete, thaiDate, thaiDateTime, thaiDow, todayICT,
+  AP_DOC_FIELDS, apPaidConfirmed, apUrgency, atmsPoUrl, docChecked, isDocSetComplete, thaiDate, thaiDateTime, thaiDow, todayICT,
 } from "@/lib/ap-tracking"
 import { NUM, URGENCY, baht, mitr } from "@/components/ap-style"
 import type { ApRow } from "@/components/ap-types"
@@ -96,9 +96,10 @@ function ApDepositRow({
           <div className="mt-0.5 text-[11px] text-gray-400">
             ส่งบัญชี {r.sentType} {thaiDate(r.sentDate)}
             {r.review?.status === "ผ่าน" ? " · บัญชีตรวจผ่าน" : ""}
-            {/* จ่ายจริงแล้ว (มีเลข PV จากการเงิน) สำคัญกว่ากำหนดจ่ายที่วางแผนไว้ */}
-            {r.paid?.paymentNos?.length ? (
-              <span className="font-medium text-teal-600 dark:text-teal-400"> · ✅ จ่ายแล้ว {thaiDate(r.paid.date)} · {r.paid.paymentNos.join(", ")}</span>
+            {/* จ่ายจริงแล้ว สำคัญกว่ากำหนดจ่ายที่วางแผนไว้ — เลข PV มีเฉพาะใบที่มาจากทะเบียนจ่าย
+                ใบที่การเงินยืนยันด้วยไฟล์รอบโอนไม่มี PV จึงโชว์แค่วันโอน */}
+            {apPaidConfirmed(r.paid) ? (
+              <span className="font-medium text-teal-600 dark:text-teal-400"> · ✅ จ่ายแล้ว {thaiDate(r.paid!.date)}{r.paid!.paymentNos?.length ? ` · ${r.paid!.paymentNos.join(", ")}` : ""}</span>
             ) : r.pay?.payDate ? (
               <span className="text-emerald-600 dark:text-emerald-400"> · 💰 กำหนดจ่าย {thaiDate(r.pay.payDate)}</span>
             ) : ""}

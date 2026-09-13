@@ -41,3 +41,29 @@ export function isAccounting(
   if (ACCOUNTING_EMAILS.has(email ?? "")) return true
   return ACCOUNTING_DEPT_RE.test(department ?? "")
 }
+
+// ── ฝ่ายการเงิน ──────────────────────────────────────────────────────────────
+// ใช้กับ "นำเข้าการจ่ายจากไฟล์รอบโอน" ในหน้า /ap-tracking — การเงินเป็นคนยืนยันว่าโอนแล้ว
+// เกณฑ์เดียวกับฝ่ายบัญชี (department จาก HR + ลิสต์อีเมลสำรอง) · แอดมินทำได้เสมอ
+export const FINANCE_EMAILS = new Set<string>([
+  // เพิ่มอีเมลฝ่ายการเงินที่ department ไม่ตรงเกณฑ์ที่นี่
+])
+
+const FINANCE_DEPT_RE = /การเงิน|finance|treasur/i
+
+export function isFinance(
+  email: string | null | undefined,
+  department: string | null | undefined,
+): boolean {
+  if (isAdmin(email)) return true
+  if (FINANCE_EMAILS.has(email ?? "")) return true
+  return FINANCE_DEPT_RE.test(department ?? "")
+}
+
+/** นำเข้าไฟล์รอบโอน (ยืนยันจ่ายแล้ว) — การเงินหรือบัญชีก็ได้ สองฝ่ายนี้ทำงานบนไฟล์เดียวกัน */
+export function canImportPayment(
+  email: string | null | undefined,
+  department: string | null | undefined,
+): boolean {
+  return isFinance(email, department) || isAccounting(email, department)
+}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useSession } from "next-auth/react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_GO_LIVE, apStage, docNosText, groupByDate, ictDate, inDateRange, isDocSetComplete, monthInApScope,
@@ -16,6 +17,8 @@ import { ApDdSummaryPanel } from "@/components/ap-dd-summary"
 import { AP_FLAT_WIDTHS, apFlatRow } from "@/components/ap-export"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
+import { ApPaidRoundDialog } from "@/components/ap-paid-round-dialog"
+import { canImportPayment } from "@/lib/roles"
 import type { ApCoverRow, ApFinanceItem } from "@/lib/ap-tracking"
 import type { ApCrossHit, ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
@@ -106,6 +109,10 @@ function SendDialog({
 }
 
 export function ApTrackingPage() {
+  // ปุ่ม "นำเข้าการจ่าย" เห็นเฉพาะฝ่ายการเงิน/บัญชี — ซ่อนปุ่มไม่ใช่การกันสิทธิ์ API ตรวจซ้ำอีกชั้น
+  const { data: session } = useSession()
+  const canImportPaid = canImportPayment(session?.user?.email, session?.user?.employee?.department)
+  const [paidRoundOpen, setPaidRoundOpen] = useState(false)
   const [rows, setRows]       = useState<ApRow[]>([])
   const [summary, setSummary] = useState<ApSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -583,6 +590,7 @@ export function ApTrackingPage() {
         today={today}
         canPull={month === thisMonth()}
         pulling={pulling} pullProgress={pullProgress} onPull={pullAtms}
+        canImportPaid={canImportPaid} onImportPaid={() => setPaidRoundOpen(true)}
         crossHits={crossHits} onGotoHit={gotoHit}
         payTypeFilter={payTypeFilter} onPayTypeFilter={(v) => applyFilter(() => setPayTypeFilter(v))}
         passedFrom={passedFrom} passedTo={passedTo}
@@ -681,6 +689,10 @@ export function ApTrackingPage() {
 
       {sentFor && <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />}
       {financeItems && <ApFinanceRequestDialog items={financeItems} onClose={() => setFinanceItems(null)} />}
+      {/* นำเข้าไฟล์รอบโอนของการเงิน — บันทึกเสร็จโหลดตารางใหม่ ใบที่เพิ่งจ่ายจะย้ายไปแท็บ "จ่ายแล้ว" เอง */}
+      {paidRoundOpen && (
+        <ApPaidRoundDialog onClose={() => setPaidRoundOpen(false)} onDone={() => { void load() }} />
+      )}
       {/* key = เลขใบ · เปลี่ยนใบแล้ว component เกิดใหม่ ทำให้ draft เริ่มจากใบใหม่เสมอ */}
       {detailFor && (
         <ApTrackingDetail key={detailFor.depositCode} row={detailFor} onClose={() => setDetailFor(null)} onSaved={onDetailSaved} />

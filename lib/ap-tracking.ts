@@ -277,8 +277,9 @@ export const AP_STAGES: { key: ApStage; label: string; dot: string; hint: string
   { key: "ready",    label: "ครบชุด",        dot: "bg-amber-400",   hint: "ครบแล้ว รอกดส่งบัญชี" },
   { key: "sent",     label: "ส่งบัญชีแล้ว",  dot: "bg-sky-500",     hint: "ส่งแล้ว รอบัญชีตรวจ" },
   { key: "passed",   label: "ผ่าน",          dot: "bg-emerald-500", hint: "บัญชีตรวจผ่าน รอจ่ายเงิน" },
-  // เพิ่ม 21/08/2026 — มีหลักฐานจ่ายจริงจากการเงิน (เลข PV) = จบวงจรของใบ
-  { key: "paid",     label: "จ่ายแล้ว",      dot: "bg-teal-500",    hint: "การเงินจ่ายเงินแล้ว (มีเลข PV)" },
+  // เพิ่ม 21/08/2026 — มีหลักฐานจ่ายจริงจากการเงิน = จบวงจรของใบ
+  // 13/09/2026: ไฟล์รอบโอนที่การเงินอัปโหลดก็นับ ถึงจะไม่มีเลข PV (ดู apPaidConfirmed)
+  { key: "paid",     label: "จ่ายแล้ว",      dot: "bg-teal-500",    hint: "การเงินยืนยันจ่ายแล้ว (เลข PV หรือไฟล์รอบโอน)" },
   { key: "rejected", label: "ไม่ผ่าน",       dot: "bg-rose-600",    hint: "บัญชีตีกลับ ต้องแก้" },
 ]
 
@@ -286,16 +287,23 @@ export function apStageMeta(stage: ApStage) {
   return AP_STAGES.find((s) => s.key === stage) ?? AP_STAGES[0]
 }
 
+/** มีหลักฐานว่าจ่ายแล้วหรือยัง — เลข PV (ทะเบียนจ่ายของการเงิน) หรือวันโอน (ไฟล์รอบโอน) อย่างใดอย่างหนึ่งก็พอ
+ *  ไฟล์รอบโอนไม่มีคอลัมน์ PV เลย (ผู้ใช้ยืนยัน 13/09/2026 ว่าไม่มี PV ก็ถือว่าจ่ายแล้วได้)
+ *  — PV จะถูกเติมให้ทีหลังเองเมื่อทะเบียนจ่ายที่มี PV ถูกนำเข้า (คีย์เดียวกันคือเลข DD) */
+export function apPaidConfirmed(paid: { paymentNos?: string[]; date?: string } | null | undefined): boolean {
+  return Boolean(paid?.paymentNos?.length || String(paid?.date ?? "").trim())
+}
+
 export function apStage(o: {
   docs: ApDocs
   sentDate: string
   review?: { status?: string } | null
-  // มีหลักฐานจ่ายจริง (เลข PV จากการเงิน) — วันนี้มาจากไฟล์ อนาคตดึงจากระบบการเงินตรง
-  paid?: { paymentNos?: string[] } | null
+  // มีหลักฐานจ่ายจริงจากการเงิน — เลข PV จากทะเบียนจ่าย หรือวันโอนจากไฟล์รอบโอนที่การเงินอัปโหลด
+  paid?: { paymentNos?: string[]; date?: string } | null
 }): ApStage {
   const rv = String(o.review?.status ?? "").trim()
   if (rv === "ไม่ผ่าน") return "rejected"          // ตีกลับชนะทุกขั้น — จ่ายไปแล้วก็ต้องกลับมาแก้
-  if (o.paid?.paymentNos?.length) return "paid"
+  if (apPaidConfirmed(o.paid)) return "paid"
   if (rv === "ผ่าน") return "passed"
   if (o.sentDate) return "sent"
   return isDocSetComplete(o.docs) ? "ready" : "wait"
@@ -331,7 +339,7 @@ export function apTimeline(
   const step = (key: string, label: string, e: ApLogEntry | undefined, state: ApTimelineState): ApTimelineStep =>
     ({ key, label, at: String(e?.at ?? ""), by: String(e?.by ?? ""), state })
 
-  const paid = Boolean(o.paid?.paymentNos?.length)
+  const paid = apPaidConfirmed(o.paid)
   return [
     // ช่วงแรกเริ่มนับจาก "วันที่ทำ DD" ไม่ใช่เวลาที่คนเริ่มติ๊ก — จะได้เห็นว่าใบนอนรอกี่วัน
     // ก่อนมีใครแตะ (ถ้าใช้เวลาติ๊กครั้งแรก ใบที่ติ๊กรวดเดียวจะขึ้นเวลาเท่ากับช่วงถัดไปพอดี ไม่บอกอะไร)

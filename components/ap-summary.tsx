@@ -1,6 +1,6 @@
 "use client"
 
-import { Building2, CalendarRange, ChevronLeft, ChevronRight, ClipboardList, CloudDownload, FileDown, RefreshCw, Search } from "lucide-react"
+import { Building2, CalendarRange, ChevronLeft, ChevronRight, ClipboardList, CloudDownload, FileDown, RefreshCw, Search, Upload } from "lucide-react"
 import { AP_STAGES, CREDIT_TERMS, apRangeOf, thaiDate, type ApRangePreset } from "@/lib/ap-tracking"
 import { NUM as NUMCLS } from "@/components/ap-style"
 import type { ApCrossHit } from "@/components/ap-types"
@@ -39,6 +39,7 @@ export function ApHeader({
   tab, onTab, warehouse, onWarehouse, warehouses, totalShown,
   sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today, crossMonth,
   canPull, pulling, pullProgress, onPull,
+  canImportPaid, onImportPaid,
   crossHits, onGotoHit,
   viewBy, onViewBy,
   payTypeFilter, onPayTypeFilter, onExport, exportSelected,
@@ -74,6 +75,9 @@ export function ApHeader({
   pulling: boolean
   pullProgress: number
   onPull: () => void
+  // ปุ่มนำเข้าการจ่ายจากไฟล์รอบโอนของการเงิน — เห็นเฉพาะฝ่ายการเงิน/บัญชี (เซิร์ฟเวอร์ตรวจสิทธิ์ซ้ำอีกชั้น)
+  canImportPaid: boolean
+  onImportPaid: () => void
   // ผลค้นข้ามเดือน (โผล่เมื่อเดือนที่เปิดอยู่หาไม่เจอ) — กดแล้วกระโดดไปเดือนของใบนั้น
   crossHits: ApCrossHit[] | null
   onGotoHit: (hit: ApCrossHit) => void
@@ -171,6 +175,14 @@ export function ApHeader({
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60 dark:border-white/10 dark:hover:bg-white/5">
               <CloudDownload className={`h-4 w-4 ${pulling ? "animate-pulse" : ""}`} />
               {pulling ? `กำลังดึง ${Math.round(pullProgress)}%` : "ดึงข้อมูล ATMS"}
+            </button>
+          )}
+          {/* การเงินยืนยัน "จ่ายแล้ว" ด้วยไฟล์รอบโอน — จับคู่ด้วยเลข DD จึงข้ามเดือนได้ ไม่ยึดเดือนที่เปิดอยู่ */}
+          {canImportPaid && (
+            <button onClick={onImportPaid}
+              title="อัปโหลดไฟล์รอบโอนของการเงิน เพื่อยืนยันว่าใบไหนจ่ายเงินแล้ว (จับคู่ด้วยเลข DD ข้ามทุกเดือน)"
+              className="flex items-center gap-1.5 rounded-lg border border-teal-300 px-3 py-1.5 text-sm text-teal-700 hover:bg-teal-50 dark:border-teal-700/60 dark:text-teal-300 dark:hover:bg-teal-900/20">
+              <Upload className="h-4 w-4" />นำเข้าการจ่าย
             </button>
           )}
           <button onClick={onRefresh} aria-label="รีเฟรช" title="โหลดตารางใหม่จากข้อมูลที่มีอยู่"

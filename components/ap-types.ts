@@ -4,8 +4,10 @@ import type { ApDocNos, ApDocs, ApPaySchedule, ApStage, ApStatus } from "@/lib/a
 
 // การจ่ายจริงจากการเงิน — paymentNos = เลข PV · date = วันจ่าย (หลายงวดใช้วันล่าสุด)
 // sharedWith = ใบอื่นที่จ่ายรวมในบิลเดียวกัน (ยอด amount เป็นของใบนี้เมื่อแยกได้เท่านั้น)
+// paymentNos ไม่บังคับ — ไฟล์รอบโอนที่การเงินอัปโหลดยืนยันแค่ "โอนวันไหน" ไม่มีเลข PV
+// (source บอกที่มา: "payment-file" = ทะเบียนจ่ายมี PV · "round-file" = ไฟล์รอบโอน)
 export type ApPaid = {
-  paymentNos: string[]
+  paymentNos?: string[]
   date: string
   amount?: number
   sharedWith?: string[]

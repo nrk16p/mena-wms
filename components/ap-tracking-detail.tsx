@@ -8,7 +8,7 @@ import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc,
   billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
-  apDocLabel, apFilesByDoc, apItemVerification, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
+  apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingPayThursdays,
@@ -601,18 +601,21 @@ export function ApTrackingDetail({
           {tab === "money" && (
             <>
               {/* จ่ายจริงแล้ว (จากทะเบียนการเงิน) — ใบจบวงจร ให้เห็นก่อนทุกอย่างในแท็บการเงิน */}
-              {row.paid?.paymentNos?.length ? (
+              {apPaidConfirmed(row.paid) ? (
                 <section className="rounded-xl border border-teal-200 bg-teal-50/70 px-4 py-3 text-sm dark:border-teal-800 dark:bg-teal-900/20">
                   <div className="font-bold text-teal-800 dark:text-teal-300" style={mitr}>
-                    ✅ จ่ายเงินแล้ว {thaiDate(row.paid.date)}
+                    ✅ จ่ายเงินแล้ว {thaiDate(row.paid!.date)}
                   </div>
                   <div className="mt-0.5 text-xs text-teal-700 dark:text-teal-300">
-                    เลข PV: <span className={NUM}>{row.paid.paymentNos.join(", ")}</span>
-                    {typeof row.paid.amount === "number" && <> · ยอดจ่าย <span className={NUM}>{baht(row.paid.amount)}</span> บาท</>}
-                    {row.paid.sharedWith?.length ? <> · จ่ายรวมบิลเดียวกับ {row.paid.sharedWith.join(", ")}</> : null}
+                    {row.paid!.paymentNos?.length ? <>เลข PV: <span className={NUM}>{row.paid!.paymentNos.join(", ")}</span> · </> : null}
+                    {typeof row.paid!.amount === "number" && <>ยอดจ่าย <span className={NUM}>{baht(row.paid!.amount)}</span> บาท</>}
+                    {row.paid!.sharedWith?.length ? <> · จ่ายรวมบิลเดียวกับ {row.paid!.sharedWith.join(", ")}</> : null}
                   </div>
-                  {row.paid.source === "payment-file" && (
+                  {row.paid!.source === "payment-file" && (
                     <div className="mt-0.5 text-[10px] text-teal-600/70 dark:text-teal-400/70">ที่มา: ทะเบียนจ่ายของการเงิน (นำเข้าจากไฟล์)</div>
+                  )}
+                  {row.paid!.source === "round-file" && (
+                    <div className="mt-0.5 text-[10px] text-teal-600/70 dark:text-teal-400/70">ที่มา: ไฟล์รอบโอนที่การเงินนำเข้า (ยังไม่มีเลข PV)</div>
                   )}
                 </section>
               ) : null}
