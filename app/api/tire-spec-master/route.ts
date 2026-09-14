@@ -1,16 +1,33 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
+import { normalizeProductKey } from "@/lib/tire-due"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_spec_master"
 
-export async function GET() {
+// GET /api/tire-spec-master?withUsage=1
+//   withUsage = แนบจำนวนยางที่ "ใช้อยู่จริง" ของสเปคนั้นมาด้วย
+//   ระยะกำหนดที่ตั้งผิดจะไปโผล่เป็นการเตือนผิดๆ ในแท็บ "ยางถึงกำหนดเปลี่ยน"
+//   คนตั้งค่าจึงต้องเห็นว่าตัวเลขแต่ละแถวกระทบยางกี่เส้น ก่อนกดแก้
+export async function GET(req: NextRequest) {
   const client = await clientPromise
-  const docs = await client.db(DB).collection(COLL)
+  const db = client.db(DB)
+  const docs = await db.collection(COLL)
     .find({})
     .sort({ brand: 1, tireSize: 1, tireModel: 1 })
     .toArray()
-  return NextResponse.json(docs)
+
+  if (req.nextUrl.searchParams.get("withUsage") !== "1") return NextResponse.json(docs)
+
+  const used = await db.collection("tire_distance")
+    .aggregate([{ $group: { _id: "$product", n: { $sum: 1 } } }])
+    .toArray()
+  const byProduct = new Map(used.map((u) => [normalizeProductKey(u._id), u.n as number]))
+
+  return NextResponse.json(docs.map((d) => ({
+    ...d,
+    tires: byProduct.get(normalizeProductKey(d.productName)) ?? 0,
+  })))
 }
 
 export async function POST(req: NextRequest) {

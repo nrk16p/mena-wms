@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import {
   Truck, Search, ArrowLeft, RefreshCw, History,
-  Check, X, Camera, ChevronDown, ChevronUp, CalendarClock, Gauge, ListChecks, MapPin,
+  Check, X, Camera, ChevronDown, ChevronUp, CalendarClock, Gauge, ListChecks, MapPin, AlertTriangle,
 } from "lucide-react"
 import Swal from "sweetalert2"
 import { swalToast, swalError } from "@/lib/swal"
@@ -16,6 +16,7 @@ import {
   type AppointmentTarget,
 } from "@/components/tire/shared"
 import { TireTransactionTracking } from "@/components/tire/transaction-tracking"
+import { TireDuePage } from "@/components/tire/due-page"
 import { useBranchScope } from "@/components/use-branch-scope"
 
 // ===========================================================================
@@ -155,10 +156,11 @@ function resizeImage(file: File, maxSize = 1280): Promise<string> {
 // ===========================================================================
 
 export function TireFleetPage() {
-  const [tab, setTab] = useState<"fleet" | "tracking" | "history">("fleet")
+  const [tab, setTab] = useState<"fleet" | "tracking" | "history" | "due">("fleet")
   const [branchFilter, setBranchFilter] = useState("")
   const [selected, setSelected] = useState<{ branch: string; plate: string } | null>(null)
   const [pendingBadge, setPendingBadge] = useState(0)
+  const [dueBadge, setDueBadge] = useState(0)
 
   // พนักงานที่ผูกกับสาขา (site_id 2/3) เห็นได้สาขาเดียว — ล็อกตัวกรองไว้ที่สาขานั้น
   const scope = useBranchScope()
@@ -177,6 +179,17 @@ export function TireFleetPage() {
       )
     )
     setPendingBadge(totals.reduce((a: number, b: number) => a + b, 0))
+
+    // ยางที่เกิน/ถึงกำหนดเปลี่ยน — ขอแค่ตัวเลข ไม่ต้องลากรายการมาทั้งกอง
+    const due = await Promise.all(
+      scope.branches.map((b) =>
+        fetch(`/api/tire-due?branch=${b}&group=alert&countsOnly=1`)
+          .then((r) => r.json())
+          .then((d) => (d.summary?.over ?? 0) + (d.summary?.due ?? 0))
+          .catch(() => 0)
+      )
+    )
+    setDueBadge(due.reduce((a: number, b: number) => a + b, 0))
   }, [scope.ready, scope.branches])
   useEffect(() => { loadBadge() }, [loadBadge])
 
@@ -185,6 +198,8 @@ export function TireFleetPage() {
     // แกนเป็น "รายการ" (1 แถว = ยาง 1 เส้น) ไม่ต้องกางหาเอง
     { value: "tracking" as const, label: "คำขอ / อนุมัติ",    icon: ListChecks, badge: pendingBadge },
     { value: "history"  as const, label: "ประวัติการเปลี่ยน", icon: History },
+    // มุมกลับของแท็บอื่น: ไม่ใช่ "เกิดอะไรขึ้นแล้ว" แต่คือ "อะไรกำลังจะถึงกำหนด"
+    { value: "due"      as const, label: "ยางถึงกำหนดเปลี่ยน", icon: AlertTriangle, badge: dueBadge },
   ]
 
   return (
@@ -264,6 +279,11 @@ export function TireFleetPage() {
           )}
           {tab === "tracking" && <TireTransactionTracking branchFilter={activeBranch} onChanged={loadBadge} />}
           {tab === "history"  && <HistoryTab branchFilter={activeBranch} />}
+          {tab === "due" && (
+            selected
+              ? <VehicleDetail branch={selected.branch} plate={selected.plate} onBack={() => setSelected(null)} onChanged={loadBadge} />
+              : <TireDuePage branchFilter={activeBranch} onOpenVehicle={(v) => setSelected(v)} />
+          )}
         </>
       )}
     </div>

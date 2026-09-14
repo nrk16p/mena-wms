@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { runBranchSync, BRANCH_IDS, AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
+import { rebuildTireDistance } from "@/lib/tire-distance"
 import clientPromise from "@/lib/mongo"
 
 const DB       = process.env.MONGO_DB ?? "master_data"
 const BRANCHES = Object.keys(BRANCH_IDS) // ["latkrabang", "saraburi"]
+
+// sync ATMS + คำนวณระยะยางต่อท้าย — รอบเต็มใช้เวลาเกิน default 10 วิ
+export const maxDuration = 300
 
 export type SyncLogEntry = {
   branch:       string
@@ -58,5 +62,10 @@ export async function GET(req: NextRequest) {
   }
 
   const allOk = results.every((r) => r.ok)
-  return NextResponse.json({ ok: allOk, results })
+
+  // sync เสร็จแล้ว tire_change เพิ่งอัปเดต — คำนวณ "ยางถึงกำหนดเปลี่ยน" ต่อเลยในรอบเดียวกัน
+  // (ไม่แยก cron ใหม่ เพราะต้องรันหลัง sync เสมอ ถ้าแยกแล้วจับเวลาพลาดจะได้ข้อมูลรอบเก่า)
+  const distance = await rebuildTireDistance()
+
+  return NextResponse.json({ ok: allOk, results, distance })
 }

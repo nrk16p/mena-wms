@@ -26,6 +26,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     brand, tireSize, tireModel, distance,
     productCode: String(body.productCode ?? "").trim(),
     productName: String(body.productName ?? "").trim(),
+    // แถวที่ระบบเติมระยะให้อัตโนมัติติดธง needsReview ไว้ — คนกดบันทึกเมื่อไหร่ถือว่ายืนยันแล้ว
+    needsReview: body.needsReview === true,
     updatedAt: new Date(),
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
