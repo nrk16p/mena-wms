@@ -17,7 +17,7 @@ const NCAC = process.env.NCAC_BASE ?? "https://api-ncac.onrender.com"
 const KEY  = process.env.NCAC_API_KEY ?? "mena-pipeline-2026"
 
 // ข้อมูลต้นทางเริ่มมีตั้งแต่เมื่อไหร่ — ยางที่เปลี่ยนก่อนหน้านี้จะได้ระยะไม่ครบ (ติดธง partial)
-const GPS_FROM  = Date.UTC(2024, 9, 1)  // drivingdistance เริ่ม 2024-10-01
+const GPS_FROM  = Date.UTC(2024, 9, 1)  // drivingdistance (Postgres) เริ่ม 2024-10-01
 const TRIP_FROM = Date.UTC(2023, 7, 1)  // truck_distance_summary เริ่ม 2023-08 (เติมย้อนจาก ATMS 2026-09-14 — ไกลกว่านี้ไม่มีไฟล์รายงานแล้ว)
 // ETL ฝั่ง GPS รันบน Jenkins timezone UTC → ข้อมูลล่าสุดตามหลังเวลาไทยราว 2 วัน
 const GPS_LAG_DAYS = 2
@@ -34,7 +34,63 @@ export type RebuildResult = {
   error?: string
 }
 
-// ── ระยะทางรายเดือนจาก GPS ────────────────────────────────────────────────
+// ── ระยะทางรายเดือนจาก GPS ชุดใหม่ (mena-intelligence) ────────────────────
+// ฐาน `gps` บน Mongo เก็บ 8 เจ้า (terminus/hino/songdee/cartrack/besttech/dtc/thaitracking/nostra)
+// ครอบคลุมกว่าตาราง drivingdistance ฝั่ง Postgres — ถาม 1,086 ทะเบียนได้ 695 (Postgres ได้ 579)
+// และใช้ทะเบียนเต็ม ("สบ.71-7386") ตรงกับ ATMS ไม่ต้องแปลงฟอร์แมต
+//
+// **ห้ามอ่าน collection ดิบเอง**: รถคันเดียวมีกล่อง GPS หลายเจ้าพร้อมกัน (terminus + besttech)
+// บวกข้าม collection = นับซ้ำสองเท่า — endpoint นี้ยุบให้แล้ว (เทียบแล้ว 4,675 vs รวมดิบ 8,246)
+//
+// ข้อจำกัด: ย้อนได้แค่ 2026-01 → ใช้เป็นชั้นบนทับของ Postgres ที่ย้อนถึง 2024-10
+const INTEL_GPS = process.env.INTEL_GPS_URL ?? "https://mena-intelligence.vercel.app/api/gps/distance/range"
+const INTEL_FROM = "2026-01"   // เดือนแรกที่ฐาน gps มีข้อมูล
+
+// เพดานความสมเหตุสมผล: รถบรรทุกวิ่งเกินนี้ต่อวันไม่ได้จริง
+// ของจริงในฟลีต p50 75 · p95 358 กม./วัน แล้วกระโดดไป 7,000+ ในทะเบียนที่ข้อมูลเสีย (10 คัน)
+// ตั้งไว้ 1,200 เพราะอยู่กลางช่องว่างนั้น — ขยับได้ในช่วง 800-7,000 โดยผลไม่เปลี่ยน
+const MAX_KM_PER_DAY = 1_200
+
+async function fetchIntelGpsMonthly(months: string[], plates: string[]): Promise<Map<string, Map<string, number>>> {
+  const out = new Map<string, Map<string, number>>()
+  if (plates.length === 0) return out
+
+  const runOne = async (m: string) => {
+    const [y, mo] = m.split("-").map(Number)
+    const start = `${m}-01`
+    const end   = new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10)
+    try {
+      const res = await fetch(INTEL_GPS, {
+        method:  "POST",
+        headers: { "content-type": "application/json" },
+        body:    JSON.stringify({ startdate: start, enddate: end, plates }),
+        cache:   "no-store",
+      })
+      if (!res.ok) throw new Error(`intel-gps ${m}: HTTP ${res.status}`)
+      const data = await res.json()
+      for (const row of data?.rows ?? []) {
+        const plate = String(row.plate ?? "").trim()
+        const km    = Number(row.distance || 0)
+        const days  = Number(row.days || 0)
+        if (!plate || km <= 0 || days <= 0) continue
+        // ทะเบียนที่ข้อมูลเสีย (เช่น 61,509 กม./วัน) ทิ้งเดือนนั้นไป แล้วปล่อยให้ตกไปใช้ค่าของ Postgres แทน
+        if (km / days > MAX_KM_PER_DAY) continue
+        let byMonth = out.get(plate)
+        if (!byMonth) { byMonth = new Map(); out.set(plate, byMonth) }
+        byMonth.set(m, km)
+      }
+    } catch (e) {
+      console.error("[tire-distance]", (e as Error).message)
+    }
+  }
+
+  for (let i = 0; i < months.length; i += 3) {
+    await Promise.all(months.slice(i, i + 3).map(runOne))
+  }
+  return out
+}
+
+// ── ระยะทางรายเดือนจาก GPS (Postgres ผ่าน api-ncac) ───────────────────────
 // sumdistance ถ้าไม่ส่ง plate_number = ได้ยอดรวมของ "ทุกทะเบียน" ในเดือนนั้น
 // → เดือนละ 1 request แทนที่จะยิงทีละทะเบียน
 async function fetchGpsMonthly(months: string[]): Promise<Map<string, Map<string, number>>> {
@@ -195,12 +251,41 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
     const gpsThrough  = new Date(now.getTime() - GPS_LAG_DAYS * 86_400_000)
     const gpsMonths   = monthRange(new Date(Math.max(oldest, GPS_FROM)), gpsThrough)
 
-    const [gps, trip, specs, vehicles] = await Promise.all([
+    const plates = [...new Set(tires.map((t) => String(t.vehicle ?? "").trim()).filter(Boolean))]
+    const intelMonths = gpsMonths.filter((m) => m >= INTEL_FROM)
+
+    const [gps, gpsIntel, trip, specs, vehicles] = await Promise.all([
       fetchGpsMonthly(gpsMonths),
+      fetchIntelGpsMonthly(intelMonths, plates),
       fetchTripMonthly(db),
       loadSpecs(db, [...new Set(tires.map((t) => String(t.serialNo ?? "").trim()).filter(Boolean))]),
-      loadVehicleInfo(db, [...new Set(tires.map((t) => String(t.vehicle ?? "").trim()).filter(Boolean))]),
+      loadVehicleInfo(db, plates),
     ])
+
+    // รวม GPS สองชุดต่อทะเบียน: ชุดใหม่ (8 เจ้า ย้อนแค่ 2026) เป็นชั้นบน + ชุด Postgres (3 เจ้า ย้อนถึง 2024-10) เป็นชั้นล่าง
+    //
+    // เดือนไหนชุดใหม่มีและผ่านเกณฑ์ กม./วัน ใช้ของชุดใหม่ (ครอบคลุมกว่า รวมหลายเจ้าให้แล้ว)
+    // เดือนไหนไม่มี — ไม่ว่าจะเพราะย้อนไม่ถึง 2026 หรือโดนคัดออกเพราะข้อมูลเสีย — ตกไปใช้ของ Postgres
+    const gpsCache = new Map<string, { months: Map<string, number>; from: number; through: Date } | undefined>()
+    const mergeGps = (plate: string) => {
+      if (gpsCache.has(plate)) return gpsCache.get(plate)
+      const intel = gpsIntel.get(plate)
+      const pg    = gps.get(normalizePlateForGps(plate))
+      let merged: { months: Map<string, number>; from: number; through: Date } | undefined
+      if (intel || pg) {
+        const months = new Map<string, number>(pg ?? [])
+        if (intel) for (const [m, km] of intel) months.set(m, km)
+        const keys = [...months.keys()].sort()
+        merged = {
+          months,
+          // ข้อมูลของทะเบียนนี้เริ่มเดือนไหนจริง ๆ (ไม่ใช่ค่าคงที่ของทั้งระบบ)
+          from: keys.length ? Date.UTC(Number(keys[0].slice(0, 4)), Number(keys[0].slice(5, 7)) - 1, 1) : GPS_FROM,
+          through: gpsThrough,
+        }
+      }
+      gpsCache.set(plate, merged)
+      return merged
+    }
 
     const runAt = new Date()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -218,20 +303,25 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
       const validDate   = changeIn && !isNaN(changeIn.getTime()) && changeIn.getTime() <= now.getTime()
 
       // เลือกแหล่งระยะทาง — ยางหางมีแต่ค่าเที่ยว (GPS เก็บเฉพาะทะเบียนหัว)
-      const gpsMap  = trailer ? undefined : gps.get(normalizePlateForGps(plate))
+      const gpsMap  = trailer ? undefined : mergeGps(plate)
       const tripMap = trip.get(`${plate}|${trailer ? "tail" : "head"}`)
 
       let source: DistanceSource = "none"
       let monthly: Map<string, number> | undefined
       let through = now
-      if (gpsMap && validDate && changeIn!.getTime() >= GPS_FROM) { source = "gps";  monthly = gpsMap;  through = gpsThrough }
-      else if (tripMap)                                           { source = "trip"; monthly = tripMap; through = now }
-      else if (gpsMap)                                            { source = "gps";  monthly = gpsMap;  through = gpsThrough }
+      let from    = TRIP_FROM
+      // GPS ชนะเมื่อข้อมูลของทะเบียนนั้นครอบคลุมตั้งแต่วันที่ใส่ยาง — ไม่งั้นค่าเที่ยวที่ย้อนได้ไกลกว่าดีกว่า
+      if (gpsMap && validDate && changeIn!.getTime() >= gpsMap.from) {
+        source = "gps";  monthly = gpsMap.months; through = gpsMap.through; from = gpsMap.from
+      } else if (tripMap) {
+        source = "trip"; monthly = tripMap;       through = now;            from = TRIP_FROM
+      } else if (gpsMap) {
+        source = "gps";  monthly = gpsMap.months; through = gpsMap.through; from = gpsMap.from
+      }
 
       const kmUsed = validDate && monthly ? Math.max(0, sumMonthlyDistance(monthly, changeIn!, through)) : 0
       // ยางที่เปลี่ยนก่อนวันที่ต้นทางมีข้อมูล = ระยะที่ได้ต่ำกว่าจริง ต้องบอกผู้ใช้ ไม่ใช่เงียบ
-      const sourceFrom = source === "gps" ? GPS_FROM : TRIP_FROM
-      const partial    = !!validDate && source !== "none" && changeIn!.getTime() < sourceFrom
+      const partial    = !!validDate && source !== "none" && changeIn!.getTime() < from
 
       const specDistance =
         specs.byStock.get(serialNo) ??
