@@ -9,6 +9,11 @@ const BRANCHES = Object.keys(BRANCH_IDS) // ["latkrabang", "saraburi"]
 // sync ATMS + คำนวณระยะยางต่อท้าย — รอบเต็มใช้เวลาเกิน default 10 วิ
 export const maxDuration = 300
 
+// ⏰ ตารางเวลา (vercel.json ใช้ UTC): รอบนี้ตั้งไว้ 04:00 UTC = 11:00 น.ไทย
+// ต้องรัน *หลัง* งานค่าเที่ยวที่อัปเดต atms.truck_distance_summary ราว 02:35 UTC (09:35 น.ไทย)
+// ไม่งั้นการคำนวณระยะยางจะหยิบค่าเที่ยวของเมื่อวานมาใช้ ช้าไป 1 วันโดยไม่จำเป็น
+// ถ้าจะขยับเวลา ให้เช็คก่อนว่างานค่าเที่ยวเสร็จแล้ว (ดู updated_at ใน truck_distance_summary)
+
 export type SyncLogEntry = {
   branch:       string
   ok:           boolean

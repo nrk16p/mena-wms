@@ -1,12 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron/tire-sync",
-      "schedule": "0 2 * * *"
-    },
-    {
       "path": "/api/cron/atms-sku-report",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/tire-sync",
+      "schedule": "0 4 * * *"
     }
   ]
 }
