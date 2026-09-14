@@ -1,9 +1,14 @@
 // เกณฑ์ "ยางถึงกำหนดเปลี่ยน" — ฝั่ง cron ที่คำนวณ และฝั่งหน้าเว็บที่แสดงผล อ่านไฟล์นี้ตัวเดียวกัน
 // แก้เกณฑ์ที่นี่ที่เดียวแล้วมีผลทั้งระบบ อย่าไป hardcode ซ้ำที่อื่น
 
+import { splitPosition } from "@/lib/tire"
+
 export const DUE_OVER = 100 // ใช้ระยะครบแล้ว
 export const DUE_DUE  = 90  // ถึงกำหนดเปลี่ยน — เกณฑ์แจ้งเตือนหลัก
 export const DUE_WARN = 80  // เฝ้าระวัง เริ่มวางแผนได้
+
+/** กดเลื่อนการแจ้งเตือนแล้วเงียบไปกี่วัน — ใช้ค่าเดียวกันทั้งเว็บและแอปคนขับ */
+export const SNOOZE_DAYS = 14
 
 export type DueLevel = "over" | "due" | "warn" | "ok" | "unknown"
 
@@ -119,6 +124,17 @@ export function sumMonthlyDistance(monthly: Map<string, number>, from: Date, thr
     total += km * Math.min(1, overlap / elapsed)
   }
   return Math.round(total)
+}
+
+// เรียงยางตามตำแหน่งจริงบนรถ หน้า → หลัง → หาง (F1 F2 · RA1…RA8 · RB1…RB13)
+// ไม่เรียงตาม % เพราะเวลาเดินดูรถหรือสั่งงานช่าง คนไล่ทีละเพลา ไม่ได้ไล่ตามตัวเลข
+const AXLE_ORDER: Record<string, number> = { F: 0, RA: 1, RB: 2 }
+
+export function positionOrder(tirePosition: string): number {
+  const { code } = splitPosition(tirePosition)
+  const m = code.match(/^([A-Z]+)(\d+)$/)
+  if (!m) return 9_999
+  return (AXLE_ORDER[m[1]] ?? 8) * 100 + Number(m[2])
 }
 
 // ยางอะไหล่ยังไม่ได้แตะถนน — ถ้าปล่อยเข้าสูตรจะโดนคิดระยะเท่ากับล้อที่วิ่งจริง

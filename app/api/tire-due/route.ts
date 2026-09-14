@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { rebuildTireDistance } from "@/lib/tire-distance"
+import { DUE_LABEL, SOURCE_LABEL, positionOrder, type DueLevel, type DistanceSource } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
@@ -25,6 +26,72 @@ const GROUP_FILTER: Record<string, Filter> = {
   spare:      { isSpare: true },
 }
 
+// ── โหมดรถคันเดียว (แอปคนขับ) ───────────────────────────────────────────────
+// GET /api/tire-due?plate=สบ.71-3569   หรือ   ?fleetNo=T-0080
+// คนขับดูได้เฉพาะรถที่ถืออยู่ ไม่ต้องลากรายการทั้งฟลีตลงเครื่อง
+// ส่งเฉพาะเส้นที่ต้องรู้ (เกิน/ถึงกำหนด/เฝ้าระวัง) — เส้นที่ยังปกติไม่ต้องรบกวน
+async function vehicleView(req: NextRequest, plate: string, fleetNo: string) {
+  const client = await clientPromise
+  const col = client.db(DB).collection("tire_distance")
+
+  const key: Filter = plate ? { plate: plate.trim() } : { fleetNo: fleetNo.trim() }
+  const rows = await col
+    .find({ ...key, isSpare: { $ne: true }, level: { $in: ["over", "due", "warn"] } })
+    .toArray()
+
+  if (rows.length === 0) {
+    // แยก 2 กรณีให้แอปบอกผู้ใช้ได้ถูก: ไม่รู้จักทะเบียน กับ รู้จักแต่ยางยังไม่ถึงกำหนด
+    const known = await col.countDocuments(key)
+    return NextResponse.json({
+      ...(plate ? { plate: plate.trim() } : { fleetNo: fleetNo.trim() }),
+      found: known > 0,
+      alert: false,
+      summary: { over: 0, due: 0, warn: 0 },
+      items: [],
+      message: known > 0 ? "ยางทุกเส้นยังไม่ถึงกำหนดเปลี่ยน" : "ไม่พบทะเบียน/เบอร์รถนี้ในระบบ",
+    }, { status: known > 0 ? 200 : 404 })
+  }
+
+  const now = new Date()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isSnoozed = (r: any) => !!r.snoozedUntil && new Date(r.snoozedUntil) > now
+  rows.sort((a, b) => positionOrder(String(a.tirePosition ?? "")) - positionOrder(String(b.tirePosition ?? "")))
+
+  const summary = { over: 0, due: 0, warn: 0 }
+  for (const r of rows) if (!isSnoozed(r)) summary[r.level as "over" | "due" | "warn"]++
+
+  const first = rows[0]
+  return NextResponse.json({
+    plate:       first.plate,
+    fleetNo:     first.fleetNo ?? "",
+    branch:      first.branch,
+    vehicleType: first.vehicleType ?? "",
+    found:       true,
+    // แอปเอาค่านี้ไปตัดสินว่าจะเด้งแจ้งเตือนไหม — เส้นที่ถูกเลื่อนไว้ไม่นับ
+    alert:       summary.over + summary.due > 0,
+    summary,
+    dataThrough: first.dataThrough ?? null,
+    computedAt:  first.computedAt ?? null,
+    items: rows.map((r) => ({
+      id:           String(r._id),
+      tirePosition: r.tirePosition,
+      product:      r.product,
+      serialNo:     r.serialNo,
+      changeIn:     r.changeIn,
+      kmUsed:       r.kmUsed,
+      specDistance: r.specDistance,
+      usedPct:      r.usedPct,
+      level:        r.level,
+      levelLabel:   DUE_LABEL[r.level as DueLevel],
+      source:       SOURCE_LABEL[r.source as DistanceSource],
+      // ระยะที่นับได้ยังไม่ครบตลอดอายุยาง (ใส่ก่อนวันที่ต้นทางเริ่มเก็บข้อมูล)
+      partial:      !!r.partial,
+      snoozedUntil: isSnoozed(r) ? r.snoozedUntil : null,
+      snoozedBy:    isSnoozed(r) ? (r.snoozedBy ?? "") : "",
+    })),
+  })
+}
+
 // GET /api/tire-due?branch=&unit=&q=&group=alert&includeSnoozed=0
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -35,6 +102,11 @@ export async function GET(req: NextRequest) {
   const includeSnoozed = searchParams.get("includeSnoozed") === "1"
   // badge บนแท็บอยากได้แค่ตัวเลข — ไม่ต้องลากรายการเป็นพันแถวมาทิ้ง
   const countsOnly = searchParams.get("countsOnly") === "1"
+
+  // แอปคนขับส่ง plate หรือ fleetNo มา → ตอบเป็นรถคันเดียว คนละรูปแบบกับรายการฝั่งแอดมิน
+  const plate   = searchParams.get("plate")?.trim()   ?? ""
+  const fleetNo = searchParams.get("fleetNo")?.trim() ?? ""
+  if (plate || fleetNo) return vehicleView(req, plate, fleetNo)
 
   const client = await clientPromise
   const col = client.db(DB).collection("tire_distance")
@@ -84,8 +156,19 @@ export async function GET(req: NextRequest) {
   })
 }
 
-// POST /api/tire-due — สั่งคำนวณใหม่เอง (ปกติรอบจริงพ่วงท้าย cron tire-sync 02:00)
-export async function POST() {
+// POST /api/tire-due — สั่งคำนวณใหม่เอง (ปกติรอบจริงพ่วงท้าย cron tire-sync)
+//
+// เปิดเฉพาะคนที่ login เว็บ — งานนี้กินเวลาราว 20 วินาทีและยิง api-ncac หลายสิบครั้ง
+// ถ้าปล่อยให้แอปคนขับเรียกได้ด้วย x-api-key เครื่องเดียวกดรัวก็ถล่มระบบได้
+export async function POST(req: NextRequest) {
+  const hasSession =
+    req.cookies.get("next-auth.session-token") ?? req.cookies.get("__Secure-next-auth.session-token")
+  if (!hasSession) {
+    return NextResponse.json(
+      { error: "ต้องเข้าสู่ระบบผ่านเว็บ — สั่งคำนวณใหม่ทั้งฟลีตจากแอปไม่ได้" },
+      { status: 403 },
+    )
+  }
   const result = await rebuildTireDistance()
   return NextResponse.json(result, { status: result.ok ? 200 : 500 })
 }

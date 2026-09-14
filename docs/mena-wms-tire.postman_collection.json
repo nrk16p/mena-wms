@@ -5,17 +5,45 @@
     "description": "Tire Management APIs (Change Tire Request flow + Stock + Change History). Set collection variables: base_url, api_key."
   },
   "variable": [
-    { "key": "base_url", "value": "https://mena-wms.vercel.app" },
-    { "key": "api_key", "value": "PUT-YOUR-KEY-HERE" },
-    { "key": "request_id", "value": "" },
-    { "key": "item_id", "value": "" }
+    {
+      "key": "base_url",
+      "value": "https://mena-wms.vercel.app"
+    },
+    {
+      "key": "api_key",
+      "value": "PUT-YOUR-KEY-HERE"
+    },
+    {
+      "key": "request_id",
+      "value": ""
+    },
+    {
+      "key": "item_id",
+      "value": ""
+    },
+    {
+      "key": "due_id",
+      "value": ""
+    }
   ],
   "auth": {
     "type": "apikey",
     "apikey": [
-      { "key": "key", "value": "x-api-key", "type": "string" },
-      { "key": "value", "value": "{{api_key}}", "type": "string" },
-      { "key": "in", "value": "header", "type": "string" }
+      {
+        "key": "key",
+        "value": "x-api-key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{api_key}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
     ]
   },
   "item": [
@@ -28,12 +56,27 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/tire-change-request/lookup?branch=latkrabang&plate=สบ.71-3569&odometer=250000",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change-request", "lookup"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change-request",
+                "lookup"
+              ],
               "query": [
-                { "key": "branch", "value": "latkrabang" },
-                { "key": "plate", "value": "สบ.71-3569" },
-                { "key": "odometer", "value": "250000" }
+                {
+                  "key": "branch",
+                  "value": "latkrabang"
+                },
+                {
+                  "key": "plate",
+                  "value": "สบ.71-3569"
+                },
+                {
+                  "key": "odometer",
+                  "value": "250000"
+                }
               ]
             },
             "description": "คืนประวัติยาง + ข้อมูลรถ + สต๊อก + สถานะคำขอ + ค่าคำนวณครบทุกคอลัมน์ (usedDistance, remainingPct, bahtPerKm, age)"
@@ -43,11 +86,21 @@
           "name": "Create Request (สร้างคำขอ — เรียกตอนยางเส้นแรก)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/tire-change-request",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change-request"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change-request"
+              ]
             },
             "body": {
               "mode": "raw",
@@ -60,11 +113,23 @@
           "name": "Add Tire Item (ขอเปลี่ยนยางรายเส้น + รูป)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/tire-change-request/{{request_id}}/items",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change-request", "{{request_id}}", "items"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change-request",
+                "{{request_id}}",
+                "items"
+              ]
             },
             "body": {
               "mode": "raw",
@@ -79,15 +144,43 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/tire-change-request?branch=latkrabang&status=pending&page=1&limit=50",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change-request"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change-request"
+              ],
               "query": [
-                { "key": "branch", "value": "latkrabang" },
-                { "key": "status", "value": "pending", "description": "pending / approved / appointment / done / rejected (ว่าง = ทั้งหมด)" },
-                { "key": "plate", "value": "สบ.71-3569", "disabled": true, "description": "exact match" },
-                { "key": "q", "value": "", "disabled": true, "description": "fuzzy: ทะเบียน/คนขับ/เบอร์รถ" },
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "50" }
+                {
+                  "key": "branch",
+                  "value": "latkrabang"
+                },
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "pending / approved / appointment / done / rejected (ว่าง = ทั้งหมด)"
+                },
+                {
+                  "key": "plate",
+                  "value": "สบ.71-3569",
+                  "disabled": true,
+                  "description": "exact match"
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true,
+                  "description": "fuzzy: ทะเบียน/คนขับ/เบอร์รถ"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
               ]
             }
           }
@@ -96,11 +189,24 @@
           "name": "Approve/Reject Tire Item (อนุมัติรายเส้น)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/tire-change-request/{{request_id}}/items/{{item_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change-request", "{{request_id}}", "items", "{{item_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change-request",
+                "{{request_id}}",
+                "items",
+                "{{item_id}}"
+              ]
             },
             "body": {
               "mode": "raw",
@@ -113,11 +219,22 @@
           "name": "Request Workflow (นัดหมาย / เสร็จสิ้น)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/tire-change-request/{{request_id}}",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change-request", "{{request_id}}"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change-request",
+                "{{request_id}}"
+              ]
             },
             "body": {
               "mode": "raw",
@@ -137,15 +254,42 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/tire-change?branch=latkrabang&vehicle=สบ.71-3569&limit=500",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change"
+              ],
               "query": [
-                { "key": "branch", "value": "latkrabang" },
-                { "key": "vehicle", "value": "สบ.71-3569", "description": "exact plate" },
-                { "key": "q", "value": "", "disabled": true },
-                { "key": "latest", "value": "yes", "disabled": true },
-                { "key": "page", "value": "1", "disabled": true },
-                { "key": "limit", "value": "500" }
+                {
+                  "key": "branch",
+                  "value": "latkrabang"
+                },
+                {
+                  "key": "vehicle",
+                  "value": "สบ.71-3569",
+                  "description": "exact plate"
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "latest",
+                  "value": "yes",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
               ]
             }
           }
@@ -154,11 +298,22 @@
           "name": "Sync Change History from ATMS",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/tire-change/sync",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-change", "sync"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-change",
+                "sync"
+              ]
             },
             "body": {
               "mode": "raw",
@@ -173,12 +328,29 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/vehicles?plates=สบ.71-3569",
-              "host": ["{{base_url}}"],
-              "path": ["api", "vehicles"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "vehicles"
+              ],
               "query": [
-                { "key": "plates", "value": "สบ.71-3569", "description": "หลายทะเบียนคั่น comma" },
-                { "key": "q", "value": "", "disabled": true },
-                { "key": "type", "value": "", "disabled": true }
+                {
+                  "key": "plates",
+                  "value": "สบ.71-3569",
+                  "description": "หลายทะเบียนคั่น comma"
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "disabled": true
+                }
               ]
             }
           }
@@ -189,14 +361,38 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/tire-stock?branch=latkrabang&limit=500",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-stock"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-stock"
+              ],
               "query": [
-                { "key": "branch", "value": "latkrabang" },
-                { "key": "serials", "value": "TCS-DS D6A18893", "disabled": true, "description": "exact, คั่น comma" },
-                { "key": "q", "value": "", "disabled": true },
-                { "key": "status", "value": "In Stock", "disabled": true },
-                { "key": "limit", "value": "500" }
+                {
+                  "key": "branch",
+                  "value": "latkrabang"
+                },
+                {
+                  "key": "serials",
+                  "value": "TCS-DS D6A18893",
+                  "disabled": true,
+                  "description": "exact, คั่น comma"
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "In Stock",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
               ]
             }
           }
@@ -205,11 +401,21 @@
           "name": "Tire Stock — Add (เพิ่มรายการเดียว)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/tire-stock",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-stock"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-stock"
+              ]
             },
             "body": {
               "mode": "raw",
@@ -221,17 +427,123 @@
           "name": "Tire Stock — Bulk Add (วางจาก Excel)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/tire-stock/bulk",
-              "host": ["{{base_url}}"],
-              "path": ["api", "tire-stock", "bulk"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-stock",
+                "bulk"
+              ]
             },
             "body": {
               "mode": "raw",
               "raw": "{\n  \"branch\": \"latkrabang\",\n  \"items\": [\n    {\n      \"prCode\": \"LBPR26060999\",\n      \"ddCode\": \"LBDD26060999\",\n      \"depositDate\": \"12-06-2026\",\n      \"productCode\": \"LB09R00151\",\n      \"productName\": \"ยางผ้าใบดอกสร้อย 1000-20\",\n      \"serialNo\": \"POSTMAN-BULK-001\",\n      \"unitPrice\": \"4465\",\n      \"brand\": \"Deestone\",\n      \"tireSize\": \"1000-20\",\n      \"tireModel\": \"DSS111\",\n      \"distance\": \"20000\",\n      \"status\": \"in-stock\",\n      \"tireType\": \"เรเดียล\",\n      \"warrantyUntil\": \"\"\n    }\n  ]\n}"
             },
             "description": "ตอบ inserted + skipped (serial ซ้ำ/ว่าง)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. ยางถึงกำหนดเปลี่ยน (แอปคนขับ)",
+      "item": [
+        {
+          "name": "ยางถึงกำหนดของรถคันนี้ (ทะเบียน)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tire-due?plate=สบ.70-9863",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-due"
+              ],
+              "query": [
+                {
+                  "key": "plate",
+                  "value": "สบ.70-9863"
+                }
+              ]
+            },
+            "description": "ส่งเฉพาะเส้นที่ เกิน/ถึงกำหนด/เฝ้าระวัง เรียงตามตำแหน่งล้อ · ใช้ field `alert` ตัดสินว่าจะเด้งแจ้งเตือนไหม"
+          }
+        },
+        {
+          "name": "ยางถึงกำหนดของรถคันนี้ (เบอร์รถ)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tire-due?fleetNo=T-0145",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-due"
+              ],
+              "query": [
+                {
+                  "key": "fleetNo",
+                  "value": "T-0145"
+                }
+              ]
+            },
+            "description": "เหมือนข้างบน แต่ค้นด้วยเบอร์รถแทนทะเบียน"
+          }
+        },
+        {
+          "name": "เลื่อนการแจ้งเตือน 14 วัน",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"snooze\": true,\n  \"by\": \"สมชาย ใจดี\",\n  \"note\": \"ตรวจแล้วดอกยางยังเหลือ\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/tire-due/{{due_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tire-due",
+                "{{due_id}}"
+              ]
+            },
+            "description": "ใช้ `id` จาก items[] · ส่ง snooze:false เพื่อยกเลิก · ครบ 14 วันกลับมาเตือนเอง"
           }
         }
       ]

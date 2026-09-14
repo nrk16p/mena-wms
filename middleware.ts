@@ -8,6 +8,7 @@ const MOBILE_API_PREFIXES = [
   "/api/tire-change",
   "/api/tire-stock",
   "/api/tire-fleet",
+  "/api/tire-due",
   "/api/vehicles",
 ]
 

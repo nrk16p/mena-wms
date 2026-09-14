@@ -12,13 +12,13 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useSession } from "next-auth/react"
 import {
   AlertTriangle, BellOff, BellRing, ChevronDown, ChevronRight, RefreshCw, Search, Settings2, Truck,
 } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
-import { splitPosition } from "@/lib/tire"
 import {
-  SOURCE_LABEL, dueBarCls, dueChipCls,
+  SNOOZE_DAYS, SOURCE_LABEL, dueBarCls, dueChipCls, positionOrder,
   type DistanceSource, type DueLevel,
 } from "@/lib/tire-due"
 import {
@@ -44,17 +44,6 @@ type DueRow = {
   snoozedUntil: string | null
   fleetNo:      string
   vehicleType:  string
-}
-
-// เรียงยางในคันตามตำแหน่งจริงบนรถ หน้า → หลัง → หาง (F1 F2 · RA1…RA8 · RB1…RB13)
-// ไม่เรียงตาม % เพราะเวลาเดินดูรถหรือสั่งงานช่าง คนไล่ทีละเพลา ไม่ได้ไล่ตามตัวเลข
-const AXLE_ORDER: Record<string, number> = { F: 0, RA: 1, RB: 2 }
-
-function positionOrder(tirePosition: string): number {
-  const { code } = splitPosition(tirePosition)
-  const m = code.match(/^([A-Z]+)(\d+)$/)
-  if (!m) return 9_999
-  return (AXLE_ORDER[m[1]] ?? 8) * 100 + Number(m[2])
 }
 
 // มุมมองรายคัน — คนวางแผนคิดเป็น "คัน" ไม่ใช่ "เส้น": รถคันนี้ต้องเข้าอู่ไหม เปลี่ยนกี่เส้น
@@ -83,7 +72,7 @@ const OTHER_GROUPS = [
   { key: "nospec",     label: "ยังไม่ตั้งระยะกำหนด", hint: "รู้ระยะที่วิ่งแล้ว แต่รุ่นยางยังไม่มีระยะมาตรฐาน" },
   { key: "nodistance", label: "คำนวณระยะไม่ได้",    hint: "ไม่มีวันเปลี่ยนเข้า หรือทะเบียนไม่มีทั้ง GPS และค่าเที่ยว" },
   { key: "spare",      label: "ยางอะไหล่",          hint: "ยังไม่ได้ใช้งาน ไม่นับระยะ" },
-  { key: "snoozed",    label: "พักการแจ้งเตือน",     hint: "เส้นที่กด \"ไม่ต้องแจ้ง\" ไว้" },
+  { key: "snoozed",    label: "พักการแจ้งเตือน",     hint: `เส้นที่กด "ไม่ต้องแจ้ง" ไว้ (เงียบ ${SNOOZE_DAYS} วัน)` },
 ]
 
 export function TireDuePage({ branchFilter, onOpenVehicle }: {
@@ -99,6 +88,10 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   const [unit, setUnit]       = useState<"head" | "trailer" | "all">("all")
   const [q, setQ]             = useState("")
   const [view, setView]       = useState<"vehicle" | "tire">("vehicle")
+  // บันทึกไว้ว่าใครกดเลื่อน — ยางที่ถูกเลื่อนซ้ำ ๆ ต้องตามตัวคนตัดสินใจได้
+  const { data: session } = useSession()
+  const me = [session?.user?.employee?.firstname, session?.user?.employee?.lastname]
+    .filter(Boolean).join(" ") || session?.user?.employee?.username || session?.user?.email || ""
   const [opened, setOpened]   = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
@@ -145,10 +138,10 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
     const res = await fetch(`/api/tire-due/${row._id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ snooze: on }),
+      body:    JSON.stringify({ snooze: on, by: me }),
     })
     if (!res.ok) { swalError("บันทึกไม่สำเร็จ"); return }
-    swalToast("success", on ? "พักการแจ้งเตือน 30 วัน" : "เปิดการแจ้งเตือนอีกครั้ง")
+    swalToast("success", on ? `พักการแจ้งเตือน ${SNOOZE_DAYS} วัน` : "เปิดการแจ้งเตือนอีกครั้ง")
     load()
   }
 
@@ -382,7 +375,7 @@ function TireTable({ rows, showPct, loading, onOpenVehicle, onSnooze }: {
                         <td className={tdCls + " text-right"}>
                           <div className="flex items-center justify-end gap-1">
                             <button type="button" onClick={() => onSnooze(r, !snoozedOn)}
-                              title={snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : "พักการแจ้งเตือน 30 วัน"}
+                              title={snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : `พักการแจ้งเตือน ${SNOOZE_DAYS} วัน`}
                               className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}>
                               {snoozedOn ? <BellRing size={11} /> : <BellOff size={11} />}
                             </button>
@@ -498,7 +491,7 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
                         </td>
                         <td className={tdCls + " text-right"}>
                           <button type="button" onClick={() => onSnooze(r, !snoozedOn)}
-                            title={snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : "พักการแจ้งเตือน 30 วัน"}
+                            title={snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : `พักการแจ้งเตือน ${SNOOZE_DAYS} วัน`}
                             className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}>
                             {snoozedOn ? <BellRing size={11} /> : <BellOff size={11} />}
                           </button>
