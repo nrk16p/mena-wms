@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   const branch = searchParams.get("branch")?.trim() ?? ""
   const status = searchParams.get("status")?.trim() ?? ""
   const plate = searchParams.get("plate")?.trim() ?? ""
+  const requestedBy = searchParams.get("requestedBy")?.trim() ?? ""
   const q = searchParams.get("q")?.trim() ?? ""
   const page = Math.max(parseInt(searchParams.get("page") ?? "1"), 1)
   const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "50"), 1), 200)
@@ -33,6 +34,8 @@ export async function GET(req: NextRequest) {
   }
   if (branch) base.branch = branch
   if (plate) base.plate = plate
+  // ตัวขับใช้ requestedBy (drivercode) ดึงประวัติของตัวเอง — เชื่อถือได้กว่าชื่อเพราะไม่มีปัญหาซ้ำ/สะกดต่าง
+  if (requestedBy) base.requestedBy = requestedBy
   if (q) {
     base.$or = [
       { plate: { $regex: q, $options: "i" } },
