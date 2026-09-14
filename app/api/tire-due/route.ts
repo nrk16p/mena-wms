@@ -39,16 +39,28 @@ export async function GET(req: NextRequest) {
   const client = await clientPromise
   const col = client.db(DB).collection("tire_distance")
 
+  // ตัวกรองหลายชั้นมี $or ของตัวเอง (ค้นหา / ยังไม่ snooze / กลุ่ม nodistance)
+  // ถ้า spread รวมกันตรงๆ ตัวหลังจะทับ $or ตัวหน้าเงียบๆ — ต้องต่อกันด้วย $and เสมอ
+  const all = (...parts: Filter[]): Filter => {
+    const use = parts.filter((p) => Object.keys(p).length > 0)
+    return use.length === 0 ? {} : use.length === 1 ? use[0] : { $and: use }
+  }
+
   const base: Filter = {}
   if (branch) base.branch = branch
   if (unit === "head" || unit === "trailer") base.unit = unit
-  if (q) base.plate = { $regex: q, $options: "i" }
   if (group !== "spare") base.isSpare = { $ne: true }
+  // ค้นหาได้ทั้งทะเบียนและเบอร์รถ — คนวางแผนจำเบอร์รถมากกว่าทะเบียน
+  const search: Filter = q
+    ? { $or: [{ plate: { $regex: q, $options: "i" } }, { fleetNo: { $regex: q, $options: "i" } }] }
+    : {}
   const notSnoozed: Filter = { $or: [{ snoozedUntil: null }, { snoozedUntil: { $lte: new Date() } }] }
 
-  const listFilter: Filter = { ...base, ...(GROUP_FILTER[group] ?? GROUP_FILTER.alert) }
-  if (!includeSnoozed && group !== "snoozed") Object.assign(listFilter, notSnoozed)
-  if (group === "snoozed") listFilter.snoozedUntil = { $gt: new Date() }
+  const groupFilter = GROUP_FILTER[group] ?? GROUP_FILTER.alert
+  const listFilter =
+    group === "snoozed" ? all(base, search, { snoozedUntil: { $gt: new Date() } })
+    : includeSnoozed    ? all(base, search, groupFilter)
+    :                     all(base, search, groupFilter, notSnoozed)
 
   const [items, counts, meta, snoozed] = await Promise.all([
     countsOnly ? [] : col.find(listFilter).sort({ usedPct: -1, kmUsed: -1 }).limit(1000).toArray(),
@@ -57,11 +69,11 @@ export async function GET(req: NextRequest) {
         // นับยางอะไหล่ต้องไม่ติดเงื่อนไข isSpare:{$ne:true} ที่ base ใส่ให้กลุ่มอื่น
         const scope: Filter = { ...base }
         if (key === "spare") delete scope.isSpare
-        return [key, await col.countDocuments({ ...scope, ...f, ...notSnoozed })] as const
+        return [key, await col.countDocuments(all(scope, search, f, notSnoozed))] as const
       }),
     ),
     col.find({}).sort({ computedAt: -1 }).limit(1).project({ computedAt: 1, dataThrough: 1 }).next(),
-    col.countDocuments({ ...base, snoozedUntil: { $gt: new Date() } }),
+    col.countDocuments(all(base, search, { snoozedUntil: { $gt: new Date() } })),
   ])
 
   return NextResponse.json({

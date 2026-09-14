@@ -131,6 +131,46 @@ async function loadSpecs(db: Db, serials: string[]): Promise<SpecLookup> {
   return { byProduct, byModel, byStock }
 }
 
+// ── เบอร์รถ / ประเภทรถ ────────────────────────────────────────────────────
+// คนวางแผนเรียกรถด้วย "เบอร์รถ" ไม่ใช่ทะเบียน — ต้องมีติดไปกับทุกแถว
+// vehicle_master.fleetNo ครอบคลุมมากสุด (T-0080 / M-0003) ที่ขาดเติมจาก
+// atms.truck_master_monthly.truck_no (TH1299) ของเดือนล่าสุด — คนละระบบเลขแต่เรียก "เบอร์รถ" เหมือนกัน
+type VehicleInfo = { fleetNo: string; vehicleType: string }
+
+async function loadVehicleInfo(db: Db, plates: string[]): Promise<Map<string, VehicleInfo>> {
+  const out = new Map<string, VehicleInfo>()
+  if (plates.length === 0) return out
+
+  const masters = await db.collection("vehicle_master")
+    .find({ plate: { $in: plates } })
+    .project({ plate: 1, fleetNo: 1, vehicleType: 1 })
+    .toArray()
+  for (const m of masters) {
+    out.set(String(m.plate), {
+      fleetNo:     String(m.fleetNo ?? "").trim(),
+      vehicleType: String(m.vehicleType ?? "").trim(),
+    })
+  }
+
+  const missing = plates.filter((p) => !out.get(p)?.fleetNo)
+  if (missing.length > 0) {
+    const tmc    = db.client.db("atms").collection("truck_master_monthly")
+    const months = await tmc.distinct("month_year")
+    const latest = [...months].sort().pop()
+    if (latest) {
+      const rows = await tmc.find({ month_year: latest, plate: { $in: missing } })
+        .project({ plate: 1, truck_no: 1 })
+        .toArray()
+      for (const r of rows) {
+        const plate = String(r.plate)
+        const prev  = out.get(plate)
+        out.set(plate, { fleetNo: String(r.truck_no ?? "").trim(), vehicleType: prev?.vehicleType ?? "" })
+      }
+    }
+  }
+  return out
+}
+
 // ── ตัวหลัก ────────────────────────────────────────────────────────────────
 export async function rebuildTireDistance(): Promise<RebuildResult> {
   const t0 = Date.now()
@@ -155,10 +195,11 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
     const gpsThrough  = new Date(now.getTime() - GPS_LAG_DAYS * 86_400_000)
     const gpsMonths   = monthRange(new Date(Math.max(oldest, GPS_FROM)), gpsThrough)
 
-    const [gps, trip, specs] = await Promise.all([
+    const [gps, trip, specs, vehicles] = await Promise.all([
       fetchGpsMonthly(gpsMonths),
       fetchTripMonthly(db),
       loadSpecs(db, [...new Set(tires.map((t) => String(t.serialNo ?? "").trim()).filter(Boolean))]),
+      loadVehicleInfo(db, [...new Set(tires.map((t) => String(t.vehicle ?? "").trim()).filter(Boolean))]),
     ])
 
     const runAt = new Date()
@@ -218,6 +259,8 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
               branch: String(t.branch ?? ""), plate, serialNo, tirePosition: position, product,
               unit: trailer ? "trailer" : "head",
               isSpare: spare,
+              fleetNo:     vehicles.get(plate)?.fleetNo ?? "",
+              vehicleType: vehicles.get(plate)?.vehicleType ?? "",
               changeIn: validDate ? changeIn : null,
               kmUsed, source, partial,
               specDistance, specSource, usedPct, level,
