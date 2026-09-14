@@ -18,7 +18,7 @@ const KEY  = process.env.NCAC_API_KEY ?? "mena-pipeline-2026"
 
 // ข้อมูลต้นทางเริ่มมีตั้งแต่เมื่อไหร่ — ยางที่เปลี่ยนก่อนหน้านี้จะได้ระยะไม่ครบ (ติดธง partial)
 const GPS_FROM  = Date.UTC(2024, 9, 1)  // drivingdistance เริ่ม 2024-10-01
-const TRIP_FROM = Date.UTC(2024, 0, 1)  // truck_distance_summary เริ่ม 2024-01
+const TRIP_FROM = Date.UTC(2023, 7, 1)  // truck_distance_summary เริ่ม 2023-08 (เติมย้อนจาก ATMS 2026-09-14 — ไกลกว่านี้ไม่มีไฟล์รายงานแล้ว)
 // ETL ฝั่ง GPS รันบน Jenkins timezone UTC → ข้อมูลล่าสุดตามหลังเวลาไทยราว 2 วัน
 const GPS_LAG_DAYS = 2
 
