@@ -8,7 +8,7 @@ const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
 type Params = { params: Promise<{ id: string }> }
 
-// PATCH /api/tire-change-request/[id] — { action: "appointment" | "done", ... }
+// PATCH /api/tire-change-request/[id] — { action: "appointment" | "done" | "editPlate", ... }
 // การกระทำระดับ "ใบคำขอ" เท่านั้น · อนุมัติ/ปฏิเสธย้ายไปอยู่ที่ items/[itemId] แล้ว (ตอบ 410)
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params
@@ -48,6 +48,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   let arrayFilters: Record<string, any>[] | undefined
 
   switch (action) {
+    /**
+     * แก้ไขทะเบียน — แก้ผิด/พิมพ์ผิดตอนแจ้ง แก้ไขได้ตลอดไม่ว่าใบจะอยู่ขั้นไหน (เหมือน editJob
+     * ของยางแต่ละเส้น) เพราะเป็นแค่ข้อมูลอ้างอิง ไม่ใช่สถานะที่กระทบ flow การอนุมัติ/นัดหมาย/ปิดงาน
+     */
+    case "editPlate": {
+      const plate = String(body.plate ?? "").trim()
+      if (!plate) return NextResponse.json({ error: "กรุณาระบุทะเบียนรถ" }, { status: 400 })
+      await col.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { plate, plateUpdatedBy: by, plateUpdatedAt: now, updatedAt: now } },
+      )
+      return NextResponse.json({ ok: true, plate })
+    }
+
     /**
      * อนุมัติ/ปฏิเสธ "ทั้งใบ" ถูกปิดแล้ว — ต้องตัดสินรายเส้นที่
      * PATCH /api/tire-change-request/[id]/items/[itemId] เท่านั้น

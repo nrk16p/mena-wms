@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import Swal from "sweetalert2"
 import {
   ArrowDown, ArrowUp, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
-  Clock, Copy, FilePlus2, FileSpreadsheet, Flag, Inbox, ListFilter, Lock, RefreshCw, Search, Tag, X,
+  Clock, Copy, FilePlus2, FileSpreadsheet, Flag, Inbox, ListFilter, Lock, Pencil, RefreshCw, Search, Tag, X,
 } from "lucide-react"
 import { bkkToday } from "@/lib/bkk-time"
 import {
@@ -437,6 +437,11 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
 
   // ติ๊กเลือกหลายแถวเพื่อทำรายการพร้อมกัน — คีย์เดียวกับ row.key (คงอยู่ข้ามหน้าได้)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  // แก้ทะเบียนแบบ inline ในตาราง — คีย์ด้วย requestId เพราะทะเบียนเป็นฟิลด์ระดับใบ
+  // (1 ใบมีได้หลายแถว/เส้น แก้ที่แถวไหนก็มีผลกับทุกแถวของใบเดียวกัน)
+  const [editingPlateFor, setEditingPlateFor] = useState<string | null>(null)
+  const [plateDraft, setPlateDraft] = useState("")
 
   // MR ของยางสาเหตุ "รถกินยาง" — key = "สาขา|ทะเบียน" (ทะเบียนซ้ำข้ามสาขาได้)
   // undefined = ยังไม่ได้เช็ค, null = ยังไม่มีใบ
@@ -993,6 +998,44 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
     itemPatch(row, { action: "editJob", jobNo: String(jobNo).trim() }, `อัปเดตเลข Job ${row.item.positionCode || row.item.serialNo} แล้ว`)
   }
 
+  /** เปิดโหมดแก้ทะเบียนแบบ inline ที่แถวนี้ — คีย์ด้วย requestId เพราะทะเบียนเป็นฟิลด์ระดับใบ */
+  function startEditPlate(row: TxRow) {
+    setPlateDraft(row.plate)
+    setEditingPlateFor(String(row.request._id))
+  }
+
+  /**
+   * ยืนยันแก้ทะเบียน — พิมพ์เสร็จกด Enter/ปุ่มถูก แล้วต้องผ่าน swal ยืนยันก่อนยิง PATCH จริง
+   * (โจทย์: แก้ไวในตารางได้ แต่ต้องมีเช็คก่อนบันทึกกันมือลื่น) ไม่ผูกกับ onBlur เพราะจะยิงซ้ำ
+   * เวลากด Enter (Enter ก็ทำให้ input เสียโฟกัสด้วย) — ปิดโหมดแก้ไขไปก่อนเสมอไม่ว่าจะกดยืนยันหรือไม่
+   */
+  async function confirmEditPlate(row: TxRow) {
+    const next = plateDraft.trim()
+    const prev = row.plate
+    setEditingPlateFor(null)
+    if (!next) { swalError("กรุณาระบุทะเบียนรถ"); return }
+    if (next === prev) return
+
+    const itemCount = row.request.items?.length ?? 1
+    const result = await swalConfirm(
+      "ยืนยันแก้ไขทะเบียน?",
+      `${prev || "(ว่าง)"} → ${next}`
+      + (itemCount > 1 ? ` — มีผลกับยางทุกเส้นในคำขอเดียวกัน (${itemCount} เส้น)` : ""),
+    )
+    if (!result.isConfirmed) return
+
+    setActing(true)
+    const res = await fetch(`/api/tire-change-request/${row.request._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "editPlate", plate: next }),
+    })
+    setActing(false)
+    if (!res.ok) { const d = await res.json().catch(() => ({})); swalError(d.error ?? "แก้ไขทะเบียนไม่สำเร็จ"); return }
+    swalToast("success", `แก้ไขทะเบียนเป็น ${next} แล้ว`)
+    load(); onChanged()
+  }
+
   function confirmAppointment(dateIso: string) {
     const target = appointTarget
     setAppointTarget(null)
@@ -1305,7 +1348,39 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                 {/* ── ใครแจ้ง: ทะเบียนเป็นพระเอก แล้วสาขา → คนขับ (เบอร์รถแยกไปคอลัมน์ของตัวเอง) ── */}
                 <td className={txTdCls}>
                   <span className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-mono text-[13.5px] font-bold text-[#14271C] dark:text-white">{row.plate}</span>
+                    {editingPlateFor === String(row.request._id) ? (
+                      // แก้ inline ตรงนี้เลย — ยืนยันด้วย Enter/ปุ่มถูกเท่านั้น (มี swal คั่นก่อนยิงจริงเสมอ)
+                      <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          value={plateDraft}
+                          onChange={(e) => setPlateDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); confirmEditPlate(row) }
+                            if (e.key === "Escape") { e.preventDefault(); setEditingPlateFor(null) }
+                          }}
+                          className="w-24 rounded-md border border-[#1B8C4B]/50 bg-white px-1.5 py-0.5 font-mono text-[13px] font-bold text-[#14271C] outline-none focus:ring-1 focus:ring-[#1B8C4B] dark:bg-[#0f1510] dark:text-white"
+                        />
+                        <button type="button" title="บันทึก" onClick={() => confirmEditPlate(row)}
+                          className="cursor-pointer rounded p-0.5 text-[#1B8C4B] hover:bg-[#F0FDF4] dark:hover:bg-white/10">
+                          <Check size={13} />
+                        </button>
+                        <button type="button" title="ยกเลิก" onClick={() => setEditingPlateFor(null)}
+                          className="cursor-pointer rounded p-0.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10">
+                          <X size={13} />
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        title="แก้ไขทะเบียน"
+                        onClick={(e) => { e.stopPropagation(); startEditPlate(row) }}
+                        className="group inline-flex cursor-pointer items-center gap-1 font-mono text-[13.5px] font-bold text-[#14271C] hover:text-[#1B8C4B] dark:text-white dark:hover:text-green-400"
+                      >
+                        {row.plate}
+                        <Pencil size={10} className="opacity-0 transition-opacity group-hover:opacity-70" />
+                      </button>
+                    )}
                     <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${branchChipCls(row.branch)}`} style={fontThai}>
                       {branchLabel(row.branch)}
                     </span>
