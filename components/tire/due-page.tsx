@@ -16,6 +16,7 @@ import {
   AlertTriangle, BellOff, BellRing, ChevronDown, ChevronRight, RefreshCw, Search, Settings2, Truck,
 } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
+import { splitPosition } from "@/lib/tire"
 import {
   SOURCE_LABEL, dueBarCls, dueChipCls,
   type DistanceSource, type DueLevel,
@@ -43,6 +44,17 @@ type DueRow = {
   snoozedUntil: string | null
   fleetNo:      string
   vehicleType:  string
+}
+
+// เรียงยางในคันตามตำแหน่งจริงบนรถ หน้า → หลัง → หาง (F1 F2 · RA1…RA8 · RB1…RB13)
+// ไม่เรียงตาม % เพราะเวลาเดินดูรถหรือสั่งงานช่าง คนไล่ทีละเพลา ไม่ได้ไล่ตามตัวเลข
+const AXLE_ORDER: Record<string, number> = { F: 0, RA: 1, RB: 2 }
+
+function positionOrder(tirePosition: string): number {
+  const { code } = splitPosition(tirePosition)
+  const m = code.match(/^([A-Z]+)(\d+)$/)
+  if (!m) return 9_999
+  return (AXLE_ORDER[m[1]] ?? 8) * 100 + Number(m[2])
 }
 
 // มุมมองรายคัน — คนวางแผนคิดเป็น "คัน" ไม่ใช่ "เส้น": รถคันนี้ต้องเข้าอู่ไหม เปลี่ยนกี่เส้น
@@ -162,6 +174,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       else if (r.level === "warn") g.warn++
       if ((r.usedPct ?? 0) > g.maxPct) g.maxPct = r.usedPct ?? 0
     }
+    for (const g of m.values()) g.rows.sort((a, b) => positionOrder(a.tirePosition) - positionOrder(b.tirePosition))
     return [...m.values()].sort(
       (a, b) => b.over - a.over || b.due - a.due || b.maxPct - a.maxPct || a.plate.localeCompare(b.plate, "th"),
     )
