@@ -8,7 +8,8 @@ import type { Db } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import {
   dueLevel, monthRange, normalizePlateForGps, normalizeProductKey,
-  sumMonthlyDistance, isTrailerUnit, isSpareTire, isNotATire, type DistanceSource, type DueLevel,
+  sumMonthlyDistance, isTrailerUnit, isSpareTire, isNotATire, isIgnoredPlate,
+  type DistanceSource, type DueLevel,
 } from "@/lib/tire-due"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -142,7 +143,7 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
     const tires = (await db.collection("tire_change")
       .find({ isLatest: true, vehicle: { $nin: ["", null] } })
       .project({ branch: 1, vehicle: 1, tirePosition: 1, product: 1, serialNo: 1, changeIn: 1 })
-      .toArray()).filter((t) => !isNotATire(String(t.product ?? "")))
+      .toArray()).filter((t) => !isNotATire(String(t.product ?? "")) && !isIgnoredPlate(t.vehicle as string))
 
     const dated = tires.filter((t) => t.changeIn && !isNaN(new Date(t.changeIn).getTime()))
     const oldest = dated.reduce(
