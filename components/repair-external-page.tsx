@@ -45,6 +45,8 @@ type Mode = "active" | "done"
 // สถานะที่เลือกได้ในตัวกรอง (ตัดสถานะปิดงานออก) — แยกต่อประเภทงาน
 const ACTIVE_STATUSES       = REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS)
 const PARTS_ACTIVE_STATUSES = PARTS_STATUSES.filter((s) => s.value !== PARTS_DONE_STATUS)
+// รถซ่อมเสร็จแล้วแต่ยังไม่ได้เปิด PR — กลุ่มที่ต้องไล่ตามเป็นประจำ จึงมีปุ่มคัดลอกรายชื่อของตัวเอง
+const DONE_NO_PR_STATUS = "รถเสร็จ(ไม่มี PR)"
 
 // สีทึบต่อสถานะ (progress bar + accent การ์ด kanban)
 const BAR_COLORS: Record<string, string> = {
@@ -797,6 +799,51 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     )
   }
 
+  // คัดลอกรายชื่อรถที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ส่งไลน์ให้ไปเปิด PR)
+  // ยิง API ใหม่ทุกครั้ง ไม่อ่านจาก rows บนจอ — rows ถูกกรองมาจากเซิร์ฟเวอร์ตามตัวกรองที่ตั้งค้างไว้
+  // ถ้าตอนนั้นกรองสถานะอื่นอยู่จะได้ 0 คัน ทั้งที่การ์ดข้าง ๆ ยังโชว์จำนวนจริง
+  async function copyDoneNoPr() {
+    if (typeof window === "undefined") return
+    let list: RepairExternal[] = []
+    try {
+      const p   = new URLSearchParams({ scope: "active", status: DONE_NO_PR_STATUS })
+      const res = await fetch(`/api/repair-external?${p.toString()}`)
+      const d   = await res.json()
+      list = Array.isArray(d) ? d : []
+    } catch { swalError("โหลดข้อมูลไม่สำเร็จ"); return }
+    if (!list.length) { swalToast("success", `ตอนนี้ไม่มี${DONE_NO_PR_STATUS} 🎉`); return }
+
+    const ages = list.map((r) => ageDays(jobStartDate(r))).filter((d): d is number => d !== null)
+    const avg  = ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : 0
+    const lines: string[] = [
+      `${statusMeta(DONE_NO_PR_STATUS).emoji} ${DONE_NO_PR_STATUS} — ${list.length} คัน (เฉลี่ย ${avg} วัน)`,
+      "━━━━━━━━━━━━━━",
+    ]
+    list.forEach((r, i) => {
+      const sla = slaInfo(r)
+      const age = ageDays(jobStartDate(r))
+      lines.push(`${i + 1}. 🚚 ${r.plate || "-"}${r.fleetNo ? ` (${r.fleetNo})` : ""}${r.fleet ? ` · ${r.fleet}` : ""}`)
+      // อาการพิมพ์ขึ้นบรรทัดใหม่ได้ — ยุบเป็นบรรทัดเดียว ไม่งั้นเลขลำดับในไลน์เหลื่อมกันทั้งก้อน
+      if (r.symptom) lines.push(`   🔧 ${r.symptom.replace(/\s*\n+\s*/g, " / ")}`)
+      const meta: string[] = []
+      if (r.garage) meta.push(`🏭 ${r.garage}`)
+      if (age !== null) meta.push(`🕐 ${age} วัน`)
+      if (r.dueDate) meta.push(`📅 ${fmtDateShort(r.dueDate)}`)
+      if (sla?.over) meta.push(`⏱️ รอ PR ค้าง ${sla.hours} ชม. (เกิน 24 ชม.)`)
+      if (meta.length) lines.push(`   ${meta.join("  ")}`)
+      const doc: string[] = []
+      if (r.prCode) doc.push(`PR ${r.prCode}`)
+      else doc.push("⚠ ยังไม่มี PR")
+      if (r.poCode) doc.push(`PO ${r.poCode}`)
+      if (r.repairPrice > 0) doc.push(`💰 ${fmtNum(r.repairPrice)}`)
+      if (doc.length) lines.push(`   ${doc.join("  ")}`)
+    })
+    navigator.clipboard?.writeText(lines.join("\n")).then(
+      () => swalToast("success", `คัดลอก ${DONE_NO_PR_STATUS} (${list.length} คัน) แล้ว`),
+      () => swalError("คัดลอกไม่สำเร็จ"),
+    )
+  }
+
   // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ใช้ข้อมูลรถจอดจริง (fleet) + ATMS ถ้าดึงได้
   // 🔴 = รถจอดจริงแล้วแต่ WMS ยัง "รอประเมินการซ่อม" · 🟢 = WMS ว่ายังซ่อมแต่รถไม่จอดแล้ว · 🆕 = งาน ATMS ที่ยังไม่มีในระบบ
   async function copyFollowUpReal(): Promise<boolean> {
@@ -1496,6 +1543,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
               >
                 <Copy size={12} /> คัดลอกสรุป
+              </button>
+              <button
+                onClick={copyDoneNoPr}
+                title="คัดลอกรายชื่อรถที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR ทั้งหมด (ส่งไลน์) — ไม่ขึ้นกับตัวกรองที่เลือกอยู่"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
+              >
+                <Copy size={12} /> คัดลอก {DONE_NO_PR_STATUS}
+                <span className="opacity-70">{stats.counts[DONE_NO_PR_STATUS] || 0} คัน</span>
               </button>
               <button
                 onClick={copyFollowUp}
