@@ -115,13 +115,18 @@ export function truckStepMeta(truck: Pick<HandoverTruck, "job" | "readyBucket" |
   return stepMetaFromLabel(truck.job?.step ?? "")
 }
 
-/** chip รหัสสถานะรถใน ATMS — วร/ว/วA (รถว่าง) กับ B (ซ่อมไม่มีพจส.ประจำ) เอาไปส่งมอบคนใหม่ได้ */
+/** รหัสสถานะรถที่ "ไม่มีพจส.ประจำผูกอยู่" — ใช้เป็นปุ่มลัดกรองในโมดัลเลือกรถ */
+export const FREE_SUB_STATUSES = ["วA", "วซ", "วร", "ว"] as const
+
+/** chip รหัสสถานะรถใน ATMS — วร/ว/วA/วซ (รถว่าง) กับ B (ซ่อมไม่มีพจส.ประจำ) เอาไปส่งมอบคนใหม่ได้ */
 export function subStatusMeta(code: string, label: string) {
   const c = code.trim().toUpperCase()
   if (c === "วร" || c === "ว")
     return { code: code.trim(), label: label || "รถว่างรอสรรหา", cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300" }
   if (c === "วA")
     return { code: code.trim(), label: label || "รถว่างรอดำเนินการ", cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300" }
+  if (c === "วซ")
+    return { code: code.trim(), label: label || "รถว่างรอซ่อม", cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300" }
   if (c === "B")
     return { code: code.trim(), label: label || "รถซ่อมไม่มีพจส.ประจำ", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" }
   if (c === "BA")
@@ -136,10 +141,11 @@ export function subStatusRank(code: string): number {
   const c = code.trim().toUpperCase()
   if (c === "วร" || c === "ว") return 0 // ว่างรอสรรหา — รอคนขับอยู่พอดี
   if (c === "วA") return 1              // ว่างรอดำเนินการ — ไม่ติดงานซ่อม
-  if (c === "B") return 2
-  if (c === "BY") return 3
-  if (c === "BA") return 4
-  return 5 // อ / อื่น ๆ
+  if (c === "วซ") return 2              // ว่างรอซ่อม — ไม่มีพจส.ประจำ แต่ยังไม่ได้เริ่มซ่อม
+  if (c === "B") return 3
+  if (c === "BY") return 4
+  if (c === "BA") return 5
+  return 6 // อ / อื่น ๆ
 }
 
 /** label คอลัมน์ของ Fleet Balance matrix */

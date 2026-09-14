@@ -12,7 +12,7 @@ import { swalToast, swalError } from "@/lib/swal"
 import {
   type HandoverData, type HandoverDriver, type HandoverTruck,
   ACTIVE_STATUSES, EDITABLE_STATUSES, driverStatusMeta, truckStepMeta, stepMetaFromLabel, bucketLabel,
-  subStatusMeta, subStatusRank,
+  subStatusMeta, subStatusRank, FREE_SUB_STATUSES,
 } from "@/lib/driver-handover-meta"
 
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
@@ -26,6 +26,9 @@ function mondayIso(iso: string): string {
 }
 
 const isActive = (st: string) => (ACTIVE_STATUSES as readonly string[]).includes(st)
+
+/** รหัสสถานะรถสำหรับกรอง/นับ — รถที่ไม่มีรหัสใน ATMS รวมเป็นกลุ่ม "—" */
+const subCode = (s: string) => s.trim() || "—"
 
 /* ---------- ช่วงเวลาแบบ BA: 4 ช่วงคงที่ + ติดปัญหา ---------- */
 const PERIODS = ["now", "w0", "w1", "later"] as const
@@ -140,6 +143,7 @@ export function DriverHandoverPage() {
 
   const [pickFor, setPickFor] = useState<HandoverDriver | null>(null) // เปิด modal เลือกรถ
   const [pickAllFleet, setPickAllFleet] = useState(false)
+  const [pickSubs, setPickSubs] = useState<Set<string>>(new Set()) // กรองรหัสสถานะรถในโมดัล — เซ็ตว่าง = ดูทุกสถานะ
   const [statusFor, setStatusFor] = useState<HandoverDriver | null>(null) // เปิด modal อัปเดตสถานะ
   const [timelineFor, setTimelineFor] = useState<{ plate: string; label: string } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -156,6 +160,8 @@ export function DriverHandoverPage() {
       .finally(() => setLoading(false))
   }, [])
   useEffect(() => { load() }, [load])
+  // เปิดโมดัลให้คนใหม่ = เริ่มจากดูทุกสถานะเสมอ
+  useEffect(() => { setPickSubs(new Set()) }, [pickFor])
 
   const drivers = data?.drivers ?? []
   const trucks = data?.trucks ?? []
@@ -309,7 +315,8 @@ export function DriverHandoverPage() {
   }, [drivers])
 
   /* ---------- รถใน modal เลือกรถ ---------- */
-  const pickerTrucks = useMemo(() => {
+  // ลิสต์ก่อนกรองรหัสสถานะ — ใช้นับเลขบน chip ให้คงที่ ไม่เปลี่ยนตามที่ติ๊กไว้
+  const pickerBase = useMemo(() => {
     if (!pickFor) return []
     let list = trucks.filter((t) => !t.forSale)
     if (!pickAllFleet) list = list.filter((t) => t.fleetKey === pickFor.fleetKey)
@@ -325,6 +332,35 @@ export function DriverHandoverPage() {
       return b.parkedDays - a.parkedDays
     })
   }, [pickFor, pickAllFleet, trucks])
+
+  // รหัสสถานะที่มีรถจริงในลิสต์ + จำนวน — เรียงแบบเดียวกับลิสต์ (รถว่างมาก่อน)
+  const pickerSubCounts = useMemo(() => {
+    const m = new Map<string, { n: number; label: string }>()
+    for (const t of pickerBase) {
+      const code = subCode(t.subStatus)
+      const cur = m.get(code)
+      if (cur) cur.n += 1
+      else m.set(code, { n: 1, label: t.subStatusLabel || subStatusMeta(t.subStatus, "").label })
+    }
+    return [...m].sort((a, b) => subStatusRank(a[0]) - subStatusRank(b[0]) || a[0].localeCompare(b[0]))
+  }, [pickerBase])
+
+  const pickerTrucks = useMemo(
+    () => (pickSubs.size ? pickerBase.filter((t) => pickSubs.has(subCode(t.subStatus))) : pickerBase),
+    [pickerBase, pickSubs])
+
+  const toggleSub = (code: string) =>
+    setPickSubs((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+
+  // ปุ่มลัด "รถว่าง" — ติ๊กเฉพาะรหัสรถว่างที่มีอยู่จริงในลิสต์
+  const freeSubsPresent = useMemo(
+    () => pickerSubCounts.map(([c]) => c).filter((c) => (FREE_SUB_STATUSES as readonly string[]).includes(c)),
+    [pickerSubCounts])
 
   /* ---------- actions ---------- */
   const doAssign = async (t: HandoverTruck) => {
@@ -756,8 +792,43 @@ export function DriverHandoverPage() {
               แสดงทุกฟลีท (ข้ามฟลีทต้องยืนยันเอง)
             </label>
           </div>
+          {pickerSubCounts.length > 1 && (
+            <div className="mb-3 flex flex-wrap items-center gap-1.5 border-t border-[#F1F5F2] pt-2.5 dark:border-white/5">
+              <span className="text-[11px] text-[#9AA8A0] dark:text-white/40">สถานะรถ:</span>
+              {pickerSubCounts.map(([code, { n, label }]) => {
+                const ss = subStatusMeta(code, label)
+                const on = pickSubs.has(code)
+                const dim = pickSubs.size > 0 && !on
+                return (
+                  <button key={code} type="button" onClick={() => toggleSub(code)} title={ss.label || code}
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-bold transition ${dim
+                      ? "bg-[#F4F6F5] text-[#9AA8A0] dark:bg-white/5 dark:text-white/30"
+                      : `${ss.cls} ${on ? "ring-1 ring-[#1B8C4B] dark:ring-emerald-300/60" : ""}`}`}>
+                    {code} {n}
+                  </button>
+                )
+              })}
+              {freeSubsPresent.length > 0 && (
+                <button type="button" onClick={() => setPickSubs(new Set(freeSubsPresent))}
+                  title={`เฉพาะรถว่าง (${FREE_SUB_STATUSES.join("/")})`}
+                  className="rounded-full border border-[#1B8C4B]/30 px-2 py-0.5 text-[11px] font-semibold text-[#1B8C4B] hover:bg-[#1B8C4B]/10 dark:border-emerald-300/30 dark:text-emerald-300">
+                  รถว่าง
+                </button>
+              )}
+              {pickSubs.size > 0 && (
+                <button type="button" onClick={() => setPickSubs(new Set())}
+                  className="rounded-full border border-[#E4EAE7] px-2 py-0.5 text-[11px] font-semibold text-[#6B7C72] hover:bg-[#F4F6F5] dark:border-white/10 dark:text-white/60 dark:hover:bg-white/5">
+                  ทั้งหมด
+                </button>
+              )}
+            </div>
+          )}
           {pickerTrucks.length === 0 && (
-            <div className="py-8 text-center text-[13px] text-[#9AA8A0]">ไม่มีรถของฟลีท {pickFor.fleetKey} ในรายการรถจอด — ลองติ๊ก “แสดงทุกฟลีท”</div>
+            <div className="py-8 text-center text-[13px] text-[#9AA8A0]">
+              {pickSubs.size > 0 && pickerBase.length > 0
+                ? "ไม่มีรถตรงสถานะที่เลือก — กด “ทั้งหมด” เพื่อดูทุกสถานะ"
+                : `ไม่มีรถของฟลีท ${pickFor.fleetKey} ในรายการรถจอด — ลองติ๊ก “แสดงทุกฟลีท”`}
+            </div>
           )}
           <div className="space-y-2">
             {pickerTrucks.map((t) => {

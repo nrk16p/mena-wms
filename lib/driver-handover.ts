@@ -39,9 +39,10 @@ const CUSTOMER_MAP: Record<string, string> = {
 
 /** รถว่าง (status_id 3) — เอาเฉพาะ sub-status ที่ไม่มีพจส.ประจำผูกอยู่ จึงส่งมอบให้คนใหม่ได้
  *  วA = รถว่างรอดำเนินการ, วร/ว = รถว่างรอสรรหา
+ *  วซ (ว่างรอซ่อม) ปกติ ATMS จัดไว้ใต้ status_id 2 (รถซ่อม) ซึ่งดึงมาทั้งก้อนอยู่แล้ว — ใส่ไว้ที่นี่กันวันที่ย้ายมา status 3
  *  ตัดทิ้ง: วล/วก/วป/วพ/วข/วส (พจส.ประจำแค่ลา รถยังมีเจ้าของ), X (ตกคิว/วันหยุด), วภ (รอต่อภาษี), วฝ (ฝึกงาน) */
 const IDLE_STATUS_ID = 3
-const IDLE_FREE_SUB = new Set(["วA", "วร", "ว"])
+const IDLE_FREE_SUB = new Set(["วA", "วซ", "วร", "ว"])
 
 /** เทียบเบอร์รถแบบไม่สนช่องว่าง เช่น "ME 127" = "ME127" */
 export const normTruckNum = (s: string) => s.toUpperCase().replace(/\s+/g, "")
