@@ -6,6 +6,11 @@ import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 
 type TireSpec = {
   _id: string
+  /** ว่าง = สเปคกลางใช้ทุกสาขา · มีค่า = ใช้เฉพาะสาขานั้น (ทับสเปคกลาง) */
+  branch?: string
+  /** ระยะกำหนดแยกล้อหน้า/หลัง — ล้อหน้าเป็นล้อบังคับเลี้ยว สึกเร็วกว่าราวเท่าตัว */
+  distanceFront?: number
+  distanceRear?: number
   brand: string
   tireSize: string
   tireModel: string
@@ -19,10 +24,11 @@ type TireSpec = {
 }
 
 // ฟอร์มแก้ได้เฉพาะ 6 ช่องนี้ — needsReview/tires เป็นข้อมูลที่ระบบคำนวณให้ ไม่ใช่ช่องกรอก
-type SpecForm = Pick<TireSpec, "brand" | "tireSize" | "tireModel" | "distance" | "productCode" | "productName">
+type SpecForm = Pick<TireSpec, "brand" | "tireSize" | "tireModel" | "distance" | "productCode" | "productName"> & { branch: string; distanceFront: number | string; distanceRear: number | string }
 
 const EMPTY: SpecForm = {
   brand: "", tireSize: "", tireModel: "", distance: 0, productCode: "", productName: "",
+  branch: "", distanceFront: "", distanceRear: "",
 }
 
 const fmtInt = (n: number) => (n ?? 0).toLocaleString("th-TH")
@@ -59,7 +65,9 @@ export function TireSpecMasterPage() {
 
   function openEdit(s: TireSpec) {
     setEditId(s._id)
-    setForm({ brand: s.brand, tireSize: s.tireSize, tireModel: s.tireModel, distance: s.distance, productCode: s.productCode, productName: s.productName })
+    setForm({ brand: s.brand, tireSize: s.tireSize, tireModel: s.tireModel, distance: s.distance,
+              productCode: s.productCode, productName: s.productName, branch: s.branch ?? "",
+              distanceFront: s.distanceFront || "", distanceRear: s.distanceRear || "" })
     setShowForm(true)
   }
 
@@ -72,7 +80,9 @@ export function TireSpecMasterPage() {
       method,
       headers: { "Content-Type": "application/json" },
       // คนกดบันทึกเอง = ยืนยันตัวเลขแล้ว ป้าย "รอยืนยัน" ต้องหายไป
-      body: JSON.stringify({ ...form, distance: Number(form.distance), needsReview: false }),
+      body: JSON.stringify({ ...form, distance: Number(form.distance) || 0,
+        distanceFront: Number(form.distanceFront) || 0, distanceRear: Number(form.distanceRear) || 0,
+        needsReview: false }),
     })
     setSaving(false)
     if (!res.ok) {
@@ -98,6 +108,9 @@ export function TireSpecMasterPage() {
     { key: "tireSize",    label: "ขนาดยาง *",          placeholder: "295/80R22.5" },
     { key: "tireModel",   label: "รุ่นยาง *",           placeholder: "R249" },
     { key: "distance",    label: "ระยะทาง (กม.) *",    placeholder: "120000", type: "number" },
+    { key: "distanceFront", label: "ระยะล้อหน้า (กม.)", placeholder: "20000", type: "number" },
+    { key: "distanceRear",  label: "ระยะล้อหลัง (กม.)", placeholder: "40000", type: "number" },
+    { key: "branch",      label: "เฉพาะสาขา",          placeholder: "latkrabang / saraburi (ว่าง = ทุกสาขา)" },
     { key: "productCode", label: "รหัสสินค้า",          placeholder: "BS-R249-29580" },
     { key: "productName", label: "ชื่อสินค้า",          placeholder: "Bridgestone R249 295/80R22.5" },
   ]
@@ -171,10 +184,12 @@ export function TireSpecMasterPage() {
             <thead>
               <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/3">
                 <th className={th + " text-right"}>ใช้อยู่</th>
+                <th className={th}>สาขา</th>
                 <th className={th}>ยี่ห้อ</th>
                 <th className={th}>ขนาดยาง</th>
                 <th className={th}>รุ่นยาง</th>
                 <th className={th + " text-right"}>ระยะทาง (กม.)</th>
+                <th className={th + " text-right"}>หน้า / หลัง</th>
                 <th className={th}>รหัสสินค้า</th>
                 <th className={th}>ชื่อสินค้า</th>
                 <th className="px-3 py-2.5 w-20"></th>
@@ -182,12 +197,19 @@ export function TireSpecMasterPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">กำลังโหลด...</td></tr>
               ) : specs.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">ยังไม่มีสเปค — กด &quot;เพิ่มสเปค&quot; เพื่อเริ่มต้น</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">ยังไม่มีสเปค — กด &quot;เพิ่มสเปค&quot; เพื่อเริ่มต้น</td></tr>
               ) : shown.map((s, i) => (
                 <tr key={s._id} className={`border-b border-gray-100 dark:border-white/5 ${i % 2 === 1 ? "bg-gray-50/50 dark:bg-white/1" : ""}`}>
                   <td className={td + " text-right font-mono text-gray-500 dark:text-gray-400"}>{s.tires ? fmtInt(s.tires) : "—"}</td>
+                  <td className={td}>
+                    {s.branch
+                      ? <span className="rounded bg-[#1B8C4B]/10 px-1.5 py-0.5 text-[10.5px] font-medium text-[#1B8C4B]">
+                          {s.branch === "latkrabang" ? "ลาดกระบัง" : s.branch === "saraburi" ? "สระบุรี" : s.branch}
+                        </span>
+                      : <span className="text-[11px] text-gray-400">ทุกสาขา</span>}
+                  </td>
                   <td className={td + " font-medium"}>{s.brand}</td>
                   <td className={td + " font-mono"}>{s.tireSize}</td>
                   <td className={td}>{s.tireModel}</td>
@@ -198,6 +220,11 @@ export function TireSpecMasterPage() {
                         รอยืนยัน
                       </span>
                     )}
+                  </td>
+                  <td className={td + " text-right font-mono text-[12px] text-gray-500 dark:text-gray-400"}>
+                    {s.distanceFront || s.distanceRear
+                      ? `${s.distanceFront ? fmtInt(s.distanceFront) : "—"} / ${s.distanceRear ? fmtInt(s.distanceRear) : "—"}`
+                      : "—"}
                   </td>
                   <td className={td + " text-gray-500 dark:text-gray-400"}>{s.productCode || "—"}</td>
                   <td className={td}>{s.productName || "—"}</td>

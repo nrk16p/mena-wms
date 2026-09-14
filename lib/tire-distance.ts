@@ -8,7 +8,7 @@ import type { Db } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import {
   dueLevel, monthRange, normalizePlateForGps, normalizeProductKey,
-  sumMonthlyDistance, isTrailerUnit, isSpareTire, isNotATire, isIgnoredPlate,
+  sumMonthlyDistance, isTrailerUnit, isSpareTire, isNotATire, isIgnoredPlate, isFrontTire,
   type DistanceSource, type DueLevel,
 } from "@/lib/tire-due"
 
@@ -152,11 +152,26 @@ async function fetchTripMonthly(db: Db): Promise<Map<string, Map<string, number>
 }
 
 // ── ระยะทางที่กำหนดต่อเส้น ────────────────────────────────────────────────
-// ลำดับ: ค่าที่ตั้งไว้ราย serial ใน stock → สเปคที่จับคู่ด้วยชื่อสินค้า → สเปคที่จับคู่ด้วย ยี่ห้อ+ขนาด+รุ่น
+// ระยะกำหนดของฟลีตขึ้นกับ 3 อย่าง: สาขา · รุ่นยาง · ตำแหน่งล้อ (หน้า/หลัง)
+// เช่นลาดกระบัง ผ้าใบ 1000-20 = ล้อหน้า 20,000 / ล้อหลัง 40,000 ส่วนสาขาอื่นอาจใช้เกณฑ์คนละชุด
+//
+// ลำดับการหา: สเปคของสาขานั้นตามชื่อสินค้า → สเปคกลาง (ไม่ระบุสาขา) ตามชื่อสินค้า
+//            → สเปคกลางตาม ยี่ห้อ+ขนาด+รุ่น → ค่าที่ตั้งไว้ราย serial ใน stock
+type SpecEntry = { front: number; rear: number }
 type SpecLookup = {
-  byProduct: Map<string, number>
-  byModel:   Map<string, number>
-  byStock:   Map<string, number>
+  byBranchProduct: Map<string, SpecEntry>   // `${branch}|${ชื่อสินค้า}`
+  byProduct:       Map<string, SpecEntry>
+  byModel:         Map<string, SpecEntry>
+  byStock:         Map<string, number>
+}
+
+// แถวสเปคหนึ่งแถวอาจตั้งแยกหน้า/หลัง หรือตั้งค่าเดียวใช้ทั้งคัน (distance เดิม)
+function specEntry(s: Record<string, unknown>): SpecEntry | null {
+  const flat  = Number(s.distance) || 0
+  const front = Number(s.distanceFront) || flat
+  const rear  = Number(s.distanceRear)  || flat
+  if (front <= 0 && rear <= 0) return null
+  return { front: front || rear, rear: rear || front }
 }
 
 async function loadSpecs(db: Db, serials: string[]): Promise<SpecLookup> {
@@ -170,21 +185,26 @@ async function loadSpecs(db: Db, serials: string[]): Promise<SpecLookup> {
       : Promise.resolve([]),
   ])
 
-  const byProduct = new Map<string, number>()
-  const byModel   = new Map<string, number>()
+  const byBranchProduct = new Map<string, SpecEntry>()
+  const byProduct       = new Map<string, SpecEntry>()
+  const byModel         = new Map<string, SpecEntry>()
   for (const s of specs) {
-    const km = Number(s.distance) || 0
-    if (km <= 0) continue
-    const pk = normalizeProductKey(s.productName)
-    if (pk) byProduct.set(pk, km)
-    const mk = normalizeProductKey(`${s.brand}|${s.tireSize}|${s.tireModel}`)
-    if (mk) byModel.set(mk, km)
+    const entry = specEntry(s)
+    if (!entry) continue
+    const branch = String(s.branch ?? "").trim()
+    const pk     = normalizeProductKey(s.productName)
+    if (pk && branch) byBranchProduct.set(`${branch}|${pk}`, entry)
+    else if (pk)      byProduct.set(pk, entry)
+    if (!branch) {
+      const mk = normalizeProductKey(`${s.brand}|${s.tireSize}|${s.tireModel}`)
+      if (mk) byModel.set(mk, entry)
+    }
   }
 
   const byStock = new Map<string, number>()
   for (const s of stock) byStock.set(String(s.serialNo).trim(), Number(s.distance) || 0)
 
-  return { byProduct, byModel, byStock }
+  return { byBranchProduct, byProduct, byModel, byStock }
 }
 
 // ── เบอร์รถ / ประเภทรถ ────────────────────────────────────────────────────
@@ -323,14 +343,18 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
       // ยางที่เปลี่ยนก่อนวันที่ต้นทางมีข้อมูล = ระยะที่ได้ต่ำกว่าจริง ต้องบอกผู้ใช้ ไม่ใช่เงียบ
       const partial    = !!validDate && source !== "none" && changeIn!.getTime() < from
 
-      const specDistance =
-        specs.byStock.get(serialNo) ??
-        specs.byProduct.get(normalizeProductKey(product)) ??
-        specs.byModel.get(normalizeProductKey(product)) ?? 0
+      // ระยะกำหนด: สาขานี้ตั้งไว้เองไหม → ไม่มีก็ใช้สเปคกลาง → แล้วค่อยลองจับด้วย ยี่ห้อ+ขนาด+รุ่น
+      const branch  = String(t.branch ?? "").trim()
+      const pk      = normalizeProductKey(product)
+      const front   = isFrontTire(position)
+      const entry   = specs.byBranchProduct.get(`${branch}|${pk}`) ?? specs.byProduct.get(pk) ?? specs.byModel.get(pk)
+      const stockKm = specs.byStock.get(serialNo) ?? 0
+      const specDistance = entry ? (front ? entry.front : entry.rear) : stockKm
       const specSource =
-        specs.byStock.has(serialNo) ? "stock"
-        : specs.byProduct.has(normalizeProductKey(product)) ? "spec-name"
-        : specDistance > 0 ? "spec-model" : "none"
+        specs.byBranchProduct.has(`${branch}|${pk}`) ? "spec-branch"
+        : specs.byProduct.has(pk) ? "spec-name"
+        : specs.byModel.has(pk)   ? "spec-model"
+        : stockKm > 0             ? "stock" : "none"
 
       const canCompute = validDate && source !== "none"
       const usedPct    = canCompute && specDistance > 0 ? Math.round((kmUsed / specDistance) * 100) : null
@@ -346,14 +370,14 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
           filter: { plate, serialNo, tirePosition: position },
           update: {
             $set: {
-              branch: String(t.branch ?? ""), plate, serialNo, tirePosition: position, product,
+              branch, plate, serialNo, tirePosition: position, product,
               unit: trailer ? "trailer" : "head",
               isSpare: spare,
               fleetNo:     vehicles.get(plate)?.fleetNo ?? "",
               vehicleType: vehicles.get(plate)?.vehicleType ?? "",
               changeIn: validDate ? changeIn : null,
               kmUsed, source, partial,
-              specDistance, specSource, usedPct, level,
+              specDistance, specSource, specAxle: front ? "front" : "rear", usedPct, level,
               dataThrough: source === "gps" ? gpsThrough : now,
               computedAt: runAt,
             },

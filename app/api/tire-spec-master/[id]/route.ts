@@ -11,9 +11,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const brand     = String(body.brand     ?? "").trim()
   const tireSize  = String(body.tireSize  ?? "").trim()
   const tireModel = String(body.tireModel ?? "").trim()
-  const distance  = Number(body.distance) || 0
+  const distance      = Number(body.distance) || 0
+  const distanceFront = Number(body.distanceFront) || 0
+  const distanceRear  = Number(body.distanceRear)  || 0
+  const branch        = String(body.branch ?? "").trim()
 
-  if (!brand || !tireSize || !tireModel || distance <= 0)
+  if (!brand || !tireSize || !tireModel || (distance <= 0 && distanceFront <= 0 && distanceRear <= 0))
     return NextResponse.json({ error: "ข้อมูลไม่ครบ" }, { status: 400 })
 
   let oid: ObjectId
@@ -23,7 +26,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const col    = client.db(DB).collection(COLL)
 
   const update = {
-    brand, tireSize, tireModel, distance,
+    brand, tireSize, tireModel, branch,
+    distance: distance || distanceRear || distanceFront,
+    distanceFront, distanceRear,
     productCode: String(body.productCode ?? "").trim(),
     productName: String(body.productName ?? "").trim(),
     // แถวที่ระบบเติมระยะให้อัตโนมัติติดธง needsReview ไว้ — คนกดบันทึกเมื่อไหร่ถือว่ายืนยันแล้ว

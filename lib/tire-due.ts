@@ -137,6 +137,11 @@ export function positionOrder(tirePosition: string): number {
   return (AXLE_ORDER[m[1]] ?? 8) * 100 + Number(m[2])
 }
 
+// ล้อหน้าเป็นล้อบังคับเลี้ยว สึกเร็วกว่าล้อหลังราวเท่าตัว — ระยะกำหนดของฟลีตจึงแยกหน้า/หลัง
+// (ผ้าใบ 1000-20 ที่ลาดกระบัง: ล้อหน้า 20,000 กม. · ล้อหลัง 40,000 กม.)
+export const isFrontTire = (tirePosition: string): boolean =>
+  /^F\s*\d/i.test(String(tirePosition ?? "").trim())
+
 // ยางอะไหล่ยังไม่ได้แตะถนน — ถ้าปล่อยเข้าสูตรจะโดนคิดระยะเท่ากับล้อที่วิ่งจริง
 // แล้วขึ้นเตือน "เกินกำหนด" ทั้งที่ยางยังใหม่ (พบ 38 เส้นตอนรันรอบแรก)
 export const isSpareTire = (tirePosition: string): boolean =>
