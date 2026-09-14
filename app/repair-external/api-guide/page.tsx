@@ -1,40 +1,7 @@
 import { Code2, Link2, Search, Filter, ListOrdered, FileJson, ShieldCheck, PencilLine } from "lucide-react"
+import { CodeBlock, Param, Section } from "@/components/api-guide-ui"
 
 const BASE = "https://mena-wms.vercel.app"
-
-function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-[#EEF2F0] dark:border-white/8 bg-white dark:bg-[#151a10] p-5">
-      <h2 className="mb-3 flex items-center gap-2 text-[15px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1B8C4B]/10 text-[#1B8C4B]"><Icon size={16} /></span>
-        {title}
-      </h2>
-      <div className="space-y-2 text-[13px] leading-relaxed text-[#4B5F54] dark:text-gray-300">{children}</div>
-    </section>
-  )
-}
-
-function CodeBlock({ children }: { children: React.ReactNode }) {
-  return (
-    <pre className="overflow-x-auto rounded-xl bg-[#14271C] dark:bg-black/40 p-3.5 text-[12px] leading-relaxed text-[#c8e6d4]">
-      <code>{children}</code>
-    </pre>
-  )
-}
-
-function Param({ name, required, children }: { name: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <li className="flex items-start gap-2">
-      <code className="mt-0.5 shrink-0 rounded-md bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5 text-[12px] font-semibold text-[#1B8C4B]">{name}</code>
-      <span>
-        {required
-          ? <b className="mr-1 text-[#dc2626]">(จำเป็น)</b>
-          : <span className="mr-1 text-[#9AA8A0]">(ไม่บังคับ)</span>}
-        {children}
-      </span>
-    </li>
-  )
-}
 
 export default function Page() {
   return (

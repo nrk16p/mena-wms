@@ -49,7 +49,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Public read-only sync API + คู่มือ API สำหรับทีมภายนอก (ไม่ต้อง login / ไม่ต้องมี api key)
-  if (pathname === "/repair-external/api-guide") {
+  if (pathname === "/repair-external/api-guide" || pathname === "/tire/api-guide") {
     return NextResponse.next()
   }
   // sync API เปิด public ทุก method (อ่าน + เขียน) ตามการตัดสินใจของทีม 2026-08-06

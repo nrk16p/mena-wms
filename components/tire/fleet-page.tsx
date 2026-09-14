@@ -1,9 +1,10 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
+import Link from "next/link"
 import {
   Truck, Search, ArrowLeft, RefreshCw, History,
-  Check, X, Camera, ChevronDown, ChevronUp, CalendarClock, Gauge, ListChecks, MapPin, AlertTriangle,
+  Check, X, Camera, ChevronDown, ChevronUp, CalendarClock, Gauge, ListChecks, MapPin, AlertTriangle, Code2,
 } from "lucide-react"
 import Swal from "sweetalert2"
 import { swalToast, swalError } from "@/lib/swal"
@@ -208,6 +209,14 @@ export function TireFleetPage() {
       <div className="flex items-center gap-3 mb-1">
         <Truck size={20} className="text-[#1B8C4B]" />
         <h1 className="text-[22px] text-[#14271C] dark:text-white" style={fontHead}>ศูนย์จัดการยางรถ</h1>
+        {/* คู่มือ API — ส่งลิงก์นี้ให้ mobile dev ได้เลย หน้านั้นเปิดอ่านได้โดยไม่ต้อง login */}
+        <Link
+          href="/tire/api-guide"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] px-3 py-1.5 text-[12px] font-medium text-[#6B7C72] dark:text-gray-400 transition-colors hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
+          style={fontThai}
+        >
+          <Code2 size={13} /> API สำหรับแอป
+        </Link>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-5" style={fontThai}>
         {scope.only ? `รวมทุกคันของ${branchLabel(scope.only)}` : "รวมทุกคัน ทั้งลาดกระบังและสระบุรี"}
