@@ -160,11 +160,13 @@ const STAT_TONE: Record<StatTone, { dot: string; num: string; active: string }> 
   orange: { dot: "bg-orange-500",  num: "text-orange-600 dark:text-orange-400",   active: "border-orange-400/60 bg-orange-50 dark:border-orange-400/40 dark:bg-orange-500/10" },
 }
 
-export function StatCard({ label, value, tone = "slate", caption, active, onClick }: {
+export function StatCard({ label, value, tone = "slate", caption, sub, active, onClick }: {
   label:    string
   value:    string | number
   tone?:    StatTone
   caption?: string
+  /** บรรทัดคำอธิบายใต้ตัวเลข — ใช้เมื่อ caption ถูกใช้บอกหน่วยไปแล้ว */
+  sub?:     string
   active?:  boolean
   onClick?: () => void
 }) {
@@ -190,6 +192,7 @@ export function StatCard({ label, value, tone = "slate", caption, active, onClic
         <span className={`text-[20px] leading-none ${t.num}`} style={fontHead}>{value}</span>
         {caption && <span className="text-[10px] text-[#9AA8A0]" style={fontThai}>{caption}</span>}
       </span>
+      {sub && <span className="mt-1 block truncate text-[10px] text-[#9AA8A0]" style={fontThai}>{sub}</span>}
     </button>
   )
 }

@@ -60,6 +60,7 @@ type VehicleGroup = {
 }
 
 type Summary = Record<string, number>
+type Vehicles = { over: number; due: number; warn: number; alert: number }
 
 // กลุ่มที่กดดูได้ — 3 กลุ่มแรกคือของที่ต้องลงมือ ที่เหลือเป็นของที่ยังใช้ไม่ได้/ไม่เกี่ยว
 const GROUPS = [
@@ -81,6 +82,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
 }) {
   const [rows, setRows]       = useState<DueRow[]>([])
   const [summary, setSummary] = useState<Summary>({})
+  const [vehicles, setVehicles] = useState<Vehicles>({ over: 0, due: 0, warn: 0, alert: 0 })
   const [meta, setMeta]       = useState<{ computedAt: string | null; dataThrough: string | null }>({ computedAt: null, dataThrough: null })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy]       = useState(false)
@@ -104,6 +106,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       const d = await fetch(`/api/tire-due?${qs}`).then((r) => r.json())
       setRows(Array.isArray(d.items) ? d.items : [])
       setSummary(d.summary ?? {})
+      setVehicles(d.vehicles ?? { over: 0, due: 0, warn: 0, alert: 0 })
       setMeta({ computedAt: d.computedAt ?? null, dataThrough: d.dataThrough ?? null })
     } catch {
       setRows([])
@@ -201,12 +204,14 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       {/* การ์ดสรุป — คลิกเพื่อกรอง */}
       <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <StatCard
-          label="ต้องจัดการ" value={fmtNum(alertTotal)} tone="red" caption="เกิน + ถึงกำหนด"
+          label="ต้องจัดการ" value={fmtNum(alertTotal)} tone="red"
+          caption={`เส้น · ${fmtNum(vehicles.alert)} คัน`} sub="เกิน + ถึงกำหนด"
           active={group === "alert"} onClick={() => setGroup("alert")}
         />
         {GROUPS.map((g) => (
           <StatCard
-            key={g.key} label={g.label} value={fmtNum(summary[g.key] ?? 0)} tone={g.tone} caption={g.hint}
+            key={g.key} label={g.label} value={fmtNum(summary[g.key] ?? 0)} tone={g.tone}
+            caption={`เส้น · ${fmtNum(vehicles[g.key as keyof Vehicles] ?? 0)} คัน`} sub={g.hint}
             active={group === g.key} onClick={() => setGroup(g.key)}
           />
         ))}

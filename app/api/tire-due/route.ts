@@ -134,7 +134,14 @@ export async function GET(req: NextRequest) {
     : includeSnoozed    ? all(base, search, groupFilter)
     :                     all(base, search, groupFilter, notSnoozed)
 
-  const [items, counts, meta, snoozed] = await Promise.all([
+  // นับ "จำนวนคัน" ควบคู่กับจำนวนเส้น — คนวางแผนจัดคิวเข้าอู่คิดเป็นคัน ไม่ใช่เส้น
+  // ทำในคิวรีเดียวด้วย $addToSet แล้วรวมฝั่งเซิร์ฟเวอร์ ไม่ต้องยิง distinct ทีละกลุ่ม
+  const vehiclesByLevel = col.aggregate([
+    { $match: all(base, search, notSnoozed) },
+    { $group: { _id: "$level", plates: { $addToSet: "$plate" } } },
+  ]).toArray()
+
+  const [items, counts, meta, snoozed, levelPlates] = await Promise.all([
     countsOnly ? [] : col.find(listFilter).sort({ usedPct: -1, kmUsed: -1 }).limit(1000).toArray(),
     Promise.all(
       Object.entries(GROUP_FILTER).map(async ([key, f]) => {
@@ -146,11 +153,22 @@ export async function GET(req: NextRequest) {
     ),
     col.find({}).sort({ computedAt: -1 }).limit(1).project({ computedAt: 1, dataThrough: 1 }).next(),
     col.countDocuments(all(base, search, { snoozedUntil: { $gt: new Date() } })),
+    vehiclesByLevel,
   ])
+
+  const platesOf = (lv: string) => (levelPlates.find((r) => r._id === lv)?.plates ?? []) as string[]
+  const vehicles = {
+    over:  platesOf("over").length,
+    due:   platesOf("due").length,
+    warn:  platesOf("warn").length,
+    // รถคันเดียวมียางได้ทั้งเกินและถึงกำหนด — ต้องยุบซ้ำ ไม่ใช่บวกกันตรง ๆ
+    alert: new Set([...platesOf("over"), ...platesOf("due")]).size,
+  }
 
   return NextResponse.json({
     items,
     summary: { ...Object.fromEntries(counts), snoozed },
+    vehicles,
     computedAt:  meta?.computedAt  ?? null,
     dataThrough: meta?.dataThrough ?? null,
   })
