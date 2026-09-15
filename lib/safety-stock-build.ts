@@ -7,7 +7,8 @@ import { getDeadstock } from "@/lib/deadstock"
 import {
   aduFrom, sdDailyFrom, median, prCodeFromNote, leadTimeDaysBetween, derive, mergeWarehouseResults,
   LT_MIN_SAMPLES, LT_LOOKBACK_MONTHS, USAGE_LOOKBACK_MONTHS, DEFAULT_WINDOW, DEFAULT_Z, WAREHOUSES,
-  type SnapshotRow, type LeadTimeSource, type BuildSource,
+  RECEIPT_HISTORY_MAX,
+  type SnapshotRow, type LeadTimeSource, type BuildSource, type ReceiptEntry,
 } from "@/lib/safety-stock-core"
 import { fetchOnOrderBySku } from "@/lib/on-order"
 
@@ -52,7 +53,7 @@ function ymList(asOf: Date, n: number): string[] {
 }
 
 type IssueDoc = { _id: { i: string | null; m: string | null }; q: number | null; n: number | null }
-type RecvDoc = { i: string | null; d: Date | null; note: string | null; c: number | null; g: string | null }
+type RecvDoc = { i: string | null; d: Date | null; note: string | null; c: number | null; g: string | null; q: number | null }
 
 export async function buildSnapshotRows(
   inventoryId: string,
@@ -95,7 +96,9 @@ export async function buildSnapshotRows(
     .aggregate<RecvDoc>(
       [
         { $match: { inventory_id: inventoryId, year_month: { $gte: ltStartYm }, รับ: { $gt: 0 }, ...notLabour } },
-        { $project: { _id: 0, i: "$รหัสสินค้า", d: "$วันที่", note: "$หมายเหตุ", c: "$ราคาทุน", g: "$กลุ่มสินค้า" } },
+        // q (จำนวนที่รับ) ดึงมาเพื่อประวัติรับเข้ารายครั้งเท่านั้น สูตร lead time ไม่ได้ใช้ — เป็นฟิลด์ของแถว
+        // ที่อ่านอยู่แล้ว ไม่ได้เพิ่ม query ไม่ได้เปลี่ยนจำนวนแถวที่อ่าน
+        { $project: { _id: 0, i: "$รหัสสินค้า", d: "$วันที่", note: "$หมายเหตุ", c: "$ราคาทุน", g: "$กลุ่มสินค้า", q: "$รับ" } },
       ],
       { maxTimeMS: 60_000 }
     )
@@ -125,6 +128,9 @@ export async function buildSnapshotRows(
   // ลำดับที่ Mongo คืนมาจึงไม่ตรงกับ วันที่ จริง ต้องเทียบวันที่ฝั่ง client เอง
   // (ไม่เพิ่ม $sort ในฝั่ง aggregation เพื่อไม่เพิ่มภาระ Mongo)
   const costDateBySku = new Map<string, number>()
+  /** ประวัติรับเข้ารายรหัส — เติมระหว่างลูปด้านล่าง แล้วเรียงใหม่→เก่า/ตัดเพดานหลังลูปจบ
+   *  (เรียงทีเดียวตอนท้ายถูกกว่าการแทรกแบบรักษาลำดับทุกแถว) */
+  const recvBySku = new Map<string, ReceiptEntry[]>()
   let prMatched = 0
   let prMissed = 0
 
@@ -146,10 +152,29 @@ export async function buildSnapshotRows(
       }
     }
     const pr = prCodeFromNote(r.note)
+    const pd = pr ? prDate.get(pr) : undefined
+    const days = pr && pd && r.d ? leadTimeDaysBetween(pd, r.d) : null
+
+    // ประวัติรับเข้ารายครั้ง — เก็บทุกแถวที่ของเข้าจริง ไม่ใช่เฉพาะแถวที่จับคู่ PR ได้
+    // แถวที่จับคู่ไม่ได้ก็เป็นของเข้าคลังจริงที่คนตามของอยากเห็น แค่ไม่มีเลข PR/ไม่รู้ว่ารอกี่วัน
+    // (ถ้าเก็บเฉพาะแถวที่จับคู่ได้ จำนวนครั้งในประวัติจะน้อยกว่าของที่เข้าจริงโดยไม่มีคำอธิบาย)
+    if (r.d && (r.q ?? 0) > 0) {
+      const t = new Date(r.d)
+      if (!isNaN(t.getTime())) {
+        if (!recvBySku.has(code)) recvBySku.set(code, [])
+        recvBySku.get(code)!.push({
+          // แถว วันที่ เก็บเป็นเที่ยงคืน UTC อยู่แล้ว ตัดสตริง ISO จึงได้วันตรง ไม่ต้องแปลงโซนเวลา
+          date: t.toISOString().slice(0, 10),
+          qty: r.q as number,
+          prCode: pr ?? null,
+          cost: r.c ?? null,
+          leadDays: days,
+        })
+      }
+    }
+
     if (!pr) continue
-    const pd = prDate.get(pr)
     if (!pd) { prMissed++; continue }
-    const days = r.d ? leadTimeDaysBetween(pd, r.d) : null
     if (days === null) { prMissed++; continue }
     prMatched++
     if (!ltBySku.has(code)) ltBySku.set(code, [])
@@ -158,6 +183,12 @@ export async function buildSnapshotRows(
     if (!ltByGroup.has(g)) ltByGroup.set(g, [])
     ltByGroup.get(g)!.push(days)
     allLt.push(days)
+  }
+
+  // ใหม่→เก่า แล้วตัดเพดาน — คนเปิดดูสนใจครั้งล่าสุดก่อนเสมอ (ราคาทุน/เวลารอของล่าสุดคือตัวที่ใช้ตัดสินใจ)
+  for (const xs of recvBySku.values()) {
+    xs.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+    if (xs.length > RECEIPT_HISTORY_MAX) xs.length = RECEIPT_HISTORY_MAX
   }
 
   // ใช้ floor เดียวกับรายรหัส/รายกลุ่ม (LT_MIN_SAMPLES) — ตัวอย่างเดียวก็ยึดเป็นค่ากลางทั้งคลังไม่ได้
@@ -258,6 +289,8 @@ export async function buildSnapshotRows(
       value: Math.round(stockQty * cost * 100) / 100,
       // ไม่ใส่คีย์เลยเมื่อไม่มีของค้าง — ฝั่งเขียนจะ $unset ทิ้งให้ (ดู runSafetyStockBuild)
       ...(onOrderBySku.get(code) ? { onOrder: onOrderBySku.get(code) } : {}),
+      // เช่นเดียวกัน — ไม่ใส่คีย์เลยเมื่อ 24 เดือนที่ผ่านมาไม่มีของเข้า (ดู $unset ใน runSafetyStockBuild)
+      ...(recvBySku.get(code)?.length ? { receipts: recvBySku.get(code) } : {}),
     }
   })
 
@@ -348,9 +381,15 @@ export async function runSafetyStockBuild(
               // window switcher ฝั่ง client (derive(row, win) อ่าน r.adu[win]) จะพังเป็น NaN ทันที
               // onOrder ไม่มีในแถว = รอบนี้ไม่มีของค้างแล้ว ต้อง $unset ทิ้ง ไม่ใช่ปล่อยไว้เฉยๆ
               // ($set ที่ไม่มีคีย์นั้นจะไม่แตะค่าเดิม ของที่มาถึงแล้วจะค้างโชว์ว่า "กำลังมา" ตลอดไป)
-              update: r.onOrder
-                ? { $set: { ...derive(r, DEFAULT_WINDOW, DEFAULT_Z), ...r, updatedAt: syncedAt } }
-                : { $set: { ...derive(r, DEFAULT_WINDOW, DEFAULT_Z), ...r, updatedAt: syncedAt }, $unset: { onOrder: "" } },
+              // $unset เฉพาะคีย์ที่ "รอบนี้ไม่มี" — $set ที่ไม่มีคีย์นั้นจะไม่แตะค่าเดิม ของเก่าจะค้างโชว์ตลอดไป
+              // (onOrder = ของมาถึงแล้ว · receipts = ของเข้าครั้งสุดท้ายหลุดกรอบ 24 เดือนไปแล้ว)
+              update: (() => {
+                const $set = { ...derive(r, DEFAULT_WINDOW, DEFAULT_Z), ...r, updatedAt: syncedAt }
+                const gone: Record<string, ""> = {}
+                if (!r.onOrder) gone.onOrder = ""
+                if (!r.receipts) gone.receipts = ""
+                return Object.keys(gone).length ? { $set, $unset: gone } : { $set }
+              })(),
               upsert: true,
             },
           })),

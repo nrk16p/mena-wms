@@ -67,6 +67,9 @@ export async function getSafetyStock(
         // coveredByOrder ที่ build เก็บไว้เป็น false เสมอ (build ไม่ส่ง onOrder เข้า derive) — เบราว์เซอร์
         // คำนวณใหม่เองจาก row.onOrder อยู่แล้ว ส่งไปก็เปลืองเปล่าเหมือน 6 ตัวข้างล่าง
         safetyStock: 0, reorderPoint: 0, daysOfSupply: 0, status: 0, minVerdict: 0, suggestQty: 0, coveredByOrder: 0,
+        // ประวัติรับเข้า (สูงสุด 20 ครั้ง/รหัส) — ใหญ่เกินกว่าจะส่งมากับรายการทุกแถว ลาดกระบัง ~4,100 แถว
+        // ใกล้เพดาน response 4.5 MB ของ Vercel อยู่แล้ว · หน้าต่างรายละเอียดดึงทีละรหัสเองที่ /api/safety-stock/sku
+        receipts: 0,
       })
       .toArray() as unknown as Promise<SnapshotRow[]>,
     db.collection("safety_stock_sync_log").findOne({ trigger: "build" }),

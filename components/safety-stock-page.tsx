@@ -10,9 +10,9 @@ import { swalError, swalToast } from "@/lib/swal"
 import { bkkToday } from "@/lib/bkk-time"
 import {
   derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID, isCrossBranchPr,
-  DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS,
+  DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, RECEIPT_HISTORY_MAX,
   type SafetyStockPayload, type SnapshotRow, type WindowKey, type Status,
-  type Derived, type MinVerdict, type LeadTimeSource,
+  type Derived, type MinVerdict, type LeadTimeSource, type ReceiptEntry,
 } from "@/lib/safety-stock-core"
 
 // ── โทนสี/ฟอนต์ — ธีมเดียวกับ components/deadstock-pending-page.tsx (ไม่รองรับ dark mode ตามแบบเดิม) ──
@@ -284,6 +284,85 @@ function UsageMiniChart({ r, months }: { r: SnapshotRow; months: string[] }) {
   )
 }
 
+/** ประวัติรับเข้ารายครั้ง — หลักฐานเบื้องหลังบรรทัด "เวลารอของจริงที่วัดได้ N วัน (M ครั้ง)" ที่อยู่เหนือมัน
+ *  ค่ากลางตัวเดียวบอกไม่ได้ว่า M ครั้งนั้นเกาะกลุ่มที่ N วันจริง หรือมี 3 วันกับ 20 วันปนกันจนค่ากลางไม่มีความหมาย
+ *
+ *  ดึงตอนเปิดหน้าต่างเท่านั้น ไม่ได้มากับ payload รายการ (ดู /api/safety-stock/sku ว่าทำไม) — อ่าน 1 doc
+ *  ด้วย index ที่มีอยู่แล้ว ไม่แตะ stockmovement_v5 */
+function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId: string; unit: string }) {
+  const [rows, setRows] = useState<ReceiptEntry[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/safety-stock/sku?inventory=${inventoryId}&code=${encodeURIComponent(code)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { receipts: ReceiptEntry[] }) => { if (!cancelled) setRows(d.receipts ?? []) })
+      .catch(() => { if (!cancelled) setFailed(true) })
+    return () => { cancelled = true }
+  }, [code, inventoryId])
+
+  if (failed) return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>ดึงประวัติรับเข้าไม่สำเร็จ</p>
+  if (rows === null) return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>กำลังโหลดประวัติ...</p>
+  if (rows.length === 0) {
+    return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>ไม่มีของเข้าคลังในช่วง 24 เดือนที่ผ่านมา</p>
+  }
+
+  const COLLAPSED = 6
+  const shown = expanded ? rows : rows.slice(0, COLLAPSED)
+  const withLead = rows.filter((r) => r.leadDays !== null).length
+  const th: React.CSSProperties = { textAlign: "right", fontWeight: 600, color: "#6B7280", padding: "4px 6px", whiteSpace: "nowrap" }
+  const td: React.CSSProperties = { textAlign: "right", padding: "4px 6px", whiteSpace: "nowrap" }
+
+  return (
+    <>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #E5E7EB" }}>
+              <th style={{ ...th, textAlign: "left" }}>วันที่รับ</th>
+              <th style={{ ...th, textAlign: "left" }}>ใบ PR</th>
+              <th style={th}>จำนวน</th>
+              <th style={th}>ราคาทุน/{unit}</th>
+              <th style={th}>รอของ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r, i) => (
+              <tr key={`${r.date}-${r.prCode ?? ""}-${i}`} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                <td style={{ ...td, textAlign: "left" }}>{thaiDate(r.date)}</td>
+                <td style={{ ...td, textAlign: "left", color: r.prCode ? "#374151" : "#D1D5DB" }}>
+                  {r.prCode ?? "— ไม่มีเลข PR"}
+                </td>
+                <td style={td}>{num(r.qty)}</td>
+                <td style={td}>{r.cost == null ? "—" : baht(r.cost)}</td>
+                {/* แถวที่จับคู่ PR ไม่ได้ ไม่มีวันเปิดใบให้นับ — ต้องเว้นไว้ ไม่ใช่เติม 0 ซึ่งจะอ่านว่า "ได้ของวันเดียวกัน" */}
+                <td style={{ ...td, fontWeight: r.leadDays !== null ? 700 : 400, color: r.leadDays === null ? "#D1D5DB" : "#374151" }}>
+                  {r.leadDays === null ? "—" : `${r.leadDays} วัน`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+        {rows.length > COLLAPSED && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{ border: "none", background: "transparent", padding: 0, fontSize: 12, fontWeight: 700, color: "#1D4ED8", cursor: "pointer" }}
+          >
+            {expanded ? "ย่อลง" : `ดูทั้งหมด (${rows.length} ครั้ง)`}
+          </button>
+        )}
+        <span style={{ fontSize: 11, color: "#9CA3AF" }}>
+          เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุด · {withLead} ครั้งจับคู่ใบ PR ได้ (เฉพาะกลุ่มนี้ที่เข้าสูตรเวลารอของ)
+        </span>
+      </div>
+    </>
+  )
+}
+
 /** dialog รายรหัส — กราฟยอดเบิก · ล็อต FIFO ที่ค้าง · min/max/ROP/SS เทียบกัน · ที่มา lead time (ข้อ 7) */
 function RowDialog({
   row, win, z, months, onClose,
@@ -409,6 +488,10 @@ function RowDialog({
             </span>
           )}
         </p>
+
+        {/* วางต่อจาก "เวลารอของจริงที่วัดได้" เพราะเป็นหลักฐานของบรรทัดนั้นโดยตรง — บนบอกค่ากลาง ล่างกางให้ดูทีละครั้ง */}
+        <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>ประวัติรับเข้า (24 เดือน)</h4>
+        <ReceiptHistory code={row.code} inventoryId={row.inventoryId} unit={row.unit} />
 
         <h4 style={{ ...mitr, fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>ล็อต FIFO ที่ค้าง</h4>
         {isLB ? (
