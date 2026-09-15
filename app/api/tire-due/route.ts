@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { rebuildTireDistance } from "@/lib/tire-distance"
-import { DUE_LABEL, SOURCE_LABEL, positionOrder, type DueLevel, type DistanceSource } from "@/lib/tire-due"
+import { DUE_LABEL, snoozeDays, SOURCE_LABEL, positionOrder, type DueLevel, type DistanceSource } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
@@ -189,4 +189,38 @@ export async function POST(req: NextRequest) {
   }
   const result = await rebuildTireDistance()
   return NextResponse.json(result, { status: result.ok ? 200 : 500 })
+}
+
+// PATCH /api/tire-due  body { plate, branch?, snooze, days?: 7|14|30, by?, note? }
+//   พักการแจ้งเตือน "ทั้งคัน" ทีเดียว — รถคันหนึ่งมียาง 10-12 เส้น ถ้าต้องกดทีละเส้น
+//   คนจะเลิกใช้ไปเอง · รายเส้นยังกดได้ที่ PATCH /api/tire-due/[id] เหมือนเดิม
+//
+// พักทุกเส้นของคันนั้น (ยกเว้นยางอะไหล่) ไม่ใช่เฉพาะเส้นที่เตือนอยู่ตอนนี้ —
+// เส้นที่เพิ่งข้ามเกณฑ์ระหว่างช่วงพักจะได้ไม่โผล่มาเตือนซ้ำทั้งที่เพิ่งตรวจไปแล้ว
+export async function PATCH(req: NextRequest) {
+  const body  = await req.json().catch(() => ({}))
+  const plate = String(body.plate ?? "").trim()
+  if (!plate) return NextResponse.json({ error: "ต้องระบุทะเบียน" }, { status: 400 })
+
+  const on   = body.snooze !== false
+  const days = snoozeDays(body.days)
+  const now  = new Date()
+  const update = on
+    ? {
+        snoozedUntil: new Date(now.getTime() + days * 86_400_000),
+        snoozedAt:    now,
+        snoozedBy:    String(body.by ?? "").trim(),
+        snoozedNote:  String(body.note ?? "").trim(),
+      }
+    : { snoozedUntil: null, snoozedAt: null, snoozedBy: "", snoozedNote: "" }
+
+  const filter: Filter = { plate, isSpare: { $ne: true } }
+  const branch = String(body.branch ?? "").trim()
+  if (branch) filter.branch = branch
+
+  const client = await clientPromise
+  const res = await client.db(DB).collection("tire_distance").updateMany(filter, { $set: update })
+  if (!res.matchedCount) return NextResponse.json({ error: "ไม่พบยางของทะเบียนนี้" }, { status: 404 })
+
+  return NextResponse.json({ ok: true, plate, tires: res.matchedCount, snoozeDays: on ? days : 0, ...update })
 }

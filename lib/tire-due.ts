@@ -7,8 +7,21 @@ export const DUE_OVER = 100 // ใช้ระยะครบแล้ว
 export const DUE_DUE  = 90  // ถึงกำหนดเปลี่ยน — เกณฑ์แจ้งเตือนหลัก
 export const DUE_WARN = 80  // เฝ้าระวัง เริ่มวางแผนได้
 
-/** กดเลื่อนการแจ้งเตือนแล้วเงียบไปกี่วัน — ใช้ค่าเดียวกันทั้งเว็บและแอปคนขับ */
+/** ตัวเลือกระยะเวลาพักการแจ้งเตือน — ใช้ชุดเดียวกันทั้งเว็บและแอปคนขับ */
+export const SNOOZE_OPTIONS = [
+  { days:  7, label: "1 สัปดาห์" },
+  { days: 14, label: "2 สัปดาห์" },
+  { days: 30, label: "1 เดือน" },
+] as const
+
+/** ค่าเริ่มต้นเมื่อไม่ได้ระบุ */
 export const SNOOZE_DAYS = 14
+
+/** รับเฉพาะค่าที่อยู่ในตัวเลือก — กันแอปส่งเลขมั่วมาแล้วยางเงียบไปเป็นปี */
+export function snoozeDays(input: unknown): number {
+  const n = Number(input)
+  return SNOOZE_OPTIONS.some((o) => o.days === n) ? n : SNOOZE_DAYS
+}
 
 export type DueLevel = "over" | "due" | "warn" | "ok" | "unknown"
 
@@ -72,6 +85,9 @@ const IGNORED_PLATES = new Set([
   "กว4507", "กว4506", "บธ7904", "บร8748", "กน9364", "บล3760", "กธ2607", "กน9363",
   "บร8751", "บร8750", "บน9004", "บน4080", "บบ9765", "ปข4603",
   "กท-8258",
+  // รถที่ไม่มีข้อมูลระยะทางเลยและไม่มีใน vehicle_master (ผู้ใช้สั่งตัด 2026-09-15)
+  "53-5034", "53-5039", "53-5041",
+  "62-3382", "62-3384", "62-3386", "62-5691", "62-5692", "62-5693",
 ])
 
 export const isIgnoredPlate = (plate: string | null | undefined): boolean =>

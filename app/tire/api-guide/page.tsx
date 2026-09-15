@@ -3,7 +3,7 @@ import {
   AlertTriangle, ArrowLeft, BellOff, Code2, FileJson, Link2, Search, ShieldCheck, TriangleAlert,
 } from "lucide-react"
 import { CodeBlock, Method, Param, Section, guideFontHead, guideFontThai } from "@/components/api-guide-ui"
-import { DUE_DUE, DUE_OVER, DUE_WARN, SNOOZE_DAYS } from "@/lib/tire-due"
+import { DUE_DUE, DUE_OVER, DUE_WARN, SNOOZE_OPTIONS } from "@/lib/tire-due"
 
 const BASE = "https://mena-wms.vercel.app"
 
@@ -113,28 +113,39 @@ Header     x-api-key: <MOBILE_API_KEY>     ← ขอจาก admin`}</CodeBloc
           </p>
         </Section>
 
-        <Section icon={BellOff} title={`เลื่อนการแจ้งเตือน ${SNOOZE_DAYS} วัน`}>
+        <Section icon={BellOff} title="เลื่อนการแจ้งเตือน">
           <p>
             ใช้เมื่อคนขับไปดูของจริงแล้วเห็นว่ายังใช้ต่อได้ — เลื่อนได้เองไม่ต้องรออนุมัติ
             แต่ระบบบันทึกไว้ว่าใครเลื่อนเพราะอะไร ให้แอดมินตามได้
           </p>
           <p className="font-mono text-[12.5px]"><Method verb="PATCH" />/api/tire-due/{"{id}"}</p>
-          <CodeBlock>{`{ "snooze": true, "by": "สมชาย ใจดี", "note": "ตรวจแล้วดอกยางยังเหลือ" }
+          <CodeBlock>{`{ "snooze": true, "days": 14, "by": "สมชาย ใจดี", "note": "ตรวจแล้วดอกยางยังเหลือ" }
 
-→ { "ok": true, "snoozeDays": ${SNOOZE_DAYS},
+→ { "ok": true, "snoozeDays": 14,
     "snoozedUntil": "2026-09-28T07:30:49.881Z",
     "snoozedAt":    "2026-09-14T07:30:49.881Z",
     "snoozedBy":    "สมชาย ใจดี",
     "snoozedNote":  "ตรวจแล้วดอกยางยังเหลือ" }`}</CodeBlock>
           <ul className="mt-2 space-y-1.5">
-            <Param name="snooze" required><code>true</code> = เลื่อน {SNOOZE_DAYS} วัน · <code>false</code> = ยกเลิกการเลื่อน</Param>
+            <Param name="snooze" required><code>true</code> = เลื่อน · <code>false</code> = ยกเลิกการเลื่อน</Param>
+            <Param name="days">
+              เลือกได้ {SNOOZE_OPTIONS.map((o) => `${o.days} (${o.label})`).join(" · ")} — ค่าอื่นจะถูกปัดเป็น 14 · ไม่ส่ง = 14
+            </Param>
             <Param name="by">ชื่อคนกด — ควรส่งเสมอ ไม่งั้นตามตัวไม่ได้ว่าใครเลื่อน</Param>
             <Param name="note">เหตุผลที่เลื่อน</Param>
           </ul>
           <p className="mt-2">
             หลังเลื่อนแล้วเส้นนั้น<b>ยังอยู่ใน <code>items</code></b> (มี <code>snoozedUntil</code>)
             แต่ไม่ถูกนับใน <code>summary</code> และไม่ทำให้ <code>alert</code> เป็น <code>true</code> —
-            ครบ {SNOOZE_DAYS} วันแล้วกลับมาเตือนเองถ้ายังไม่ได้เปลี่ยนยาง
+            ครบกำหนดแล้วกลับมาเตือนเองถ้ายังไม่ได้เปลี่ยนยาง
+          </p>
+          <p className="mt-3 font-mono text-[12.5px]"><Method verb="PATCH" />/api/tire-due  ← พัก<b>ทั้งคัน</b>ทีเดียว</p>
+          <CodeBlock>{`{ "plate": "สบ.71-8648", "branch": "latkrabang", "snooze": true, "days": 7 }
+
+→ { "ok": true, "plate": "สบ.71-8648", "tires": 10, "snoozeDays": 7, ... }`}</CodeBlock>
+          <p>
+            รถคันหนึ่งมียาง 10-12 เส้น ถ้าต้องกดทีละเส้นคนจะเลิกใช้ไปเอง — เส้นนี้พักทุกเส้นของคันนั้น
+            (ยกเว้นยางอะไหล่) รวมเส้นที่ยังไม่ถึงเกณฑ์ด้วย จะได้ไม่โผล่มาเตือนซ้ำระหว่างช่วงพัก
           </p>
         </Section>
 

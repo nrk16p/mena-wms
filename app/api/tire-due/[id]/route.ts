@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
-import { SNOOZE_DAYS } from "@/lib/tire-due"
+import { snoozeDays } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
 type Params = { params: Promise<{ id: string }> }
 
 // PATCH /api/tire-due/[id]
-//   body { snooze: true,  by?: "ชื่อคนกด", note?: "เหตุผล" }  → เงียบ 14 วัน
+//   body { snooze: true, days?: 7|14|30, by?: "ชื่อคนกด", note?: "เหตุผล" }  → เงียบตามที่เลือก (ไม่ระบุ = 14 วัน)
 //   body { snooze: false }                                   → ยกเลิกการเลื่อน
 //
 // ใช้ทั้งปุ่มบนเว็บและแอปคนขับ: คนขับที่ไปดูของจริงแล้วเห็นว่าดอกยางยังเหลือ
@@ -20,11 +20,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const body = await req.json().catch(() => ({}))
   const on   = body.snooze !== false
+  const days = snoozeDays(body.days)
   const now  = new Date()
 
   const update = on
     ? {
-        snoozedUntil: new Date(now.getTime() + SNOOZE_DAYS * 86_400_000),
+        snoozedUntil: new Date(now.getTime() + days * 86_400_000),
         snoozedAt:    now,
         snoozedBy:    String(body.by ?? "").trim(),
         snoozedNote:  String(body.note ?? "").trim(),
@@ -36,5 +37,5 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .updateOne({ _id: new ObjectId(id) }, { $set: update })
 
   if (!res.matchedCount) return NextResponse.json({ error: "ไม่พบรายการ" }, { status: 404 })
-  return NextResponse.json({ ok: true, snoozeDays: on ? SNOOZE_DAYS : 0, ...update })
+  return NextResponse.json({ ok: true, snoozeDays: on ? days : 0, ...update })
 }
