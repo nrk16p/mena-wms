@@ -14,12 +14,17 @@ import React, { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
 import {
-  AlertTriangle, BellOff, BellRing, ChevronDown, ChevronRight, RefreshCw, Search, Settings2, Truck,
+  AlertTriangle, BellOff, BellRing, ChevronDown, ChevronRight, FileSpreadsheet,
+  RefreshCw, Search, Settings2, Truck,
 } from "lucide-react"
+import { bkkToday } from "@/lib/bkk-time"
+import {
+  downloadExcelTable, xlsDate, XLS_DATE_FMT, type ExcelCol,
+} from "@/lib/excel-table"
 import Swal from "sweetalert2"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  SNOOZE_OPTIONS, SOURCE_LABEL, dueBarCls, dueChipCls, positionOrder,
+  DUE_LABEL, SNOOZE_OPTIONS, SOURCE_LABEL, dueBarCls, dueChipCls, positionOrder,
   type DistanceSource, type DueLevel,
 } from "@/lib/tire-due"
 import {
@@ -43,8 +48,37 @@ type DueRow = {
   usedPct:      number | null
   level:        DueLevel
   snoozedUntil: string | null
+  snoozedBy?:   string
   fleetNo:      string
   vehicleType:  string
+}
+
+// คอลัมน์ไฟล์ Excel — เรียงตามลำดับที่คนอ่านใช้จริง: รถคันไหน → ยางเส้นไหน → เหลืออีกเท่าไหร่
+const EXPORT_COLS: ExcelCol[] = [
+  { key: "branch",   header: "สาขา",            width: 11, group: "รถ", align: "center" },
+  { key: "plate",    header: "ทะเบียน",          width: 13, group: "รถ" },
+  { key: "fleetNo",  header: "เบอร์รถ",          width: 10, group: "รถ", align: "center" },
+  { key: "type",     header: "ประเภทรถ",         width: 26, group: "รถ" },
+
+  { key: "pos",      header: "ตำแหน่งยาง",       width: 26, group: "ยาง" },
+  { key: "product",  header: "รุ่นยาง",           width: 26, group: "ยาง" },
+  { key: "serial",   header: "Serial",          width: 18, group: "ยาง" },
+  { key: "changeIn", header: "เปลี่ยนเข้า",       width: 12, group: "ยาง", align: "center", numFmt: XLS_DATE_FMT },
+
+  { key: "kmUsed",   header: "วิ่งไปแล้ว\n(กม.)",  width: 12, group: "ระยะ", align: "right", numFmt: "#,##0" },
+  { key: "spec",     header: "ระยะกำหนด\n(กม.)",  width: 12, group: "ระยะ", align: "right", numFmt: "#,##0" },
+  { key: "pct",      header: "ใช้ไป\n(%)",        width: 9,  group: "ระยะ", align: "right", numFmt: "#,##0" },
+  { key: "level",    header: "สถานะ",            width: 16, group: "ระยะ", align: "center" },
+  { key: "source",   header: "แหล่งข้อมูล",       width: 13, group: "ระยะ", align: "center" },
+  { key: "partial",  header: "ระยะไม่ครบ",       width: 11, group: "ระยะ", align: "center" },
+
+  { key: "snoozeTo", header: "พักเตือนถึง",       width: 12, group: "พักการแจ้งเตือน", align: "center", numFmt: XLS_DATE_FMT },
+  { key: "snoozeBy", header: "ผู้กดพัก",          width: 18, group: "พักการแจ้งเตือน" },
+]
+
+// สีตัวอักษรช่องสถานะให้ตรงกับชิปบนเว็บ
+const LEVEL_INK: Record<string, string> = {
+  over: "FFB91C1C", due: "FFC2410C", warn: "FFB45309", ok: "FF15803D", unknown: "FF6B7280",
 }
 
 // มุมมองรายคัน — คนวางแผนคิดเป็น "คัน" ไม่ใช่ "เส้น": รถคันนี้ต้องเข้าอู่ไหม เปลี่ยนกี่เส้น
@@ -155,6 +189,58 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   }
 
   // พักทั้งคัน — ถามยืนยันก่อนเพราะกระทบยางหลายเส้นพร้อมกัน
+  async function exportExcel() {
+    // ส่งออกตามที่กรองอยู่บนหน้าจอเสมอ — ไฟล์ที่ได้จะตรงกับสิ่งที่เห็น ไม่ใช่ทั้งฟลีต
+    // เรียงแบบเดียวกับมุมมองรายคัน (คันที่หนักสุดก่อน แล้วไล่ตามตำแหน่งล้อ) เพราะเอาไปสั่งงานช่างต่อ
+    const ordered = view === "vehicle" ? groups.flatMap((g) => g.rows) : rows
+    if (ordered.length === 0) { swalError("ไม่มีรายการให้ส่งออก"); return }
+
+    const scope  = branchFilter ? branchLabel(branchFilter) : "ทุกสาขา"
+    const gLabel = [...GROUPS, ...OTHER_GROUPS].find((g) => g.key === group)?.label ?? "ต้องจัดการ"
+    const filters = [
+      gLabel,
+      scope,
+      unit === "head" ? "เฉพาะหัว" : unit === "trailer" ? "เฉพาะหาง" : null,
+      q ? `ค้นหา "${q}"` : null,
+    ].filter(Boolean).join(" · ")
+
+    const n = await downloadExcelTable({
+      fileName:  `ยางถึงกำหนดเปลี่ยน_${scope}_${bkkToday()}.xlsx`,
+      sheetName: "ยางถึงกำหนดเปลี่ยน",
+      title:     `ยางถึงกำหนดเปลี่ยน — ${scope}`,
+      subtitle:  `${filters} · ${fmtNum(ordered.length)} เส้น จากรถ ${fmtNum(new Set(ordered.map((r) => r.plate)).size)} คัน` +
+                 ` · ข้อมูลระยะถึง ${fmtDateOnly(meta.dataThrough)} · ส่งออก ${fmtDateOnly(new Date().toISOString())} โดยระบบ MENA WMS`,
+      freezeCols: 3,
+      columns: EXPORT_COLS,
+      rows: ordered.map((r) => {
+        const snoozedOn = !!r.snoozedUntil && new Date(r.snoozedUntil) > new Date()
+        return {
+          tone: r.level === "over" ? "danger" as const : r.level === "due" ? "warn" as const : undefined,
+          ink:  { level: LEVEL_INK[r.level] },
+          cells: {
+            branch:   branchLabel(r.branch),
+            plate:    r.plate,
+            fleetNo:  r.fleetNo || "",
+            type:     r.vehicleType || "",
+            pos:      r.tirePosition,
+            product:  r.product,
+            serial:   r.serialNo,
+            changeIn: xlsDate(r.changeIn),
+            kmUsed:   r.kmUsed || null,
+            spec:     r.specDistance || null,
+            pct:      r.usedPct,
+            level:    DUE_LABEL[r.level],
+            source:   SOURCE_LABEL[r.source],
+            partial:  r.partial ? "ไม่ครบ" : "",
+            snoozeTo: snoozedOn ? xlsDate(r.snoozedUntil) : null,
+            snoozeBy: snoozedOn ? (r.snoozedBy ?? "") : "",
+          },
+        }
+      }),
+    })
+    swalToast("success", `ส่งออก ${fmtNum(n)} รายการ`)
+  }
+
   async function snoozeVehicle(g: { branch: string; plate: string; rows: DueRow[] }, on: boolean) {
     let days: number | null = null
     if (on) {
@@ -321,6 +407,12 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
             </button>
           ))}
         </div>
+
+        <button type="button" onClick={exportExcel}
+          className={btnSmall + " inline-flex items-center gap-1.5 border border-[#EEF2F0] dark:border-white/10 px-3 py-1.5 text-[12px] text-[#14271C] dark:text-white"}
+          style={fontThai}>
+          <FileSpreadsheet size={12} className="text-[#1B8C4B]" /> Excel
+        </button>
 
         <div className="relative ml-auto min-w-[220px]">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
