@@ -14,8 +14,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
 import {
-  AlertTriangle, BellOff, BellRing, ChevronDown, ChevronRight, FileSpreadsheet,
-  RefreshCw, Search, Settings2, Truck,
+  AlertTriangle, BellOff, BellRing, CheckCircle2, ChevronDown, ChevronRight, FileSpreadsheet,
+  RefreshCw, Search, Settings2, Truck, Undo2,
 } from "lucide-react"
 import { bkkToday } from "@/lib/bkk-time"
 import {
@@ -49,6 +49,8 @@ type DueRow = {
   level:        DueLevel
   snoozedUntil: string | null
   snoozedBy?:   string
+  acceptedAt?:  string | null
+  acceptedBy?:  string
   fleetNo:      string
   vehicleType:  string
 }
@@ -72,8 +74,10 @@ const EXPORT_COLS: ExcelCol[] = [
   { key: "source",   header: "แหล่งข้อมูล",       width: 13, group: "ระยะ", align: "center" },
   { key: "partial",  header: "ระยะไม่ครบ",       width: 11, group: "ระยะ", align: "center" },
 
-  { key: "snoozeTo", header: "พักเตือนถึง",       width: 12, group: "พักการแจ้งเตือน", align: "center", numFmt: XLS_DATE_FMT },
-  { key: "snoozeBy", header: "ผู้กดพัก",          width: 18, group: "พักการแจ้งเตือน" },
+  { key: "acceptBy", header: "รับเรื่องโดย",      width: 18, group: "การดำเนินการ" },
+  { key: "acceptAt", header: "รับเรื่องเมื่อ",     width: 12, group: "การดำเนินการ", align: "center", numFmt: XLS_DATE_FMT },
+  { key: "snoozeTo", header: "พักเตือนถึง",       width: 12, group: "การดำเนินการ", align: "center", numFmt: XLS_DATE_FMT },
+  { key: "snoozeBy", header: "ผู้กดพัก",          width: 18, group: "การดำเนินการ" },
 ]
 
 // สีตัวอักษรช่องสถานะให้ตรงกับชิปบนเว็บ
@@ -88,6 +92,8 @@ type VehicleGroup = {
   fleetNo:     string
   vehicleType: string
   rows:        DueRow[]
+  acceptedAt:  string | null
+  acceptedBy:  string
   over:        number
   due:         number
   warn:        number
@@ -108,6 +114,7 @@ const OTHER_GROUPS = [
   { key: "nospec",     label: "ยังไม่ตั้งระยะกำหนด", hint: "รู้ระยะที่วิ่งแล้ว แต่รุ่นยางยังไม่มีระยะมาตรฐาน" },
   { key: "nodistance", label: "คำนวณระยะไม่ได้",    hint: "ไม่มีวันเปลี่ยนเข้า หรือทะเบียนไม่มีทั้ง GPS และค่าเที่ยว" },
   { key: "spare",      label: "ยางอะไหล่",          hint: "ยังไม่ได้ใช้งาน ไม่นับระยะ" },
+  { key: "accepted",   label: "รับเรื่องแล้ว",        hint: "มีคนรับไปดำเนินการแล้ว — ยังนับอยู่ในที่ต้องจัดการ" },
   { key: "snoozed",    label: "พักการแจ้งเตือน",     hint: `เส้นที่กด "พักการแจ้งเตือน" ไว้` },
 ]
 
@@ -189,6 +196,20 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   }
 
   // พักทั้งคัน — ถามยืนยันก่อนเพราะกระทบยางหลายเส้นพร้อมกัน
+  // รับเรื่อง = มีคนรับไปดำเนินการแล้ว (ยางยังไม่ได้เปลี่ยน จึงยังนับอยู่ในที่ต้องจัดการ)
+  async function acceptVehicle(g: VehicleGroup, on: boolean) {
+    if (on && !me) { swalError("ไม่ทราบชื่อผู้ใช้ — ลองเข้าสู่ระบบใหม่"); return }
+    const res = await fetch("/api/tire-due", {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ plate: g.plate, branch: g.branch, accept: on, by: me }),
+    })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) { swalError(d.error ?? "บันทึกไม่สำเร็จ"); return }
+    swalToast("success", on ? `รับเรื่อง ${g.plate} แล้ว (${fmtNum(d.tires)} เส้น)` : `ยกเลิกรับเรื่อง ${g.plate}`)
+    load()
+  }
+
   async function exportExcel() {
     // ส่งออกตามที่กรองอยู่บนหน้าจอเสมอ — ไฟล์ที่ได้จะตรงกับสิ่งที่เห็น ไม่ใช่ทั้งฟลีต
     // เรียงแบบเดียวกับมุมมองรายคัน (คันที่หนักสุดก่อน แล้วไล่ตามตำแหน่งล้อ) เพราะเอาไปสั่งงานช่างต่อ
@@ -232,6 +253,8 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
             level:    DUE_LABEL[r.level],
             source:   SOURCE_LABEL[r.source],
             partial:  r.partial ? "ไม่ครบ" : "",
+            acceptBy: r.acceptedBy ?? "",
+            acceptAt: xlsDate(r.acceptedAt),
             snoozeTo: snoozedOn ? xlsDate(r.snoozedUntil) : null,
             snoozeBy: snoozedOn ? (r.snoozedBy ?? "") : "",
           },
@@ -288,12 +311,14 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       let g = m.get(key)
       if (!g) {
         g = { branch: r.branch, plate: r.plate, fleetNo: r.fleetNo ?? "", vehicleType: r.vehicleType ?? "",
-              rows: [], over: 0, due: 0, warn: 0, maxPct: 0 }
+              rows: [], acceptedAt: null, acceptedBy: "", over: 0, due: 0, warn: 0, maxPct: 0 }
         m.set(key, g)
       }
       // ยางของคันเดียวกันบางเส้นอาจเก็บเบอร์รถไม่ครบ — เอาค่าแรกที่เจอ
       if (!g.fleetNo     && r.fleetNo)     g.fleetNo     = r.fleetNo
       if (!g.vehicleType && r.vehicleType) g.vehicleType = r.vehicleType
+      // รับเรื่องทีเดียวทั้งคัน — เส้นไหนมีข้อมูลก็ใช้ของเส้นนั้นแทนทั้งคันได้
+      if (!g.acceptedAt && r.acceptedAt) { g.acceptedAt = r.acceptedAt; g.acceptedBy = r.acceptedBy ?? "" }
       g.rows.push(r)
       if (r.level === "over") g.over++
       else if (r.level === "due") g.due++
@@ -424,7 +449,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
         <VehicleTable
           groups={groups} opened={opened} onToggle={toggleOpen} loading={loading}
           onOpenVehicle={onOpenVehicle} onSnooze={snooze} onSnoozeVehicle={snoozeVehicle}
-          snoozedView={group === "snoozed"}
+          onAcceptVehicle={acceptVehicle} snoozedView={group === "snoozed"}
         />
       ) : (
         <TireTable
@@ -540,7 +565,7 @@ function TireTable({ rows, showPct, loading, onOpenVehicle, onSnooze }: {
 
 // ── ตาราง "รายคัน" — 1 แถว = รถ 1 คัน กางดูยางรายเส้นได้ ───────────────────
 // คนวางแผนสั่งซื้อ/จัดคิวเข้าอู่คิดเป็นคัน: คันนี้ต้องเปลี่ยนกี่เส้น ไม่ใช่ไล่อ่านทีละเส้น
-function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnooze, onSnoozeVehicle, snoozedView }: {
+function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnooze, onSnoozeVehicle, onAcceptVehicle, snoozedView }: {
   groups:          VehicleGroup[]
   opened:          Set<string>
   onToggle:        (key: string) => void
@@ -548,6 +573,7 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
   onOpenVehicle:   (v: { branch: string; plate: string }) => void
   onSnooze:        (row: DueRow, on: boolean) => void
   onSnoozeVehicle: (g: VehicleGroup, on: boolean) => void
+  onAcceptVehicle: (g: VehicleGroup, on: boolean) => void
   snoozedView:     boolean
 }) {
   return (
@@ -561,14 +587,15 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
               <th className={thCls} style={fontThai}>ประเภทรถ</th>
               <th className={thCls} style={fontThai}>ยางที่ต้องเปลี่ยน</th>
               <th className={thCls} style={fontThai}>ใช้ไปมากสุด</th>
+              <th className={thCls} style={fontThai}>รับเรื่อง</th>
               <th className={thCls}></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#EEF2F0] dark:divide-white/8">
             {loading ? (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>กำลังโหลด...</td></tr>
+              <tr><td colSpan={7} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>กำลังโหลด...</td></tr>
             ) : groups.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>ไม่มีรายการในกลุ่มนี้</td></tr>
+              <tr><td colSpan={7} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>ไม่มีรายการในกลุ่มนี้</td></tr>
             ) : groups.map((g) => {
               const key    = `${g.branch}|${g.plate}`
               const isOpen = opened.has(key)
@@ -605,8 +632,31 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
                         </div>
                       ) : "—"}
                     </td>
+                    <td className={tdCls}>
+                      {g.acceptedAt ? (
+                        <span className="inline-flex flex-col leading-tight" style={fontThai}>
+                          <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[#1B8C4B]">
+                            <CheckCircle2 size={12} /> {g.acceptedBy || "รับเรื่องแล้ว"}
+                          </span>
+                          <span className="text-[10px] text-[#9AA8A0]">{fmtDateOnly(g.acceptedAt)}</span>
+                        </span>
+                      ) : (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onAcceptVehicle(g, true) }}
+                          className={btnSmall + " inline-flex items-center gap-1 border border-[#1B8C4B]/30 text-[#1B8C4B] hover:bg-[#F0FDF4]"}
+                          style={fontThai}>
+                          <CheckCircle2 size={11} /> รับเรื่อง
+                        </button>
+                      )}
+                    </td>
                     <td className={tdCls + " text-right"}>
                       <div className="flex items-center justify-end gap-1">
+                        {g.acceptedAt && (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); onAcceptVehicle(g, false) }}
+                            title="ยกเลิกรับเรื่อง"
+                            className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}>
+                            <Undo2 size={11} />
+                          </button>
+                        )}
                         <button type="button" onClick={(e) => { e.stopPropagation(); onSnoozeVehicle(g, !snoozedView) }}
                           title={snoozedView ? "เปิดการแจ้งเตือนทั้งคัน" : "พักการแจ้งเตือนทั้งคัน"}
                           className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}

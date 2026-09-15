@@ -22,6 +22,8 @@ const GROUP_FILTER: Record<string, Filter> = {
   ok:         { level: "ok" },
   nospec:     { level: "unknown", source: { $ne: "none" }, changeIn: { $ne: null }, specDistance: { $lte: 0 } },
   nodistance: { level: "unknown", $or: [{ source: "none" }, { changeIn: null }] },
+  // รับเรื่องไปทำแล้ว — ยังอยู่ในรายการที่ต้องจัดการ แค่ดึงมาดูแยกได้ว่าใครรับอะไรไว้
+  accepted:   { acceptedAt: { $ne: null }, level: { $in: ["over", "due", "warn"] } },
   // ยางอะไหล่ยังไม่ได้ใช้งาน — แยกไว้ ไม่ให้ไปปนกับยางที่วิ่งจริง
   spare:      { isSpare: true },
 }
@@ -191,8 +193,12 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(result, { status: result.ok ? 200 : 500 })
 }
 
-// PATCH /api/tire-due  body { plate, branch?, snooze, days?: 7|14|30, by?, note? }
-//   พักการแจ้งเตือน "ทั้งคัน" ทีเดียว — รถคันหนึ่งมียาง 10-12 เส้น ถ้าต้องกดทีละเส้น
+// PATCH /api/tire-due  body { plate, branch?, snooze|accept, days?: 7|14|30, by?, note? }
+//   จัดการ "ทั้งคัน" ทีเดียว — พักการแจ้งเตือน (snooze) หรือรับเรื่องไปดำเนินการ (accept)
+//
+//   snooze = ตรวจแล้วยังไม่ถึงกำหนดจริง ขอเงียบไว้ก่อน → หายจากรายการที่ต้องจัดการ
+//   accept = รับเรื่องไปทำแล้ว → **ยังนับอยู่ในรายการ** แค่ติดป้ายว่าใครรับเมื่อไหร่
+//            เพราะยางยังไม่ได้เปลี่ยน ถ้าตัดออกจะไม่มีใครเห็นว่าค้างอยู่ — รถคันหนึ่งมียาง 10-12 เส้น ถ้าต้องกดทีละเส้น
 //   คนจะเลิกใช้ไปเอง · รายเส้นยังกดได้ที่ PATCH /api/tire-due/[id] เหมือนเดิม
 //
 // พักทุกเส้นของคันนั้น (ยกเว้นยางอะไหล่) ไม่ใช่เฉพาะเส้นที่เตือนอยู่ตอนนี้ —
@@ -202,9 +208,30 @@ export async function PATCH(req: NextRequest) {
   const plate = String(body.plate ?? "").trim()
   if (!plate) return NextResponse.json({ error: "ต้องระบุทะเบียน" }, { status: 400 })
 
+  const now = new Date()
+
+  // รับเรื่อง / ยกเลิกรับเรื่อง — คนละแกนกับการพักแจ้งเตือน ทำทีละอย่าง
+  if ("accept" in body) {
+    const acc = body.accept !== false
+    const filter: Filter = { plate, isSpare: { $ne: true } }
+    const branch = String(body.branch ?? "").trim()
+    if (branch) filter.branch = branch
+
+    const client = await clientPromise
+    const res = await client.db(DB).collection("tire_distance").updateMany(filter, {
+      $set: acc
+        ? { acceptedAt: now, acceptedBy: String(body.by ?? "").trim(), acceptedNote: String(body.note ?? "").trim() }
+        : { acceptedAt: null, acceptedBy: "", acceptedNote: "" },
+    })
+    if (!res.matchedCount) return NextResponse.json({ error: "ไม่พบยางของทะเบียนนี้" }, { status: 404 })
+    return NextResponse.json({
+      ok: true, plate, tires: res.matchedCount,
+      acceptedAt: acc ? now : null, acceptedBy: acc ? String(body.by ?? "").trim() : "",
+    })
+  }
+
   const on   = body.snooze !== false
   const days = snoozeDays(body.days)
-  const now  = new Date()
   const update = on
     ? {
         snoozedUntil: new Date(now.getTime() + days * 86_400_000),

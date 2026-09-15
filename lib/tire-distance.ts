@@ -381,7 +381,8 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
               dataThrough: source === "gps" ? gpsThrough : now,
               computedAt: runAt,
             },
-            $setOnInsert: { snoozedUntil: null },
+            // สถานะที่คนกดเอง (พัก/รับเรื่อง) ต้องรอดจากการคำนวณใหม่ทุกคืน
+            $setOnInsert: { snoozedUntil: null, acceptedAt: null, acceptedBy: "" },
           },
           upsert: true,
         },
