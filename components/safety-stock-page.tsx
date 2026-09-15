@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react"
 import { ChevronDown, ChevronUp, Download, RefreshCw, Search, TriangleAlert, X } from "lucide-react"
 import * as XLSX from "xlsx"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
+import { SafetyStockRunsBar } from "@/components/safety-stock-runs-bar"
 import { swalError, swalToast } from "@/lib/swal"
 import { bkkToday } from "@/lib/bkk-time"
 import {
@@ -770,9 +771,14 @@ export default function SafetyStockPage() {
           })}
         </div>
 
-        <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>
-          {data?.warehouse ?? "—"} · ข้อมูล ณ {data ? thaiDateTime(data.asOf) : "—"} · เคลื่อนไหวล่าสุด {data ? thaiDate(data.latestMovementDate) : "—"} · sync min/max ล่าสุด {data ? thaiDateTime(data.skuSyncedAt) : "—"}
+        <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 12px" }}>
+          {/* ความสดของข้อมูลย้ายไปอยู่ในแถบ "รอบอัปเดตวันนี้" ข้างล่างแล้ว (เคลื่อนไหวล่าสุด/เวลาที่คำนวณ
+              อยู่ใน tooltip ของแต่ละรอบ) เหลือไว้ที่นี่แค่ชื่อคลังกับเวลาที่เบราว์เซอร์ดึง payload มา */}
+          {data?.warehouse ?? "—"} · ข้อมูล ณ {data ? thaiDateTime(data.asOf) : "—"} · sync คงเหลือ/min/max ล่าสุด {data ? thaiDateTime(data.skuSyncedAt) : "—"}
         </p>
+
+        {/* แถบรอบอัปเดต — ยิง API ของตัวเอง (ไม่แคช) จึงวางไว้ได้แม้ payload หลักยังโหลดไม่เสร็จ */}
+        <SafetyStockRunsBar inventoryId={warehouseId} />
 
         <GlossaryPanel open={glossaryOpen} onToggle={() => setGlossaryOpen((o) => !o)} />
 

@@ -5,9 +5,13 @@ import { EXCLUDED_PRODUCT_GROUP, INVENTORY_ID, WAREHOUSES, type SafetyStockPaylo
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
-// snapshot เปลี่ยนวันละครั้ง ไม่มีเหตุให้ยิง DB ทุก request
 // เก็บบน globalThis เพื่อให้รอดข้าม hot-reload ตอน dev และข้าม warm invocation บน Vercel
-const TTL_MS = 60 * 60 * 1000
+//
+// เดิม 1 ชม. ตอนที่ snapshot สร้างวันละครั้ง — ตั้งแต่ api-ncac ยิง build ให้หลังข้อมูลลง stockmovement_v5
+// (5 รอบ/วัน ดู BUILD_SCHEDULE) แคช 1 ชม.กลายเป็นตัวถ่วง: build เสร็จแล้วหน้าเว็บยังโชว์ของรอบก่อนได้อีกเกือบชั่วโมง
+// ทั้งที่แถบ "รอบอัปเดตวันนี้" (ไม่แคช) บอกว่ารอบนั้นเสร็จแล้ว — ผู้ใช้เห็นสองอย่างขัดกัน
+// 15 นาทีคือจุดที่ยังกันการยิง DB ซ้ำจากการกดสลับคลัง/รีโหลดถี่ๆ ได้ แต่ตามรอบ build ทันในสายตาคน
+const TTL_MS = 15 * 60 * 1000
 
 /** "full" = snapshot ทั้งหมดของคลัง ไม่กรองอะไร (พฤติกรรมเดิมทุกประการ) — /tire/{branch}/stock-tire
  *  (app/api/tire-stock/safety/route.ts) เรียกด้วยค่านี้เพราะ safety_stock_snapshot เป็นชุดข้อมูลที่ /tire/*

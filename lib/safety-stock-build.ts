@@ -7,7 +7,7 @@ import { getDeadstock } from "@/lib/deadstock"
 import {
   aduFrom, sdDailyFrom, median, prCodeFromNote, leadTimeDaysBetween, derive, mergeWarehouseResults,
   LT_MIN_SAMPLES, LT_LOOKBACK_MONTHS, USAGE_LOOKBACK_MONTHS, DEFAULT_WINDOW, DEFAULT_Z, WAREHOUSES,
-  type SnapshotRow, type LeadTimeSource,
+  type SnapshotRow, type LeadTimeSource, type BuildSource,
 } from "@/lib/safety-stock-core"
 import { fetchOnOrderBySku } from "@/lib/on-order"
 
@@ -15,6 +15,15 @@ const MASTER_DB = process.env.MONGO_DB ?? "master_data"
 const ATMS_DB = "atms"
 const MOVE_COLL = "stockmovement_v5"
 const PR_KEY = "ใบขอสั่งซื้อ (PR)"
+
+/** ประวัติการ build รายรอบ — safety_stock_sync_log เป็น singleton (upsert ทับทุกครั้ง) เก็บได้แค่รอบล่าสุด
+ *  แถบ "รอบอัปเดตวันนี้" บนหน้า /safety-stock ต้องเห็นทุกรอบของทั้งวัน จึงต้องมี collection แยกที่เก็บรายรอบ
+ *  ~6 doc/วัน (5 รอบจาก pipeline + 1 จาก cron รายวัน) × TTL 30 วัน = ไม่เกิน ~200 doc ตลอดเวลา ไม่กินที่
+ *  เขียน 2 ครั้งต่อรอบ: insert ตอนเริ่ม (status "running" — แถบบนหน้าเว็บใช้อ่านว่ากำลังรันอยู่)
+ *  แล้ว update ตอนจบ · รอบที่ถูกฆ่ากลางคัน (Vercel หมดเวลา) จะค้าง "running" ไว้ ฝั่งอ่านเป็นคนตัดสินว่าค้าง */
+const RUNS_COLL = "safety_stock_build_runs"
+const RUNS_TTL_DAYS = 30
+
 
 /** ปัด 6 ตำแหน่งทศนิยม — ใช้กับ adu/sdDaily ก่อนเก็บลง Mongo (ดูจุดที่ใช้ด้านล่าง) */
 const r6 = (n: number) => Math.round(n * 1e6) / 1e6
@@ -297,13 +306,23 @@ const DEADLINE_SKIP_MSG = "ข้ามคลังนี้ — เกิน ti
  *  `deadline` เป็น epoch ms — ไม่ใส่ (undefined) เมื่อเรียกจาก route ของตัวเอง (พฤติกรรมเดิมทุกประการ ไม่มี time budget)
  *  ใส่เฉพาะตอนที่ /api/cron/atms-sku-report เรียก chain ต่อท้ายงานเดิมในสล็อตเดียวกัน ซึ่งต้องแบ่งเวลากับงานอื่นด้วย
  *  เช็คเฉพาะ "ระหว่างคลัง" เท่านั้น (ก่อนเริ่มคลังถัดไป) ไม่มีทางตัดกลางคลังที่กำลัง build อยู่ */
-export async function runSafetyStockBuild(inventoryParam: string | null, deadline?: number): Promise<BuildResult> {
+export async function runSafetyStockBuild(
+  inventoryParam: string | null, deadline?: number, source: BuildSource = "manual",
+): Promise<BuildResult> {
   const targets = inventoryParam ? [inventoryParam] : WAREHOUSES.map((w) => w.id)
 
   const client = await clientPromise
   const db = client.db(MASTER_DB)
   const col = db.collection("safety_stock_snapshot")
   const syncedAt = new Date()
+
+  // เปิดแถวประวัติของรอบนี้ก่อนเริ่มทำงาน — แถบบนหน้าเว็บจะได้เห็นทันทีว่า "กำลังรัน" ไม่ใช่รู้ตอนจบแล้ว
+  // พังตรงนี้ไม่ควรล้มทั้ง build (ประวัติเป็นของประกอบ ไม่ใช่ตัวงาน) — runId เป็น null แล้วข้ามการปิดแถวไป
+  const runsCol = db.collection(RUNS_COLL)
+  const runId = await runsCol
+    .insertOne({ startedAt: syncedAt, source, status: "running", targets })
+    .then((r) => r.insertedId)
+    .catch(() => null)
 
   // คลังเดียวพังไม่กระทบคลังอื่น — คืน error ในผลลัพธ์แทนการ throw เพื่อให้คลังถัดไปสร้างต่อได้
   async function buildOneWarehouse(inventoryId: string): Promise<BuildWarehouseResult> {
@@ -391,6 +410,27 @@ export async function runSafetyStockBuild(inventoryParam: string | null, deadlin
     { $set: { trigger: "build", ok, results: mergedResults, written, error, syncedAt } },
     { upsert: true }
   )
+
+  // ปิดแถวประวัติของรอบนี้ — เก็บเฉพาะสิ่งที่แถบบนหน้าเว็บใช้จริง ไม่ใช่ผลลัพธ์ทั้งก้อน
+  // (stats/months ของแต่ละคลังอยู่ใน safety_stock_sync_log แล้ว ไม่ต้องซ้ำที่นี่)
+  if (runId) {
+    const finishedAt = new Date()
+    await runsCol.updateOne(
+      { _id: runId },
+      { $set: {
+        finishedAt, durationMs: finishedAt.getTime() - syncedAt.getTime(),
+        status: ok ? "ok" : "error", written, error,
+        warehouses: results.map((r) => ({
+          inventoryId: r.inventoryId, written: r.written,
+          latestMovementDate: r.latestMovementDate, error: r.error,
+        })),
+      } },
+    ).catch(() => {})
+    // ดัชนีเดียวทำสองหน้าที่: TTL ลบแถวเก่าทิ้งเอง + รองรับ query "รอบของวันนี้" ที่เรียงด้วย startedAt
+    // (ดัชนีฟิลด์เดียวใช้ได้ทั้งเรียงขึ้นและลง ไม่ต้องสร้าง {startedAt:-1} เพิ่มให้เปลืองอีกตัว)
+    // createIndex ซ้ำเป็น no-op เร็วเมื่อมีอยู่แล้ว — ทำท้ายสุดเพื่อไม่ให้หน่วงงานหลัก
+    await runsCol.createIndex({ startedAt: 1 }, { expireAfterSeconds: RUNS_TTL_DAYS * 86_400 }).catch(() => {})
+  }
 
   return { trigger: "build", ok, results, written, error, syncedAt }
 }

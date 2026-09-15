@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
       // เกิน budget ไปแล้วทันทีที่ sync จบ (ไม่ว่า sync เองจะข้ามคลังไปแล้วหรือไม่) — ข้าม build ทั้งหมด ไม่เริ่มเลย
       chain.buildSkipped = "ข้าม build ทั้งหมด — เกิน time budget (240s) ตั้งแต่ก่อนเริ่ม build จะรันในรอบถัดไป"
     } else {
-      chain.build = await runSafetyStockBuild(null, deadline)
+      chain.build = await runSafetyStockBuild(null, deadline, "daily-cron")
     }
   } catch (err) {
     chain.error = err instanceof Error ? err.message : "Unknown error"

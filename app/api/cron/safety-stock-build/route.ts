@@ -1,6 +1,7 @@
 // app/api/cron/safety-stock-build/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { runSafetyStockBuild } from "@/lib/safety-stock-build"
+import type { BuildSource } from "@/lib/safety-stock-core"
 
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
@@ -17,7 +18,14 @@ export async function GET(req: NextRequest) {
   }
 
   const inventoryParam = req.nextUrl.searchParams.get("inventory")
-  const result = await runSafetyStockBuild(inventoryParam)
+
+  // ?source= บอกว่าใครเป็นคนเรียก — ใช้แสดงบนแถบ "รอบอัปเดตวันนี้" ของหน้า /safety-stock เท่านั้น
+  // ไม่มีผลต่อการทำงาน · รับเฉพาะค่าที่รู้จัก ค่าอื่นตกเป็น "manual" (ค่านี้มาจากภายนอก เชื่อตรงๆ ไม่ได้)
+  // api-ncac ยิงมาเป็น ?source=pipeline หลัง atms_stockmovement* เขียน stockmovement_v5 เสร็จ
+  const sourceParam = req.nextUrl.searchParams.get("source")
+  const source: BuildSource = sourceParam === "pipeline" || sourceParam === "daily-cron" ? sourceParam : "manual"
+
+  const result = await runSafetyStockBuild(inventoryParam, undefined, source)
 
   return NextResponse.json(result, { status: result.ok ? 200 : 500 })
 }
