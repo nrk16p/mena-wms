@@ -1,7 +1,8 @@
 // Server-only helper: ดึงสถานะ PR → PO → DD จาก atms เป็น PrSnapshot (อ่านอย่างเดียว)
-// ใช้ logic เดียวกับหน้า /pr: PO ยกเลิกไม่นับ · ปิดงานเมื่อ PO ที่เหลือมี DD ครบทุกใบ
+// ใช้ logic เดียวกับหน้า /pr (isPrClosed): PO ยกเลิกไม่นับ · ปิดงานเมื่อ PO ที่เหลือมี DD ครบทุกใบและไม่ค้างรับ
 import type { MongoClient } from "mongodb"
 import type { PrSnapshot } from "@/lib/order-tracking"
+import { isPrClosed } from "@/lib/safety-stock-core"
 
 const PR_KEY = "ใบขอสั่งซื้อ (PR)"
 const PO_KEY = "รหัส"
@@ -115,8 +116,12 @@ export async function fetchPrSnapshots(client: MongoClient, prCodes: string[]): 
       poTotal:   Math.round(myPos.reduce((a, po) => a + (Number(po["รวม"]) || 0), 0) * 100) / 100,
       suppliers: [...new Set(myPos.map((po) => s(po["ซัพพลายเออร์"])).filter(Boolean))],
       expectedDelivery: manualDue.get(pr) || poDues[0] || "",
-      // ปิดงานเมื่อ PO ที่ไม่ยกเลิกทุกใบมีใบรับของ (DD) ครบ — ไม่ปิดเร็วเกินเพราะรับมาใบเดียว
-      hasDD:     myPos.length > 0 && myPos.every((po) => receivedPo.has(s(po[PO_KEY]))),
+      // ปิดงานเมื่อ PO ที่ไม่ยกเลิกทุกใบมีใบรับของ (DD) ครบ และไม่มีใบไหนค้างรับ — ไม่ปิดเร็วเกิน
+      // เพราะรับมาใบเดียว หรือเพราะ DD ใบแรกเกิดตอนรับแค่บางรายการ (ดู isPoOutstanding)
+      hasDD:     isPrClosed(
+        myPos.map((po) => ({ code: s(po[PO_KEY]), receiveStatus: s(po["สถานะการรับสินค้า"]) })),
+        (code) => receivedPo.has(code),
+      ),
     })
   }
   return out

@@ -427,6 +427,24 @@ export type PrHeadRef = {
   note?: string
 }
 export type PoHeadRef = { code: string; prCode: string; receiveStatus: string }
+
+/** PO ที่ ATMS บอกว่ายังรับของไม่ครบ — "มีใบรับของ (DD) แล้ว" อย่างเดียวไม่พอที่จะถือว่าจบ
+ *  ใบเดียวรับได้หลายรอบ: พอรับรายการแรก DD ก็เกิดแล้ว แต่รายการที่เหลือยังค้างอยู่ที่ร้าน
+ *  (เคสจริง 16/09/2026: LBPR26090255 มี 4 PO ทุกใบมี DD แต่ LBPO26090286 "รับสินค้าแล้วบางส่วน"
+ *   บอลวาล์ว LB08GP00205 รับแล้ว 0 จาก 30 — เกณฑ์เดิมตัดทั้งใบ ของ 30 ชิ้นหายจาก "กำลังสั่งซื้อ")
+ *  ค่าที่พบใน atms.purchase_orders["สถานะการรับสินค้า"] มี 4 แบบ: รับสินค้าแล้วทั้งหมด ·
+ *  รับสินค้าแล้วบางส่วน · ยังไม่ได้รับสินค้า · ยกเลิก — จับเฉพาะสองแบบกลางที่แปลว่ายังค้างรับ
+ *  ช่องว่าง/ค่าที่ไม่รู้จักถือว่าไม่ค้าง ให้ DD ตัดสินเหมือนเดิม (ไม่เปิดใบเก่าค้างเพราะข้อมูลขาด) */
+export function isPoOutstanding(receiveStatus: string | null | undefined): boolean {
+  return /บางส่วน|ยังไม่ได้รับ/.test(receiveStatus ?? "")
+}
+
+/** ใบ PR นี้จบงานแล้วหรือยัง — เกณฑ์เดียวที่ใช้ร่วมกันทั้ง /pr, /order-tracking และ "กำลังสั่งซื้อ"
+ *  จบ = มี PO ที่ไม่ยกเลิกอย่างน้อยหนึ่งใบ และทุกใบทั้งมี DD และไม่ค้างรับ
+ *  (PR ที่ยังไม่มี PO เลย = ยังอยู่ในสายพานจัดซื้อ ถือว่ายังไม่จบ) */
+export function isPrClosed(activePos: { code: string; receiveStatus: string }[], hasDd: (poCode: string) => boolean): boolean {
+  return activePos.length > 0 && activePos.every((po) => hasDd(po.code) && !isPoOutstanding(po.receiveStatus))
+}
 export type PrItemRef = { prCode: string; sku: string; amount: number; warehouse: string; group: string }
 export type PoItemRef = { poCode: string; sku: string; received: number }
 
@@ -457,8 +475,9 @@ export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
  *  นิยาม: รวมทุกใบ PR ของคลังนี้ที่ "ยังไม่มี DD ครบ" และอายุ ≤ maxAgeDays
  *           qty ของรหัส X = max(0, ยอด X ในบรรทัด PR − ยอด X ที่รับไปแล้วใน PO ของ PR ใบนั้น)
  *
- *  "ยังไม่มี DD ครบ" ใช้เกณฑ์เดียวกับหน้า /pr (lib/pr-snapshot.ts): PO ที่ยกเลิกไม่นับ · ปิดงานเมื่อ PO
- *  ที่เหลือมีใบรับของ (DD) ครบทุกใบ · PR ที่ยังไม่ออก PO เลยถือว่ายังไม่มี DD (ของยังอยู่ในสายพานจัดซื้อ)
+ *  "ยังไม่มี DD ครบ" ใช้เกณฑ์เดียวกับหน้า /pr — ฟังก์ชัน isPrClosed ตัวเดียวกัน: PO ที่ยกเลิกไม่นับ ·
+ *  ปิดงานเมื่อ PO ที่เหลือมีใบรับของ (DD) ครบทุกใบ **และไม่มีใบไหนค้างรับ** · PR ที่ยังไม่ออก PO เลย
+ *  ถือว่ายังไม่จบ (ของยังอยู่ในสายพานจัดซื้อ)
  *
  *  ที่ต้องหักส่วนที่รับไปแล้ว: PR ใบเดียวแตกเป็นหลาย PO แล้วทยอยรับ ถ้าเอายอดในใบ PR มาตรงๆ จะนับเกิน
  *  (วัดจริง 25/08/2026: ลาดกระบังยอดดิบ 6,210 ชิ้น แต่รับไปแล้ว 2,622 = เกินจริง 42%)
@@ -488,13 +507,13 @@ export function openPrQtyBySku(input: {
   const dd = new Set(input.ddPoCodes)
 
   // PO ที่ยกเลิกไม่นับทั้งการตัดสินว่าปิดงานแล้วและการหักยอดที่รับ (เหมือนที่หน้า /pr ทำ)
-  const posByPr = new Map<string, string[]>()
+  const posByPr = new Map<string, PoHeadRef[]>()
   const prOfPo = new Map<string, string>()
   for (const po of input.poHeads) {
     if (po.receiveStatus.includes("ยกเลิก")) continue
     if (!po.prCode || !po.code) continue
     if (!posByPr.has(po.prCode)) posByPr.set(po.prCode, [])
-    posByPr.get(po.prCode)!.push(po.code)
+    posByPr.get(po.prCode)!.push(po)
     prOfPo.set(po.code, po.prCode)
   }
 
@@ -508,7 +527,7 @@ export function openPrQtyBySku(input: {
     const age = ageDaysFromDmy(pr.date, input.asOf)
     if (age === null || age < 0 || age > maxAge) continue
     const myPos = posByPr.get(pr.code) ?? []
-    if (myPos.length > 0 && myPos.every((po) => dd.has(po))) continue   // รับของครบแล้ว
+    if (isPrClosed(myPos, (po) => dd.has(po))) continue                 // รับของครบแล้ว
     openPrAge.set(pr.code, age)
   }
 

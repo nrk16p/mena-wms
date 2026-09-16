@@ -7,6 +7,7 @@ import {
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
   openPrQtyBySku, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, ON_ORDER_MAX_AGE_DAYS,
+  isPoOutstanding, isPrClosed,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow,
 } from "../lib/safety-stock-core"
@@ -297,6 +298,30 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   assert.notEqual(ictDdmmyyyy(0), ictDdmmyyyy(1), "ย้อนหลัง 1 วันต้องได้คนละวัน")
 }
 
+// --- เกณฑ์ปิดใบ PR (isPrClosed / isPoOutstanding) — ใช้ร่วมกันทั้ง /pr, /order-tracking และ "กำลังสั่งซื้อ" ---
+{
+  assert.equal(isPoOutstanding("รับสินค้าแล้วบางส่วน"), true)
+  assert.equal(isPoOutstanding("ยังไม่ได้รับสินค้า"), true)
+  assert.equal(isPoOutstanding("รับสินค้าแล้วทั้งหมด"), false)
+  assert.equal(isPoOutstanding(""), false, "ช่องว่างถือว่าไม่ค้าง ให้ DD ตัดสินเหมือนเดิม")
+  assert.equal(isPoOutstanding(null), false, "ฟิลด์หายใน DB ต้องไม่พัง")
+
+  const dd = (codes: string[]) => (c: string) => codes.includes(c)
+  const full = (code: string) => ({ code, receiveStatus: "รับสินค้าแล้วทั้งหมด" })
+  const part = (code: string) => ({ code, receiveStatus: "รับสินค้าแล้วบางส่วน" })
+
+  assert.equal(isPrClosed([], dd([])), false, "ยังไม่ออก PO = ยังอยู่ในสายพานจัดซื้อ ไม่ใช่จบงาน")
+  assert.equal(isPrClosed([full("P1")], dd(["P1"])), true, "PO เดียว รับครบ มี DD = จบ")
+  assert.equal(isPrClosed([full("P1")], dd([])), false, "ไม่มี DD = ยังไม่จบ แม้สถานะจะว่าครบ")
+  assert.equal(isPrClosed([part("P1")], dd(["P1"])), false, "มี DD แต่ยังรับไม่ครบ = ยังไม่จบ")
+  assert.equal(isPrClosed([full("P1"), part("P2")], dd(["P1", "P2"])), false,
+    "ใบเดียวในกองยังค้างรับ ก็ยังไม่จบทั้งใบ PR")
+  assert.equal(isPrClosed([full("P1"), full("P2")], dd(["P1", "P2"])), true)
+  assert.equal(isPrClosed([full("P1"), full("P2")], dd(["P1"])), false, "DD ไม่ครบทุกใบ = ยังไม่จบ")
+  assert.equal(isPrClosed([{ code: "P1", receiveStatus: "" }], dd(["P1"])), true,
+    "ข้อมูลสถานะขาด ต้องถอยไปใช้เกณฑ์ DD เดิม ไม่ใช่ค้างใบไว้ตลอดกาล")
+}
+
 // --- กำลังสั่งซื้อ: PR ที่ยังไม่มี DD (openPrQtyBySku) ---
 // ทุกเคสในนี้เคยทำให้ตัวเลข "กำลังมา" ผิดได้จริง และผิดแบบเงียบ — หน้าจอจะบอกว่าไม่ต้องสั่งทั้งที่ต้องสั่ง
 {
@@ -401,6 +426,21 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   // รับเกินยอดของใบตัวเอง ห้ามไปกินโควตาของใบอื่นในกองเดียวกัน
   const over = openPrQtyBySku({ ...base, poItems: [{ poCode: "LBPO003a", sku: "A1", received: 999 }] })
   assert.equal(over.get("A1")?.qty, 10, "หักได้มากสุดแค่ยอดของใบนั้น เหลือ 10 จาก LBPR001 ครบ")
+
+  // PO มีใบรับของ (DD) แล้วแต่ยังรับของไม่ครบ — ใบ PR ยังไม่จบ ห้ามตัดทิ้งทั้งใบ
+  // (เคสจริง 16/09/2026: LBPR26090255 แตกเป็น 4 PO ทุกใบมี DD แต่ LBPO26090286 "รับสินค้าแล้วบางส่วน"
+  //  บรรทัดบอลวาล์ว LB08GP00205 รับแล้ว 0 จาก 30 — เกณฑ์ "ทุก PO มี DD = จบ" ตัดทั้งใบ ของ 30 ชิ้นเลยหาย)
+  const partial = openPrQtyBySku({ ...base,
+    prHeads: [{ code: "LBPR012", date: "10/08/2026", warehouse: WH, plate: "สบ.00000" }],
+    poHeads: [
+      { code: "LBPO012a", prCode: "LBPR012", receiveStatus: "รับสินค้าแล้วทั้งหมด" },
+      { code: "LBPO012b", prCode: "LBPR012", receiveStatus: "รับสินค้าแล้วบางส่วน" },
+    ],
+    ddPoCodes: ["LBPO012a", "LBPO012b"],
+    prItems: [{ prCode: "LBPR012", sku: "E5", amount: 30, warehouse: WH, group: "วัสดุสิ้นเปลือง" }],
+    poItems: [{ poCode: "LBPO012b", sku: "E5", received: 0 }],
+  })
+  assert.equal(partial.get("E5")?.qty, 30, "PO มี DD แต่สถานะยังรับไม่ครบ = ของยังไม่เข้าคลัง ต้องนับเป็นกำลังมาต่อ")
 
   assert.equal(openPrQtyBySku({ ...base, prHeads: [], prItems: [] }).size, 0, "ไม่มีข้อมูลต้องไม่พัง")
   assert.equal(ageDaysFromDmy("25/08/2026", asOf), 0)

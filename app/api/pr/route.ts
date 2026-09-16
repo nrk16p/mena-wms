@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
+import { isPrClosed } from "@/lib/safety-stock-core"
 
 export const dynamic = "force-dynamic"
 
@@ -198,13 +199,17 @@ export async function GET(req: NextRequest) {
     }
 
     // 4) เก็บเฉพาะ PR ที่ยัง "รับของไม่ครบ" — จบงานก็ต่อเมื่อ PO ที่ไม่ยกเลิกทุกใบมี DD แล้ว
+    //    และไม่มีใบไหนค้างรับ (PO ใบเดียวรับได้หลายรอบ DD เกิดตั้งแต่รับรายการแรก — ดู isPoOutstanding)
     //    (PR ที่ยังไม่มี PO / PO ถูกยกเลิกหมด ยังอยู่ในหน้า = งานค้างที่จัดซื้อ)
     const rows = prs
       .map((p) => {
         const pr = s(p[PR_KEY])
         const myPos = posByPr.get(pr) ?? []
         const activePos = myPos.filter((po) => !isCancelledPo(po))
-        const allReceived = activePos.length > 0 && activePos.every((po) => receivedPo.has(s(po[PO_KEY])))
+        const allReceived = isPrClosed(
+          activePos.map((po) => ({ code: s(po[PO_KEY]), receiveStatus: s(po["สถานะการรับสินค้า"]) })),
+          (code) => receivedPo.has(code),
+        )
         return { p, pr, myPos, activePos, allReceived }
       })
       .filter((r) => !r.allReceived)
