@@ -1750,23 +1750,25 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </>
               )}
             </div>
-            {/* ไม่มี PR แยกตามคนสร้าง — กดชื่อ = คัดลอกรายการของคนนั้นส่งไลน์ (รายคัน + รอกี่วัน + ลิงก์) */}
+            {/* ไม่มี PR แยกตามคนสร้าง — เลือกชื่อใน dropdown = คัดลอกรายการของคนนั้นส่งไลน์ (รายคัน + รอกี่วัน + ลิงก์)
+                select ของเบราว์เซอร์: มือถือเป็นรายการเลือกแบบระบบ ไม่โดนกล่อง overflow ตัด · value คงที่ "" เลือกคนเดิมซ้ำได้ */}
             {(stats.noPrByCreator?.length ?? 0) > 0 && (
               <div className="flex w-full flex-wrap items-center gap-1.5">
                 <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">📋 ไม่มี PR คัดลอกรายคน:</span>
-                {stats.noPrByCreator!.map((g) => (
-                  <button
-                    key={g.creator}
-                    onClick={() => void copyNoPrFor(g.creator)}
-                    disabled={!!noPrCopying}
-                    title={`${g.creator} · รอเฉลี่ย ${g.avgDays} วัน · นานสุด ${g.maxDays} วัน — กดเพื่อคัดลอกส่งไลน์ (มีลิงก์ใบงานทุกคัน)`}
-                    className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#FDE9BE] px-2.5 py-1 text-xs font-medium text-[#B07D12] transition hover:bg-[#FDF3DD] disabled:opacity-60 dark:border-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-950/20"
-                  >
-                    <Copy size={12} /> {noPrCopying === g.creator ? "กำลังคัดลอก..." : creatorShortName(g.creator)}
-                    <span className="opacity-80">{g.count} คัน</span>
-                    <span className={`opacity-80 ${g.maxDays >= 15 ? "font-semibold text-[#DC2626] dark:text-red-400" : ""}`}>· นานสุด {g.maxDays} วัน</span>
-                  </button>
-                ))}
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) void copyNoPrFor(e.target.value) }}
+                  disabled={!!noPrCopying}
+                  title="เลือกคนสร้าง → คัดลอกงานที่ยังไม่มี PR ของคนนั้นส่งไลน์ (มีลิงก์ใบงานทุกคัน)"
+                  className="max-w-full cursor-pointer rounded-full border border-[#FDE9BE] bg-white px-2.5 py-1 text-xs font-medium text-[#B07D12] transition hover:bg-[#FDF3DD] focus:outline-none focus:ring-1 focus:ring-[#B07D12] disabled:cursor-wait disabled:opacity-60 dark:border-amber-900/40 dark:bg-[#151a10] dark:text-amber-300"
+                >
+                  <option value="">{noPrCopying ? `กำลังคัดลอกของ ${creatorShortName(noPrCopying)}…` : "เลือกคนเพื่อคัดลอก…"}</option>
+                  {stats.noPrByCreator!.map((g) => (
+                    <option key={g.creator} value={g.creator}>
+                      {creatorShortName(g.creator)} — {g.count} คัน · นานสุด {g.maxDays} วัน
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
             {/* กราฟสถานะสองประเภท — เรียงข้างกันบนจอกว้าง ซ้อนบนจอแคบ
