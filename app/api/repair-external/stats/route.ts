@@ -3,6 +3,7 @@ import clientPromise from "@/lib/mongo"
 import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
 import { bkkToday, bkkDaysAgo, daysSince } from "@/lib/bkk-time"
 import { jobStartDate, groupSimilarGarages, buildNoPrByCreator } from "@/lib/repair-external"
+import { loadNoPrRows } from "@/lib/repair-nopr-db"
 
 // วันที่ = วันนี้ (เวลาไทย) ลบ n วัน → "YYYY-MM-DD"
 const daysAgo = (n: number): string => bkkDaysAgo(n)
@@ -75,13 +76,10 @@ export async function GET(req: NextRequest) {
 
   // รายการที่ยังไม่มี PR (ทุกสถานะในขอบเขต)
   const noPr = await col.countDocuments({ ...match, $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
-  // แยกตามคนสร้าง — ปุ่มต่อคนบนแถบสถานะ (กดแล้วหน้าเว็บดึงรายการสดมาสร้างข้อความเอง ที่นี่ส่งแค่ตัวเลข)
-  const noPrDocs = await col.find({ ...match, $or: [{ prCode: "" }, { prCode: { $exists: false } }] })
-    .project({ createdBy: 1, createdAt: 1, status: 1, prCode: 1, receivedDate: 1, garageInDate: 1 }).toArray()
-  const noPrByCreator = buildNoPrByCreator(
-    noPrDocs.map((d) => ({ ...d, _id: String(d._id) })),
-    { today, origin: "" },
-  ).map(({ creator, count, avgDays, maxDays }) => ({ creator, count, avgDays, maxDays }))
+  // แยกตามคนสร้าง — dropdown คัดลอกรายคน (เลือกแล้วหน้าเว็บดึง /no-pr มาสร้างข้อความ ที่นี่ส่งแค่ตัวเลข)
+  // นับวันไม่มี PR จาก log การลบ PR — ฟังก์ชันเดียวกับ /no-pr ตัวเลขจึงตรงกับข้อความ
+  const noPrByCreator = buildNoPrByCreator(await loadNoPrRows(client.db(DB), match), { today, origin: "" })
+    .map(({ creator, count, avgDays, maxDays }) => ({ creator, count, avgDays, maxDays }))
 
   // ค่าเฉลี่ยวันซ่อม (today − receivedDate) + การกระจายตามอายุงาน + เฉลี่ยต่อสถานะ
   const dated = await col.find({ ...match, receivedDate: { $ne: "" } }).project({ receivedDate: 1, garageInDate: 1, status: 1, garage: 1, _id: 0 }).toArray()

@@ -845,14 +845,15 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   }
 
   // งานที่ยังไม่มี PR ของคนสร้างคนนี้ → คัดลอกส่งไลน์ (ปุ่มต่อคนบนแถบสถานะ · รวมทุกคนยาวเกินข้อความเดียว)
-  // ดึงรายการสดตอนกด ขอบเขตเดียวกับตัวเลขบนปุ่ม (scope active + ประเภทที่เลือก) ไม่ขึ้นกับตัวกรองอื่นบนจอ
+  // ดึงรายการสดตอนกด ขอบเขตเดียวกับตัวเลขใน dropdown (งานยังไม่ปิด + ประเภทที่เลือก) ไม่ขึ้นกับตัวกรองอื่นบนจอ
+  // /no-pr เติมวันที่ PR ถูกลบครั้งล่าสุดมาให้ — นับ "ไม่มี PR กี่วัน" ได้ถูก
   async function copyNoPrFor(creator: string) {
     if (typeof window === "undefined") return
     setNoPrCopying(creator)
     try {
-      const p = new URLSearchParams({ scope: "active" })
+      const p = new URLSearchParams()
       if (fType) p.set("type", fType)
-      const res = await fetch(`/api/repair-external?${p.toString()}`)
+      const res = await fetch(`/api/repair-external/no-pr?${p.toString()}`)
       const d   = await res.json()
       const g   = buildNoPrByCreator(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
         .find((x) => x.creator === creator)

@@ -310,10 +310,14 @@ export function buildRepairSummary(r: RepairSummaryInput): string {
 
 // ── งานที่ยังไม่มี PR แยกตามคนสร้าง (ส่งไลน์ทีละคน · ผู้ใช้ขอ 17/09/2026) ─────────────
 // ลิงก์ทุกคันยาวเกินจะส่งรวมข้อความเดียว (123 คัน ≈ 15,000 ตัวอักษร) จึงแยกข้อความต่อคนสร้าง
-// รอกี่วัน = วันนี้ − วันที่สร้างรายการ ตามปฏิทินไทย · ใบเก่าที่ไม่มี createdAt ใช้วันเริ่มงานแทน
+// ไม่มี PR กี่วัน = วันนี้ − noPrSince (ครั้งล่าสุดที่ PR ถูกลบ จาก log) ถ้าไม่เคยมี PR = วันที่สร้างรายการ
+// (ผู้ใช้ขอ 17/09/2026 — เดิมนับจากวันสร้างอย่างเดียว TH1141 ขึ้น 35 วันทั้งที่เพิ่งลบ PR วันนี้)
+// ตามปฏิทินไทย · ใบเก่าที่ไม่มี createdAt ใช้วันเริ่มงาน · ต่างจากอายุงานเมื่อไหร่แสดง "เปิดงาน N วัน" คู่กัน
 export type NoPrRow = {
   _id: string; createdBy?: string; createdAt?: string | Date; fleetNo?: string; plate?: string
   status?: string; prCode?: string; receivedDate?: string; garageInDate?: string
+  /** เวลาที่ PR ถูกลบครั้งล่าสุด (ไม่มี = ไม่เคยมี PR) — ฝั่ง server เติมจาก repair_external_log */
+  noPrSince?: string | Date
 }
 export type NoPrGroup = { creator: string; count: number; avgDays: number; maxDays: number; text: string }
 
@@ -332,13 +336,17 @@ export function creatorShortName(name: string): string {
 }
 
 export function buildNoPrByCreator(rows: NoPrRow[], opts: { today: string; origin: string }): NoPrGroup[] {
-  const byCreator = new Map<string, { r: NoPrRow; days: number }[]>()
+  const byCreator = new Map<string, { r: NoPrRow; days: number; openDays: number }[]>()
   for (const r of rows) {
     if (isDoneStatus(String(r.status ?? "")) || String(r.prCode ?? "").trim()) continue
-    const start = (r.createdAt ? bkkYmd(r.createdAt) : "") || jobStartDate(r)
-    const days  = start ? Math.max(0, dayNum(opts.today) - dayNum(start)) : 0
+    const since = (d: string) => (d ? Math.max(0, dayNum(opts.today) - dayNum(d)) : 0)
+    const opened   = (r.createdAt ? bkkYmd(r.createdAt) : "") || jobStartDate(r)
+    const openDays = since(opened)
+    const cleared  = r.noPrSince ? bkkYmd(r.noPrSince) : ""
+    // PR ถูกลบก่อนวันสร้าง (ข้อมูลเพี้ยน) ไม่มีทางเป็นจริง → ใช้อายุงาน
+    const days  = cleared && cleared >= opened ? since(cleared) : openDays
     const who   = String(r.createdBy ?? "").trim() || NO_CREATOR
-    byCreator.set(who, [...(byCreator.get(who) ?? []), { r, days }])
+    byCreator.set(who, [...(byCreator.get(who) ?? []), { r, days, openDays }])
   }
   return [...byCreator.entries()]
     // ไม่ระบุคนสร้างไว้ท้ายสุดเสมอ (ส่งหาใครไม่ได้) · ที่เหลือค้างมากสุดก่อน
@@ -349,13 +357,14 @@ export function buildNoPrByCreator(rows: NoPrRow[], opts: { today: string; origi
       const avgDays = Math.round(list.reduce((n, x) => n + x.days, 0) / list.length)
       const lines = [
         `📋 งานที่ยังไม่มี PR — ${creator} ${list.length} คัน`,
-        `⏱️ รอเฉลี่ย ${avgDays} วัน · นานสุด ${maxDays} วัน (นับจากวันที่สร้างรายการ)`,
+        `⏱️ ไม่มี PR เฉลี่ย ${avgDays} วัน · นานสุด ${maxDays} วัน`,
         "━━━━━━━━━━━━━━",
       ]
-      list.forEach(({ r, days }, i) => {
+      list.forEach(({ r, days, openDays }, i) => {
         const car    = [String(r.fleetNo ?? "").trim(), String(r.plate ?? "").trim()].filter(Boolean).join(" · ") || "-"
         const status = String(r.status ?? "")
-        lines.push(`${i + 1}. ${car} — รอ ${days} วัน (${statusMeta(status).emoji} ${status})`)
+        const opened = openDays !== days ? ` · เปิดงาน ${openDays} วัน` : ""
+        lines.push(`${i + 1}. ${car} — ไม่มี PR ${days} วัน${opened} (${statusMeta(status).emoji} ${status})`)
         lines.push(`${opts.origin}/repair-external?id=${r._id}`)
       })
       lines.push("", "📌 กดลิงก์ → ใส่รหัส PR → กด “อัพเดทงาน”")
