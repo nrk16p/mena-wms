@@ -1,8 +1,9 @@
 // lib/rfq-core.ts
-// ตรรกะล้วนของฟอร์มขอราคาอู่ (Vendor RFQ) — import ได้แค่ทะเบียนประเภทการซ่อม
+// ตรรกะล้วนของฟอร์มขอราคาอู่ (Vendor RFQ) — import ได้แค่ทะเบียนประเภทการซ่อม + ตรรกะที่อยู่ไทย (ไม่มี import เหมือนกัน)
 // เพื่อให้ทดสอบตรง ๆ ด้วย tsx และให้ฝั่งจอ/ฝั่ง API ใช้กฎชุดเดียวกัน
 // spec: docs/superpowers/specs/2026-09-10-vendor-rfq-design.md
 import { REPAIR_TYPES } from "@/lib/repair-type-master"
+import { checkThaiAddress, composeThaiAddress, type ProvinceNode, type ThaiAddressParts } from "@/lib/thai-address"
 
 export type RfqSection = "labour" | "parts"
 export type RfqStatus = "สร้างแล้ว" | "กำลังกรอก" | "ส่งแล้ว" | "ยืนยันแล้ว" | "ส่งกลับแก้" | "ยกเลิก"
@@ -36,7 +37,15 @@ export type RfqProfile = {
   lng?: number
   /** ลิงก์ Google Maps ที่อู่วางมา (เก็บไว้ดูต้นทาง) */
   mapUrl: string
+  /** ที่อยู่เต็ม (ข้อความ) — ประกอบจากช่องแยกด้านล่าง + จุดสังเกต · ใบเก่าก่อน 2026-09-17 เป็นข้อความที่อู่พิมพ์เอง */
   address: string
+  /** ที่อยู่แบบแยกช่อง (ผู้ใช้ขอ 2026-09-17): เลือก จังหวัด→อำเภอ→ตำบล จาก data/thai-address.json + รหัสไปรษณีย์อัตโนมัติ */
+  addressDetail?: string
+  subdistrict?: string
+  district?: string
+  province?: string
+  postalCode?: string
+  landmark?: string
   at: string
 }
 
@@ -299,8 +308,9 @@ const bayNum = (v: unknown): number | string => {
   return n
 }
 
-/** ตรวจข้อมูลอู่จากฟอร์ม — ช่องซ่อมเป็นจำนวนเต็ม (ถ้าไม่ใส่รวม ใช้ผลบวก หนัก+กลาง+เบา) · พิกัดต้องมีทั้งคู่หรือไม่มีเลย */
-export function validateProfile(x: unknown): Omit<RfqProfile, "at"> | string {
+/** ตรวจข้อมูลอู่จากฟอร์ม — ช่องซ่อมเป็นจำนวนเต็ม (ถ้าไม่ใส่รวม ใช้ผลบวก หนัก+กลาง+เบา) · พิกัดต้องมีทั้งคู่หรือไม่มีเลย
+ *  addrData (ฝั่ง API ส่งมา) = ตรวจว่า จังหวัด/อำเภอ/ตำบล/รหัสไปรษณีย์ เข้าชุดกันจริง + เติมรหัสไปรษณีย์ให้ถ้าเว้นว่าง */
+export function validateProfile(x: unknown, addrData?: ProvinceNode[]): Omit<RfqProfile, "at"> | string {
   const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>
   const c = (o.capacity && typeof o.capacity === "object" ? o.capacity : {}) as Record<string, unknown>
   const heavy = bayNum(c.heavy), mid = bayNum(c.mid), light = bayNum(c.light), baysRaw = bayNum(c.bays)
@@ -310,7 +320,20 @@ export function validateProfile(x: unknown): Omit<RfqProfile, "at"> | string {
   if (bays < sum) return "ช่องซ่อมรวมต้องไม่น้อยกว่าผลรวม หนัก+กลาง+เบา"
   const capacity: RfqCapacity = { bays, heavy: heavy as number, mid: mid as number, light: light as number }
   const mapUrl = String(o.mapUrl ?? "").trim().slice(0, 500)
-  const address = String(o.address ?? "").trim().slice(0, 300)
+  const txt = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max)
+  const parts: ThaiAddressParts = { addressDetail: txt(o.addressDetail, 200), subdistrict: txt(o.subdistrict, 80), district: txt(o.district, 80), province: txt(o.province, 80), postalCode: txt(o.postalCode, 10) }
+  const landmark = txt(o.landmark, 200)
+  if (addrData) {
+    const r = checkThaiAddress(addrData, parts)
+    if (typeof r === "string") return r
+    parts.postalCode = r.postalCode
+  } else if (parts.postalCode && !/^\d{5}$/.test(parts.postalCode)) return "รหัสไปรษณีย์ต้องเป็นตัวเลข 5 หลัก"
+  const structured = !!(parts.addressDetail || parts.province || parts.postalCode)
+  // ใบเก่า/ผู้เรียกที่ส่งแค่ address (ไม่มีช่องแยก ไม่มีจุดสังเกต) = ใช้ข้อความเดิม
+  const address = structured || landmark
+    ? [composeThaiAddress(parts), landmark && (structured ? `(จุดสังเกต: ${landmark})` : landmark)].filter(Boolean).join(" ")
+    : txt(o.address, 300)
+  const addrFields = Object.fromEntries(Object.entries({ ...parts, landmark }).filter(([, v]) => v)) as Partial<RfqProfile>
   let lat: number | undefined, lng: number | undefined
   const hasLat = o.lat !== undefined && o.lat !== null && o.lat !== "", hasLng = o.lng !== undefined && o.lng !== null && o.lng !== ""
   if (hasLat !== hasLng) return "พิกัดต้องมีทั้ง lat และ lng"
@@ -321,7 +344,7 @@ export function validateProfile(x: unknown): Omit<RfqProfile, "at"> | string {
     const p = parseLatLng(mapUrl)
     if (p) { lat = p.lat; lng = p.lng }
   }
-  return { capacity, mapUrl, address, ...(lat !== undefined && lng !== undefined ? { lat, lng } : {}) }
+  return { capacity, mapUrl, address, ...addrFields, ...(lat !== undefined && lng !== undefined ? { lat, lng } : {}) }
 }
 
 export const mapsLink = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`

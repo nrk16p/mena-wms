@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { bkkToday } from "@/lib/bkk-time"
 import { getInviteByToken, getCatalog, markOpened, saveContact, saveAnswers, saveProfile, httpError } from "@/lib/rfq"
 import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, validateProfile, parseLatLng, partKey, jobsForInvite, partsForInvite, type RfqAnswer, type RfqPartAnswer, type RfqInvite } from "@/lib/rfq-core"
+import { loadThaiAddress } from "@/lib/thai-address"
 
 export const dynamic = "force-dynamic"
 type Params = { params: Promise<{ token: string }> }
@@ -56,7 +57,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       const expanded = mapUrl ? await expandMapUrl(mapUrl) : ""
       // ถ้าอู่ไม่ได้พิมพ์พิกัดเอง ให้ดึงจากลิงก์ที่ตามมาแล้ว
       const fromLink = raw.lat === undefined || raw.lat === "" ? parseLatLng(expanded) : null
-      const p = validateProfile({ ...raw, mapUrl, ...(fromLink ? { lat: fromLink.lat, lng: fromLink.lng } : {}) })
+      const p = validateProfile({ ...raw, mapUrl, ...(fromLink ? { lat: fromLink.lat, lng: fromLink.lng } : {}) }, await loadThaiAddress())
       if (typeof p === "string") return NextResponse.json({ error: p }, { status: 400 })
       const saved = await saveProfile(token, p)
       return NextResponse.json({ ok: true, profile: saved })

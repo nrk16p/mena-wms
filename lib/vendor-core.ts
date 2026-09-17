@@ -138,6 +138,8 @@ export type LabourCode = {
 
 export type VendorLocation = { lat: number; lng: number; mapUrl: string; address: string; by: string; at: string }
 export type VendorCapacity = { bays: number; heavy: number; mid: number; light: number; by: string; at: string }
+/** ที่อยู่แบบแยกช่องที่อู่เลือกเอง (2026-09-17) — เก็บแยกไว้กรองอู่ตามจังหวัด/อำเภอได้ภายหลัง */
+export type VendorAddress = { detail: string; subdistrict: string; district: string; province: string; postalCode: string; landmark: string; full: string; by: string; at: string }
 
 /** ประเภทคู่ค้า — อู่ (รับงานซ่อม) หรือ ร้านอะไหล่ (ขายของ) · ว่าง = ยังไม่ระบุ (ผู้ใช้ขอ 2026-09-10) */
 export const VENDOR_KINDS = ["อู่", "ร้านอะไหล่"] as const
@@ -150,6 +152,7 @@ export type VendorApproval = {
   /** ข้อมูลที่อู่กรอกเองผ่านลิงก์ขอราคา (2026-09-10): พิกัด + กำลังการซ่อม (ช่องซ่อม หนัก/กลาง/เบา) */
   location?: VendorLocation
   capacity?: VendorCapacity
+  address?: VendorAddress
   /** รหัสประเภทการซ่อมที่จัดซื้อติ๊กว่าอู่รายนี้ทำได้ (S30–S101 ดู lib/repair-type-master)
    *  เก็บเป็นรหัสไม่ใช่ชื่อ เพราะชื่อยาวและสะกดไม่นิ่ง ส่วนรหัสเป็นคีย์ถาวรของฝ่ายยานยนต์ */
   codes: string[]

@@ -6,6 +6,8 @@ import {
   parseLatLng, validateProfile, validateCustomJobs, isCustomJob,
   type RfqInvite, type RfqJob, type RfqPart,
 } from "../lib/rfq-core"
+import { searchThaiAddress, checkThaiAddress, composeThaiAddress, type ProvinceNode } from "../lib/thai-address"
+import fs from "node:fs"
 
 // จับคู่ช่องที่ติ๊ก → ชีต
 assert.deepEqual(sheetsForVendor([]), ["SVC"], "ทุกอู่ได้ SVC เสมอ")
@@ -143,5 +145,41 @@ assert.equal(typeof validateProfile({ lat: 13.7 }), "string", "lat เดี่�
 assert.equal(typeof validateProfile({ lat: "x", lng: "y" }), "string")
 const p2 = validateProfile({ lat: "13.7", lng: "100.5", mapUrl: "" })
 if (typeof p2 !== "string") { assert.equal(p2.lng, 100.5, "lat/lng ที่พิมพ์เองชนะลิงก์"); assert.deepEqual(p2.capacity, { bays: 0, heavy: 0, mid: 0, light: 0 }) }
+
+// ที่อยู่แบบแยกช่อง (2026-09-17) — ตรวจกับชุดข้อมูลจริง data/thai-address.json
+const TH = JSON.parse(fs.readFileSync(new URL("../data/thai-address.json", import.meta.url), "utf8")) as ProvinceNode[]
+const addr = validateProfile({ addressDetail: "99/1 หมู่ 2", province: "ชลบุรี", district: "บางละมุง", subdistrict: "หนองปรือ", landmark: "ตรงข้ามปั๊ม ปตท." }, TH)
+assert.notEqual(typeof addr, "string", String(addr))
+if (typeof addr !== "string") {
+  assert.equal(addr.postalCode, "20150", "เว้นรหัสไปรษณีย์ = เติมจากตำบล")
+  assert.equal(addr.address, "99/1 หมู่ 2 ต.หนองปรือ อ.บางละมุง จ.ชลบุรี 20150 (จุดสังเกต: ตรงข้ามปั๊ม ปตท.)")
+  assert.equal(addr.landmark, "ตรงข้ามปั๊ม ปตท.")
+}
+assert.equal(validateProfile({ province: "ชลบุรี", district: "บางละมุง", subdistrict: "หนองปรือ", postalCode: "10110" }, TH), "รหัสไปรษณีย์ของตำบลหนองปรือ คือ 20150", "รหัสไม่ตรงตำบล ไม่รับ")
+assert.match(String(validateProfile({ province: "ชลบุรี", district: "บางนา", subdistrict: "บางนาเหนือ" }, TH)), /ไม่อยู่ในจังหวัดชลบุรี/, "อำเภอข้ามจังหวัด ไม่รับ")
+assert.match(String(validateProfile({ province: "ชลบุรี", district: "บางละมุง", subdistrict: "บางนาเหนือ" }, TH)), /ไม่อยู่ในอำเภอบางละมุง/, "ตำบลข้ามอำเภอ ไม่รับ")
+assert.equal(validateProfile({ province: "ชลบุรี" }, TH), "กรุณาเลือกอำเภอ", "เลือกจังหวัดแล้วต้องเลือกให้ครบ")
+assert.equal(validateProfile({ province: "ไม่มีจริง", district: "x", subdistrict: "y" }, TH), "ไม่พบจังหวัดที่เลือก")
+const bkk = validateProfile({ province: "กรุงเทพมหานคร", district: "บางนา", subdistrict: "บางนา" }, TH)
+assert.notEqual(typeof bkk, "string", String(bkk))
+if (typeof bkk !== "string") assert.equal(bkk.address, "แขวงบางนา เขตบางนา กรุงเทพมหานคร 10260", "กทม. ใช้ แขวง/เขต")
+const legacy = validateProfile({ address: " ถ.สุขุมวิท กม.30 " }, TH)
+assert.notEqual(typeof legacy, "string")
+if (typeof legacy !== "string") { assert.equal(legacy.address, "ถ.สุขุมวิท กม.30", "ใบเก่าส่งแค่ address ได้"); assert.equal(legacy.province, undefined) }
+const onlyLandmark = validateProfile({ landmark: "หลังตลาดสด" }, TH)
+assert.notEqual(typeof onlyLandmark, "string")
+if (typeof onlyLandmark !== "string") assert.equal(onlyLandmark.address, "หลังตลาดสด")
+// ตำบลที่ต้นทางไม่มีรหัส (เกาะ) — พิมพ์รหัสเองได้ แต่ต้อง 5 หลัก
+const island = TH.flatMap((p) => p.a.flatMap((a) => a.t.filter((t) => t.z === "null").map((t) => ({ province: p.p, district: a.n, subdistrict: t.n }))))[0]
+assert.deepEqual(checkThaiAddress(TH, { ...island, postalCode: "" }), { postalCode: "" })
+assert.deepEqual(checkThaiAddress(TH, { ...island, postalCode: "81150" }), { postalCode: "81150" })
+assert.equal(typeof checkThaiAddress(TH, { ...island, postalCode: "81" }), "string")
+// ค้นหาเร็ว
+const hits = searchThaiAddress(TH, "ต.หนองปรือ")
+assert.ok(hits.length > 1 && hits[0].subdistrict === "หนองปรือ", "ชื่อตรงมาก่อน · ตัด ต. ออก")
+assert.ok(hits.some((h) => h.province === "ชลบุรี" && h.postalCode === "20150"))
+assert.ok(searchThaiAddress(TH, "20150").every((h) => h.postalCode === "20150"))
+assert.deepEqual(searchThaiAddress(TH, "ห"), [], "สั้นเกินไม่ค้น")
+assert.equal(composeThaiAddress({}), "")
 
 console.log("✅ rfq-core: ผ่านทั้งหมด")

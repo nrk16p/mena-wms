@@ -188,6 +188,7 @@ async function copyProfileToVendor(inv: RfqInvite, by: string, byEmail: string):
     const at = new Date()
     const $set: Document = { capacity: { ...p.capacity, by, at: at.toISOString() } }
     if (p.lat !== undefined && p.lng !== undefined) $set.location = { lat: p.lat, lng: p.lng, mapUrl: p.mapUrl, address: p.address, by, at: at.toISOString() }
+    if (p.province) $set.address = { detail: p.addressDetail ?? "", subdistrict: p.subdistrict ?? "", district: p.district ?? "", province: p.province, postalCode: p.postalCode ?? "", landmark: p.landmark ?? "", full: p.address, by, at: at.toISOString() }
     await d.collection("vendor_approval").updateOne(
       { vendor: inv.vendor },
       { $set, $setOnInsert: { vendor: inv.vendor, status: "pending", codes: [] } },

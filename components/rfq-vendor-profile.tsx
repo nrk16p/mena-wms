@@ -4,6 +4,8 @@
 import { useState } from "react"
 import { parseLatLng, mapsLink, type RfqProfile } from "@/lib/rfq-core"
 import { useInvite, V, VendorHeader, StatusNotice, NeedContact, type PublicInvite } from "@/components/rfq-vendor-shared"
+import { ThaiAddressPicker } from "@/components/thai-address-picker"
+import type { ThaiAddressParts } from "@/lib/thai-address"
 
 export function RfqVendorProfile({ token }: { token: string }) {
   const { data, loading, error, setLocal } = useInvite(token)
@@ -22,7 +24,9 @@ function ProfileForm({ token, invite, onSaved }: { token: string; invite: Public
   const [light, setLight] = useState(p0 ? String(p0.capacity.light || "") : "")
   const [mapUrl, setMapUrl] = useState(p0?.mapUrl ?? "")
   const [lat, setLat] = useState(p0?.lat !== undefined ? String(p0.lat) : ""); const [lng, setLng] = useState(p0?.lng !== undefined ? String(p0.lng) : "")
-  const [address, setAddress] = useState(p0?.address ?? "")
+  const [addr, setAddr] = useState<ThaiAddressParts>(() => addrOf(p0))
+  // ใบเก่า (ก่อนมีช่องแยก) ที่อู่พิมพ์ข้อความไว้ → ย้ายมาอยู่ช่องจุดสังเกต ไม่ให้หาย
+  const [landmark, setLandmark] = useState(p0?.landmark ?? (p0 && !p0.province && !p0.addressDetail && !p0.postalCode ? p0.address : ""))
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(""); const [err, setErr] = useState("")
   const ro = !invite.canWrite
   const parsed = lat && lng ? { lat: Number(lat), lng: Number(lng) } : parseLatLng(mapUrl)
@@ -45,13 +49,14 @@ function ProfileForm({ token, invite, onSaved }: { token: string; invite: Public
   async function save() {
     setBusy(true); setErr(""); setMsg("")
     try {
-      const r = await fetch(`/api/q/${token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile: { capacity: { bays: bays || undefined, heavy: heavy || undefined, mid: mid || undefined, light: light || undefined }, mapUrl, lat: lat || undefined, lng: lng || undefined, address } }) })
+      const r = await fetch(`/api/q/${token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile: { capacity: { bays: bays || undefined, heavy: heavy || undefined, mid: mid || undefined, light: light || undefined }, mapUrl, lat: lat || undefined, lng: lng || undefined, ...addr, landmark } }) })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
       const p = d.profile as RfqProfile
       onSaved(p)
       if (p.lat !== undefined) { setLat(String(p.lat)); setLng(String(p.lng)) }
       setBays(String(p.capacity.bays || ""))
+      setAddr(addrOf(p)); setLandmark(p.landmark ?? "")
       setMsg(p.lat !== undefined ? "บันทึกแล้ว · พิกัดถูกต้อง" : "บันทึกแล้ว (ยังไม่มีพิกัด — วางลิงก์แผนที่หรือกดใช้ GPS)")
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
@@ -85,8 +90,10 @@ function ProfileForm({ token, invite, onSaved }: { token: string; invite: Public
           <div><label style={V.label}>ลองจิจูด (lng)</label><input style={V.input} inputMode="decimal" disabled={ro} value={lng} onChange={(e) => setLng(e.target.value)} placeholder="100.50" /></div>
         </div>
         {okCoord && <a href={mapsLink(okCoord.lat, okCoord.lng)} target="_blank" rel="noreferrer" style={{ ...V.muted, display: "block", marginTop: 6, color: "#1D4ED8" }}>ตรวจสอบตำแหน่งบนแผนที่ ↗ ({okCoord.lat}, {okCoord.lng})</a>}
-        <label style={{ ...V.label, marginTop: 10 }}>ที่อยู่ / จุดสังเกต</label>
-        <input style={V.input} value={address} disabled={ro} maxLength={300} onChange={(e) => setAddress(e.target.value)} placeholder="เช่น ถ.สุขุมวิท กม.30 ตรงข้ามปั๊ม ปตท." />
+        <div style={{ fontSize: 15, fontWeight: 600, marginTop: 16 }}>ที่อยู่</div>
+        <div style={{ marginTop: 6 }}><ThaiAddressPicker value={addr} disabled={ro} onChange={(patch) => setAddr((a) => ({ ...a, ...patch }))} /></div>
+        <label style={{ ...V.label, marginTop: 10 }}>จุดสังเกต</label>
+        <input style={V.input} value={landmark} disabled={ro} maxLength={200} onChange={(e) => setLandmark(e.target.value)} placeholder="เช่น ถ.สุขุมวิท กม.30 ตรงข้ามปั๊ม ปตท." />
         {msg && <div style={{ color: "#047857", fontSize: 13, marginTop: 10 }}>{msg}</div>}
         {err && <div style={{ color: "#B91C1C", fontSize: 13, marginTop: 10 }}>{err}</div>}
         {!ro && <button style={{ ...V.btnPrimary, marginTop: 14, opacity: busy ? .6 : 1 }} disabled={busy} onClick={() => void save()}>บันทึกข้อมูลอู่</button>}
@@ -94,4 +101,8 @@ function ProfileForm({ token, invite, onSaved }: { token: string; invite: Public
       <a href={`/q/${token}`} style={{ ...V.btn, display: "block", textAlign: "center", textDecoration: "none", color: "#14271C" }}>‹ กลับหน้าหลัก</a>
     </div>
   )
+}
+
+function addrOf(p: RfqProfile | null | undefined): ThaiAddressParts {
+  return { addressDetail: p?.addressDetail ?? "", province: p?.province ?? "", district: p?.district ?? "", subdistrict: p?.subdistrict ?? "", postalCode: p?.postalCode ?? "" }
 }
