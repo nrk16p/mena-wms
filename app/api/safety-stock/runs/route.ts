@@ -8,8 +8,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
-  BUILD_SCHEDULE, SLOT_MATCH_WINDOW_MIN, RUN_STALE_AFTER_MIN, INVENTORY_ID,
-  type BuildSource,
+  BUILD_SCHEDULE, SLOT_MATCH_WINDOW_MIN, INVENTORY_ID, runSlotStatus,
+  type BuildSource, type RunSlotStatus,
 } from "@/lib/safety-stock-core"
 
 export const dynamic = "force-dynamic"
@@ -19,7 +19,7 @@ const TH_OFFSET_MS = 7 * 3600_000
 /** เผื่อรอบที่เริ่มก่อนเวลาในตารางเล็กน้อย (นาฬิกาสองเครื่องไม่ตรงกันเป๊ะ) ให้ยังนับเป็นของช่องนั้น */
 const SLOT_LEAD_MIN = 5
 
-export type SlotStatus = "ok" | "error" | "running" | "stale" | "pending" | "missed"
+export type SlotStatus = RunSlotStatus
 
 type RunDoc = {
   startedAt: Date
@@ -70,15 +70,13 @@ export async function GET(req: NextRequest) {
       const run = idx >= 0 ? runs[idx] : null
       if (idx >= 0) taken.add(idx)
 
-      let status: SlotStatus
-      if (!run) status = now.getTime() <= to ? "pending" : "missed"
-      else if (run.status === "running") {
-        const ageMin = (now.getTime() - new Date(run.startedAt).getTime()) / 60_000
-        status = ageMin > RUN_STALE_AFTER_MIN ? "stale" : "running"
-      } else status = run.status === "ok" ? "ok" : "error"
-
-      // ข้อมูลรายคลังของคลังที่กำลังดูอยู่ — คลังอื่นในรอบเดียวกันอาจสำเร็จ/พลาดไม่เหมือนกัน
+      // ผลของ "คลังที่กำลังดู" ไม่ใช่ทั้งรอบ — คลังอื่นในรอบเดียวกันอาจสำเร็จ/พลาดไม่เหมือนกัน
+      const status: SlotStatus = runSlotStatus(run, inventoryId, now.getTime(), to)
       const wh = run?.warehouses?.find((w) => w.inventoryId === inventoryId) ?? null
+      // คลังอื่นที่พลาดในรอบเดียวกัน — บอกใน tooltip ไม่ให้หายเงียบ แม้จุดของคลังนี้จะเป็น ✓
+      const otherErrors = (run?.warehouses ?? [])
+        .filter((w) => w.inventoryId !== inventoryId && w.error)
+        .map((w) => ({ inventoryId: w.inventoryId, error: w.error as string }))
 
       return {
         hhmm: slot.hhmm,
@@ -95,6 +93,7 @@ export async function GET(req: NextRequest) {
         written: run?.written ?? null,
         error: run?.error ?? null,
         warehouse: wh ? { written: wh.written, latestMovementDate: wh.latestMovementDate, error: wh.error } : null,
+        otherErrors,
       }
     })
 

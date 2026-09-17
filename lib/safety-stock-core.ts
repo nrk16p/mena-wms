@@ -47,6 +47,38 @@ export const SLOT_MATCH_WINDOW_MIN = 80
  *  แถวจึงไม่มีวันถูกปิด เผื่อเวลาไว้เป็น 3 เท่าก่อนจะฟ้องว่าค้าง */
 export const RUN_STALE_AFTER_MIN = 15
 
+export type RunSlotStatus = "ok" | "error" | "running" | "stale" | "pending" | "missed"
+
+type RunForSlot = {
+  status?: string
+  startedAt: Date | string
+  warehouses?: { inventoryId: string; error: string | null }[]
+}
+
+/** สถานะของช่องในแถบ "รอบอัปเดตวันนี้" สำหรับคลังที่กำลังดู
+ *  รอบจบแล้ว: ใช้ผลของคลังนี้ถ้ามี — รอบ 10:00 มักข้ามคลังท้าย ๆ เพราะหมด time budget ทำให้ทั้งรอบเป็น error
+ *  เดิมคลังที่สำเร็จก็ขึ้น ✗ ตามไปด้วย (17/09/2026) · ไม่มีผลรายคลัง = ใช้ผลทั้งรอบ
+ *  windowEndMs = เวลาสุดท้ายที่รอบจะยังนับเข้าช่องนี้ (เลยแล้วยังไม่มีรอบ = missed) */
+export function runSlotStatus(run: RunForSlot | null, inventoryId: string, nowMs: number, windowEndMs: number): RunSlotStatus {
+  if (!run) return nowMs <= windowEndMs ? "pending" : "missed"
+  if (run.status === "running") {
+    const ageMin = (nowMs - new Date(run.startedAt).getTime()) / 60_000
+    return ageMin > RUN_STALE_AFTER_MIN ? "stale" : "running"
+  }
+  const wh = run.warehouses?.find((w) => w.inventoryId === inventoryId)
+  if (wh) return wh.error ? "error" : "ok"
+  return run.status === "ok" ? "ok" : "error"
+}
+
+/** "เคลื่อนไหวล่าสุด" ของรอบ build — build เก็บเป็นเที่ยงคืน UTC ของวันนั้น (หรือ YYYY-MM-DD)
+ *  แสดง dd/mm/yy พ.ศ. โดยอ่านเป็นวันตามปฏิทินตรง ๆ ห้ามแปลงโซนเวลา · ค่าที่อ่านไม่ออกคืนตามเดิม */
+export function fmtMovementDate(v: string | null | undefined): string {
+  if (!v) return ""
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return String(v)
+  return `${m[3]}/${m[2]}/${String(Number(m[1]) + 543).slice(-2)}`
+}
+
 /** เวลารอของตามนโยบาย (วัน) — ใช้แทนเวลารอของที่วัดได้จริงในทุกสูตร (SS/ROP/แนะนำสั่ง) ของหน้า /safety-stock
  *  ตั้งแต่ 2569-08 (ขอบเขตที่อนุมัติ) เพราะ PR→รับของจับคู่ได้ไม่ครบทุกรหัส ทำให้ lead time รายรหัส/รายกลุ่ม
  *  มีทั้งเชื่อได้และเดา ปนกันจนเทียบรหัสต่อรหัสไม่ตรงกัน — ใช้ค่าคงที่ตัวเดียวทั้งระบบให้เทียบกันได้ตรงๆ

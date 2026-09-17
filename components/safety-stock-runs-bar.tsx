@@ -7,7 +7,7 @@
 // ช่องในแถบมาจาก BUILD_SCHEDULE ใน lib/safety-stock-core.ts ซึ่งต้องตรงกับ scheduler ของ api-ncac + vercel.json
 import { useCallback, useEffect, useState } from "react"
 import { Check, X, TriangleAlert } from "lucide-react"
-import type { BuildSource } from "@/lib/safety-stock-core"
+import { fmtMovementDate, WAREHOUSES, type BuildSource } from "@/lib/safety-stock-core"
 
 type SlotStatus = "ok" | "error" | "running" | "stale" | "pending" | "missed"
 
@@ -25,6 +25,8 @@ type Slot = {
   written: number | null
   error: string | null
   warehouse: { written: number; latestMovementDate: string | null; error: string | null } | null
+  /** คลังอื่นที่พลาดในรอบเดียวกัน (จุดใช้ผลของคลังที่ดูอยู่) */
+  otherErrors?: { inventoryId: string; error: string }[]
 }
 
 type RunsPayload = {
@@ -70,6 +72,8 @@ const SOURCE_TEXT: Record<BuildSource, string> = {
   manual: "เรียกเอง",
 }
 
+const whName = (id: string) => WAREHOUSES.find((w) => w.id === id)?.name ?? `คลัง ${id}`
+
 function tooltipOf(s: Slot): string {
   const lines = [
     `${s.hhmm} — ${STATUS_TEXT[s.status]}`,
@@ -79,12 +83,14 @@ function tooltipOf(s: Slot): string {
   if (s.durationMs != null) lines.push(`ใช้เวลา ${(s.durationMs / 1000).toFixed(1)} วินาที`)
   if (s.warehouse) {
     lines.push(`คลังนี้: เขียน ${s.warehouse.written.toLocaleString("th-TH")} แถว`)
-    if (s.warehouse.latestMovementDate) lines.push(`เคลื่อนไหวล่าสุดถึง ${s.warehouse.latestMovementDate}`)
+    if (s.warehouse.latestMovementDate) lines.push(`เคลื่อนไหวล่าสุดถึง ${fmtMovementDate(s.warehouse.latestMovementDate)}`)
     if (s.warehouse.error) lines.push(`⚠️ ${s.warehouse.error}`)
   } else if (s.written != null) {
     lines.push(`เขียนรวมทุกคลัง ${s.written.toLocaleString("th-TH")} แถว`)
   }
-  if (s.error) lines.push(`⚠️ ${s.error}`)
+  // error ของทั้งรอบซ้ำกับของคลังอื่นด้านล่างอยู่แล้ว — โชว์เฉพาะเมื่อไม่มีผลรายคลังให้ดู
+  if (s.error && !s.warehouse) lines.push(`⚠️ ${s.error}`)
+  for (const o of s.otherErrors ?? []) lines.push(`คลังอื่นในรอบนี้ — ${whName(o.inventoryId)}: ⚠️ ${o.error}`)
   return lines.join("\n")
 }
 
@@ -221,7 +227,7 @@ export function SafetyStockRunsBar({ inventoryId }: { inventoryId: string }) {
           <span>
             ล่าสุด {bkkTime(lastSlot.finishedAt ?? lastSlot.startedAt)} น.
             {lastSlot.warehouse ? ` · ${lastSlot.warehouse.written.toLocaleString("th-TH")} แถว` : ""}
-            {lastSlot.warehouse?.latestMovementDate ? ` · เคลื่อนไหวล่าสุด ${lastSlot.warehouse.latestMovementDate}` : ""}
+            {lastSlot.warehouse?.latestMovementDate ? ` · เคลื่อนไหวล่าสุด ${fmtMovementDate(lastSlot.warehouse.latestMovementDate)}` : ""}
           </span>
         )}
         {nextGap != null && nextGap > 0 && (

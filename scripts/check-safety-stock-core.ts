@@ -7,7 +7,7 @@ import {
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
   openPrQtyBySku, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, ON_ORDER_MAX_AGE_DAYS,
-  isPoOutstanding, isPrClosed,
+  isPoOutstanding, isPrClosed, runSlotStatus, fmtMovementDate,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow,
 } from "../lib/safety-stock-core"
@@ -476,6 +476,33 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
 
   assert.equal(derive(ROW, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, -5).suggestQty,
     derive(ROW, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, 0).suggestQty, "ค่าติดลบต้องถือเป็น 0 ไม่ใช่บวกกลับ")
+}
+
+// --- แถบรอบอัปเดต: ผลของรอบ "สำหรับคลังที่กำลังดู" (17/09/2026 — รอบ 10:00 คลัง 4 สำเร็จแต่ขึ้น ✗ เพราะคลัง 3 ถูกข้าม) ---
+{
+  const T0 = Date.parse("2026-09-17T03:26:12Z")
+  const END = T0 + 60 * 60_000
+  const partial = {
+    status: "error", startedAt: new Date(T0),
+    warehouses: [
+      { inventoryId: "4", written: 3637, latestMovementDate: "2026-09-17T00:00:00.000Z", error: null },
+      { inventoryId: "3", written: 0, latestMovementDate: null, error: "ข้ามคลังนี้ — เกิน time budget" },
+    ],
+  }
+  assert.equal(runSlotStatus(partial, "4", T0 + 60_000, END), "ok", "คลังที่ดูอยู่สำเร็จ = ✓ แม้คลังอื่นในรอบพลาด")
+  assert.equal(runSlotStatus(partial, "3", T0 + 60_000, END), "error", "คลังที่ถูกข้าม = ✗")
+  assert.equal(runSlotStatus({ ...partial, warehouses: [] }, "4", T0, END), "error", "ไม่มีผลรายคลัง → ใช้ผลทั้งรอบ")
+  assert.equal(runSlotStatus({ status: "ok", startedAt: new Date(T0) }, "4", T0, END), "ok")
+  // ยังรันอยู่ = ยังไม่รู้ผลรายคลัง ต้องไม่ตัดสินจากรายการคลังที่เขียนไปแล้วบางส่วน
+  assert.equal(runSlotStatus({ ...partial, status: "running" }, "4", T0 + 5 * 60_000, END), "running")
+  assert.equal(runSlotStatus({ ...partial, status: "running" }, "4", T0 + 16 * 60_000, END), "stale")
+  assert.equal(runSlotStatus(null, "4", END - 1, END), "pending")
+  assert.equal(runSlotStatus(null, "4", END + 1, END), "missed")
+
+  assert.equal(fmtMovementDate("2026-09-17T00:00:00.000Z"), "17/09/69", "วันที่เก็บเป็นเที่ยงคืน UTC — ห้ามเลื่อนวันตามโซนเวลา")
+  assert.equal(fmtMovementDate("2026-09-15"), "15/09/69")
+  assert.equal(fmtMovementDate(null), "")
+  assert.equal(fmtMovementDate("ไม่ใช่วันที่"), "ไม่ใช่วันที่")
 }
 
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")
