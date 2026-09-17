@@ -5,7 +5,7 @@ import { tireAge, isTrailerPosition } from "@/lib/tire"
 const DB = process.env.MONGO_DB ?? "master_data"
 
 // GET /api/tire-fleet?branch=&q= — รถ unique ทุกคันจาก Change History (ทั้ง 2 สาขา)
-// พร้อมสรุปสภาพยางรายคัน (อายุยาง) + จำนวนคำขอที่ค้างอยู่
+// พร้อมสรุปสภาพยางรายคัน (รอบเปลี่ยนจาก tire_distance, อายุยางเป็นตัวสำรอง) + จำนวนคำขอที่ค้างอยู่
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const branch = searchParams.get("branch")?.trim() ?? ""
@@ -26,7 +26,12 @@ export async function GET(req: NextRequest) {
   }
   if (branch) reqMatch.branch = branch
 
-  const [tires, activeReqs] = await Promise.all([
+  // สถานะรอบเปลี่ยนรายเส้น — ตัวเดียวกับที่แอปคนขับและแท็บ "ยางถึงกำหนดเปลี่ยน" ใช้
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dueMatch: Record<string, any> = { isSpare: { $ne: true } }
+  if (branch) dueMatch.branch = branch
+
+  const [tires, activeReqs, dueRows] = await Promise.all([
     db.collection("tire_change")
       .find(match)
       .project({ branch: 1, vehicle: 1, tirePosition: 1, changeIn: 1 })
@@ -35,7 +40,27 @@ export async function GET(req: NextRequest) {
       .find(reqMatch)
       .project({ branch: 1, plate: 1, status: 1 })
       .toArray(),
+    db.collection("tire_distance")
+      .find(dueMatch)
+      .project({ branch: 1, plate: 1, level: 1, usedPct: 1, snoozedUntil: 1 })
+      .toArray(),
   ])
+
+  // branch|plate → จำนวนเส้นแต่ละระดับ + % สูงสุดของคัน (เส้นที่พักแจ้งเตือนไว้นับเป็นปกติ)
+  type DueCount = "over" | "due" | "warn" | "ok" | "unknown"
+  type DueGroup = Record<DueCount, number> & { maxPct: number }
+  const dueByPlate = new Map<string, DueGroup>()
+  const nowMs = Date.now()
+  for (const r of dueRows) {
+    const key = `${r.branch}|${r.plate}`
+    let g = dueByPlate.get(key)
+    if (!g) { g = { over: 0, due: 0, warn: 0, ok: 0, unknown: 0, maxPct: 0 }; dueByPlate.set(key, g) }
+    const snoozed = !!r.snoozedUntil && new Date(r.snoozedUntil).getTime() > nowMs
+    const raw = snoozed ? "ok" : String(r.level ?? "unknown")
+    const level = (["over", "due", "warn", "ok"].includes(raw) ? raw : "unknown") as DueCount
+    g[level]++
+    if (!snoozed && Number(r.usedPct) > g.maxPct) g.maxPct = Number(r.usedPct)
+  }
 
   // group by branch + plate
   type Group = {
@@ -85,6 +110,7 @@ export async function GET(req: NextRequest) {
     const isTrailerPlate =
       (g.trailerTires > 0 && g.headTires === 0) ||
       String(m?.vehicleType ?? "").includes("หาง")
+    const d = dueByPlate.get(`${g.branch}|${g.plate}`)
     return {
       branch:         g.branch,
       plate:          g.plate,
@@ -98,13 +124,21 @@ export async function GET(req: NextRequest) {
       normal:         g.normal,
       unknown:        g.unknown,
       oldestAgeText:  g.oldestAgeText,
+      // สรุปรอบเปลี่ยนรายคัน — null = ยังไม่มีแถวใน tire_distance (ทะเบียนที่ตัดออก / cron ยังไม่รัน)
+      due: d ? {
+        over: d.over, due: d.due, warn: d.warn, ok: d.ok, unknown: d.unknown,
+        maxPct: d.maxPct,
+      } : null,
       activeRequests: reqCount.get(`${g.branch}|${g.plate}`) ?? 0,
     }
   })
 
-  // รถที่มีคำขอค้าง / ยางอันตราย ขึ้นก่อน
+  // รถที่มีคำขอค้าง / ยางเกินรอบ ขึ้นก่อน — เรียงด้วยเกณฑ์รอบเปลี่ยนก่อน แล้วค่อยตกไปที่อายุยาง
   items.sort((a, b) =>
     b.activeRequests - a.activeRequests ||
+    (b.due?.over ?? 0) - (a.due?.over ?? 0) ||
+    (b.due?.due  ?? 0) - (a.due?.due  ?? 0) ||
+    (b.due?.warn ?? 0) - (a.due?.warn ?? 0) ||
     b.danger - a.danger ||
     b.warn - a.warn ||
     a.plate.localeCompare(b.plate, "th")

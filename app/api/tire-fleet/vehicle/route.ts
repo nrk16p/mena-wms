@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { splitPosition, tireAge, remainingLevel } from "@/lib/tire"
+import { DUE_LABEL, SOURCE_LABEL, type DueLevel, type DistanceSource } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
 // GET /api/tire-fleet/vehicle?branch=latkrabang&plate=สบ.71-3569&odometer=250000
-// รายละเอียดรถ 1 คัน: ยางปัจจุบัน (พร้อมค่าคำนวณประสิทธิภาพ) + ประวัติการเปลี่ยนทั้งหมด
+// รายละเอียดรถ 1 คัน: ยางปัจจุบัน (พร้อมสถานะรอบเปลี่ยนจาก tire_distance) + ประวัติการเปลี่ยนทั้งหมด
 // odometer ไม่บังคับ — ถ้าไม่ส่งจะใช้เลขไมล์จากคำขอล่าสุด หรือไมล์เริ่มต้นสูงสุดในประวัติ
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -63,6 +64,20 @@ export async function GET(req: NextRequest) {
     : []
   const stockMap = new Map(stock.map((s) => [String(s.serialNo).trim(), s]))
 
+  // สถานะรอบเปลี่ยน (tire_distance) — ชุดเดียวกับแท็บ "ยางถึงกำหนดเปลี่ยน" และแอปคนขับ
+  // คำนวณรอบละวันโดย cron จากระยะ GPS/ค่าเที่ยว เทียบระยะกำหนดของรุ่นยาง (แยกล้อหน้า/หลัง)
+  // ไม่คิดสดตรงนี้ เพราะตัวเลขต้องตรงกับที่แอปคนขับเห็น ไม่ใช่ขยับตามเลขไมล์ที่แอดมินพิมพ์
+  const due = await db.collection("tire_distance")
+    .find({ plate })
+    .project({
+      serialNo: 1, tirePosition: 1, level: 1, usedPct: 1, kmUsed: 1,
+      specDistance: 1, source: 1, partial: 1, isSpare: 1,
+      snoozedUntil: 1, acceptedAt: 1, acceptedBy: 1, dataThrough: 1, computedAt: 1,
+    })
+    .toArray()
+  // key ด้วย serial+ตำแหน่ง เหมือน upsert ฝั่ง cron — ตำแหน่งเดียวกันอาจเคยใส่หลายเส้น
+  const dueMap = new Map(due.map((d) => [`${String(d.serialNo ?? "").trim()}|${String(d.tirePosition ?? "").trim()}`, d]))
+
   // serial → คำขอที่ยังค้างอยู่ (ข้าม done/rejected; คำขอใหม่สุดชนะ) — พก id ไว้ให้ approve/reject ได้จากหน้ารถ
   type ReqRef = {
     requestId: string; itemId: string
@@ -118,6 +133,15 @@ export async function GET(req: NextRequest) {
       bahtPerKm = Math.round((unitPrice / usedDistance) * 10000) / 10000
     }
 
+    // ยางอะไหล่ยังไม่ได้แตะถนน — ระยะที่คิดให้เป็นของทั้งคัน ไม่ใช่ของเส้นนั้น
+    // แอปคนขับตัดทิ้งตั้งแต่ชั้น API แล้ว (isSpare) ที่นี่ต้องตัดด้วยไม่งั้นล้ออะไหล่ขึ้นแดงทั้งที่ยางใหม่
+    const dRow = dueMap.get(`${serialNo}|${String(h.tirePosition ?? "").trim()}`)
+    const d = dRow && !dRow.isSpare ? dRow : null
+    const snoozed = !!d?.snoozedUntil && new Date(d.snoozedUntil).getTime() > Date.now()
+    // เส้นที่พักแจ้งเตือนไว้และยังไม่ครบกำหนด นับเป็นปกติ — เกณฑ์เดียวกับ isSnoozed ในแอปคนขับ
+    const dueLv: DueLevel = snoozed ? "ok" : ((d?.level as DueLevel) ?? "unknown")
+    const dueSrc = (d?.source as DistanceSource) ?? "none"
+
     return {
       _id:           h._id,
       tirePosition:  h.tirePosition ?? "",
@@ -139,6 +163,20 @@ export async function GET(req: NextRequest) {
       remainingLevel: remainingPct === null ? null : remainingLevel(remainingPct),
       bahtPerKm,
       age:           tireAge((h.changeIn as string | Date | null) ?? null),
+      due: d ? {
+        level:        dueLv,
+        levelLabel:   DUE_LABEL[dueLv],
+        usedPct:      d.usedPct ?? null,
+        kmUsed:       Number(d.kmUsed) || 0,
+        specDistance: Number(d.specDistance) || 0,
+        source:       SOURCE_LABEL[dueSrc] ?? SOURCE_LABEL.none,
+        partial:      !!d.partial,
+        snoozedUntil: snoozed ? d.snoozedUntil : null,
+        acceptedAt:   d.acceptedAt ?? null,
+        acceptedBy:   d.acceptedBy ?? "",
+        dataThrough:  d.dataThrough ?? null,
+        computedAt:   d.computedAt ?? null,
+      } : null,
       request:       statusMap.get(serialNo) ?? null,
     }
   }

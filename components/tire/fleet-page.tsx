@@ -9,6 +9,7 @@ import {
 import Swal from "sweetalert2"
 import { swalToast, swalError } from "@/lib/swal"
 import { MR_LABEL, type MrStatus, type MrSummary } from "@/lib/tire-mr"
+import { DUE_LABEL, DUE_WHEEL, dueChipCls, dueGradientCls, dueHex, type DueLevel } from "@/lib/tire-due"
 import {
   AppointmentDialog, BRANCHES, STATUS_LABEL,
   branchChipCls, branchLabel, branchesFor, btnPrimary, btnSmall, card,
@@ -37,7 +38,24 @@ type FleetVehicle = {
   normal:         number
   unknown:        number
   oldestAgeText:  string | null
+  due:            { over: number; due: number; warn: number; ok: number; unknown: number; maxPct: number } | null
   activeRequests: number
+}
+
+// สถานะรอบเปลี่ยนรายเส้น — ตัวเลขชุดเดียวกับที่แอปคนขับ (mena-go-lb / mena-go-srb) แสดง
+type DueInfo = {
+  level:        DueLevel
+  levelLabel:   string
+  usedPct:      number | null
+  kmUsed:       number
+  specDistance: number
+  source:       string
+  partial:      boolean
+  snoozedUntil: string | null
+  acceptedAt:   string | null
+  acceptedBy:   string
+  dataThrough:  string | null
+  computedAt:   string | null
 }
 
 type ReqRef = {
@@ -72,6 +90,7 @@ type TireRow = {
   remainingLevel: "green" | "amber" | "red" | null
   bahtPerKm:      number | null
   age:            { text: string; level: "normal" | "warn" | "danger" } | null
+  due:            DueInfo | null
   request:        ReqRef | null
 }
 
@@ -114,23 +133,19 @@ const isTrailerTire = (t: TireRow) =>
   t.positionCode.toUpperCase().startsWith("RB") ||
   (t.positionName + " " + t.tirePosition).includes("หาง")
 
-// สีล้อ: คำขอค้าง → ฟ้า / ประสิทธิภาพคงเหลือ → เขียว-เหลือง-แดง / ไม่มีข้อมูล → อายุยางแทน
+// ลำดับความสำคัญของสีล้อ — ต้องตรงกับ TireButton ในแอปคนขับ (mena-go-lb / mena-go-srb):
+//   มีคำขอค้าง (ฟ้า) > รอบเปลี่ยนตามระยะทาง (แดง/ส้ม/เหลือง/เขียว) > อายุยาง > ไม่มีข้อมูล
+//
+// เดิมหน้านี้ลงสีจาก remainingPct (เลขไมล์รถ ÷ ระยะของ tire_stock) ซึ่งเป็นคนละสูตรกับแอป
+// คันเดียวกันจึงขึ้นคนละสี — ย้ายมาใช้ usedPct จาก tire_distance ตัวเดียวกันทั้งระบบ
 function wheelGradient(t: TireRow | undefined): string {
   if (!t) return "from-gray-400/60 to-transparent"
   if (t.request) return "from-blue-500/90 to-transparent"
-  if (t.remainingLevel === "red")   return "from-red-500/95 to-transparent"
-  if (t.remainingLevel === "amber") return "from-amber-500/90 to-transparent"
-  if (t.remainingLevel === "green") return "from-green-500/90 to-transparent"
+  if (t.due && t.due.level !== "unknown") return dueGradientCls[t.due.level]
   if (t.age?.level === "danger") return "from-red-500/95 to-transparent"
   if (t.age?.level === "warn")   return "from-amber-500/90 to-transparent"
   if (t.age?.level === "normal") return "from-green-500/90 to-transparent"
   return "from-gray-500/70 to-transparent"
-}
-
-const remainingChipCls = {
-  red:   "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300",
-  amber: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
-  green: "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300",
 }
 
 // resize photo to max 1280px JPEG before upload
@@ -381,7 +396,23 @@ function FleetGrid({ branchFilter, onSelect }: {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {shown.map((v) => {
-            const known = v.danger + v.warn + v.normal
+            // แถบสุขภาพ: ใช้สัดส่วนรอบเปลี่ยนเป็นหลัก ตกไปที่อายุยางเมื่อยังไม่มีข้อมูลระยะ
+            const d = v.due
+            const dueKnown = d ? d.over + d.due + d.warn + d.ok : 0
+            const bars = dueKnown > 0
+              ? [
+                  { cls: "bg-green-500",  n: d!.ok },
+                  { cls: "bg-amber-500",  n: d!.warn },
+                  { cls: "bg-orange-500", n: d!.due },
+                  { cls: "bg-red-500",    n: d!.over },
+                ]
+              : [
+                  { cls: "bg-green-500", n: v.normal },
+                  { cls: "bg-amber-500", n: v.warn },
+                  { cls: "bg-red-500",   n: v.danger },
+                ]
+            const barTotal = bars.reduce((a, b) => a + b.n, 0)
+            const alertCount = d ? d.over + d.due : v.danger
             return (
               <button
                 key={`${v.branch}|${v.plate}`}
@@ -403,23 +434,20 @@ function FleetGrid({ branchFilter, onSelect }: {
                   {v.vehicleType || "ไม่ระบุประเภท"}{v.fleet ? ` · ${v.fleet}` : ""}
                 </p>
 
-                {/* health bar — สัดส่วนอายุยาง ปกติ/เฝ้าระวัง/อันตราย */}
+                {/* health bar — สัดส่วนยางตามรอบเปลี่ยน ปกติ/เฝ้าระวัง/ถึงกำหนด/เกินกำหนด */}
                 <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-white/10 mb-2">
-                  {known > 0 && (
-                    <>
-                      <div className="bg-green-500" style={{ width: `${(v.normal / v.tireCount) * 100}%` }} />
-                      <div className="bg-amber-500" style={{ width: `${(v.warn / v.tireCount) * 100}%` }} />
-                      <div className="bg-red-500"   style={{ width: `${(v.danger / v.tireCount) * 100}%` }} />
-                    </>
-                  )}
+                  {barTotal > 0 && bars.map((b) => (
+                    b.n > 0 ? <div key={b.cls} className={b.cls} style={{ width: `${(b.n / barTotal) * 100}%` }} /> : null
+                  ))}
                 </div>
 
                 <div className="flex items-center justify-between text-[11px]" style={fontThai}>
                   <span className="text-[#6B7C72] dark:text-gray-400">
-                    ยาง {v.tireCount} เส้น{v.oldestAgeText ? ` · เก่าสุด ${v.oldestAgeText}` : ""}
+                    ยาง {v.tireCount} เส้น
+                    {d && d.maxPct > 0 ? ` · ใช้ไปสูงสุด ${d.maxPct}%` : v.oldestAgeText ? ` · เก่าสุด ${v.oldestAgeText}` : ""}
                   </span>
                   <span className="flex items-center gap-1.5">
-                    {v.danger > 0 && <span className="font-bold text-red-600 dark:text-red-400">⚠ {v.danger}</span>}
+                    {alertCount > 0 && <span className="font-bold text-red-600 dark:text-red-400">⚠ {alertCount}</span>}
                     {v.activeRequests > 0 && (
                       <span className="rounded-md bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
                         คำขอ {v.activeRequests}
@@ -446,13 +474,16 @@ function WheelButton({ tire, pos, selected, onClick }: {
   selected: boolean
   onClick: () => void
 }) {
-  const pct = tire?.remainingPct
+  // % ที่ "ใช้ไปแล้ว" เทียบระยะกำหนดของรุ่นยาง — ตัวเลขเดียวกับที่คนขับเห็นในแอป
+  const due     = tire?.due && tire.due.level !== "unknown" ? tire.due : null
+  const duePct  = due?.usedPct != null ? Math.round(due.usedPct) : null
   const appt = tire?.request?.appointmentDate ? new Date(tire.request.appointmentDate) : null
   const sub = tire?.request
     ? appt && !isNaN(appt.getTime())
       ? `นัด ${appt.getDate()}/${appt.getMonth() + 1}`
       : STATUS_LABEL[tire.request.itemStatus] ?? "มีคำขอ"
-    : pct !== null && pct !== undefined ? `${pct}%` : tire?.age?.text ?? "—"
+    : due ? DUE_WHEEL[due.level]
+    : tire?.age?.text ?? "—"
   return (
     <button
       type="button"
@@ -470,6 +501,15 @@ function WheelButton({ tire, pos, selected, onClick }: {
       }}
     >
       <span className={`absolute inset-0 rounded-xl bg-gradient-to-b ${wheelGradient(tire)}`} />
+      {/* % ที่ใช้ไป — มุมขวาบน ไม่ทับรหัสตำแหน่งกลางล้อ (วางเหมือนแอปคนขับ) */}
+      {!tire?.request && duePct != null && (
+        <span
+          className="absolute right-0.5 top-0.5 rounded bg-white/95 px-1 text-[8px] font-black leading-[13px] tabular-nums shadow-sm"
+          style={{ color: dueHex[due!.level] }}
+        >
+          {duePct}%
+        </span>
+      )}
       <span className="relative text-[12px] font-black leading-none tracking-tight drop-shadow-md">{pos}</span>
       <span className="relative my-0.5 h-px w-4/5 rounded-full bg-white/40" />
       <span className="relative px-0.5 text-center text-[9px] font-extrabold leading-none drop-shadow-md" style={fontThai}>
@@ -539,8 +579,9 @@ function TireSchematic({ tireMap, selectedPos, onSelect }: {
       {/* legend */}
       <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 pt-1 text-[10px] text-gray-400" style={fontThai}>
         <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> ปกติ</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> เฝ้าระวัง</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> ควรเปลี่ยน</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> เฝ้าระวัง 80%+</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-orange-500" /> ถึงกำหนด 90%+</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> เกินกำหนด 100%+</span>
         <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> มีคำขอ</span>
       </div>
     </div>
@@ -798,7 +839,7 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
           {/* Schematic */}
           <div className={card + " p-5"}>
             <p className="mb-2 text-center text-[12px] font-semibold text-[#6B7C72] dark:text-gray-400" style={fontThai}>
-              แตะที่ล้อเพื่อดูรายละเอียด — ตัวเลขคือประสิทธิภาพคงเหลือ
+              แตะที่ล้อเพื่อดูรายละเอียด — ตัวเลขคือระยะที่ใช้ไปเทียบระยะกำหนดของรุ่นยาง
             </p>
             <TireSchematic tireMap={tireMap} selectedPos={selectedPos} onSelect={setSelectedPos} />
           </div>
@@ -814,9 +855,10 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
                     </h3>
                     <p className="mt-0.5 font-mono text-[11px] text-[#9AA8A0]">{selectedTire.serialNo || "ไม่มีซีเรียล"}</p>
                   </div>
-                  {selectedTire.remainingPct !== null && selectedTire.remainingLevel && (
-                    <span className={`rounded-lg px-2.5 py-1 text-[13px] font-bold ${remainingChipCls[selectedTire.remainingLevel]}`}>
-                      {selectedTire.remainingPct}%
+                  {selectedTire.due && selectedTire.due.level !== "unknown" && (
+                    <span className={`rounded-lg px-2.5 py-1 text-[13px] font-bold ${dueChipCls[selectedTire.due.level]}`} style={fontThai}>
+                      {DUE_LABEL[selectedTire.due.level]}
+                      {selectedTire.due.usedPct != null && ` ${Math.round(selectedTire.due.usedPct)}%`}
                     </span>
                   )}
                 </div>
@@ -832,14 +874,29 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
                     }>{selectedTire.age?.text ?? "—"}</span>
                   </InfoRow>
                   <InfoRow label="ไมล์เริ่มต้น"><span className="font-mono text-[#14271C] dark:text-white">{fmtNum(selectedTire.mileageStart)}</span></InfoRow>
-                  <InfoRow label="ระยะทางใช้งาน">
+                  {/* ระยะจริงจาก GPS/ค่าเที่ยว — ตัวเลขเดียวกับแท็บ "ยางถึงกำหนดเปลี่ยน" และแอปคนขับ */}
+                  <InfoRow label="ระยะที่วิ่งไปแล้ว">
                     <span className="font-mono font-semibold text-[#14271C] dark:text-white">
-                      {selectedTire.usedDistance !== null ? `${fmtNum(selectedTire.usedDistance)} กม.` : "—"}
+                      {selectedTire.due ? `${fmtNum(selectedTire.due.kmUsed)} กม.` : "—"}
+                      {selectedTire.due?.partial && <span className="ml-1 font-sans text-[10px] text-[#E8A317]" style={fontThai} title="ยางใส่ก่อนช่วงที่มีข้อมูล — ระยะจริงมากกว่านี้">(ไม่ครบ)</span>}
                     </span>
                   </InfoRow>
-                  <InfoRow label="ระยะทางมาตรฐาน">
+                  <InfoRow label="ระยะกำหนดของรุ่นยาง">
                     <span className="font-mono text-[#14271C] dark:text-white">
-                      {selectedTire.stockDistance !== null ? `${fmtNum(selectedTire.stockDistance)} กม.` : "—"}
+                      {selectedTire.due && selectedTire.due.specDistance > 0 ? `${fmtNum(selectedTire.due.specDistance)} กม.` : "—"}
+                    </span>
+                  </InfoRow>
+                  <InfoRow label="แหล่งข้อมูลระยะ">
+                    <span className="text-[#14271C] dark:text-white" style={fontThai}>
+                      {selectedTire.due?.source ?? "—"}
+                      {selectedTire.due?.computedAt && <span className="ml-1 text-[11px] text-[#9AA8A0]">· อัปเดต {fmtDateOnly(selectedTire.due.computedAt)}</span>}
+                    </span>
+                  </InfoRow>
+                  {/* เลขไมล์รถ ÷ ระยะของล็อตที่ซื้อ — ใช้คุมต้นทุน ไม่ได้ใช้ตัดสินรอบเปลี่ยน */}
+                  <InfoRow label="เทียบเลขไมล์รถ">
+                    <span className="font-mono text-[#9AA8A0]">
+                      {selectedTire.usedDistance !== null ? `${fmtNum(selectedTire.usedDistance)} กม.` : "—"}
+                      {selectedTire.stockDistance ? ` / ${fmtNum(selectedTire.stockDistance)} กม.` : ""}
                     </span>
                   </InfoRow>
                   <InfoRow label="บาทต่อกิโล">
@@ -919,8 +976,8 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
                     <tr className={theadCls}>
                       <th className={thCls}>ล้อ</th>
                       <th className={thCls}>Serial</th>
-                      <th className={thCls + " text-right"}>ใช้งาน (กม.)</th>
-                      <th className={thCls + " text-right"}>คงเหลือ</th>
+                      <th className={thCls + " text-right"}>วิ่งไปแล้ว (กม.)</th>
+                      <th className={thCls + " text-right"}>ใช้ไป / รอบเปลี่ยน</th>
                       <th className={thCls}>อายุ</th>
                       <th className={thCls}>สถานะ</th>
                     </tr>
@@ -944,10 +1001,13 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
                       >
                         <td className={tdCls + " font-mono font-bold text-[#14271C] dark:text-white"}>{t.positionCode || "—"}</td>
                         <td className={tdCls + " font-mono"}>{t.serialNo || "—"}</td>
-                        <td className={tdCls + " text-right font-mono"}>{t.usedDistance !== null ? fmtNum(t.usedDistance) : "—"}</td>
+                        <td className={tdCls + " text-right font-mono"}>
+                          {t.due ? fmtNum(t.due.kmUsed) : t.usedDistance !== null ? fmtNum(t.usedDistance) : "—"}
+                          {t.due?.specDistance ? <span className="text-[#9AA8A0]"> / {fmtNum(t.due.specDistance)}</span> : null}
+                        </td>
                         <td className={tdCls + " text-right"}>
-                          {t.remainingPct !== null && t.remainingLevel
-                            ? <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${remainingChipCls[t.remainingLevel]}`}>{t.remainingPct}%</span>
+                          {t.due && t.due.level !== "unknown" && t.due.usedPct != null
+                            ? <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${dueChipCls[t.due.level]}`}>{Math.round(t.due.usedPct)}%</span>
                             : "—"}
                         </td>
                         <td className={tdCls}>

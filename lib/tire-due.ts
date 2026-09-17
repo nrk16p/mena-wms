@@ -56,6 +56,26 @@ export const dueBarCls: Record<DueLevel, string> = {
   over: "bg-red-500", due: "bg-orange-500", warn: "bg-amber-500", ok: "bg-green-500", unknown: "bg-gray-300",
 }
 
+// คำสั้นสำหรับปุ่มล้อบนโครงรถ — ป้ายเต็ม (DUE_LABEL) ยาวเกินช่องกว้าง ~46px
+// ต้องตรงกับ DUE_LEVELS[].wheel ในแอปคนขับ (mena-go-lb / mena-go-srb)
+export const DUE_WHEEL: Record<DueLevel, string> = {
+  over: "เกินรอบ", due: "ถึงรอบ", warn: "ใกล้รอบ", ok: "ปกติ", unknown: "ไม่มีข้อมูล",
+}
+
+// สีล้อบนโครงรถ — ชุดเดียวกับ DUE_LEVELS[].gradient ในแอปคนขับ
+export const dueGradientCls: Record<DueLevel, string> = {
+  over:    "from-red-500/95 to-transparent",
+  due:     "from-orange-500/95 to-transparent",
+  warn:    "from-amber-500/90 to-transparent",
+  ok:      "from-green-500/90 to-transparent",
+  unknown: "from-gray-500/70 to-transparent",
+}
+
+// สีตัวเลข % บนปุ่มล้อ (พื้นขาว ต้องใช้ hex ไม่ใช่ class เพราะอยู่ใน style)
+export const dueHex: Record<DueLevel, string> = {
+  over: "#dc2626", due: "#ea580c", warn: "#ca8a04", ok: "#16a34a", unknown: "#6b7280",
+}
+
 export type DistanceSource = "gps" | "trip" | "none"
 
 export const SOURCE_LABEL: Record<DistanceSource, string> = {
