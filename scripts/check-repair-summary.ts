@@ -75,4 +75,12 @@ assert.equal(
 // ไม่กรอกจุดที่รถเสีย = ไม่มีบรรทัดนี้
 assert.equal(buildRepairSummary({ plant: "เชียงราย" }), "🔧 แพล้นเชียงราย")
 
+// ลิงก์ใบงาน WMS (2026-09-17) — ต่อท้ายสุดเสมอ ให้คนในกลุ่มกดเปิดใบงานได้
+const LINK = "https://mena-wms.vercel.app/repair-external?id=6aa7636621f47f0af3b6f65f"
+assert.equal(
+  buildRepairSummary({ fleetNo: "ME104", cementStatus: "ไม่มีปูน", link: LINK }),
+  ["🚗 เบอร์รถ ME104", "💰 ไม่มีปูน", `🔗 WMS ${LINK}`].join("\n"),
+)
+assert.equal(buildRepairSummary({ fleetNo: "ME104", link: "   " }), "🚗 เบอร์รถ ME104", "ลิงก์ว่าง = ไม่มีบรรทัดลิงก์")
+
 console.log("✅ สรุปแจ้งซ่อม ผ่านทั้งหมด")

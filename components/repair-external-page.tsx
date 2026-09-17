@@ -969,7 +969,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         if (hit) { brand = String(hit.brand ?? ""); model = String(hit.model ?? "") }
       } catch { /* ไม่มีสเปครถก็ยังสรุปได้ */ }
     }
-    const text = buildRepairSummary({ ...form, brand, model })
+    const link = editId && typeof window !== "undefined" ? `${window.location.origin}/repair-external?id=${editId}` : ""
+    const text = buildRepairSummary({ ...form, brand, model, link })
     if (!text) { swalError("ยังไม่มีข้อมูลพอให้สรุป"); return }
     navigator.clipboard?.writeText(text).then(
       () => swalToast("success", "คัดลอกสรุปแล้ว — วางในไลน์ได้เลย"),

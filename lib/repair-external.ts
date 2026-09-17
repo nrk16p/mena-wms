@@ -260,6 +260,8 @@ export type RepairSummaryInput = {
   plant?:          string
   cementStatus?:   string
   drivableStatus?: string
+  /** ลิงก์เปิดใบงานใน WMS — ต่อท้ายสุดให้คนในกลุ่มกดเข้าใบงานได้ (ผู้ใช้ขอ 17/09/2026) */
+  link?:           string
 }
 
 /**
@@ -300,6 +302,7 @@ export function buildRepairSummary(r: RepairSummaryInput): string {
 
   const tail = [t(r.cementStatus), DRIVABLE_LINE_TEXT[t(r.drivableStatus)] ?? ""].filter(Boolean).join(" / ")
   if (tail) lines.push(`💰 ${tail}`)
+  if (t(r.link))        lines.push(`🔗 WMS ${t(r.link)}`)
 
   return lines.join("\n")
 }
