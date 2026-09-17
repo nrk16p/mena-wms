@@ -71,4 +71,42 @@ check("อะไหล่ลงคัน: ปิดงานครบฟิล�
   assert.strictEqual(validateJobUpdate({ status: "ลงคันเสร็จ", stageEta: "", note, current: parts }), null)
 })
 
+console.log("อัพเดทงานจากหน้ารายละเอียด — แก้ช่องข้อมูลพร้อมกัน (2026-09-17)")
+const withEta = { ...garage, stageEta: eta }
+check("แก้แค่ช่องข้อมูล (สถานะ/วันคาดเดิม) ไม่มีข้อความ → ผ่าน", () => {
+  assert.strictEqual(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: eta, note: "", current: withEta, fields: { driverPhone: "081" }, fieldsChanged: true }), null)
+})
+check("แก้แค่ช่องข้อมูล ใบเก่าที่ยังไม่มีวันคาด → ผ่าน (ไม่บังคับวันคาด)", () => {
+  assert.strictEqual(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: "", note: "", current: garage, fields: { prCode: "PR-1" }, fieldsChanged: true }), null)
+})
+check("ใบเก่าไม่มีวันคาด + พิมพ์อัพเดทความคืบหน้า → ต้องตอบวันคาด", () => {
+  assert.match(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: "", note, current: garage, fields: { prCode: "PR-1" }, fieldsChanged: true })!.error, /คาดว่าจะพ้นสถานะ/)
+})
+check("แก้ช่องข้อมูล + เปลี่ยนสถานะ ไม่มีข้อความ → ไม่ผ่าน", () => {
+  assert.match(validateJobUpdate({ status: "ซ่อมมีกำหนดเสร็จ", stageEta: eta, note: "", current: withEta, fields: { dueDate: "2026-09-01" }, fieldsChanged: true })!.error, /ข้อความ/)
+})
+check("แก้ช่องข้อมูล + เปลี่ยนวันคาด (สถานะเดิม) ไม่มีข้อความ → ไม่ผ่าน", () => {
+  assert.match(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: "2026-09-05", note: "", current: withEta, fields: { driverPhone: "081" }, fieldsChanged: true })!.error, /ข้อความ/)
+})
+check("ไม่ได้แก้อะไรเลย ไม่มีข้อความ → ไม่ผ่าน (กติกาเดิมของหน้าต่างอัพเดทงาน)", () => {
+  assert.match(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: eta, note: "", current: withEta, fieldsChanged: false })!.error, /ข้อความ/)
+})
+check("แก้แค่ช่องข้อมูล แต่พิมพ์ข้อความสั้นเกิน → ไม่ผ่าน", () => {
+  assert.ok(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: eta, note: "ok", current: withEta, fields: { driverPhone: "081" }, fieldsChanged: true }))
+})
+check("ปิดงานคลิกเดียว: ช่องบังคับกรอกมาพร้อมกันใน fields → ผ่าน", () => {
+  const fields = { garageInDate: "2026-08-01", poCode: "PO-1", dueDate: "2026-08-20", completedDate: "2026-08-19", prCode: "PR-1" }
+  assert.strictEqual(validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: withEta, fields, fieldsChanged: true }), null)
+})
+check("ปิดงานคลิกเดียว: fields ยังขาดวันเสร็จ → ไม่ผ่าน + บอกว่าขาดวันเสร็จ", () => {
+  const fields = { garageInDate: "2026-08-01", poCode: "PO-1", dueDate: "2026-08-20", completedDate: "", prCode: "PR-1" }
+  const r = validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: withEta, fields, fieldsChanged: true })!
+  assert.deepStrictEqual(r.missing!.map((m) => m.field), ["completedDate"])
+})
+check("fields ลบค่าที่ใบงานมีอยู่ (PR ว่าง) ตอนปิดงาน → ไม่ผ่าน", () => {
+  const ready = { ...withEta, poCode: "PO-1", dueDate: "2026-08-20", completedDate: "2026-08-19", prCode: "PR-1" }
+  const r = validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: ready, fields: { ...ready, prCode: "" }, fieldsChanged: true })!
+  assert.ok(r.missing!.some((m) => m.field === "prCode"))
+})
+
 console.log(`\n${pass} ผ่าน${process.exitCode ? " · มีข้อที่ไม่ผ่าน" : " · ครบทุกข้อ"}`)

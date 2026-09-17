@@ -406,9 +406,21 @@ export function compareStage(
 
 /* ── อัพเดทงาน (job update) ──────────────────────────────────────────────────
  * ทุกความเคลื่อนไหวของงาน = "อัพเดทงาน" 1 ครั้ง = สถานะ + วันคาดพ้นขั้น + ข้อความ
- * บังคับครบทั้งสามเสมอ — เลือกสถานะเดิมได้ (= ยังค้างขั้นเดิม แต่ต้องเล่าว่าติดอะไร)
+ * เลือกสถานะเดิมได้ (= ยังค้างขั้นเดิม แต่ต้องเล่าว่าติดอะไร)
+ * หน้ารายละเอียดส่งช่องข้อมูลที่แก้มาพร้อมกันได้ (2026-09-17) — ถ้าแก้แค่ช่องข้อมูล
+ * โดยสถานะ/วันคาดเดิม ไม่ต้องพิมพ์ข้อความ · เปลี่ยนสถานะหรือวันคาดเมื่อไหร่ ต้องมีข้อความเสมอ
  * กติกาเดียวกันนี้ใช้ทั้งฝั่ง API (กันยิงตรง) และฝั่งหน้าเว็บ (กันกดปุ่มไปก่อน)
  */
+
+// ข้อความที่พิมพ์ซ้ำ ๆ ทุกวัน — กดเติมได้ ไม่ต้องพิมพ์เอง (ยังแก้ต่อได้)
+export const QUICK_NOTES: readonly string[] = [
+  "อู่แจ้งว่ารออะไหล่",
+  "รออนุมัติราคา",
+  "อู่รับรถแล้ว เริ่มซ่อม",
+  "รอคิวช่าง",
+  "ซ่อมเสร็จ รอส่งมอบ",
+  "ตามแล้ว ยังไม่คืบหน้า",
+]
 
 /** ข้อความอัพเดทสั้นกว่านี้ไม่รับ — กัน "." หรือ "ok" ที่ไม่ได้บอกอะไรเลย */
 export const UPDATE_NOTE_MIN = 3
@@ -420,6 +432,10 @@ export type JobUpdateInput = {
   /** ใบงานปัจจุบัน (เอกสารจาก Mongo ก็ส่งมาตรง ๆ ได้) — ใช้ตรวจล็อกสถานะปิดงาน
    *  ประเภทงาน และฟิลด์บังคับตอนปิดงาน */
   current:  Record<string, unknown>
+  /** ช่องข้อมูลที่แก้มาพร้อมกัน — ตรวจฟิลด์บังคับตอนปิดงานจากค่าใหม่ (ปิดงานได้ในคลิกเดียว) */
+  fields?:  Record<string, unknown> | null
+  /** ช่องข้อมูลมีการแก้จริง — มีแล้วไม่บังคับข้อความ ถ้าสถานะและวันคาดไม่เปลี่ยน */
+  fieldsChanged?: boolean
 }
 
 /** null = ผ่าน · missing = ฟิลด์ที่ต้องไปกรอกในฟอร์มแก้ไขก่อนปิดงาน */
@@ -429,12 +445,19 @@ export function validateJobUpdate(input: JobUpdateInput): JobUpdateError | null 
   const status  = normalizeStatus(String(input.status ?? "").trim())
   const note    = String(input.note ?? "").trim()
   const current = input.current ?? {}
+  const merged  = input.fields ? { ...current, ...input.fields } : current
   const from    = normalizeStatus(String(current.status ?? "").trim())
-  const jobType = jobTypeOf(current)
+  const jobType = jobTypeOf(merged)
 
   if (!status) return { error: "กรุณาเลือกสถานะ" }
-  if (note.length < UPDATE_NOTE_MIN) {
-    return { error: `กรุณาพิมพ์ข้อความอัพเดทอย่างน้อย ${UPDATE_NOTE_MIN} ตัวอักษร` }
+  const stageMoved = status !== from || String(input.stageEta ?? "").trim() !== String(current.stageEta ?? "").trim()
+  // "แก้ช่องข้อมูลอย่างเดียว" (สถานะ/วันคาดเดิม ไม่พิมพ์ข้อความ) = ไม่บังคับข้อความและวันคาด
+  // เหมือนปุ่มบันทึกการแก้ไขเดิม — ใบเก่าที่ยังไม่มีวันคาดจะได้เติมเลข PR ได้โดยไม่ติด
+  const fieldsOnly = !!input.fieldsChanged && !stageMoved && !note
+  if (!fieldsOnly && note.length < UPDATE_NOTE_MIN) {
+    return { error: stageMoved && input.fieldsChanged
+      ? `เปลี่ยนสถานะหรือวันคาด ต้องพิมพ์ข้อความว่าเกิดอะไรขึ้น อย่างน้อย ${UPDATE_NOTE_MIN} ตัวอักษร`
+      : `กรุณาพิมพ์ข้อความอัพเดทอย่างน้อย ${UPDATE_NOTE_MIN} ตัวอักษร` }
   }
   // ปิดงานแล้วห้ามขยับ — กติกาเดียวกับ PUT /api/repair-external/[id]
   if (isDoneStatus(from) && status !== from) {
@@ -443,13 +466,13 @@ export function validateJobUpdate(input: JobUpdateInput): JobUpdateError | null 
   if (!statusesFor(jobType).some((s) => s.value === status)) {
     return { error: `สถานะ "${status}" ไม่อยู่ในขั้นตอนของงานประเภท "${jobType}"` }
   }
-  const etaErr = validateStageEta(status, String(input.stageEta ?? "").trim())
+  const etaErr = fieldsOnly ? null : validateStageEta(status, String(input.stageEta ?? "").trim())
   if (etaErr) return { error: etaErr }
 
   // ปิดงานต้องมีข้อมูลครบ — สถานะกลางไม่บังคับ (ยังไม่มี PR/PO ได้)
   if (status === doneStatusFor(jobType)) {
     const missing = requiredFieldsFor(status, jobType)
-      .filter((f) => !String(current[f.field] ?? "").trim())
+      .filter((f) => !String(merged[f.field] ?? "").trim())
     if (missing.length) {
       return {
         error: `ปิดงานเป็น "${status}" ต้องกรอกข้อมูลให้ครบก่อน: ${missing.map((m) => m.label).join(" · ")}`,

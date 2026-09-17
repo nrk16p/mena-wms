@@ -1,12 +1,11 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef, Children, isValidElement } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Copy, Link2, Megaphone, ClipboardList, Maximize2, Minimize2, Factory } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { GarageLoadTab } from "@/components/garage-load-tab"
 import type { RepairPlan } from "@/lib/repair-plan"
-import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
-import { RepairUpdateDialog } from "./repair-update-dialog"
+import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
 import type { SkuImage } from "@/lib/media"
 import {
@@ -32,6 +31,8 @@ import {
   compareStage,
   stageEtaRequired,
   validateStageEta,
+  validateJobUpdate,
+  QUICK_NOTES,
   stageEtaOverdueDays,
   stageOfRepair,
   stageOfNextStep,
@@ -196,6 +197,12 @@ const EMPTY: Omit<RepairExternal, "_id"> = {
   statusSince: "",
   stageEta: "",
 }
+
+// ช่องในฟอร์มที่ผู้ใช้แก้เองได้ — ใช้นับว่า "แก้ไปกี่ช่อง" ก่อนกดอัพเดทงาน
+// (สถานะ/วันคาดนับแยก · statusSince ระบบตั้งเอง · รูปแนบอยู่ใน state แยกจาก form)
+const FORM_FIELD_KEYS = (Object.keys(EMPTY) as (keyof typeof EMPTY)[])
+  .filter((k) => k !== "status" && k !== "stageEta" && k !== "statusSince")
+const imagesKey = (a?: SkuImage[]) => JSON.stringify((a ?? []).map((i) => i.mediaId))
 
 const fmtNum = (n: number) =>
   (n ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -398,8 +405,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // modal
   const [open, setOpen]     = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
-  // เปิดรายการเดิม = ดูรายละเอียดก่อน (อ่านอย่างเดียว) ต้องกด "แก้ไขข้อมูล" ถึงเข้าฟอร์ม
-  const [viewOnly, setViewOnly] = useState(false)
+  // เปิดรายการเดิม = แก้ในหน้าได้เลย แล้วกด "อัพเดทงาน" ครั้งเดียว (ผู้ใช้ขอ 17/09/2026 —
+  // เดิมต้องกด แก้ไขข้อมูล → บันทึกการแก้ไข แล้วเปิดหน้าต่างอัพเดทงานแยกอีกรอบ)
+  // ข้อความ "เกิดอะไรขึ้น" ของอัพเดทงานในหน้ารายละเอียด
+  const [updNote, setUpdNote] = useState("")
   const [form, setForm]     = useState<Omit<RepairExternal, "_id">>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [origStatus, setOrigStatus] = useState("")  // สถานะเดิมของรายการ (ล็อกถ้ารถเสร็จ)
@@ -415,8 +424,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [posting, setPosting]     = useState(false)
   // เหตุผลที่บันทึกไม่สำเร็จ — ค้างไว้ท้ายโมดัล (popup เด้งแล้วหาย จับไม่ทันว่าทำไมโมดัลไม่ปิด)
   const [saveErr, setSaveErr]     = useState<string | null>(null)
-  // ฟอร์ม "อัพเดทงาน" — ทางเดียวที่สถานะจะเปลี่ยนได้ (สถานะ + วันคาด + ข้อความ พร้อมกัน)
-  const [updRow, setUpdRow]       = useState<RepairExternal | null>(null)
 
   // Timeline ATMS ใน modal (โหลดเมื่อกด) — เฉพาะงานอู่นอก
   const [atmsTl, setAtmsTl]               = useState<AtmsTlItem[] | null>(null)
@@ -576,7 +583,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openAdd() {
     planLinkRef.current = null
     setEditId(null)
-    setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
     // ประเภทเริ่มต้นตาม tab ที่กรองอยู่ (เปลี่ยนได้ใน step 1)
@@ -602,7 +608,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         if (!res.ok) throw new Error()
         const job: RepairExternal = await res.json()
         if (isDoneStatus(job.status)) { swalError("ใบงานที่ผูกกับแผนนี้ปิดงานไปแล้ว"); return }
-        openEdit(job, true)
+        openEdit(job)
         planLinkRef.current = p._id  // ต้องตั้งหลัง openEdit (openEdit ล้างค่า ref)
         setForm((f) => ({
           ...f,
@@ -615,7 +621,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
     planLinkRef.current = p._id
     setEditId(null)
-    setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
     setForm({
@@ -638,7 +643,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openAddFromAtms(m: AtmsPending) {
     planLinkRef.current = null
     setEditId(null)
-    setViewOnly(false)
     setEditRow(null)
     setFormImages([]); setFormNegImages([]); setFormQuotImages([]); setVdRef(""); setOrigStatus("")
     const today = bkkToday()
@@ -662,7 +666,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEditFillMr(wmsId: string, mrCode: string) {
     const r = rows.find((x) => x._id === wmsId)
     if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
-    openEdit(r, true)
+    openEdit(r)
     setForm((f) => ({ ...f, mrNo: mrCode }))
   }
 
@@ -670,7 +674,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function openEditFillPr(p: AtmsBoard["prFill"][number]) {
     const r = rows.find((x) => x._id === p.id)
     if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
-    openEdit(r, true)
+    openEdit(r)
     setForm((f) => ({
       ...f,
       prCode: f.prCode?.trim() ? f.prCode : p.prCodes.join(","),
@@ -683,11 +687,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function setJobType(jt: string) {
     setForm((f) => ({ ...f, jobType: jt, status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value }))
   }
-  function openEdit(r: RepairExternal, startEditing = false) {
+  function openEdit(r: RepairExternal) {
     planLinkRef.current = null
     setEditId(r._id)
-    setViewOnly(!startEditing)
     setEditRow(r)
+    setUpdNote("")
     setFormImages(r.images ?? []); setFormNegImages(r.negotiationImages ?? []); setFormQuotImages(r.quotationImages ?? []); setVdRef(""); setOrigStatus(r.status)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id, ...rest } = r
@@ -700,16 +704,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     // ดึง Mena-Next ให้เลย ไม่ต้องรอกดปุ่ม — fail-soft ถ้า ATMS ล่มก็ยังเปิดฟอร์มได้ปกติ
     if (jobTypeOf(r) !== JOB_TYPE_PARTS) loadAtmsTimeline(r)
     setOpen(true)
-  }
-
-  // ยกเลิกการแก้ไข: รายการเดิม → ทิ้งที่แก้ค้างไว้ กลับไปหน้ารายละเอียด · รายการใหม่ → ปิด modal
-  function cancelEdit() {
-    if (!editId || !editRow) { setOpen(false); return }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { _id, ...rest } = editRow
-    setForm({ ...EMPTY, ...rest })
-    setFormImages(editRow.images ?? []); setFormNegImages(editRow.negotiationImages ?? []); setFormQuotImages(editRow.quotationImages ?? [])
-    setViewOnly(true)
   }
 
   // โหลด timeline ATMS ของคันนี้ (ปีปัจจุบัน + mr_id ถ้ารู้)
@@ -1004,10 +998,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
     setSaving(true)
     try {
-      const url    = editId ? `/api/repair-external/${editId}` : "/api/repair-external"
-      const method = editId ? "PUT" : "POST"
-      const res    = await fetch(url, {
-        method,
+      const res    = await fetch("/api/repair-external", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, images: formImages, negotiationImages: formNegImages, quotationImages: formQuotImages }),
       })
@@ -1015,33 +1007,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || "บันทึกไม่สำเร็จ")
       }
-      // บันทึกจากแผนเข้าซ่อม (สร้างใหม่หรืออัพเดทใบงานที่ผูกไว้) → ผูก linkedRepairId
-      // กลับไปที่แผน + สถานะแผนเป็น "เข้าอู่แล้ว"
+      // สร้างจากแผนเข้าซ่อม → ผูก linkedRepairId กลับไปที่แผน + สถานะแผนเป็น "เข้าอู่แล้ว"
       if (planLinkRef.current) {
-        let linkedId: string | null = editId
-        if (!linkedId) {
-          const created = await res.json().catch(() => null)
-          linkedId = created?._id ?? null
-        }
-        if (linkedId) {
-          await fetch(`/api/repair-plans/${planLinkRef.current}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ planStatus: "เข้าอู่แล้ว", linkedRepairId: linkedId }),
-          }).catch(() => null)
-          setPlanRefreshKey((k) => k + 1)
-        }
-        planLinkRef.current = null
+        const created = await res.json().catch(() => null)
+        if (created?._id) await linkPlan(created._id)
       }
-      swalToast("success", editId ? "แก้ไขแล้ว" : "เพิ่มรายการแล้ว")
+      swalToast("success", "เพิ่มรายการแล้ว")
       load(); loadStats(); loadAtmsBoard()
-      if (editId) {
-        // อยู่ในใบเดิมต่อ — กลับไปโหมดดูข้อมูล พร้อมค่าล่าสุดจากเซิร์ฟเวอร์ + ไทม์ไลน์ใหม่
-        setViewOnly(true)
-        openById(editId)
-      } else {
-        setOpen(false)
-      }
+      setOpen(false)
     } catch (e) {
       fail(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
     } finally {
@@ -1049,9 +1022,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }
 
-  // เปิดฟอร์ม "อัพเดทงาน" — ทางเดียวที่สถานะจะขยับได้ (บอร์ดไม่ให้ลากการ์ดแล้ว)
-  function openUpdate(r: RepairExternal) {
-    setUpdRow(r)
+  // แผนเข้าซ่อมที่กด "รถเข้าอู่แล้ว" → ผูกใบงานกลับไปที่แผน (ทั้งสร้างใหม่และอัพเดทใบเดิม)
+  async function linkPlan(repairId: string) {
+    const planId = planLinkRef.current
+    planLinkRef.current = null
+    if (!planId) return
+    await fetch(`/api/repair-plans/${planId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ planStatus: "เข้าอู่แล้ว", linkedRepairId: repairId }),
+    }).catch(() => null)
+    setPlanRefreshKey((k) => k + 1)
   }
 
   async function remove(r: RepairExternal) {
@@ -1255,6 +1236,120 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const isReq = (f: RepairField) => reqFieldSet.has(f)
   const reqCls = (f: RepairField) =>
     isReq(f) && !String(form[f] ?? "").trim() ? " ring-1 ring-amber-400 border-amber-400" : ""
+
+
+  // 🎯 วันคาดว่าจะพ้นสถานะนี้ — ผูกกับ "ขั้น" คนละตัวกับวันกำหนดเสร็จของงานทั้งใบ
+  // ใบเดิมแสดงในกล่องอัพเดทงานบนสุด · ใบใหม่แสดงในหมวดสถานะ
+  const stageEtaBlock = stageEtaRequired(form.status) && (() => {
+      const overdue = stageEtaOverdueDays(form, bkkDate())
+      const addDays = (n: number) => {
+        const d = new Date(Date.parse(bkkDate()) + n * 86400000)
+        return d.toISOString().slice(0, 10)
+      }
+      const tone = stageEtaMissing
+        ? "border-[#F7CFCF] bg-[#FEECEC] dark:border-red-900/40 dark:bg-red-950/20"
+        : "border-[#E4D5FB] bg-[#FAF5FF] dark:border-violet-500/30 dark:bg-violet-500/10"
+      return (
+        <div className={`mt-2 rounded-xl border p-3 ${tone}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-[12.5px] font-semibold text-[#7C3AED] dark:text-violet-300">
+              🎯 คาดว่าจะพ้นสถานะ “{form.status}” เมื่อไหร่ <span className="text-[#DC2626]">*</span>
+            </label>
+            {overdue > 0 && (
+              <span className="rounded-full bg-[#DC2626] px-2 py-0.5 text-[11px] font-bold text-white">เลยคาดมา {overdue} วัน</span>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {[{ n: 1, l: "พรุ่งนี้" }, { n: 3, l: "อีก 3 วัน" }, { n: 7, l: "อีก 7 วัน" }].map((p) => (
+              <button
+                key={p.n}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, stageEta: addDays(p.n) }))}
+                className={`rounded-lg border px-2.5 py-1 text-[11.5px] font-semibold transition ${form.stageEta === addDays(p.n) ? "border-[#7C3AED] bg-[#EDE9FE] text-[#7C3AED] dark:bg-violet-500/20" : "border-[#E2E8E4] dark:border-white/10 text-[#5B7568] dark:text-gray-300 hover:bg-white dark:hover:bg-white/5"}`}
+              >
+                {p.l}
+              </button>
+            ))}
+            <input
+              type="date"
+              value={form.stageEta}
+              onChange={(e) => setForm({ ...form, stageEta: e.target.value })}
+              className="ml-auto rounded-lg border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-[12.5px] text-gray-900 dark:text-white focus:border-[#1B8C4B] focus:outline-none"
+            />
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-[#7C3AED]/75 dark:text-violet-300/70">
+            {stageEtaMissing
+              ? (editId ? "ยังไม่ได้ระบุ — ต้องตอบเมื่อเปลี่ยนสถานะหรือพิมพ์อัพเดท (แก้แค่ช่องข้อมูลไม่ติด)" : "ยังไม่ได้ระบุ — บันทึกไม่ได้จนกว่าจะตอบ")
+              : "เก็บติดกับขั้นนี้ ไม่ใช่งานทั้งใบ · เปลี่ยนสถานะครั้งหน้าต้องตั้งใหม่ · ค่าเดิมเก็บไว้ในประวัติ"}
+          </p>
+        </div>
+      )
+    })()
+
+  // ── อัพเดทงานในหน้ารายละเอียด: เทียบกับค่าที่บันทึกไว้ว่ามีอะไรจะบันทึกบ้าง ──
+  const dirtyFields: string[] = editId && editRow ? [
+    ...FORM_FIELD_KEYS.filter((k) => {
+      const a = form[k], b = editRow[k] ?? EMPTY[k]
+      return typeof EMPTY[k] === "number" ? Number(a) !== Number(b) : String(a ?? "").trim() !== String(b ?? "").trim()
+    }),
+    ...(imagesKey(formImages) !== imagesKey(editRow.images) ? ["images"] : []),
+    ...(imagesKey(formQuotImages) !== imagesKey(editRow.quotationImages) ? ["quotationImages"] : []),
+    ...(imagesKey(formNegImages) !== imagesKey(editRow.negotiationImages) ? ["negotiationImages"] : []),
+  ] : []
+  const statusDirty = !!editId && form.status !== origStatus
+  const etaDirty    = !!editId && form.stageEta.trim() !== String(editRow?.stageEta ?? "").trim()
+  const noteTyped   = updNote.trim().length > 0
+  const isDirty     = dirtyFields.length > 0 || statusDirty || etaDirty || noteTyped
+  // ข้อความบังคับ ยกเว้นแก้แค่ช่องข้อมูล (กติกาเดียวกับ validateJobUpdate)
+  const noteRequired = statusDirty || etaDirty || dirtyFields.length === 0
+  const updateSummary = [
+    dirtyFields.length ? `แก้ ${dirtyFields.length} ช่อง` : "",
+    statusDirty ? "เปลี่ยนสถานะ" : etaDirty ? "วันคาด" : "",
+    noteTyped ? "ข้อความ" : "",
+  ].filter(Boolean).join(" + ")
+
+  // อัพเดทงาน (ใบเดิม) — ช่องที่แก้ + สถานะ + วันคาด + ข้อความ บันทึกในคำขอเดียว
+  async function submitUpdate() {
+    if (!editId || !editRow) return
+    setSaveErr(null)
+    const fail = (msg: string) => { setSaveErr(msg); swalError(msg) }
+    if (!form.plate.trim()) { fail("กรุณาระบุทะเบียนรถ"); return }
+    if (!isDirty) { fail("ยังไม่มีอะไรเปลี่ยน — แก้ช่องข้อมูล เปลี่ยนสถานะ หรือพิมพ์ว่าเกิดอะไรขึ้นก่อน"); return }
+    const fields = { ...form, images: formImages, negotiationImages: formNegImages, quotationImages: formQuotImages }
+    const bad = validateJobUpdate({
+      status: form.status, stageEta: form.stageEta, note: updNote,
+      current: editRow as unknown as Record<string, unknown>, fields, fieldsChanged: dirtyFields.length > 0,
+    })
+    if (bad) { fail(bad.error); return }
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/repair-external/${editId}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: form.status, stageEta: form.stageEta, note: updNote.trim(), ...(dirtyFields.length ? { fields } : {}) }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "อัพเดทไม่สำเร็จ")
+      await linkPlan(editId)
+      swalToast("success", data.statusChanged ? `อัพเดทเป็น “${form.status}” แล้ว` : "อัพเดทงานแล้ว")
+      load(); loadStats(); loadAtmsBoard()
+      // อยู่ในใบเดิมต่อ — ดึงค่าล่าสุด + ไทม์ไลน์ใหม่ (ล้างข้อความที่พิมพ์ไว้ด้วย)
+      openById(editId)
+    } catch (e) {
+      fail(e instanceof Error ? e.message : "อัพเดทไม่สำเร็จ")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ปิดหน้ารายละเอียดทั้งที่ยังมีที่แก้ค้าง → ถามก่อนทิ้ง
+  async function requestClose() {
+    if (editId && isDirty) {
+      const r = await swalConfirm("ปิดโดยไม่อัพเดทงาน?", "ที่แก้ไว้ยังไม่ได้บันทึก จะหายไป")
+      if (!r.isConfirmed) return
+    }
+    setOpen(false)
+  }
 
   // ชุดสถานะของ chips/สรุป ตาม tab ประเภทที่เลือก (ทั้งหมด = อู่นอก + สถานะเฉพาะของอะไหล่ลงคัน)
   const chipStatuses =
@@ -2041,11 +2136,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             <div className="flex flex-wrap items-center justify-between gap-y-2 border-b border-[#EEF2F0] dark:border-white/8 px-3 py-3 sm:px-5 sm:py-4">
               <div className="flex min-w-0 items-center gap-2.5">
                 <h2 className="text-[17px] font-semibold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
-                  {!editId
-                    ? (isParts ? "รายการอะไหล่ลงคัน" : "รายการแจ้งซ่อม")
-                    : viewOnly
-                      ? (isParts ? "รายละเอียดอะไหล่ลงคัน" : "รายละเอียดรายการแจ้งซ่อม")
-                      : (isParts ? "แก้ไขรายการอะไหล่ลงคัน" : "แก้ไขรายการแจ้งซ่อม")}
+                  {isParts ? "รายการอะไหล่ลงคัน" : "รายการแจ้งซ่อม"}
                 </h2>
                 {editId && (
                   <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${isParts ? "bg-[#EEF2FF] text-[#3b5bdb] dark:bg-blue-900/25 dark:text-blue-300" : "bg-[#F1F5F2] dark:bg-white/10 text-[#5B7568] dark:text-gray-300"}`}>
@@ -2054,11 +2145,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 )}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-1.5">
-                {editId && viewOnly && (
-                  <button onClick={() => setViewOnly(false)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0F6A3C]">
-                    <Pencil size={14} /> แก้ไขข้อมูล
-                  </button>
-                )}
                 {editId && (
                   <button onClick={copyShareLink} title="คัดลอกลิงก์แชร์รายการนี้" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5">
                     <Link2 size={14} /> คัดลอกลิงก์
@@ -2093,7 +2179,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 >
                   {modalFull ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                 </button>
-                <button onClick={() => setOpen(false)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">
+                <button onClick={() => void requestClose()} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">
                   <X size={18} />
                 </button>
               </div>
@@ -2158,12 +2244,75 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 และ "เลื่อนแยกกัน" ทำให้ต้องเลือกว่าจะเลื่อนกล่องไหน — ใน drawer ควรเลื่อนทีเดียวจบ
                 กล่องลูกจึงต้องไม่ตั้ง overflow-y ของตัวเองอีก ไม่งั้นเกิดสกอลล์ซ้อนสกอลล์ */}
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {viewOnly && editId ? (
-                <div className="min-w-0 px-3.5 py-3">
-                  <RepairDetailCard r={form} isParts={isParts} images={formImages} quotImages={formQuotImages} negImages={formNegImages} />
-                </div>
-              ) : (
               <div className="min-w-0 space-y-2 px-3.5 py-3">
+              {/* ── ✍️ อัพเดทงาน (ใบเดิม) — สถานะ + วันคาด + ข้อความ อยู่บนสุด · ช่องด้านล่างแก้ได้เลย
+                  แล้วกดปุ่มอัพเดทงานท้ายหน้าต่างครั้งเดียว บันทึกทั้งหมดพร้อมกัน ── */}
+              {editId && (
+                <section className="overflow-hidden rounded-xl border border-[#C9B5F7] dark:border-violet-500/40 bg-white dark:bg-[#151a10]">
+                  <div className="flex flex-wrap items-baseline gap-x-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-3 py-1.5">
+                    <span className="text-[13.5px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>✍️ อัพเดทงาน</span>
+                    <span className="text-[11px] text-[#7C3AED]/70 dark:text-violet-300/70">แก้ช่องไหนก็ได้ในหน้านี้ แล้วกด “อัพเดทงาน” ด้านล่างครั้งเดียว</span>
+                  </div>
+                  <div className="space-y-2.5 p-3">
+                    <div>
+                      <label className={labelCls}>สถานะ</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {statusesFor(formJobType).map((st) => {
+                          const on   = form.status === st.value
+                          const same = st.value === origStatus
+                          return (
+                            <button
+                              key={st.value}
+                              type="button"
+                              onClick={() => changeStatus(st.value)}
+                              disabled={statusLocked && !same}
+                              className={`rounded-full border px-2.5 py-1.5 text-[12px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${on
+                                ? "border-[#1B8C4B] bg-[#1B8C4B] text-white"
+                                : "border-[#E2E8E4] dark:border-white/10 text-[#5B7568] dark:text-gray-300 hover:bg-[#F6FAF7] dark:hover:bg-white/5"}`}
+                            >
+                              {st.emoji} {st.value}
+                              {same && <span className={`ml-1 text-[10px] font-bold ${on ? "text-white/80" : "text-[#9AA8A0]"}`}>· ขั้นเดิม</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้ แต่ยังแก้ช่องข้อมูลได้</p>}
+                    </div>
+                    {stageEtaBlock}
+                    <div>
+                      <label className={labelCls}>
+                        เกิดอะไรขึ้น {noteRequired
+                          ? <span className="text-[#DC2626]">*</span>
+                          : <span className="text-[10px] font-normal text-gray-400">(แก้แค่ช่องข้อมูล ไม่ต้องพิมพ์ก็ได้)</span>}
+                      </label>
+                      <div className="mb-1.5 flex flex-wrap gap-1.5">
+                        {QUICK_NOTES.map((qn) => (
+                          <button
+                            key={qn}
+                            type="button"
+                            onClick={() => setUpdNote((n) => (n.trim() ? `${n.trim()} · ${qn}` : qn))}
+                            className="rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2 py-1 text-[11.5px] text-[#5B7568] dark:text-gray-300 transition hover:bg-[#F6FAF7] dark:hover:bg-white/5"
+                          >
+                            + {qn}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={updNote}
+                        onChange={(e) => setUpdNote(e.target.value)}
+                        placeholder="เล่าสั้น ๆ ว่าคืบหน้าถึงไหน / ติดอะไรอยู่"
+                        className={inputCls + " resize-y"}
+                      />
+                    </div>
+                    {missingReq.length > 0 && (
+                      <p className="rounded-md bg-[#FDF3DD] px-2 py-1 text-[11px] text-[#B07D12]">
+                        ⚠ ปิดงานเป็น “{form.status}” ต้องกรอกให้ครบ: {missingReq.map((m) => m.label).join(", ")} (ช่องที่ไฮไลต์สีเหลืองด้านล่าง)
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
               {/* ── หมวด 1: ข้อมูลรถ (เขียว) ── */}
               <section className="overflow-hidden rounded-xl border border-[#D6EFDF] dark:border-[#1B8C4B]/30">
               <button type="button" onClick={() => toggleSec("vehicle", true)} className="flex w-full items-center gap-2 border-b border-[#D6EFDF] dark:border-[#1B8C4B]/30 bg-[#EAF6EE] dark:bg-[#1B8C4B]/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#0F6A3C] dark:text-[#4ade80]" style={{ fontFamily: "'Mitr', sans-serif" }}>🚚 ข้อมูลรถ{secChevron(secOpen("vehicle", true))}</button>
@@ -2416,24 +2565,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               </section>
 
               </div>
-              )}
 
               {/* ── ขวา: แผงสถานะ + ไทม์ไลน์ · กว้างคงที่ ตรึงไว้ไม่เลื่อนหายไปกับฟอร์ม ── */}
               <div className="flex min-w-0 flex-col gap-2 border-t border-[#EEF2F0] dark:border-white/8 bg-[#FBFDFC] dark:bg-white/[0.015] px-3.5 py-3">
-              {!(viewOnly && editId) && (<>
               {/* ── หมวด 3: สถานะ · เอกสาร (ม่วง) ── */}
               <section className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-[#E4D5FB] dark:border-violet-500/30 bg-white dark:bg-[#151a10] shadow-sm">
               <button type="button" onClick={() => toggleSec("status", true)} className="flex w-full items-center gap-2 border-b border-[#E4D5FB] dark:border-violet-500/30 bg-[#F3E8FF] dark:bg-violet-500/15 px-3 py-1.5 text-left text-[13.5px] font-bold text-[#7C3AED] dark:text-violet-300" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 สถานะ · เอกสาร{secChevron(secOpen("status", true))}</button>
               {secOpen("status", true) && (
                 <div className="grid grid-cols-6 gap-x-3 gap-y-2.5 p-3">
                   <div className="col-span-6">
-                    <label className={labelCls}>สถานะ</label>
-                    <select value={form.status} onChange={(e) => changeStatus(e.target.value)} disabled={statusLocked || !!editId} className={inputCls + (statusLocked || editId ? " cursor-not-allowed opacity-60" : "")}>
-                      {statusesFor(formJobType).map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
-                    </select>
+                    {!editId && (<>
+                      <label className={labelCls}>สถานะ</label>
+                      <select value={form.status} onChange={(e) => changeStatus(e.target.value)} className={inputCls}>
+                        {statusesFor(formJobType).map((s) => (<option key={s.value} value={s.value}>{s.emoji} {s.value}</option>))}
+                      </select>
+                    </>)}
                     {/* tickbox รอใบเสนอราคา (เฉพาะอู่นอก) — แทนสถานะเดิมที่ถูกถอดจาก workflow */}
                     {!isParts && (
-                      <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#BEE8F1] dark:border-cyan-500/30 bg-[#F0FBFD] dark:bg-cyan-500/10 px-3 py-2 text-[13px] font-medium text-[#0E7490] dark:text-cyan-300">
+                      <label className={`${editId ? "" : "mt-2 "}inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#BEE8F1] dark:border-cyan-500/30 bg-[#F0FBFD] dark:bg-cyan-500/10 px-3 py-2 text-[13px] font-medium text-[#0E7490] dark:text-cyan-300`}>
                         <input
                           type="checkbox"
                           checked={!!form.waitingQuote}
@@ -2443,65 +2592,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         🔍 รอใบเสนอราคา
                       </label>
                     )}
-                    {statusLocked && <p className="mt-1 text-[11px] text-[#9AA8A0]">🔒 ปิดงานแล้ว ({origStatus}) — เปลี่ยน/ย้อนสถานะไม่ได้</p>}
-                    {/* สถานะเปลี่ยนได้ทางเดียว: ปุ่มอัพเดทงาน — บังคับให้มีข้อความกำกับทุกครั้ง */}
-                    {!!editId && !statusLocked && (
-                      <button
-                        type="button"
-                        onClick={() => editRow && openUpdate(editRow)}
-                        className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[#E4D5FB] bg-[#FAF5FF] px-3 py-2 text-[12.5px] font-semibold text-[#7C3AED] transition hover:bg-[#F3E8FF] dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300"
-                      >
-                        ✍️ เปลี่ยนสถานะที่ปุ่มอัพเดทงาน (ต้องมีข้อความกำกับ)
-                      </button>
-                    )}
-
-                    {/* 🎯 วันคาดว่าจะพ้นสถานะนี้ — ผูกกับ "ขั้น" คนละตัวกับวันกำหนดเสร็จของงานทั้งใบ */}
-                    {stageEtaRequired(form.status) && (() => {
-                      const overdue = stageEtaOverdueDays(form, bkkDate())
-                      const addDays = (n: number) => {
-                        const d = new Date(Date.parse(bkkDate()) + n * 86400000)
-                        return d.toISOString().slice(0, 10)
-                      }
-                      const tone = stageEtaMissing
-                        ? "border-[#F7CFCF] bg-[#FEECEC] dark:border-red-900/40 dark:bg-red-950/20"
-                        : "border-[#E4D5FB] bg-[#FAF5FF] dark:border-violet-500/30 dark:bg-violet-500/10"
-                      return (
-                        <div className={`mt-2 rounded-xl border p-3 ${tone}`}>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <label className="text-[12.5px] font-semibold text-[#7C3AED] dark:text-violet-300">
-                              🎯 คาดว่าจะพ้นสถานะ “{form.status}” เมื่อไหร่ <span className="text-[#DC2626]">*</span>
-                            </label>
-                            {overdue > 0 && (
-                              <span className="rounded-full bg-[#DC2626] px-2 py-0.5 text-[11px] font-bold text-white">เลยคาดมา {overdue} วัน</span>
-                            )}
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            {[{ n: 1, l: "พรุ่งนี้" }, { n: 3, l: "อีก 3 วัน" }, { n: 7, l: "อีก 7 วัน" }].map((p) => (
-                              <button
-                                key={p.n}
-                                type="button"
-                                onClick={() => setForm((f) => ({ ...f, stageEta: addDays(p.n) }))}
-                                className={`rounded-lg border px-2.5 py-1 text-[11.5px] font-semibold transition ${form.stageEta === addDays(p.n) ? "border-[#7C3AED] bg-[#EDE9FE] text-[#7C3AED] dark:bg-violet-500/20" : "border-[#E2E8E4] dark:border-white/10 text-[#5B7568] dark:text-gray-300 hover:bg-white dark:hover:bg-white/5"}`}
-                              >
-                                {p.l}
-                              </button>
-                            ))}
-                            <input
-                              type="date"
-                              value={form.stageEta}
-                              onChange={(e) => setForm({ ...form, stageEta: e.target.value })}
-                              className="ml-auto rounded-lg border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-[12.5px] text-gray-900 dark:text-white focus:border-[#1B8C4B] focus:outline-none"
-                            />
-                          </div>
-                          <p className="mt-1.5 text-[11px] leading-relaxed text-[#7C3AED]/75 dark:text-violet-300/70">
-                            {stageEtaMissing
-                              ? "ยังไม่ได้ระบุ — บันทึกไม่ได้จนกว่าจะตอบ"
-                              : "เก็บติดกับขั้นนี้ ไม่ใช่งานทั้งใบ · เปลี่ยนสถานะครั้งหน้าต้องตั้งใหม่ · ค่าเดิมเก็บไว้ในประวัติ"}
-                          </p>
-                        </div>
-                      )
-                    })()}
-                    {missingReq.length > 0 && (
+                    {!editId && stageEtaBlock}
+                    {!editId && missingReq.length > 0 && (
                       <p className="mt-1 rounded-md bg-[#FDF3DD] px-2 py-1 text-[11px] text-[#B07D12]">
                         ⚠ สถานะนี้ต้องกรอกให้ครบก่อนบันทึก: {missingReq.map((m) => m.label).join(", ")}
                       </p>
@@ -2528,7 +2620,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
               </section>
 
-              </>)}
 
               {/* ── 🕓 ไทม์ไลน์รวม — ประวัติสถานะ + Mena-Next + ความคิดเห็น เรียงตามเวลาจริง ──
                   เดิมแยกเป็น 3 กล่อง ต้องเลื่อนกลับไปกลับมาเพื่อปะติดปะต่อว่าเกิดอะไรก่อนหลัง */}
@@ -2659,29 +2750,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )}
                   </div>
 
-                  {/* อัพเดทงาน = สถานะ + วันคาดพ้นขั้น + ข้อความ พร้อมกันเสมอ (ข้อความลอย ๆ ไม่มีแล้ว) */}
-                  <div className="border-t border-[#EEF2F0] px-4 py-3 dark:border-white/10">
-                    <button
-                      type="button"
-                      onClick={() => editRow && openUpdate(editRow)}
-                      disabled={!editRow || isDoneStatus(String(editRow?.status ?? ""))}
-                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#7C3AED] px-3 py-2.5 text-[13.5px] font-semibold text-white transition hover:bg-[#6D28D9] disabled:opacity-40"
-                    >
-                      ✍️ อัพเดทงาน
-                    </button>
-                    <p className="mt-1.5 text-center text-[11px] leading-relaxed text-[#9AA8A0]">
-                      {editRow && isDoneStatus(String(editRow.status ?? ""))
-                        ? "ปิดงานแล้ว — อัพเดทเพิ่มไม่ได้"
-                        : "ทุกครั้งต้องบอก สถานะ + วันคาดพ้นขั้น + สิ่งที่เกิดขึ้น พร้อมกัน"}
-                    </p>
-                  </div>
                 </section>
               )}
               </div>
             </div>
 
             {/* บันทึกไม่ผ่านเพราะอะไร — ค้างไว้จนกว่าจะกดบันทึกใหม่ */}
-            {saveErr && !viewOnly && (
+            {saveErr && (
               <div className="flex items-start gap-2 border-t border-[#F7CFCF] bg-[#FEECEC] px-5 py-2.5 text-[12.5px] text-[#B42318] dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
                 <span className="font-bold">บันทึกไม่สำเร็จ:</span>
                 <span className="min-w-0 flex-1">{saveErr}</span>
@@ -2692,22 +2767,30 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             {/* footer ตรึงล่าง — ลบได้จากที่นี่ที่เดียว (ตารางไม่มีปุ่มลบแล้ว) */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EEF2F0] dark:border-white/8 px-5 py-3.5">
               <div>
-                {editId && editRow && !viewOnly && (
+                {editId && editRow && (
                   <button onClick={() => remove(editRow)} className="inline-flex items-center gap-1.5 rounded-lg border border-[#F3C1C1] dark:border-red-900/40 px-3.5 py-2 text-sm font-medium text-[#DC2626] hover:bg-[#FEECEC] dark:hover:bg-red-950/20">
                     <Trash2 size={15} /> ลบรายการ
                   </button>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {viewOnly && editId ? (
+                {editId ? (
                   <>
-                    <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ปิด</button>
-                    <button onClick={() => setViewOnly(false)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C]"><Pencil size={15} /> แก้ไขข้อมูล</button>
+                    <button onClick={() => void requestClose()} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ปิด</button>
+                    <button
+                      onClick={() => void submitUpdate()}
+                      disabled={saving || !isDirty}
+                      title={isDirty ? updateSummary : "ยังไม่มีอะไรเปลี่ยน"}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-50"
+                    >
+                      ✍️ {saving ? "กำลังอัพเดท..." : "อัพเดทงาน"}
+                      {!saving && updateSummary && <span className="font-normal opacity-85">· {updateSummary}</span>}
+                    </button>
                   </>
                 ) : (
                   <>
-                    <button onClick={cancelEdit} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
-                    <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : editId ? "บันทึกการแก้ไข" : "บันทึก"}</button>
+                    <button onClick={() => setOpen(false)} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ยกเลิก</button>
+                    <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-60"><Check size={16} /> {saving ? "กำลังบันทึก..." : "บันทึก"}</button>
                   </>
                 )}
               </div>
@@ -2716,19 +2799,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       )}
 
-      {/* ฟอร์มอัพเดทงาน — เปิดได้จากการ์ดบนบอร์ดและจากท้ายไทม์ไลน์ในโมดัล */}
-      {updRow && (
-        <RepairUpdateDialog
-          row={updRow}
-          onClose={() => setUpdRow(null)}
-          onDone={() => {
-            load(); loadStats(); loadAtmsBoard()
-            // เปิดใบเดิมค้างไว้ ดึงค่าล่าสุด + ไทม์ไลน์ที่มีอัพเดทเมื่อกี้ขึ้นมาให้ดูต่อได้
-            if (editId === updRow._id) openById(updRow._id)
-          }}
-          onFixFields={() => { setUpdRow(null); openEdit(updRow, true) }}
-        />
-      )}
 
     </div>
   )
@@ -2900,127 +2970,6 @@ function CopyText({ value }: { value: string }) {
       <span className="truncate">{v}</span>
       <Copy size={11} className="shrink-0 opacity-0 transition group-hover:opacity-60" />
     </button>
-  )
-}
-
-/* ── มุมมองอ่านอย่างเดียว: การ์ดสรุปรายละเอียดงานซ่อม (กด "แก้ไขข้อมูล" เพื่อเข้าฟอร์ม) ── */
-function DetailField({ label, value, wide, mono }: { label: string; value?: React.ReactNode; wide?: boolean; mono?: boolean }) {
-  const empty = value === undefined || value === null || value === "" || value === 0
-  return (
-    <div className={wide ? "col-span-2 lg:col-span-3" : ""}>
-      <p className="text-[10.5px] font-medium leading-tight text-[#9AA8A0] dark:text-white/40">{label}</p>
-      <p className={`text-[13px] leading-snug ${empty ? "text-[#C6CFC9] dark:text-white/25" : "font-medium text-[#14271C] dark:text-white"} ${mono ? "font-mono" : ""} whitespace-pre-wrap break-words`}>
-        {empty ? "—" : value}
-      </p>
-    </div>
-  )
-}
-
-/** ช่องที่ไม่มีค่าถือว่า "ว่าง" — โหมดดูซ่อนทิ้ง ไม่ให้กล่องเปล่ากินพื้นที่เท่าข้อมูลจริง */
-function isEmptyDetail(c: unknown): boolean {
-  if (!isValidElement(c)) return false
-  const p = c.props as { value?: unknown; items?: unknown[] }
-  if (Array.isArray(p.items)) return p.items.length === 0
-  return !String(p.value ?? "").trim()
-}
-
-function DetailSection({ title, tone, children, hideEmpty }: { title: string; tone: string; children: React.ReactNode; hideEmpty?: boolean }) {
-  const kids  = Children.toArray(children)
-  const shown = hideEmpty ? kids.filter((c) => !isEmptyDetail(c)) : kids
-  if (shown.length === 0) return null
-  return (
-    <section className={`mt-2.5 overflow-hidden rounded-xl border first:mt-0 ${tone}`}>
-      <p className="border-b border-inherit bg-black/[0.02] px-3.5 py-1.5 text-[13px] font-bold text-[#37473E] dark:bg-white/5 dark:text-gray-200" style={{ fontFamily: "'Mitr', sans-serif" }}>{title}</p>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 lg:grid-cols-3">{shown}</div>
-    </section>
-  )
-}
-
-function DetailImages({ label, items }: { label: string; items: SkuImage[] }) {
-  if (!items.length) return null
-  return (
-    <div className="col-span-2 lg:col-span-3">
-      <p className="text-[10.5px] font-medium leading-tight text-[#9AA8A0] dark:text-white/40">{label} ({items.length})</p>
-      <div className="mt-1.5 flex flex-wrap gap-2">
-        {items.map((im) => (
-          <a key={im.mediaId} href={im.webpUrl} target="_blank" rel="noopener noreferrer" title={im.filename}
-            className="block h-16 w-16 overflow-hidden rounded-lg border border-[#EEF2F0] dark:border-white/10">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={im.thumbnailUrl || im.webpUrl} alt={im.filename} className="h-full w-full object-cover" />
-          </a>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function RepairDetailCard({ r, isParts, images, quotImages, negImages }: {
-  r: Omit<RepairExternal, "_id">; isParts: boolean
-  images: SkuImage[]; quotImages: SkuImage[]; negImages: SkuImage[]
-}) {
-  const money = (n: number) => (n ? `${fmtNum(n)} บาท` : "")
-  const date = (s: string) => (s ? fmtDateShort(s) : "")
-  // ค่าเริ่มต้นซ่อนช่องว่าง — รายการทั่วไปกรอกไม่ครบ กล่องเปล่ากินจอไปกว่าครึ่ง
-  const [showEmpty, setShowEmpty] = useState(false)
-  const hide = !showEmpty
-  return (
-    <div>
-      <div className="mb-2 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setShowEmpty((v) => !v)}
-          className="rounded-lg border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-[11px] font-medium text-[#5B7568] dark:text-gray-300 transition hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
-        >
-          {showEmpty ? "ซ่อนช่องที่ว่าง" : "แสดงช่องที่ว่างด้วย"}
-        </button>
-      </div>
-      <DetailSection hideEmpty={hide} title="🚚 ข้อมูลรถ" tone="border-[#D6EFDF] dark:border-[#1B8C4B]/30">
-        <DetailField label="เบอร์รถ" value={r.fleetNo} mono />
-        <DetailField label="ทะเบียน" value={r.plate} mono />
-        <DetailField label="ฟลีท" value={r.fleet} />
-        <DetailField label="แพล้นท์" value={r.plant} />
-        <DetailField label="คนขับ" value={r.driverName} />
-        <DetailField label="เบอร์โทรคนขับ" value={r.driverPhone} />
-        <DetailField label="สถานะปูนในโม่" value={r.cementStatus} />
-        <DetailField label="สภาพรถ" value={r.drivableStatus} />
-        <DetailField label="จุดที่รถเสีย" value={r.breakdownLocation} wide />
-      </DetailSection>
-
-      <DetailSection hideEmpty={hide} title={isParts ? "🔩 อะไหล่ลงคัน" : "🔧 งานซ่อม"} tone={isParts ? "border-[#C7D6FB] dark:border-blue-500/30" : "border-[#F8D8C2] dark:border-orange-500/30"}>
-        <DetailField label="เลข MR" value={r.mrNo} mono />
-        <DetailField label={isParts ? "ร้านอะไหล่" : "อู่ซ่อม"} value={r.garage} />
-        <DetailField label="อาการ / รายละเอียด" value={r.symptom} wide />
-        <DetailField label="วันที่รับแจ้ง" value={date(r.receivedDate)} />
-        <DetailField label={isParts ? "วันที่สั่งของ" : "วันที่รถเข้าอู่"} value={date(r.garageInDate)} />
-        <DetailField label="กำหนดเสร็จ" value={date(r.dueDate)} />
-        <DetailField label="วันที่เสร็จจริง" value={date(r.completedDate)} />
-        <DetailImages label="ไฟล์แนบ" items={images} />
-      </DetailSection>
-
-      <DetailSection hideEmpty={hide} title="💰 ราคา · ใบเสนอราคา" tone="border-[#BEE7F2] dark:border-cyan-500/30">
-        <DetailField label="ราคาเสนอครั้งแรก" value={money(r.offerPrice)} />
-        <DetailField label="ประกันที่เสนอ" value={r.offerWarranty} />
-        <DetailField label="ราคาหลังต่อรอง" value={money(r.negotiatedPrice)} />
-        <DetailField label="ขอบเขตต่อรอง" value={r.negotiationScope === "ระบุสินค้า/บริการ" ? `${r.negotiationScope}: ${r.negotiationItem || "—"}` : r.negotiationScope} />
-        <DetailField label="ราคาซ่อมที่ตกลง" value={money(r.repairPrice)} />
-        <DetailField label="รับประกัน" value={r.warranty} />
-        <DetailField label="รายละเอียดใบเสนอราคา" value={r.quotationDetail} wide />
-        <DetailImages label="ไฟล์ใบเสนอราคา" items={quotImages} />
-        <DetailImages label="หลักฐานการต่อรอง" items={negImages} />
-      </DetailSection>
-
-      <DetailSection hideEmpty={hide} title="📄 สถานะ · เอกสาร" tone="border-[#E4D5FB] dark:border-violet-500/30">
-        <DetailField label="สถานะปัจจุบัน" value={
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold ${statusMeta(r.status).cls}`}>
-            {statusMeta(r.status).emoji} {r.status}
-          </span>} />
-        <DetailField label="อยู่สถานะนี้ตั้งแต่" value={date(r.statusSince)} />
-        <DetailField label="เลข PR" value={r.prCode} mono />
-        <DetailField label="เลข PO" value={r.poCode} mono />
-        {!isParts && <DetailField label="รอใบเสนอราคา" value={r.waitingQuote ? "🔍 ใช่" : ""} />}
-        <DetailField label="หมายเหตุ" value={r.note} wide />
-      </DetailSection>
-    </div>
   )
 }
 
