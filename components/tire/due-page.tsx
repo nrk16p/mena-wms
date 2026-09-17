@@ -112,7 +112,6 @@ const GROUPS = [
 
 const OTHER_GROUPS = [
   { key: "nospec",     label: "ยังไม่ตั้งระยะกำหนด", hint: "รู้ระยะที่วิ่งแล้ว แต่รุ่นยางยังไม่มีระยะมาตรฐาน" },
-  { key: "nodistance", label: "คำนวณระยะไม่ได้",    hint: "ไม่มีวันเปลี่ยนเข้า หรือทะเบียนไม่มีทั้ง GPS และค่าเที่ยว" },
   { key: "spare",      label: "ยางอะไหล่",          hint: "ยังไม่ได้ใช้งาน ไม่นับระยะ" },
   { key: "accepted",   label: "รับเรื่องแล้ว",        hint: "มีคนรับไปดำเนินการแล้ว — ยังนับอยู่ในที่ต้องจัดการ" },
   { key: "snoozed",    label: "พักการแจ้งเตือน",     hint: `เส้นที่กด "พักการแจ้งเตือน" ไว้` },
@@ -302,7 +301,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   }
 
   const alertTotal = (summary.over ?? 0) + (summary.due ?? 0)
-  const showPct    = group !== "nodistance" && group !== "nospec"
+  const showPct    = group !== "nospec"
 
   const groups = useMemo<VehicleGroup[]>(() => {
     const m = new Map<string, VehicleGroup>()
