@@ -28,7 +28,7 @@ import {
   statusMeta,
   buildRepairSummary,
   buildNoPrByCreator,
-  type NoPrGroup,
+  creatorShortName,
   mapUrl,
   compareStage,
   stageEtaRequired,
@@ -110,6 +110,8 @@ type Stats = {
   overdue: number
   slaBreached: number
   noPr: number
+  /** งานไม่มี PR แยกตามคนสร้าง (ปุ่มต่อคนบนแถบสถานะ) */
+  noPrByCreator?: { creator: string; count: number; avgDays: number; maxDays: number }[]
   avgDays: number
   avgByStatus: Record<string, number>
   agingBuckets: { lt8: number; d8_14: number; gte15: number }
@@ -449,9 +451,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [fFleet, setFFleet]     = useState("")
   const [slaOnly, setSlaOnly]   = useState(false)
   const [noPrOnly, setNoPrOnly] = useState(false)
-  // หน้าต่าง "ไม่มี PR ตามคนสร้าง" — null = ปิด
-  const [noPrGroups, setNoPrGroups]   = useState<NoPrGroup[] | null>(null)
-  const [noPrLoading, setNoPrLoading] = useState(false)
+  // ปุ่มคัดลอก "ไม่มี PR" ของคนไหนกำลังโหลดอยู่
+  const [noPrCopying, setNoPrCopying] = useState("")
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
 
   const load = useCallback(async () => {
@@ -843,29 +844,26 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     )
   }
 
-  // งานที่ยังไม่มี PR แยกตามคนสร้าง — เปิดหน้าต่างให้คัดลอกส่งไลน์ทีละคน (รวมทุกคนยาวเกินข้อความเดียว)
-  // ยิง API ใหม่ทุกครั้ง ไม่ขึ้นกับตัวกรองบนจอ (เหตุผลเดียวกับ copyDoneNoPr)
-  async function openNoPrByCreator() {
+  // งานที่ยังไม่มี PR ของคนสร้างคนนี้ → คัดลอกส่งไลน์ (ปุ่มต่อคนบนแถบสถานะ · รวมทุกคนยาวเกินข้อความเดียว)
+  // ดึงรายการสดตอนกด ขอบเขตเดียวกับตัวเลขบนปุ่ม (scope active + ประเภทที่เลือก) ไม่ขึ้นกับตัวกรองอื่นบนจอ
+  async function copyNoPrFor(creator: string) {
     if (typeof window === "undefined") return
-    setNoPrLoading(true)
+    setNoPrCopying(creator)
     try {
-      const res    = await fetch(`/api/repair-external?${new URLSearchParams({ scope: "active" }).toString()}`)
-      const d      = await res.json()
-      const groups = buildNoPrByCreator(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
-      if (!groups.length) { swalToast("success", "ตอนนี้ทุกงานมี PR แล้ว 🎉"); return }
-      setNoPrGroups(groups)
+      const p = new URLSearchParams({ scope: "active" })
+      if (fType) p.set("type", fType)
+      const res = await fetch(`/api/repair-external?${p.toString()}`)
+      const d   = await res.json()
+      const g   = buildNoPrByCreator(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
+        .find((x) => x.creator === creator)
+      if (!g) { swalToast("success", `${creatorShortName(creator)} ไม่มีงานค้าง PR แล้ว 🎉`); loadStats(); return }
+      await navigator.clipboard.writeText(g.text)
+      swalToast("success", `คัดลอกของ ${g.creator} (${g.count} คัน) แล้ว — วางในไลน์ได้เลย`)
     } catch {
-      swalError("โหลดข้อมูลไม่สำเร็จ")
+      swalError("คัดลอกไม่สำเร็จ")
     } finally {
-      setNoPrLoading(false)
+      setNoPrCopying("")
     }
-  }
-
-  function copyNoPrGroup(g: NoPrGroup) {
-    navigator.clipboard?.writeText(g.text).then(
-      () => swalToast("success", `คัดลอกของ ${g.creator} (${g.count} คัน) แล้ว — วางในไลน์ได้เลย`),
-      () => swalError("คัดลอกไม่สำเร็จ"),
-    )
   }
 
   // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ใช้ข้อมูลรถจอดจริง (fleet) + ATMS ถ้าดึงได้
@@ -1679,14 +1677,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 <span className="opacity-70">{stats.counts[DONE_NO_PR_STATUS] || 0} คัน</span>
               </button>
               <button
-                onClick={() => void openNoPrByCreator()}
-                disabled={noPrLoading}
-                title="งานที่ยังไม่มี PR แยกตามคนสร้าง — คัดลอกส่งไลน์ทีละคน พร้อมจำนวนวันที่รอและลิงก์ใบงาน (ไม่ขึ้นกับตัวกรองที่เลือกอยู่)"
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#FDF3DD] hover:text-[#B07D12] disabled:opacity-60 dark:hover:bg-white/5"
-              >
-                <Copy size={12} /> {noPrLoading ? "กำลังโหลด..." : "ไม่มี PR ตามคนสร้าง"}
-              </button>
-              <button
                 onClick={copyFollowUp}
                 title="คัดลอกข้อความตามงาน — รถค้างสถานะรอประเมินการซ่อม + งานเลยกำหนดเสร็จ (ส่งไลน์)"
                 className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#FDF3DD] hover:text-[#B07D12] dark:hover:bg-white/5"
@@ -1760,6 +1750,25 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 </>
               )}
             </div>
+            {/* ไม่มี PR แยกตามคนสร้าง — กดชื่อ = คัดลอกรายการของคนนั้นส่งไลน์ (รายคัน + รอกี่วัน + ลิงก์) */}
+            {(stats.noPrByCreator?.length ?? 0) > 0 && (
+              <div className="flex w-full flex-wrap items-center gap-1.5">
+                <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">📋 ไม่มี PR คัดลอกรายคน:</span>
+                {stats.noPrByCreator!.map((g) => (
+                  <button
+                    key={g.creator}
+                    onClick={() => void copyNoPrFor(g.creator)}
+                    disabled={!!noPrCopying}
+                    title={`${g.creator} · รอเฉลี่ย ${g.avgDays} วัน · นานสุด ${g.maxDays} วัน — กดเพื่อคัดลอกส่งไลน์ (มีลิงก์ใบงานทุกคัน)`}
+                    className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#FDE9BE] px-2.5 py-1 text-xs font-medium text-[#B07D12] transition hover:bg-[#FDF3DD] disabled:opacity-60 dark:border-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-950/20"
+                  >
+                    <Copy size={12} /> {noPrCopying === g.creator ? "กำลังคัดลอก..." : creatorShortName(g.creator)}
+                    <span className="opacity-80">{g.count} คัน</span>
+                    <span className={`opacity-80 ${g.maxDays >= 15 ? "font-semibold text-[#DC2626] dark:text-red-400" : ""}`}>· นานสุด {g.maxDays} วัน</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {/* กราฟสถานะสองประเภท — เรียงข้างกันบนจอกว้าง ซ้อนบนจอแคบ
                 min-w-0 บนตัว grid ต้องมี ไม่งั้นการ์ดข้างในดันความกว้างจนล้นจอแทนที่จะเลื่อนในแถบตัวเอง
                 (ซ่อนกราฟที่ไม่เกี่ยวเมื่อกรองประเภทอยู่) */}
@@ -2833,40 +2842,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </>
                 )}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* งานที่ยังไม่มี PR แยกตามคนสร้าง — คัดลอกส่งไลน์ทีละคน */}
-      {noPrGroups && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={() => setNoPrGroups(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="flex max-h-[85vh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl dark:bg-[#151a10] sm:rounded-2xl">
-            <div className="flex items-start justify-between gap-2 border-b border-[#EEF2F0] px-4 py-3 dark:border-white/10">
-              <div className="min-w-0">
-                <h2 className="text-[15px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 งานที่ยังไม่มี PR — แยกตามคนสร้าง</h2>
-                <p className="text-[11.5px] text-[#9AA8A0]">
-                  {noPrGroups.reduce((n, g) => n + g.count, 0)} คัน · กดคัดลอกทีละคนแล้ววางในไลน์ (มีลิงก์เข้าใบงานทุกคัน)
-                </p>
-              </div>
-              <button onClick={() => setNoPrGroups(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">
-                <X size={17} />
-              </button>
-            </div>
-            <div className="flex-1 divide-y divide-[#EEF2F0] overflow-y-auto dark:divide-white/10">
-              {noPrGroups.map((g) => (
-                <div key={g.creator} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13.5px] font-semibold text-[#14271C] dark:text-white">👤 {g.creator}</p>
-                    <p className="text-[11.5px] text-[#5B7568] dark:text-gray-400">
-                      {g.count} คัน · รอเฉลี่ย {g.avgDays} วัน · นานสุด <span className={g.maxDays >= 15 ? "font-semibold text-[#DC2626]" : ""}>{g.maxDays} วัน</span>
-                    </p>
-                  </div>
-                  <button onClick={() => copyNoPrGroup(g)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#1B8C4B] px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-[#0F6A3C]">
-                    <Copy size={13} /> คัดลอก
-                  </button>
-                </div>
-              ))}
             </div>
           </div>
         </div>

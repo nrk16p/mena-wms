@@ -1,6 +1,6 @@
 // รัน: npx tsx scripts/check-repair-nopr.ts — ข้อความส่งไลน์ "งานที่ยังไม่มี PR แยกตามคนสร้าง"
 import assert from "node:assert/strict"
-import { buildNoPrByCreator } from "../lib/repair-external"
+import { buildNoPrByCreator, creatorShortName } from "../lib/repair-external"
 
 const ORIGIN = "https://mena-wms.vercel.app"
 const TODAY  = "2026-09-17"
@@ -45,5 +45,12 @@ assert.match(groups[1].text, /1\. UH24 — รอ 1 วัน/)
 assert.equal(groups[2].maxDays, 12)
 
 assert.deepEqual(buildNoPrByCreator([], { today: TODAY, origin: ORIGIN }), [])
+
+// ชื่อสั้นบนปุ่ม — ใช้ชื่อเล่นในวงเล็บท้ายชื่อ ไม่มีวงเล็บใช้คำแรก
+assert.equal(creatorShortName("Jeeraporn Ployprasert (Ben)"), "Ben")
+assert.equal(creatorShortName("Sathianpong Cha-amjan (Bew) "), "Bew")
+assert.equal(creatorShortName("สมชาย ใจดี"), "สมชาย")
+assert.equal(creatorShortName("ไม่ระบุคนสร้าง"), "ไม่ระบุคนสร้าง")
+assert.equal(creatorShortName(""), "")
 
 console.log("✅ ไม่มี PR แยกตามคนสร้าง ผ่านทั้งหมด")

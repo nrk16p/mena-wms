@@ -324,6 +324,13 @@ const bkkYmd = (v: string | Date) => {
   return isNaN(t) ? "" : new Date(t + 7 * 3600 * 1000).toISOString().slice(0, 10)
 }
 
+/** ชื่อสั้นบนปุ่ม — ชื่อเล่นในวงเล็บท้ายชื่อ ("Jeeraporn Ployprasert (Ben)" → "Ben") ไม่มีวงเล็บใช้คำแรก */
+export function creatorShortName(name: string): string {
+  const t = String(name ?? "").trim()
+  if (t === NO_CREATOR) return t
+  return t.match(/\(([^()]+)\)$/)?.[1].trim() || t.split(/\s+/)[0] || ""
+}
+
 export function buildNoPrByCreator(rows: NoPrRow[], opts: { today: string; origin: string }): NoPrGroup[] {
   const byCreator = new Map<string, { r: NoPrRow; days: number }[]>()
   for (const r of rows) {
