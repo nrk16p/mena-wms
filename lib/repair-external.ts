@@ -185,6 +185,7 @@ export type RepairExternal = {
   stageEta:     string  // YYYY-MM-DD คาดว่าจะพ้น "สถานะปัจจุบัน" เมื่อไหร่ — ผูกกับขั้น ไม่ใช่กับงานทั้งใบ (คนละตัวกับ dueDate)
   statusSinceAt?: string // ISO datetime เวลาที่เข้าสถานะ (สำหรับ SLA รายชั่วโมง เช่น รอ PR 24 ชม.)
   createdBy?:   string  // ผู้สร้าง (ระบบตั้งจาก session)
+  createdAt?:   string  // เวลาสร้างรายการ (ISO) — ระบบตั้งตอนสร้าง
   editedBy?:    string  // ผู้แก้ไขล่าสุด (ระบบตั้งจาก session)
   images?:      RepairImage[] // ไฟล์แนบ (รูป/เอกสาร)
 }
@@ -305,6 +306,54 @@ export function buildRepairSummary(r: RepairSummaryInput): string {
   if (t(r.link))        lines.push(`🔗 WMS ${t(r.link)}`)
 
   return lines.join("\n")
+}
+
+// ── งานที่ยังไม่มี PR แยกตามคนสร้าง (ส่งไลน์ทีละคน · ผู้ใช้ขอ 17/09/2026) ─────────────
+// ลิงก์ทุกคันยาวเกินจะส่งรวมข้อความเดียว (123 คัน ≈ 15,000 ตัวอักษร) จึงแยกข้อความต่อคนสร้าง
+// รอกี่วัน = วันนี้ − วันที่สร้างรายการ ตามปฏิทินไทย · ใบเก่าที่ไม่มี createdAt ใช้วันเริ่มงานแทน
+export type NoPrRow = {
+  _id: string; createdBy?: string; createdAt?: string | Date; fleetNo?: string; plate?: string
+  status?: string; prCode?: string; receivedDate?: string; garageInDate?: string
+}
+export type NoPrGroup = { creator: string; count: number; avgDays: number; maxDays: number; text: string }
+
+const NO_CREATOR = "ไม่ระบุคนสร้าง"
+const dayNum = (ymd: string) => Math.floor(Date.parse(`${ymd.slice(0, 10)}T00:00:00Z`) / 86400000)
+const bkkYmd = (v: string | Date) => {
+  const t = v instanceof Date ? v.getTime() : Date.parse(v)
+  return isNaN(t) ? "" : new Date(t + 7 * 3600 * 1000).toISOString().slice(0, 10)
+}
+
+export function buildNoPrByCreator(rows: NoPrRow[], opts: { today: string; origin: string }): NoPrGroup[] {
+  const byCreator = new Map<string, { r: NoPrRow; days: number }[]>()
+  for (const r of rows) {
+    if (isDoneStatus(String(r.status ?? "")) || String(r.prCode ?? "").trim()) continue
+    const start = (r.createdAt ? bkkYmd(r.createdAt) : "") || jobStartDate(r)
+    const days  = start ? Math.max(0, dayNum(opts.today) - dayNum(start)) : 0
+    const who   = String(r.createdBy ?? "").trim() || NO_CREATOR
+    byCreator.set(who, [...(byCreator.get(who) ?? []), { r, days }])
+  }
+  return [...byCreator.entries()]
+    // ไม่ระบุคนสร้างไว้ท้ายสุดเสมอ (ส่งหาใครไม่ได้) · ที่เหลือค้างมากสุดก่อน
+    .sort((a, b) => Number(a[0] === NO_CREATOR) - Number(b[0] === NO_CREATOR) || b[1].length - a[1].length || a[0].localeCompare(b[0], "th"))
+    .map(([creator, list]) => {
+      list.sort((a, b) => b.days - a.days)
+      const maxDays = list[0].days
+      const avgDays = Math.round(list.reduce((n, x) => n + x.days, 0) / list.length)
+      const lines = [
+        `📋 งานที่ยังไม่มี PR — ${creator} ${list.length} คัน`,
+        `⏱️ รอเฉลี่ย ${avgDays} วัน · นานสุด ${maxDays} วัน (นับจากวันที่สร้างรายการ)`,
+        "━━━━━━━━━━━━━━",
+      ]
+      list.forEach(({ r, days }, i) => {
+        const car    = [String(r.fleetNo ?? "").trim(), String(r.plate ?? "").trim()].filter(Boolean).join(" · ") || "-"
+        const status = String(r.status ?? "")
+        lines.push(`${i + 1}. ${car} — รอ ${days} วัน (${statusMeta(status).emoji} ${status})`)
+        lines.push(`${opts.origin}/repair-external?id=${r._id}`)
+      })
+      lines.push("", "📌 กดลิงก์ → ใส่รหัส PR → กด “อัพเดทงาน”")
+      return { creator, count: list.length, avgDays, maxDays, text: lines.join("\n") }
+    })
 }
 
 /* ── เทียบขั้นตอนงานกับ Mena-Next (ATMS) ─────────────────────────────────────

@@ -27,6 +27,8 @@ import {
   WARRANTY_OPTIONS,
   statusMeta,
   buildRepairSummary,
+  buildNoPrByCreator,
+  type NoPrGroup,
   mapUrl,
   compareStage,
   stageEtaRequired,
@@ -447,6 +449,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [fFleet, setFFleet]     = useState("")
   const [slaOnly, setSlaOnly]   = useState(false)
   const [noPrOnly, setNoPrOnly] = useState(false)
+  // หน้าต่าง "ไม่มี PR ตามคนสร้าง" — null = ปิด
+  const [noPrGroups, setNoPrGroups]   = useState<NoPrGroup[] | null>(null)
+  const [noPrLoading, setNoPrLoading] = useState(false)
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
 
   const load = useCallback(async () => {
@@ -834,6 +839,31 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     })
     navigator.clipboard?.writeText(lines.join("\n")).then(
       () => swalToast("success", `คัดลอก ${DONE_NO_PR_STATUS} (${list.length} คัน) แล้ว`),
+      () => swalError("คัดลอกไม่สำเร็จ"),
+    )
+  }
+
+  // งานที่ยังไม่มี PR แยกตามคนสร้าง — เปิดหน้าต่างให้คัดลอกส่งไลน์ทีละคน (รวมทุกคนยาวเกินข้อความเดียว)
+  // ยิง API ใหม่ทุกครั้ง ไม่ขึ้นกับตัวกรองบนจอ (เหตุผลเดียวกับ copyDoneNoPr)
+  async function openNoPrByCreator() {
+    if (typeof window === "undefined") return
+    setNoPrLoading(true)
+    try {
+      const res    = await fetch(`/api/repair-external?${new URLSearchParams({ scope: "active" }).toString()}`)
+      const d      = await res.json()
+      const groups = buildNoPrByCreator(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
+      if (!groups.length) { swalToast("success", "ตอนนี้ทุกงานมี PR แล้ว 🎉"); return }
+      setNoPrGroups(groups)
+    } catch {
+      swalError("โหลดข้อมูลไม่สำเร็จ")
+    } finally {
+      setNoPrLoading(false)
+    }
+  }
+
+  function copyNoPrGroup(g: NoPrGroup) {
+    navigator.clipboard?.writeText(g.text).then(
+      () => swalToast("success", `คัดลอกของ ${g.creator} (${g.count} คัน) แล้ว — วางในไลน์ได้เลย`),
       () => swalError("คัดลอกไม่สำเร็จ"),
     )
   }
@@ -1647,6 +1677,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               >
                 <Copy size={12} /> คัดลอก {DONE_NO_PR_STATUS}
                 <span className="opacity-70">{stats.counts[DONE_NO_PR_STATUS] || 0} คัน</span>
+              </button>
+              <button
+                onClick={() => void openNoPrByCreator()}
+                disabled={noPrLoading}
+                title="งานที่ยังไม่มี PR แยกตามคนสร้าง — คัดลอกส่งไลน์ทีละคน พร้อมจำนวนวันที่รอและลิงก์ใบงาน (ไม่ขึ้นกับตัวกรองที่เลือกอยู่)"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#FDF3DD] hover:text-[#B07D12] disabled:opacity-60 dark:hover:bg-white/5"
+              >
+                <Copy size={12} /> {noPrLoading ? "กำลังโหลด..." : "ไม่มี PR ตามคนสร้าง"}
               </button>
               <button
                 onClick={copyFollowUp}
@@ -2800,6 +2838,39 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
       )}
 
+      {/* งานที่ยังไม่มี PR แยกตามคนสร้าง — คัดลอกส่งไลน์ทีละคน */}
+      {noPrGroups && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onClick={() => setNoPrGroups(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="flex max-h-[85vh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl dark:bg-[#151a10] sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-2 border-b border-[#EEF2F0] px-4 py-3 dark:border-white/10">
+              <div className="min-w-0">
+                <h2 className="text-[15px] font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>📋 งานที่ยังไม่มี PR — แยกตามคนสร้าง</h2>
+                <p className="text-[11.5px] text-[#9AA8A0]">
+                  {noPrGroups.reduce((n, g) => n + g.count, 0)} คัน · กดคัดลอกทีละคนแล้ววางในไลน์ (มีลิงก์เข้าใบงานทุกคัน)
+                </p>
+              </div>
+              <button onClick={() => setNoPrGroups(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">
+                <X size={17} />
+              </button>
+            </div>
+            <div className="flex-1 divide-y divide-[#EEF2F0] overflow-y-auto dark:divide-white/10">
+              {noPrGroups.map((g) => (
+                <div key={g.creator} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13.5px] font-semibold text-[#14271C] dark:text-white">👤 {g.creator}</p>
+                    <p className="text-[11.5px] text-[#5B7568] dark:text-gray-400">
+                      {g.count} คัน · รอเฉลี่ย {g.avgDays} วัน · นานสุด <span className={g.maxDays >= 15 ? "font-semibold text-[#DC2626]" : ""}>{g.maxDays} วัน</span>
+                    </p>
+                  </div>
+                  <button onClick={() => copyNoPrGroup(g)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#1B8C4B] px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-[#0F6A3C]">
+                    <Copy size={13} /> คัดลอก
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
