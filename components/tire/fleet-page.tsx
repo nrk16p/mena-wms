@@ -111,8 +111,8 @@ type VehicleDetailData = {
 // SECTION 2: Constants + helpers
 // ===========================================================================
 
-// Sync ดึงรวมสาขาย่อยจาก ATMS: ลาดกระบัง+ขอนแก่น / สระบุรี+DIST
-const SYNC_SCOPE: Record<string, string> = { latkrabang: "+ขอนแก่น", saraburi: "+DIST" }
+// Sync ดึงรวมสาขาย่อยจาก ATMS: ลาดกระบัง+ขอนแก่น+DIST / สระบุรี (ดู lib/tire-branch-map.ts)
+const SYNC_SCOPE: Record<string, string> = { latkrabang: "+ขอนแก่น+DIST" }
 
 const REASON_OPTIONS = ["หมดดอก", "ยางระเบิด", "ยางฉีก", "ยางบวม", "รถกินยาง", "เช็คสภาพยาง"]
 

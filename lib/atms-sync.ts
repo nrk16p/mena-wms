@@ -1,16 +1,13 @@
 import * as XLSX from "xlsx"
 import https from "node:https"
 import clientPromise from "@/lib/mongo"
+import { BRANCH_IDS, stockBranchFor } from "@/lib/tire-branch-map"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change"
 
-// ATMS branch_id: 2=ลาดกระบัง, 3=สระบุรี, 5=ขอนแก่น, 7=DIST
-// ขอนแก่น รวมเข้า ลาดกระบัง / DIST รวมเข้า สระบุรี
-export const BRANCH_IDS: Record<string, string[]> = {
-  latkrabang: ["2", "5"],
-  saraburi:   ["3", "7"],
-}
+// สาขา ATMS ที่รวมเข้าแต่ละสาขา (ลาดกระบัง = 2+5+7 / สระบุรี = 3) อยู่ที่ lib/tire-branch-map.ts
+export { BRANCH_IDS }
 
 export class AtmsSessionError extends Error { constructor() { super("session_expired") } }
 export class AtmsNetworkError extends Error {}
@@ -108,13 +105,16 @@ export async function runBranchSync(branch: string, phpsessid: string): Promise<
 
     const workbook = XLSX.read(raw.buffer, { type: "buffer", raw: true })
     const sheet    = workbook.Sheets[workbook.SheetNames[0]]
-    rows.push(...XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true }))
+    // จำสาขา ATMS ต้นทางไว้ทุกแถว — รวมหลายสาขาแล้วยังแยกได้ว่าเส้นไหนมาจาก DIST/ขอนแก่น
+    rows.push(...XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true })
+      .map((r) => ({ ...r, __atmsBranchId: branchId })))
   }
   if (rows.length === 0) throw new AtmsEmptyError()
 
   const syncedAt = new Date()
   const docs = rows.map((row) => ({
     branch,
+    atmsBranchId:       String(row.__atmsBranchId ?? ""),
     vehicle:            String(row["ยานพาหนะ"] ?? ""),
     tirePosition:       String(row["ตำแหน่งยาง"] ?? ""),
     product:            String(row["สินค้า"] ?? ""),
@@ -141,7 +141,7 @@ export async function runBranchSync(branch: string, phpsessid: string): Promise<
   const latestDocs   = docs.filter((d) => d.isLatest && d.serialNo)
   const stockUpdates = latestDocs.map((d) => ({
     updateOne: {
-      filter: { branch, serialNo: d.serialNo },
+      filter: { branch: stockBranchFor(branch, d.atmsBranchId), serialNo: d.serialNo },
       update: { $set: { status: STATUS_MAP[d.sellRepairStatus] ?? "In Stock", updatedAt: syncedAt } },
     },
   }))
