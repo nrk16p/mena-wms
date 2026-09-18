@@ -59,25 +59,35 @@ export function composeThaiAddress(a: ThaiAddressParts): string {
   ].filter(Boolean).join(" ")
 }
 
-export type AddressHit = { province: string; district: string; subdistrict: string; postalCode: string }
+export type AddressField = "province" | "district" | "subdistrict" | "postalCode"
+/** ผลแนะนำของแต่ละช่อง: จังหวัด → จังหวัดอย่างเดียว · อำเภอ → อำเภอ+จังหวัด · ตำบล/รหัสไปรษณีย์ → ครบ 4 ช่อง */
+export type AddressSuggestion = { province: string; district?: string; subdistrict?: string; postalCode?: string }
 
-/** ค้นหาเร็ว: พิมพ์ชื่อตำบล (ขึ้นต้น ต./แขวง ได้) หรือรหัสไปรษณีย์ → คู่ ตำบล›อำเภอ›จังหวัด ที่เข้าชุดกันจริง
- *  เรียง: ชื่อตรงเป๊ะ → ขึ้นต้นด้วยคำค้น → มีคำค้นอยู่ข้างใน */
-export function searchThaiAddress(data: ProvinceNode[], query: string, limit = 8): AddressHit[] {
-  const q = query.trim().replace(/^(ตำบล|แขวง|ต\.)\s*/, "")
-  const isZip = /^\d+$/.test(q)
-  if (isZip ? q.length < 3 : q.length < 2) return []
-  const ranked: { hit: AddressHit; rank: number }[] = []
-  for (const p of data) for (const a of p.a) for (const t of a.t) {
-    const zip = zipOf(t)
-    let rank = -1
-    if (isZip) { if (zip.startsWith(q)) rank = zip === q ? 0 : 1 }
-    else if (t.n === q) rank = 0
-    else if (t.n.startsWith(q)) rank = 1
-    else if (t.n.includes(q)) rank = 2
-    if (rank >= 0) ranked.push({ hit: { province: p.p, district: a.n, subdistrict: t.n, postalCode: zip }, rank })
+const PREFIX: Record<AddressField, RegExp> = {
+  province: /^(จังหวัด|จ\.)\s*/, district: /^(อำเภอ|เขต|อ\.)\s*/, subdistrict: /^(ตำบล|แขวง|ต\.)\s*/, postalCode: /^\s*/,
+}
+/** ตรงเป๊ะ 0 · ขึ้นต้นด้วยคำค้น 1 · มีคำค้นอยู่ข้างใน 2 · ไม่ตรง -1 */
+const matchRank = (name: string, q: string) => (name === q ? 0 : name.startsWith(q) ? 1 : name.includes(q) ? 2 : -1)
+
+/** autocomplete รายช่อง (ผู้ใช้ขอ 2026-09-18): พิมพ์ช่องไหนก็ได้ แล้วเลือก = เติมช่องที่เกี่ยวข้องให้เข้าชุดกันจริง
+ *  ctx = ช่องที่กรอกไว้แล้ว ใช้ช่วยเรียง (จังหวัด/อำเภอเดียวกันมาก่อน) ไม่ตัดทิ้ง — เผื่อผู้ใช้กำลังจะเปลี่ยน */
+export function suggestAddress(data: ProvinceNode[], field: AddressField, query: string, ctx: ThaiAddressParts, limit = 8): AddressSuggestion[] {
+  const q = query.trim().replace(PREFIX[field], "")
+  if (field === "postalCode" ? !/^\d{3,5}$/.test(q) : q.length < 2) return []
+  const away = (p: string, a?: string) => (ctx.province && ctx.province !== p ? 20 : 0) + (a !== undefined && ctx.district && ctx.district !== a ? 10 : 0)
+  const out: { s: AddressSuggestion; rank: number }[] = []
+  for (const p of data) {
+    if (field === "province") { const r = matchRank(p.p, q); if (r >= 0) out.push({ s: { province: p.p }, rank: r }); continue }
+    for (const a of p.a) {
+      if (field === "district") { const r = matchRank(a.n, q); if (r >= 0) out.push({ s: { province: p.p, district: a.n }, rank: away(p.p) + r }); continue }
+      for (const t of a.t) {
+        const zip = zipOf(t)
+        const r = field === "postalCode" ? (zip === q ? 0 : zip.startsWith(q) ? 1 : -1) : matchRank(t.n, q)
+        if (r >= 0) out.push({ s: { province: p.p, district: a.n, subdistrict: t.n, postalCode: zip }, rank: away(p.p, a.n) + r })
+      }
+    }
   }
-  return ranked.sort((x, y) => x.rank - y.rank).slice(0, limit).map((r) => r.hit)
+  return out.sort((x, y) => x.rank - y.rank).slice(0, limit).map((o) => o.s)   // sort เสถียร: อันดับเท่ากันเรียงตามชุดข้อมูล
 }
 
 /** ตรวจว่า จังหวัด/อำเภอ/ตำบล เข้าชุดกันจริง และรหัสไปรษณีย์ตรงกับตำบล

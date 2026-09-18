@@ -6,7 +6,7 @@ import {
   parseLatLng, validateProfile, validateCustomJobs, isCustomJob, validateRate, isAnswered, jobCost, labourSheets, RETIRED_JOB_CODES, MAX_HOURS,
   type RfqInvite, type RfqJob, type RfqPart,
 } from "../lib/rfq-core"
-import { searchThaiAddress, checkThaiAddress, composeThaiAddress, type ProvinceNode } from "../lib/thai-address"
+import { suggestAddress, checkThaiAddress, composeThaiAddress, type ProvinceNode } from "../lib/thai-address"
 import fs from "node:fs"
 
 // จับคู่ช่องที่ติ๊ก → ชีต
@@ -219,12 +219,32 @@ const island = TH.flatMap((p) => p.a.flatMap((a) => a.t.filter((t) => t.z === "n
 assert.deepEqual(checkThaiAddress(TH, { ...island, postalCode: "" }), { postalCode: "" })
 assert.deepEqual(checkThaiAddress(TH, { ...island, postalCode: "81150" }), { postalCode: "81150" })
 assert.equal(typeof checkThaiAddress(TH, { ...island, postalCode: "81" }), "string")
-// ค้นหาเร็ว
-const hits = searchThaiAddress(TH, "ต.หนองปรือ")
-assert.ok(hits.length > 1 && hits[0].subdistrict === "หนองปรือ", "ชื่อตรงมาก่อน · ตัด ต. ออก")
-assert.ok(hits.some((h) => h.province === "ชลบุรี" && h.postalCode === "20150"))
-assert.ok(searchThaiAddress(TH, "20150").every((h) => h.postalCode === "20150"))
-assert.deepEqual(searchThaiAddress(TH, "ห"), [], "สั้นเกินไม่ค้น")
+// autocomplete รายช่อง (2026-09-18) — พิมพ์ช่องไหนก็ได้ เลือกแล้วเติมช่องที่เกี่ยวข้องให้ครบ
+const ks = suggestAddress(TH, "subdistrict", "คลองสาน", {})
+assert.deepEqual(ks[0], { province: "กรุงเทพมหานคร", district: "คลองสาน", subdistrict: "คลองสาน", postalCode: "10600" }, "แขวงตรงเป๊ะมาก่อน · เติมครบ 4 ช่อง")
+assert.deepEqual(suggestAddress(TH, "subdistrict", "แขวงคลองสาน", {})[0], ks[0], "ตัดคำนำหน้า แขวง")
+const ks2 = suggestAddress(TH, "subdistrict", "คลองสา", {})
+assert.equal(ks2[0].subdistrict, "คลองสาน", "พิมพ์ยังไม่จบคำ")
+assert.ok(ks2.length > 1 && ks2.every((h) => h.subdistrict!.startsWith("คลองสา")), "แขวง/ตำบลอื่นที่ขึ้นต้นเหมือนกันตามมา (คลองสาม, คลองสามประเวศ)")
+const kz = suggestAddress(TH, "postalCode", "10600", {})
+assert.ok(kz.length > 1 && kz.every((h) => h.postalCode === "10600"), "รหัสไปรษณีย์ → ทุกแขวงในรหัสนั้น")
+assert.ok(kz.some((h) => h.subdistrict === "คลองสาน"))
+assert.ok(suggestAddress(TH, "postalCode", "106", {}).every((h) => h.postalCode.startsWith("106")), "พิมพ์ 3 หลักก็แนะนำ")
+const kd = suggestAddress(TH, "district", "เขตคลองสาน", {})
+assert.deepEqual(kd[0], { province: "กรุงเทพมหานคร", district: "คลองสาน" }, "ช่องเขต → เขต + จังหวัด (ไม่เดาแขวง)")
+const kp = suggestAddress(TH, "province", "จ.กรุง", {})
+assert.deepEqual(kp[0], { province: "กรุงเทพมหานคร" }, "ช่องจังหวัด → จังหวัดอย่างเดียว · ตัด จ.")
+assert.ok(suggestAddress(TH, "province", "บุรี", {}).length > 1, "มีคำค้นอยู่ข้างในก็เจอ")
+// ช่องที่กรอกแล้วช่วยเรียง: ตำบลชื่อซ้ำหลายจังหวัด → ของจังหวัดที่เลือกไว้มาก่อน (ไม่ตัดทิ้ง — เผื่อกำลังจะเปลี่ยนจังหวัด)
+const np = suggestAddress(TH, "subdistrict", "ต.หนองปรือ", {})
+assert.ok(np.length > 1 && np[0].subdistrict === "หนองปรือ", "ตัด ต. · ชื่อตรงมาก่อน")
+const npCtx = suggestAddress(TH, "subdistrict", "หนองปรือ", { province: "ชลบุรี" })
+assert.equal(npCtx[0].province, "ชลบุรี"); assert.equal(npCtx[0].postalCode, "20150")
+assert.ok(npCtx.some((h) => h.province !== "ชลบุรี"), "จังหวัดอื่นยังอยู่ท้ายรายการ")
+assert.equal(suggestAddress(TH, "district", "เมือง", { province: "ชลบุรี" })[0].province, "ชลบุรี", "อ.เมือง มีทุกจังหวัด → จังหวัดที่เลือกมาก่อน")
+assert.deepEqual(suggestAddress(TH, "subdistrict", "ห", {}), [], "สั้นเกินไม่ค้น")
+assert.deepEqual(suggestAddress(TH, "postalCode", "10", {}), [], "รหัสสั้นเกินไม่ค้น")
+assert.ok(suggestAddress(TH, "subdistrict", "คลอง", {}).length <= 8, "จำกัด 8 รายการ")
 assert.equal(composeThaiAddress({}), "")
 
 console.log("✅ rfq-core: ผ่านทั้งหมด")
