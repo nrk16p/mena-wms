@@ -18,11 +18,14 @@ export type RfqPart = {
   sheet: string; sheetTitle: string; seq: number; sku: string; name: string
   useWith: string; unit: string; version: number; active: boolean
 }
-export type Tier = { rate?: number; hours?: number; light?: number; mid?: number; heavy?: number }
+/** ชั่วโมงที่อู่เสนอต่องาน — ตัดค่าแรงเหมา/อัตราต่องานออก (ผู้ใช้ขอ 2026-09-18) ราคาคิดจากอัตราของชีต × ชั่วโมง */
+export type JobHours = { hours?: number }
 export type RfqAnswer = {
-  mode: "hourly" | "lump" | "skip"; L: Tier; S: Tier; sameAsL: boolean
+  mode: "hours" | "skip"; L: JobHours; S: JobHours; sameAsL: boolean
   warrantyMonths?: number; note: string; at: string
 }
+/** อัตราค่าแรงต่อประเภทการซ่อม (ชีต) บาท/ชม. ใช้ทั้ง Mixer L และ S · onsite ไม่มี = ไม่รับงานนอกสถานที่ */
+export type RfqRate = { normal?: number; onsite?: number; at: string }
 export type RfqPartAnswer = {
   skip: boolean; priceL?: number; priceS?: number; sameAsL: boolean
   brand: string; warrantyMonths?: number; leadDays?: number; note: string; at: string
@@ -62,6 +65,8 @@ export type RfqInvite = {
   contact: RfqContact | null; openedAt: string | null
   profile?: RfqProfile | null
   items: Record<string, RfqAnswer>; parts: Record<string, RfqPartAnswer>
+  /** อัตราค่าแรงที่อู่เสนอ key = ชีต (S45, SVC, …) */
+  rates?: Record<string, RfqRate>
   submittedAt: string | null; submitNote: string
   confirm: RfqConfirm | null; returnNote: string
   createdBy: { name: string; email: string }; createdAt: string; updatedAt: string
@@ -152,12 +157,17 @@ export function jobsForInvite(inv: Pick<RfqInvite, "sheets" | "sections" | "jobC
   if (!inv.sections.includes("labour")) return []
   const sheets = new Set(inv.sheets)
   const pick = inv.jobCodes?.length ? new Set(inv.jobCodes) : null
-  const fromCatalog = jobs.filter((j) => sheets.has(j.sheet) && (!pick || pick.has(j.jobCode)))
+  // ข้าม X- ในรายการที่ส่งมา: ผู้เรียกบางจุดส่งผลของฟังก์ชันนี้กลับเข้ามาอีกรอบ (hub/หน้าตรวจ → progress) หัวข้อเพิ่มจะนับซ้ำ
+  const fromCatalog = jobs.filter((j) => sheets.has(j.sheet) && !isCustomJob(j.jobCode) && !RETIRED_JOB_CODES.has(j.jobCode) && (!pick || pick.has(j.jobCode)))
   // หัวข้อที่เพิ่มเองมาต่อท้ายชีตของตัวเอง (จัดซื้อตั้งใจเพิ่ม จึงไม่ต้องผ่านการเลือกข้อย่อย)
   const custom = (inv.customJobs ?? []).filter((j) => sheets.has(j.sheet))
   const order = (s: string) => SHEET_ORDER.indexOf(s)
   return [...fromCatalog, ...custom].sort((a, b) => order(a.sheet) - order(b.sheet) || a.seq - b.seq)
 }
+
+/** งานแคตตาล็อกที่ถอดแล้ว — คิด "ต่อครั้ง" กรอกเป็นชั่วโมงไม่ได้ (ผู้ใช้สั่งตัด 2026-09-18) · ถอดด้วยโค้ดแทนการแก้แคตตาล็อกใน DB
+ *  ใบเก่าที่สร้างไว้แล้วก็ไม่เห็นงานนี้ด้วย */
+export const RETIRED_JOB_CODES: ReadonlySet<string> = new Set(["SVC-OUT-CAL", "SVC-TOW-CAL"])
 
 export const CUSTOM_JOB_PREFIX = "X-"
 export const isCustomJob = (code: string) => code.startsWith(CUSTOM_JOB_PREFIX)
@@ -193,20 +203,49 @@ export function partsForInvite(inv: Pick<RfqInvite, "sheets" | "sections">, part
 
 // ── ความคืบหน้า ──────────────────────────────────────────────────────────────
 
+/** งานนี้กรอกแล้วหรือยัง: ไม่รับงาน หรือ ใส่ชั่วโมง Mixer L แล้ว
+ *  คำตอบรูปแบบเก่า (เหมา / รายชั่วโมงที่มีอัตราต่องาน) ถือว่ายังไม่กรอก — ผู้ใช้ยืนยันว่ายังไม่มีใบจริง */
+export function isAnswered(a: RfqAnswer | undefined | null): a is RfqAnswer {
+  if (!a) return false
+  if (a.mode === "skip") return true
+  return a.mode === "hours" && a.L?.hours !== undefined && a.L?.hours !== null
+}
+
+/** ชีตที่ต้องกรอกอัตราค่าแรง = ชีตที่ใบนี้มีงานค่าแรงให้เสนออย่างน้อย 1 งาน (เรียงตาม SHEET_ORDER) */
+export function labourSheets(inv: Pick<RfqInvite, "sheets" | "sections" | "jobCodes" | "customJobs">, jobs: RfqJob[]): string[] {
+  const has = new Set(jobsForInvite(inv, jobs).map((j) => j.sheet))
+  return SHEET_ORDER.filter((s) => has.has(s))
+}
+
 export function progress(
-  inv: Pick<RfqInvite, "items" | "parts" | "sheets" | "sections" | "jobCodes">,
+  inv: Pick<RfqInvite, "items" | "parts" | "sheets" | "sections" | "jobCodes" | "customJobs" | "rates">,
   jobs: RfqJob[], parts: RfqPart[]
-): { labour: { done: number; total: number }; parts: { done: number; total: number } } {
+): { labour: { done: number; total: number }; parts: { done: number; total: number }; rates: { done: number; total: number } } {
   const js = jobsForInvite(inv, jobs)
   const ps = partsForInvite(inv, parts)
+  const rs = labourSheets(inv, jobs)
   return {
-    labour: { done: js.filter((j) => !!inv.items[j.jobCode]).length, total: js.length },
+    labour: { done: js.filter((j) => isAnswered(inv.items[j.jobCode])).length, total: js.length },
     parts:  { done: ps.filter((p) => !!inv.parts[partKey(p.sheet, p.sku)]).length, total: ps.length },
+    // อัตราของชีตนับว่ากรอกเมื่อมีค่าแรงปกติ — นอกสถานที่เว้นได้ (= ไม่รับงานนอกสถานที่)
+    rates:  { done: rs.filter((s) => inv.rates?.[s]?.normal !== undefined && inv.rates?.[s]?.normal !== null).length, total: rs.length },
   }
+}
+
+type Money = { normal: number | null; onsite: number | null }
+/** ค่าแรงต่องาน = ชั่วโมง × อัตราของชีต (ปัด 2 ตำแหน่ง) · null = ไม่รับงาน/ยังไม่กรอก · ช่องที่ขาดอัตรา/ชั่วโมง = null */
+export function jobCost(a: RfqAnswer | undefined | null, rate: RfqRate | undefined | null): { L: Money; S: Money } | null {
+  if (!isAnswered(a) || a.mode !== "hours") return null
+  const mul = (h: number | undefined, r: number | undefined) =>
+    h === undefined || h === null || r === undefined || r === null ? null : Math.round(h * r * 100) / 100
+  const side = (h: number | undefined): Money => ({ normal: mul(h, rate?.normal), onsite: mul(h, rate?.onsite) })
+  return { L: side(a.L.hours), S: side(a.sameAsL ? a.L.hours : a.S.hours) }
 }
 
 // ── ตรวจค่าที่อู่ส่งมา ─────────────────────────────────────────────────────────
 const MAX_NUM = 9_999_999
+/** เพดานชั่วโมงต่องาน — กันอู่พิมพ์ราคา (บาท) ลงช่องชั่วโมงหลังเปลี่ยนจากเหมามาเป็นชั่วโมง */
+export const MAX_HOURS = 500
 const NOTE_MAX = 500
 const num = (v: unknown): number | undefined | string => {
   if (v === undefined || v === null || v === "") return undefined
@@ -219,14 +258,12 @@ const num = (v: unknown): number | undefined | string => {
 const str = (v: unknown, max = NOTE_MAX) => String(v ?? "").trim().slice(0, max)
 const nowIso = () => new Date().toISOString()
 
-function tier(x: unknown): Tier | string {
+/** รับเฉพาะ hours — ฟิลด์เดิม (rate/light/mid/heavy) ถูกทิ้งเงียบ ๆ */
+function jobHours(x: unknown): JobHours | string {
   const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>
-  const out: Tier = {}
-  for (const k of ["rate", "hours", "light", "mid", "heavy"] as const) {
-    const n = num(o[k]); if (typeof n === "string") return `${k}: ${n}`
-    if (n !== undefined) out[k] = n
-  }
-  return out
+  const n = num(o.hours); if (typeof n === "string") return `ชั่วโมง: ${n}`
+  if (n !== undefined && n > MAX_HOURS) return `ชั่วโมงเกิน ${MAX_HOURS} — ช่องนี้กรอกจำนวนชั่วโมง ไม่ใช่ราคา`
+  return n === undefined ? {} : { hours: n }
 }
 
 export function applySameAsL(a: RfqAnswer): RfqAnswer {
@@ -243,15 +280,23 @@ export function applyPartSameAsL(a: RfqPartAnswer): RfqPartAnswer {
 export function validateAnswer(x: unknown): RfqAnswer | string {
   const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>
   const mode = o.mode
-  if (mode !== "hourly" && mode !== "lump" && mode !== "skip") return "mode ไม่ถูกต้อง"
-  const L = tier(o.L); if (typeof L === "string") return `L ${L}`
-  const S = tier(o.S); if (typeof S === "string") return `S ${S}`
+  if (mode !== "hours" && mode !== "skip") return "mode ไม่ถูกต้อง"
+  const L = jobHours(o.L); if (typeof L === "string") return `L ${L}`
+  const S = jobHours(o.S); if (typeof S === "string") return `S ${S}`
   const w = num(o.warrantyMonths); if (typeof w === "string") return `รับประกัน: ${w}`
   return applySameAsL({
     mode, L, S, sameAsL: !!o.sameAsL,
     ...(w !== undefined ? { warrantyMonths: w } : {}),
     note: str(o.note), at: nowIso(),
   })
+}
+
+/** อัตราค่าแรงของชีต — ช่องว่าง = ไม่มี key (กัน null ใน Mongo) */
+export function validateRate(x: unknown): RfqRate | string {
+  const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>
+  const normal = num(o.normal); if (typeof normal === "string") return `ค่าแรงปกติ: ${normal}`
+  const onsite = num(o.onsite); if (typeof onsite === "string") return `ค่าแรงนอกสถานที่: ${onsite}`
+  return { ...(normal !== undefined ? { normal } : {}), ...(onsite !== undefined ? { onsite } : {}), at: nowIso() }
 }
 
 export function validatePartAnswer(x: unknown): RfqPartAnswer | string {

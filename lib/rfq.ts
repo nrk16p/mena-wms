@@ -3,8 +3,8 @@ import { ObjectId, type WithId, type Document } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
-  newToken, effectiveStatus, canTransition, canVendorWrite, progress, SVC_SHEET, SHEET_ORDER,
-  type RfqInvite, type RfqJob, type RfqPart, type RfqAnswer, type RfqPartAnswer, type RfqContact,
+  newToken, effectiveStatus, canTransition, canVendorWrite, progress, SVC_SHEET, SHEET_ORDER, RETIRED_JOB_CODES,
+  type RfqInvite, type RfqJob, type RfqPart, type RfqAnswer, type RfqPartAnswer, type RfqRate, type RfqContact,
   type RfqLogEntry, type RfqSection, type EffectiveStatus, type RfqProfile,
 } from "@/lib/rfq-core"
 import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
@@ -51,7 +51,8 @@ export async function getCatalog(version?: number) {
 }
 
 export async function catalogSummary() {
-  const { version, jobs, parts } = await getCatalog()
+  const { version, jobs: all, parts } = await getCatalog()
+  const jobs = all.filter((j) => !RETIRED_JOB_CODES.has(j.jobCode))   // modal ไม่ให้เลือกงานที่ถอดแล้ว
   const m = new Map<string, { sheet: string; title: string; jobs: number; parts: number }>()
   for (const j of jobs) { const x = m.get(j.sheet) ?? { sheet: j.sheet, title: j.sheetTitle, jobs: 0, parts: 0 }; x.jobs++; m.set(j.sheet, x) }
   for (const p of parts) { const x = m.get(p.sheet) ?? { sheet: p.sheet, title: p.sheetTitle, jobs: 0, parts: 0 }; x.parts++; m.set(p.sheet, x) }
@@ -154,7 +155,7 @@ export async function saveContact(token: string, c: Omit<RfqContact, "at">): Pro
   return serialize({ ...before, contact: { ...c, at: now }, status, updatedAt: now })
 }
 
-export async function saveAnswers(token: string, items: Record<string, RfqAnswer>, parts: Record<string, RfqPartAnswer>) {
+export async function saveAnswers(token: string, items: Record<string, RfqAnswer>, parts: Record<string, RfqPartAnswer>, rates: Record<string, RfqRate> = {}) {
   const col = await invites()
   const before = await col.findOne({ token })
   if (!before) throw new Error("404:ไม่พบลิงก์")
@@ -163,6 +164,7 @@ export async function saveAnswers(token: string, items: Record<string, RfqAnswer
   const $set: Document = { updatedAt: toBkkIso(new Date()) }
   for (const [k, v] of Object.entries(items)) $set[`items.${k}`] = v
   for (const [k, v] of Object.entries(parts)) $set[`parts.${k}`] = v   // key มี "|" ใช้เป็นชื่อฟิลด์ได้ (ห้ามมี "." และ "$")
+  for (const [k, v] of Object.entries(rates)) $set[`rates.${k}`] = v   // key = รหัสชีต
   await col.updateOne({ token }, { $set })
 }
 

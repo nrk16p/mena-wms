@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { bkkToday } from "@/lib/bkk-time"
 import { getInviteByToken, getCatalog, markOpened, saveContact, saveAnswers, saveProfile, httpError } from "@/lib/rfq"
-import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, validateProfile, parseLatLng, partKey, jobsForInvite, partsForInvite, type RfqAnswer, type RfqPartAnswer, type RfqInvite } from "@/lib/rfq-core"
+import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, validateRate, validateProfile, parseLatLng, partKey, jobsForInvite, partsForInvite, labourSheets, type RfqAnswer, type RfqPartAnswer, type RfqRate, type RfqInvite } from "@/lib/rfq-core"
 import { loadThaiAddress } from "@/lib/thai-address"
 
 export const dynamic = "force-dynamic"
@@ -70,9 +70,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
     const items: Record<string, RfqAnswer> = {}
     const parts: Record<string, RfqPartAnswer> = {}
+    const rates: Record<string, RfqRate> = {}
     const cat = await getCatalog(inv.catalogVersion)
     const jobOk = new Set(jobsForInvite(inv, cat.jobs).map((j) => j.jobCode))
     const partOk = new Set(partsForInvite(inv, cat.parts).map((p) => partKey(p.sheet, p.sku)))
+    const rateOk = new Set(labourSheets(inv, cat.jobs))
     let n = 0
     for (const [k, v] of Object.entries((body.items ?? {}) as Record<string, unknown>)) {
       if (!jobOk.has(k) || /[.$]/.test(k)) return NextResponse.json({ error: `ไม่มีงาน ${k} ในใบนี้` }, { status: 400 })
@@ -84,9 +86,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       const a = validatePartAnswer(v); if (typeof a === "string") return NextResponse.json({ error: `${k}: ${a}` }, { status: 400 })
       parts[k] = a; n++
     }
+    for (const [k, v] of Object.entries((body.rates ?? {}) as Record<string, unknown>)) {
+      if (!rateOk.has(k) || /[.$]/.test(k)) return NextResponse.json({ error: `ไม่มีอัตราค่าแรงชีต ${k} ในใบนี้` }, { status: 400 })
+      const r = validateRate(v); if (typeof r === "string") return NextResponse.json({ error: `${k}: ${r}` }, { status: 400 })
+      rates[k] = r; n++
+    }
     if (!n) return NextResponse.json({ error: "ไม่มีอะไรให้บันทึก" }, { status: 400 })
     if (n > MAX_BATCH) return NextResponse.json({ error: `บันทึกได้ครั้งละไม่เกิน ${MAX_BATCH} รายการ` }, { status: 400 })
-    await saveAnswers(token, items, parts)
+    await saveAnswers(token, items, parts, rates)
     return NextResponse.json({ ok: true, saved: n, at: new Date().toISOString() })
   } catch (e) { const { status, error } = httpError(e); if (status === 500) console.error("[q] PATCH", e); return NextResponse.json({ error }, { status }) }
 }

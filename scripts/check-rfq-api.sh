@@ -15,11 +15,18 @@ echo "id=$ID token=$TK"
 echo "== unknown vendor → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$H" -H "$J" -X POST $B -d "{\"title\":\"x\",\"deadline\":\"$DL\",\"invites\":[{\"vendor\":\"ไม่มีอู่นี้\",\"sheets\":[]}]}" | grep -q 400
 echo "== public GET (no cookie) sets openedAt + SVC always"; G=$(curl -s $Q/$TK); echo "$G" | grep -q '"openedAt":"20'; echo "$G" | grep -q '"sheets":\["S45","SVC"\]'
 echo "$G" | grep -q '"createdBy"' && { echo "LEAK createdBy"; exit 1; } || true
+echo "== retired SVC per-visit jobs hidden"; echo "$G" | grep -q 'SVC-OUT-CAL\|SVC-TOW-CAL' && { echo "RETIRED JOB SHOWN"; exit 1; } || true
 echo "== bad token → 404"; curl -s -o /dev/null -w "%{http_code}\n" $Q/AAAAAAAAAAAAAAAAAAAAAAAA | grep -q 404
 echo "== items before contact → 409"; curl -s -o /dev/null -w "%{http_code}\n" -H "$J" -X PATCH $Q/$TK -d '{"items":{"MXS-RLR-INS":{"mode":"skip"}}}' | grep -q 409
 echo "== contact missing phone/email → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$J" -X PATCH $Q/$TK -d '{"contact":{"name":"ช่างเอ","confirmedVendor":true}}' | grep -q 400
 echo "== contact ok → กำลังกรอก"; curl -s -H "$J" -X PATCH $Q/$TK -d '{"contact":{"name":"ช่างเอ","phone":"0812345678","email":"","confirmedVendor":true}}' | grep -q '"status":"กำลังกรอก"'
-echo "== items ok"; curl -s -H "$J" -X PATCH $Q/$TK -d '{"items":{"MXS-RLR-INS":{"mode":"hourly","L":{"rate":450,"hours":2},"S":{},"sameAsL":true}}}' | grep -q '"saved":1'
+echo "== items ok (hours)"; curl -s -H "$J" -X PATCH $Q/$TK -d '{"items":{"MXS-RLR-INS":{"mode":"hours","L":{"hours":2},"S":{},"sameAsL":true}}}' | grep -q '"saved":1'
+echo "== lump mode → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$J" -X PATCH $Q/$TK -d '{"items":{"MXS-RLR-INS":{"mode":"lump","L":{"light":1000}}}}' | grep -q 400
+echo "== hours over cap → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$J" -X PATCH $Q/$TK -d '{"items":{"MXS-RLR-INS":{"mode":"hours","L":{"hours":3500}}}}' | grep -q 400
+echo "== rates ok"; curl -s -H "$J" -X PATCH $Q/$TK -d '{"rates":{"S45":{"normal":450,"onsite":600},"SVC":{"normal":400}}}' | grep -q '"saved":2'
+echo "== rate for sheet not in invite → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$J" -X PATCH $Q/$TK -d '{"rates":{"S37":{"normal":450}}}' | grep -q 400
+echo "== rates stored"; curl -s $Q/$TK | grep -q '"rates":{"S45":{"normal":450,"onsite":600'
+echo "== xlsx 200"; curl -s -o /dev/null -w "%{http_code}\n" -H "$H" $B/$ID/xlsx | grep -q 200
 echo "== item not in sheet → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$J" -X PATCH $Q/$TK -d '{"items":{"NOPE":{"mode":"skip"}}}' | grep -q 400
 echo "== parts ok"; PK=$(curl -s $Q/$TK | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);const p=j.parts.find(p=>p.sheet==="S45");process.stdout.write(p.sku)})'); curl -s -H "$J" -X PATCH $Q/$TK -d "{\"parts\":{\"S45|$PK\":{\"priceL\":1200,\"sameAsL\":true,\"brand\":\"OEM\"}}}" | grep -q '"saved":1'
 echo "== submit without ack → 400"; curl -s -o /dev/null -w "%{http_code}\n" -H "$J" -X POST $Q/$TK/submit -d '{}' | grep -q 400
@@ -33,4 +40,6 @@ echo "== resubmit"; curl -s -H "$J" -X POST $Q/$TK/submit -d '{"acknowledgeBlank
 echo "== confirm as non-approver → 403"; curl -s -o /dev/null -w "%{http_code}\n" -H "$H" -H "$J" -X PATCH $B/$ID -d '{"action":"confirm","validFrom":"2026-09-10","validTo":"2027-09-10"}' | grep -q 403
 echo "== log ≥ 6"; test "$(curl -s -H "$H" $B/$ID/log | grep -o '"action"' | wc -l)" -ge 6
 echo "== cancel as non-approver → 403"; curl -s -o /dev/null -w "%{http_code}\n" -H "$H" -H "$J" -X PATCH $B/$ID -d '{"action":"cancel"}' | grep -q 403
-echo "check-rfq-api: OK (ใบทดสอบ $ID คงไว้ในสถานะ ส่งแล้ว — ลบเองด้วย mongo ถ้าต้องการ)"
+# ลบใบทดสอบ + log ออกจาก DB (DB เดียวกับ production) — ใบทดสอบค้างเคยปนในหน้า /rfq
+ID=$ID node -r dotenv/config -e 'const {MongoClient,ObjectId}=require("mongodb");MongoClient.connect(process.env.MONGO_URI).then(async c=>{const d=c.db(process.env.MONGO_DB||"master_data");const a=await d.collection("rfq_invites").deleteOne({_id:new ObjectId(process.env.ID),title:"ทดสอบ API"});const b=await d.collection("rfq_log").deleteMany({inviteId:process.env.ID});console.log(`cleanup: invite ${a.deletedCount} · log ${b.deletedCount}`);process.exit(0)})'
+echo "check-rfq-api: OK"

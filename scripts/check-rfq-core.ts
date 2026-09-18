@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import {
   sheetsForVendor, newToken, effectiveStatus, canVendorWrite, canTransition, progress, partKey,
   applySameAsL, validateAnswer, validatePartAnswer, validateContact, addDays, addMonths, SHEET_ORDER, jobsForInvite, partsForInvite,
-  parseLatLng, validateProfile, validateCustomJobs, isCustomJob,
+  parseLatLng, validateProfile, validateCustomJobs, isCustomJob, validateRate, isAnswered, jobCost, labourSheets, RETIRED_JOB_CODES, MAX_HOURS,
   type RfqInvite, type RfqJob, type RfqPart,
 } from "../lib/rfq-core"
 import { searchThaiAddress, checkThaiAddress, composeThaiAddress, type ProvinceNode } from "../lib/thai-address"
@@ -61,6 +61,11 @@ const inv = { sheets: ["S45", "SVC"], sections: ["labour", "parts"] as const,
 const pg = progress(inv, jobs, parts)
 assert.deepEqual(pg.labour, { done: 1, total: 3 }, "C อยู่ชีตที่ไม่ได้ให้ ไม่นับ")
 assert.deepEqual(pg.parts, { done: 1, total: 1 })
+assert.deepEqual(pg.rates, { done: 0, total: 2 }, "ชีตที่มีงานค่าแรง S45 + SVC ยังไม่กรอกอัตรา")
+assert.deepEqual(labourSheets(inv, jobs), ["S45", "SVC"])
+const withRates = { ...inv, rates: { S45: { normal: 450, at: "" }, SVC: { onsite: 600, at: "" }, S37: { normal: 1, at: "" } } }
+assert.deepEqual(progress(withRates, jobs, parts).rates, { done: 1, total: 2 }, "นับเมื่อกรอกค่าแรงปกติ · S37 ไม่ได้ให้ ไม่นับ · SVC มีแค่นอกสถานที่ ยังไม่นับ")
+assert.deepEqual(progress({ ...inv, sections: ["parts"] }, jobs, parts).rates, { done: 0, total: 0 }, "ไม่ให้ส่วนค่าแรง = ไม่มีอัตรา")
 assert.deepEqual(progress({ ...inv, sections: ["labour"] }, jobs, parts).parts, { done: 0, total: 0 }, "ไม่ให้ส่วนอะไหล่ = 0/0")
 // เลือกข้อย่อย: jobCodes จำกัดงานในชีต · ว่าง = ทุกงาน · อะไหล่ไม่เกี่ยว
 assert.deepEqual(jobsForInvite({ sheets: ["S45", "SVC"], sections: ["labour", "parts"] }, jobs).map((j) => j.jobCode), ["A", "B", "D"])
@@ -69,6 +74,10 @@ assert.deepEqual(jobsForInvite({ sheets: ["S45"], sections: ["labour"], jobCodes
 assert.deepEqual(jobsForInvite({ sheets: ["S45"], sections: ["parts"] }, jobs), [], "ไม่เปิดส่วนค่าแรง")
 assert.deepEqual(partsForInvite({ sheets: ["S45"], sections: ["labour", "parts"] }, parts).map((p) => p.sku), ["X"])
 assert.deepEqual(progress({ ...inv, jobCodes: ["A"] }, jobs, parts).labour, { done: 1, total: 1 }, "นับเฉพาะข้อย่อยที่เลือก")
+// งานต่อครั้งใน SVC ถูกถอด (2026-09-18) — ไม่โผล่ในใบไหนเลย
+assert.ok(RETIRED_JOB_CODES.has("SVC-OUT-CAL") && RETIRED_JOB_CODES.has("SVC-TOW-CAL"))
+assert.deepEqual(jobsForInvite({ sheets: ["SVC"], sections: ["labour"] }, [...jobs, J("SVC", "SVC-OUT-CAL"), J("SVC", "SVC-TOW-CAL")]).map((j) => j.jobCode), ["D"])
+assert.deepEqual(jobsForInvite({ sheets: ["SVC"], sections: ["labour"], jobCodes: ["SVC-OUT-CAL", "D"] }, [...jobs, J("SVC", "SVC-OUT-CAL")]).map((j) => j.jobCode), ["D"], "เลือกไว้ตอนสร้างก็ไม่โผล่")
 // หัวข้อเพิ่มเอง
 const cj = validateCustomJobs([{ sheet: "S45", name: " ล้างดรัมด้านใน " }, { sheet: "S45", name: "เชื่อมใบกวน", scope: "x" }, { sheet: "SVC", name: "เดินทางนอกพื้นที่" }], ["S45", "SVC"], 2)
 assert.notEqual(typeof cj, "string")
@@ -77,30 +86,66 @@ if (typeof cj !== "string") {
   assert.equal(cj[0].name, "ล้างดรัมด้านใน"); assert.equal(cj[0].seq, 901); assert.ok(isCustomJob(cj[0].jobCode))
   const merged = jobsForInvite({ sheets: ["S45", "SVC"], sections: ["labour"], jobCodes: ["A"], customJobs: cj }, jobs)
   assert.deepEqual(merged.map((j) => j.jobCode), ["A", "X-S45-1", "X-S45-2", "X-SVC-1"], "หัวข้อเพิ่มต่อท้ายชีตตัวเอง ไม่ถูกตัดโดยการเลือกข้อย่อย (D ถูกตัดเพราะไม่ได้เลือก)")
+  const inv2 = { sheets: ["S45", "SVC"], sections: ["labour"] as ("labour" | "parts")[], customJobs: cj }
+  const once = jobsForInvite(inv2, jobs)
+  assert.deepEqual(jobsForInvite(inv2, once).map((j) => j.jobCode), once.map((j) => j.jobCode), "ส่งผลลัพธ์กลับเข้ามาซ้ำ หัวข้อเพิ่มไม่ซ้ำ (hub/หน้าตรวจเรียก progress ด้วยงานที่กรองแล้ว)")
+  assert.equal(progress({ ...inv2, items: {}, parts: {} }, once, []).labour.total, 6, "A B D + หัวข้อเพิ่ม 3")
 }
 assert.equal(typeof validateCustomJobs([{ sheet: "S37", name: "x" }], ["S45"], 2), "string", "ชีตที่ไม่ได้ให้")
 assert.equal(typeof validateCustomJobs([{ sheet: "S45", name: "" }], ["S45"], 2), "string", "ไม่มีชื่อ")
 assert.deepEqual(validateCustomJobs(undefined, ["S45"], 2), [])
 
-// sameAsL
-const a = applySameAsL({ mode: "lump", L: { light: 1000, mid: 2000, heavy: 3000 }, S: { light: 5 }, sameAsL: true, note: "", at: "" })
-assert.deepEqual(a.S, { light: 1000, mid: 2000, heavy: 3000 })
-const b = applySameAsL({ mode: "lump", L: { light: 1000 }, S: { light: 5 }, sameAsL: false, note: "", at: "" })
-assert.deepEqual(b.S, { light: 5 })
+// sameAsL (ชั่วโมง)
+const a = applySameAsL({ mode: "hours", L: { hours: 3 }, S: { hours: 9 }, sameAsL: true, note: "", at: "" })
+assert.deepEqual(a.S, { hours: 3 })
+const b = applySameAsL({ mode: "hours", L: { hours: 3 }, S: { hours: 2 }, sameAsL: false, note: "", at: "" })
+assert.deepEqual(b.S, { hours: 2 })
 
-// validateAnswer
+// validateAnswer — ตัดเหมาออก (2026-09-18) เหลือ ชั่วโมง/ไม่รับงาน
 assert.equal(typeof validateAnswer({ mode: "bogus" }), "string")
-assert.equal(typeof validateAnswer({ mode: "hourly", L: { rate: -1 } }), "string", "ติดลบไม่รับ")
-assert.equal(typeof validateAnswer({ mode: "hourly", L: { rate: 10_000_000 } }), "string", "เกินเพดาน")
-const ok = validateAnswer({ mode: "hourly", L: { rate: "450", hours: 2 }, S: {}, sameAsL: true, warrantyMonths: "3", note: " x ".repeat(300) })
+assert.equal(typeof validateAnswer({ mode: "lump", L: { light: 1000 } }), "string", "เหมาไม่รับแล้ว")
+assert.equal(typeof validateAnswer({ mode: "hourly", L: { rate: 450, hours: 2 } }), "string", "รายชั่วโมงแบบเดิม (มี rate ต่องาน) ไม่รับแล้ว")
+assert.equal(typeof validateAnswer({ mode: "hours", L: { hours: -1 } }), "string", "ติดลบไม่รับ")
+assert.equal(typeof validateAnswer({ mode: "hours", L: { hours: MAX_HOURS + 1 } }), "string", "ชั่วโมงเกินเพดาน (กันพิมพ์ราคาลงช่องชั่วโมง)")
+const ok = validateAnswer({ mode: "hours", L: { hours: "2.5", rate: 999, light: 5 }, S: {}, sameAsL: true, warrantyMonths: "3", note: " x ".repeat(300) })
 assert.notEqual(typeof ok, "string")
 if (typeof ok !== "string") {
-  assert.equal(ok.L.rate, 450, "string ตัวเลข → number")
-  assert.equal(ok.S.rate, 450, "sameAsL ถูก apply ตอน validate")
+  assert.deepEqual(ok.L, { hours: 2.5 }, "string ตัวเลข → number · ฟิลด์เดิม rate/light ถูกทิ้ง")
+  assert.deepEqual(ok.S, { hours: 2.5 }, "sameAsL ถูก apply ตอน validate")
   assert.equal(ok.warrantyMonths, 3)
   assert.ok(ok.note.length <= 500)
   assert.ok(ok.at)
 }
+const sk = validateAnswer({ mode: "skip", L: { hours: 4 }, S: {}, sameAsL: false })
+if (typeof sk !== "string") assert.equal(sk.mode, "skip")
+
+// กรอกแล้วหรือยัง — ใบเก่าที่เป็นเหมา/รายชั่วโมงเดิม = ยังไม่กรอก · ชั่วโมงว่าง = ยังไม่กรอก
+assert.equal(isAnswered(undefined), false)
+assert.equal(isAnswered({ mode: "skip", L: {}, S: {}, sameAsL: true, note: "", at: "" }), true)
+assert.equal(isAnswered({ mode: "hours", L: { hours: 2 }, S: {}, sameAsL: true, note: "", at: "" }), true)
+assert.equal(isAnswered({ mode: "hours", L: {}, S: {}, sameAsL: true, note: "", at: "" }), false, "เลือกชั่วโมงแต่ยังไม่พิมพ์")
+assert.equal(isAnswered({ mode: "lump", L: { light: 1 }, S: {}, sameAsL: true, note: "", at: "" } as never), false, "ข้อมูลเหมาเดิม")
+assert.equal(isAnswered({ mode: "hourly", L: { rate: 1, hours: 2 }, S: {}, sameAsL: true, note: "", at: "" } as never), false, "ข้อมูลรายชั่วโมงเดิม")
+
+// อัตราค่าแรงต่อประเภทการซ่อม (ชีต)
+const r1 = validateRate({ normal: "450", onsite: 600 })
+assert.notEqual(typeof r1, "string")
+if (typeof r1 !== "string") { assert.equal(r1.normal, 450); assert.equal(r1.onsite, 600); assert.ok(r1.at) }
+const r2 = validateRate({ normal: 450, onsite: "" })
+if (typeof r2 !== "string") assert.ok(!("onsite" in r2), "เว้นว่าง = ไม่รับงานนอกสถานที่ (ไม่มี key กัน null ใน Mongo)")
+assert.equal(typeof validateRate({ normal: -1 }), "string")
+assert.equal(typeof validateRate({ onsite: "abc" }), "string")
+
+// ค่าแรงต่องาน = ชั่วโมง × อัตรา
+const cost = jobCost({ mode: "hours", L: { hours: 2 }, S: { hours: 1.5 }, sameAsL: false, note: "", at: "" }, { normal: 450, onsite: 600, at: "" })
+assert.deepEqual(cost, { L: { normal: 900, onsite: 1200 }, S: { normal: 675, onsite: 900 } })
+assert.deepEqual(jobCost({ mode: "hours", L: { hours: 2 }, S: { hours: 2 }, sameAsL: true, note: "", at: "" }, { normal: 450, at: "" }),
+  { L: { normal: 900, onsite: null }, S: { normal: 900, onsite: null } }, "ไม่รับนอกสถานที่ → null")
+assert.equal(jobCost({ mode: "skip", L: {}, S: {}, sameAsL: true, note: "", at: "" }, { normal: 450, at: "" }), null)
+assert.equal(jobCost(undefined, { normal: 450, at: "" }), null)
+assert.deepEqual(jobCost({ mode: "hours", L: { hours: 2 }, S: { hours: 2 }, sameAsL: true, note: "", at: "" }, undefined),
+  { L: { normal: null, onsite: null }, S: { normal: null, onsite: null } }, "ยังไม่กรอกอัตรา")
+
 // validatePartAnswer
 assert.equal(typeof validatePartAnswer({ priceL: -5 }), "string")
 const pk = validatePartAnswer({ skip: false, priceL: 120.5, sameAsL: true, brand: "NOK", leadDays: "7" })

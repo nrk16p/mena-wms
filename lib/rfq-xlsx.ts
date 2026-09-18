@@ -1,6 +1,6 @@
 // lib/rfq-xlsx.ts — ใบเสนอราคาอู่ → Excel เลย์เอาต์เดียวกับฟอร์มต้นฉบับ (1 ชีตต่อระบบ)
 // เฉพาะฝั่ง server (route) · โหลด exceljs ตอนเรียกเท่านั้น
-import { SHEET_ORDER, partKey, type RfqInvite, type RfqJob, type RfqPart } from "@/lib/rfq-core"
+import { SHEET_ORDER, partKey, isAnswered, jobCost, type RfqInvite, type RfqJob, type RfqPart } from "@/lib/rfq-core"
 
 const FONT = "Tahoma"
 const HEAD = "FF1B8C4B", BAND_L = "FFE4EFE8", BAND_S = "FFDBEAFE", YELLOW = "FFFFF9C4", GRID = "FFE4EEE8"
@@ -21,25 +21,31 @@ export async function buildRfqWorkbook(inv: RfqInvite, jobs: RfqJob[], parts: Rf
     ws.getCell("A2").value = `ผู้เสนอราคา (อู่/ร้าน): ${inv.vendor}   ผู้ติดต่อ: ${inv.contact?.name ?? "—"} ${inv.contact?.phone ?? ""} ${inv.contact?.email ?? ""}`
     ws.getCell("A3").value = `รอบ: ${inv.title}   สถานะ: ${inv.status}   ส่งเมื่อ: ${inv.submittedAt ?? "—"}` + (inv.confirm ? `   ราคามีผล ${inv.confirm.validFrom} – ${inv.confirm.validTo}` : "")
     ;[2, 3].forEach((r) => { ws.getCell(`A${r}`).font = { name: FONT, size: 10 } })
-    ws.getCell("A5").value = "ส่วนที่ 1 · ค่าแรง — งานช่างมาตรฐาน"; ws.getCell("A5").font = { name: FONT, bold: true, size: 12 }
-    // หัว 3 ชั้น: แถว 6 กลุ่ม L/S · แถว 7 รายชั่วโมง/เหมา · แถว 8 ชื่อคอลัมน์ (19 คอลัมน์ตามต้นฉบับ)
-    ws.mergeCells("H6:L6"); ws.getCell("H6").value = "Mixer L (10 ล้อ)"; ws.getCell("H6").fill = fill(BAND_L)
-    ws.mergeCells("M6:Q6"); ws.getCell("M6").value = "Mixer S (6 ล้อ)"; ws.getCell("M6").fill = fill(BAND_S)
-    ws.mergeCells("H7:I7"); ws.getCell("H7").value = "รายชั่วโมง"; ws.mergeCells("J7:L7"); ws.getCell("J7").value = "เหมา (บาท/งาน)"
-    ws.mergeCells("M7:N7"); ws.getCell("M7").value = "รายชั่วโมง"; ws.mergeCells("O7:Q7"); ws.getCell("O7").value = "เหมา (บาท/งาน)"
-    const H = ["ลำดับ", "รหัสงาน", "ชื่องาน", "ขอบเขตงานที่รวมในราคา", "เกณฑ์แบ่งระดับ เบา / กลาง / หนัก", "ชม.อ้างอิง L", "ชม.อ้างอิง S", "อัตรา ฿/ชม.", "ชม.มาตรฐาน", "เหมา เบา", "เหมา กลาง", "เหมา หนัก", "อัตรา ฿/ชม.", "ชม.มาตรฐาน", "เหมา เบา", "เหมา กลาง", "เหมา หนัก", "รับประกัน (เดือน)", "หมายเหตุ"]
+    ws.getCell("A5").value = "ส่วนที่ 1 · ค่าแรง — อัตราต่อชั่วโมง × ชั่วโมงต่องาน"; ws.getCell("A5").font = { name: FONT, bold: true, size: 12 }
+    // แถว 6 อัตราค่าแรงของชีต · แถว 7 กลุ่มคอลัมน์ · แถว 8 ชื่อคอลัมน์ (14 คอลัมน์ — ตัดเหมา เบา/กลาง/หนัก ออก 2026-09-18)
+    const rate = inv.rates?.[sheet]
+    const rateTxt = (n: number | undefined) => (n === undefined || n === null ? null : `${n.toLocaleString("th-TH")} บาท/ชม.`)
+    ws.getCell("A6").value = !js.length ? "ไม่มีงานค่าแรงในชีตนี้"
+      : `อัตราค่าแรง (ใช้ทั้ง Mixer L และ S): ปกติ ${rateTxt(rate?.normal) ?? "ยังไม่กรอก"} · นอกสถานที่ ${rateTxt(rate?.onsite) ?? (rate?.normal != null ? "ไม่รับ" : "ยังไม่กรอก")}`
+    ws.getCell("A6").font = { name: FONT, bold: true, size: 10 }
+    ws.mergeCells("G7:H7"); ws.getCell("G7").value = "ชั่วโมงที่เสนอ"
+    ws.mergeCells("I7:J7"); ws.getCell("I7").value = "ค่าแรงปกติ (บาท)"; ws.getCell("I7").fill = fill(BAND_L)
+    ws.mergeCells("K7:L7"); ws.getCell("K7").value = "ค่าแรงนอกสถานที่ (บาท)"; ws.getCell("K7").fill = fill(BAND_S)
+    const H = ["ลำดับ", "รหัสงาน", "ชื่องาน", "ขอบเขตงานที่รวมในราคา", "ชม.อ้างอิง L", "ชม.อ้างอิง S", "ชม. Mixer L", "ชม. Mixer S", "Mixer L", "Mixer S", "Mixer L", "Mixer S", "รับประกัน (เดือน)", "หมายเหตุ"]
     ws.getRow(8).values = H
-    for (let r = 6; r <= 8; r++) ws.getRow(r).eachCell((c) => { c.font = { name: FONT, bold: true, size: 10, color: r === 8 ? { argb: "FFFFFFFF" } : undefined }; if (r === 8) c.fill = fill(HEAD); c.alignment = { horizontal: "center", vertical: "middle", wrapText: true }; c.border = border })
-    ws.columns = [6, 14, 30, 40, 40, 10, 10, 10, 10, 11, 11, 11, 10, 10, 11, 11, 11, 10, 24].map((w) => ({ width: w }))
+    for (let r = 7; r <= 8; r++) ws.getRow(r).eachCell((c) => { c.font = { name: FONT, bold: true, size: 10, color: r === 8 ? { argb: "FFFFFFFF" } : undefined }; if (r === 8) c.fill = fill(HEAD); c.alignment = { horizontal: "center", vertical: "middle", wrapText: true }; c.border = border })
+    ws.columns = [6, 14, 30, 40, 10, 10, 10, 10, 11, 11, 11, 11, 10, 24].map((w) => ({ width: w }))
     let row = 9
     for (const j of js) {
-      const a = inv.items[j.jobCode]
+      const raw = inv.items[j.jobCode]; const a = isAnswered(raw) ? raw : undefined   // คำตอบรูปแบบเก่า (เหมา) = ไม่กรอก
       const skip = a?.mode === "skip"
-      ws.getRow(row).values = [j.seq, j.jobCode, j.name, j.scope, j.tierCriteria, j.refHoursL ?? "", j.refHoursS ?? "",
-        a?.L.rate ?? "", a?.L.hours ?? "", a?.L.light ?? "", a?.L.mid ?? "", a?.L.heavy ?? "",
-        a?.S.rate ?? "", a?.S.hours ?? "", a?.S.light ?? "", a?.S.mid ?? "", a?.S.heavy ?? "",
+      const c = jobCost(a, rate)
+      const hS = a && !skip ? (a.sameAsL ? a.L.hours : a.S.hours) : undefined
+      ws.getRow(row).values = [j.seq, j.jobCode, j.name, j.scope, j.refHoursL ?? "", j.refHoursS ?? "",
+        skip ? "" : (a?.L.hours ?? ""), hS ?? "",
+        c?.L.normal ?? "", c?.S.normal ?? "", c?.L.onsite ?? "", c?.S.onsite ?? "",
         a?.warrantyMonths ?? "", skip ? `ไม่รับงาน${a?.note ? " · " + a.note : ""}` : (a?.note ?? "")]
-      ws.getRow(row).eachCell({ includeEmpty: true }, (c, col) => { c.font = { name: FONT, size: 10 }; c.border = border; c.alignment = { vertical: "top", wrapText: col >= 3 && col <= 5 }; if (col >= 8 && col <= 18) { c.numFmt = "#,##0.##"; if (!a) c.fill = fill(YELLOW) } })
+      ws.getRow(row).eachCell({ includeEmpty: true }, (cell, col) => { cell.font = { name: FONT, size: 10 }; cell.border = border; cell.alignment = { vertical: "top", wrapText: col >= 3 && col <= 4 }; if (col >= 7 && col <= 13) { cell.numFmt = "#,##0.##"; if (!a) cell.fill = fill(YELLOW) } })
       row++
     }
     if (ps.length) {

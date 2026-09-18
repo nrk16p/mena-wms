@@ -196,7 +196,6 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
                                           <div style={{ fontSize: 11, fontWeight: 600, color: "#B45309", marginBottom: 4 }}>+ เพิ่มหัวข้อใหม่ในชีตนี้ (นอกแคตตาล็อก)</div>
                                           <input value={d.name} onChange={(e) => upd({ name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(v.vendor, s) } }} placeholder="ชื่องาน เช่น ล้างดรัมด้านใน" maxLength={200} style={small} />
                                           <input value={d.scope} onChange={(e) => upd({ scope: e.target.value })} placeholder="ขอบเขตงานที่รวมในราคา (ไม่บังคับ)" maxLength={500} style={{ ...small, marginTop: 4 }} />
-                                          <input value={d.tierCriteria} onChange={(e) => upd({ tierCriteria: e.target.value })} placeholder="เกณฑ์ เบา/กลาง/หนัก (ไม่บังคับ)" maxLength={500} style={{ ...small, marginTop: 4 }} />
                                           <button type="button" disabled={!d.name.trim()} onClick={() => addCustom(v.vendor, s)} style={{ ...mitr, marginTop: 4, padding: "4px 10px", borderRadius: 6, border: "1px solid #F59E0B", background: d.name.trim() ? "#FFFBEB" : "#fff", color: d.name.trim() ? "#B45309" : "#D1D5DB", fontSize: 11.5, cursor: d.name.trim() ? "pointer" : "not-allowed" }}>เพิ่มหัวข้อ</button>
                                         </div>
                                       )

@@ -52,11 +52,12 @@ export function useAutosave(token: string) {
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [savedAt, setSavedAt] = useState("")
   const [errorMsg, setErrorMsg] = useState("")
-  const queue = useRef<{ items: Record<string, unknown>; parts: Record<string, unknown> }>({ items: {}, parts: {} })
+  type Queue = { items: Record<string, unknown>; parts: Record<string, unknown>; rates: Record<string, unknown> }
+  const queue = useRef<Queue>({ items: {}, parts: {}, rates: {} })
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const flush = useCallback(async () => {
-    const q = queue.current; queue.current = { items: {}, parts: {} }
-    if (!Object.keys(q.items).length && !Object.keys(q.parts).length) return
+    const q = queue.current; queue.current = { items: {}, parts: {}, rates: {} }
+    if (!Object.keys(q.items).length && !Object.keys(q.parts).length && !Object.keys(q.rates).length) return
     setState("saving")
     try {
       const r = await fetch(`/api/q/${token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(q), keepalive: true })
@@ -65,16 +66,17 @@ export function useAutosave(token: string) {
       setState("saved"); setSavedAt(new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }))
     } catch (e) {
       // เก็บกลับเข้าคิว ให้ปุ่ม "ลองใหม่" ส่งซ้ำได้
-      queue.current = { items: { ...q.items, ...queue.current.items }, parts: { ...q.parts, ...queue.current.parts } }
+      queue.current = { items: { ...q.items, ...queue.current.items }, parts: { ...q.parts, ...queue.current.parts }, rates: { ...q.rates, ...queue.current.rates } }
       setState("error"); setErrorMsg(e instanceof Error ? e.message : String(e))
     }
   }, [token])
   // รวมการแก้หลายช่องติดกันเป็นคำขอเดียว (หน่วง 600ms) — แต่ไม่เกิน 20 รายการต่อครั้งตาม API
-  const save = useCallback(async (patch: { items?: Record<string, unknown>; parts?: Record<string, unknown> }) => {
+  const save = useCallback(async (patch: { items?: Record<string, unknown>; parts?: Record<string, unknown>; rates?: Record<string, unknown> }) => {
     Object.assign(queue.current.items, patch.items ?? {})
     Object.assign(queue.current.parts, patch.parts ?? {})
+    Object.assign(queue.current.rates, patch.rates ?? {})
     if (timer.current) clearTimeout(timer.current)
-    const n = Object.keys(queue.current.items).length + Object.keys(queue.current.parts).length
+    const n = Object.keys(queue.current.items).length + Object.keys(queue.current.parts).length + Object.keys(queue.current.rates).length
     if (n >= 20) { await flush(); return }
     timer.current = setTimeout(() => void flush(), 600)
   }, [flush])

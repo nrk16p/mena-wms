@@ -19,9 +19,10 @@ export function RfqVendorHub({ token }: { token: string }) {
       {invite.contact && <div style={{ ...V.muted, marginBottom: 10 }}>ผู้ติดต่อ: {invite.contact.name} · {invite.contact.phone || invite.contact.email}</div>}
       <SectionCard href={`/q/${token}/profile`} title="ข้อมูลอู่" desc="จำนวนช่องซ่อม หนัก/กลาง/เบา · ที่ตั้ง (ลิงก์แผนที่ / GPS)" done={invite.profile ? (invite.profile.lat !== undefined ? 2 : 1) : 0} total={2} color="#7C3AED"
         label={!invite.profile ? "ยังไม่ได้กรอก" : `ช่องซ่อม ${invite.profile.capacity.bays} · ${invite.profile.lat !== undefined ? "มีพิกัดแล้ว" : "ยังไม่มีพิกัด"}`} />
-      {invite.sections.includes("labour") && <SectionCard href={`/q/${token}/labour`} title="ค่าแรง" desc="งานช่างมาตรฐาน · เสนอรายชั่วโมงหรือเหมา เบา/กลาง/หนัก" done={pg.labour.done} total={pg.labour.total} color="#1B8C4B" />}
+      {invite.sections.includes("labour") && <SectionCard href={`/q/${token}/labour`} title="ค่าแรง" desc="อัตรา ฿/ชม. ต่อระบบ (ปกติ / นอกสถานที่) · ชั่วโมงที่ใช้ต่องาน" done={pg.labour.done + pg.rates.done} total={pg.labour.total + pg.rates.total} color="#1B8C4B"
+        label={`อัตราค่าแรง ${pg.rates.done}/${pg.rates.total} ระบบ · ชั่วโมง ${pg.labour.done}/${pg.labour.total} งาน`} />}
       {invite.sections.includes("parts") && <SectionCard href={`/q/${token}/parts`} title="อะไหล่" desc="ราคาต่อหน่วย Mixer L / S · ยี่ห้อ · รับประกัน · ส่งมอบ" done={pg.parts.done} total={pg.parts.total} color="#1D4ED8" />}
-      {invite.canWrite && <SubmitBox token={token} invite={invite} blank={(pg.labour.total - pg.labour.done) + (pg.parts.total - pg.parts.done)} onDone={reload} />}
+      {invite.canWrite && <SubmitBox token={token} invite={invite} blank={(pg.labour.total - pg.labour.done) + (pg.rates.total - pg.rates.done) + (pg.parts.total - pg.parts.done)} onDone={reload} />}
       <div style={{ ...V.muted, marginTop: 16, textAlign: "center" }}>ระบบชีต: {invite.sheets.join(" · ")} · ปิดรับ {thDate(invite.deadline)}</div>
     </div>
   )
