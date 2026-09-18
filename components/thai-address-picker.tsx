@@ -101,16 +101,16 @@ export function ThaiAddressPicker({ value, onChange, disabled }: {
         {field("subdistrict", bkk ? "แขวง" : "ตำบล", bkk ? "พิมพ์ชื่อแขวง" : "พิมพ์ชื่อตำบล")}
         {field("postalCode", "รหัสไปรษณีย์", value.subdistrict && !autoZip ? "พิมพ์รหัส 5 หลัก" : "เช่น 10600")}
         {active && open && (list.length > 0 || typed) && (
-          <div id={listId} role="listbox" style={{ position: "absolute", left: 0, right: 0, top, zIndex: 30, background: "#fff", border: "1px solid #D5E2DA", borderRadius: 10, boxShadow: "0 8px 24px rgba(20,39,28,.12)", overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
+          <div id={listId} role="listbox" style={{ position: "absolute", left: 0, right: 0, top, zIndex: 30, background: "#fff", border: "1px solid #CED4DA", borderRadius: 10, boxShadow: "0 8px 24px rgba(20,39,28,.12)", overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
             {list.length === 0 && <div style={{ ...V.muted, padding: "10px 12px" }}>ไม่พบ — ลองพิมพ์ให้สั้นลง</div>}
             {list.map((s, i) => (
               <button
                 key={`${s.province}|${s.district ?? ""}|${s.subdistrict ?? ""}`} type="button" role="option" aria-selected={i === hi}
                 onMouseDown={(e) => e.preventDefault()} onClick={() => pick(s)} onMouseEnter={() => setHi(i)}
-                style={{ ...V.btn, display: "flex", gap: 8, width: "100%", textAlign: "left", border: "none", borderBottom: "1px solid #EEF3F0", borderRadius: 0, fontWeight: 400, fontSize: 14.5, minHeight: 44, background: i === hi ? "#EEF6F1" : "#fff" }}
+                style={{ ...V.btn, display: "flex", gap: 8, width: "100%", textAlign: "left", border: "none", borderBottom: "1px solid #E9ECEF", borderRadius: 0, fontWeight: 400, fontSize: 14.5, minHeight: 44, background: i === hi ? "#E8F1EC" : "#fff" }}
               >
                 <span style={{ flex: 1 }}>{label(s)}</span>
-                {s.postalCode && <span style={{ color: "#7C8B82", fontVariantNumeric: "tabular-nums" }}>{s.postalCode}</span>}
+                {s.postalCode && <span style={{ color: "#6C757D", fontVariantNumeric: "tabular-nums" }}>{s.postalCode}</span>}
               </button>
             ))}
           </div>

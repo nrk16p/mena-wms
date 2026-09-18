@@ -1,21 +1,41 @@
 "use client"
 // ส่วนร่วมของหน้าอู่ (public): โหลดใบ, บันทึกอัตโนมัติ, สไตล์ — มือถือก่อน ไม่มี sidebar
+// หน้าตาตามเว็บทางการ (2026-09-18): ฟอนต์ Prompt · เขียวองค์กร · มุมมน 6–8 · ปุ่มหลักทรงแคปซูล — ค่าสีอยู่ที่ lib/vendor-brand
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
 import Link from "next/link"
+import { CalendarClock, ChevronLeft } from "lucide-react"
 import { STATUS_META, type RfqInvite, type RfqJob, type RfqPart, type EffectiveStatus } from "@/lib/rfq-core"
+import { BRAND } from "@/lib/vendor-brand"
 
 export type PublicInvite = Omit<RfqInvite, "confirm" | "createdBy" | "_id"> & { effective: EffectiveStatus; canWrite: boolean; priceValidTo: string | null }
 export type Data = { invite: PublicInvite; jobs: RfqJob[]; parts: RfqPart[]; today: string }
 
-export const mitr = { fontFamily: "'Mitr', sans-serif" }
+export const mitr = { fontFamily: BRAND.font }
 export const V = {
-  page:  { ...mitr, minHeight: "100vh", background: "#F6FAF7", color: "#14271C", padding: "16px 16px 96px", maxWidth: 720, margin: "0 auto" } as CSSProperties,
-  card:  { background: "#fff", border: "1px solid #E4EEE8", borderRadius: 14, padding: 14, marginBottom: 12, boxShadow: "0 1px 2px rgba(20,39,28,.04)" } as CSSProperties,
-  input: { ...mitr, width: "100%", fontSize: 16, padding: "10px 12px", borderRadius: 10, border: "1px solid #D5E2DA", background: "#fff", minHeight: 44, boxSizing: "border-box" } as CSSProperties,
-  btn:   { ...mitr, fontSize: 15, fontWeight: 600, padding: "10px 16px", borderRadius: 10, border: "1px solid #D5E2DA", background: "#fff", cursor: "pointer", minHeight: 44 } as CSSProperties,
-  btnPrimary: { ...mitr, fontSize: 16, fontWeight: 600, padding: "12px 18px", borderRadius: 12, border: "none", background: "#1B8C4B", color: "#fff", cursor: "pointer", minHeight: 48, width: "100%" } as CSSProperties,
-  label: { fontSize: 12.5, color: "#5B6E63", fontWeight: 600, display: "block", marginBottom: 4 } as CSSProperties,
-  muted: { fontSize: 12.5, color: "#7C8B82" } as CSSProperties,
+  page:  { ...mitr, color: BRAND.ink, padding: "24px 16px 56px", maxWidth: 880, margin: "0 auto" } as CSSProperties,
+  card:  { background: BRAND.white, border: `1px solid ${BRAND.line}`, borderRadius: 8, padding: 18, marginBottom: 14, boxShadow: "0 1px 2px rgba(16,24,40,.04)" } as CSSProperties,
+  input: { ...mitr, width: "100%", fontSize: 16, padding: "10px 12px", borderRadius: 6, border: `1px solid ${BRAND.field}`, background: BRAND.white, color: BRAND.ink, minHeight: 44, boxSizing: "border-box" } as CSSProperties,
+  btn:   { ...mitr, fontSize: 15, fontWeight: 500, padding: "10px 16px", borderRadius: 6, border: `1px solid ${BRAND.field}`, background: BRAND.white, color: BRAND.ink, cursor: "pointer", minHeight: 44 } as CSSProperties,
+  btnPrimary: { ...mitr, fontSize: 16, fontWeight: 500, padding: "12px 22px", borderRadius: 999, border: "none", background: BRAND.green, color: BRAND.white, cursor: "pointer", minHeight: 48, width: "100%" } as CSSProperties,
+  label: { fontSize: 13, color: BRAND.body, fontWeight: 500, display: "block", marginBottom: 4 } as CSSProperties,
+  muted: { fontSize: 13, color: BRAND.muted } as CSSProperties,
+  h2:    { fontSize: 18, fontWeight: 500, color: BRAND.ink, margin: 0 } as CSSProperties,
+}
+
+/** ตัวเลื่อนหน้าคือ div#vendor-scroll ใน app/q/[token]/layout.tsx ไม่ใช่ window */
+export const scrollToTop = () => document.getElementById("vendor-scroll")?.scrollTo({ top: 0 })
+
+/** วันที่เหลือก่อนปิดรับ ตามปฏิทินไทย (null = เลยกำหนดแล้ว) */
+export function daysLeft(deadline: string): number | null {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date())
+  const ms = (ymd: string) => { const [y, m, d] = ymd.slice(0, 10).split("-").map(Number); return Date.UTC(y, m - 1, d) }
+  const n = Math.round((ms(deadline) - ms(today)) / 86_400_000)
+  return n < 0 ? null : n
+}
+
+export function StatusBadge({ status, onDark }: { status: EffectiveStatus; onDark?: boolean }) {
+  const m = STATUS_META[status]
+  return <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 4, whiteSpace: "nowrap", background: onDark ? "rgba(255,255,255,.16)" : m.bg, color: onDark ? BRAND.white : m.fg, border: onDark ? "1px solid rgba(255,255,255,.35)" : "none" }}>{status}</span>
 }
 
 export function useInvite(token: string) {
@@ -98,17 +118,25 @@ export function useAutosave(token: string) {
   return { save, flush, state, savedAt, errorMsg }
 }
 
+/** หัวเอกสารของหน้าย่อย (ค่าแรง/อะไหล่/ข้อมูลอู่) — หน้าหลักใช้แถบภาพแทน (HubHero)
+ *  subtitle "ชื่อ — คำอธิบาย" → ชื่อเป็นหัวข้อใหญ่ คำอธิบายเป็นบรรทัดรอง */
 export function VendorHeader({ invite, subtitle, backHref }: { invite: PublicInvite; subtitle?: string; backHref?: string }) {
-  const m = STATUS_META[invite.effective]
+  const left = daysLeft(invite.deadline)
+  const [title, ...rest] = (subtitle ?? invite.vendor).split(" — ")
   return (
-    <div style={{ marginBottom: 12 }}>
-      {backHref && <Link href={backHref} style={{ ...V.muted, textDecoration: "none" }}>‹ กลับหน้าหลัก</Link>}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-        <span style={{ fontSize: 11, color: "#1B8C4B", fontWeight: 700, letterSpacing: .5 }}>MENA TRANSPORT · ใบขอราคา</span>
-        <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: m.bg, color: m.fg }}>{invite.effective}</span>
+    <div style={{ marginBottom: 16 }}>
+      {backHref && <Link href={backHref} style={{ ...V.muted, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 2 }}><ChevronLeft size={15} /> กลับหน้าหลัก</Link>}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginTop: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: .8, color: BRAND.green }}>{subtitle ? invite.vendor : `ใบขอราคา · ${invite.title}`}</div>
+          <h1 style={{ fontSize: 24, fontWeight: 500, margin: "2px 0 0", lineHeight: 1.3 }}>{title}</h1>
+          {rest.length > 0 && <div style={{ fontSize: 14, color: BRAND.body }}>{rest.join(" — ")}</div>}
+          <div style={{ ...V.muted, marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+            <CalendarClock size={14} /> ปิดรับ {thDate(invite.deadline)}{left !== null && invite.canWrite && <span style={{ color: left <= 3 ? "#B45309" : BRAND.green, fontWeight: 500 }}>· เหลือ {left} วัน</span>}
+          </div>
+        </div>
+        <StatusBadge status={invite.effective} />
       </div>
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "4px 0 0", lineHeight: 1.25 }}>{invite.vendor}</h1>
-      <div style={V.muted}>{subtitle ?? invite.title} · ปิดรับ {thDate(invite.deadline)}</div>
     </div>
   )
 }
@@ -118,7 +146,7 @@ export function SaveBadge({ state, savedAt, errorMsg, onRetry }: { state: "idle"
   const c = state === "error" ? "#B91C1C" : state === "saving" ? "#92400E" : "#047857"
   return (
     <div style={{ position: "fixed", left: 16, right: 16, bottom: 12, zIndex: 20, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
-      <span style={{ ...mitr, pointerEvents: "auto", fontSize: 12.5, fontWeight: 600, color: c, background: "#fff", border: `1px solid ${c}33`, borderRadius: 999, padding: "6px 12px", boxShadow: "0 2px 8px rgba(0,0,0,.08)" }}>
+      <span style={{ ...mitr, pointerEvents: "auto", fontSize: 12.5, fontWeight: 500, color: c, background: BRAND.white, border: `1px solid ${c}33`, borderRadius: 999, padding: "6px 14px", boxShadow: "0 4px 14px rgba(16,24,40,.12)" }}>
         {state === "saving" ? "กำลังบันทึก…" : state === "saved" ? `บันทึกแล้ว ${savedAt}` : <>บันทึกไม่สำเร็จ: {errorMsg} <button onClick={onRetry} style={{ ...V.btn, minHeight: 28, padding: "2px 10px", fontSize: 12, marginLeft: 6 }}>ลองใหม่</button></>}
       </span>
     </div>
@@ -126,7 +154,7 @@ export function SaveBadge({ state, savedAt, errorMsg, onRetry }: { state: "idle"
 }
 
 export function StatusNotice({ invite }: { invite: PublicInvite }) {
-  const box = (bg: string, fg: string, text: string) => <div style={{ ...V.card, background: bg, color: fg, borderColor: fg + "33", fontSize: 14 }}>{text}</div>
+  const box = (bg: string, fg: string, text: string) => <div style={{ ...V.card, background: bg, color: fg, borderColor: fg + "33", borderLeft: `4px solid ${fg}`, fontSize: 14 }}>{text}</div>
   switch (invite.effective) {
     case "หมดอายุ":   return box("#F4F4F5", "#52525B", "ลิงก์นี้ปิดรับแล้ว หากต้องการเสนอราคา กรุณาติดต่อฝ่ายจัดซื้อ Mena Transport")
     case "ยกเลิก":    return box("#FEF2F2", "#B91C1C", "ลิงก์นี้ถูกยกเลิกแล้ว")
@@ -142,8 +170,8 @@ export function NeedContact({ token }: { token: string }) {
   return (
     <div style={V.page}>
       <div style={{ ...V.card, textAlign: "center" }}>
-        <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>กรุณากรอกข้อมูลผู้ติดต่อก่อนเริ่มกรอกราคา</div>
-        <Link href={`/q/${token}`} style={{ ...V.btnPrimary, display: "inline-block", textDecoration: "none", width: "auto", padding: "12px 24px" }}>ไปกรอกข้อมูลผู้ติดต่อ</Link>
+        <div style={{ ...V.h2, marginBottom: 12 }}>กรุณากรอกข้อมูลผู้ติดต่อก่อนเริ่มกรอกราคา</div>
+        <Link href={`/q/${token}`} style={{ ...V.btnPrimary, display: "inline-block", textDecoration: "none", width: "auto", padding: "12px 28px" }}>ไปกรอกข้อมูลผู้ติดต่อ</Link>
       </div>
     </div>
   )

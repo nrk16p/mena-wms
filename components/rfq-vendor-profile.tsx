@@ -2,6 +2,7 @@
 // หน้าข้อมูลอู่ (อู่กรอกเอง): ประเภทงานที่ทำได้ + พิกัด (วางลิงก์ Google Maps / ใช้ GPS มือถือ / พิมพ์ lat,lng)
 // ส่งใบแล้วข้อมูลนี้ถูกคัดลอกไปทะเบียน AVL ให้จัดซื้อดู (ผู้ใช้ขอ 2026-09-10)
 import { useState } from "react"
+import { MapPin } from "lucide-react"
 import { parseLatLng, mapsLink, type RfqProfile } from "@/lib/rfq-core"
 import { useInvite, V, VendorHeader, StatusNotice, NeedContact, type PublicInvite } from "@/components/rfq-vendor-shared"
 import { ThaiAddressPicker } from "@/components/thai-address-picker"
@@ -67,30 +68,30 @@ function ProfileForm({ token, invite, onSaved }: { token: string; invite: Public
       <VendorHeader invite={invite} subtitle="ข้อมูลอู่ — งานที่รับทำ และที่ตั้ง" backHref={`/q/${token}`} />
       <StatusNotice invite={invite} />
       <div style={V.card}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>กำลังการซ่อม (ช่องซ่อม)</div>
+        <div style={{ fontSize: 16, fontWeight: 500 }}>กำลังการซ่อม (ช่องซ่อม)</div>
         <div style={{ ...V.muted, marginBottom: 8 }}>อู่มีช่องซ่อมกี่ช่อง และรับงาน หนัก / กลาง / เบา ได้อย่างละกี่ช่อง</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-          <div><label style={V.label}>งานหนัก<span style={{ display: "block", fontWeight: 400, color: "#7C8B82", fontSize: 11.5 }}>ยกเครื่อง/เกียร์/โครงสร้าง</span></label><input style={V.input} inputMode="numeric" disabled={ro} value={heavy} onChange={(e) => setHeavy(e.target.value)} placeholder="0" /></div>
-          <div><label style={V.label}>งานกลาง<span style={{ display: "block", fontWeight: 400, color: "#7C8B82", fontSize: 11.5 }}>ช่วงล่าง/เบรก/ไฟฟ้า</span></label><input style={V.input} inputMode="numeric" disabled={ro} value={mid} onChange={(e) => setMid(e.target.value)} placeholder="0" /></div>
-          <div><label style={V.label}>งานเบา<span style={{ display: "block", fontWeight: 400, color: "#7C8B82", fontSize: 11.5 }}>PM/เปลี่ยนถ่าย/ตรวจเช็ค</span></label><input style={V.input} inputMode="numeric" disabled={ro} value={light} onChange={(e) => setLight(e.target.value)} placeholder="0" /></div>
+          <div><label style={V.label}>งานหนัก<span style={{ display: "block", fontWeight: 400, color: "#6C757D", fontSize: 11.5 }}>ยกเครื่อง/เกียร์/โครงสร้าง</span></label><input style={V.input} inputMode="numeric" disabled={ro} value={heavy} onChange={(e) => setHeavy(e.target.value)} placeholder="0" /></div>
+          <div><label style={V.label}>งานกลาง<span style={{ display: "block", fontWeight: 400, color: "#6C757D", fontSize: 11.5 }}>ช่วงล่าง/เบรก/ไฟฟ้า</span></label><input style={V.input} inputMode="numeric" disabled={ro} value={mid} onChange={(e) => setMid(e.target.value)} placeholder="0" /></div>
+          <div><label style={V.label}>งานเบา<span style={{ display: "block", fontWeight: 400, color: "#6C757D", fontSize: 11.5 }}>PM/เปลี่ยนถ่าย/ตรวจเช็ค</span></label><input style={V.input} inputMode="numeric" disabled={ro} value={light} onChange={(e) => setLight(e.target.value)} placeholder="0" /></div>
         </div>
         <div style={{ marginTop: 10 }}>
-          <label style={V.label}>ช่องซ่อมทั้งหมด<span style={{ display: "block", fontWeight: 400, color: "#7C8B82", fontSize: 11.5 }}>ถ้าไม่กรอก ระบบใช้ผลรวม หนัก+กลาง+เบา = {sum} ช่อง</span></label>
+          <label style={V.label}>ช่องซ่อมทั้งหมด<span style={{ display: "block", fontWeight: 400, color: "#6C757D", fontSize: 11.5 }}>ถ้าไม่กรอก ระบบใช้ผลรวม หนัก+กลาง+เบา = {sum} ช่อง</span></label>
           <input style={V.input} inputMode="numeric" disabled={ro} value={bays} onChange={(e) => setBays(e.target.value)} placeholder={String(sum)} />
         </div>
       </div>
       <div style={V.card}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>ที่ตั้งอู่</div>
+        <div style={{ fontSize: 16, fontWeight: 500 }}>ที่ตั้งอู่</div>
         <div style={{ ...V.muted, marginBottom: 8 }}>ทำอย่างใดอย่างหนึ่ง: วางลิงก์จาก Google Maps · กดใช้ตำแหน่งปัจจุบัน · หรือพิมพ์พิกัดเอง</div>
         <label style={V.label}>ลิงก์ Google Maps</label>
         <input style={V.input} value={mapUrl} disabled={ro} onChange={(e) => onMapUrl(e.target.value)} placeholder="วางลิงก์จากปุ่มแชร์ใน Google Maps" inputMode="url" />
-        <button type="button" onClick={useGps} disabled={ro} style={{ ...V.btn, marginTop: 10, width: "100%", background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>📍 ใช้ตำแหน่งปัจจุบัน (GPS มือถือ)</button>
+        <button type="button" onClick={useGps} disabled={ro} style={{ ...V.btn, marginTop: 10, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#E8F1EC", borderColor: "#B7D3C3", color: "#046132" }}><MapPin size={16} /> ใช้ตำแหน่งปัจจุบัน (GPS มือถือ)</button>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
           <div><label style={V.label}>ละติจูด (lat)</label><input style={V.input} inputMode="decimal" disabled={ro} value={lat} onChange={(e) => setLat(e.target.value)} placeholder="13.75" /></div>
           <div><label style={V.label}>ลองจิจูด (lng)</label><input style={V.input} inputMode="decimal" disabled={ro} value={lng} onChange={(e) => setLng(e.target.value)} placeholder="100.50" /></div>
         </div>
         {okCoord && <a href={mapsLink(okCoord.lat, okCoord.lng)} target="_blank" rel="noreferrer" style={{ ...V.muted, display: "block", marginTop: 6, color: "#1D4ED8" }}>ตรวจสอบตำแหน่งบนแผนที่ ↗ ({okCoord.lat}, {okCoord.lng})</a>}
-        <div style={{ fontSize: 15, fontWeight: 600, marginTop: 16 }}>ที่อยู่</div>
+        <div style={{ fontSize: 15, fontWeight: 500, marginTop: 16 }}>ที่อยู่</div>
         <div style={{ marginTop: 6 }}><ThaiAddressPicker value={addr} disabled={ro} onChange={(patch) => setAddr((a) => ({ ...a, ...patch }))} /></div>
         <label style={{ ...V.label, marginTop: 10 }}>จุดสังเกต</label>
         <input style={V.input} value={landmark} disabled={ro} maxLength={200} onChange={(e) => setLandmark(e.target.value)} placeholder="เช่น ถ.สุขุมวิท กม.30 ตรงข้ามปั๊ม ปตท." />
@@ -98,7 +99,7 @@ function ProfileForm({ token, invite, onSaved }: { token: string; invite: Public
         {err && <div style={{ color: "#B91C1C", fontSize: 13, marginTop: 10 }}>{err}</div>}
         {!ro && <button style={{ ...V.btnPrimary, marginTop: 14, opacity: busy ? .6 : 1 }} disabled={busy} onClick={() => void save()}>บันทึกข้อมูลอู่</button>}
       </div>
-      <a href={`/q/${token}`} style={{ ...V.btn, display: "block", textAlign: "center", textDecoration: "none", color: "#14271C" }}>‹ กลับหน้าหลัก</a>
+      <a href={`/q/${token}`} style={{ ...V.btn, display: "block", textAlign: "center", textDecoration: "none", color: "#212529" }}>‹ กลับหน้าหลัก</a>
     </div>
   )
 }
