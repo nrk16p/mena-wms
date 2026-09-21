@@ -558,6 +558,29 @@ export function buildNoPrOverviewText(s: DailySummary, opts: { origin: string })
   return L.join("\n")
 }
 
+/**
+ * ชื่อสถานะที่ใช้ "เฉพาะในรายงานส่งไลน์" — ในระบบ/หน้าเว็บยังเป็นชื่อเดิม
+ * (ผู้ใช้กำหนด 21/09/2569 — กลุ่มไลน์คุยกันด้วยคำชุดนี้)
+ * สองสถานะที่ map มาชื่อเดียวกันจะถูกรวมเป็นบรรทัดเดียวในรายงาน
+ */
+export const REPORT_STATUS_LABEL: Record<string, string> = {
+  "แจ้งซ่อมอู่นอก":    "รอส่ง JR ประเมินงานซ่อม",
+  "รถเข้าซ่อมอู่นอก":  "รอราคา",
+  "จัดทำใบเสนอราคา":   "รอราคา",
+}
+
+/** ยุบ byStatus เป็นบรรทัดของรายงาน — เรียงตามลำดับขั้นเดิม ใช้อีโมจิของขั้นแรกในกลุ่ม */
+export function reportStatusLines(byStatus: { status: string; count: number }[]) {
+  const out: { label: string; emoji: string; count: number }[] = []
+  for (const x of byStatus) {
+    const label = REPORT_STATUS_LABEL[x.status] ?? x.status
+    const hit = out.find((o) => o.label === label)
+    if (hit) hit.count += x.count
+    else out.push({ label, emoji: statusMeta(x.status).emoji, count: x.count })
+  }
+  return out
+}
+
 export function buildDailySummaryText(s: DailySummary, opts: { origin: string }): string {
   const L: string[] = [`📌 รายงานสรุปงานซ่อมอู่นอก ประจำวันที่ ${thaiDateShort(s.date)}`, "", "🔷 สรุปภาพรวม", ""]
   L.push(`🚗 คงค้างต้นวัน : ${s.startOfDay} คัน`)
@@ -576,7 +599,8 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
   if (s.byStatus.length) {
     L.push("", "↗️ สถานะงานที่คงค้าง", "")
     // พิมพ์ครบทุกขั้นแม้วันนั้นเป็น 0 — บรรทัดเท่ากันทุกวัน ทีมเทียบกับเมื่อวานได้ทันที
-    for (const x of s.byStatus) L.push(`* ${statusMeta(x.status).emoji} ${x.status} : ${x.count} คัน`)
+    // ใช้ชื่อเฉพาะของรายงาน (REPORT_STATUS_LABEL) และยุบขั้นที่ใช้ชื่อเดียวกันเป็นบรรทัดเดียว
+    for (const x of reportStatusLines(s.byStatus)) L.push(`* ${x.emoji} ${x.label} : ${x.count} คัน`)
   }
 
   if (s.urgent.units.length) {

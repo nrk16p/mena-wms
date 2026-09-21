@@ -84,8 +84,9 @@ const sum: DailySummary = {
   closedUnits: ["PU09 (สบ.71-3560)", "ME037 (สบ.71-0001)"],
   deferredUnits: ["TH1979 (สบ.71-2875)"],
   byStatus: [
-    { status: "รอประเมินการซ่อม", count: 0 },
-    { status: "รถเข้าอู่ซ่อม", count: 20 },
+    { status: "แจ้งซ่อมอู่นอก", count: 2 },
+    { status: "รถเข้าซ่อมอู่นอก", count: 20 },
+    { status: "จัดทำใบเสนอราคา", count: 21 },
     { status: "รอ PR", count: 9 },
   ],
   noPr: [
@@ -125,10 +126,16 @@ check("Backlog เพิ่มเมื่องานค้างมากข�
 check("วันที่ไม่มีชะลอ ก็ยังพิมพ์บรรทัด 0 คัน (ยอดจะได้ลงตัวทุกวัน)", () => {
   assert.match(buildDailySummaryText({ ...sum, deferredToday: 0 }, { origin: "" }), /⏸️ ชะลองานซ่อมวันนี้ : 0 คัน/)
 })
-check("พิมพ์ครบทุกขั้น รวมขั้นที่ยังเป็น 0 คัน", () => {
-  assert.match(text, /\* ⏳ รอประเมินการซ่อม : 0 คัน/)
-  assert.match(text, /\* 🔧 รถเข้าอู่ซ่อม : 20 คัน/)
+check("ใช้ชื่อเฉพาะของรายงาน และยุบขั้นที่ชื่อเดียวกันเป็นบรรทัดเดียว", () => {
+  assert.match(text, /\* ⏳ รอส่ง JR ประเมินงานซ่อม : 2 คัน/)
+  assert.match(text, /\* 🔧 รอราคา : 41 คัน/)   // รถเข้าซ่อมอู่นอก 20 + จัดทำใบเสนอราคา 21
   assert.match(text, /\* ⏰ รอ PR : 9 คัน/)
+  assert.ok(!text.includes("รถเข้าซ่อมอู่นอก"))
+  assert.ok(!text.includes("จัดทำใบเสนอราคา"))
+})
+check("พิมพ์ทุกขั้นแม้เป็น 0 คัน", () => {
+  const zero = buildDailySummaryText({ ...sum, byStatus: [{ status: "แจ้งซ่อมอู่นอก", count: 0 }] }, { origin: "" })
+  assert.match(zero, /\* ⏳ รอส่ง JR ประเมินงานซ่อม : 0 คัน/)
 })
 check("รายงานสรุปไม่มีบล็อกรายชื่อรถที่ไม่มี PR (แยกไปอีกข้อความ)", () => {
   assert.ok(!text.includes("แยกตามผู้รับผิดชอบและฟลีท"))
