@@ -81,7 +81,7 @@ console.log("ข้อความรายงานสรุปประจำ�
 const sum: DailySummary = {
   date: today,
   startOfDay: 69, openedToday: 2, closedToday: 2, deferredToday: 1, endOfDay: 68,
-  closedUnits: ["สบ.71-3560", "สบ.71-0001"],
+  closedUnits: ["PU09 (สบ.71-3560)", "ME037 (สบ.71-0001)"],
   deferredUnits: ["TH1979 (สบ.71-2875)"],
   byStatus: [
     { status: "รอประเมินการซ่อม", count: 0 },
@@ -105,8 +105,8 @@ check("ยอดภาพรวมครบ 5 บรรทัด และบว
   assert.ok(!text.includes("รอเปิด PR"))
   assert.strictEqual(sum.startOfDay + sum.openedToday - sum.closedToday - sum.deferredToday, sum.endOfDay)
 })
-check("รถที่ปิดวันนี้ลิสต์เฉพาะทะเบียน", () => {
-  assert.match(text, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน\n {3}สบ\.71-3560 \/ สบ\.71-0001/)
+check("รถที่ปิดวันนี้ลิสต์เบอร์รถ (ทะเบียน)", () => {
+  assert.match(text, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน\n {3}PU09 \(สบ\.71-3560\) \/ ME037 \(สบ\.71-0001\)/)
 })
 check("รถที่ชะลอวันนี้ลิสต์ทั้งเบอร์รถและทะเบียน", () => {
   assert.match(text, /⏸️ ชะลองานซ่อมวันนี้ : 1 คัน\n {3}TH1979 \(สบ\.71-2875\)/)
