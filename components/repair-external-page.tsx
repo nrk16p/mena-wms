@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Search, Plus, Pencil, Trash2, X, Wrench, Check, ChevronDown, Flag, Table as TableIcon, Copy, Link2, Megaphone, ClipboardList, Maximize2, Minimize2, Factory } from "lucide-react"
 import { GarageCombobox, type Garage } from "@/components/garage-combobox"
 import { GarageLoadTab } from "@/components/garage-load-tab"
+import { RepairLinePanel, type LineBuild, type LineMessage } from "@/components/repair-line-panel"
 import type { RepairPlan } from "@/lib/repair-plan"
 import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 import { ImageUpload } from "@/components/image-upload"
@@ -453,7 +454,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   const [slaOnly, setSlaOnly]   = useState(false)
   const [noPrOnly, setNoPrOnly] = useState(false)
   // ปุ่มคัดลอก "ไม่มี PR" ของคนไหนกำลังโหลดอยู่
-  const [noPrCopying, setNoPrCopying] = useState("")
+  const [lineOpen, setLineOpen]       = useState(false)  // แผงส่งไลน์
+  const [moreFilters, setMoreFilters] = useState(false)  // แถวตัวกรองเพิ่มเติม (ยุบไว้)
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
 
   const load = useCallback(async () => {
@@ -773,9 +775,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } catch { /* ignore */ }
   }
 
-  // คัดลอกสรุปสถานะงาน (สำหรับส่งไลน์)
-  function copySummary() {
-    if (typeof window === "undefined") return
+  // สรุปสถานะงาน (ข้อความส่งไลน์) — สร้างจากตัวเลขในการ์ดสรุปที่โหลดไว้แล้ว ไม่ต้องยิง API
+  function buildSummaryText(): LineBuild {
+    if (typeof window === "undefined") return { empty: "เปิดบนเบราว์เซอร์เพื่อสร้างข้อความ" }
     const title = fType === JOB_TYPE_PARTS ? "อะไหล่ลงคัน" : fType === JOB_TYPE_GARAGE ? "รถซ่อมอู่นอก" : "อู่นอก + อะไหล่ลงคัน"
     const lines: string[] = [`📋 สถานะงาน — ${title}`, ""]
     let priority: { value: string; emoji: string } | null = null
@@ -793,26 +795,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       lines.push(`priority : ${level} (${(priority as { emoji: string }).emoji} ${(priority as { value: string }).value})`)
     }
     lines.push("", `url : ${window.location.origin}/repair-external`)
-    const text = lines.join("\n")
-    navigator.clipboard?.writeText(text).then(
-      () => swalToast("success", "คัดลอกสรุปแล้ว"),
-      () => swalError("คัดลอกไม่สำเร็จ"),
-    )
+    return { text: lines.join("\n") }
   }
 
   // คัดลอกรายชื่อรถที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ส่งไลน์ให้ไปเปิด PR)
   // ยิง API ใหม่ทุกครั้ง ไม่อ่านจาก rows บนจอ — rows ถูกกรองมาจากเซิร์ฟเวอร์ตามตัวกรองที่ตั้งค้างไว้
   // ถ้าตอนนั้นกรองสถานะอื่นอยู่จะได้ 0 คัน ทั้งที่การ์ดข้าง ๆ ยังโชว์จำนวนจริง
-  async function copyDoneNoPr() {
-    if (typeof window === "undefined") return
+  async function buildDoneNoPrText(): Promise<LineBuild> {
     let list: RepairExternal[] = []
     try {
       const p   = new URLSearchParams({ scope: "active", status: DONE_NO_PR_STATUS })
       const res = await fetch(`/api/repair-external?${p.toString()}`)
       const d   = await res.json()
       list = Array.isArray(d) ? d : []
-    } catch { swalError("โหลดข้อมูลไม่สำเร็จ"); return }
-    if (!list.length) { swalToast("success", `ตอนนี้ไม่มี${DONE_NO_PR_STATUS} 🎉`); return }
+    } catch { throw new Error("โหลดข้อมูลไม่สำเร็จ") }
+    if (!list.length) return { empty: `ตอนนี้ไม่มี${DONE_NO_PR_STATUS} 🎉` }
 
     const ages = list.map((r) => ageDays(jobStartDate(r))).filter((d): d is number => d !== null)
     const avg  = ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : 0
@@ -839,54 +836,46 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (r.repairPrice > 0) doc.push(`💰 ${fmtNum(r.repairPrice)}`)
       if (doc.length) lines.push(`   ${doc.join("  ")}`)
     })
-    navigator.clipboard?.writeText(lines.join("\n")).then(
-      () => swalToast("success", `คัดลอก ${DONE_NO_PR_STATUS} (${list.length} คัน) แล้ว`),
-      () => swalError("คัดลอกไม่สำเร็จ"),
-    )
+    return { text: lines.join("\n") }
   }
 
   // งานที่ยังไม่มี PR ของคนสร้างคนนี้ → คัดลอกส่งไลน์ (ปุ่มต่อคนบนแถบสถานะ · รวมทุกคนยาวเกินข้อความเดียว)
   // ดึงรายการสดตอนกด ขอบเขตเดียวกับตัวเลขใน dropdown (งานยังไม่ปิด + ประเภทที่เลือก) ไม่ขึ้นกับตัวกรองอื่นบนจอ
   // /no-pr เติมวันที่ PR ถูกลบครั้งล่าสุดมาให้ — นับ "ไม่มี PR กี่วัน" ได้ถูก
-  async function copyNoPrFor(creator: string) {
-    if (typeof window === "undefined") return
-    setNoPrCopying(creator)
+  async function buildNoPrText(creator: string): Promise<LineBuild> {
+    let d: unknown
     try {
       const p = new URLSearchParams()
       if (fType) p.set("type", fType)
       const res = await fetch(`/api/repair-external/no-pr?${p.toString()}`)
-      const d   = await res.json()
-      const g   = buildNoPrByCreator(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
-        .find((x) => x.creator === creator)
-      if (!g) { swalToast("success", `${creatorShortName(creator)} ไม่มีงานค้าง PR แล้ว 🎉`); loadStats(); return }
-      await navigator.clipboard.writeText(g.text)
-      swalToast("success", `คัดลอกของ ${g.creator} (${g.count} คัน) แล้ว — วางในไลน์ได้เลย`)
-    } catch {
-      swalError("คัดลอกไม่สำเร็จ")
-    } finally {
-      setNoPrCopying("")
-    }
+      d = await res.json()
+    } catch { throw new Error("โหลดข้อมูลไม่สำเร็จ") }
+    const g = buildNoPrByCreator(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
+      .find((x) => x.creator === creator)
+    // คนนี้เคลียร์ PR ครบระหว่างที่หน้าเปิดอยู่ — ตัวเลขบนแผงยังเป็นของรอบก่อน จึงรีเฟรชสรุปให้
+    if (!g) { loadStats(); return { empty: `${creatorShortName(creator)} ไม่มีงานค้าง PR แล้ว 🎉` } }
+    return { text: g.text }
   }
 
   // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ใช้ข้อมูลรถจอดจริง (fleet) + ATMS ถ้าดึงได้
   // 🔴 = รถจอดจริงแล้วแต่ WMS ยัง "รอประเมินการซ่อม" · 🟢 = WMS ว่ายังซ่อมแต่รถไม่จอดแล้ว · 🆕 = งาน ATMS ที่ยังไม่มีในระบบ
-  async function copyFollowUpReal(): Promise<boolean> {
-    if (typeof window === "undefined") return false
+  async function buildFollowUpReal(): Promise<LineBuild | null> {
+    if (typeof window === "undefined") return null
     let b: AtmsBoard
     try {
       const res = await fetch("/api/repair-external/atms-board")
       const d = await res.json()
-      if (!d?.ok) return false
+      if (!d?.ok) return null   // เทียบไม่ได้ → ให้ผู้เรียกไปใช้เกณฑ์สำรอง
       b = d as AtmsBoard
       setAtms(b)
-    } catch { return false }
+    } catch { return null }
 
     const fmtThaiDay = (s: string) => {
       const d = new Date(s)
       return isNaN(d.getTime()) ? s : d.toLocaleDateString("th-TH", { day: "numeric", month: "short" })
     }
     const total = b.waitingButParked.length + b.openNotParked.length + b.missing.length
-    if (!total) { swalToast("success", "สถานะตรงกันหมด ไม่มีงานที่ต้องตามตอนนี้ 🎉"); return true }
+    if (!total) return { empty: "สถานะตรงกันหมด ไม่มีงานที่ต้องตามตอนนี้ 🎉" }
 
     const linkOf = (v: string) => `${window.location.origin}/repair-external?q=${encodeURIComponent(v)}`
     const lines: string[] = [`📢 งานซ่อมอู่นอก ${total} รายการ สถานะในระบบไม่ตรงกับรถจริงครับ (เช็คกับข้อมูลรถจอดจริง ${fmtThaiDay(b.fetchedAt.slice(0, 10))})`]
@@ -913,17 +902,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       }
     }
     lines.push("", "📌 กดลิงก์ → เจอรถคันนั้นเลย → กดที่รายการ → แก้สถานะ → บันทึก จบ", "ขอบคุณครับ 🙏")
-    navigator.clipboard?.writeText(lines.join("\n")).then(
-      () => swalToast("success", `คัดลอกข้อความตามงาน ${total} รายการแล้ว`),
-      () => swalError("คัดลอกไม่สำเร็จ"),
-    )
-    return true
+    return { text: lines.join("\n") }
   }
 
   // fallback เดิม (ใช้เมื่อ API เทียบล่ม) — 🔴 = ค้างสถานะแรกของ workflow · 🟢 = เลยกำหนดเสร็จ
-  async function copyFollowUp() {
-    if (typeof window === "undefined") return
-    if (await copyFollowUpReal()) return
+  async function buildFollowUpText(): Promise<LineBuild> {
+    if (typeof window === "undefined") return { empty: "เปิดบนเบราว์เซอร์เพื่อสร้างข้อความ" }
+    const real = await buildFollowUpReal()
+    if (real) return real
     let list: RepairExternal[] = []
     try {
       const p = new URLSearchParams({ scope: "active" })
@@ -931,7 +917,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const res  = await fetch(`/api/repair-external?${p.toString()}`)
       const data = await res.json()
       list = Array.isArray(data) ? data : []
-    } catch { swalError("โหลดข้อมูลไม่สำเร็จ"); return }
+    } catch { throw new Error("โหลดข้อมูลไม่สำเร็จ") }
 
     const now   = new Date()
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
@@ -945,7 +931,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const green = list
       .filter((r) => !red.includes(r) && r.dueDate && r.dueDate < today)
       .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))
-    if (!red.length && !green.length) { swalToast("success", "ไม่มีงานที่ต้องตามตอนนี้ 🎉"); return }
+    if (!red.length && !green.length) return { empty: "ไม่มีงานที่ต้องตามตอนนี้ 🎉" }
 
     const keyOf  = (r: RepairExternal) => r.fleetNo?.trim() || r.plate || "-"
     const linkOf = (r: RepairExternal) => `${window.location.origin}/repair-external?q=${encodeURIComponent(keyOf(r))}`
@@ -969,10 +955,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       })
     }
     lines.push("", "📌 กดลิงก์ → เจอรถคันนั้นเลย → กดที่รายการ → แก้สถานะ → บันทึก จบ", "ขอบคุณครับ 🙏")
-    navigator.clipboard?.writeText(lines.join("\n")).then(
-      () => swalToast("success", `คัดลอกข้อความตามงาน ${red.length + green.length} คันแล้ว`),
-      () => swalError("คัดลอกไม่สำเร็จ"),
-    )
+    return { text: lines.join("\n") }
   }
 
   function copyShareLink() {
@@ -1388,8 +1371,37 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     fType === JOB_TYPE_GARAGE ? ACTIVE_STATUSES :
     [...ACTIVE_STATUSES, ...PARTS_ACTIVE_STATUSES.filter((p) => !ACTIVE_STATUSES.some((g) => g.value === p.value))]
 
+  // ข้อความส่งกลุ่มไลน์ของหน้านี้ทั้งหมด — เดิมเป็นปุ่มคัดลอกกระจายบนแถบสถานะ
+  const lineMessages: LineMessage[] = [
+    { key: "summary", emoji: "📋", label: "สรุปสถานะงาน", group: "ข้อความรวม",
+      meta: `${stats.total} คัน`,
+      hint: "จำนวนงานและอายุเฉลี่ยต่อสถานะ + priority ตามสถานะที่ค้างนานสุด",
+      build: buildSummaryText },
+    { key: "doneNoPr", emoji: "🏁", label: DONE_NO_PR_STATUS, group: "ข้อความรวม",
+      meta: `${stats.counts[DONE_NO_PR_STATUS] || 0} คัน`,
+      hint: "รถซ่อมเสร็จแล้วแต่ยังไม่มี PR — ส่งให้ไปเปิด PR (ดึงสดทั้งหมด ไม่ขึ้นกับตัวกรองบนหน้า)",
+      build: buildDoneNoPrText },
+    { key: "followUp", emoji: "📢", label: "ตามงาน", group: "ข้อความรวม",
+      hint: "สถานะในระบบไม่ตรงกับรถจริง — รถจอดอยู่แต่ยังรอประเมิน / ไม่จอดแล้วแต่ยังไม่ปิดงาน / จอดจริงแต่ยังไม่มีในระบบ",
+      build: buildFollowUpText },
+    ...(stats.noPrByCreator ?? []).map((g) => ({
+      key:   `nopr:${g.creator}`,
+      emoji: "👤",
+      label: creatorShortName(g.creator),
+      group: "ไม่มี PR — ส่งรายคน",
+      meta:  `${g.count} คัน · นานสุด ${g.maxDays} วัน`,
+      hint:  `งานที่ยังไม่มี PR ของ ${g.creator} (มีลิงก์ใบงานทุกคัน)`,
+      build: () => buildNoPrText(g.creator),
+    })),
+  ]
+  // ตัวกรองที่ยุบไว้ — กางเองถ้ามีตัวไหนเปิดค้าง ไม่ให้กรองอยู่แบบมองไม่เห็น
+  const extraFilterCount = (uncheckedOnly ? 1 : 0) + (etaOverdueOnly ? 1 : 0) + (nextFilter ? 1 : 0)
+  const showMoreFilters  = moreFilters || extraFilterCount > 0
+
   return (
     <div className="w-full px-4 py-6" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+      {/* แผงส่งไลน์ — render เมื่อเปิด ปิดแล้ว unmount ให้ข้อความเก่าไม่ค้างรอบหน้า */}
+      {lineOpen && <RepairLinePanel onClose={() => setLineOpen(false)} messages={lineMessages} />}
       {/* Header */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -1664,26 +1676,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
             <div className="flex w-full flex-wrap items-center gap-1.5">
               <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">สถานะ:</span>
               <button
-                onClick={copySummary}
-                title="คัดลอกสรุปสถานะงาน (ส่งไลน์)"
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
+                onClick={() => setLineOpen(true)}
+                title="รวมข้อความสำหรับส่งกลุ่มไลน์ไว้ที่เดียว — สรุปสถานะ / รถเสร็จ(ไม่มี PR) / ตามงาน / ไม่มี PR รายคน (เห็นข้อความก่อนคัดลอก)"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#BFE3CD] bg-[#F0FDF4] px-2.5 py-1 text-xs font-semibold text-[#1B8C4B] transition hover:bg-[#DCFCE7] dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
               >
-                <Copy size={12} /> คัดลอกสรุป
-              </button>
-              <button
-                onClick={copyDoneNoPr}
-                title="คัดลอกรายชื่อรถที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR ทั้งหมด (ส่งไลน์) — ไม่ขึ้นกับตัวกรองที่เลือกอยู่"
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#F0FDF4] hover:text-[#1B8C4B] dark:hover:bg-white/5"
-              >
-                <Copy size={12} /> คัดลอก {DONE_NO_PR_STATUS}
-                <span className="opacity-70">{stats.counts[DONE_NO_PR_STATUS] || 0} คัน</span>
-              </button>
-              <button
-                onClick={copyFollowUp}
-                title="คัดลอกข้อความตามงาน — รถค้างสถานะรอประเมินการซ่อม + งานเลยกำหนดเสร็จ (ส่งไลน์)"
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2E8E4] dark:border-white/10 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-[#FDF3DD] hover:text-[#B07D12] dark:hover:bg-white/5"
-              >
-                <Megaphone size={12} /> ตามงาน
+                <Megaphone size={12} /> ส่งไลน์
               </button>
               <button
                 onClick={() => { setFStatus(""); setFType("") }}
@@ -1706,71 +1703,67 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 🔍 ไม่มี PR <span className="opacity-80">{stats.noPr} คัน</span>
               </button>
               <button
-                onClick={() => setUncheckedOnly((v) => !v)}
-                title="รายการที่ยังไม่ได้กดยืนยันตรวจเช็คในวันนี้"
-                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${uncheckedOnly ? "bg-[#0E7490] text-white" : "border border-[#BEE8F1] text-[#0E7490] hover:bg-[#F0FBFD] dark:border-cyan-900/40 dark:text-cyan-300 dark:hover:bg-cyan-950/20"}`}
+                onClick={() => setMoreFilters((v) => !v)}
+                title="ตัวกรองเพิ่มเติม — ยังไม่เช็ควันนี้ / เลยวันคาด / เทียบกับ Mena-Next"
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${extraFilterCount > 0
+                  ? "bg-[#37473E] text-white"
+                  : "border border-[#E2E8E4] text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/5"}`}
               >
-                ☑️ ยังไม่เช็ควันนี้ <span className="opacity-80">{rows.filter((r) => needsDailyCheck(r) && !checkedToday(r)).length} คัน</span>
+                🎛️ ตัวกรองเพิ่มเติม{extraFilterCount > 0 ? ` (${extraFilterCount})` : ""}
+                <ChevronDown size={12} className={showMoreFilters ? "rotate-180 transition" : "transition"} />
               </button>
-              <button
-                onClick={() => setEtaOverdueOnly((v) => !v)}
-                title="เลยวันที่เคยบอกไว้ว่าจะพ้นสถานะนี้ แต่สถานะยังไม่ขยับ"
-                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${etaOverdueOnly ? "bg-[#7C3AED] text-white" : "border border-[#E4D5FB] text-[#7C3AED] hover:bg-[#FAF5FF] dark:border-violet-500/40 dark:text-violet-300 dark:hover:bg-violet-950/20"}`}
-              >
-                ⏰ เลยวันคาด <span className="opacity-80">{rows.filter((r) => etaOverdueOf(r) > 0).length} คัน</span>
-              </button>
-              {atms && (
-                <>
-                  <button
-                    onClick={() => setNextFilter((v) => (v === "matched" ? "" : "matched"))}
-                    title="เฉพาะคันที่มีทั้งใน WMS และ Mena-Next (รถจอดซ่อมจริง + มีงานอู่นอกเปิด) — ตัวเลขซ้ายของการ์ด 🔧 อู่นอก WMS / Mena-Next"
-                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "matched" ? "bg-indigo-600 text-white" : "border border-indigo-200 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-950/30"}`}
-                  >
-                    🔗 ตรงกับ Mena-Next <span className="opacity-80">{rows.filter((r) => nextMatchedIds.has(r._id)).length} คัน</span>
-                  </button>
-                  <button
-                    onClick={() => setNextFilter((v) => (v === "unmatched" ? "" : "unmatched"))}
-                    title="งานอู่นอกใน WMS ที่ Mena-Next ไม่มี (รถไม่ได้จอดซ่อมแล้ว หรือไม่มีงานเปิด) — ตรวจว่าปิดงานได้หรือยัง"
-                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "unmatched" ? "bg-rose-600 text-white" : "border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/30"}`}
-                  >
-                    ⚠️ ไม่พบใน Mena-Next <span className="opacity-80">{rows.filter((r) => nextComparable(r) && !nextMatchedIds.has(r._id)).length} คัน</span>
-                  </button>
-                  <button
-                    onClick={() => setNextFilter((v) => (v === "same" ? "" : "same"))}
-                    title="ขั้นตอนงานใน WMS ตรงกับ Mena-Next (เทียบเป็นขั้น ไม่ได้เทียบข้อความ — คำสองระบบไม่เหมือนกัน)"
-                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "same" ? "bg-[#1B8C4B] text-white" : "border border-[#BFE3CD] text-[#1B8C4B] hover:bg-[#F0FDF4] dark:border-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-950/20"}`}
-                  >
-                    ✅ สถานะตรง <span className="opacity-80">{rows.filter((r) => stageCmpOf(r) === "same").length} คัน</span>
-                  </button>
-                  <button
-                    onClick={() => setNextFilter((v) => (v === "diff" ? "" : "diff"))}
-                    title="ขั้นตอนงานคนละขั้นกับ Mena-Next — ฝั่งใดฝั่งหนึ่งยังไม่อัปเดต"
-                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "diff" ? "bg-[#B07D12] text-white" : "border border-[#FDE9BE] text-[#B07D12] hover:bg-[#FDF3DD] dark:border-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-950/20"}`}
-                  >
-                    ⚠️ สถานะไม่ตรง <span className="opacity-80">{rows.filter((r) => stageCmpOf(r) === "diff").length} คัน</span>
-                  </button>
-                </>
-              )}
             </div>
-            {/* ไม่มี PR แยกตามคนสร้าง — เลือกชื่อใน dropdown = คัดลอกรายการของคนนั้นส่งไลน์ (รายคัน + รอกี่วัน + ลิงก์)
-                select ของเบราว์เซอร์: มือถือเป็นรายการเลือกแบบระบบ ไม่โดนกล่อง overflow ตัด · value คงที่ "" เลือกคนเดิมซ้ำได้ */}
-            {(stats.noPrByCreator?.length ?? 0) > 0 && (
-              <div className="flex w-full flex-wrap items-center gap-1.5">
-                <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">📋 ไม่มี PR คัดลอกรายคน:</span>
-                <select
-                  value=""
-                  onChange={(e) => { if (e.target.value) void copyNoPrFor(e.target.value) }}
-                  disabled={!!noPrCopying}
-                  title="เลือกคนสร้าง → คัดลอกงานที่ยังไม่มี PR ของคนนั้นส่งไลน์ (มีลิงก์ใบงานทุกคัน)"
-                  className="max-w-full cursor-pointer rounded-full border border-[#FDE9BE] bg-white px-2.5 py-1 text-xs font-medium text-[#B07D12] transition hover:bg-[#FDF3DD] focus:outline-none focus:ring-1 focus:ring-[#B07D12] disabled:cursor-wait disabled:opacity-60 dark:border-amber-900/40 dark:bg-[#151a10] dark:text-amber-300"
+            {/* ตัวกรองที่ใช้นาน ๆ ครั้ง — ยุบไว้ให้แถบบนสั้น · กางเองเมื่อมีตัวไหนเปิดค้าง
+                (ถ้าไม่กางจะกลายเป็นกรองอยู่แบบมองไม่เห็นว่ากรองด้วยอะไร) */}
+            {showMoreFilters && (
+              <div className="flex w-full flex-wrap items-center gap-1.5 rounded-xl bg-[#F6FAF7] px-2 py-1.5 dark:bg-white/5">
+                <span className="mr-0.5 text-xs font-medium text-[#9AA8A0]">ตัวกรองเพิ่มเติม:</span>
+                <button
+                  onClick={() => setUncheckedOnly((v) => !v)}
+                  title="รายการที่ยังไม่ได้กดยืนยันตรวจเช็คในวันนี้"
+                  className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${uncheckedOnly ? "bg-[#0E7490] text-white" : "border border-[#BEE8F1] text-[#0E7490] hover:bg-[#F0FBFD] dark:border-cyan-900/40 dark:text-cyan-300 dark:hover:bg-cyan-950/20"}`}
                 >
-                  <option value="">{noPrCopying ? `กำลังคัดลอกของ ${creatorShortName(noPrCopying)}…` : "เลือกคนเพื่อคัดลอก…"}</option>
-                  {stats.noPrByCreator!.map((g) => (
-                    <option key={g.creator} value={g.creator}>
-                      {creatorShortName(g.creator)} — {g.count} คัน · นานสุด {g.maxDays} วัน
-                    </option>
-                  ))}
-                </select>
+                  ☑️ ยังไม่เช็ควันนี้ <span className="opacity-80">{rows.filter((r) => needsDailyCheck(r) && !checkedToday(r)).length} คัน</span>
+                </button>
+                <button
+                  onClick={() => setEtaOverdueOnly((v) => !v)}
+                  title="เลยวันที่เคยบอกไว้ว่าจะพ้นสถานะนี้ แต่สถานะยังไม่ขยับ"
+                  className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${etaOverdueOnly ? "bg-[#7C3AED] text-white" : "border border-[#E4D5FB] text-[#7C3AED] hover:bg-[#FAF5FF] dark:border-violet-500/40 dark:text-violet-300 dark:hover:bg-violet-950/20"}`}
+                >
+                  ⏰ เลยวันคาด <span className="opacity-80">{rows.filter((r) => etaOverdueOf(r) > 0).length} คัน</span>
+                </button>
+                {atms && (
+                  <>
+                    <button
+                      onClick={() => setNextFilter((v) => (v === "matched" ? "" : "matched"))}
+                      title="เฉพาะคันที่มีทั้งใน WMS และ Mena-Next (รถจอดซ่อมจริง + มีงานอู่นอกเปิด) — ตัวเลขซ้ายของการ์ด 🔧 อู่นอก WMS / Mena-Next"
+                      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "matched" ? "bg-indigo-600 text-white" : "border border-indigo-200 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-950/30"}`}
+                    >
+                      🔗 ตรงกับ Mena-Next <span className="opacity-80">{rows.filter((r) => nextMatchedIds.has(r._id)).length} คัน</span>
+                    </button>
+                    <button
+                      onClick={() => setNextFilter((v) => (v === "unmatched" ? "" : "unmatched"))}
+                      title="งานอู่นอกใน WMS ที่ Mena-Next ไม่มี (รถไม่ได้จอดซ่อมแล้ว หรือไม่มีงานเปิด) — ตรวจว่าปิดงานได้หรือยัง"
+                      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "unmatched" ? "bg-rose-600 text-white" : "border border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/30"}`}
+                    >
+                      ⚠️ ไม่พบใน Mena-Next <span className="opacity-80">{rows.filter((r) => nextComparable(r) && !nextMatchedIds.has(r._id)).length} คัน</span>
+                    </button>
+                    <button
+                      onClick={() => setNextFilter((v) => (v === "same" ? "" : "same"))}
+                      title="ขั้นตอนงานใน WMS ตรงกับ Mena-Next (เทียบเป็นขั้น ไม่ได้เทียบข้อความ — คำสองระบบไม่เหมือนกัน)"
+                      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "same" ? "bg-[#1B8C4B] text-white" : "border border-[#BFE3CD] text-[#1B8C4B] hover:bg-[#F0FDF4] dark:border-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-950/20"}`}
+                    >
+                      ✅ สถานะตรง <span className="opacity-80">{rows.filter((r) => stageCmpOf(r) === "same").length} คัน</span>
+                    </button>
+                    <button
+                      onClick={() => setNextFilter((v) => (v === "diff" ? "" : "diff"))}
+                      title="ขั้นตอนงานคนละขั้นกับ Mena-Next — ฝั่งใดฝั่งหนึ่งยังไม่อัปเดต"
+                      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition ${nextFilter === "diff" ? "bg-[#B07D12] text-white" : "border border-[#FDE9BE] text-[#B07D12] hover:bg-[#FDF3DD] dark:border-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-950/20"}`}
+                    >
+                      ⚠️ สถานะไม่ตรง <span className="opacity-80">{rows.filter((r) => stageCmpOf(r) === "diff").length} คัน</span>
+                    </button>
+                  </>
+                )}
               </div>
             )}
             {/* กราฟสถานะสองประเภท — เรียงข้างกันบนจอกว้าง ซ้อนบนจอแคบ
