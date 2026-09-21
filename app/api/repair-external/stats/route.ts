@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { BUYER_NES, BUYER_NES_FLEETS, BUYER_TAI, DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
+import { BUYER_NES, BUYER_NES_FLEETS, BUYER_TAI, DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS, normalizeStatus } from "@/lib/repair-external"
 import { bkkToday, bkkDaysAgo, daysSince } from "@/lib/bkk-time"
 import { jobStartDate, groupSimilarGarages, buildNoPrByOwner } from "@/lib/repair-external"
 import { loadNoPrRows } from "@/lib/repair-nopr-db"
@@ -45,7 +45,8 @@ export async function GET(req: NextRequest) {
   for (const g of agg) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const id = g._id as any
-    const st = (id?.s as string) || ""
+    // ใบที่คีย์ไว้ก่อนเปลี่ยนชื่อสถานะยังเก็บชื่อเดิม — รวมยอดมาที่ชื่อปัจจุบัน
+    const st = normalizeStatus((id?.s as string) || "")
     const jt = (id?.t as string) === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE
     counts[st] = (counts[st] || 0) + (g.n as number)
     countsByType[jt][st] = (countsByType[jt][st] || 0) + (g.n as number)
@@ -99,7 +100,7 @@ export async function GET(req: NextRequest) {
     if (days >= 15) agingBuckets.gte15++
     else if (days >= 8) agingBuckets.d8_14++
     else agingBuckets.lt8++
-    const st = (d.status as string) || ""
+    const st = normalizeStatus((d.status as string) || "")
     stSum[st] = (stSum[st] || 0) + days
     stN[st]   = (stN[st] || 0) + 1
   }

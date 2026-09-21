@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
-import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusesFor, normalizeStatus } from "@/lib/repair-external"
+import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusQueryValues, statusesFor, normalizeStatus } from "@/lib/repair-external"
 import { normalizeImages } from "@/lib/media"
 import { bkkToday } from "@/lib/bkk-time"
 
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = {}
-  if (status)               filter.status = status
+  if (status)               filter.status = { $in: statusQueryValues(status) }
   else if (scope === "done")   filter.status = { $in: DONE_STATUSES }
   else if (scope === "active") filter.status = { $nin: DONE_STATUSES }
   // เอกสารเก่าไม่มี jobType = อู่นอก

@@ -5,7 +5,8 @@
 import assert from "node:assert"
 import {
   JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS, REPAIR_STATUSES,
-  openJobConflictFilter, requiredFieldsFor, UPDATE_NOTE_MIN, validateJobUpdate,
+  normalizeStatus, openJobConflictFilter, requiredFieldsFor, statusQueryValues,
+  UPDATE_NOTE_MIN, validateJobUpdate,
 } from "../lib/repair-external"
 
 let pass = 0
@@ -108,6 +109,24 @@ check("fields ลบค่าที่ใบงานมีอยู่ (PR ว�
   const ready = { ...withEta, poCode: "PO-1", dueDate: "2026-08-20", completedDate: "2026-08-19", prCode: "PR-1" }
   const r = validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: ready, fields: { ...ready, prCode: "" }, fieldsChanged: true })!
   assert.ok(r.missing!.some((m) => m.field === "prCode"))
+})
+
+console.log("เปลี่ยนชื่อสถานะ (21/09/2569) — ใบเก่าต้องไม่หาย")
+check("ชื่อเดิมแปลงเป็นชื่อปัจจุบันอัตโนมัติ", () => {
+  assert.strictEqual(normalizeStatus("รอประเมินการซ่อม"), "แจ้งซ่อมอู่นอก")
+  assert.strictEqual(normalizeStatus("รอรถเข้า"), "แจ้งซ่อมอู่นอก")
+  assert.strictEqual(normalizeStatus("รถเข้าอู่ซ่อม"), "รถเข้าซ่อมอู่นอก")
+})
+check("กรองด้วยชื่อใหม่ ต้องค้นชื่อเก่าใน DB ด้วย", () => {
+  assert.deepStrictEqual(statusQueryValues("แจ้งซ่อมอู่นอก").sort(),
+    ["รอประเมินการซ่อม", "รอรถเข้า", "แจ้งซ่อมอู่นอก"].sort())
+  assert.deepStrictEqual(statusQueryValues("รถเข้าซ่อมอู่นอก").sort(),
+    ["รถเข้าซ่อมอู่นอก", "รถเข้าอู่ซ่อม"].sort())
+  assert.deepStrictEqual(statusQueryValues("รอ PR"), ["รอ PR"])
+})
+check("ใบที่ยังใช้ชื่อเก่า ขยับสถานะได้ปกติ", () => {
+  const old = { status: "รถเข้าอู่ซ่อม", jobType: JOB_TYPE_GARAGE, garageInDate: "2026-08-01" }
+  assert.strictEqual(validateJobUpdate({ status: "จัดทำใบเสนอราคา", stageEta: eta, note, current: old }), null)
 })
 
 console.log("ลำดับขั้น workflow อู่นอก")

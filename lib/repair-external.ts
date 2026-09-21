@@ -39,6 +39,13 @@ export const STATUS_ALIASES: Record<string, string> = {
   "รอประเมินการซ่อม":  "แจ้งซ่อมอู่นอก",
   "รถเข้าอู่ซ่อม":      "รถเข้าซ่อมอู่นอก",
 }
+/** ค่าที่ต้องใช้ค้นใน DB สำหรับสถานะหนึ่ง — ชื่อปัจจุบัน + ชื่อเก่าทุกตัวที่ map มาที่ชื่อนี้
+ *  (ใบที่คีย์ไว้ก่อนเปลี่ยนชื่อยังเก็บค่าเดิม กรองด้วยชื่อใหม่อย่างเดียวจะหาไม่เจอ) */
+export const statusQueryValues = (status: string): string[] => {
+  const v = normalizeStatus(status)
+  return [v, ...Object.entries(STATUS_ALIASES).filter(([, to]) => to === v).map(([from]) => from)]
+}
+
 export const normalizeStatus = (s: string) => {
   const t = (s ?? "").trim()
   return STATUS_ALIASES[t] ?? t

@@ -3,7 +3,7 @@ import clientPromise from "@/lib/mongo"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
 import {
   DONE_STATUSES, JOB_TYPE_PARTS, OWNER_NO_FLEET, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS,
-  REPAIR_DONE_NO_PR_STATUS, REPAIR_DONE_STATUS, REPAIR_STATUSES, isDoneStatus, ownerOfFleet,
+  REPAIR_DONE_NO_PR_STATUS, REPAIR_DONE_STATUS, REPAIR_STATUSES, isDoneStatus, normalizeStatus, ownerOfFleet,
   type DailySummary,
 } from "@/lib/repair-external"
 
@@ -51,7 +51,8 @@ export async function GET() {
 
   const byStatus = REPAIR_STATUSES
     .filter((s) => !isDoneStatus(s.value))
-    .map((s) => ({ status: s.value, count: active.filter((r) => r.status === s.value).length }))
+    // normalize ก่อนเทียบ — ใบที่คีย์ไว้ก่อนเปลี่ยนชื่อสถานะจะได้ถูกนับในขั้นที่ถูกต้อง
+    .map((s) => ({ status: s.value, count: active.filter((r) => normalizeStatus(String(r.status ?? "")) === s.value).length }))
 
   // ไม่มี PR → จัดกลุ่มผู้รับผิดชอบ แล้วแยกฟลีทในแต่ละคน (เรียงมากไปน้อย · กลุ่มไม่ระบุท้ายสุด)
   const noPrRows = active.filter((r) => !String(r.prCode ?? "").trim())
@@ -78,7 +79,7 @@ export async function GET() {
   // เร่งติดตาม = ซ่อมเสร็จแล้วแต่เลยวันกำหนดเสร็จ (ผู้ใช้เลือก 21/09/2569 — งานที่ยังซ่อมอยู่
   // ไม่นับ เพราะตามอู่ไปก็ยังไม่จบ) · ค้างนานสุดขึ้นก่อน
   const urgent = active
-    .filter((r) => r.status === REPAIR_DONE_NO_PR_STATUS && r.dueDate && String(r.dueDate) < today)
+    .filter((r) => normalizeStatus(String(r.status ?? "")) === REPAIR_DONE_NO_PR_STATUS && r.dueDate && String(r.dueDate) < today)
     .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
     .map(unitOf)
 
@@ -91,7 +92,7 @@ export async function GET() {
     deferredToday: deferToday.length,
     deferredUnits: deferToday.map(unitWithPlate),
     endOfDay:      active.length,
-    doneNoPr:      active.filter((r) => r.status === REPAIR_DONE_NO_PR_STATUS).length,
+    doneNoPr:      active.filter((r) => normalizeStatus(String(r.status ?? "")) === REPAIR_DONE_NO_PR_STATUS).length,
     byStatus,
     noPr,
     urgent: { units: urgent },
