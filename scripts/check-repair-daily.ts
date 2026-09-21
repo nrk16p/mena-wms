@@ -127,15 +127,13 @@ check("วันที่ไม่มีชะลอ ก็ยังพิมพ
   assert.match(buildDailySummaryText({ ...sum, deferredToday: 0 }, { origin: "" }), /⏸️ ชะลองานซ่อมวันนี้ : 0 คัน/)
 })
 check("ใช้ชื่อเฉพาะของรายงาน และยุบขั้นที่ชื่อเดียวกันเป็นบรรทัดเดียว", () => {
-  assert.match(text, /\* ⏳ รอส่ง JR ประเมินงานซ่อม : 2 คัน/)
-  assert.match(text, /\* 🔧 รอราคา : 41 คัน/)   // รถเข้าซ่อมอู่นอก 20 + จัดทำใบเสนอราคา 21
-  assert.match(text, /\* ⏰ รอ PR : 9 คัน/)
-  assert.ok(!text.includes("รถเข้าซ่อมอู่นอก"))
-  assert.ok(!text.includes("จัดทำใบเสนอราคา"))
+  assert.match(text, /\* ⏳ รอส่ง JR ประเมินงานซ่อม \(แจ้งซ่อมอู่นอก\) : 2 คัน/)
+  assert.match(text, /\* 🔧 รอราคา \(รถเข้าซ่อมอู่นอก \+ จัดทำใบเสนอราคา\) : 41 คัน/)
+  assert.match(text, /\* ⏰ รอ PR : 9 คัน/)   // ชื่อเดิม ไม่ต้องมีวงเล็บ
 })
 check("พิมพ์ทุกขั้นแม้เป็น 0 คัน", () => {
   const zero = buildDailySummaryText({ ...sum, byStatus: [{ status: "แจ้งซ่อมอู่นอก", count: 0 }] }, { origin: "" })
-  assert.match(zero, /\* ⏳ รอส่ง JR ประเมินงานซ่อม : 0 คัน/)
+  assert.match(zero, /\* ⏳ รอส่ง JR ประเมินงานซ่อม \(แจ้งซ่อมอู่นอก\) : 0 คัน/)
 })
 check("รายงานสรุปไม่มีบล็อกรายชื่อรถที่ไม่มี PR (แยกไปอีกข้อความ)", () => {
   assert.ok(!text.includes("แยกตามผู้รับผิดชอบและฟลีท"))

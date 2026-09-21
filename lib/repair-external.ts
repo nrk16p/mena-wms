@@ -569,14 +569,15 @@ export const REPORT_STATUS_LABEL: Record<string, string> = {
   "จัดทำใบเสนอราคา":   "รอราคา",
 }
 
-/** ยุบ byStatus เป็นบรรทัดของรายงาน — เรียงตามลำดับขั้นเดิม ใช้อีโมจิของขั้นแรกในกลุ่ม */
+/** ยุบ byStatus เป็นบรรทัดของรายงาน — เรียงตามลำดับขั้นเดิม ใช้อีโมจิของขั้นแรกในกลุ่ม
+ *  from = ชื่อสถานะจริงในระบบที่รวมอยู่ในบรรทัดนี้ (ไว้พิมพ์ในวงเล็บให้เทียบกับหน้าเว็บได้) */
 export function reportStatusLines(byStatus: { status: string; count: number }[]) {
-  const out: { label: string; emoji: string; count: number }[] = []
+  const out: { label: string; emoji: string; count: number; from: string[] }[] = []
   for (const x of byStatus) {
     const label = REPORT_STATUS_LABEL[x.status] ?? x.status
     const hit = out.find((o) => o.label === label)
-    if (hit) hit.count += x.count
-    else out.push({ label, emoji: statusMeta(x.status).emoji, count: x.count })
+    if (hit) { hit.count += x.count; hit.from.push(x.status) }
+    else out.push({ label, emoji: statusMeta(x.status).emoji, count: x.count, from: [x.status] })
   }
   return out
 }
@@ -600,7 +601,11 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
     L.push("", "↗️ สถานะงานที่คงค้าง", "")
     // พิมพ์ครบทุกขั้นแม้วันนั้นเป็น 0 — บรรทัดเท่ากันทุกวัน ทีมเทียบกับเมื่อวานได้ทันที
     // ใช้ชื่อเฉพาะของรายงาน (REPORT_STATUS_LABEL) และยุบขั้นที่ใช้ชื่อเดียวกันเป็นบรรทัดเดียว
-    for (const x of reportStatusLines(s.byStatus)) L.push(`* ${x.emoji} ${x.label} : ${x.count} คัน`)
+    for (const x of reportStatusLines(s.byStatus)) {
+      // วงเล็บบอกสถานะจริงในระบบ — เฉพาะบรรทัดที่ใช้ชื่อต่างจากหน้าเว็บ จะได้กดเข้าไปหาได้ถูก
+      const orig = x.from.join(" + ") === x.label ? "" : ` (${x.from.join(" + ")})`
+      L.push(`* ${x.emoji} ${x.label}${orig} : ${x.count} คัน`)
+    }
   }
 
   if (s.urgent.units.length) {
