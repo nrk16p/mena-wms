@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { fetchAtmsBoard, normKey } from "@/lib/atms-board"
+import { fetchAtmsBoard, isAtmsSettled, normKey } from "@/lib/atms-board"
 import { DONE_STATUSES, JOB_TYPE_PARTS } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -35,6 +35,10 @@ export async function GET() {
       wmsByPlate.get(normKey(plate)) ?? (normKey(num) ? wmsByNum.get(normKey(num)) : undefined)
 
     const jobByPlate    = new Map(board.jobs.map((j) => [normKey(j.plate), j]))
+    // งานที่ ATMS ปิดแล้ว (รถซ่อมเสร็จสิ้น / รถรอขาย) ไม่ใช่ภาระอู่ — ไม่ต้องทวงให้เปิดใบใน WMS
+    // (ผู้ใช้สั่ง 21/09/2569: TH1979 สถานะ "รถรอขาย" ขึ้นว่าขาดในระบบทั้งที่ไม่ต้องทำอะไรแล้ว)
+    // แยกแมปกัน: ตัวเต็มยังใช้บอก step/PR ของคันนั้นได้ แต่ชุดที่ใช้ "นับงานค้าง" ตัดของที่จบแล้วออก
+    const openJobByPlate = new Map(board.jobs.filter((j) => !isAtmsSettled(j.step)).map((j) => [normKey(j.plate), j]))
     const parkedByPlate = new Map(board.parked.map((p) => [normKey(p.plate), p]))
     const parkedByNum   = new Map(board.parked.map((p) => [normKey(p.trucknum), p]))
     const findParked = (plate: string, num: string) =>
@@ -43,7 +47,7 @@ export async function GET() {
     // ── รถค้างซ่อมอู่นอก "ตัวจริง" = จอดอยู่จริง ∧ มีงานอู่นอกเปิดใน ATMS (ชุดเดียวกับหน้า Pending Maintenance)
     const pending = board.parked
       .map((p) => {
-        const job = jobByPlate.get(normKey(p.plate))
+        const job = openJobByPlate.get(normKey(p.plate))
         if (!job) return null
         const w = findWms(p.plate, p.trucknum)
         return {
