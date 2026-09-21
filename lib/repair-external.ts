@@ -610,7 +610,7 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
 
   if (s.urgent.units.length) {
     L.push("", "🎯 แผนติดตามวันถัดไป", "")
-    L.push(`* รถเสร็จเกินกำหนด : ${s.urgent.units.length} คัน`)
+    L.push(`* รถเกินกำหนดเสร็จ : ${s.urgent.units.length} คัน`)
     L.push(s.urgent.units.join(" / "))
   }
 
