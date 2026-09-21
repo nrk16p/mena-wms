@@ -81,6 +81,7 @@ console.log("ข้อความรายงานสรุปประจำ�
 const sum: DailySummary = {
   date: today,
   startOfDay: 69, openedToday: 2, closedToday: 2, deferredToday: 1, endOfDay: 68, doneNoPr: 17,
+  closedUnits: ["PU09 (สบ.71-3560)", "ME037 (สบ.71-0001)"],
   byStatus: [
     { status: "รอประเมินการซ่อม", count: 0 },
     { status: "รถเข้าอู่ซ่อม", count: 20 },
@@ -101,6 +102,13 @@ check("ยอดภาพรวมครบ 6 บรรทัด และบว
                     /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน/, /⏸️ ชะลองานซ่อมวันนี้ : 1 คัน/,
                     /📌 คงค้างสิ้นวัน : 68 คัน/, /🏁 ในนี้เสร็จแล้วรอเปิด PR : 17 คัน/]) assert.match(text, re)
   assert.strictEqual(sum.startOfDay + sum.openedToday - sum.closedToday - sum.deferredToday, sum.endOfDay)
+})
+check("ลิสต์รถที่ปิดวันนี้ใต้บรรทัดซ่อมเสร็จ", () => {
+  assert.match(text, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน\n {3}PU09 \(สบ\.71-3560\) \/ ME037 \(สบ\.71-0001\)/)
+})
+check("วันที่ไม่มีรถปิด ไม่ต้องมีบรรทัดรายชื่อ", () => {
+  const none = buildDailySummaryText({ ...sum, closedToday: 0, closedUnits: [] }, { origin: "" })
+  assert.match(none, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 0 คัน\n⏸️/)
 })
 check("Backlog ลดเมื่อต้นวันมากกว่าสิ้นวัน", () => {
   assert.match(text, /📊 Backlog ลด : 1 คัน/)
@@ -136,9 +144,9 @@ check("แยกผู้รับผิดชอบ → ฟลีท พร้�
 check("ไม่มีงานค้าง PR → ข้อความดี ๆ ไม่ใช่หัวข้อว่าง", () => {
   assert.match(buildNoPrOverviewText({ ...sum, noPr: [] }, { origin: "" }), /🎉 งานอู่นอกมี PR ครบทุกใบแล้ว/)
 })
-check("แผนติดตามวันถัดไป = เฉพาะงานที่เลยกำหนดเสร็จ", () => {
+check("แผนติดตามวันถัดไป = รถที่ซ่อมเสร็จแล้วแต่เกินกำหนด", () => {
   assert.match(text, /🎯 แผนติดตามวันถัดไป/)
-  assert.match(text, /\* งานที่เลยกำหนดเสร็จแล้ว : 2 คัน/)
+  assert.match(text, /\* รถเสร็จเกินกำหนด : 2 คัน/)
   assert.match(text, /ME232 \/ TH1729/)
 })
 check("ปิดท้ายด้วยลิงก์หน้างาน", () => {

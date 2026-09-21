@@ -3,7 +3,8 @@ import clientPromise from "@/lib/mongo"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
 import {
   DONE_STATUSES, JOB_TYPE_PARTS, OWNER_NO_FLEET, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS,
-  REPAIR_DONE_STATUS, REPAIR_STATUSES, isDoneStatus, ownerOfFleet, type DailySummary,
+  REPAIR_DONE_NO_PR_STATUS, REPAIR_DONE_STATUS, REPAIR_STATUSES, isDoneStatus, ownerOfFleet,
+  type DailySummary,
 } from "@/lib/repair-external"
 
 // GET /api/repair-external/daily-summary
@@ -17,6 +18,12 @@ type Row = {
   prCode?: string; dueDate?: string; createdAt?: Date | string; statusSince?: string
 }
 const unitOf = (r: Row) => (String(r.fleetNo ?? "").trim() || String(r.plate ?? "").trim() || "-")
+/** "PU09 (สบ.71-3560)" — ใช้ในรายการรถที่ปิดวันนี้ ทีมอ่านทั้งเบอร์รถและทะเบียน */
+const unitWithPlate = (r: Row) => {
+  const no = String(r.fleetNo ?? "").trim(), plate = String(r.plate ?? "").trim()
+  if (no && plate) return `${no} (${plate})`
+  return no || plate || "-"
+}
 
 export async function GET() {
   const today = bkkToday()
@@ -66,9 +73,10 @@ export async function GET() {
       Number(a.owner === OWNER_NO_FLEET) - Number(b.owner === OWNER_NO_FLEET) ||
       b.count - a.count || a.owner.localeCompare(b.owner, "th"))
 
-  // เร่งติดตาม = เลยวันกำหนดเสร็จแล้วแต่ยังไม่ปิด (ผู้ใช้เลือก 21/09/2569) · ค้างนานสุดขึ้นก่อน
+  // เร่งติดตาม = ซ่อมเสร็จแล้วแต่เลยวันกำหนดเสร็จ (ผู้ใช้เลือก 21/09/2569 — งานที่ยังซ่อมอยู่
+  // ไม่นับ เพราะตามอู่ไปก็ยังไม่จบ) · ค้างนานสุดขึ้นก่อน
   const urgent = active
-    .filter((r) => r.dueDate && String(r.dueDate) < today)
+    .filter((r) => r.status === REPAIR_DONE_NO_PR_STATUS && r.dueDate && String(r.dueDate) < today)
     .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
     .map(unitOf)
 
@@ -77,9 +85,10 @@ export async function GET() {
     startOfDay,
     openedToday,
     closedToday:   closedToday.length,
+    closedUnits:   closedToday.map(unitWithPlate),
     deferredToday: deferToday.length,
     endOfDay:      active.length,
-    doneNoPr:      active.filter((r) => r.status === "รถเสร็จ(ไม่มี PR)").length,
+    doneNoPr:      active.filter((r) => r.status === REPAIR_DONE_NO_PR_STATUS).length,
     byStatus,
     noPr,
     urgent: { units: urgent },

@@ -43,6 +43,9 @@ export const normalizeStatus = (s: string) => {
 // สถานะ "รถเสร็จ" = ปิดงาน — แยกไปหน้า "รถซ่อมเสร็จ" ส่วนที่เหลือคือ "รถซ่อมอู่นอก"
 export const REPAIR_DONE_STATUS = "รถเสร็จ"
 
+// ซ่อมเสร็จแล้วแต่ยังไม่มี PR — ยังไม่ปิดงาน ใบยังอยู่หน้ารายการ (ใช้ทั้งใน UI และรายงาน)
+export const REPAIR_DONE_NO_PR_STATUS = "รถเสร็จ(ไม่มี PR)"
+
 // ปิดงานแบบ "เคลมอู่" = อู่รับผิดชอบค่าซ่อม (งานในประกันของอู่) ไม่มี PR/PO ในระบบจัดซื้อ
 // เป็นสถานะปิดงานเต็มตัวเหมือน "รถเสร็จ" (ย้ายไปหน้ารถซ่อมเสร็จ + ล็อกห้ามย้อน)
 // ต่างกันที่ฟิลด์บังคับ — ดู requiredFieldsFor()
@@ -507,8 +510,10 @@ export type DailySummary = {
   /** งานที่ยังไม่ปิด ณ ต้นวัน = เปิดก่อนวันนี้ และยังไม่ปิด หรือเพิ่งปิด/ชะลอวันนี้ */
   startOfDay:    number
   openedToday:   number
-  /** ปิดเป็น "รถเสร็จ" หรือ "รถเสร็จ(เคลมอู่)" วันนี้ */
+  /** ปิดเป็น "รถเสร็จ" หรือ "รถเสร็จ(เคลมอู่)" วันนี้ (นับจากวันที่สถานะเปลี่ยน ไม่ใช่ช่องวันที่ซ่อมเสร็จ) */
   closedToday:   number
+  /** เบอร์รถ (ทะเบียน) ของคันที่ปิดวันนี้ — ทีมขอให้ลิสต์ไว้ในรายงาน */
+  closedUnits:   string[]
   /** ชะลองานซ่อมวันนี้ — ออกจากคิวเหมือนกัน ต้องพิมพ์ด้วยยอดถึงจะบวกลบลงตัว */
   deferredToday: number
   /** งานที่ยังไม่ปิดตอนนี้ */
@@ -517,7 +522,7 @@ export type DailySummary = {
   doneNoPr:      number
   byStatus:      { status: string; count: number }[]
   noPr:          { owner: string; count: number; fleets: { fleet: string; units: string[] }[] }[]
-  /** งานที่ต้องเร่งตาม = เลยวันกำหนดเสร็จแล้วแต่ยังไม่ปิด (ค้างนานสุดขึ้นก่อน) */
+  /** งานที่ต้องเร่งตาม = ซ่อมเสร็จแล้ว (รถเสร็จ(ไม่มี PR)) แต่เลยวันกำหนดเสร็จ · ค้างนานสุดขึ้นก่อน */
   urgent:        { units: string[] }
 }
 
@@ -547,6 +552,7 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
   L.push(`🚗 คงค้างต้นวัน : ${s.startOfDay} คัน`)
   L.push(`📥 รับแจ้งซ่อมอู่นอกใหม่วันนี้ : ${s.openedToday} คัน`)
   L.push(`✅ ซ่อมเสร็จส่งมอบวันนี้ : ${s.closedToday} คัน`)
+  if (s.closedUnits.length) L.push(`   ${s.closedUnits.join(" / ")}`)
   // พิมพ์เสมอแม้เป็น 0 — ต้นวัน + ใหม่ − เสร็จ − ชะลอ = สิ้นวัน คนอ่านบวกลบตามได้ครบ
   L.push(`⏸️ ชะลองานซ่อมวันนี้ : ${s.deferredToday} คัน`)
   L.push(`📌 คงค้างสิ้นวัน : ${s.endOfDay} คัน`)
@@ -564,7 +570,7 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
 
   if (s.urgent.units.length) {
     L.push("", "🎯 แผนติดตามวันถัดไป", "")
-    L.push(`* งานที่เลยกำหนดเสร็จแล้ว : ${s.urgent.units.length} คัน`)
+    L.push(`* รถเสร็จเกินกำหนด : ${s.urgent.units.length} คัน`)
     L.push(s.urgent.units.join(" / "))
   }
 
