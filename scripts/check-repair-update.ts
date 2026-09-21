@@ -4,7 +4,8 @@
  */
 import assert from "node:assert"
 import {
-  JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_CLAIM_DONE_STATUS, UPDATE_NOTE_MIN, validateJobUpdate,
+  JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_CLAIM_DONE_STATUS, REPAIR_STATUSES,
+  requiredFieldsFor, UPDATE_NOTE_MIN, validateJobUpdate,
 } from "../lib/repair-external"
 
 let pass = 0
@@ -107,6 +108,25 @@ check("fields ลบค่าที่ใบงานมีอยู่ (PR ว�
   const ready = { ...withEta, poCode: "PO-1", dueDate: "2026-08-20", completedDate: "2026-08-19", prCode: "PR-1" }
   const r = validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: ready, fields: { ...ready, prCode: "" }, fieldsChanged: true })!
   assert.ok(r.missing!.some((m) => m.field === "prCode"))
+})
+
+console.log("ลำดับขั้น workflow อู่นอก")
+const flow = REPAIR_STATUSES.map((s) => s.value)
+check("จัดทำใบเสนอราคา อยู่ถัดจาก รถเข้าอู่ซ่อม", () => {
+  assert.strictEqual(flow[flow.indexOf("รถเข้าอู่ซ่อม") + 1], "จัดทำใบเสนอราคา")
+})
+check("รอ PR อนุมัติ อยู่ถัดจาก รอ PR", () => {
+  assert.strictEqual(flow[flow.indexOf("รอ PR") + 1], "รอ PR อนุมัติ")
+})
+check("จัดทำใบเสนอราคา ไม่มีฟิลด์บังคับของตัวเอง → ขยับเข้าออกได้อิสระ", () => {
+  assert.strictEqual(validateJobUpdate({ status: "จัดทำใบเสนอราคา", stageEta: eta, note, current: garage }), null)
+})
+check("รอ PR อนุมัติ: ยังไม่มี PR ก็ขยับสถานะได้ (บังคับเฉพาะตอนปิดงาน)", () => {
+  assert.strictEqual(validateJobUpdate({ status: "รอ PR อนุมัติ", stageEta: eta, note, current: garage }), null)
+})
+check("ฟิลด์บังคับสะสมตอนปิดเป็น รถเสร็จ — ไม่มีรายการซ้ำ และเรียงตามขั้น", () => {
+  assert.deepStrictEqual(requiredFieldsFor("รถเสร็จ", JOB_TYPE_GARAGE).map((f) => f.field),
+    ["garageInDate", "poCode", "prCode", "dueDate", "completedDate"])
 })
 
 console.log("ปิดงานแบบเคลมอู่ — อู่รับผิดชอบค่าซ่อม ไม่มี PR/PO")

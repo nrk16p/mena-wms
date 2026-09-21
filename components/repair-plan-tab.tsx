@@ -18,7 +18,9 @@ const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-40
 const JOB_STATUS_BAR: Record<string, string> = {
   "รอประเมินการซ่อม":         "bg-gray-400 dark:bg-gray-500",
   "รถเข้าอู่ซ่อม":     "bg-blue-500",
+  "จัดทำใบเสนอราคา":   "bg-cyan-600",
   "รอ PR":            "bg-amber-500",
+  "รอ PR อนุมัติ":      "bg-amber-600",
   "ซ่อมไม่มีกำหนด":    "bg-orange-500",
   "ซ่อมมีกำหนดเสร็จ":  "bg-teal-500",
   "รถเสร็จ(ไม่มี PR)": "bg-lime-500",

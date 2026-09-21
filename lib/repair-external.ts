@@ -1,4 +1,5 @@
-// สถานะงานซ่อมอู่นอก — workflow 7 ขั้น (เรียงตามลำดับการทำงาน)
+// สถานะงานซ่อมอู่นอก — เรียงตามลำดับการทำงาน (ลำดับนี้คือแหล่งความจริงของ workflow:
+// ทั้งชิปกรอง แถบความคืบหน้า และฟิลด์บังคับสะสมตอนปิดงาน อ่านจากลำดับในอาร์เรย์นี้)
 export type RepairStatus = {
   value: string
   emoji: string
@@ -8,8 +9,10 @@ export type RepairStatus = {
 export const REPAIR_STATUSES: RepairStatus[] = [
   { value: "รอประเมินการซ่อม",         emoji: "⏳", cls: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300" },
   { value: "รถเข้าอู่ซ่อม",     emoji: "🔧", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  { value: "จัดทำใบเสนอราคา",   emoji: "🧾", cls: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300" },
   // "รอใบเสนอราคา" ถูกถอดจาก workflow อู่นอก (2026-08-11) → เป็น tickbox waitingQuote แทน (ยังเป็นสถานะของอะไหล่ลงคันอยู่)
   { value: "รอ PR",        emoji: "⏰", cls: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
+  { value: "รอ PR อนุมัติ",     emoji: "🖊️", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200" },
   { value: "ซ่อมไม่มีกำหนด",    emoji: "🛠️", cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
   { value: "ซ่อมมีกำหนดเสร็จ",  emoji: "✅", cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" },
   { value: "รถเสร็จ(ไม่มี PR)", emoji: "🏁", cls: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300" },
@@ -229,6 +232,8 @@ export const REPAIR_STATUS_REQUIRED_FIELD: Record<string, { field: RepairField; 
   "รถเข้าอู่ซ่อม":    { field: "garageInDate",  label: "วันที่รถเข้าซ่อม" },
   // รอใบเสนอราคา: PR ไม่บังคับ (ยังไม่มี PR ก็ได้)
   "รอ PR":        { field: "poCode",        label: "รหัส PO" },
+  // มี PR แล้วจึงรออนุมัติได้ — ซ้ำกับฟิลด์ของ "รถเสร็จ" โดยตั้งใจ requiredFieldsFor ตัดซ้ำให้
+  "รอ PR อนุมัติ":   { field: "prCode",        label: "รหัส PR" },
   "ซ่อมมีกำหนดเสร็จ": { field: "dueDate",       label: "วันกำหนดเสร็จ" },
   "รถเสร็จ(ไม่มี PR)": { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
   "รถเสร็จ":          { field: "prCode",        label: "รหัส PR" },  // ปิดงานสมบูรณ์ต้องมี PR (completedDate สะสมมาจากขั้นก่อน)
@@ -257,7 +262,8 @@ export function requiredFieldsFor(status: string, jobType: string = JOB_TYPE_GAR
   const out: { field: RepairField; label: string }[] = []
   for (let i = 0; i <= idx; i++) {
     const req = REPAIR_STATUS_REQUIRED_FIELD[flow[i].value]
-    if (req) out.push(req)
+    // ฟิลด์เดียวกันบังคับได้หลายขั้น (เช่น รหัส PR ที่ขั้นรออนุมัติและขั้นรถเสร็จ) — เก็บครั้งแรกครั้งเดียว
+    if (req && !out.some((o) => o.field === req.field)) out.push(req)
   }
   return out
 }
@@ -428,6 +434,8 @@ const NEXT_STEP_STAGE: Record<string, number> = {
 const WMS_STATUS_STAGE: Record<string, number> = {
   "รอประเมินการซ่อม": 1,
   "รอ PR": 2,
+  "จัดทำใบเสนอราคา": 2,
+  "รอ PR อนุมัติ": 2,
   "รถเข้าอู่ซ่อม": 3,
   "ซ่อมมีกำหนดเสร็จ": 3,
   "ซ่อมไม่มีกำหนด": 4,
