@@ -501,8 +501,8 @@ export type DailySummary = {
   doneNoPr:      number
   byStatus:      { status: string; count: number }[]
   noPr:          { owner: string; count: number; fleets: { fleet: string; units: string[] }[] }[]
-  /** งานที่ต้องเร่งตาม — กำหนดเสร็จถึงวันที่ until (รวมที่เลยกำหนดแล้ว) */
-  urgent:        { until: string; units: string[] }
+  /** งานที่ต้องเร่งตาม = เลยวันกำหนดเสร็จแล้วแต่ยังไม่ปิด (ค้างนานสุดขึ้นก่อน) */
+  urgent:        { units: string[] }
 }
 
 const TH_MONTH_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
@@ -512,12 +512,6 @@ export function thaiDateShort(ymd: string): string {
   const [y, m, d] = String(ymd ?? "").split("-").map(Number)
   return y && m && d ? `${d}/${m}/${y + 543}` : String(ymd ?? "")
 }
-/** "2026-09-24" → "24 ก.ย." */
-export function thaiDayMonth(ymd: string): string {
-  const [y, m, d] = String(ymd ?? "").split("-").map(Number)
-  return y && m && d ? `${d} ${TH_MONTH_SHORT[m - 1]}` : String(ymd ?? "")
-}
-
 export function buildDailySummaryText(s: DailySummary, opts: { origin: string }): string {
   const L: string[] = [`📌 รายงานสรุปงานซ่อมอู่นอก ประจำวันที่ ${thaiDateShort(s.date)}`, "", "🔷 สรุปภาพรวม", ""]
   L.push(`🚗 คงค้างต้นวัน : ${s.startOfDay} คัน`)
@@ -547,7 +541,7 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
 
   if (s.urgent.units.length) {
     L.push("", "🎯 แผนติดตามวันถัดไป", "")
-    L.push(`* งานที่ต้องเร่งติดตาม (กำหนดเสร็จถึง ${thaiDayMonth(s.urgent.until)}) : ${s.urgent.units.length} คัน`)
+    L.push(`* งานที่เลยกำหนดเสร็จแล้ว : ${s.urgent.units.length} คัน`)
     L.push(s.urgent.units.join(" / "))
   }
 

@@ -4,7 +4,7 @@
 import assert from "node:assert"
 import {
   OWNER_NO_FLEET, buildDailySummaryText, buildNoPrByOwner, fleetsOfOwner,
-  ownerLabel, ownerOfFleet, thaiDateShort, thaiDayMonth, type DailySummary,
+  ownerLabel, ownerOfFleet, thaiDateShort, type DailySummary,
 } from "../lib/repair-external"
 
 let pass = 0
@@ -38,9 +38,8 @@ check("ชื่อที่ใช้เรียกในข้อความ"
 })
 
 console.log("วันที่แบบไทย")
-check("21/9/2569 และ 24 ก.ย.", () => {
+check("21/9/2569", () => {
   assert.strictEqual(thaiDateShort("2026-09-21"), "21/9/2569")
-  assert.strictEqual(thaiDayMonth("2026-09-24"), "24 ก.ย.")
 })
 
 console.log("ไม่มี PR แยกตามผู้รับผิดชอบ")
@@ -77,7 +76,7 @@ const sum: DailySummary = {
     { owner: "ติ๊ก", count: 3, fleets: [{ fleet: "Scco ML", units: ["TH413", "TH239"] }, { fleet: "Fast", units: ["112"] }] },
     { owner: OWNER_NO_FLEET, count: 1, fleets: [{ fleet: "", units: ["RX08"] }] },
   ],
-  urgent: { until: "2026-09-24", units: ["ME232", "TH1729"] },
+  urgent: { units: ["ME232", "TH1729"] },
 }
 const text = buildDailySummaryText(sum, { origin: "https://x" })
 check("หัวรายงาน + วันที่แบบไทย", () => {
@@ -110,9 +109,9 @@ check("ไม่มี PR แยกผู้รับผิดชอบ → ฟ�
   assert.match(text, /- Scco ML \(2\) : TH413 \/ TH239/)
   assert.match(text, /- ไม่ระบุฟลีท \(1\) : RX08/)
 })
-check("แผนติดตามวันถัดไป + วันสุดท้ายที่นับ", () => {
+check("แผนติดตามวันถัดไป = เฉพาะงานที่เลยกำหนดเสร็จ", () => {
   assert.match(text, /🎯 แผนติดตามวันถัดไป/)
-  assert.match(text, /กำหนดเสร็จถึง 24 ก\.ย\.\) : 2 คัน/)
+  assert.match(text, /\* งานที่เลยกำหนดเสร็จแล้ว : 2 คัน/)
   assert.match(text, /ME232 \/ TH1729/)
 })
 check("ปิดท้ายด้วยลิงก์หน้างาน", () => {

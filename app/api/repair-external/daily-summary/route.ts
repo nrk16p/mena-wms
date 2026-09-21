@@ -11,13 +11,6 @@ import {
 // (ไม่ดึงงานอู่ในจาก Mena-Next ตามที่ผู้ใช้กำหนด 21/09/2569)
 // ขอบเขตข้อมูล: ใบที่ยังไม่ปิด + ใบที่เพิ่งออกจากคิววันนี้ เท่านั้น ไม่สแกนทั้งคอลเลกชัน
 const DB = process.env.MONGO_DB ?? "master_data"
-const URGENT_DAYS = 3
-
-/** YYYY-MM-DD + n วัน (คำนวณแบบ UTC ไม่มีปัญหา DST) */
-function addDays(ymd: string, n: number): string {
-  const [y, m, d] = ymd.split("-").map(Number)
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
-}
 
 type Row = {
   status?: string; fleet?: string; fleetNo?: string; plate?: string
@@ -73,10 +66,9 @@ export async function GET() {
       Number(a.owner === OWNER_NO_FLEET) - Number(b.owner === OWNER_NO_FLEET) ||
       b.count - a.count || a.owner.localeCompare(b.owner, "th"))
 
-  // เร่งติดตาม = เลยกำหนดเสร็จแล้ว หรือครบกำหนดภายใน 3 วัน (ใบที่ยังค้าง) เรียงตามวันที่ใกล้สุด
-  const until  = addDays(today, URGENT_DAYS)
+  // เร่งติดตาม = เลยวันกำหนดเสร็จแล้วแต่ยังไม่ปิด (ผู้ใช้เลือก 21/09/2569) · ค้างนานสุดขึ้นก่อน
   const urgent = active
-    .filter((r) => r.dueDate && String(r.dueDate) <= until)
+    .filter((r) => r.dueDate && String(r.dueDate) < today)
     .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
     .map(unitOf)
 
@@ -90,7 +82,7 @@ export async function GET() {
     doneNoPr:      active.filter((r) => r.status === "รถเสร็จ(ไม่มี PR)").length,
     byStatus,
     noPr,
-    urgent: { until, units: urgent },
+    urgent: { units: urgent },
   }
   return NextResponse.json(summary)
 }
