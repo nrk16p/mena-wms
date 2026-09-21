@@ -493,7 +493,7 @@ export type DailySummary = {
   openedToday:   number
   /** ปิดเป็น "รถเสร็จ" หรือ "รถเสร็จ(เคลมอู่)" วันนี้ */
   closedToday:   number
-  /** ชะลองานซ่อมวันนี้ — ไม่พิมพ์ในข้อความ (ผู้ใช้ไม่เอา) แต่เก็บไว้อธิบายว่าทำไมยอดค้างลด */
+  /** ชะลองานซ่อมวันนี้ — ออกจากคิวเหมือนกัน ต้องพิมพ์ด้วยยอดถึงจะบวกลบลงตัว */
   deferredToday: number
   /** งานที่ยังไม่ปิดตอนนี้ */
   endOfDay:      number
@@ -517,6 +517,8 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
   L.push(`🚗 คงค้างต้นวัน : ${s.startOfDay} คัน`)
   L.push(`📥 รับแจ้งซ่อมอู่นอกใหม่วันนี้ : ${s.openedToday} คัน`)
   L.push(`✅ ซ่อมเสร็จส่งมอบวันนี้ : ${s.closedToday} คัน`)
+  // พิมพ์เสมอแม้เป็น 0 — ต้นวัน + ใหม่ − เสร็จ − ชะลอ = สิ้นวัน คนอ่านบวกลบตามได้ครบ
+  L.push(`⏸️ ชะลองานซ่อมวันนี้ : ${s.deferredToday} คัน`)
   L.push(`📌 คงค้างสิ้นวัน : ${s.endOfDay} คัน`)
   L.push(`🏁 ในนี้เสร็จแล้วรอเปิด PR : ${s.doneNoPr} คัน`)
 

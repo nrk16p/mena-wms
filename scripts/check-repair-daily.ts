@@ -82,10 +82,11 @@ const text = buildDailySummaryText(sum, { origin: "https://x" })
 check("หัวรายงาน + วันที่แบบไทย", () => {
   assert.match(text, /^📌 รายงานสรุปงานซ่อมอู่นอก ประจำวันที่ 21\/9\/2569/)
 })
-check("ยอดภาพรวมครบ 5 บรรทัด", () => {
+check("ยอดภาพรวมครบ 6 บรรทัด และบวกลบลงตัว", () => {
   for (const re of [/🚗 คงค้างต้นวัน : 69 คัน/, /📥 รับแจ้งซ่อมอู่นอกใหม่วันนี้ : 2 คัน/,
-                    /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน/,
+                    /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน/, /⏸️ ชะลองานซ่อมวันนี้ : 1 คัน/,
                     /📌 คงค้างสิ้นวัน : 68 คัน/, /🏁 ในนี้เสร็จแล้วรอเปิด PR : 17 คัน/]) assert.match(text, re)
+  assert.strictEqual(sum.startOfDay + sum.openedToday - sum.closedToday - sum.deferredToday, sum.endOfDay)
 })
 check("Backlog ลดเมื่อต้นวันมากกว่าสิ้นวัน", () => {
   assert.match(text, /📊 Backlog ลด : 1 คัน/)
@@ -94,9 +95,8 @@ check("Backlog เพิ่มเมื่องานค้างมากข�
   const up = buildDailySummaryText({ ...sum, startOfDay: 60, endOfDay: 68 }, { origin: "" })
   assert.match(up, /📊 Backlog เพิ่ม : 8 คัน/)
 })
-check("ไม่พิมพ์บรรทัดชะลองานซ่อม แม้วันนี้จะมีชะลอ (ผู้ใช้ไม่เอา)", () => {
-  assert.ok(!text.includes("ชะลองานซ่อมวันนี้"))
-  assert.ok(!buildDailySummaryText({ ...sum, deferredToday: 5 }, { origin: "" }).includes("ชะลองานซ่อม"))
+check("วันที่ไม่มีชะลอ ก็ยังพิมพ์บรรทัด 0 คัน (ยอดจะได้ลงตัวทุกวัน)", () => {
+  assert.match(buildDailySummaryText({ ...sum, deferredToday: 0 }, { origin: "" }), /⏸️ ชะลองานซ่อมวันนี้ : 0 คัน/)
 })
 check("พิมพ์ครบทุกขั้น รวมขั้นที่ยังเป็น 0 คัน", () => {
   assert.match(text, /\* ⏳ รอประเมินการซ่อม : 0 คัน/)
