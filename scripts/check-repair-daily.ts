@@ -3,7 +3,8 @@
  */
 import assert from "node:assert"
 import {
-  OWNER_NO_FLEET, buildDailySummaryText, buildNoPrByOwner, buildNoPrOverviewText, fleetsOfOwner,
+  BUYER_NES, BUYER_TAI, OWNER_NO_FLEET, buildDailySummaryText, buildNoPrByOwner, buildNoPrOverviewText,
+  buyerOfFleet, fleetsOfOwner,
   ownerLabel, ownerOfFleet, thaiDateShort, type DailySummary,
 } from "../lib/repair-external"
 
@@ -35,6 +36,19 @@ check("ชื่อที่ใช้เรียกในข้อความ"
   assert.strictEqual(ownerLabel("เบญ"), "คุณเบญ")
   assert.strictEqual(ownerLabel(OWNER_NO_FLEET), OWNER_NO_FLEET)
   assert.deepStrictEqual(fleetsOfOwner("กุ้ง"), ["Cpac ML", "Cpac MS", "Kpac ML", "UMO"])
+})
+
+console.log("ผู้รับผิดชอบฝั่งจัดซื้อ")
+check("ฟลีทของเนสตามรายการที่ตกลง (รับทั้งชื่อย่อและชื่อจริงในฐานข้อมูล)", () => {
+  for (const f of ["Asia", "Asia ML", "Asia MS", "TN", "ที.เอ็น.ซีเมนต์บล็อค", "UMO", "Fast", "Acon", "Kpac", "Kpac ML", "จิรโชติ"])
+    assert.strictEqual(buyerOfFleet(f), BUYER_NES, f)
+})
+check("ฟลีทที่เหลือทั้งหมดเป็นของต่าย รวมที่ไม่ระบุฟลีท", () => {
+  for (const f of ["Cpac ML", "Cpac MS", "Scco ML", "Scco MS", "RP", "รถสำนักงาน", "", undefined])
+    assert.strictEqual(buyerOfFleet(f), BUYER_TAI, String(f))
+})
+check("เทียบไม่สนตัวพิมพ์/ช่องว่าง", () => {
+  assert.strictEqual(buyerOfFleet(" kpac ml "), BUYER_NES)
 })
 
 console.log("วันที่แบบไทย")

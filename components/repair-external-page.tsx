@@ -29,6 +29,8 @@ import {
   buildNoPrByOwner,
   buildDailySummaryText,
   buildNoPrOverviewText,
+  buyerOfFleet,
+  BUYERS,
   ownerLabel,
   fleetsOfOwner,
   type DailySummary,
@@ -456,6 +458,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // ตัวกรอง ฟลีท + ค้างเกิน SLA
   const [fFleet, setFFleet]     = useState("")
+  const [fBuyer, setFBuyer]     = useState("")   // ผู้รับผิดชอบฝั่งจัดซื้อ (เนส/ต่าย) — กรองฝั่ง client จากฟลีท
   const [slaOnly, setSlaOnly]   = useState(false)
   const [noPrOnly, setNoPrOnly] = useState(false)
   // ปุ่มคัดลอก "ไม่มี PR" ของคนไหนกำลังโหลดอยู่
@@ -1123,9 +1126,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   })()
   const feedShown = feedTab === "all" ? feedItems : feedItems.filter((f) => feedKindOf(f) === feedTab)
 
-  const hasFilter = q || fType || fStatus || fGarage || fFleet || slaOnly || noPrOnly || conflictOnly || nextFilter || etaOverdueOnly || dateFrom || dateTo
+  const hasFilter = q || fType || fStatus || fGarage || fFleet || fBuyer || slaOnly || noPrOnly || conflictOnly || nextFilter || etaOverdueOnly || dateFrom || dateTo
   function clearFilters() {
-    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setNextFilter(""); setEtaOverdueOnly(false); setDateFrom(""); setDateTo("")
+    setQ(""); setFType(""); setFStatus(""); setFGarage(""); setFFleet(""); setFBuyer(""); setSlaOnly(false); setNoPrOnly(false); setConflictOnly(false); setNextFilter(""); setEtaOverdueOnly(false); setDateFrom(""); setDateTo("")
   }
 
   // วิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง (เฉพาะงานอู่นอกที่ยังไม่ปิด)
@@ -1190,6 +1193,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   let displayRows = rows
   if (slaOnly)  displayRows = displayRows.filter((r) => slaInfo(r)?.over)
   if (noPrOnly) displayRows = displayRows.filter((r) => !r.prCode?.trim())
+  if (fBuyer)   displayRows = displayRows.filter((r) => buyerOfFleet(r.fleet) === fBuyer)
   if (uncheckedOnly) displayRows = displayRows.filter((r) => needsDailyCheck(r) && !checkedToday(r))
   if (conflictOnly) displayRows = displayRows.filter((r) => jobAlertOf(r)?.kind === "update_needed")
   if (nextFilter === "matched")   displayRows = displayRows.filter((r) => nextMatchedIds.has(r._id))
@@ -1576,6 +1580,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
           </div>
           <div className="min-w-[140px] flex-1">
             <FilterCombobox value={fFleet} options={stats.fleetDist.map((f) => f.fleet)} onChange={setFFleet} placeholder="🚚 ทุกฟลีท" />
+          </div>
+          {/* ผู้รับผิดชอบฝั่งจัดซื้อ — กรองจากฟลีทของรถ ไม่ได้เก็บเป็นฟิลด์ในใบงาน */}
+          <div className="min-w-[140px] flex-1">
+            <FilterCombobox value={fBuyer} options={[...BUYERS]} onChange={setFBuyer} placeholder="🧾 จัดซื้อทุกคน" />
           </div>
           {hasFilter && (
             <button onClick={clearFilters} className="inline-flex shrink-0 items-center gap-1 rounded-[11px] border border-[#E2E8E4] dark:border-white/10 px-3.5 py-2.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">

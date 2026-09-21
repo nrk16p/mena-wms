@@ -380,6 +380,22 @@ export const FLEET_OWNER: Record<string, string> = {
   "Acon":               "ติ๊ก",
 }
 export const OWNER_NO_FLEET = "ไม่ระบุผู้รับผิดชอบ"
+
+/* ── ผู้รับผิดชอบฝั่งจัดซื้อ (ผู้ใช้กำหนด 21/09/2569) — คนละชุดกับผู้ดูแลงานซ่อมด้านบน ──
+ * เนส ดูแลฟลีทตามรายการนี้ · ที่เหลือทั้งหมดเป็นของต่าย (รวมใบที่ยังไม่รู้ฟลีท)
+ * ใส่ชื่อย่อที่ทีมเรียก (Asia ML / TN / Kpac) คู่กับค่าจริงในฐานข้อมูลไว้ด้วย
+ */
+export const BUYER_NES = "เนส"
+export const BUYER_TAI = "ต่าย"
+export const BUYERS = [BUYER_NES, BUYER_TAI]
+export const BUYER_NES_FLEETS = [
+  "Asia", "Asia ML", "Asia MS", "TN", "ที.เอ็น.ซีเมนต์บล็อค",
+  "UMO", "Fast", "Acon", "Kpac", "Kpac ML", "จิรโชติ",
+]
+const NES_KEYS = new Set(BUYER_NES_FLEETS.map((f) => f.trim().toLowerCase()))
+/** ฟลีทไหนเป็นของใครฝั่งจัดซื้อ — ไม่ตรงรายการของเนส = ต่ายเสมอ (ไม่มีกลุ่ม "ไม่ระบุ") */
+export const buyerOfFleet = (fleet?: string) =>
+  NES_KEYS.has(String(fleet ?? "").trim().toLowerCase()) ? BUYER_NES : BUYER_TAI
 const OWNER_BY_KEY = new Map(Object.entries(FLEET_OWNER).map(([f, o]) => [f.trim().toLowerCase(), o]))
 export const ownerOfFleet = (fleet?: string) =>
   OWNER_BY_KEY.get(String(fleet ?? "").trim().toLowerCase()) ?? OWNER_NO_FLEET
