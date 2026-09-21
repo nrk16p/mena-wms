@@ -531,8 +531,6 @@ export type DailySummary = {
   deferredUnits: string[]
   /** งานที่ยังไม่ปิดตอนนี้ */
   endOfDay:      number
-  /** ในจำนวนที่ค้าง มีกี่คันที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR */
-  doneNoPr:      number
   byStatus:      { status: string; count: number }[]
   noPr:          { owner: string; count: number; fleets: { fleet: string; units: string[] }[] }[]
   /** งานที่ต้องเร่งตาม = ซ่อมเสร็จแล้ว (รถเสร็จ(ไม่มี PR)) แต่เลยวันกำหนดเสร็จ · ค้างนานสุดขึ้นก่อน */
@@ -570,7 +568,6 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
   L.push(`⏸️ ชะลองานซ่อมวันนี้ : ${s.deferredToday} คัน`)
   if (s.deferredUnits.length) L.push(`   ${s.deferredUnits.join(" / ")}`)
   L.push(`📌 คงค้างสิ้นวัน : ${s.endOfDay} คัน`)
-  L.push(`🏁 ในนี้เสร็จแล้วรอเปิด PR : ${s.doneNoPr} คัน`)
 
   // ยอดค้างลดลงเท่าไหร่ — ตัวเลขที่ทีมดูเป็นอันดับแรกว่าวันนี้ระบายงานได้ไหม
   const diff = s.startOfDay - s.endOfDay

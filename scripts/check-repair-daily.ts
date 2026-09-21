@@ -80,7 +80,7 @@ check("ข้อความมีชื่อ 'คุณ…' + ฟลีทก�
 console.log("ข้อความรายงานสรุปประจำวัน")
 const sum: DailySummary = {
   date: today,
-  startOfDay: 69, openedToday: 2, closedToday: 2, deferredToday: 1, endOfDay: 68, doneNoPr: 17,
+  startOfDay: 69, openedToday: 2, closedToday: 2, deferredToday: 1, endOfDay: 68,
   closedUnits: ["สบ.71-3560", "สบ.71-0001"],
   deferredUnits: ["TH1979 (สบ.71-2875)"],
   byStatus: [
@@ -98,10 +98,11 @@ const text = buildDailySummaryText(sum, { origin: "https://x" })
 check("หัวรายงาน + วันที่แบบไทย", () => {
   assert.match(text, /^📌 รายงานสรุปงานซ่อมอู่นอก ประจำวันที่ 21\/9\/2569/)
 })
-check("ยอดภาพรวมครบ 6 บรรทัด และบวกลบลงตัว", () => {
+check("ยอดภาพรวมครบ 5 บรรทัด และบวกลบลงตัว", () => {
   for (const re of [/🚗 คงค้างต้นวัน : 69 คัน/, /📥 รับแจ้งซ่อมอู่นอกใหม่วันนี้ : 2 คัน/,
                     /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน/, /⏸️ ชะลองานซ่อมวันนี้ : 1 คัน/,
-                    /📌 คงค้างสิ้นวัน : 68 คัน/, /🏁 ในนี้เสร็จแล้วรอเปิด PR : 17 คัน/]) assert.match(text, re)
+                    /📌 คงค้างสิ้นวัน : 68 คัน/]) assert.match(text, re)
+  assert.ok(!text.includes("รอเปิด PR"))
   assert.strictEqual(sum.startOfDay + sum.openedToday - sum.closedToday - sum.deferredToday, sum.endOfDay)
 })
 check("รถที่ปิดวันนี้ลิสต์เฉพาะทะเบียน", () => {

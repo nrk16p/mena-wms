@@ -92,7 +92,6 @@ export async function GET() {
     deferredToday: deferToday.length,
     deferredUnits: deferToday.map(unitWithPlate),
     endOfDay:      active.length,
-    doneNoPr:      active.filter((r) => normalizeStatus(String(r.status ?? "")) === REPAIR_DONE_NO_PR_STATUS).length,
     byStatus,
     noPr,
     urgent: { units: urgent },
