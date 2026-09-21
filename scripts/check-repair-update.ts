@@ -4,7 +4,7 @@
  */
 import assert from "node:assert"
 import {
-  JOB_TYPE_GARAGE, JOB_TYPE_PARTS, UPDATE_NOTE_MIN, validateJobUpdate,
+  JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_CLAIM_DONE_STATUS, UPDATE_NOTE_MIN, validateJobUpdate,
 } from "../lib/repair-external"
 
 let pass = 0
@@ -107,6 +107,32 @@ check("fields ลบค่าที่ใบงานมีอยู่ (PR ว�
   const ready = { ...withEta, poCode: "PO-1", dueDate: "2026-08-20", completedDate: "2026-08-19", prCode: "PR-1" }
   const r = validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: ready, fields: { ...ready, prCode: "" }, fieldsChanged: true })!
   assert.ok(r.missing!.some((m) => m.field === "prCode"))
+})
+
+console.log("ปิดงานแบบเคลมอู่ — อู่รับผิดชอบค่าซ่อม ไม่มี PR/PO")
+check("ชื่อสถานะตรงกับที่ผู้ใช้เห็นบนหน้าเว็บ", () => {
+  assert.strictEqual(REPAIR_CLAIM_DONE_STATUS, "รถเสร็จ(เคลมอู่)")
+})
+check("เคลมอู่: ใส่แค่วันที่ซ่อมเสร็จ → ผ่าน (ไม่บังคับ PR/PO/วันกำหนดเสร็จ/วันรถเข้าอู่)", () => {
+  const fresh = { status: "รอประเมินการซ่อม", jobType: JOB_TYPE_GARAGE }
+  assert.strictEqual(validateJobUpdate({ status: REPAIR_CLAIM_DONE_STATUS, stageEta: "", note, current: fresh, fields: { completedDate: "2026-09-20" }, fieldsChanged: true }), null)
+})
+check("เคลมอู่: ไม่มีวันที่ซ่อมเสร็จ → ไม่ผ่าน + ขาดแค่วันที่ซ่อมเสร็จ", () => {
+  const r = validateJobUpdate({ status: REPAIR_CLAIM_DONE_STATUS, stageEta: "", note, current: garage })!
+  assert.deepStrictEqual(r.missing!.map((m) => m.field), ["completedDate"])
+})
+check("ปิดเคลมอู่แล้วย้อนสถานะกลับ → ไม่ผ่าน (ล็อกเหมือนรถเสร็จ)", () => {
+  const done = { status: REPAIR_CLAIM_DONE_STATUS, jobType: JOB_TYPE_GARAGE, completedDate: "2026-09-20" }
+  assert.match(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: eta, note, current: done })!.error, /ย้อนสถานะ/)
+})
+check("เคลมอู่ไม่ใช่สถานะของงานอะไหล่ลงคัน → ไม่ผ่าน", () => {
+  const parts = { status: "รอดำเนินการ", jobType: JOB_TYPE_PARTS }
+  assert.match(validateJobUpdate({ status: REPAIR_CLAIM_DONE_STATUS, stageEta: eta, note, current: parts })!.error, /ไม่อยู่ในขั้นตอน/)
+})
+check("ของเดิมไม่เปลี่ยน: ปิดเป็น \u201Cรถเสร็จ\u201D ยังบังคับรหัส PR", () => {
+  const almost = { ...garage, poCode: "PO-1", dueDate: "2026-08-20", completedDate: "2026-08-19" }
+  const r = validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: almost })!
+  assert.deepStrictEqual(r.missing!.map((m) => m.field), ["prCode"])
 })
 
 console.log(`\n${pass} ผ่าน${process.exitCode ? " · มีข้อที่ไม่ผ่าน" : " · ครบทุกข้อ"}`)

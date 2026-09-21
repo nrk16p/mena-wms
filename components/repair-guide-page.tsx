@@ -12,7 +12,7 @@ import {
 const COLORS: Record<string, string> = {
   "รอประเมินการซ่อม": "#9ca3af", "รถเข้าอู่ซ่อม": "#3b82f6", "รอใบเสนอราคา": "#06b6d4",
   "รอ PR": "#eab308", "ซ่อมไม่มีกำหนด": "#f97316", "ซ่อมมีกำหนดเสร็จ": "#14b8a6",
-  "รถเสร็จ(ไม่มี PR)": "#84cc16", "รถเสร็จ": "#22c55e",
+  "รถเสร็จ(ไม่มี PR)": "#84cc16", "รถเสร็จ": "#22c55e", "รถเสร็จ(เคลมอู่)": "#6366f1",
 }
 
 function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
@@ -49,7 +49,7 @@ export function RepairGuidePage() {
           <p>ระบบนี้ใช้ติดตามงานซ่อมรถที่ส่งอู่ภายนอก แบ่งเป็น 2 หน้า:</p>
           <ul className="ml-1 space-y-1">
             <li className="flex items-start gap-2"><Wrench size={14} className="mt-0.5 shrink-0 text-[#1B8C4B]" /><span><b>อู่นอก & อะไหล่ลงคัน</b> — งานที่<b>กำลังดำเนินการ</b> (ยังไม่เสร็จ) ทั้งซ่อมอู่นอกและสั่งซื้ออะไหล่ลงคัน</span></li>
-            <li className="flex items-start gap-2"><Flag size={14} className="mt-0.5 shrink-0 text-[#22c55e]" /><span><b>งานเสร็จ</b> — งานที่ปิดแล้ว (สถานะ "รถเสร็จ" / "ลงคันเสร็จ") จะย้ายมาที่นี่อัตโนมัติ</span></li>
+            <li className="flex items-start gap-2"><Flag size={14} className="mt-0.5 shrink-0 text-[#22c55e]" /><span><b>งานเสร็จ</b> — งานที่ปิดแล้ว (สถานะ "รถเสร็จ" / "รถเสร็จ(เคลมอู่)" / "ลงคันเสร็จ") จะย้ายมาที่นี่อัตโนมัติ</span></li>
           </ul>
           <p className="flex flex-wrap items-center gap-2 pt-1">มี 2 มุมมอง สลับได้ที่มุมขวาบน:
             <span className="inline-flex items-center gap-1 rounded-md bg-[#F6FAF7] dark:bg-white/5 px-2 py-0.5 text-xs"><TableIcon size={13} /> ตาราง</span>
@@ -59,7 +59,7 @@ export function RepairGuidePage() {
 
         {/* Workflow สถานะ */}
         <Section icon={Timer} title="ขั้นตอนงาน (Workflow) & เกณฑ์ค้างงาน (SLA)">
-          <p>งานไหลตามสถานะด้านล่าง — แต่ละขั้นมีข้อมูลที่ควรกรอก · เปลี่ยนสถานะกลางได้อิสระ (<b>ไม่มี PR/PO ก็ได้</b>) · จะ<b>บังคับข้อมูลครบก็ต่อเมื่อปิดเป็น "รถเสร็จ"</b> และเตือนเมื่อ<b>ค้างเกินกำหนด</b>:</p>
+          <p>งานไหลตามสถานะด้านล่าง — แต่ละขั้นมีข้อมูลที่ควรกรอก · เปลี่ยนสถานะกลางได้อิสระ (<b>ไม่มี PR/PO ก็ได้</b>) · จะ<b>บังคับข้อมูลครบก็ต่อเมื่อปิดงาน</b> และเตือนเมื่อ<b>ค้างเกินกำหนด</b>:</p>
           <div className="overflow-x-auto">
             <table className="mt-1 w-full min-w-[520px] border-collapse text-[12.5px]">
               <thead>
@@ -99,8 +99,9 @@ export function RepairGuidePage() {
           </div>
           <ul className="mt-1 ml-1 space-y-1">
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↔️</span><span><b>ข้ามสถานะได้อิสระ</b> — สถานะกลางเปลี่ยนได้แม้ยัง<b>ไม่มี PR / PO</b> · <b>รถเสร็จ(ไม่มี PR)</b> = ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ยังไม่ปิดงาน) · ระบบจะ<b>บังคับข้อมูลให้ครบก็ต่อเมื่อปิดเป็น "รถเสร็จ"</b> (ตอนนั้นต้องมีครบทั้ง วันที่รถเข้าซ่อม / PO / วันกำหนดเสร็จ / วันที่ซ่อมเสร็จ / <b>รหัส PR</b>)</span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">🛡️</span><span><b>ปิดงานได้ 2 แบบ</b> — <b>"รถเสร็จ"</b> = ซ่อมโดยจ่ายเงินตามปกติ ต้องมีเอกสารครบถึง<b>รหัส PR</b> · <b>"รถเสร็จ(เคลมอู่)"</b> = อู่รับผิดชอบค่าซ่อมเอง (งานในประกันของอู่) <b>ไม่มี PR/PO</b> ปิดได้เลยจากสถานะไหนก็ได้ ขอแค่<b>วันที่ซ่อมเสร็จ</b> · ทั้งสองแบบย้ายไปหน้า "งานเสร็จ" และหลุดจากรายการตาม PR เหมือนกัน</span></li>
             <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">↩️</span><span><b>ย้อนสถานะกลับได้</b> — ในฟอร์มแก้ไข หัวข้อ "🔄 เส้นทางสถานะ · ประวัติการแก้ไข" มีปุ่ม "ย้อนเป็นสถานะก่อนหน้า"</span></li>
-            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">🔒</span><span><b>"รถเสร็จ" แล้วล็อก</b> — เปลี่ยน/ย้อนสถานะไม่ได้อีก (แก้ฟิลด์อื่นได้)</span></li>
+            <li className="flex items-start gap-2"><span className="mt-0.5 shrink-0">🔒</span><span><b>ปิดงานแล้วล็อก</b> — "รถเสร็จ" / "รถเสร็จ(เคลมอู่)" / "ลงคันเสร็จ" เปลี่ยน/ย้อนสถานะไม่ได้อีก (แก้ฟิลด์อื่นได้)</span></li>
           </ul>
         </Section>
 
@@ -117,7 +118,7 @@ export function RepairGuidePage() {
           </ol>
           <p className="flex items-start gap-2 rounded-lg bg-[#FDF3DD] px-3 py-2 text-[12px] text-[#B07D12]">
             <Clock size={14} className="mt-0.5 shrink-0" />
-            บันทึกสถานะระหว่างทางได้เสมอแม้ข้อมูลไม่ครบ · <b>เฉพาะตอนปิดงาน</b> ("รถเสร็จ" / "ลงคันเสร็จ") ช่องที่ขาดจะ<b>ไฮไลต์สีเหลือง</b>และบันทึกไม่ได้จนกว่าจะครบ
+            บันทึกสถานะระหว่างทางได้เสมอแม้ข้อมูลไม่ครบ · <b>เฉพาะตอนปิดงาน</b> ("รถเสร็จ" / "ลงคันเสร็จ") ช่องที่ขาดจะ<b>ไฮไลต์สีเหลือง</b>และบันทึกไม่ได้จนกว่าจะครบ · ปิดแบบ <b>"รถเสร็จ(เคลมอู่)"</b> ขอแค่วันที่ซ่อมเสร็จ
           </p>
           <p className="flex items-start gap-2"><span className="mt-0.5 shrink-0">🗑</span><span><b>ลบรายการได้จากในฟอร์มเท่านั้น</b> (ปุ่มแดงมุมซ้ายล่าง พร้อมยืนยันก่อนลบ) — ตารางไม่มีปุ่มลบ ป้องกันกดพลาด</span></p>
         </Section>

@@ -8,7 +8,7 @@ import { Plus, X, ChevronLeft, ChevronRight, Trash2, ArrowRight, History, Search
 import { swalDeleteConfirm, swalToast, swalError } from "@/lib/swal"
 import { GarageCombobox, inputCls, type Garage } from "@/components/garage-combobox"
 import { PLAN_STATUSES, PLAN_CONVERTED, planStatusMeta, type RepairPlan } from "@/lib/repair-plan"
-import { jobTypeOf, JOB_TYPE_GARAGE, REPAIR_STATUSES, REPAIR_DONE_STATUS, jobStartDate, statusMeta, type RepairExternal } from "@/lib/repair-external"
+import { jobTypeOf, JOB_TYPE_GARAGE, REPAIR_STATUSES, isDoneStatus, jobStartDate, statusMeta, type RepairExternal } from "@/lib/repair-external"
 import { bkkToday, bkkDate } from "@/lib/bkk-time"
 
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
@@ -23,6 +23,7 @@ const JOB_STATUS_BAR: Record<string, string> = {
   "ซ่อมมีกำหนดเสร็จ":  "bg-teal-500",
   "รถเสร็จ(ไม่มี PR)": "bg-lime-500",
   "รถเสร็จ":          "bg-green-600",
+  "รถเสร็จ(เคลมอู่)":  "bg-indigo-500",
 }
 const jobStatusBar = (status: string) => JOB_STATUS_BAR[status] ?? "bg-gray-300 dark:bg-gray-600"
 
@@ -338,7 +339,7 @@ export function RepairPlanTab({
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10.5px] text-gray-400">สถานะ:</span>
-          {REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS).map((s) => (
+          {REPAIR_STATUSES.filter((s) => !isDoneStatus(s.value)).map((s) => (
             <span key={s.value} className="inline-flex items-center gap-1 text-[10.5px] text-gray-500 dark:text-gray-400">
               <span className={`inline-block h-2.5 w-2.5 rounded-sm ${jobStatusBar(s.value)}`} /> {s.value}
             </span>

@@ -14,6 +14,10 @@ export const REPAIR_STATUSES: RepairStatus[] = [
   { value: "ซ่อมมีกำหนดเสร็จ",  emoji: "✅", cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300" },
   { value: "รถเสร็จ(ไม่มี PR)", emoji: "🏁", cls: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300" },
   { value: "รถเสร็จ",          emoji: "🏁", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" },
+  // ปิดงานแบบเคลมอู่ — อู่รับผิดชอบค่าซ่อมเอง ไม่มีการจัดซื้อ จึงไม่มี PR/PO ให้กรอก
+  // วางท้ายสุดของ workflow ตั้งใจ: requiredFieldsFor() สะสมฟิลด์ตามลำดับขั้น ถ้าแทรกไว้ก่อน
+  // "รถเสร็จ" จะทำให้เงื่อนไขปิดงานปกติเปลี่ยนไปด้วย
+  { value: "รถเสร็จ(เคลมอู่)", emoji: "🛡️", cls: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" },
 ]
 
 export const REPAIR_STATUS_VALUES = REPAIR_STATUSES.map((s) => s.value)
@@ -32,6 +36,11 @@ export const normalizeStatus = (s: string) => {
 
 // สถานะ "รถเสร็จ" = ปิดงาน — แยกไปหน้า "รถซ่อมเสร็จ" ส่วนที่เหลือคือ "รถซ่อมอู่นอก"
 export const REPAIR_DONE_STATUS = "รถเสร็จ"
+
+// ปิดงานแบบ "เคลมอู่" = อู่รับผิดชอบค่าซ่อม (งานในประกันของอู่) ไม่มี PR/PO ในระบบจัดซื้อ
+// เป็นสถานะปิดงานเต็มตัวเหมือน "รถเสร็จ" (ย้ายไปหน้ารถซ่อมเสร็จ + ล็อกห้ามย้อน)
+// ต่างกันที่ฟิลด์บังคับ — ดู requiredFieldsFor()
+export const REPAIR_CLAIM_DONE_STATUS = "รถเสร็จ(เคลมอู่)"
 
 // ── ประเภทงาน: อู่นอก (ซ่อมอู่ภายนอก) | อะไหล่ลงคัน (สั่งซื้ออะไหล่มาลงคัน) ──
 // เอกสารเก่าที่ไม่มี field jobType = อู่นอก
@@ -55,7 +64,7 @@ export const PARTS_STATUSES: RepairStatus[] = [
 export const PARTS_DONE_STATUS = "ลงคันเสร็จ"
 
 // สถานะปิดงานของทั้ง 2 ประเภท — ใช้แยก active/done ทุกจุด (list, stats, sync, กันซ้ำ)
-export const DONE_STATUSES = [REPAIR_DONE_STATUS, PARTS_DONE_STATUS]
+export const DONE_STATUSES = [REPAIR_DONE_STATUS, REPAIR_CLAIM_DONE_STATUS, PARTS_DONE_STATUS]
 export const isDoneStatus = (s: string) => DONE_STATUSES.includes(s)
 
 /**
@@ -223,6 +232,8 @@ export const REPAIR_STATUS_REQUIRED_FIELD: Record<string, { field: RepairField; 
   "ซ่อมมีกำหนดเสร็จ": { field: "dueDate",       label: "วันกำหนดเสร็จ" },
   "รถเสร็จ(ไม่มี PR)": { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
   "รถเสร็จ":          { field: "prCode",        label: "รหัส PR" },  // ปิดงานสมบูรณ์ต้องมี PR (completedDate สะสมมาจากขั้นก่อน)
+  // เคลมอู่: ไม่มี PR/PO ให้กรอก — ขอแค่วันที่ซ่อมเสร็จ (ไม่สะสมฟิลด์ขั้นก่อน ดู requiredFieldsFor)
+  "รถเสร็จ(เคลมอู่)":   { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
   // อะไหล่ลงคัน
   "สั่งซื้อแล้ว-รอของ": { field: "dueDate",        label: "กำหนดของถึง" },
   "ลงคันเสร็จ":        { field: "completedDate",  label: "วันที่ลงคันเสร็จ" },
@@ -234,6 +245,12 @@ export const REPAIR_LOCKED_STATUS = "รถเสร็จ"
 // ฟิลด์ที่ต้องกรอก "สะสม" ถึงสถานะเป้าหมาย — รวมของทุกสถานะก่อนหน้าใน workflow ของประเภทนั้น
 // (ข้ามสถานะได้ก็ต่อเมื่อกรอกข้อมูลของสถานะที่ข้ามครบ)
 export function requiredFieldsFor(status: string, jobType: string = JOB_TYPE_GARAGE): { field: RepairField; label: string }[] {
+  // เคลมอู่ = ปิดงานโดยไม่ผ่านสายจัดซื้อ จึงไม่สะสมฟิลด์ของขั้นก่อน (ไม่มี PR/PO/วันกำหนดเสร็จ)
+  // ปิดจากสถานะไหนก็ได้ ขอแค่รู้ว่าซ่อมเสร็จวันไหน
+  if (status === REPAIR_CLAIM_DONE_STATUS) {
+    const req = REPAIR_STATUS_REQUIRED_FIELD[REPAIR_CLAIM_DONE_STATUS]
+    return req ? [req] : []
+  }
   const flow = statusesFor(jobType)
   const idx  = flow.findIndex((s) => s.value === status)
   if (idx < 0) return []
@@ -416,6 +433,7 @@ const WMS_STATUS_STAGE: Record<string, number> = {
   "ซ่อมไม่มีกำหนด": 4,
   "รถเสร็จ(ไม่มี PR)": 5,
   "รถเสร็จ": 5,
+  "รถเสร็จ(เคลมอู่)": 5,
 }
 
 /** 0 = ไม่รู้จัก/เทียบไม่ได้ */
@@ -538,7 +556,8 @@ export function validateJobUpdate(input: JobUpdateInput): JobUpdateError | null 
   if (etaErr) return { error: etaErr }
 
   // ปิดงานต้องมีข้อมูลครบ — สถานะกลางไม่บังคับ (ยังไม่มี PR/PO ได้)
-  if (status === doneStatusFor(jobType)) {
+  // ใช้ isDoneStatus ไม่ใช่ doneStatusFor เพราะอู่นอกมีสถานะปิดงาน 2 แบบ (รถเสร็จ / เคลมอู่)
+  if (isDoneStatus(status)) {
     const missing = requiredFieldsFor(status, jobType)
       .filter((f) => !String(merged[f.field] ?? "").trim())
     if (missing.length) {

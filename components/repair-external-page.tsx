@@ -11,9 +11,7 @@ import type { SkuImage } from "@/lib/media"
 import {
   REPAIR_STATUSES,
   REPAIR_STATUS_VALUES,
-  REPAIR_DONE_STATUS,
   PARTS_STATUSES,
-  PARTS_DONE_STATUS,
   JOB_TYPE_GARAGE,
   JOB_TYPE_PARTS,
   jobTypeOf,
@@ -46,8 +44,8 @@ import { bkkToday, bkkDate as bkkDateOf, daysSince } from "@/lib/bkk-time"
 
 type Mode = "active" | "done"
 // สถานะที่เลือกได้ในตัวกรอง (ตัดสถานะปิดงานออก) — แยกต่อประเภทงาน
-const ACTIVE_STATUSES       = REPAIR_STATUSES.filter((s) => s.value !== REPAIR_DONE_STATUS)
-const PARTS_ACTIVE_STATUSES = PARTS_STATUSES.filter((s) => s.value !== PARTS_DONE_STATUS)
+const ACTIVE_STATUSES       = REPAIR_STATUSES.filter((s) => !isDoneStatus(s.value))
+const PARTS_ACTIVE_STATUSES = PARTS_STATUSES.filter((s) => !isDoneStatus(s.value))
 // รถซ่อมเสร็จแล้วแต่ยังไม่ได้เปิด PR — กลุ่มที่ต้องไล่ตามเป็นประจำ จึงมีปุ่มคัดลอกรายชื่อของตัวเอง
 const DONE_NO_PR_STATUS = "รถเสร็จ(ไม่มี PR)"
 
@@ -61,6 +59,7 @@ const BAR_COLORS: Record<string, string> = {
   "ซ่อมมีกำหนดเสร็จ":  "#14b8a6",
   "รถเสร็จ(ไม่มี PR)": "#84cc16",
   "รถเสร็จ":          "#22c55e",
+  "รถเสร็จ(เคลมอู่)":  "#6366f1",
   // อะไหล่ลงคัน
   "รอดำเนินการ":      "#9ca3af",
   "สั่งซื้อแล้ว-รอของ": "#f97316",
@@ -1019,7 +1018,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (etaErr) { fail(etaErr); return }
     }
     // บังคับกรอกให้ครบ "เฉพาะตอนปิดงาน" (รถเสร็จ/ลงคันเสร็จ — สถานะกลางไม่มี PR/PO ได้)
-    if (form.status === doneStatusFor(jobTypeOf(form))) {
+    if (isDoneStatus(form.status)) {
       const missing = requiredFieldsFor(form.status, jobTypeOf(form)).filter((r) => !String(form[r.field] ?? "").trim())
       if (missing.length) {
         fail(`ปิดงานเป็น “${form.status}” ต้องกรอกให้ครบก่อน: ${missing.map((m) => m.label).join(" · ")}`)
@@ -1260,7 +1259,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // วันคาดที่ยังไม่ได้ตอบ — ใช้ทั้งไฮไลต์ช่องกรอกและกันบันทึก
   const stageEtaMissing = stageEtaRequired(form.status) && !form.stageEta.trim()
   // บังคับกรอกข้อมูลครบ "เฉพาะตอนจะปิดงาน" — สถานะกลางไม่บังคับ (ไม่มี PR/PO ได้)
-  const reqFields    = form.status === doneStatusFor(formJobType) ? requiredFieldsFor(form.status, formJobType) : []
+  const reqFields    = isDoneStatus(form.status) ? requiredFieldsFor(form.status, formJobType) : []
   const reqFieldSet  = new Set(reqFields.map((r) => r.field))
   const missingReq   = reqFields.filter((r) => !String(form[r.field] ?? "").trim())
   const isReq = (f: RepairField) => reqFieldSet.has(f)
