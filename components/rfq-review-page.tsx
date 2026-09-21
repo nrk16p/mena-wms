@@ -10,6 +10,7 @@ import { bkkToday } from "@/lib/bkk-time"
 import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, isCustomJob, isAnswered, jobCost, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
 import { mitr } from "@/components/vendor-shared"
 import { thDate, thDateTime } from "@/components/rfq-vendor-shared"
+import { RfqExcelBox } from "@/components/rfq-excel-box"
 
 type Data = { invite: RfqInvite; jobs: RfqJob[]; parts: RfqPart[] }
 const fmt = (n: number | null | undefined) => n == null ? "" : n.toLocaleString("th-TH")
@@ -88,6 +89,11 @@ export function RfqReviewPage({ id }: { id: string }) {
           {!approver && <span style={{ fontSize: 12, color: "#9AA8A0", alignSelf: "center" }}>ยืนยันได้เฉพาะแอดมินและผู้อนุมัติอู่</span>}
         </div>
       )}
+      {/* อู่ส่งไฟล์มาทางไลน์/อีเมล — จัดซื้ออัปโหลดแทนได้ (log บันทึกชื่อเจ้าหน้าที่) */}
+      <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 14, marginBottom: 12 }}>
+        <RfqExcelBox templateHref={`/api/q/${inv.token}/template`} importHref={`/api/rfq/${id}/import`} onSaved={() => void fetchData().then(apply)}
+          title="กรอกผ่าน Excel (อัปโหลดแทนอู่)" hint="โหลดเทมเพลตของใบนี้ส่งให้อู่ หรืออัปโหลดไฟล์ที่อู่ส่งกลับมา · ช่องที่เว้นว่างในไฟล์จะไม่ถูกแก้" />
+      </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
         {inv.sections.includes("labour") && <Tab on={tab === "labour"} onClick={() => setTab("labour")} label={`ค่าแรง ${pg.labour.done}/${pg.labour.total} · อัตรา ${pg.rates.done}/${pg.rates.total}`} color="#1B8C4B" />}
         {inv.sections.includes("parts") && <Tab on={tab === "parts"} onClick={() => setTab("parts")} label={`อะไหล่ ${pg.parts.done}/${pg.parts.total}`} color="#1D4ED8" />}

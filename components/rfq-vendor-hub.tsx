@@ -7,11 +7,12 @@ import { ArrowRight, Building2, Check, Package, Wrench } from "lucide-react"
 import { progress } from "@/lib/rfq-core"
 import { BRAND } from "@/lib/vendor-brand"
 import { useInvite, V, VendorHeader, StatusNotice, StatusBadge, daysLeft, thDate, type PublicInvite } from "@/components/rfq-vendor-shared"
+import { RfqExcelBox } from "@/components/rfq-excel-box"
 
 type Part = { key: string; href: string; icon: ReactNode; title: string; desc: string; done: number; total: number; label: string }
 
 export function RfqVendorHub({ token }: { token: string }) {
-  const { data, loading, error, reload, setLocal } = useInvite(token)
+  const { data, loading, error, reload, refresh, setLocal } = useInvite(token)
   if (loading) return <div style={V.page}><div style={V.muted}>กำลังโหลด…</div></div>
   if (error || !data) return <div style={V.page}><div style={{ ...V.card, color: "#B91C1C" }}>{error || "โหลดไม่สำเร็จ"}</div></div>
   const { invite, jobs, parts } = data
@@ -35,6 +36,9 @@ export function RfqVendorHub({ token }: { token: string }) {
       <Stepper steps={[...sections.map((s) => ({ label: s.title, done: s.done, total: s.total })), { label: "ส่งใบเสนอราคา", done: submitted ? 1 : 0, total: 1 }]} />
       <div style={{ ...V.card, padding: 0 }}>
         {sections.map((s, i) => <SectionRow key={s.key} part={s} last={i === sections.length - 1} ro={!invite.canWrite} />)}
+      </div>
+      <div style={V.card}>
+        <RfqExcelBox templateHref={`/api/q/${token}/template`} importHref={`/api/q/${token}/import`} disabled={!invite.canWrite} onSaved={() => void refresh()} />
       </div>
       {invite.canWrite && <SubmitBox token={token} invite={invite} blank={blank} onDone={reload} />}
       <div style={{ ...V.muted, marginTop: 8, textAlign: "center" }}>ระบบที่ขอราคา: {invite.sheets.join(" · ")}</div>

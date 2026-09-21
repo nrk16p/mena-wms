@@ -71,7 +71,7 @@ export type RfqInvite = {
   confirm: RfqConfirm | null; returnNote: string
   createdBy: { name: string; email: string }; createdAt: string; updatedAt: string
 }
-export type RfqLogAction = "create" | "open" | "contact" | "submit" | "confirm" | "return" | "cancel" | "extend"
+export type RfqLogAction = "create" | "open" | "contact" | "submit" | "confirm" | "return" | "cancel" | "extend" | "import"
 export type RfqLogEntry = {
   inviteId: string; action: RfqLogAction; from?: string; to?: string
   by: string; byEmail: string; note?: string; at: Date

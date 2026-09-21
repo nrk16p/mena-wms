@@ -64,8 +64,12 @@ export function useInvite(token: string) {
     catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setLoading(false) }
   }, [fetchData])
+  // โหลดใหม่เงียบ ๆ ไม่ตั้ง loading — ใช้หลังนำเข้า Excel เพื่อไม่ให้หน้าถูก unmount (ข้อความ "บันทึกแล้ว" จะหาย)
+  const refresh = useCallback(async () => {
+    try { setData(await fetchData()) } catch { /* คงข้อมูลเดิมไว้ ผู้ใช้กดใหม่ได้ */ }
+  }, [fetchData])
   const setLocal = useCallback((fn: (d: Data) => Data) => setData((d) => (d ? fn(d) : d)), [])
-  return { data, loading, error, reload, setLocal }
+  return { data, loading, error, reload, refresh, setLocal }
 }
 
 export function useAutosave(token: string) {

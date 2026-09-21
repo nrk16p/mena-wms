@@ -4,10 +4,12 @@ import clientPromise from "@/lib/mongo"
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   newToken, effectiveStatus, canTransition, canVendorWrite, progress, SVC_SHEET, SHEET_ORDER, RETIRED_JOB_CODES,
+  validateAnswer, validatePartAnswer, validateRate,
   type RfqInvite, type RfqJob, type RfqPart, type RfqAnswer, type RfqPartAnswer, type RfqRate, type RfqContact,
   type RfqLogEntry, type RfqSection, type EffectiveStatus, type RfqProfile,
 } from "@/lib/rfq-core"
 import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
+import type { ImportResult } from "@/lib/rfq-import"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 export const INVITE_COLL = "rfq_invites"
@@ -166,6 +168,24 @@ export async function saveAnswers(token: string, items: Record<string, RfqAnswer
   for (const [k, v] of Object.entries(parts)) $set[`parts.${k}`] = v   // key มี "|" ใช้เป็นชื่อฟิลด์ได้ (ห้ามมี "." และ "$")
   for (const [k, v] of Object.entries(rates)) $set[`rates.${k}`] = v   // key = รหัสชีต
   await col.updateOne({ token }, { $set })
+}
+
+/** กรอกผ่าน Excel: ตรวจค่าที่อ่านจากไฟล์ด้วย validator ชุดเดียวกับฟอร์ม แล้วบันทึกทีเดียว + ลง log
+ *  by = อู่ (ผ่านลิงก์) หรือชื่อเจ้าหน้าที่จัดซื้อที่อัปโหลดแทน */
+export async function applyImport(token: string, r: ImportResult, by: { name: string; email: string }): Promise<{ rates: number; items: number; parts: number }> {
+  const items: Record<string, RfqAnswer> = {}, parts: Record<string, RfqPartAnswer> = {}, rates: Record<string, RfqRate> = {}
+  const errs: string[] = []
+  for (const [k, v] of Object.entries(r.items)) { const a = validateAnswer(v); if (typeof a === "string") errs.push(`${k}: ${a}`); else items[k] = a }
+  for (const [k, v] of Object.entries(r.parts)) { const a = validatePartAnswer(v); if (typeof a === "string") errs.push(`${k}: ${a}`); else parts[k] = a }
+  for (const [k, v] of Object.entries(r.rates)) { const a = validateRate(v); if (typeof a === "string") errs.push(`อัตรา ${k}: ${a}`); else rates[k] = a }
+  if (errs.length) throw new Error(`400:${errs.slice(0, 5).join(" · ")}${errs.length > 5 ? ` (และอีก ${errs.length - 5} ข้อ)` : ""}`)
+  const before = await getInviteByToken(token)
+  if (!before) throw new Error("404:ไม่พบลิงก์")
+  await saveAnswers(token, items, parts, rates)
+  const n = { rates: Object.keys(rates).length, items: Object.keys(items).length, parts: Object.keys(parts).length }
+  await writeLog([{ inviteId: String(before._id), action: "import", by: by.name, byEmail: by.email, at: new Date(),
+    note: `นำเข้าจาก Excel — อัตรา ${n.rates} ระบบ · ค่าแรง ${n.items} งาน · อะไหล่ ${n.parts} รายการ` }])
+  return n
 }
 
 export async function saveProfile(token: string, p: Omit<RfqProfile, "at">): Promise<RfqProfile> {
