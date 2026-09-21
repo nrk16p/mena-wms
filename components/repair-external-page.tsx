@@ -498,11 +498,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   const loadStats = useCallback(async () => {
     try {
-      const res  = await fetch(`/api/repair-external/stats?scope=${mode}${fType ? `&type=${encodeURIComponent(fType)}` : ""}`)
+      const res  = await fetch(`/api/repair-external/stats?scope=${mode}${fType ? `&type=${encodeURIComponent(fType)}` : ""}${fBuyer ? `&buyer=${encodeURIComponent(fBuyer)}` : ""}`)
       const data = await res.json()
       setStats(data && typeof data === "object" && data.counts ? data : { counts: {}, total: 0, overdue: 0, slaBreached: 0, noPr: 0, avgDays: 0, avgByStatus: {}, agingBuckets: { lt8: 0, d8_14: 0, gte15: 0 }, fleetDist: [], garageDist: [], garageDupes: [] })
     } catch { /* ignore */ }
-  }, [mode, fType])
+  }, [mode, fType, fBuyer])
 
   const loadFleets = useCallback(async () => {
     try {

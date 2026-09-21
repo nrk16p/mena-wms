@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
+import { BUYER_NES, BUYER_NES_FLEETS, BUYER_TAI, DONE_STATUSES, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_STATUS_SLA_DAYS } from "@/lib/repair-external"
 import { bkkToday, bkkDaysAgo, daysSince } from "@/lib/bkk-time"
 import { jobStartDate, groupSimilarGarages, buildNoPrByOwner } from "@/lib/repair-external"
 import { loadNoPrRows } from "@/lib/repair-nopr-db"
@@ -11,11 +11,12 @@ const daysAgo = (n: number): string => bkkDaysAgo(n)
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
 
-// GET /api/repair-external/stats?scope=active|done&type=อู่นอก|อะไหล่ลงคัน
-// นับจำนวนต่อสถานะ (ตาม scope/type) + total + overdue (เลยกำหนดและยังไม่เสร็จ)
+// GET /api/repair-external/stats?scope=active|done&type=อู่นอก|อะไหล่ลงคัน&buyer=เนส|ต่าย
+// นับจำนวนต่อสถานะ (ตาม scope/type/ผู้รับผิดชอบจัดซื้อ) + total + overdue (เลยกำหนดและยังไม่เสร็จ)
 export async function GET(req: NextRequest) {
   const scope = req.nextUrl.searchParams.get("scope")?.trim() ?? ""
   const type  = req.nextUrl.searchParams.get("type")?.trim()  ?? ""
+  const buyer = req.nextUrl.searchParams.get("buyer")?.trim() ?? ""
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const match: Record<string, any> =
@@ -24,6 +25,10 @@ export async function GET(req: NextRequest) {
   // เอกสารเก่าไม่มี jobType = อู่นอก
   if (type === JOB_TYPE_PARTS)       match.jobType = JOB_TYPE_PARTS
   else if (type === JOB_TYPE_GARAGE) match.jobType = { $ne: JOB_TYPE_PARTS }
+  // ผู้รับผิดชอบฝั่งจัดซื้อแบ่งจากฟลีทของรถ — ต่าย = ทุกฟลีทที่ไม่ใช่ของเนส (รวมใบที่ไม่มีฟลีท
+  // ซึ่ง $nin จับให้อยู่แล้ว) · การ์ดสถานะ/ตัวเลขสรุปทั้งหน้าจึงขยับตามตัวกรองนี้ด้วย
+  if (buyer === BUYER_NES)      match.fleet = { $in: BUYER_NES_FLEETS }
+  else if (buyer === BUYER_TAI) match.fleet = { $nin: BUYER_NES_FLEETS }
 
   const client = await clientPromise
   const col    = client.db(DB).collection(COLL)
