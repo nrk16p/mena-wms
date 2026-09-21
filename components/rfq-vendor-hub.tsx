@@ -174,7 +174,7 @@ function SubmitBox({ token, invite, blank, onDone }: { token: string; invite: Pu
       {err && <div style={{ color: "#B91C1C", fontSize: 13, marginTop: 10 }}>{err}</div>}
       {/* ชื่อปุ่มตามที่ผู้ใช้กำหนด (2026-09-18) — ยาว จึงให้ขึ้น 2 บรรทัด ไทยบน อังกฤษล่าง */}
       <button style={{ ...V.btnPrimary, marginTop: 16, maxWidth: 480, marginLeft: "auto", display: "block", borderRadius: 28, lineHeight: 1.35, padding: "12px 24px", opacity: !ack || busy ? .45 : 1 }} disabled={!ack || busy} onClick={() => void submit()}>
-        ข้อตกลงอัตราค่าซ่อมและชั่วโมงแรงงานมาตรฐาน
+        ยืนยันข้อตกลงอัตราค่าซ่อมและชั่วโมงแรงงานมาตรฐาน
         <span style={{ display: "block", fontSize: 12.5, fontWeight: 400, opacity: .85 }}>Standard Repair Rate &amp; Labor Time Agreement</span>
       </button>
     </div>
