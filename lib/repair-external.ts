@@ -512,10 +512,12 @@ export type DailySummary = {
   openedToday:   number
   /** ปิดเป็น "รถเสร็จ" หรือ "รถเสร็จ(เคลมอู่)" วันนี้ (นับจากวันที่สถานะเปลี่ยน ไม่ใช่ช่องวันที่ซ่อมเสร็จ) */
   closedToday:   number
-  /** เบอร์รถ (ทะเบียน) ของคันที่ปิดวันนี้ — ทีมขอให้ลิสต์ไว้ในรายงาน */
+  /** ทะเบียนรถที่ปิดวันนี้ (ทีมขอเฉพาะทะเบียน ไม่เอาเบอร์รถ) */
   closedUnits:   string[]
   /** ชะลองานซ่อมวันนี้ — ออกจากคิวเหมือนกัน ต้องพิมพ์ด้วยยอดถึงจะบวกลบลงตัว */
   deferredToday: number
+  /** "เบอร์รถ (ทะเบียน)" ของคันที่ชะลอวันนี้ — ทีมขอให้เห็นทั้งสองอย่าง */
+  deferredUnits: string[]
   /** งานที่ยังไม่ปิดตอนนี้ */
   endOfDay:      number
   /** ในจำนวนที่ค้าง มีกี่คันที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR */
@@ -555,6 +557,7 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
   if (s.closedUnits.length) L.push(`   ${s.closedUnits.join(" / ")}`)
   // พิมพ์เสมอแม้เป็น 0 — ต้นวัน + ใหม่ − เสร็จ − ชะลอ = สิ้นวัน คนอ่านบวกลบตามได้ครบ
   L.push(`⏸️ ชะลองานซ่อมวันนี้ : ${s.deferredToday} คัน`)
+  if (s.deferredUnits.length) L.push(`   ${s.deferredUnits.join(" / ")}`)
   L.push(`📌 คงค้างสิ้นวัน : ${s.endOfDay} คัน`)
   L.push(`🏁 ในนี้เสร็จแล้วรอเปิด PR : ${s.doneNoPr} คัน`)
 

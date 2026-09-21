@@ -81,7 +81,8 @@ console.log("ข้อความรายงานสรุปประจำ�
 const sum: DailySummary = {
   date: today,
   startOfDay: 69, openedToday: 2, closedToday: 2, deferredToday: 1, endOfDay: 68, doneNoPr: 17,
-  closedUnits: ["PU09 (สบ.71-3560)", "ME037 (สบ.71-0001)"],
+  closedUnits: ["สบ.71-3560", "สบ.71-0001"],
+  deferredUnits: ["TH1979 (สบ.71-2875)"],
   byStatus: [
     { status: "รอประเมินการซ่อม", count: 0 },
     { status: "รถเข้าอู่ซ่อม", count: 20 },
@@ -103,12 +104,15 @@ check("ยอดภาพรวมครบ 6 บรรทัด และบว
                     /📌 คงค้างสิ้นวัน : 68 คัน/, /🏁 ในนี้เสร็จแล้วรอเปิด PR : 17 คัน/]) assert.match(text, re)
   assert.strictEqual(sum.startOfDay + sum.openedToday - sum.closedToday - sum.deferredToday, sum.endOfDay)
 })
-check("ลิสต์รถที่ปิดวันนี้ใต้บรรทัดซ่อมเสร็จ", () => {
-  assert.match(text, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน\n {3}PU09 \(สบ\.71-3560\) \/ ME037 \(สบ\.71-0001\)/)
+check("รถที่ปิดวันนี้ลิสต์เฉพาะทะเบียน", () => {
+  assert.match(text, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 2 คัน\n {3}สบ\.71-3560 \/ สบ\.71-0001/)
 })
-check("วันที่ไม่มีรถปิด ไม่ต้องมีบรรทัดรายชื่อ", () => {
-  const none = buildDailySummaryText({ ...sum, closedToday: 0, closedUnits: [] }, { origin: "" })
-  assert.match(none, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 0 คัน\n⏸️/)
+check("รถที่ชะลอวันนี้ลิสต์ทั้งเบอร์รถและทะเบียน", () => {
+  assert.match(text, /⏸️ ชะลองานซ่อมวันนี้ : 1 คัน\n {3}TH1979 \(สบ\.71-2875\)/)
+})
+check("วันที่ไม่มีรถปิด/ชะลอ ไม่ต้องมีบรรทัดรายชื่อ", () => {
+  const none = buildDailySummaryText({ ...sum, closedToday: 0, closedUnits: [], deferredToday: 0, deferredUnits: [] }, { origin: "" })
+  assert.match(none, /✅ ซ่อมเสร็จส่งมอบวันนี้ : 0 คัน\n⏸️ ชะลองานซ่อมวันนี้ : 0 คัน\n📌/)
 })
 check("Backlog ลดเมื่อต้นวันมากกว่าสิ้นวัน", () => {
   assert.match(text, /📊 Backlog ลด : 1 คัน/)

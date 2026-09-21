@@ -18,7 +18,9 @@ type Row = {
   prCode?: string; dueDate?: string; createdAt?: Date | string; statusSince?: string
 }
 const unitOf = (r: Row) => (String(r.fleetNo ?? "").trim() || String(r.plate ?? "").trim() || "-")
-/** "PU09 (สบ.71-3560)" — ใช้ในรายการรถที่ปิดวันนี้ ทีมอ่านทั้งเบอร์รถและทะเบียน */
+/** ทะเบียนล้วน — รายการรถที่ปิดวันนี้ (ทีมขอเฉพาะทะเบียน) */
+const plateOf = (r: Row) => (String(r.plate ?? "").trim() || String(r.fleetNo ?? "").trim() || "-")
+/** "TH1979 (สบ.71-2875)" — รายการรถที่ชะลอ ทีมขอทั้งเบอร์รถและทะเบียน */
 const unitWithPlate = (r: Row) => {
   const no = String(r.fleetNo ?? "").trim(), plate = String(r.plate ?? "").trim()
   if (no && plate) return `${no} (${plate})`
@@ -85,8 +87,9 @@ export async function GET() {
     startOfDay,
     openedToday,
     closedToday:   closedToday.length,
-    closedUnits:   closedToday.map(unitWithPlate),
+    closedUnits:   closedToday.map(plateOf),
     deferredToday: deferToday.length,
+    deferredUnits: deferToday.map(unitWithPlate),
     endOfDay:      active.length,
     doneNoPr:      active.filter((r) => r.status === REPAIR_DONE_NO_PR_STATUS).length,
     byStatus,
