@@ -584,7 +584,7 @@ export default function SafetyStockPage() {
   const [groups, setGroups] = useState<string[]>([])
   const [locs, setLocs] = useState<string[]>([])
   const [onlyCovered, setOnlyCovered] = useState(false)
-  const [statuses, setStatuses] = useState<Status[]>(["out", "below_rop"])
+  const [statuses, setStatuses] = useState<Status[]>([]) // ว่าง = แสดงทุกสถานะ (ผู้ใช้สั่งเอาตัวกรองอัตโนมัติออก — ค้นรหัสแล้วต้องเจอเสมอ)
   const [win, setWin] = useState<WindowKey>(DEFAULT_WINDOW)
   const [service, setService] = useState(95)
   const [selectedRow, setSelectedRow] = useState<SnapshotRow | null>(null)
@@ -613,7 +613,7 @@ export default function SafetyStockPage() {
     setGroups([])
     setLocs([])   // ชื่อสถานที่คนละชุดกันคนละคลัง (ลาดกระบัง "B1-1" · สระบุรี "Shelf 4/B")
     setOnlyCovered(false)
-    setStatuses(["out", "below_rop"])
+    setStatuses([])
     setWarehouseId(id)
   }
 
