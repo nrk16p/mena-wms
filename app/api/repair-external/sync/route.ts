@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
-import { DONE_STATUSES, isDoneStatus, JOB_TYPE_GARAGE, JOB_TYPE_PARTS } from "@/lib/repair-external"
+import { DONE_STATUSES, isDoneStatus, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, openJobConflictFilter } from "@/lib/repair-external"
 import { REPAIR_LOG_COLL, diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { buildDoc, validateStatus } from "../route"
 import { bkkToday, bkkTimestamps } from "@/lib/bkk-time"
@@ -153,13 +153,12 @@ export async function POST(req: NextRequest) {
   const db     = client.db(DB)
   const col    = db.collection(COLL)
 
-  // กันซ้ำ: รถ 1 คัน (ทะเบียนหรือเบอร์รถตรงกัน) มีรายการไม่เสร็จได้ 1 รายการ
-  if (!isDoneStatus(doc.status)) {
-    const or: Record<string, string>[] = [{ plate: doc.plate }]
-    if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
-    const dup = await col.findOne({ status: { $nin: DONE_STATUSES }, $or: or })
+  // กันซ้ำ: งานอู่นอก 1 คัน 1 ใบที่ยังไม่ปิด · อะไหล่ลงคันเปิดซ้ำคันได้
+  const conflict = isDoneStatus(doc.status) ? null : openJobConflictFilter(doc)
+  if (conflict) {
+    const dup = await col.findOne(conflict)
     if (dup) {
-      return NextResponse.json({ ok: false, error: `รถคันนี้มีรายการ (${dup.jobType || "อู่นอก"}) ที่ยังไม่เสร็จอยู่แล้ว`, existingId: String(dup._id) }, { status: 409 })
+      return NextResponse.json({ ok: false, error: `รถคันนี้มีใบงานอู่นอกที่ยังไม่ปิดอยู่แล้ว`, existingId: String(dup._id) }, { status: 409 })
     }
   }
 
@@ -201,12 +200,11 @@ async function updateRecord(req: NextRequest, partial: boolean) {
     return NextResponse.json({ ok: false, error: "รายการที่ปิดงานแล้ว ย้อนสถานะกลับไม่ได้" }, { status: 409 })
   }
 
-  // กันซ้ำเหมือนหน้าเว็บ
+  // กันซ้ำเหมือนหน้าเว็บ — เฉพาะงานอู่นอก
   if (!isDoneStatus(doc.status)) {
-    const or: Record<string, string>[] = [{ plate: doc.plate }]
-    if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
-    const dup = await col.findOne({ _id: { $ne: _id }, status: { $nin: DONE_STATUSES }, $or: or })
-    if (dup) return NextResponse.json({ ok: false, error: "รถคันนี้มีรายการอื่นที่ยังไม่เสร็จอยู่แล้ว", existingId: String(dup._id) }, { status: 409 })
+    const conflict = openJobConflictFilter(doc)
+    const dup = conflict ? await col.findOne({ ...conflict, _id: { $ne: _id } }) : null
+    if (dup) return NextResponse.json({ ok: false, error: "รถคันนี้มีใบงานอู่นอกที่ยังไม่ปิดอยู่แล้ว", existingId: String(dup._id) }, { status: 409 })
   }
 
   const changes = diffRepair(existing, doc)

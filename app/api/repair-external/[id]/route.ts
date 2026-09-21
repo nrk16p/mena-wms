@@ -6,7 +6,7 @@ import clientPromise from "@/lib/mongo"
 import { buildDoc } from "../route"
 import { diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
-import { DONE_STATUSES, isDoneStatus } from "@/lib/repair-external"
+import { isDoneStatus, openJobConflictFilter } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -43,14 +43,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "รายการที่ปิดงานแล้ว ย้อนสถานะกลับไม่ได้" }, { status: 409 })
   }
 
-  // กันซ้ำ: ถ้าผลลัพธ์ยัง "ไม่เสร็จ" ต้องไม่มีรายการอื่น (ทะเบียนหรือเบอร์รถตรงกัน) ที่ยังไม่เสร็จ — นับรวมทุกประเภท
-  if (!isDoneStatus(doc.status)) {
-    const or: Record<string, string>[] = [{ plate: doc.plate }]
-    if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
-    const dup = await col.findOne({ _id: { $ne: new ObjectId(id) }, status: { $nin: DONE_STATUSES }, $or: or })
+  // กันซ้ำ: เฉพาะงานอู่นอก (อะไหล่ลงคันเปิดซ้ำคันได้)
+  const conflict = isDoneStatus(doc.status) ? null : openJobConflictFilter(doc)
+  if (conflict) {
+    const dup = await col.findOne({ ...conflict, _id: { $ne: new ObjectId(id) } })
     if (dup) {
       const which = dup.plate === doc.plate ? `ทะเบียน ${doc.plate}` : `เบอร์รถ ${doc.fleetNo}`
-      return NextResponse.json({ error: `รถ ${which} มีรายการ (${dup.jobType || "อู่นอก"}) ที่ยังไม่เสร็จอยู่แล้ว (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
+      return NextResponse.json({ error: `รถ ${which} มีใบงานอู่นอกที่ยังไม่ปิดอยู่แล้ว (ต้องปิดงานหรือลบใบเดิมก่อน)` }, { status: 409 })
     }
   }
 

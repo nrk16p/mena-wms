@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { REPAIR_FIELD_LABELS, diffRepair, writeRepairLog, type RepairChange } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
-import { DONE_STATUSES, isDoneStatus, normalizeStatus, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
+import { isDoneStatus, normalizeStatus, openJobConflictFilter, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
 import { buildDoc } from "../../route"
 
 // POST /api/repair-external/[id]/update — "อัพเดทงาน" หนึ่งครั้ง { status, stageEta, note, fields? }
@@ -59,15 +59,14 @@ export async function POST(req: NextRequest, { params }: Params) {
   const bad = validateJobUpdate({ status, stageEta, note, current: existing, fields: doc, fieldsChanged })
   if (bad) return NextResponse.json(bad, { status: 400 })
 
-  // กันซ้ำแบบเดียวกับ PUT: ใบที่ยังไม่เสร็จ ห้ามชนทะเบียน/เบอร์รถกับใบอื่นที่ยังไม่เสร็จ
+  // กันซ้ำแบบเดียวกับ PUT — เฉพาะงานอู่นอก
   if (doc && !isDoneStatus(status)) {
     if (!doc.plate) return NextResponse.json({ error: "กรุณาระบุทะเบียนรถ" }, { status: 400 })
-    const or: Record<string, string>[] = [{ plate: doc.plate }]
-    if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
-    const dup = await col.findOne({ _id: { $ne: new ObjectId(id) }, status: { $nin: DONE_STATUSES }, $or: or })
+    const conflict = openJobConflictFilter(doc)
+    const dup = conflict ? await col.findOne({ ...conflict, _id: { $ne: new ObjectId(id) } }) : null
     if (dup) {
       const which = dup.plate === doc.plate ? `ทะเบียน ${doc.plate}` : `เบอร์รถ ${doc.fleetNo}`
-      return NextResponse.json({ error: `รถ ${which} มีรายการ (${dup.jobType || "อู่นอก"}) ที่ยังไม่เสร็จอยู่แล้ว (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
+      return NextResponse.json({ error: `รถ ${which} มีใบงานอู่นอกที่ยังไม่ปิดอยู่แล้ว (ต้องปิดงานหรือลบใบเดิมก่อน)` }, { status: 409 })
     }
   }
 

@@ -4,8 +4,8 @@
  */
 import assert from "node:assert"
 import {
-  JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_CLAIM_DONE_STATUS, REPAIR_STATUSES,
-  requiredFieldsFor, UPDATE_NOTE_MIN, validateJobUpdate,
+  JOB_TYPE_GARAGE, JOB_TYPE_PARTS, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS, REPAIR_STATUSES,
+  openJobConflictFilter, requiredFieldsFor, UPDATE_NOTE_MIN, validateJobUpdate,
 } from "../lib/repair-external"
 
 let pass = 0
@@ -153,6 +153,41 @@ check("ของเดิมไม่เปลี่ยน: ปิดเป็�
   const almost = { ...garage, poCode: "PO-1", dueDate: "2026-08-20", completedDate: "2026-08-19" }
   const r = validateJobUpdate({ status: "รถเสร็จ", stageEta: "", note, current: almost })!
   assert.deepStrictEqual(r.missing!.map((m) => m.field), ["prCode"])
+})
+
+console.log("ชะลองานซ่อม — พักงานไว้ ไปอยู่แท็บเดียวกับงานที่ปิดแล้ว")
+check("ชะลองานซ่อม: ไม่ต้องกรอกอะไรเพิ่ม → ผ่าน", () => {
+  assert.strictEqual(validateJobUpdate({ status: REPAIR_DEFER_STATUS, stageEta: "", note, current: garage }), null)
+})
+check("ชะลองานซ่อม: ไม่บังคับวันคาดพ้นขั้น (เป็นสถานะจบ)", () => {
+  assert.strictEqual(requiredFieldsFor(REPAIR_DEFER_STATUS, JOB_TYPE_GARAGE).length, 0)
+})
+check("ชะลอแล้วย้อนสถานะกลับ → ไม่ผ่าน (ล็อกเหมือนสถานะจบอื่น)", () => {
+  const paused = { status: REPAIR_DEFER_STATUS, jobType: JOB_TYPE_GARAGE }
+  assert.match(validateJobUpdate({ status: "รถเข้าอู่ซ่อม", stageEta: eta, note, current: paused })!.error, /ย้อนสถานะ/)
+})
+
+console.log("กันซ้ำ 1 คัน 1 ใบ — เฉพาะงานอู่นอก")
+const car = { plate: "สบ.71-1111", fleetNo: "ME001" }
+check("อู่นอก: ได้เงื่อนไขค้นหาใบที่ชน (เฉพาะใบอู่นอกที่ยังไม่ปิด)", () => {
+  const f = openJobConflictFilter({ ...car, jobType: JOB_TYPE_GARAGE })!
+  assert.ok(f, "ต้องมีเงื่อนไข")
+  assert.deepStrictEqual(f.jobType, { $ne: JOB_TYPE_PARTS })
+  assert.deepStrictEqual(f.$or, [{ plate: car.plate }, { fleetNo: car.fleetNo }])
+})
+check("อู่นอก: ใบที่ปิดแล้วไม่นับเป็นใบชน (รวมเคลมอู่ + ชะลองานซ่อม)", () => {
+  const f = openJobConflictFilter({ ...car, jobType: JOB_TYPE_GARAGE })!
+  const nin = (f.status as { $nin: string[] }).$nin
+  for (const s of ["รถเสร็จ", REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS, "ลงคันเสร็จ"]) assert.ok(nin.includes(s), s)
+})
+check("อะไหล่ลงคัน: ไม่เช็คซ้ำเลย — คันเดียวเปิดได้หลายใบ และซ้ำกับใบอู่นอกได้", () => {
+  assert.strictEqual(openJobConflictFilter({ ...car, jobType: JOB_TYPE_PARTS }), null)
+})
+check("ไม่มีทั้งทะเบียนและเบอร์รถ → ไม่มีอะไรให้ชน", () => {
+  assert.strictEqual(openJobConflictFilter({ jobType: JOB_TYPE_GARAGE, plate: " ", fleetNo: "" }), null)
+})
+check("ใบเก่าที่ไม่มี jobType ถือเป็นอู่นอก → ยังเช็คซ้ำ", () => {
+  assert.ok(openJobConflictFilter({ ...car }))
 })
 
 console.log(`\n${pass} ผ่าน${process.exitCode ? " · มีข้อที่ไม่ผ่าน" : " · ครบทุกข้อ"}`)

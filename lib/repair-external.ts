@@ -21,6 +21,9 @@ export const REPAIR_STATUSES: RepairStatus[] = [
   // วางท้ายสุดของ workflow ตั้งใจ: requiredFieldsFor() สะสมฟิลด์ตามลำดับขั้น ถ้าแทรกไว้ก่อน
   // "รถเสร็จ" จะทำให้เงื่อนไขปิดงานปกติเปลี่ยนไปด้วย
   { value: "รถเสร็จ(เคลมอู่)", emoji: "🛡️", cls: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" },
+  // ชะลองานซ่อม — ยังไม่ได้ซ่อม แต่พักไว้ก่อน ไม่ต้องตามงานรายวันแล้ว
+  // นับเป็นสถานะจบเหมือนกัน (ออกจากหน้างานค้าง → ไปแท็บรถซ่อมเสร็จ) และไม่กินโควตา 1 คัน 1 ใบ
+  { value: "ชะลองานซ่อม",      emoji: "⏸️", cls: "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200" },
 ]
 
 export const REPAIR_STATUS_VALUES = REPAIR_STATUSES.map((s) => s.value)
@@ -45,6 +48,10 @@ export const REPAIR_DONE_STATUS = "รถเสร็จ"
 // ต่างกันที่ฟิลด์บังคับ — ดู requiredFieldsFor()
 export const REPAIR_CLAIM_DONE_STATUS = "รถเสร็จ(เคลมอู่)"
 
+// พักงานไว้ก่อน (ยังไม่ซ่อม) — ออกจากคิวงานที่กำลังเดิน ไปอยู่แท็บเดียวกับงานที่ปิดแล้ว
+// ไม่ต้องกรอกอะไรเพิ่ม เหตุผลอยู่ในข้อความอัพเดทงานที่ระบบบังคับให้พิมพ์ตอนเปลี่ยนสถานะอยู่แล้ว
+export const REPAIR_DEFER_STATUS = "ชะลองานซ่อม"
+
 // ── ประเภทงาน: อู่นอก (ซ่อมอู่ภายนอก) | อะไหล่ลงคัน (สั่งซื้ออะไหล่มาลงคัน) ──
 // เอกสารเก่าที่ไม่มี field jobType = อู่นอก
 export const JOB_TYPE_GARAGE = "อู่นอก"
@@ -67,7 +74,7 @@ export const PARTS_STATUSES: RepairStatus[] = [
 export const PARTS_DONE_STATUS = "ลงคันเสร็จ"
 
 // สถานะปิดงานของทั้ง 2 ประเภท — ใช้แยก active/done ทุกจุด (list, stats, sync, กันซ้ำ)
-export const DONE_STATUSES = [REPAIR_DONE_STATUS, REPAIR_CLAIM_DONE_STATUS, PARTS_DONE_STATUS]
+export const DONE_STATUSES = [REPAIR_DONE_STATUS, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS, PARTS_DONE_STATUS]
 export const isDoneStatus = (s: string) => DONE_STATUSES.includes(s)
 
 /**
@@ -119,6 +126,26 @@ export function groupSimilarGarages(names: string[]): string[][] {
     if (fam.length > 1) groups.push(fam)
   }
   return groups
+}
+
+/**
+ * เงื่อนไขค้นหา "ใบที่ชนกัน" ตอนบันทึก — null = ประเภทนี้เปิดซ้ำคันได้ ไม่ต้องเช็ค
+ * กติกา (ผู้ใช้กำหนด 21/09/2569): โควตา 1 คัน 1 ใบที่ยังไม่ปิด ใช้กับ **งานอู่นอกเท่านั้น**
+ *   · อะไหล่ลงคัน — เบอร์รถเดียวเปิดได้หลายใบ และเปิดคู่กับใบอู่นอกของคันเดียวกันได้
+ *   · อู่นอก — ชนกันเฉพาะกับใบอู่นอกด้วยกัน (เอกสารเก่าไม่มี jobType = อู่นอก ซึ่ง $ne จับให้ด้วย)
+ * ผู้เรียกเติม `_id: { $ne: ... }` เองเมื่อเป็นการแก้ใบเดิม
+ */
+export function openJobConflictFilter(
+  doc: { jobType?: string; plate?: string; fleetNo?: string },
+): Record<string, unknown> | null {
+  if (jobTypeOf(doc) === JOB_TYPE_PARTS) return null
+  const plate   = String(doc.plate ?? "").trim()
+  const fleetNo = String(doc.fleetNo ?? "").trim()
+  const or: Record<string, string>[] = []
+  if (plate)   or.push({ plate })
+  if (fleetNo) or.push({ fleetNo })
+  if (!or.length) return null
+  return { jobType: { $ne: JOB_TYPE_PARTS }, status: { $nin: DONE_STATUSES }, $or: or }
 }
 
 export const statusesFor   = (jobType: string) => (jobType === JOB_TYPE_PARTS ? PARTS_STATUSES : REPAIR_STATUSES)
@@ -244,16 +271,19 @@ export const REPAIR_STATUS_REQUIRED_FIELD: Record<string, { field: RepairField; 
   "ลงคันเสร็จ":        { field: "completedDate",  label: "วันที่ลงคันเสร็จ" },
 }
 
+// สถานะจบที่ไม่นับฟิลด์สะสมของขั้นก่อน — ดู requiredFieldsFor
+export const NO_ACCUM_CLOSE = new Set<string>([REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS])
+
 // สถานะปลายทาง (ปิดงาน) — ห้ามย้อนสถานะกลับเมื่อถึงสถานะนี้แล้ว (ต่อประเภทดู doneStatusFor/isDoneStatus)
 export const REPAIR_LOCKED_STATUS = "รถเสร็จ"
 
 // ฟิลด์ที่ต้องกรอก "สะสม" ถึงสถานะเป้าหมาย — รวมของทุกสถานะก่อนหน้าใน workflow ของประเภทนั้น
 // (ข้ามสถานะได้ก็ต่อเมื่อกรอกข้อมูลของสถานะที่ข้ามครบ)
 export function requiredFieldsFor(status: string, jobType: string = JOB_TYPE_GARAGE): { field: RepairField; label: string }[] {
-  // เคลมอู่ = ปิดงานโดยไม่ผ่านสายจัดซื้อ จึงไม่สะสมฟิลด์ของขั้นก่อน (ไม่มี PR/PO/วันกำหนดเสร็จ)
-  // ปิดจากสถานะไหนก็ได้ ขอแค่รู้ว่าซ่อมเสร็จวันไหน
-  if (status === REPAIR_CLAIM_DONE_STATUS) {
-    const req = REPAIR_STATUS_REQUIRED_FIELD[REPAIR_CLAIM_DONE_STATUS]
+  // สถานะจบที่ไม่ได้เดินผ่านสายจัดซื้อ (เคลมอู่ / ชะลองานซ่อม) — ไม่สะสมฟิลด์ของขั้นก่อน
+  // ปิดจากสถานะไหนก็ได้ ขอแค่ฟิลด์ของตัวเอง (เคลมอู่ = วันที่ซ่อมเสร็จ · ชะลอ = ไม่ต้องมี)
+  if (NO_ACCUM_CLOSE.has(status)) {
+    const req = REPAIR_STATUS_REQUIRED_FIELD[status]
     return req ? [req] : []
   }
   const flow = statusesFor(jobType)
@@ -442,6 +472,7 @@ const WMS_STATUS_STAGE: Record<string, number> = {
   "รถเสร็จ(ไม่มี PR)": 5,
   "รถเสร็จ": 5,
   "รถเสร็จ(เคลมอู่)": 5,
+  "ชะลองานซ่อม": 4,
 }
 
 /** 0 = ไม่รู้จัก/เทียบไม่ได้ */

@@ -26,6 +26,7 @@ const JOB_STATUS_BAR: Record<string, string> = {
   "รถเสร็จ(ไม่มี PR)": "bg-lime-500",
   "รถเสร็จ":          "bg-green-600",
   "รถเสร็จ(เคลมอู่)":  "bg-indigo-500",
+  "ชะลองานซ่อม":      "bg-slate-500",
 }
 const jobStatusBar = (status: string) => JOB_STATUS_BAR[status] ?? "bg-gray-300 dark:bg-gray-600"
 

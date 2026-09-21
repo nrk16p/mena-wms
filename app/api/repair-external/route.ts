@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
-import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, statusesFor, normalizeStatus } from "@/lib/repair-external"
+import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusesFor, normalizeStatus } from "@/lib/repair-external"
 import { normalizeImages } from "@/lib/media"
 import { bkkToday } from "@/lib/bkk-time"
 
@@ -134,15 +134,13 @@ export async function POST(req: NextRequest) {
   const db      = client.db(DB)
   const col     = db.collection(COLL)
 
-  // กันซ้ำ: รถคันเดียวกัน (ทะเบียน "หรือ" เบอร์รถ ตรงกัน) มีรายการที่ยัง "ไม่เสร็จ" ได้แค่ 1 รายการ
-  // นับรวมทุกประเภท (อู่นอก + อะไหล่ลงคัน เปิดพร้อมกันไม่ได้)
-  if (!isDoneStatus(doc.status)) {
-    const or: Record<string, string>[] = [{ plate: doc.plate }]
-    if (doc.fleetNo) or.push({ fleetNo: doc.fleetNo })
-    const dup = await col.findOne({ status: { $nin: DONE_STATUSES }, $or: or })
+  // กันซ้ำ: งาน "อู่นอก" 1 คัน มีใบที่ยังไม่ปิดได้แค่ 1 ใบ · อะไหล่ลงคันเปิดซ้ำคันได้ (ดู openJobConflictFilter)
+  const conflict = isDoneStatus(doc.status) ? null : openJobConflictFilter(doc)
+  if (conflict) {
+    const dup = await col.findOne(conflict)
     if (dup) {
       const which = dup.plate === doc.plate ? `ทะเบียน ${doc.plate}` : `เบอร์รถ ${doc.fleetNo}`
-      return NextResponse.json({ error: `รถ ${which} มีรายการ (${dup.jobType || "อู่นอก"}) ที่ยังไม่เสร็จอยู่แล้ว เปิดใหม่ไม่ได้ (ต้องปิดงานหรือลบรายการเดิมก่อน)` }, { status: 409 })
+      return NextResponse.json({ error: `รถ ${which} มีใบงานอู่นอกที่ยังไม่ปิดอยู่แล้ว เปิดใหม่ไม่ได้ (ต้องปิดงานหรือลบใบเดิมก่อน)` }, { status: 409 })
     }
   }
 

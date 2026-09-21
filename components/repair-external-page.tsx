@@ -63,6 +63,7 @@ const BAR_COLORS: Record<string, string> = {
   "รถเสร็จ(ไม่มี PR)": "#84cc16",
   "รถเสร็จ":          "#22c55e",
   "รถเสร็จ(เคลมอู่)":  "#6366f1",
+  "ชะลองานซ่อม":      "#64748b",
   // อะไหล่ลงคัน
   "รอดำเนินการ":      "#9ca3af",
   "สั่งซื้อแล้ว-รอของ": "#f97316",
@@ -1196,19 +1197,22 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   if (etaOverdueOnly) displayRows = displayRows.filter((r) => etaOverdueOf(r) > 0)
 
   // รถซ้ำในกลุ่มที่ยัง "ไม่เสร็จ" — ซ้ำเมื่อ "ทะเบียน หรือ เบอร์รถ" ตรงกัน (ต้องเหลือคันละ 1 รายการ)
+  // นับเฉพาะงานอู่นอก: อะไหล่ลงคันเปิดได้หลายใบต่อคัน และซ้ำกับใบอู่นอกได้ ไม่ใช่ของผิด
   const { isDup, dupList } = (() => {
     const pCnt: Record<string, number> = {}, fCnt: Record<string, number> = {}
+    const counted = (r: RepairExternal) => jobTypeOf(r) !== JOB_TYPE_PARTS && !isDoneStatus(r.status)
     for (const r of rows) {
-      if (isDoneStatus(r.status)) continue
+      if (!counted(r)) continue
       const p = (r.plate || "").trim();   if (p) pCnt[p] = (pCnt[p] || 0) + 1
       const f = (r.fleetNo || "").trim(); if (f) fCnt[f] = (fCnt[f] || 0) + 1
     }
     const isDup = (r: RepairExternal) => {
+      if (!counted(r)) return false
       const p = (r.plate || "").trim(), f = (r.fleetNo || "").trim()
       return (!!p && pCnt[p] > 1) || (!!f && fCnt[f] > 1)
     }
     const dupList = Array.from(new Set(
-      rows.filter((r) => !isDoneStatus(r.status) && isDup(r))
+      rows.filter((r) => isDup(r))
         .map((r) => (r.plate || r.fleetNo || "").trim()).filter(Boolean)
     ))
     return { isDup, dupList }
