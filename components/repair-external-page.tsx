@@ -26,8 +26,11 @@ import {
   WARRANTY_OPTIONS,
   statusMeta,
   buildRepairSummary,
-  buildNoPrByCreator,
-  creatorShortName,
+  buildNoPrByOwner,
+  buildDailySummaryText,
+  ownerLabel,
+  fleetsOfOwner,
+  type DailySummary,
   mapUrl,
   compareStage,
   stageEtaRequired,
@@ -114,7 +117,7 @@ type Stats = {
   slaBreached: number
   noPr: number
   /** งานไม่มี PR แยกตามคนสร้าง (ปุ่มต่อคนบนแถบสถานะ) */
-  noPrByCreator?: { creator: string; count: number; avgDays: number; maxDays: number }[]
+  noPrByOwner?: { owner: string; count: number; avgDays: number; maxDays: number }[]
   avgDays: number
   avgByStatus: Record<string, number>
   agingBuckets: { lt8: number; d8_14: number; gte15: number }
@@ -776,27 +779,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } catch { /* ignore */ }
   }
 
-  // สรุปสถานะงาน (ข้อความส่งไลน์) — สร้างจากตัวเลขในการ์ดสรุปที่โหลดไว้แล้ว ไม่ต้องยิง API
-  function buildSummaryText(): LineBuild {
+  // รายงานสรุปประจำวัน (ข้อความส่งไลน์) — ตัวเลขทั้งหมดมาจาก /daily-summary ที่เดียว
+  async function buildDailyReportText(): Promise<LineBuild> {
     if (typeof window === "undefined") return { empty: "เปิดบนเบราว์เซอร์เพื่อสร้างข้อความ" }
-    const title = fType === JOB_TYPE_PARTS ? "อะไหล่ลงคัน" : fType === JOB_TYPE_GARAGE ? "รถซ่อมอู่นอก" : "อู่นอก + อะไหล่ลงคัน"
-    const lines: string[] = [`📋 สถานะงาน — ${title}`, ""]
-    let priority: { value: string; emoji: string } | null = null
-    let maxAvg = -1
-    chipStatuses.forEach((s) => {
-      const c = stats.counts[s.value] || 0
-      if (!c) return
-      const a = stats.avgByStatus[s.value] || 0
-      lines.push(`${s.emoji} ${s.value}  ${c} คัน | ⏱️เฉลี่ย ${a} วัน`)
-      if (a > maxAvg) { maxAvg = a; priority = s }
-    })
-    lines.push("", "-------------")
-    if (priority) {
-      const level = maxAvg >= 10 ? "High" : maxAvg >= 5 ? "Medium" : "Low"
-      lines.push(`priority : ${level} (${(priority as { emoji: string }).emoji} ${(priority as { value: string }).value})`)
-    }
-    lines.push("", `url : ${window.location.origin}/repair-external`)
-    return { text: lines.join("\n") }
+    let data: DailySummary
+    try {
+      const res = await fetch("/api/repair-external/daily-summary")
+      if (!res.ok) throw new Error()
+      data = await res.json()
+    } catch { throw new Error("โหลดข้อมูลสรุปไม่สำเร็จ") }
+    return { text: buildDailySummaryText(data, { origin: window.location.origin }) }
   }
 
   // คัดลอกรายชื่อรถที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ส่งไลน์ให้ไปเปิด PR)
@@ -843,7 +835,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // งานที่ยังไม่มี PR ของคนสร้างคนนี้ → คัดลอกส่งไลน์ (ปุ่มต่อคนบนแถบสถานะ · รวมทุกคนยาวเกินข้อความเดียว)
   // ดึงรายการสดตอนกด ขอบเขตเดียวกับตัวเลขใน dropdown (งานยังไม่ปิด + ประเภทที่เลือก) ไม่ขึ้นกับตัวกรองอื่นบนจอ
   // /no-pr เติมวันที่ PR ถูกลบครั้งล่าสุดมาให้ — นับ "ไม่มี PR กี่วัน" ได้ถูก
-  async function buildNoPrText(creator: string): Promise<LineBuild> {
+  async function buildNoPrText(owner: string): Promise<LineBuild> {
     let d: unknown
     try {
       const p = new URLSearchParams()
@@ -851,10 +843,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const res = await fetch(`/api/repair-external/no-pr?${p.toString()}`)
       d = await res.json()
     } catch { throw new Error("โหลดข้อมูลไม่สำเร็จ") }
-    const g = buildNoPrByCreator(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
-      .find((x) => x.creator === creator)
+    const g = buildNoPrByOwner(Array.isArray(d) ? d : [], { today: bkkToday(), origin: window.location.origin })
+      .find((x) => x.creator === owner)
     // คนนี้เคลียร์ PR ครบระหว่างที่หน้าเปิดอยู่ — ตัวเลขบนแผงยังเป็นของรอบก่อน จึงรีเฟรชสรุปให้
-    if (!g) { loadStats(); return { empty: `${creatorShortName(creator)} ไม่มีงานค้าง PR แล้ว 🎉` } }
+    if (!g) { loadStats(); return { empty: `${ownerLabel(owner)} ไม่มีงานค้าง PR แล้ว 🎉` } }
     return { text: g.text }
   }
 
@@ -1377,10 +1369,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // ข้อความส่งกลุ่มไลน์ของหน้านี้ทั้งหมด — เดิมเป็นปุ่มคัดลอกกระจายบนแถบสถานะ
   const lineMessages: LineMessage[] = [
-    { key: "summary", emoji: "📋", label: "สรุปสถานะงาน", group: "ข้อความรวม",
-      meta: `${stats.total} คัน`,
-      hint: "จำนวนงานและอายุเฉลี่ยต่อสถานะ + priority ตามสถานะที่ค้างนานสุด",
-      build: buildSummaryText },
+    { key: "daily", emoji: "📌", label: "รายงานสรุปประจำวัน", group: "ข้อความรวม",
+      meta: `ค้าง ${stats.total} คัน`,
+      hint: "คงค้างต้นวัน/รับแจ้งใหม่/เสร็จวันนี้/คงค้างสิ้นวัน + สถานะที่ค้าง + ไม่มี PR แยกผู้รับผิดชอบ + งานที่ต้องเร่งตาม",
+      build: buildDailyReportText },
     { key: "doneNoPr", emoji: "🏁", label: DONE_NO_PR_STATUS, group: "ข้อความรวม",
       meta: `${stats.counts[DONE_NO_PR_STATUS] || 0} คัน`,
       hint: "รถซ่อมเสร็จแล้วแต่ยังไม่มี PR — ส่งให้ไปเปิด PR (ดึงสดทั้งหมด ไม่ขึ้นกับตัวกรองบนหน้า)",
@@ -1388,14 +1380,14 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     { key: "followUp", emoji: "📢", label: "ตามงาน", group: "ข้อความรวม",
       hint: "สถานะในระบบไม่ตรงกับรถจริง — รถจอดอยู่แต่ยังรอประเมิน / ไม่จอดแล้วแต่ยังไม่ปิดงาน / จอดจริงแต่ยังไม่มีในระบบ",
       build: buildFollowUpText },
-    ...(stats.noPrByCreator ?? []).map((g) => ({
-      key:   `nopr:${g.creator}`,
+    ...(stats.noPrByOwner ?? []).map((g) => ({
+      key:   `nopr:${g.owner}`,
       emoji: "👤",
-      label: creatorShortName(g.creator),
-      group: "ไม่มี PR — ส่งรายคน",
-      meta:  `${g.count} คัน · นานสุด ${g.maxDays} วัน`,
-      hint:  `งานที่ยังไม่มี PR ของ ${g.creator} (มีลิงก์ใบงานทุกคัน)`,
-      build: () => buildNoPrText(g.creator),
+      label: ownerLabel(g.owner),
+      group: "ไม่มี PR — ส่งรายผู้รับผิดชอบ",
+      meta:  `${g.count} คัน · นานสุด ${g.maxDays} วัน${fleetsOfOwner(g.owner).length ? ` · ${fleetsOfOwner(g.owner).join(" / ")}` : ""}`,
+      hint:  `งานที่ยังไม่มี PR ของ ${ownerLabel(g.owner)} (มีลิงก์ใบงานทุกคัน)`,
+      build: () => buildNoPrText(g.owner),
     })),
   ]
   // ตัวกรองที่ยุบไว้ — กางเองถ้ามีตัวไหนเปิดค้าง ไม่ให้กรองอยู่แบบมองไม่เห็น

@@ -361,6 +361,34 @@ export function buildRepairSummary(r: RepairSummaryInput): string {
   return lines.join("\n")
 }
 
+/* ── ผู้รับผิดชอบตามฟลีท (ผู้ใช้กำหนด 21/09/2569) ──────────────────────────
+ * ใช้แยกรายการ "ไม่มี PR" ให้ส่งตรงถึงคนที่ต้องไปเปิด PR จริง ๆ
+ * key = ค่าฟิลด์ fleet ที่ระบบเติมให้จาก atms.vehicle_daily (เทียบแบบไม่สนตัวพิมพ์)
+ * ฟลีทที่ไม่อยู่ในนี้ (RP / รถสำนักงาน / ว่าง) ตกไปที่ OWNER_NO_FLEET
+ */
+export const FLEET_OWNER: Record<string, string> = {
+  "Asia":               "เบญ",   // ASIA ML
+  "Asia MS":            "เบญ",
+  "ที.เอ็น.ซีเมนต์บล็อค": "เบญ",   // TN
+  "Cpac ML":            "กุ้ง",
+  "Cpac MS":            "กุ้ง",
+  "Kpac ML":            "กุ้ง",   // KPAC
+  "UMO":                "กุ้ง",
+  "Scco ML":            "ติ๊ก",
+  "Scco MS":            "ติ๊ก",
+  "Fast":               "ติ๊ก",
+  "Acon":               "ติ๊ก",
+}
+export const OWNER_NO_FLEET = "ไม่ระบุผู้รับผิดชอบ"
+const OWNER_BY_KEY = new Map(Object.entries(FLEET_OWNER).map(([f, o]) => [f.trim().toLowerCase(), o]))
+export const ownerOfFleet = (fleet?: string) =>
+  OWNER_BY_KEY.get(String(fleet ?? "").trim().toLowerCase()) ?? OWNER_NO_FLEET
+/** ชื่อที่ใช้เรียกในข้อความ — "คุณเบญ" · กลุ่มไม่ระบุใช้ชื่อเต็มเฉย ๆ */
+export const ownerLabel = (owner: string) => (owner === OWNER_NO_FLEET ? owner : `คุณ${owner}`)
+/** ฟลีทที่คนนี้ดูแล (เรียงตามที่ประกาศไว้) — ใช้พิมพ์กำกับในวงเล็บ */
+export const fleetsOfOwner = (owner: string) =>
+  Object.entries(FLEET_OWNER).filter(([, o]) => o === owner).map(([f]) => f)
+
 // ── งานที่ยังไม่มี PR แยกตามคนสร้าง (ส่งไลน์ทีละคน · ผู้ใช้ขอ 17/09/2026) ─────────────
 // ลิงก์ทุกคันยาวเกินจะส่งรวมข้อความเดียว (123 คัน ≈ 15,000 ตัวอักษร) จึงแยกข้อความต่อคนสร้าง
 // ไม่มี PR กี่วัน = วันนี้ − noPrSince (ครั้งล่าสุดที่ PR ถูกลบ จาก log) ถ้าไม่เคยมี PR = วันที่สร้างรายการ
@@ -368,7 +396,7 @@ export function buildRepairSummary(r: RepairSummaryInput): string {
 // ตามปฏิทินไทย · ใบเก่าที่ไม่มี createdAt ใช้วันเริ่มงาน · ต่างจากอายุงานเมื่อไหร่แสดง "เปิดงาน N วัน" คู่กัน
 export type NoPrRow = {
   _id: string; createdBy?: string; createdAt?: string | Date; fleetNo?: string; plate?: string
-  status?: string; prCode?: string; receivedDate?: string; garageInDate?: string
+  status?: string; prCode?: string; receivedDate?: string; garageInDate?: string; fleet?: string
   /** เวลาที่ PR ถูกลบครั้งล่าสุด (ไม่มี = ไม่เคยมี PR) — ฝั่ง server เติมจาก repair_external_log */
   noPrSince?: string | Date
 }
@@ -388,7 +416,34 @@ export function creatorShortName(name: string): string {
   return t.match(/\(([^()]+)\)$/)?.[1].trim() || t.split(/\s+/)[0] || ""
 }
 
-export function buildNoPrByCreator(rows: NoPrRow[], opts: { today: string; origin: string }): NoPrGroup[] {
+type NoPrGroupOpts = {
+  today: string
+  origin: string
+  /** จัดกลุ่มด้วยอะไร — ค่าเริ่มต้น = คนสร้างใบ */
+  groupOf?: (r: NoPrRow) => string
+  /** กลุ่มที่ต้องอยู่ท้ายสุดเสมอ (ส่งหาใครไม่ได้) */
+  lastKey?: string
+  /** ชื่อที่พิมพ์ในข้อความ (ค่าเริ่มต้น = คีย์) */
+  labelOf?: (key: string) => string
+  /** ต่อท้ายรถแต่ละคันด้วยชื่อฟลีท — ใช้ตอนแยกตามผู้รับผิดชอบ */
+  showFleet?: boolean
+}
+
+/** แยกตามผู้รับผิดชอบฟลีท (เบญ/กุ้ง/ติ๊ก) — ข้อความส่งไลน์ให้คนที่ต้องไปเปิด PR */
+export function buildNoPrByOwner(rows: NoPrRow[], opts: { today: string; origin: string }): NoPrGroup[] {
+  return buildNoPrByCreator(rows, {
+    ...opts,
+    groupOf:  (r) => ownerOfFleet(r.fleet),
+    lastKey:  OWNER_NO_FLEET,
+    labelOf:  ownerLabel,
+    showFleet: true,
+  })
+}
+
+export function buildNoPrByCreator(rows: NoPrRow[], opts: NoPrGroupOpts): NoPrGroup[] {
+  const groupOf = opts.groupOf ?? ((r: NoPrRow) => String(r.createdBy ?? "").trim() || NO_CREATOR)
+  const lastKey = opts.lastKey ?? NO_CREATOR
+  const labelOf = opts.labelOf ?? ((k: string) => k)
   const byCreator = new Map<string, { r: NoPrRow; days: number; openDays: number }[]>()
   for (const r of rows) {
     if (isDoneStatus(String(r.status ?? "")) || String(r.prCode ?? "").trim()) continue
@@ -398,23 +453,24 @@ export function buildNoPrByCreator(rows: NoPrRow[], opts: { today: string; origi
     const cleared  = r.noPrSince ? bkkYmd(r.noPrSince) : ""
     // PR ถูกลบก่อนวันสร้าง (ข้อมูลเพี้ยน) ไม่มีทางเป็นจริง → ใช้อายุงาน
     const days  = cleared && cleared >= opened ? since(cleared) : openDays
-    const who   = String(r.createdBy ?? "").trim() || NO_CREATOR
+    const who   = groupOf(r)
     byCreator.set(who, [...(byCreator.get(who) ?? []), { r, days, openDays }])
   }
   return [...byCreator.entries()]
-    // ไม่ระบุคนสร้างไว้ท้ายสุดเสมอ (ส่งหาใครไม่ได้) · ที่เหลือค้างมากสุดก่อน
-    .sort((a, b) => Number(a[0] === NO_CREATOR) - Number(b[0] === NO_CREATOR) || b[1].length - a[1].length || a[0].localeCompare(b[0], "th"))
+    // กลุ่ม "ไม่ระบุ" ไว้ท้ายสุดเสมอ (ส่งหาใครไม่ได้) · ที่เหลือค้างมากสุดก่อน
+    .sort((a, b) => Number(a[0] === lastKey) - Number(b[0] === lastKey) || b[1].length - a[1].length || a[0].localeCompare(b[0], "th"))
     .map(([creator, list]) => {
       list.sort((a, b) => b.days - a.days)
       const maxDays = list[0].days
       const avgDays = Math.round(list.reduce((n, x) => n + x.days, 0) / list.length)
       const lines = [
-        `📋 งานที่ยังไม่มี PR — ${creator} ${list.length} คัน`,
+        `📋 งานที่ยังไม่มี PR — ${labelOf(creator)} ${list.length} คัน`,
         `⏱️ ไม่มี PR เฉลี่ย ${avgDays} วัน · นานสุด ${maxDays} วัน`,
         "━━━━━━━━━━━━━━",
       ]
       list.forEach(({ r, days, openDays }, i) => {
-        const car    = [String(r.fleetNo ?? "").trim(), String(r.plate ?? "").trim()].filter(Boolean).join(" · ") || "-"
+        const fleet  = opts.showFleet ? String(r.fleet ?? "").trim() : ""
+        const car    = [String(r.fleetNo ?? "").trim(), String(r.plate ?? "").trim(), fleet].filter(Boolean).join(" · ") || "-"
         const status = String(r.status ?? "")
         const opened = openDays !== days ? ` · เปิดงาน ${openDays} วัน` : ""
         lines.push(`${i + 1}. ${car} — ไม่มี PR ${days} วัน${opened} (${statusMeta(status).emoji} ${status})`)
@@ -423,6 +479,80 @@ export function buildNoPrByCreator(rows: NoPrRow[], opts: { today: string; origi
       lines.push("", "📌 กดลิงก์ → ใส่รหัส PR → กด “อัพเดทงาน”")
       return { creator, count: list.length, avgDays, maxDays, text: lines.join("\n") }
     })
+}
+
+/* ── รายงานสรุปประจำวันส่งกลุ่มไลน์ (รูปแบบที่ทีมใช้จริง · ผู้ใช้กำหนด 21/09/2569) ──
+ * นับเฉพาะงาน "อู่นอก" ในระบบนี้เท่านั้น ไม่ดึงงานอู่ในจาก Mena-Next (ผู้ใช้สั่ง)
+ * ตัวเลขมาจาก /api/repair-external/daily-summary ที่เดียว ฝั่งนี้แค่เรียงเป็นข้อความ
+ */
+export type DailySummary = {
+  /** วันที่ของสรุป (YYYY-MM-DD เวลาไทย) */
+  date:          string
+  /** งานที่ยังไม่ปิด ณ ต้นวัน = เปิดก่อนวันนี้ และยังไม่ปิด หรือเพิ่งปิด/ชะลอวันนี้ */
+  startOfDay:    number
+  openedToday:   number
+  /** ปิดเป็น "รถเสร็จ" หรือ "รถเสร็จ(เคลมอู่)" วันนี้ */
+  closedToday:   number
+  /** ชะลองานซ่อมวันนี้ — ไม่พิมพ์ในข้อความ (ผู้ใช้ไม่เอา) แต่เก็บไว้อธิบายว่าทำไมยอดค้างลด */
+  deferredToday: number
+  /** งานที่ยังไม่ปิดตอนนี้ */
+  endOfDay:      number
+  /** ในจำนวนที่ค้าง มีกี่คันที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR */
+  doneNoPr:      number
+  byStatus:      { status: string; count: number }[]
+  noPr:          { owner: string; count: number; fleets: { fleet: string; units: string[] }[] }[]
+  /** งานที่ต้องเร่งตาม — กำหนดเสร็จถึงวันที่ until (รวมที่เลยกำหนดแล้ว) */
+  urgent:        { until: string; units: string[] }
+}
+
+const TH_MONTH_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+
+/** "2026-09-21" → "21/9/2569" (แบบที่ทีมเขียนในรายงาน) */
+export function thaiDateShort(ymd: string): string {
+  const [y, m, d] = String(ymd ?? "").split("-").map(Number)
+  return y && m && d ? `${d}/${m}/${y + 543}` : String(ymd ?? "")
+}
+/** "2026-09-24" → "24 ก.ย." */
+export function thaiDayMonth(ymd: string): string {
+  const [y, m, d] = String(ymd ?? "").split("-").map(Number)
+  return y && m && d ? `${d} ${TH_MONTH_SHORT[m - 1]}` : String(ymd ?? "")
+}
+
+export function buildDailySummaryText(s: DailySummary, opts: { origin: string }): string {
+  const L: string[] = [`📌 รายงานสรุปงานซ่อมอู่นอก ประจำวันที่ ${thaiDateShort(s.date)}`, "", "🔷 สรุปภาพรวม", ""]
+  L.push(`🚗 คงค้างต้นวัน : ${s.startOfDay} คัน`)
+  L.push(`📥 รับแจ้งซ่อมอู่นอกใหม่วันนี้ : ${s.openedToday} คัน`)
+  L.push(`✅ ซ่อมเสร็จส่งมอบวันนี้ : ${s.closedToday} คัน`)
+  L.push(`📌 คงค้างสิ้นวัน : ${s.endOfDay} คัน`)
+  L.push(`🏁 ในนี้เสร็จแล้วรอเปิด PR : ${s.doneNoPr} คัน`)
+
+  // ยอดค้างลดลงเท่าไหร่ — ตัวเลขที่ทีมดูเป็นอันดับแรกว่าวันนี้ระบายงานได้ไหม
+  const diff = s.startOfDay - s.endOfDay
+  L.push("", `📊 Backlog ${diff >= 0 ? "ลด" : "เพิ่ม"} : ${Math.abs(diff)} คัน`)
+
+  if (s.byStatus.length) {
+    L.push("", "↗️ สถานะงานที่คงค้าง", "")
+    // พิมพ์ครบทุกขั้นแม้วันนั้นเป็น 0 — บรรทัดเท่ากันทุกวัน ทีมเทียบกับเมื่อวานได้ทันที
+    for (const x of s.byStatus) L.push(`* ${statusMeta(x.status).emoji} ${x.status} : ${x.count} คัน`)
+  }
+
+  const noPrTotal = s.noPr.reduce((n, g) => n + g.count, 0)
+  if (noPrTotal) {
+    L.push("", `📋 ไม่มี PR ${noPrTotal} คัน — แยกตามผู้รับผิดชอบและฟลีท`, "")
+    for (const g of s.noPr) {
+      L.push(`* ${ownerLabel(g.owner)} : ${g.count} คัน`)
+      for (const f of g.fleets) L.push(`   - ${f.fleet || "ไม่ระบุฟลีท"} (${f.units.length}) : ${f.units.join(" / ")}`)
+    }
+  }
+
+  if (s.urgent.units.length) {
+    L.push("", "🎯 แผนติดตามวันถัดไป", "")
+    L.push(`* งานที่ต้องเร่งติดตาม (กำหนดเสร็จถึง ${thaiDayMonth(s.urgent.until)}) : ${s.urgent.units.length} คัน`)
+    L.push(s.urgent.units.join(" / "))
+  }
+
+  if (opts.origin) L.push("", `🔗 ${opts.origin}/repair-external`)
+  return L.join("\n")
 }
 
 /* ── เทียบขั้นตอนงานกับ Mena-Next (ATMS) ─────────────────────────────────────

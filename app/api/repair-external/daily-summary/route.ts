@@ -1,0 +1,96 @@
+import { NextResponse } from "next/server"
+import clientPromise from "@/lib/mongo"
+import { bkkDate, bkkToday } from "@/lib/bkk-time"
+import {
+  DONE_STATUSES, JOB_TYPE_PARTS, OWNER_NO_FLEET, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS,
+  REPAIR_DONE_STATUS, REPAIR_STATUSES, isDoneStatus, ownerOfFleet, type DailySummary,
+} from "@/lib/repair-external"
+
+// GET /api/repair-external/daily-summary
+// ตัวเลขทุกตัวของ "รายงานสรุปประจำวัน" ที่ส่งกลุ่มไลน์ — นับเฉพาะงานอู่นอกในระบบนี้
+// (ไม่ดึงงานอู่ในจาก Mena-Next ตามที่ผู้ใช้กำหนด 21/09/2569)
+// ขอบเขตข้อมูล: ใบที่ยังไม่ปิด + ใบที่เพิ่งออกจากคิววันนี้ เท่านั้น ไม่สแกนทั้งคอลเลกชัน
+const DB = process.env.MONGO_DB ?? "master_data"
+const URGENT_DAYS = 3
+
+/** YYYY-MM-DD + n วัน (คำนวณแบบ UTC ไม่มีปัญหา DST) */
+function addDays(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+
+type Row = {
+  status?: string; fleet?: string; fleetNo?: string; plate?: string
+  prCode?: string; dueDate?: string; createdAt?: Date | string; statusSince?: string
+}
+const unitOf = (r: Row) => (String(r.fleetNo ?? "").trim() || String(r.plate ?? "").trim() || "-")
+
+export async function GET() {
+  const today = bkkToday()
+  const db    = (await clientPromise).db(DB)
+  const col   = db.collection("repair_external")
+  const base  = { jobType: { $ne: JOB_TYPE_PARTS } }
+  const proj  = { status: 1, fleet: 1, fleetNo: 1, plate: 1, prCode: 1, dueDate: 1, createdAt: 1, statusSince: 1 }
+
+  const [active, leftToday] = await Promise.all([
+    col.find({ ...base, status: { $nin: DONE_STATUSES } }).project(proj).toArray() as Promise<Row[]>,
+    // ใบที่ "ออกจากคิว" วันนี้ — ปิดงาน/เคลมอู่/ชะลอ (statusSince ตั้งตอนเปลี่ยนสถานะเท่านั้น)
+    col.find({ ...base, status: { $in: DONE_STATUSES }, statusSince: today }).project(proj).toArray() as Promise<Row[]>,
+  ])
+
+  const openedBefore = (r: Row) => bkkDate(r.createdAt ?? null) < today
+  const closedToday  = leftToday.filter((r) => [REPAIR_DONE_STATUS, REPAIR_CLAIM_DONE_STATUS].includes(String(r.status)))
+  const deferToday   = leftToday.filter((r) => String(r.status) === REPAIR_DEFER_STATUS)
+
+  // ค้างต้นวัน = ที่ยังค้างอยู่ตอนนี้ (เปิดก่อนวันนี้) + ที่ออกจากคิวไปวันนี้ (เปิดก่อนวันนี้)
+  const startOfDay  = active.filter(openedBefore).length + leftToday.filter(openedBefore).length
+  const openedToday = active.filter((r) => bkkDate(r.createdAt ?? null) === today).length
+    + leftToday.filter((r) => bkkDate(r.createdAt ?? null) === today).length
+
+  const byStatus = REPAIR_STATUSES
+    .filter((s) => !isDoneStatus(s.value))
+    .map((s) => ({ status: s.value, count: active.filter((r) => r.status === s.value).length }))
+
+  // ไม่มี PR → จัดกลุ่มผู้รับผิดชอบ แล้วแยกฟลีทในแต่ละคน (เรียงมากไปน้อย · กลุ่มไม่ระบุท้ายสุด)
+  const noPrRows = active.filter((r) => !String(r.prCode ?? "").trim())
+  const owners = new Map<string, Map<string, string[]>>()
+  for (const r of noPrRows) {
+    const owner = ownerOfFleet(r.fleet)
+    const fleet = String(r.fleet ?? "").trim()
+    if (!owners.has(owner)) owners.set(owner, new Map())
+    const fleets = owners.get(owner)!
+    fleets.set(fleet, [...(fleets.get(fleet) ?? []), unitOf(r)])
+  }
+  const noPr = [...owners.entries()]
+    .map(([owner, fleets]) => ({
+      owner,
+      count: [...fleets.values()].reduce((n, u) => n + u.length, 0),
+      fleets: [...fleets.entries()]
+        .map(([fleet, units]) => ({ fleet, units }))
+        .sort((a, b) => b.units.length - a.units.length || a.fleet.localeCompare(b.fleet, "th")),
+    }))
+    .sort((a, b) =>
+      Number(a.owner === OWNER_NO_FLEET) - Number(b.owner === OWNER_NO_FLEET) ||
+      b.count - a.count || a.owner.localeCompare(b.owner, "th"))
+
+  // เร่งติดตาม = เลยกำหนดเสร็จแล้ว หรือครบกำหนดภายใน 3 วัน (ใบที่ยังค้าง) เรียงตามวันที่ใกล้สุด
+  const until  = addDays(today, URGENT_DAYS)
+  const urgent = active
+    .filter((r) => r.dueDate && String(r.dueDate) <= until)
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+    .map(unitOf)
+
+  const summary: DailySummary = {
+    date:          today,
+    startOfDay,
+    openedToday,
+    closedToday:   closedToday.length,
+    deferredToday: deferToday.length,
+    endOfDay:      active.length,
+    doneNoPr:      active.filter((r) => r.status === "รถเสร็จ(ไม่มี PR)").length,
+    byStatus,
+    noPr,
+    urgent: { until, units: urgent },
+  }
+  return NextResponse.json(summary)
+}

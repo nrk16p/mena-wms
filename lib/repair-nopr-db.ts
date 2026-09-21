@@ -10,7 +10,7 @@ const NO_PR = { $or: [{ prCode: "" }, { prCode: { $exists: false } }] }
 export async function loadNoPrRows(db: Db, match: Record<string, unknown>): Promise<NoPrRow[]> {
   const docs = await db.collection("repair_external")
     .find({ ...match, ...NO_PR })
-    .project<Document>({ createdBy: 1, createdAt: 1, fleetNo: 1, plate: 1, status: 1, prCode: 1, receivedDate: 1, garageInDate: 1 })
+    .project<Document>({ createdBy: 1, createdAt: 1, fleetNo: 1, plate: 1, fleet: 1, status: 1, prCode: 1, receivedDate: 1, garageInDate: 1 })
     .toArray()
   if (!docs.length) return []
   // เวลาล่าสุดที่ prCode ถูกเปลี่ยนเป็นค่าว่าง ต่อใบงาน (log เล็ก ~800 เอกสาร)
