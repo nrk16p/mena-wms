@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { fetchAtmsBoard, isAtmsSettled, normKey } from "@/lib/atms-board"
+import { fetchAtmsBoard, isAtmsSettled, isAtmsSkipped, normKey } from "@/lib/atms-board"
 import { DONE_STATUSES, JOB_TYPE_PARTS } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -38,7 +38,9 @@ export async function GET() {
     // งานที่ ATMS ปิดแล้ว (รถซ่อมเสร็จสิ้น / รถรอขาย) ไม่ใช่ภาระอู่ — ไม่ต้องทวงให้เปิดใบใน WMS
     // (ผู้ใช้สั่ง 21/09/2569: TH1979 สถานะ "รถรอขาย" ขึ้นว่าขาดในระบบทั้งที่ไม่ต้องทำอะไรแล้ว)
     // แยกแมปกัน: ตัวเต็มยังใช้บอก step/PR ของคันนั้นได้ แต่ชุดที่ใช้ "นับงานค้าง" ตัดของที่จบแล้วออก
-    const openJobByPlate = new Map(board.jobs.filter((j) => !isAtmsSettled(j.step)).map((j) => [normKey(j.plate), j]))
+    const openJobByPlate = new Map(board.jobs
+      .filter((j) => !isAtmsSettled(j.step) && !isAtmsSkipped(j.step))
+      .map((j) => [normKey(j.plate), j]))
     const parkedByPlate = new Map(board.parked.map((p) => [normKey(p.plate), p]))
     const parkedByNum   = new Map(board.parked.map((p) => [normKey(p.trucknum), p]))
     const findParked = (plate: string, num: string) =>
@@ -66,18 +68,18 @@ export async function GET() {
       .filter(Boolean)
       .sort((a, b) => (b!.days - a!.days))
 
-    // ── 🔴 WMS ยัง "รอประเมินการซ่อม" แต่รถจอดจริงแล้ว
+    // ── 🔴 WMS ยัง "แจ้งซ่อมอู่นอก" แต่รถจอดจริงแล้ว
     const waitingButParked = wms
-      .filter((w) => w.status === "รอประเมินการซ่อม")
+      .filter((w) => w.status === "แจ้งซ่อมอู่นอก")
       .map((w) => {
         const p = findParked(w.plate, w.fleetNo)
         return p ? { id: String(w._id), plate: w.plate, fleetNo: w.fleetNo, days: p.days, since: p.since, plant: p.plant } : null
       })
       .filter(Boolean)
 
-    // ── 🟢 WMS ว่ายังซ่อมอยู่ (เลยขั้นรอประเมินการซ่อม และยังไม่จบ) แต่รถไม่อยู่ในรายการรถจอดแล้ว
+    // ── 🟢 WMS ว่ายังซ่อมอยู่ (เลยขั้นแจ้งซ่อมอู่นอก และยังไม่จบ) แต่รถไม่อยู่ในรายการรถจอดแล้ว
     const openNotParked = wms
-      .filter((w) => w.status !== "รอประเมินการซ่อม" && !FINISHED.includes(w.status) && !findParked(w.plate, w.fleetNo))
+      .filter((w) => w.status !== "แจ้งซ่อมอู่นอก" && !FINISHED.includes(w.status) && !findParked(w.plate, w.fleetNo))
       .map((w) => {
         const job = jobByPlate.get(normKey(w.plate))
         return {

@@ -16,8 +16,8 @@ const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-40
 // สีแท่ง "เส้นทางสถานะ" — ต่อ 1 คัน 1 เส้น หลายสีตามช่วงเวลาที่อยู่ในแต่ละสถานะ (จาก log statusChange)
 // คนละชุดกับสีแท่งแผน (PLAN_STATUSES.bar) เพื่อแยกสายตาว่าอันไหนคือ "แผน" อันไหนคือ "ประวัติจริง"
 const JOB_STATUS_BAR: Record<string, string> = {
-  "รอประเมินการซ่อม":         "bg-gray-400 dark:bg-gray-500",
-  "รถเข้าอู่ซ่อม":     "bg-blue-500",
+  "แจ้งซ่อมอู่นอก":         "bg-gray-400 dark:bg-gray-500",
+  "รถเข้าซ่อมอู่นอก":     "bg-blue-500",
   "จัดทำใบเสนอราคา":   "bg-cyan-600",
   "รอ PR":            "bg-amber-500",
   "รอ PR อนุมัติ":      "bg-amber-600",

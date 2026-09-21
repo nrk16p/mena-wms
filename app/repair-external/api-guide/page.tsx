@@ -101,13 +101,13 @@ console.log(data.count, data.items)`}</CodeBlock>
           "action": "create",    // create | update | delete
           "by": "Nopparut",
           "at": "2026-07-18T10:12:45.000+07:00",   // เวลาไทย
-          "statusChange": { "from": "", "to": "รอประเมินการซ่อม" }
+          "statusChange": { "from": "", "to": "แจ้งซ่อมอู่นอก" }
         },
         {
           "action": "update",
           "by": "Plug",
           "at": "2026-07-19T15:30:02.000+07:00",
-          "statusChange": { "from": "รอประเมินการซ่อม", "to": "รถเข้าอู่ซ่อม" },
+          "statusChange": { "from": "แจ้งซ่อมอู่นอก", "to": "รถเข้าซ่อมอู่นอก" },
           "changes": [ { "field": "garageInDate", "label": "วันที่รถเข้าอู่ซ่อม", "from": "", "to": "2026-07-19" } ]
         }
       ],
@@ -153,7 +153,7 @@ console.log(data.count, data.items)`}</CodeBlock>
     "plate": "สบ.70-1234",         // จำเป็น
     "fleetNo": "M123",
     "jobType": "อู่นอก",            // อู่นอก | อะไหล่ลงคัน (ไม่ส่ง = อู่นอก)
-    "status": "รอประเมินการซ่อม",           // จำเป็น — ตาม workflow ของประเภทงาน
+    "status": "แจ้งซ่อมอู่นอก",           // จำเป็น — ตาม workflow ของประเภทงาน
     "stageEta": "2026-08-25",       // แนะนำ — วันที่คาดว่าจะพ้นสถานะนี้ (หน้าเว็บบังคับกรอก, API ยังไม่บังคับ)
     "receivedDate": "2026-08-06",
     "symptom": "เบรกไม่อยู่",
@@ -169,7 +169,7 @@ console.log(data.count, data.items)`}</CodeBlock>
   -H "x-user: สมชาย (ทีมจัดซื้อ)" \\
   -d '{
     "id": "665f1c...",             // จาก GET /sync (field _id)
-    "status": "รถเข้าอู่ซ่อม",
+    "status": "รถเข้าซ่อมอู่นอก",
     "garageInDate": "2026-08-06"
   }'`}</CodeBlock>
           <p className="text-[#9AA8A0]">ฟิลด์ที่ไม่ส่งมา = คงค่าเดิม · การเปลี่ยนสถานะถูกบันทึกลง history อัตโนมัติ</p>
@@ -186,7 +186,7 @@ console.log(data.count, data.items)`}</CodeBlock>
         <Section icon={ListOrdered} title="สถานะที่เป็นไปได้ (status)">
           <p><b>🔧 อู่นอก:</b></p>
           <p>
-            <code>รอประเมินการซ่อม</code> → <code>รถเข้าอู่ซ่อม</code> → <code>รอ PR</code> →{" "}
+            <code>แจ้งซ่อมอู่นอก</code> → <code>รถเข้าซ่อมอู่นอก</code> → <code>รอ PR</code> →{" "}
             <code>ซ่อมไม่มีกำหนด</code> / <code>ซ่อมมีกำหนดเสร็จ</code> → <code>รถเสร็จ(ไม่มี PR)</code> → <code>รถเสร็จ</code>
           </p>
           <p className="text-[#9AA8A0]">

@@ -58,8 +58,8 @@ const DONE_NO_PR_STATUS = "รถเสร็จ(ไม่มี PR)"
 
 // สีทึบต่อสถานะ (progress bar + accent การ์ด kanban)
 const BAR_COLORS: Record<string, string> = {
-  "รอประเมินการซ่อม":         "#9ca3af",
-  "รถเข้าอู่ซ่อม":     "#3b82f6",
+  "แจ้งซ่อมอู่นอก":         "#9ca3af",
+  "รถเข้าซ่อมอู่นอก":     "#3b82f6",
   "จัดทำใบเสนอราคา":   "#0891b2",
   "รอใบเสนอราคา":     "#06b6d4",
   "รอ PR":            "#eab308",
@@ -244,8 +244,8 @@ const DAILY_GROUP_CLS: Record<string, string> = {
 }
 
 // สถานะงานอู่นอกที่ "รถควรอยู่อู่" — ถ้าสถานะรายวันของรถเป็นกลุ่มทำงาน (A/AX/...) = ข้อมูลขัดแย้ง
-// (ไม่รวม "รอประเมินการซ่อม" เพราะรถอาจยังวิ่งงานอยู่ก่อนเข้าอู่ · ไม่รวมงานอะไหล่ลงคันเพราะรถวิ่งได้ระหว่างรอของ)
-const IN_GARAGE_STATUSES = new Set(["รถเข้าอู่ซ่อม", "รอใบเสนอราคา", "รอ PR", "ซ่อมไม่มีกำหนด", "ซ่อมมีกำหนดเสร็จ"])
+// (ไม่รวม "แจ้งซ่อมอู่นอก" เพราะรถอาจยังวิ่งงานอยู่ก่อนเข้าอู่ · ไม่รวมงานอะไหล่ลงคันเพราะรถวิ่งได้ระหว่างรอของ)
+const IN_GARAGE_STATUSES = new Set(["รถเข้าซ่อมอู่นอก", "รอใบเสนอราคา", "รอ PR", "ซ่อมไม่มีกำหนด", "ซ่อมมีกำหนดเสร็จ"])
 
 // ── ข้อมูลเทียบจาก /api/repair-external/atms-board (ATMS open-jobs × รถจอดจริง × WMS) ──
 const atmsKey = (s: string) => (s ?? "").replace(/[\s.]/g, "").trim().toUpperCase()
@@ -629,7 +629,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         planLinkRef.current = p._id  // ต้องตั้งหลัง openEdit (openEdit ล้างค่า ref)
         setForm((f) => ({
           ...f,
-          status: f.status === REPAIR_STATUS_VALUES[0] ? "รถเข้าอู่ซ่อม" : f.status,
+          status: f.status === REPAIR_STATUS_VALUES[0] ? "รถเข้าซ่อมอู่นอก" : f.status,
           garageInDate: f.garageInDate || today,
           garage: f.garage || p.garage,
         }))
@@ -651,7 +651,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       receivedDate: today,
       garageInDate: today,
       dueDate: p.plannedOutDate || "",
-      status: "รถเข้าอู่ซ่อม",
+      status: "รถเข้าซ่อมอู่นอก",
     })
     setOpen(true)
   }
@@ -674,7 +674,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       receivedDate: m.since || today,
       garageInDate: m.since || today,   // รถจอดอยู่อู่แล้ว → เข้าอู่ตั้งแต่วันเริ่มจอด
       dueDate: m.expectedDone || "",
-      status: "รถเข้าอู่ซ่อม",
+      status: "รถเข้าซ่อมอู่นอก",
     })
     setOpen(true)
   }
@@ -864,7 +864,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   }
 
   // คัดลอกข้อความ "ตามงาน" (ส่งไลน์) — ใช้ข้อมูลรถจอดจริง (fleet) + ATMS ถ้าดึงได้
-  // 🔴 = รถจอดจริงแล้วแต่ WMS ยัง "รอประเมินการซ่อม" · 🟢 = WMS ว่ายังซ่อมแต่รถไม่จอดแล้ว · 🆕 = งาน ATMS ที่ยังไม่มีในระบบ
+  // 🔴 = รถจอดจริงแล้วแต่ WMS ยัง "แจ้งซ่อมอู่นอก" · 🟢 = WMS ว่ายังซ่อมแต่รถไม่จอดแล้ว · 🆕 = งาน ATMS ที่ยังไม่มีในระบบ
   async function buildFollowUpReal(): Promise<LineBuild | null> {
     if (typeof window === "undefined") return null
     let b: AtmsBoard
@@ -887,7 +887,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     const lines: string[] = [`📢 งานซ่อมอู่นอก ${total} รายการ สถานะในระบบไม่ตรงกับรถจริงครับ (เช็คกับข้อมูลรถจอดจริง ${fmtThaiDay(b.fetchedAt.slice(0, 10))})`]
     let n = 0
     if (b.waitingButParked.length) {
-      lines.push("", `🔴 ${b.waitingButParked.length} คันนี้ รถจอดอยู่อู่แล้ว แต่ในระบบยังเขียนว่า "รอประเมินการซ่อม"`, "→ ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
+      lines.push("", `🔴 ${b.waitingButParked.length} คันนี้ รถจอดอยู่อู่แล้ว แต่ในระบบยังเขียนว่า "แจ้งซ่อมอู่นอก"`, "→ ฝากกดเข้าไปเปลี่ยนสถานะให้ตรงหน่อยครับ", "")
       for (const w of [...b.waitingButParked].sort((a, x) => x.days - a.days)) {
         lines.push(`${++n}. ${w.fleetNo || w.plate} — จอดมา ${w.days} วัน${w.days >= 45 ? "‼️" : ""}${w.plant ? ` (${w.plant})` : ""}`)
         lines.push(linkOf(w.fleetNo || w.plate))
@@ -1133,8 +1133,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   // วิเคราะห์ความสอดคล้อง งานซ่อม ↔ สถานะรถรายวันจริง (เฉพาะงานอู่นอกที่ยังไม่ปิด)
   // กติกา:
-  //  • "รอประเมินการซ่อม" + รถเป็น A ตลอด ไม่เคย B/BA ตั้งแต่รับแจ้ง → รอเข้าซ่อมจริง (info)
-  //  • "รอประเมินการซ่อม" + รถเป็น B/BA อยู่ → เข้าอู่แล้ว ควรอัพเดทเป็น "รถเข้าอู่ซ่อม"
+  //  • "แจ้งซ่อมอู่นอก" + รถเป็น A ตลอด ไม่เคย B/BA ตั้งแต่รับแจ้ง → รอเข้าซ่อมจริง (info)
+  //  • "แจ้งซ่อมอู่นอก" + รถเป็น B/BA อยู่ → เข้าอู่แล้ว ควรอัพเดทเป็น "รถเข้าซ่อมอู่นอก"
   //  • งานที่รถควรอยู่อู่ + รถกลับมาวิ่ง (เคย B/BA แล้วเปลี่ยนเป็น A) → ซ่อมเสร็จแล้วยังไม่อัพเดทงาน
   const jobAlertOf = (r: RepairExternal): JobAlert | null => {
     const ds = dailyStatus[r.plate]
@@ -1143,7 +1143,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     // เคยเป็น B/BA หลังวันรับแจ้งไหม (YYYY-MM-DD เทียบ string ตรงๆ ได้)
     const everBbaSinceJob = !!ds.last_bba_date && !!r.receivedDate && ds.last_bba_date >= r.receivedDate
 
-    if (r.status === "รอประเมินการซ่อม") {
+    if (r.status === "แจ้งซ่อมอู่นอก") {
       if (ds.group === "working" && everBbaSinceJob)
         return {
           kind: "update_needed",
@@ -1153,8 +1153,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if ((ds.streak_days ?? 0) > 0)
         return {
           kind: "update_needed",
-          text: `รถเข้าอู่แล้ว (${ds.status} ${ds.streak_days} วัน) — อัพเดทเป็น "รถเข้าอู่ซ่อม"?`,
-          title: `สถานะรายวันเป็น ${ds.status} ต่อเนื่อง ${ds.streak_days} วัน แต่งานยังสถานะ "รอประเมินการซ่อม"`,
+          text: `รถเข้าอู่แล้ว (${ds.status} ${ds.streak_days} วัน) — อัพเดทเป็น "รถเข้าซ่อมอู่นอก"?`,
+          title: `สถานะรายวันเป็น ${ds.status} ต่อเนื่อง ${ds.streak_days} วัน แต่งานยังสถานะ "แจ้งซ่อมอู่นอก"`,
         }
       if (ds.group === "working")
         return {
@@ -1821,7 +1821,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               )}
               {alertRows.length > 0 && (
                 <span className="font-semibold text-amber-700 dark:text-amber-300"
-                  title="เช่น รถกลับมาวิ่งแล้วแต่ยังไม่ปิดงาน หรือรถเข้าอู่แล้วแต่งานยัง&quot;รอประเมินการซ่อม&quot; — กดปุ่มข้าง ๆ เพื่อกรองดูเฉพาะรายการเหล่านี้">
+                  title="เช่น รถกลับมาวิ่งแล้วแต่ยังไม่ปิดงาน หรือรถเข้าอู่แล้วแต่งานยัง&quot;แจ้งซ่อมอู่นอก&quot; — กดปุ่มข้าง ๆ เพื่อกรองดูเฉพาะรายการเหล่านี้">
                   {atms ? "· " : ""}⚠ สถานะไม่ตรง {alertRows.length}
                 </span>
               )}
@@ -2257,7 +2257,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               const cap  = "text-[10px] font-medium uppercase tracking-wide text-[#9AA8A0]"
               // สูงสุด 3 คอลัมน์ ไม่ใช่ 6 — drawer ถูกจำกัดที่ 52rem (832px) ต่อให้จอ 4K ก็ไม่กว้างกว่านี้
               // 6 คอลัมน์จึงได้ช่องละ ~138px เสมอ หัก px-3.5 สองข้างเหลือเนื้อที่ 110px ขณะที่
-              // "⏳ รอประเมินการซ่อม" ต้องการ 117px = โดน truncate ตัดทิ้งทุกจอ (วัดจริง 01/09/2026)
+              // "⏳ แจ้งซ่อมอู่นอก" ต้องการ 117px = โดน truncate ตัดทิ้งทุกจอ (วัดจริง 01/09/2026)
               // 3 คอลัมน์ได้ช่องละ ~277px เหลือเฟือ และอ่านเป็น 2 แถวง่ายกว่าแถวเดียว 6 ช่องแน่น ๆ
               return (
                 <div className="grid shrink-0 grid-cols-2 gap-px border-b border-[#EEF2F0] dark:border-white/8 bg-[#EEF2F0] dark:bg-white/8 sm:grid-cols-3">

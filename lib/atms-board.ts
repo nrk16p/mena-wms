@@ -42,6 +42,13 @@ export type ParkedTruck = {
 export const ATMS_SETTLED_STEPS = ["รถซ่อมเสร็จสิ้น", "รถรอขาย"]
 export const isAtmsSettled = (step: string) => ATMS_SETTLED_STEPS.includes(step)
 
+/**
+ * ขั้นที่ไม่ใช่ "งานซ่อมอู่นอก" ที่ทีมนี้ดูแล — ไม่ต้องนับในการเทียบ และไม่ต้องทวงให้เปิดใบใน WMS
+ * - แย็กโม่ = งานยกโม่ แยกทีม/แยกคิว ไม่ได้อยู่ในสายงานซ่อมอู่นอก (ผู้ใช้สั่ง 21/09/2569)
+ */
+export const ATMS_SKIP_STEPS = ["แย็กโม่"]
+export const isAtmsSkipped = (step: string) => ATMS_SKIP_STEPS.includes(step)
+
 export type AtmsBoardData = {
   jobs: AtmsOpenJob[]       // งานอู่นอกเปิดทั้งหมดใน ATMS
   parked: ParkedTruck[]     // รถจอดจริงตอนนี้
