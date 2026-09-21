@@ -3,7 +3,7 @@
  */
 import assert from "node:assert"
 import {
-  OWNER_NO_FLEET, buildDailySummaryText, buildNoPrByOwner, fleetsOfOwner,
+  OWNER_NO_FLEET, buildDailySummaryText, buildNoPrByOwner, buildNoPrOverviewText, fleetsOfOwner,
   ownerLabel, ownerOfFleet, thaiDateShort, type DailySummary,
 } from "../lib/repair-external"
 
@@ -103,11 +103,24 @@ check("พิมพ์ครบทุกขั้น รวมขั้นที
   assert.match(text, /\* 🔧 รถเข้าอู่ซ่อม : 20 คัน/)
   assert.match(text, /\* ⏰ รอ PR : 9 คัน/)
 })
-check("ไม่มี PR แยกผู้รับผิดชอบ → ฟลีท พร้อมเลขทะเบียน", () => {
-  assert.match(text, /📋 ไม่มี PR 4 คัน — แยกตามผู้รับผิดชอบและฟลีท/)
-  assert.match(text, /\* คุณติ๊ก : 3 คัน/)
-  assert.match(text, /- Scco ML \(2\) : TH413 \/ TH239/)
-  assert.match(text, /- ไม่ระบุฟลีท \(1\) : RX08/)
+check("รายงานสรุปไม่มีบล็อกรายชื่อรถที่ไม่มี PR (แยกไปอีกข้อความ)", () => {
+  assert.ok(!text.includes("แยกตามผู้รับผิดชอบและฟลีท"))
+  assert.ok(!text.includes("TH413"))
+})
+
+console.log("ข้อความ 'ไม่มี PR' (แยกส่งต่างหาก)")
+const noPrText = buildNoPrOverviewText(sum, { origin: "https://x" })
+check("หัวข้อ + จำนวนรวม + วันที่", () => {
+  assert.match(noPrText, /^📋 ไม่มี PR 4 คัน — แยกตามผู้รับผิดชอบและฟลีท · 21\/9\/2569/)
+})
+check("แยกผู้รับผิดชอบ → ฟลีท พร้อมเบอร์รถ", () => {
+  assert.match(noPrText, /\* คุณติ๊ก : 3 คัน/)
+  assert.match(noPrText, /- Scco ML \(2\) : TH413 \/ TH239/)
+  assert.match(noPrText, /- ไม่ระบุฟลีท \(1\) : RX08/)
+  assert.match(noPrText, /🔗 https:\/\/x\/repair-external$/)
+})
+check("ไม่มีงานค้าง PR → ข้อความดี ๆ ไม่ใช่หัวข้อว่าง", () => {
+  assert.match(buildNoPrOverviewText({ ...sum, noPr: [] }, { origin: "" }), /🎉 งานอู่นอกมี PR ครบทุกใบแล้ว/)
 })
 check("แผนติดตามวันถัดไป = เฉพาะงานที่เลยกำหนดเสร็จ", () => {
   assert.match(text, /🎯 แผนติดตามวันถัดไป/)

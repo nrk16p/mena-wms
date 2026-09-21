@@ -512,6 +512,20 @@ export function thaiDateShort(ymd: string): string {
   const [y, m, d] = String(ymd ?? "").split("-").map(Number)
   return y && m && d ? `${d}/${m}/${y + 543}` : String(ymd ?? "")
 }
+/** ข้อความ "ไม่มี PR แยกตามผู้รับผิดชอบและฟลีท" — แยกส่งคนละข้อความกับรายงานสรุป
+ *  (ผู้ใช้สั่ง 21/09/2569: รายงานสรุปยาวไป เอารายชื่อรถออกไปอีกข้อความ) */
+export function buildNoPrOverviewText(s: DailySummary, opts: { origin: string }): string {
+  const total = s.noPr.reduce((n, g) => n + g.count, 0)
+  if (!total) return `🎉 งานอู่นอกมี PR ครบทุกใบแล้ว (${thaiDateShort(s.date)})`
+  const L: string[] = [`📋 ไม่มี PR ${total} คัน — แยกตามผู้รับผิดชอบและฟลีท · ${thaiDateShort(s.date)}`, ""]
+  for (const g of s.noPr) {
+    L.push(`* ${ownerLabel(g.owner)} : ${g.count} คัน`)
+    for (const f of g.fleets) L.push(`   - ${f.fleet || "ไม่ระบุฟลีท"} (${f.units.length}) : ${f.units.join(" / ")}`)
+  }
+  if (opts.origin) L.push("", `🔗 ${opts.origin}/repair-external`)
+  return L.join("\n")
+}
+
 export function buildDailySummaryText(s: DailySummary, opts: { origin: string }): string {
   const L: string[] = [`📌 รายงานสรุปงานซ่อมอู่นอก ประจำวันที่ ${thaiDateShort(s.date)}`, "", "🔷 สรุปภาพรวม", ""]
   L.push(`🚗 คงค้างต้นวัน : ${s.startOfDay} คัน`)
@@ -530,15 +544,6 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
     L.push("", "↗️ สถานะงานที่คงค้าง", "")
     // พิมพ์ครบทุกขั้นแม้วันนั้นเป็น 0 — บรรทัดเท่ากันทุกวัน ทีมเทียบกับเมื่อวานได้ทันที
     for (const x of s.byStatus) L.push(`* ${statusMeta(x.status).emoji} ${x.status} : ${x.count} คัน`)
-  }
-
-  const noPrTotal = s.noPr.reduce((n, g) => n + g.count, 0)
-  if (noPrTotal) {
-    L.push("", `📋 ไม่มี PR ${noPrTotal} คัน — แยกตามผู้รับผิดชอบและฟลีท`, "")
-    for (const g of s.noPr) {
-      L.push(`* ${ownerLabel(g.owner)} : ${g.count} คัน`)
-      for (const f of g.fleets) L.push(`   - ${f.fleet || "ไม่ระบุฟลีท"} (${f.units.length}) : ${f.units.join(" / ")}`)
-    }
   }
 
   if (s.urgent.units.length) {

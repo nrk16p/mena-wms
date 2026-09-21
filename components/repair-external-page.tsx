@@ -28,6 +28,7 @@ import {
   buildRepairSummary,
   buildNoPrByOwner,
   buildDailySummaryText,
+  buildNoPrOverviewText,
   ownerLabel,
   fleetsOfOwner,
   type DailySummary,
@@ -779,16 +780,25 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     } catch { /* ignore */ }
   }
 
-  // รายงานสรุปประจำวัน (ข้อความส่งไลน์) — ตัวเลขทั้งหมดมาจาก /daily-summary ที่เดียว
-  async function buildDailyReportText(): Promise<LineBuild> {
-    if (typeof window === "undefined") return { empty: "เปิดบนเบราว์เซอร์เพื่อสร้างข้อความ" }
-    let data: DailySummary
+  // ตัวเลขของรายงานประจำวัน — ดึงสดทุกครั้งที่กด ใช้ร่วมกันสองข้อความ (สรุป / ไม่มี PR)
+  async function loadDailySummary(): Promise<DailySummary> {
     try {
       const res = await fetch("/api/repair-external/daily-summary")
       if (!res.ok) throw new Error()
-      data = await res.json()
+      return await res.json()
     } catch { throw new Error("โหลดข้อมูลสรุปไม่สำเร็จ") }
-    return { text: buildDailySummaryText(data, { origin: window.location.origin }) }
+  }
+
+  // รายงานสรุปประจำวัน (ข้อความส่งไลน์)
+  async function buildDailyReportText(): Promise<LineBuild> {
+    if (typeof window === "undefined") return { empty: "เปิดบนเบราว์เซอร์เพื่อสร้างข้อความ" }
+    return { text: buildDailySummaryText(await loadDailySummary(), { origin: window.location.origin }) }
+  }
+
+  // รายชื่อรถที่ยังไม่มี PR ทั้งหมด — ข้อความแยกจากรายงานสรุป (ผู้ใช้ขอให้ส่งคนละข้อความ)
+  async function buildNoPrOverview(): Promise<LineBuild> {
+    if (typeof window === "undefined") return { empty: "เปิดบนเบราว์เซอร์เพื่อสร้างข้อความ" }
+    return { text: buildNoPrOverviewText(await loadDailySummary(), { origin: window.location.origin }) }
   }
 
   // คัดลอกรายชื่อรถที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ส่งไลน์ให้ไปเปิด PR)
@@ -1373,6 +1383,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       meta: `ค้าง ${stats.total} คัน`,
       hint: "คงค้างต้นวัน/รับแจ้งใหม่/เสร็จวันนี้/คงค้างสิ้นวัน + สถานะที่ค้าง + ไม่มี PR แยกผู้รับผิดชอบ + งานที่ต้องเร่งตาม",
       build: buildDailyReportText },
+    { key: "noprAll", emoji: "📋", label: "ไม่มี PR — แยกผู้รับผิดชอบ/ฟลีท", group: "ข้อความรวม",
+      meta: `${stats.noPr} คัน`,
+      hint: "รายชื่อรถที่ยังไม่มี PR ทั้งหมด จัดกลุ่มตามผู้รับผิดชอบแล้วแยกฟลีท (ข้อความแยกจากรายงานสรุป)",
+      build: buildNoPrOverview },
     { key: "doneNoPr", emoji: "🏁", label: DONE_NO_PR_STATUS, group: "ข้อความรวม",
       meta: `${stats.counts[DONE_NO_PR_STATUS] || 0} คัน`,
       hint: "รถซ่อมเสร็จแล้วแต่ยังไม่มี PR — ส่งให้ไปเปิด PR (ดึงสดทั้งหมด ไม่ขึ้นกับตัวกรองบนหน้า)",
