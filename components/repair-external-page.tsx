@@ -268,14 +268,17 @@ type AtmsPending = {
   plate: string; trucknum: string; days: number; since: string; subStatus: string; plant: string
   mrCode: string; mrId: number; step: string; stepAt: string; vendor: string; severity: string
   prAmount: number; expectedDone: string; wms: AtmsWmsRef | null
+  /** เฉพาะแถวที่ยังขาด: ใบที่ปิดล่าสุดใน WMS ของคันนี้ (คนละรอบกับ Mena-Next) */
+  lastClosed?: AtmsClosedRef
 }
+type AtmsClosedRef = { id: string; mrNo: string; status: string; closedAt: string; closedBy: string }
 type AtmsBoard = {
   ok: boolean
   fetchedAt: string
   pending: AtmsPending[]
   missing: AtmsPending[]
   /** Mena-Next ยังขึ้นว่าจอดซ่อม แต่ใบงานรอบเดียวกันใน WMS ปิดไปแล้ว — ไม่นับเป็นขาด */
-  closedInWms?: (AtmsPending & { closed: { id: string; mrNo: string; status: string; closedAt: string; closedBy: string } })[]
+  closedInWms?: (AtmsPending & { closed: AtmsClosedRef & { matchedBy: "mr" | "since" | "recent" } })[]
   waitingButParked: { id: string; plate: string; fleetNo: string; days: number; since: string; plant: string }[]
   openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
   prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean; mrConflict: boolean; wmsMr: string }[]
@@ -1891,6 +1894,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           >
                             <Plus size={12} className="mr-0.5 inline" /> สร้างรายการ
                           </button>
+                          {/* มีใบเก่าที่ปิดไปแล้ว แต่ไม่ใช่รอบเดียวกับ Mena-Next — บอกไว้ให้รู้ว่าไม่ได้ลืมปิดงาน (เคส TH1380) */}
+                          {m.lastClosed && (
+                            <div className="basis-full text-[11.5px] text-slate-500 dark:text-slate-400">
+                              ใบล่าสุดใน WMS: {m.lastClosed.mrNo || "ไม่มี MR"} · {m.lastClosed.status}
+                              {m.lastClosed.closedAt ? ` ${fmtDateShort(m.lastClosed.closedAt)}` : ""}
+                              {m.lastClosed.closedBy ? ` โดย ${m.lastClosed.closedBy}` : ""}
+                              {" "}— คนละรอบกับ Mena-Next ({m.mrCode || "-"}) ต้องเปิดใบใหม่
+                              <button type="button" onClick={() => openById(m.lastClosed!.id)} className="ml-1.5 font-semibold underline hover:text-slate-700 dark:hover:text-slate-200">ดูใบเก่า</button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1900,9 +1913,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                 {(atms.closedInWms?.length ?? 0) > 0 && (
                   <div>
                     <p className="mb-1.5 font-bold text-slate-600 dark:text-slate-300">✅ ปิดงานใน WMS แล้ว — Mena-Next ยังขึ้นว่าจอดซ่อม ({atms.closedInWms!.length} คัน)</p>
+                    <p className="-mt-1 mb-1.5 text-[11px] text-slate-500 dark:text-slate-400">MR ตรงกัน หรือจัดซื้อปิดงานไม่เกิน 2 วัน = ฝั่งจัดซื้อจบแล้ว รอ Mena-Next อัปเดต</p>
                     <div className="space-y-1">
                       {atms.closedInWms!.map((m) => {
                         const sm = statusMeta(m.closed.status)
+                        const mrDiff = m.closed.matchedBy === "recent" && atmsKey(m.closed.mrNo) !== atmsKey(m.mrCode)
                         return (
                           <div key={m.closed.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5 text-slate-600 dark:text-slate-300">
                             <b className="min-w-[52px]">{m.trucknum || "—"}</b>
@@ -1913,12 +1928,28 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                               ปิดโดย {m.closed.closedBy || "—"}{m.closed.closedAt ? ` · ${fmtDateShort(m.closed.closedAt)}` : ""}
                             </span>
                             <span className="text-[12px] opacity-60">Mena-Next: {m.step || "-"} · จอด {m.days} วัน</span>
-                            <button
-                              onClick={() => openById(m.closed.id)}
-                              className="ml-auto shrink-0 rounded-lg border border-slate-300 px-2.5 py-1 text-[12px] font-bold hover:bg-slate-100 dark:border-white/20 dark:hover:bg-white/10"
-                            >
-                              เปิดรายการ
-                            </button>
+                            <span className="ml-auto flex shrink-0 gap-1.5">
+                              {mrDiff && (
+                                <button
+                                  onClick={() => openAddFromAtms(m)}
+                                  className="rounded-lg border border-amber-400 px-2.5 py-1 text-[12px] font-bold text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                                >
+                                  <Plus size={12} className="mr-0.5 inline" /> สร้างรายการ
+                                </button>
+                              )}
+                              <button
+                                onClick={() => openById(m.closed.id)}
+                                className="rounded-lg border border-slate-300 px-2.5 py-1 text-[12px] font-bold hover:bg-slate-100 dark:border-white/20 dark:hover:bg-white/10"
+                              >
+                                เปิดรายการ
+                              </button>
+                            </span>
+                            {/* นับว่าจบเพราะเพิ่งปิด แต่ MR คนละเลข — อาจเป็นรถเข้าซ่อมรอบใหม่ (เคส TH1380) */}
+                            {mrDiff && (
+                              <div className="basis-full text-[11.5px] font-semibold text-amber-700 dark:text-amber-300">
+                                ⚠ MR ไม่ตรง: WMS {m.closed.mrNo || "ไม่มี MR"} / Mena-Next {m.mrCode || "-"} — ถ้ารถเข้าซ่อมรอบใหม่ ให้กดสร้างรายการ (พ้น 2 วันจะกลับไปอยู่ ❌)
+                              </div>
+                            )}
                           </div>
                         )
                       })}

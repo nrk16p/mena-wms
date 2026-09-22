@@ -39,6 +39,21 @@ assert.equal(findClosedMatch("", "2026-09-01", [job({ id: "d", mrNo: "M1" })]), 
 assert.equal(findClosedMatch("", "2026-09-01", [job({ id: "e", closedAt: "2026-09-02" })])?.id, "e")
 assert.equal(findClosedMatch("M1", "2026-09-01", []), null)
 
+// matchedBy บอกว่าเข้าเงื่อนไขไหน
+assert.equal(findClosedMatch("KKMR26090005", "2026-09-21", [nl22])?.matchedBy, "mr")
+assert.equal(findClosedMatch("LBMR26090700", "2026-09-07", [job({ closedAt: "2026-09-07" })])?.matchedBy, "since")
+
+// ── จัดซื้อปิดไม่เกิน 2 วัน = จบฝั่งจัดซื้อ แม้ MR ไม่ตรง (เคส TH1380: ปิดใบรอบ ส.ค. วันนี้ แต่ Mena-Next เป็นรอบ ก.ย.)
+const th1380 = job({ id: "th1380", mrNo: "LBMR26080702", closedAt: "2026-09-22", closedBy: "Nop" })
+const TODAY = "2026-09-22"
+assert.equal(findClosedMatch("LBMR26090700", "2026-09-07", [th1380], TODAY)?.matchedBy, "recent", "ปิดวันนี้")
+assert.equal(findClosedMatch("LBMR26090700", "2026-09-07", [th1380], "2026-09-24")?.matchedBy, "recent", "ปิดมา 2 วัน ยังนับ")
+assert.equal(findClosedMatch("LBMR26090700", "2026-09-07", [th1380], "2026-09-25"), null, "พ้น 2 วัน → กลับไปขาด")
+assert.equal(findClosedMatch("LBMR26090700", "2026-09-07", [th1380]), null, "ไม่ส่ง today = ไม่ใช้กติกา 2 วัน")
+assert.equal(findClosedMatch("LBMR26090700", "2026-09-07", [job({ mrNo: "X", closedAt: "2026-09-23" })], TODAY), null, "วันปิดอยู่ในอนาคต = ข้อมูลเพี้ยน ไม่นับ")
+// MR ตรงมาก่อนกติกา 2 วันเสมอ
+assert.equal(findClosedMatch("M1", "", [job({ id: "recent", mrNo: "M2", closedAt: TODAY }), job({ id: "same", mrNo: "M1", closedAt: "2026-08-01" })], TODAY)?.id, "same")
+
 // ── ปี พ.ศ. ในช่องวันที่ → ค.ศ.
 assert.equal(fixBeYear("2569-09-17"), "2026-09-17", "เคส NL22 วันที่ซ่อมเสร็จ")
 assert.equal(fixBeYear(" 2569-01-05 "), "2026-01-05")

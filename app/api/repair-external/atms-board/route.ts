@@ -2,10 +2,10 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { fetchAtmsBoard, findClosedMatch, isAtmsSettled, isAtmsSkipped, normKey, type ClosedWmsJob } from "@/lib/atms-board"
+import { fetchAtmsBoard, findClosedMatch, isAtmsSettled, isAtmsSkipped, latestClosed, normKey, type ClosedMatch, type ClosedWmsJob } from "@/lib/atms-board"
 import { DONE_STATUSES, JOB_TYPE_PARTS } from "@/lib/repair-external"
 import { REPAIR_LOG_COLL } from "@/lib/repair-log"
-import { bkkDate } from "@/lib/bkk-time"
+import { bkkDate, bkkToday } from "@/lib/bkk-time"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -71,10 +71,13 @@ export async function GET() {
       .filter(Boolean)
       .sort((a, b) => (b!.days - a!.days))
 
-    // ── ✅ ไม่มีใบเปิดใน WMS แต่ปิดงานไปแล้ว (รอบซ่อมเดียวกัน) — Mena-Next ยังไม่อัปเดตสถานะรถ
+    // ── ✅ ไม่มีใบเปิดใน WMS แต่ปิดงานไปแล้ว (รอบเดียวกัน หรือจัดซื้อเพิ่งปิดไม่เกิน 2 วัน) — Mena-Next ยังไม่อัปเดตสถานะรถ
     //    แยกออกจาก pending/missing: ไม่ต้องทวงให้สร้างใบ แค่โชว์ให้รู้ว่าใครปิดไปแล้ว
+    //    ที่ไม่เข้าเงื่อนไข → ยังขาด แต่แนบ "ใบล่าสุดที่ปิด" ไปให้เห็นว่าเป็นคนละรอบ
+    const today  = bkkToday()
     const noWms = pending.filter((p) => !p!.wms)
-    const closedFor = new Map<string, ClosedWmsJob>()   // key = plate จาก Mena-Next
+    const closedFor     = new Map<string, ClosedMatch>()    // key = plate จาก Mena-Next
+    const lastClosedFor = new Map<string, ClosedWmsJob>()
     if (noWms.length) {
       const plates = noWms.map((p) => p!.plate).filter(Boolean)
       const nums   = noWms.map((p) => p!.trucknum).filter(Boolean)
@@ -111,8 +114,12 @@ export async function GET() {
             closedAt: String(d.statusSince || bkkDate(d.statusSinceAt ?? d.updatedAt)),
             closedBy: closerOf(String(d._id), String(d.status ?? "")) || String(d.editedBy ?? ""),
           }))
-        const hit = findClosedMatch(p!.mrCode, p!.since, cands)
+        const hit = findClosedMatch(p!.mrCode, p!.since, cands, today)
         if (hit) closedFor.set(p!.plate, hit)
+        else {
+          const last = latestClosed(cands)
+          if (last) lastClosedFor.set(p!.plate, last)
+        }
       }
     }
     const closedInWms = pending
@@ -177,7 +184,9 @@ export async function GET() {
       ok: true,
       fetchedAt: board.fetchedAt,
       pending: stillPending,
-      missing: stillPending.filter((p) => !p!.wms),
+      missing: stillPending
+        .filter((p) => !p!.wms)
+        .map((p) => (lastClosedFor.has(p!.plate) ? { ...p!, lastClosed: lastClosedFor.get(p!.plate)! } : p)),
       closedInWms,
       waitingButParked,
       openNotParked,

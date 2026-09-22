@@ -58,26 +58,47 @@ export type ClosedWmsJob = {
   closedBy: string
 }
 
+/** ปิดงานใน WMS ไม่เกินกี่วัน แม้ MR ไม่ตรง ก็นับว่าฝั่งจัดซื้อจบแล้ว รอ Mena-Next อัปเดต */
+export const RECENT_CLOSE_DAYS = 2
+
+export type ClosedMatch = ClosedWmsJob & {
+  /** mr = MR ตรง · since = ใบไม่มี MR ปิดหลังเริ่มจอด · recent = ปิดไม่เกิน RECENT_CLOSE_DAYS วัน (MR อาจไม่ตรง) */
+  matchedBy: "mr" | "since" | "recent"
+}
+
+// หลาย MR ในช่องเดียว คั่นด้วย , / ; หรือเว้นวรรค — แยกทั้งสองแบบเพราะบางใบพิมพ์ "KKMR 2609..." มีช่องว่างในเลขเดียว
+export const mrListOf = (mrNo: string) => [
+  ...mrNo.split(/[,/;\n]+/),
+  ...mrNo.split(/[\s,/;]+/),
+].map(normKey).filter(Boolean)
+
+/** ใบที่ปิดล่าสุด (วันเท่ากัน → ตัวแรก ผู้เรียกเรียงใหม่→เก่ามาแล้ว) */
+export const latestClosed = (xs: ClosedWmsJob[]): ClosedWmsJob | null =>
+  xs.length ? xs.reduce((a, b) => (b.closedAt > a.closedAt ? b : a)) : null
+
+const dayDiff = (from: string, to: string) =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000)
+
 /**
- * รถจอดซ่อมที่ไม่มีใบเปิดใน WMS — มีใบที่ "ปิดไปแล้ว" ของรอบซ่อมเดียวกันหรือเปล่า
+ * รถจอดซ่อมที่ไม่มีใบเปิดใน WMS — มีใบที่ "ปิดไปแล้ว" ที่ถือว่าจบงานฝั่งจัดซื้อหรือยัง
  * (ผู้ใช้สั่ง 22/09/2569: NL22 จัดซื้อปิดงานแล้ว แต่ Mena-Next ยังไม่อัปเดต → ขึ้นว่าขาดในระบบ)
- * - MR ตรงกับงานใน Mena-Next = รอบเดียวกันแน่นอน
- * - ใบไม่มี MR → นับเฉพาะที่ปิดตั้งแต่วันเริ่มจอดรอบนี้ (ปิดก่อนหน้านั้นคือรอบซ่อมเก่า)
- * - MR ไม่ตรง = คนละรอบ → ยังถือว่าขาด
- * closed = ใบที่ปิดแล้วของคันนั้น (จับคู่ทะเบียน/เบอร์รถมาแล้ว) · หลายใบเข้าเงื่อนไข → เอาใบที่ปิดล่าสุด
+ * 1. MR ตรงกับงานใน Mena-Next = รอบเดียวกันแน่นอน
+ * 2. ใบไม่มี MR → นับเฉพาะที่ปิดตั้งแต่วันเริ่มจอดรอบนี้ (ปิดก่อนหน้านั้นคือรอบซ่อมเก่า)
+ * 3. ปิดไม่เกิน RECENT_CLOSE_DAYS วัน (นับจาก today) → จัดซื้อจบแล้ว แม้ MR ไม่ตรง
+ *    (ผู้ใช้สั่ง 22/09/2569 เคส TH1380) — UI ต้องเตือน + ให้สร้างใบได้ เผื่อเป็นรถรอบใหม่จริง
+ * ไม่เข้าข้อไหน = ยังขาด · closed = ใบที่ปิดแล้วของคันนั้น (จับคู่ทะเบียน/เบอร์รถมาแล้ว) · หลายใบ → ใบที่ปิดล่าสุด
  */
-export function findClosedMatch(mrCode: string, parkedSince: string, closed: ClosedWmsJob[]): ClosedWmsJob | null {
-  // หลาย MR ในช่องเดียว คั่นด้วย , / ; หรือเว้นวรรค — แยกทั้งสองแบบเพราะบางใบพิมพ์ "KKMR 2609..." มีช่องว่างในเลขเดียว
-  const mrsOf = (c: ClosedWmsJob) => [
-    ...c.mrNo.split(/[,/;\n]+/),
-    ...c.mrNo.split(/[\s,/;]+/),
-  ].map(normKey).filter(Boolean)
-  const latest = (xs: ClosedWmsJob[]) =>
-    xs.length ? xs.reduce((a, b) => (b.closedAt > a.closedAt ? b : a)) : null
+export function findClosedMatch(mrCode: string, parkedSince: string, closed: ClosedWmsJob[], today = ""): ClosedMatch | null {
   const mr = normKey(mrCode)
-  const sameMr = mr ? closed.filter((c) => mrsOf(c).includes(mr)) : []
-  if (sameMr.length) return latest(sameMr)
-  return latest(closed.filter((c) => !mrsOf(c).length && !!parkedSince && !!c.closedAt && c.closedAt >= parkedSince))
+  const sameMr = latestClosed(mr ? closed.filter((c) => mrListOf(c.mrNo).includes(mr)) : [])
+  if (sameMr) return { ...sameMr, matchedBy: "mr" }
+  const noMr = latestClosed(closed.filter((c) =>
+    !mrListOf(c.mrNo).length && !!parkedSince && !!c.closedAt && c.closedAt >= parkedSince))
+  if (noMr) return { ...noMr, matchedBy: "since" }
+  const recent = latestClosed(today ? closed.filter((c) =>
+    !!c.closedAt && c.closedAt <= today && dayDiff(c.closedAt, today) <= RECENT_CLOSE_DAYS) : [])
+  if (recent) return { ...recent, matchedBy: "recent" }
+  return null
 }
 
 export type AtmsBoardData = {
