@@ -73,10 +73,32 @@ export async function collectAttachments(
   return plan
 }
 
+/** จำนวนแถวว่างที่ต้องตัดให้ฟอร์มจบหน้าเดียว — render เฉพาะฟอร์ม (ไม่มีหน้ารูป) ตัดทีละแถวจนพอดี
+ *  แถวว่างหมดแล้วยังล้น (รายการเยอะจริง) → คืนจำนวนที่ตัดได้ทั้งหมด (0 = ไม่มีแถวว่างให้ตัด) ฟอร์มหลายหน้ายังพิมพ์ได้ตามเดิม */
+export async function fitBlankRowTrim(doc: PriceCompare): Promise<number> {
+  const rowsOf = (def: { content: { table?: { body: unknown[] } }[] }) => def.content[1].table?.body.length ?? 0
+  let prevRows = rowsOf(buildPriceCompareDocDef(doc))
+  for (let trim = 1; ; trim++) {
+    const def = buildPriceCompareDocDef(doc, [], { trimBlankRows: trim })
+    const rows = rowsOf(def)
+    if (rows === prevRows) return trim - 1
+    prevRows = rows
+    if ((await PDFDocument.load(await renderPdfmake(def))).getPageCount() <= 1) return trim
+  }
+}
+
 /** ประกอบ: pdfmake (หน้า 1 + หน้ารูป) → pdf-lib แทรก PDF แนบตามลำดับ → หน้าแจ้งไฟล์ที่แนบไม่ได้ */
 export async function assemblePdf(doc: PriceCompare, plan: AttachmentPlan): Promise<Uint8Array> {
-  const main = await renderPdfmake(buildPriceCompareDocDef(doc, plan.imagePages))
-  const out = await PDFDocument.load(main)
+  let main = await renderPdfmake(buildPriceCompareDocDef(doc, plan.imagePages))
+  let out = await PDFDocument.load(main)
+  // ฟอร์มล้นหน้าเพราะข้อความตัดบรรทัดกินที่แถวว่าง → ตัดแถวว่างให้พอดีแล้ว render ใหม่ (ใบที่พอดีอยู่แล้วไม่ render ซ้ำ)
+  if (out.getPageCount() - plan.imagePages.length > 1) {
+    const trim = await fitBlankRowTrim(doc)
+    if (trim > 0) {
+      main = await renderPdfmake(buildPriceCompareDocDef(doc, plan.imagePages, { trimBlankRows: trim }))
+      out = await PDFDocument.load(main)
+    }
+  }
   // ฟอร์มอาจยาวหลายหน้า (รายการเยอะ) — หน้ารูปแนบถูก pdfmake ต่อท้ายเสมอ จึงหักออกเพื่อรู้จำนวนหน้าฟอร์มจริง
   const mainPages = out.getPageCount() - plan.imagePages.length
   const fallbackFont = await out.embedFont(StandardFonts.Helvetica)

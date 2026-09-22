@@ -62,7 +62,8 @@ export function pdfFilename(doc: PriceCompare): string {
   return `${doc.docNo}${safe ? " " + safe : ""}.pdf`
 }
 
-export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage[] = []): any {
+/** opts.trimBlankRows = ตัดแถวว่างเติมฟอร์มออกกี่แถว (ใช้โดย fitBlankRowTrim เมื่อฟอร์มล้นหน้า — ค่าเริ่มต้น 0 = เลย์เอาต์เดิมทุกไบต์) */
+export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage[] = [], opts: { trimBlankRows?: number } = {}): any {
   const N = MAX_SUPPLIERS
   const sup = (i: number) => doc.suppliers[i]   // undefined ถ้าไม่มี
   const totals = Array.from({ length: N }, (_, i) => (sup(i) ? supplierTotals(doc, i) : null))
@@ -205,7 +206,9 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const minRows = MIN_ROWS - (mixed ? 2 + (showSelectionReason ? 1 : 0) + (showFewerQuotesReason ? 1 : 0) : 0)
   // แถวหัวรายการของรายการหลายเกรดเป็นแถวเพิ่มจาก items → กินโควตาแถวว่างเหมือนแถวรายการ (ไม่มีเกรด = หัก 0)
   const headerRows = groups.filter((g) => g.rows.length > 1).length + sections.length * 2   // + หัวหมวด/ยอดย่อย หมวดละ 2 แถว
-  const blankRows = Array.from({ length: Math.max(0, minRows - doc.items.length - headerRows - 2) }, emptyRow)
+  // โควตานี้นับเป็น "แถว" แต่ความสูงจริงแปรตามข้อความที่ตัดบรรทัด (ช่อง VAT แบบ incl 2 บรรทัด, หมายเหตุ/ชื่อยาว) และบรรทัดหมายเหตุส่วนลด
+  // ของโหมดผสมก็ไม่ได้หักไว้ — ใบที่ใกล้เต็มจึงล้นได้ assemblePdf จับแล้วตัดแถวว่างเพิ่มผ่าน trimBlankRows (fitBlankRowTrim)
+  const blankRows = Array.from({ length: Math.max(0, minRows - doc.items.length - headerRows - 2 - Math.max(0, opts.trimBlankRows ?? 0)) }, emptyRow)
 
   // ช่อง VAT บอกฐานราคาด้วย: none → "ไม่มี VAT", incl → "(รวมในราคา) / 3,683.18"
   const vatCell = (i: number) => {

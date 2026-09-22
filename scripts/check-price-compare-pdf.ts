@@ -6,7 +6,7 @@ import { PDFDocument } from "pdf-lib"
 import { newDoc, emptySupplier, supplierTotals, fmtMoney, pickLowestPerLine, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
 import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE, GRADE_NET_LABEL, GRADE_PARTIAL, SECTION_HEAD, SECTION_SUB } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
-import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
+import { attachmentOrder, collectAttachments, assemblePdf, fitBlankRowTrim } from "../lib/price-compare-attachments"
 import { MEDIA_CDN_BASE, MEDIA_MAX_BYTES } from "../lib/media"
 
 function uh03(): PriceCompare {
@@ -354,7 +354,7 @@ async function main() {
     // 3 หมวด (ชื่อว่าง 1 หมวด) + เลือกผสมครบ: ยังจบหน้าเดียว
     const three = uh03()
     three.items = three.items.map((it, i) => ({ ...it, section: ["อะไหล่", "อะไหล่", "น้ำมัน", "น้ำมัน", ""][i] || undefined }))
-    // S2 เป็น excl เหมือน fixture โหมดผสมด้านบน — โหมดผสม + เจ้าแบบ incl (ช่อง VAT สูง 2 บรรทัด) ล้นหน้าอยู่แล้วตั้งแต่ก่อนมีหมวด
+    // S2 เป็น excl เหมือน fixture โหมดผสมด้านบน — ตรวจ docDefinition ตรงๆ (ไม่ผ่าน assemblePdf/fitBlankRowTrim) จึงเลี่ยงกรณี incl ที่ต้องตัดแถวว่าง
     three.suppliers[1].vatMode = "excl"
     three.selectedSupplier = null; three.lineSupplier = pickLowestPerLine(three)
     const ddThree = buildPriceCompareDocDef(three)
@@ -365,6 +365,26 @@ async function main() {
       fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out)
     }
     console.log("sections: OK → tmp/price-compare-sections.pdf, tmp/price-compare-sections-grades.pdf, tmp/price-compare-sections-three.pdf")
+  }
+
+  // --- ฟอร์มต้องจบหน้าเดียว: แถวว่างคิดตามจำนวนแถว แต่ความสูงจริงแปรตามข้อความที่ตัดบรรทัด ---
+  // uh03 = หมายเหตุยาว (2 บรรทัด) + S2 ราคารวม VAT (ช่อง VAT 2 บรรทัด) + เลือกผสม (บรรทัดหมายเหตุส่วนลดใต้กรรมการ) → เดิมล้นเป็น 2 หน้า
+  {
+    const over = uh03(); over.selectedSupplier = null; over.lineSupplier = pickLowestPerLine(over)
+    const rawOver = await renderPdfmake(buildPriceCompareDocDef(over))
+    assert.equal((await PDFDocument.load(rawOver)).getPageCount(), 2, "fixture ต้องล้นจริงเมื่อไม่ตัดแถวว่าง")
+    const trim = await fitBlankRowTrim(over)
+    assert.ok(trim >= 1, "ต้องตัดแถวว่างอย่างน้อย 1 แถว")
+    const rowsOf = (def: { content: unknown[] }) => priceTableOf(def).body.length
+    assert.equal(rowsOf(buildPriceCompareDocDef(over, [], { trimBlankRows: trim })), rowsOf(buildPriceCompareDocDef(over)) - trim, "ตัดเฉพาะแถวว่าง")
+    const fixed = await assemblePdf(over, { imagePages: [], pdfInserts: [], failed: [] })
+    assert.equal((await PDFDocument.load(fixed)).getPageCount(), 1, "assemblePdf ต้องได้ฟอร์มหน้าเดียว")
+    fs.writeFileSync("tmp/price-compare-mixed-incl-fit.pdf", fixed)
+    // ตัดจนไม่เหลือแถวว่างแล้วยังล้น (รายการเยอะ) → หยุดตัด ไม่วนต่อ
+    const many = uh03(); many.items = Array.from({ length: 30 }, (_, i) => ({ name: `รายการ ${i + 1}`, qty: 1, unit: "ชิ้น" }))
+    many.suppliers = many.suppliers.map((sp) => ({ ...sp, prices: many.items.map(() => 100) }))
+    assert.equal(await fitBlankRowTrim(many), 0, "ไม่มีแถวว่างให้ตัด → 0")
+    console.log("fit one page: OK → tmp/price-compare-mixed-incl-fit.pdf")
   }
 
   // หน้ารูปแนบ
