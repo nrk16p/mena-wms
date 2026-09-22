@@ -63,6 +63,57 @@ export const fixBeYear = (s: string): string => {
   return y >= 2400 && y <= 2700 ? `${y - 543}${m[2]}` : `${m[1]}${m[2]}`
 }
 
+/** ช่องวันที่ของใบงาน — ใช้ตรวจปีผิดตอนบันทึก (ทุกทางเขียน) และเตือนใต้ช่องในฟอร์ม */
+export const REPAIR_DATE_FIELDS = [
+  { field: "receivedDate",  label: "วันที่รับแจ้ง" },
+  { field: "garageInDate",  label: "วันที่รถเข้าอู่ซ่อม" },
+  { field: "dueDate",       label: "วันกำหนดเสร็จ" },
+  { field: "completedDate", label: "วันที่ซ่อมเสร็จ" },
+  { field: "stageEta",      label: "วันคาดว่าจะพ้นสถานะ" },
+] as const
+
+/**
+ * วันที่ YYYY-MM-DD ที่ปีเป็นไปได้ (ค.ศ. 2000–2100)
+ * ปีอื่นคือพิมพ์ผิดในช่องปี เช่น 0259 / 0026 / 0001 (เคส F014 22/09/2569 โชว์ "645384 วัน")
+ */
+export const isPlausibleDate = (s: string | null | undefined): boolean => {
+  const m = /^(\d{4})-\d{2}-\d{2}/.exec((s ?? "").trim())
+  if (!m) return false
+  const y = Number(m[1])
+  return y >= 2000 && y <= 2100
+}
+
+/**
+ * คำเตือนใต้ช่องวันที่ในฟอร์ม — null = ว่างหรือปกติ
+ * - be  = พิมพ์ปี พ.ศ. → บันทึกได้ ระบบแปลงเป็น ค.ศ. ให้ (fixBeYear)
+ * - bad = ปีเป็นไปไม่ได้ → บันทึกไม่ได้จนกว่าจะแก้ (badDateError)
+ */
+export function dateYearHint(v: string | null | undefined): { tone: "be" | "bad"; text: string } | null {
+  const raw = (v ?? "").trim()
+  if (!raw || isPlausibleDate(raw)) return null
+  const fixed = fixBeYear(raw)
+  if (isPlausibleDate(fixed))
+    return { tone: "be", text: `ปี ${raw.slice(0, 4)} เป็น พ.ศ. — ช่องนี้ใช้ปี ค.ศ. ระบบจะบันทึกเป็น ${fixed.slice(0, 4)} ให้` }
+  return { tone: "bad", text: `ปี ${raw.slice(0, 4)} ไม่ถูกต้อง — ใส่ปี ค.ศ. เช่น ${new Date().getFullYear()} (บันทึกไม่ได้จนกว่าจะแก้)` }
+}
+
+/**
+ * ข้อความ error เมื่อช่องวันที่ที่ "เพิ่งกรอก/แก้" มีปีเป็นไปไม่ได้ (หลังแปลง พ.ศ. แล้ว) — null = ผ่าน
+ * ค่าเดิมที่ผิดอยู่แล้วไม่บล็อก: แก้ช่องอื่นของใบนั้นได้ และ API ภายนอกที่ PATCH ช่องอื่นไม่พัง
+ */
+export function badDateError(
+  doc: Record<string, unknown>,
+  existing?: Record<string, unknown> | null,
+): string | null {
+  const bad = REPAIR_DATE_FIELDS.filter(({ field }) => {
+    const v = fixBeYear(String(doc[field] ?? ""))
+    return !!v && !isPlausibleDate(v) && (!existing || String(existing[field] ?? "").trim() !== v)
+  })
+  if (!bad.length) return null
+  const list = bad.map((b) => `${b.label} (ปี ${String(doc[b.field] ?? "").trim().slice(0, 4)})`).join(" · ")
+  return `วันที่ไม่ถูกต้อง: ${list} — ใส่ปี ค.ศ. เช่น ${new Date().getFullYear()}`
+}
+
 // สถานะ "รถเสร็จ" = ปิดงาน — แยกไปหน้า "รถซ่อมเสร็จ" ส่วนที่เหลือคือ "รถซ่อมอู่นอก"
 export const REPAIR_DONE_STATUS = "รถเสร็จ"
 
@@ -109,8 +160,9 @@ export const isDoneStatus = (s: string) => DONE_STATUSES.includes(s)
  * ถ้านับจาก receivedDate อย่างเดียว อายุงานจะต่ำกว่าความจริงมาก (เคยเจอโชว์ 6 วัน ทั้งที่จอดจริง 111 วัน)
  */
 export const jobStartDate = (r: { receivedDate?: string; garageInDate?: string }): string => {
-  const rc = (r.receivedDate ?? "").trim()
-  const gi = (r.garageInDate ?? "").trim()
+  // ปีพิมพ์ผิด (0259 ฯลฯ) น้อยกว่าทุกวันจริงเสมอ → ถ้าไม่ตัดทิ้ง จะถูกเลือกเป็นวันเริ่มแล้วอายุงานกลายเป็นหลักแสนวัน
+  const rc = isPlausibleDate(r.receivedDate) ? (r.receivedDate ?? "").trim() : ""
+  const gi = isPlausibleDate(r.garageInDate) ? (r.garageInDate ?? "").trim() : ""
   if (!rc) return gi
   if (!gi) return rc
   return gi < rc ? gi : rc

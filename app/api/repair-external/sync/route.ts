@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
-import { DONE_STATUSES, isDoneStatus, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, openJobConflictFilter } from "@/lib/repair-external"
+import { DONE_STATUSES, isDoneStatus, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, openJobConflictFilter, badDateError } from "@/lib/repair-external"
 import { REPAIR_LOG_COLL, diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { buildDoc, validateStatus } from "../route"
 import { bkkToday, bkkTimestamps } from "@/lib/bkk-time"
@@ -147,6 +147,8 @@ export async function POST(req: NextRequest) {
   if (!doc.status) return NextResponse.json({ ok: false, error: "กรุณาระบุ status" }, { status: 400 })
   const statusErr = validateStatus(doc.jobType, doc.status)
   if (statusErr) return NextResponse.json({ ok: false, error: statusErr }, { status: 400 })
+  const dateErr = badDateError(doc)
+  if (dateErr) return NextResponse.json({ ok: false, error: dateErr }, { status: 400 })
 
   const by     = apiUser(req)
   const client = await clientPromise
@@ -193,6 +195,8 @@ async function updateRecord(req: NextRequest, partial: boolean) {
 
   const statusErr = validateStatus(doc.jobType, doc.status)
   if (statusErr) return NextResponse.json({ ok: false, error: statusErr }, { status: 400 })
+  const dateErr = badDateError(doc, existing)
+  if (dateErr) return NextResponse.json({ ok: false, error: dateErr }, { status: 400 })
 
   // ล็อกสถานะปิดงาน — เปลี่ยน/ย้อนไม่ได้
   const existingStatus = String(existing.status ?? "")

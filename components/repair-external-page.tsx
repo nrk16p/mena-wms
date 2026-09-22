@@ -46,6 +46,7 @@ import {
   REPAIR_STAGES,
   type RepairExternal,
   type RepairField,
+  badDateError, dateYearHint,
 } from "@/lib/repair-external"
 import { bkkToday, bkkDate as bkkDateOf, daysSince } from "@/lib/bkk-time"
 
@@ -227,6 +228,19 @@ const fmtDateShort = (s: string) => {
   if (isNaN(d.getTime())) return s
   return d.toLocaleDateString("th-TH", { day: "2-digit", month: "2-digit", year: "2-digit" })
 }
+
+// เตือนทันทีใต้ช่องวันที่เมื่อปีผิด (ผู้ใช้ขอ 22/09/2569 หลังเคส F014 ปี 0259 / ใบที่พิมพ์ปี 2569)
+// พ.ศ. = สีเหลือง (บันทึกได้ ระบบแปลงให้) · ปีเป็นไปไม่ได้ = สีแดง (บันทึกไม่ได้)
+function DateYearHint({ value }: { value: string }) {
+  const h = dateYearHint(value)
+  if (!h) return null
+  return (
+    <p className={`mt-1 text-[11.5px] font-semibold leading-snug ${h.tone === "bad" ? "text-rose-600 dark:text-rose-300" : "text-amber-600 dark:text-amber-300"}`}>
+      ⚠ {h.text}
+    </p>
+  )
+}
+const dateBadCls = (v: string) => (dateYearHint(v)?.tone === "bad" ? " !border-rose-400 ring-1 ring-rose-300" : "")
 
 const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3 py-2 text-[13px] text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
@@ -1018,6 +1032,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         return
       }
     }
+    const dateErr = badDateError(form as unknown as Record<string, unknown>)
+    if (dateErr) { fail(dateErr); return }
     setSaving(true)
     try {
       const res    = await fetch("/api/repair-external", {
@@ -1300,9 +1316,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
               type="date"
               value={form.stageEta}
               onChange={(e) => setForm({ ...form, stageEta: e.target.value })}
-              className="ml-auto rounded-lg border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-[12.5px] text-gray-900 dark:text-white focus:border-[#1B8C4B] focus:outline-none"
+              className={"ml-auto rounded-lg border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-2.5 py-1.5 text-[12.5px] text-gray-900 dark:text-white focus:border-[#1B8C4B] focus:outline-none" + dateBadCls(form.stageEta)}
             />
           </div>
+          <DateYearHint value={form.stageEta} />
           <p className="mt-1.5 text-[11px] leading-relaxed text-[#7C3AED]/75 dark:text-violet-300/70">
             {stageEtaMissing
               ? (editId ? "ยังไม่ได้ระบุ — ต้องตอบเมื่อเปลี่ยนสถานะหรือพิมพ์อัพเดท (แก้แค่ช่องข้อมูลไม่ติด)" : "ยังไม่ได้ระบุ — บันทึกไม่ได้จนกว่าจะตอบ")
@@ -1347,6 +1364,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       current: editRow as unknown as Record<string, unknown>, fields, fieldsChanged: dirtyFields.length > 0,
     })
     if (bad) { fail(bad.error); return }
+    const dateErr = badDateError(fields as unknown as Record<string, unknown>, editRow as unknown as Record<string, unknown>)
+    if (dateErr) { fail(dateErr); return }
     setSaving(true)
     try {
       const res = await fetch(`/api/repair-external/${editId}/update`, {
@@ -2458,7 +2477,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   <div className="col-span-6 sm:col-span-2">
                     <label className={labelCls}>วันที่รับแจ้ง</label>
-                    <input type="date" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} className={inputCls} />
+                    <input type="date" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} className={inputCls + dateBadCls(form.receivedDate)} />
+                    <DateYearHint value={form.receivedDate} />
                   </div>
                   <div className="col-span-6 sm:col-span-2">
                     <label className={labelCls} title={vdRef ? `อ้างอิงข้อมูลรถ ณ วันที่ ${vdRef} (atms.vehicle_daily)` : undefined}>ฟลีท <span className="text-[10px] font-normal text-gray-400">(auto{vdRef ? ` · ${vdRef}` : ""})</span></label>
@@ -2549,7 +2569,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   {!isParts && (
                     <div className="col-span-6 sm:col-span-3">
                       <label className={labelCls}>วันที่รถเข้าอู่ซ่อม {isReq("garageInDate") && <span className="text-amber-500">*</span>}</label>
-                      <input type="date" value={form.garageInDate} onChange={(e) => setForm({ ...form, garageInDate: e.target.value })} className={inputCls + reqCls("garageInDate")} />
+                      <input type="date" value={form.garageInDate} onChange={(e) => setForm({ ...form, garageInDate: e.target.value })} className={inputCls + reqCls("garageInDate") + dateBadCls(form.garageInDate)} />
+                    <DateYearHint value={form.garageInDate} />
                     </div>
                   )}
                   <div className="col-span-6">
@@ -2708,11 +2729,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>{isParts ? "กำหนดของถึง" : "วันกำหนดเสร็จ"} {isReq("dueDate") && <span className="text-amber-500">*</span>}</label>
-                    <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={inputCls + reqCls("dueDate")} />
+                    <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={inputCls + reqCls("dueDate") + dateBadCls(form.dueDate)} />
+                    <DateYearHint value={form.dueDate} />
                   </div>
                   <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>{isParts ? "วันที่ลงคันเสร็จ" : "วันที่ซ่อมเสร็จ"} {isReq("completedDate") && <span className="text-amber-500">*</span>}</label>
-                    <input type="date" value={form.completedDate} onChange={(e) => setForm({ ...form, completedDate: e.target.value })} className={inputCls + reqCls("completedDate")} />
+                    <input type="date" value={form.completedDate} onChange={(e) => setForm({ ...form, completedDate: e.target.value })} className={inputCls + reqCls("completedDate") + dateBadCls(form.completedDate)} />
+                    <DateYearHint value={form.completedDate} />
                   </div>
                 </div>
               )}

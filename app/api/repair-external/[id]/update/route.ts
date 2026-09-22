@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { REPAIR_FIELD_LABELS, diffRepair, writeRepairLog, type RepairChange } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
-import { fixBeYear, isDoneStatus, normalizeStatus, openJobConflictFilter, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
+import { badDateError, fixBeYear, isDoneStatus, normalizeStatus, openJobConflictFilter, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
 import { buildDoc } from "../../route"
 
 // POST /api/repair-external/[id]/update — "อัพเดทงาน" หนึ่งครั้ง { status, stageEta, note, fields? }
@@ -58,6 +58,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const bad = validateJobUpdate({ status, stageEta, note, current: existing, fields: doc, fieldsChanged })
   if (bad) return NextResponse.json(bad, { status: 400 })
+  const dateErr = badDateError({ ...(doc ?? {}), stageEta: eta }, existing)
+  if (dateErr) return NextResponse.json({ error: dateErr }, { status: 400 })
 
   // กันซ้ำแบบเดียวกับ PUT — เฉพาะงานอู่นอก
   if (doc && !isDoneStatus(status)) {

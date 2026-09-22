@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
-import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusQueryValues, statusesFor, normalizeStatus, fixBeYear } from "@/lib/repair-external"
+import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusQueryValues, statusesFor, normalizeStatus, fixBeYear, badDateError } from "@/lib/repair-external"
 import { normalizeImages } from "@/lib/media"
 import { bkkToday } from "@/lib/bkk-time"
 
@@ -129,6 +129,8 @@ export async function POST(req: NextRequest) {
   const doc  = buildDoc(body)
   if (!doc.plate)  return NextResponse.json({ error: "กรุณาระบุทะเบียนรถ" }, { status: 400 })
   if (!doc.status) return NextResponse.json({ error: "กรุณาเลือกสถานะ" }, { status: 400 })
+  const dateErr = badDateError(doc)
+  if (dateErr) return NextResponse.json({ error: dateErr }, { status: 400 })
 
   const session = await getServerSession(authOptions)
   const client  = await clientPromise

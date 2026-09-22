@@ -6,7 +6,7 @@ import clientPromise from "@/lib/mongo"
 import { buildDoc } from "../route"
 import { diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
-import { isDoneStatus, openJobConflictFilter } from "@/lib/repair-external"
+import { badDateError, isDoneStatus, openJobConflictFilter } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -36,6 +36,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const existing = await col.findOne({ _id: new ObjectId(id) })
   if (!existing) return NextResponse.json({ error: "ไม่พบรายการ" }, { status: 404 })
+  const dateErr = badDateError(doc, existing)
+  if (dateErr) return NextResponse.json({ error: dateErr }, { status: 400 })
 
   // ล็อกสถานะปิดงาน (รถเสร็จ/ลงคันเสร็จ) — เปลี่ยน/ย้อนสถานะกลับไม่ได้เมื่อปิดงานแล้ว
   const existingStatus = String(existing.status ?? "")
