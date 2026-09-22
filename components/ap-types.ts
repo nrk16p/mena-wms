@@ -17,6 +17,8 @@ export type ApPaid = {
 
 // กำหนดจ่ายที่บัญชียืนยันตอนกดผ่าน — basis คือตัวตั้งที่ใช้คิด เก็บไว้ย้อนตรวจ
 export type ApPay = ApPaySchedule & {
+  // บัญชีเลือกวันจ่ายเองในปฏิทินตอนกดผ่าน — systemPayDate = วันที่กติกาคิดได้ตอนนั้น (ไว้ย้อนดู)
+  manual?: boolean; systemPayDate?: string
   basis?: { passedAt: string; passedDate: string; creditTerm: string; requestedType: string }
   by?: string; at?: string
 }

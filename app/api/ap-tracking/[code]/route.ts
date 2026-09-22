@@ -6,6 +6,7 @@ import clientPromise from "@/lib/mongo"
 import {
   AP_FILES_MAX, AP_NO_FIELDS, AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
   AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate, resolveCreditTerm,
+  apManualPayDateError, applyManualPayDate,
   apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate,
   type ApDocKey, type ApDocs, type ApFile, type ApPayType, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
@@ -223,13 +224,22 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
             { status: 409 },
           )
         }
+        // บัญชีเลือกวันจ่ายเองในปฏิทิน (ได้ทุกแบบ — ผู้ใช้ขอ 22/09/2026) ทับวันที่กติกาคิด
+        // ตรวจกับวันกดผ่านตามนาฬิกาเซิร์ฟเวอร์ · วันที่ระบบคิดเก็บคู่ไว้ที่ systemPayDate
+        const manualPayDate = s(body.payDateManual)
+        if (manualPayDate) {
+          const err = apManualPayDateError(manualPayDate, ictDate(at))
+          if (err) return NextResponse.json({ error: err }, { status: 400 })
+        }
+        const finalPay = applyManualPayDate(schedule, manualPayDate || undefined)
         // เก็บทั้งผลลัพธ์และตัวตั้ง (basis) — ย้อนตรวจได้เสมอว่าเลขนี้คิดจากอะไร
-        set.pay = { ...schedule, basis: { passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType) }, by, at }
+        set.pay = { ...finalPay, basis: { passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType) }, by, at }
+        const manualNote = finalPay.manual ? ` · บัญชีเลือกวันจ่ายเอง (ระบบคิด ${thaiDate(finalPay.systemPayDate ?? "")})` : ""
         log.push({
           action: "กำหนดจ่ายเงิน", field: "pay",
-          detail: payType === "ตามรอบ"
-            ? `ตามรอบ · ตัดรอบ ${thaiDate(schedule.cutoff)} · จ่าย ${thaiDate(schedule.payDate)}`
-            : `นอกรอบ · โอนพฤหัส ${thaiDate(schedule.payDate)}`,
+          detail: (payType === "ตามรอบ" && finalPay.cutoff
+            ? `ตามรอบ · ตัดรอบ ${thaiDate(finalPay.cutoff)} · จ่าย ${thaiDate(finalPay.payDate)}`
+            : `${payType} · ${finalPay.manual ? "จ่าย" : "โอนพฤหัส"} ${thaiDate(finalPay.payDate)}`) + manualNote,
           by, byEmail, at,
         })
         // กรอกเทอมมากับกล่องยืนยัน → บันทึกกลับเข้า master ให้ใบต่อไปของเจ้านี้ไม่ต้องกรอกอีก

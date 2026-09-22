@@ -722,6 +722,34 @@ export function apPaySchedule(
   return { type, dueDate: "", cutoff, payDate }
 }
 
+// ── บัญชีเลือกวันจ่ายเอง (ปฏิทินในกล่องยืนยันผ่าน — ผู้ใช้ขอ 22/09/2026) ──
+// ใช้ได้ทุกแบบ (ตามรอบเทอมยาว/เทอมสั้น และนอกรอบ) · เลือกได้เฉพาะตอนกดผ่าน · วันไหนก็ได้ที่ไม่ย้อนหลังกว่าวันกดผ่าน
+// (เสาร์-อาทิตย์แค่เตือนใน UI ไม่บล็อก) · วันที่ระบบคิดเก็บไว้ที่ systemPayDate ให้ย้อนดูได้
+// manual = true → apPayRecalc ไม่ติดธงเตือน เพราะนี่คือค่าที่บัญชีตั้งใจเลือก (นโยบาย "ยึดตามที่บัญชีกด" 11/09/2026)
+export type ApPayManual = ApPaySchedule & { manual?: true; systemPayDate?: string }
+
+/** ตรวจวันที่บัญชีเลือกเอง — "" = ใช้ได้ · อื่น ๆ = ข้อความเหตุผลที่ใช้ไม่ได้ (เซิร์ฟเวอร์ตอบ 400) */
+export function apManualPayDateError(manualISO: string, passedISO: string): string {
+  const t = toUTC(manualISO)
+  if (Number.isNaN(t) || fromUTC(t) !== manualISO) return `วันจ่ายที่เลือกไม่ใช่วันที่ที่ถูกต้อง: ${manualISO}`
+  if (manualISO < passedISO) return "วันจ่ายที่เลือกย้อนหลังกว่าวันกดผ่านไม่ได้"
+  return ""
+}
+
+/** ทับวันจ่ายที่ระบบคิดด้วยวันที่บัญชีเลือก — เลือกตรงกับที่ระบบคิดอยู่แล้ว / ไม่ได้เลือก = คืนค่าระบบตามเดิม (ไม่ติด manual) */
+export function applyManualPayDate(schedule: ApPaySchedule, manualISO?: string): ApPayManual {
+  if (!manualISO || manualISO === schedule.payDate) return schedule
+  return { ...schedule, payDate: manualISO, manual: true, systemPayDate: schedule.payDate }
+}
+
+/** เสาร์หรืออาทิตย์ — ใช้เตือนตอนบัญชีเลือกวันจ่ายเอง (ไม่บล็อก) */
+export function isWeekendISO(iso: string): boolean {
+  const t = toUTC(iso)
+  if (Number.isNaN(t)) return false
+  const dow = new Date(t).getUTCDay()
+  return dow === 0 || dow === 6
+}
+
 // วันที่จัดซื้อ "ขอ" ตอนกดส่งบัญชี (sentType + sentDate) ก็ถูกแช่ไว้แบบเดียวกับ pay — คิดตอน
 // กดส่ง แล้วไม่มีใครคิดใหม่ กติกาที่เปลี่ยนทีหลังจึงไม่ย้อนไปถึงใบที่ยังรออยู่ในคิว
 // ต่างจาก pay ตรงที่ค่านี้ "เลือกได้" — จัดซื้อกดเลื่อนออกไปเองได้หลายรอบ จึงตัดสินว่าเพี้ยน
@@ -762,11 +790,12 @@ export function isShortCredit(term: string): boolean {
 // ⛔ ผลของฟังก์ชันนี้ห้ามเอาไปเขียนทับ pay (ผู้ใช้สั่ง 11/09/2026 "ถ้าบัญชีเคยกด ให้ยึดตามที่บัญชีกด")
 export type ApPayStored = {
   type?: string; dueDate?: string; cutoff?: string; payDate?: string
+  manual?: boolean               // บัญชีเลือกวันจ่ายเองในปฏิทิน — ไม่ใช่ผลของกติกา จึงไม่มีอะไรให้เทียบ
   basis?: { passedDate?: string; creditTerm?: string } | null
   at?: string
 }
 export function apPayRecalc(pay: ApPayStored | null | undefined, sentDocISO: string): ApPaySchedule | null {
-  if (!pay) return null
+  if (!pay || pay.manual) return null
   const t = String(pay.type ?? "").trim()
   if (t !== "ตามรอบ" && t !== "นอกรอบ") return null
   const type = t as ApPayType

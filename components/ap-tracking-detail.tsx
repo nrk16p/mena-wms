@@ -1,12 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
-  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc,
+  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc, isWeekendISO,
   billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
@@ -140,7 +140,9 @@ export function ApTrackingDetail({
     [savedPay, row.sentMarkedAt],
   )
   // กล่องยืนยันตอนกดผ่าน — null = ไม่เปิด · เปิดพร้อมค่าตั้งต้น: คำขอจากจัดซื้อ + เทอมจาก master
-  const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string } | null>(null)
+  // manualDate = วันจ่ายที่บัญชีเลือกเองจากปฏิทิน ("" = ใช้วันที่ระบบคิด) — ได้ทุกแบบ (ผู้ใช้ขอ 22/09/2026)
+  const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string; manualDate: string } | null>(null)
+  const payPickRef = useRef<HTMLInputElement>(null)
   const [financeOpen, setFinanceOpen] = useState(false)    // กล่องแจ้งการเงินขอนอกรอบ (ใบนี้ใบเดียว)
   const [resubmitNote, setResubmitNote] = useState("")     // สิ่งที่แก้ ก่อนส่งตรวจใหม่ (ลงประวัติ)
   const [resubmitting, setResubmitting] = useState(false)
@@ -292,13 +294,14 @@ export function ApTrackingDetail({
         payType: (AP_PAY_TYPES as string[]).includes(sent.type) ? (sent.type as ApPayType) : "ตามรอบ",
         creditTerm: row.creditTerm ?? "",
         payDate: payThursdayChoices(todayICT()).def,     // default = พฤหัสหน้า (ผู้ใช้สั่ง)
+        manualDate: "",
       })
       return
     }
     save()
   }
 
-  const save = async (passOpts?: { payType: ApPayType; creditTerm: string; payDate: string }) => {
+  const save = async (passOpts?: { payType: ApPayType; creditTerm: string; payDate: string; manualDate?: string }) => {
     if (!dirty || saving) return
     if (reviewNeedsNote(review.status, review.note)) {
       setTab("money"); swalError("ตีกลับต้องระบุเหตุผลว่าไม่ผ่านเพราะอะไร"); return
@@ -332,6 +335,8 @@ export function ApTrackingDetail({
         if (passOpts.creditTerm && passOpts.creditTerm !== (row.creditTerm ?? "")) body.payCreditTerm = passOpts.creditTerm
         // นอกรอบ: วันพฤหัสที่เลือก — เซิร์ฟเวอร์ตรวจกับตัวเลือกที่ทันรอบอีกชั้น
         if (passOpts.payType === "นอกรอบ" && passOpts.payDate) body.payDate = passOpts.payDate
+        // วันจ่ายที่บัญชีเลือกเองจากปฏิทิน — เซิร์ฟเวอร์ตรวจ (ไม่ย้อนหลังกว่าวันกดผ่าน) แล้วทับวันที่กติกาคิด
+        if (passOpts.manualDate) body.payDateManual = passOpts.manualDate
       }
       if (noteChanged)         body.note   = note.trim()
       if (sentChanged)       { body.sentType = sent.type; body.sentDate = sent.date }
@@ -875,10 +880,15 @@ export function ApTrackingDetail({
                              เข้ารอบตัด 25 ตรง ๆ ไม่มีวันครบเครดิตมาเกี่ยวข้อง · ครบกำหนดของจริง
                              (นับจากวันทำ DD) อยู่บนหัวใบอยู่แล้ว เอามาวางซ้ำมีแต่ทำให้อ่านสับสน */
                           ? <>ตามรอบ · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
-                          : <>ตามรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>
-                        : <>นอกรอบ · <b>โอนพฤหัส {thaiDate(savedPay.payDate)}</b></>}
+                          : <>ตามรอบ · <b>{savedPay.manual ? "จ่าย" : "โอนพฤหัส"} {thaiDate(savedPay.payDate)}</b></>
+                        : <>นอกรอบ · <b>{savedPay.manual ? "จ่าย" : "โอนพฤหัส"} {thaiDate(savedPay.payDate)}</b></>}
                       {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
                     </div>
+                    {savedPay.manual && (
+                      <div className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+                        📅 บัญชีเลือกวันจ่ายเอง{savedPay.systemPayDate ? <> · ระบบคิด {thaiDate(savedPay.systemPayDate)}</> : null}
+                      </div>
+                    )}
                     {/* กติกาเปลี่ยนหลังใบนี้ถูกกดผ่าน — เลขข้างบนถูกแช่ไว้ตั้งแต่ตอนนั้น ไม่มีใครคิดใหม่
                         เคยเงียบจนใบ 15D โชว์สายตัดรอบ 25 ที่เลิกใช้แล้ว (31/08/2026) จึงต้องบอกให้เห็น */}
                     {payOutdated && (
@@ -961,6 +971,10 @@ export function ApTrackingDetail({
             passConfirm.payType === "นอกรอบ" ? passConfirm.payDate || undefined : undefined,
             row.sentMarkedDate)
           const needTerm = passConfirm.payType === "ตามรอบ" && !passConfirm.creditTerm
+          // วันจ่ายที่จะใช้จริง: ที่บัญชีเลือกเอง (ถ้าต่างจากที่ระบบคิด) ไม่งั้นวันที่ระบบคิด
+          const manual = !!preview && !!passConfirm.manualDate && passConfirm.manualDate !== preview.payDate
+          const effectivePayDate = manual ? passConfirm.manualDate : preview?.payDate ?? ""
+          const manualTooEarly = manual && passConfirm.manualDate < todayICT()
           return (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-4"
               onClick={() => setPassConfirm(null)}>
@@ -989,7 +1003,7 @@ export function ApTrackingDetail({
                     <span className="text-gray-500">วันพฤหัสที่จะโอน</span>
                     <div className="flex flex-wrap gap-2">
                       {thuChoices.options.map((d) => (
-                        <button key={d} onClick={() => setPassConfirm((p) => p && { ...p, payDate: d })}
+                        <button key={d} onClick={() => setPassConfirm((p) => p && { ...p, payDate: d, manualDate: "" })}
                           className={`rounded-lg border px-3 py-1.5 text-sm transition ${(passConfirm.payDate || thuChoices.def) === d
                             ? "border-emerald-500 bg-emerald-50 font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
                             : "border-gray-200/80 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"}`}>
@@ -1016,22 +1030,45 @@ export function ApTrackingDetail({
 
                 <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm dark:bg-white/5">
                   {preview ? (
-                    preview.type === "ตามรอบ" ? (
-                      preview.cutoff ? (
-                        <div className="space-y-0.5 text-xs">
-                          <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b> <span className="text-gray-400">(จากวันกดผ่านวันนี้)</span></div>
-                          <div className="text-emerald-700 dark:text-emerald-400">💰 จ่าย <b>{thaiDate(preview.payDate)}</b></div>
+                    <div className="space-y-0.5 text-xs">
+                      {preview.type === "ตามรอบ" && preview.cutoff && (
+                        <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b> <span className="text-gray-400">(จากวันกดผ่านวันนี้)</span></div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-emerald-700 dark:text-emerald-400">
+                        <span>
+                          {/* เลือกเองแล้วไม่จำเป็นต้องเป็นพฤหัส — ป้ายจึงเป็น "จ่าย" เสมอเมื่อเลือกเอง */}
+                          💰 {manual || (preview.type === "ตามรอบ" && preview.cutoff) ? "จ่าย" : "โอนพฤหัส"} <b>{thaiDate(effectivePayDate)}</b>
+                          {!manual && preview.type === "ตามรอบ" && !preview.cutoff && (
+                            // เครดิตสั้น 7D/15D — รอบพฤหัส นับจากวันส่งเอกสารเข้าบัญชี ไม่เดินสายตัดรอบ 25
+                            <span className="text-gray-400"> (นับจากวันส่งเอกสารเข้าบัญชี)</span>
+                          )}
+                        </span>
+                        {/* ปฏิทินเลือกวันจ่ายเอง — input ซ่อนไว้ใต้ปุ่ม เปิดด้วย showPicker() (เบราว์เซอร์เก่า = focus แทน) */}
+                        <span className="relative inline-flex">
+                          <button type="button"
+                            onClick={() => { const el = payPickRef.current; if (!el) return; try { el.showPicker() } catch { el.focus() } }}
+                            className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:bg-transparent dark:text-emerald-300">
+                            📅 เปลี่ยนวัน
+                          </button>
+                          <input ref={payPickRef} type="date" min={todayICT()} value={effectivePayDate} aria-label="เลือกวันจ่าย"
+                            onChange={(e) => setPassConfirm((p) => p && { ...p, manualDate: e.target.value === preview.payDate ? "" : e.target.value })}
+                            className="pointer-events-none absolute inset-0 h-full w-full opacity-0" tabIndex={-1} />
+                        </span>
+                      </div>
+                      {manual && (
+                        <div className="text-[11px] text-gray-500">
+                          บัญชีเลือกเอง · ระบบคิด {thaiDate(preview.payDate)}{" "}
+                          <button type="button" onClick={() => setPassConfirm((p) => p && { ...p, manualDate: "" })}
+                            className="text-emerald-700 underline hover:no-underline dark:text-emerald-400">ใช้วันที่ระบบคิด</button>
                         </div>
-                      ) : (
-                        // เครดิตสั้น 7D/15D — รอบพฤหัส นับจากวันส่งเอกสารเข้าบัญชี ไม่เดินสายตัดรอบ 25
-                        <div className="text-xs text-emerald-700 dark:text-emerald-400">
-                          💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b>
-                          <span className="text-gray-400"> (นับจากวันส่งเอกสารเข้าบัญชี)</span>
-                        </div>
-                      )
-                    ) : (
-                      <div className="text-xs text-emerald-700 dark:text-emerald-400">💰 โอนพฤหัส <b>{thaiDate(preview.payDate)}</b></div>
-                    )
+                      )}
+                      {manual && isWeekendISO(effectivePayDate) && (
+                        <div className="text-[11px] text-amber-600">⚠️ วันที่เลือกตรงวันเสาร์/อาทิตย์</div>
+                      )}
+                      {manualTooEarly && (
+                        <div className="text-[11px] text-rose-600">วันที่เลือกย้อนหลังกว่าวันนี้ — เลือกใหม่</div>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-xs text-gray-400">เลือกเครดิตเทอมก่อน จึงจะคำนวณวันจ่ายได้</div>
                   )}
@@ -1042,8 +1079,8 @@ export function ApTrackingDetail({
                     className="rounded-lg border border-gray-200/80 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
                     ยกเลิก
                   </button>
-                  <button disabled={!preview || saving}
-                    onClick={() => save({ payType: passConfirm.payType, creditTerm: passConfirm.creditTerm, payDate: passConfirm.payDate || thuChoices.def })}
+                  <button disabled={!preview || saving || manualTooEarly}
+                    onClick={() => save({ payType: passConfirm.payType, creditTerm: passConfirm.creditTerm, payDate: passConfirm.payDate || thuChoices.def, manualDate: manual ? passConfirm.manualDate : "" })}
                     className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40">
                     {saving ? "กำลังบันทึก…" : "ยืนยันผ่าน"}
                   </button>
