@@ -11,6 +11,7 @@ import {
 } from "@/lib/ap-tracking"
 import { normalizeImages } from "@/lib/media"
 import { isAccounting } from "@/lib/roles"
+import { findTemplateForSupplier } from "@/lib/ap-doc-template-db"
 
 export const dynamic = "force-dynamic"
 
@@ -54,9 +55,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
 
   const head = await atms.collection("deposit_header").findOne(
     { deposit_code: depositCode },
-    { projection: { _id: 0, deposit_id: 1, purchase_order: 1 } },
+    { projection: { _id: 0, deposit_id: 1, purchase_order: 1, supplier: 1 } },
   )
-  const [tracking, items, po] = await Promise.all([
+  const [tracking, items, po, tpl] = await Promise.all([
     md.collection(COLL).findOne({ depositCode }, { projection: { _id: 0 } }),
     head?.deposit_id != null
       ? atms.collection("deposit_items").find({ deposit_id: head.deposit_id }, { projection: { _id: 0 } }).limit(300).toArray()
@@ -64,8 +65,13 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
     head?.purchase_order
       ? atms.collection("purchase_orders").findOne({ "รหัส": s(head.purchase_order) }, { projection: { _id: 0 } })
       : null,
+    // แม่แบบเอกสารของผู้ขาย — ตัวช่วยบอกในหมวดชุดเอกสาร (ไม่ใช่กติกาครบชุด)
+    findTemplateForSupplier(md, s(head?.supplier)),
   ])
-  return NextResponse.json({ tracking: tracking ?? null, items, po })
+  return NextResponse.json({
+    tracking: tracking ?? null, items, po,
+    docTemplate: tpl.template, supplierCode: tpl.code, supplierTerm: tpl.creditTerm,
+  })
 }
 
 // PATCH — บันทึกการติ๊ก/วันที่ส่งบัญชี/หมายเหตุ (สร้าง doc ครั้งแรกแบบ lazy) + ลง log ทุกครั้ง

@@ -22,6 +22,10 @@ import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
 import { isAccounting } from "@/lib/roles"
 import { NUM, baht, mitr } from "@/components/ap-style"
 import type { ApPay, ApRow } from "@/components/ap-types"
+import {
+  AP_TEMPLATE_DOCS, templateDocsForCheck, templateMissing, templateRequiredChecks, type ApDocTemplate,
+} from "@/lib/ap-doc-template"
+import { ApDocTemplateShareDialog } from "@/components/ap-doc-template-share"
 
 type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string;
   scraped_at?: string }
@@ -31,6 +35,10 @@ type Detail = {
     & Partial<ApDocNos>) | null
   items: DepositItem[]
   po: Record<string, unknown> | null
+  // แม่แบบเอกสารของผู้ขาย (ตัวช่วยบอกในหมวดชุดเอกสาร) · null = ผู้ขายนี้ยังไม่มีแม่แบบ
+  docTemplate?: ApDocTemplate | null
+  supplierCode?: string
+  supplierTerm?: string
 }
 type Draft = Record<ApDocKey, boolean>
 type Tab = "docs" | "money" | "log"
@@ -169,6 +177,12 @@ export function ApTrackingDetail({
   const draftStatus = apStatusOf(draftDocs, sent.date)
   const missing     = missingDocLabels(draftDocs)
   const fileCounts  = useMemo(() => apFilesByDoc(files), [files])
+  // แม่แบบของผู้ขาย — บอกว่าช่องไหน "ต้องมี" แต่ไม่ใช่กติกาครบชุด (ผู้ใช้เลือก 22/09/2026)
+  const tplDocs     = useMemo(() => data?.docTemplate?.docs ?? [], [data])
+  const hasTpl      = tplDocs.length > 0
+  const tplRequired = useMemo(() => new Set(templateRequiredChecks(tplDocs)), [tplDocs])
+  const tplMissing  = templateMissing(tplDocs, draftDocs)
+  const [shareOpen, setShareOpen] = useState(false)
   const meta        = apStatusMeta(draftStatus)
 
   // ตัวเลือก "นอกรอบ" = พฤหัสที่ยังทันรอบ 4 ตัว (+ วันที่บันทึกไว้เดิม เผื่อเป็นพฤหัสที่ผ่านมาแล้ว)
@@ -504,19 +518,55 @@ export function ApTrackingDetail({
           {tab === "docs" && (
             <>
               <section className="space-y-2 border-t border-gray-100 pt-4 dark:border-white/10">
-                <h3 className="text-sm font-bold" style={mitr}>ชุดเอกสาร</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-bold" style={mitr}>ชุดเอกสาร</h3>
+                  {!loading && (hasTpl ? (
+                    <>
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                        title={data?.docTemplate?.updatedBy ? `แก้ล่าสุด ${data.docTemplate.updatedBy}` : undefined}>
+                        แม่แบบผู้ขาย · ต้องมี {tplRequired.size} ช่อง
+                      </span>
+                      <button onClick={() => setShareOpen(true)}
+                        className="rounded-lg border border-gray-200/80 px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/5">
+                        🖼 รูปส่งผู้ขาย
+                      </button>
+                    </>
+                  ) : (
+                    <a href={`/ap-tracking/suppliers?q=${encodeURIComponent(row.supplier)}`} target="_blank" rel="noreferrer"
+                      className="text-[11px] text-gray-400 underline-offset-2 hover:text-emerald-700 hover:underline">
+                      ผู้ขายนี้ยังไม่มีแม่แบบเอกสาร — ตั้งได้ที่หน้าเจ้าหนี้ ↗
+                    </a>
+                  ))}
+                </div>
                 <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
                   {AP_DOC_FIELDS.map((f) => {
                     const mark = f.key === "invoice" ? (saved.invoice ?? saved.billingNote) : saved[f.key]
                     const n = fileCounts[f.key] ?? 0
+                    const need = tplRequired.has(f.key)
+                    // ช่องรวม (บิล/ใบส่งของ · ใบแจ้งหนี้/ใบวางบิล) — บอกว่าผู้ขายเจ้านี้ส่งชนิดไหนมา
+                    // ช่องที่มีชนิดเดียวไม่ต้องบอก (ชื่อซ้ำกับป้ายอยู่แล้ว)
+                    const merged = AP_TEMPLATE_DOCS.filter((d) => d.check === f.key).length > 1
+                    const kinds = need && merged ? templateDocsForCheck(tplDocs, f.key) : []
                     return (
                       <label key={f.key} className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-white/5">
                         <input type="checkbox" checked={draft[f.key]}
                           onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.checked }))}
                           className="h-4 w-4 cursor-pointer accent-emerald-600" />
-                        <span className={draft[f.key] !== docChecked(saved, f.key) ? "font-medium text-amber-700 dark:text-amber-400" : ""}>
+                        <span className={draft[f.key] !== docChecked(saved, f.key)
+                          ? "font-medium text-amber-700 dark:text-amber-400"
+                          : hasTpl && !need ? "text-gray-400" : ""}>
                           {f.label}
+                          {kinds.length > 0 && (
+                            <span className="block text-[10px] font-normal text-gray-400">{kinds.join(" + ")}</span>
+                          )}
                         </span>
+                        {need && (
+                          <span className={`rounded px-1.5 py-px text-[10px] font-medium ${draft[f.key]
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                            : "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"}`}>
+                            ต้องมี
+                          </span>
+                        )}
                         {n > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400" title={`มีไฟล์แนบ ${n} ไฟล์`}>📎{n}</span>}
                         {mark?.checked && mark.by && (
                           <span className="ml-auto text-[10px] text-gray-400" title={`${mark.by} · ${thaiDateTime(mark.at || "")}`}>
@@ -532,6 +582,19 @@ export function ApTrackingDetail({
                     ? <span className="text-emerald-700 dark:text-emerald-400">ครบชุดแล้ว — ส่งบัญชีได้</span>
                     : <span className="text-gray-500">ยังขาด: {missing.join(", ")}</span>}
                 </div>
+                {/* แม่แบบเป็นตัวช่วยบอก ไม่บล็อกการส่งบัญชี — จึงใช้สีเหลืองเตือน ไม่ใช่แดง */}
+                {hasTpl && (
+                  <div className="text-xs">
+                    {tplMissing.length
+                      ? <span className="text-amber-700 dark:text-amber-400">⚠ ยังขาดตามแม่แบบผู้ขาย: {tplMissing.join(", ")}</span>
+                      : <span className="text-emerald-700 dark:text-emerald-400">✓ ครบตามแม่แบบผู้ขาย</span>}
+                  </div>
+                )}
+                {shareOpen && (
+                  <ApDocTemplateShareDialog name={row.supplier} code={data?.supplierCode || data?.docTemplate?.code || ""}
+                    docs={tplDocs} creditTerm={data?.supplierTerm || row.creditTerm || ""}
+                    onClose={() => setShareOpen(false)} />
+                )}
               </section>
 
               {/* เลขที่เอกสาร — ATMS ไม่มีให้ ต้องคีย์เอง · ช่องหนึ่งใส่ได้หลายเลข (ใบ DD ใบเดียว

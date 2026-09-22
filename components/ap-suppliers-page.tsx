@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Landmark, Search, RefreshCw, AlertTriangle } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { CREDIT_TERMS } from "@/lib/ap-tracking"
+import { AP_TEMPLATE_DOCS, templateDocLabel, type ApDocTemplate, type ApTplDocKey } from "@/lib/ap-doc-template"
+import { ApDocTemplateShareDialog } from "./ap-doc-template-share"
 import { CARD, NUM, mitr } from "./ap-style"
 
 type Supplier = {
@@ -15,7 +17,7 @@ type Supplier = {
   ddCount?: number; lastDdAt?: string
   syncedAt?: string; updatedBy?: string
 }
-type Filter = "active" | "noTerm" | "override" | "all"
+type Filter = "active" | "noTerm" | "noTpl" | "override" | "all"
 
 // trim + ยุบช่องว่างซ้ำ + lowercase สำหรับเทียบชื่อซ้ำ
 const normName = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase()
@@ -37,14 +39,27 @@ export function ApSuppliersPage() {
   const [q, setQ]           = useState("")
   const [filter, setFilter] = useState<Filter>("active")
   const [newName, setNewName] = useState("")
+  // แม่แบบเอกสารประกบชุด — จับคู่กับแถวด้วยรหัส ATMS ก่อน ถอยไปใช้ชื่อ (เหมือน findTemplateForSupplier ฝั่ง API)
+  const [templates, setTemplates] = useState<ApDocTemplate[]>([])
+  const [editing, setEditing] = useState<{ name: string; docs: ApTplDocKey[] } | null>(null)
+  const [sharing, setSharing] = useState<Supplier | null>(null)
+
+  // ลิงก์จากโมดัลใบ DD ส่งชื่อผู้ขายมาใน ?q= — อ่านหลัง mount (อ่านตอน render แรกจะ hydrate ไม่ตรงกับเซิร์ฟเวอร์)
+  useEffect(() => {
+    const q0 = new URLSearchParams(window.location.search).get("q")
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (q0) { setQ(q0); setFilter("all") }
+  }, [])
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/ap-suppliers")
+      const [res, tRes] = await Promise.all([fetch("/api/ap-suppliers"), fetch("/api/ap-doc-templates")])
       const d   = await res.json()
       if (!res.ok) throw new Error(d?.error ?? "โหลดไม่สำเร็จ")
       setItems(d.items ?? [])
       setSync(s(d.syncedAt))
+      const td = await tRes.json().catch(() => ({}))
+      if (tRes.ok) setTemplates((td.items ?? []) as ApDocTemplate[])
     } catch (e) {
       setItems((xs) => xs ?? [])
       swalError(`โหลดไม่สำเร็จ${e instanceof Error && e.message ? ` · ${e.message}` : ""}`)
@@ -78,18 +93,46 @@ export function ApSuppliersPage() {
     }
   }
 
+  const tplByCode = useMemo(() => new Map(templates.filter((x) => x.code).map((x) => [x.code, x])), [templates])
+  const tplByName = useMemo(() => new Map(templates.map((x) => [x.name, x])), [templates])
+  const tplOf = useCallback((x: Supplier): ApDocTemplate | undefined =>
+    (s(x.atmsCode) ? tplByCode.get(s(x.atmsCode)) : undefined) ?? tplByName.get(x.name), [tplByCode, tplByName])
+  const hasTpl = useCallback((x: Supplier) => (tplOf(x)?.docs.length ?? 0) > 0, [tplOf])
+
+  const saveTemplate = async (x: Supplier, docs: ApTplDocKey[]) => {
+    const code = s(x.atmsCode)
+    const prev = templates
+    const next: ApDocTemplate = { code, name: x.name, docs, source: "manual" }
+    setTemplates((ts) => [...ts.filter((t) => (code ? t.code !== code : !(t.code === "" && t.name === x.name))), next])
+    setEditing(null)
+    try {
+      const res = await fetch("/api/ap-doc-templates", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, name: x.name, docs }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
+      swalToast("success", docs.length ? `บันทึกแม่แบบ ${x.name} · ${docs.length} ชนิด` : `${x.name} · ไม่มีแม่แบบ`)
+    } catch (e) {
+      setTemplates(prev)
+      swalError(`บันทึกแม่แบบไม่สำเร็จ${e instanceof Error && e.message ? ` · ${e.message}` : ""}`)
+    }
+  }
+
   const rows = useMemo(() => items ?? [], [items])
   const counts = useMemo(() => ({
     all:      rows.length,
     active:   rows.filter((x) => (x.ddCount ?? 0) > 0).length,
     noTerm:   rows.filter((x) => (x.ddCount ?? 0) > 0 && !x.creditTerm).length,
+    noTpl:    rows.filter((x) => (x.ddCount ?? 0) > 0 && !hasTpl(x)).length,
     override: rows.filter((x) => x.override && x.override !== s(x.atmsTerm)).length,
-  }), [rows])
+  }), [rows, hasTpl])
 
   const shown = useMemo(() => {
     let xs = rows
     if (filter === "active")   xs = xs.filter((x) => (x.ddCount ?? 0) > 0)
     if (filter === "noTerm")   xs = xs.filter((x) => (x.ddCount ?? 0) > 0 && !x.creditTerm)
+    if (filter === "noTpl")    xs = xs.filter((x) => (x.ddCount ?? 0) > 0 && !hasTpl(x))
     if (filter === "override") xs = xs.filter((x) => x.override && x.override !== s(x.atmsTerm))
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
@@ -97,11 +140,12 @@ export function ApSuppliersPage() {
     }
     // เจ้าที่มีใบเยอะสุดขึ้นก่อน — คนเปิดหน้านี้มาแก้ของที่กระทบเงินมากที่สุด
     return [...xs].sort((a, b) => (b.ddCount ?? 0) - (a.ddCount ?? 0) || a.name.localeCompare(b.name))
-  }, [rows, q, filter])
+  }, [rows, q, filter, hasTpl])
 
   const CHIPS: { k: Filter; label: string; n: number }[] = [
     { k: "active",   label: "มีใบ DD",          n: counts.active },
     { k: "noTerm",   label: "ยังไม่มีเทอม",     n: counts.noTerm },
+    { k: "noTpl",    label: "ยังไม่มีแม่แบบเอกสาร", n: counts.noTpl },
     { k: "override", label: "ตั้งทับ ATMS",     n: counts.override },
     { k: "all",      label: "ทั้งหมด",          n: counts.all },
   ]
@@ -124,6 +168,9 @@ export function ApSuppliersPage() {
         <br />
         วันครบกำหนดของ<b>ใบ DD แต่ละใบ</b>ใช้ <code className="px-1 rounded bg-gray-100 dark:bg-white/10">ap term</code> บน PO
         ของใบนั้นก่อนเสมอ — ค่าตรงนี้เป็นตัวสำรองเมื่อใบไม่มี PO ผูก หรือ PO ไม่ได้ระบุเทอม
+        <br />
+        <b>เอกสารที่ต้องแนบ</b> = แม่แบบประกบชุดส่งบัญชีของผู้ขาย (นำเข้าจาก Excel แล้วแก้ต่อที่นี่ได้) —
+        ขึ้นป้าย &ldquo;ต้องมี&rdquo; ในโมดัลใบ DD และทำรูปส่งผู้ขายได้ด้วยปุ่ม 🖼 · ไม่ได้บล็อกการส่งบัญชี
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -171,6 +218,7 @@ export function ApSuppliersPage() {
                 <th className="px-3 py-2 text-right w-24">ใบ DD</th>
                 <th className="px-3 py-2 text-left w-28">ATMS</th>
                 <th className="px-3 py-2 text-left w-52">ใช้จริง</th>
+                <th className="px-3 py-2 text-left w-80">เอกสารที่ต้องแนบ</th>
                 <th className="px-3 py-2 text-left w-44">แก้ไขล่าสุดโดย</th>
               </tr>
             </thead>
@@ -214,20 +262,79 @@ export function ApSuppliersPage() {
                         )}
                       </div>
                     </td>
+                    <td className="px-3 py-2">
+                      {editing?.name === x.name ? (
+                        <div className="space-y-1.5">
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                            {AP_TEMPLATE_DOCS.map((d) => (
+                              <label key={d.key} className="flex cursor-pointer items-center gap-1.5 text-xs">
+                                <input type="checkbox" className="h-3.5 w-3.5 accent-emerald-600"
+                                  checked={editing.docs.includes(d.key)}
+                                  onChange={(e) => setEditing((ed) => ed && ({
+                                    ...ed,
+                                    docs: e.target.checked ? [...ed.docs, d.key] : ed.docs.filter((k) => k !== d.key),
+                                  }))} />
+                                {d.label}
+                              </label>
+                            ))}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button onClick={() => saveTemplate(x, AP_TEMPLATE_DOCS.map((d) => d.key).filter((k) => editing.docs.includes(k)))}
+                              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-700">บันทึก</button>
+                            <button onClick={() => setEditing(null)}
+                              className="rounded-lg border px-2.5 py-1 text-xs hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">ยกเลิก</button>
+                          </div>
+                        </div>
+                      ) : (() => {
+                        const tpl = tplOf(x)
+                        const docs = tpl?.docs ?? []
+                        return (
+                          <div className="flex flex-wrap items-center gap-1">
+                            {docs.map((k) => (
+                              <span key={k} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                {templateDocLabel(k)}
+                              </span>
+                            ))}
+                            {!docs.length && <span className="text-[11px] text-gray-400">ยังไม่มีแม่แบบ</span>}
+                            <button onClick={() => setEditing({ name: x.name, docs })}
+                              className="rounded-lg border border-gray-200/80 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
+                              {docs.length ? "แก้" : "ตั้งแม่แบบ"}
+                            </button>
+                            {docs.length > 0 && (
+                              <button onClick={() => setSharing(x)} title="ทำรูปส่งผู้ขาย (PNG)"
+                                className="rounded-lg border border-gray-200/80 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
+                                🖼 รูป
+                              </button>
+                            )}
+                            {tpl && (
+                              <span className="w-full text-[10px] text-gray-400">
+                                {tpl.source === "manual" ? `แก้ในเว็บ${tpl.updatedBy ? ` · ${tpl.updatedBy}` : ""}` : "จาก Excel"}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })()}
+                    </td>
                     <td className="px-3 py-2 text-xs text-gray-500">{s(x.updatedBy) || "—"}</td>
                   </tr>
                 )
               })}
               {items !== null && shown.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400">ไม่พบซัพพลายเออร์</td></tr>
+                <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">ไม่พบซัพพลายเออร์</td></tr>
               )}
               {items === null && (
-                <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400">กำลังโหลด…</td></tr>
+                <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">กำลังโหลด…</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {sharing && (
+        <ApDocTemplateShareDialog name={sharing.name} code={s(sharing.atmsCode)}
+          docs={tplOf(sharing)?.docs ?? []} creditTerm={sharing.creditTerm}
+          onClose={() => setSharing(null)} />
+      )}
     </div>
   )
 }
