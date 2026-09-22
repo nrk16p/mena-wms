@@ -97,19 +97,16 @@ export function creditTermText(term: string | undefined): string {
   return m ? `เครดิต ${Number(m[1])} วัน` : ""
 }
 
-// ข้อมูลออกเอกสาร/ที่ส่งเอกสาร/ผู้ติดต่อ ที่พิมพ์บนรูป — เหมือนกันทุกผู้ขาย
+// ที่ส่งเอกสาร/ผู้ติดต่อ ที่พิมพ์บนรูป — เหมือนกันทุกผู้ขาย
 // ช่องที่ยังว่างจะไม่ถูกพิมพ์ และหน้าต่างพรีวิวจะเตือนให้กรอก (รอข้อความจริงจากผู้ใช้ 22/09/2026)
+// เลขผู้เสียภาษี/สาขา ถอดออกพร้อมบล็อก "ออกเอกสารในนาม" บนรูป (ผู้ใช้สั่ง 22/09/2026)
 export const AP_BILLING_INFO = {
-  taxId: "",                        // เลขประจำตัวผู้เสียภาษี 13 หลัก
-  branch: "",                       // เช่น "สำนักงานใหญ่"
   sendTo: "",                       // ส่งเอกสารที่ไหน (ที่อยู่/แผนก)
   contact: "",                      // ผู้ติดต่อ ชื่อ · โทร · LINE
 } as const
 
-export function billingInfoGaps(info: { taxId: string; branch: string; sendTo: string; contact: string } = AP_BILLING_INFO): string[] {
+export function billingInfoGaps(info: { sendTo: string; contact: string } = AP_BILLING_INFO): string[] {
   const gaps: string[] = []
-  if (!info.taxId.trim())   gaps.push("เลขประจำตัวผู้เสียภาษี")
-  if (!info.branch.trim())  gaps.push("สาขา")
   if (!info.sendTo.trim())  gaps.push("ที่ส่งเอกสาร")
   if (!info.contact.trim()) gaps.push("ผู้ติดต่อ")
   return gaps

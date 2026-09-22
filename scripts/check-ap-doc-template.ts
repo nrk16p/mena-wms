@@ -76,9 +76,8 @@ assert.equal(creditTermText("อะไรก็ได้"), "")
 assert.equal(creditTermText(undefined), "")
 
 // --- billingInfoGaps ---
-assert.deepEqual(billingInfoGaps({ taxId: "", branch: "", sendTo: "", contact: "" }),
-  ["เลขประจำตัวผู้เสียภาษี", "สาขา", "ที่ส่งเอกสาร", "ผู้ติดต่อ"])
-assert.deepEqual(billingInfoGaps({ taxId: "0107", branch: "สำนักงานใหญ่", sendTo: "x", contact: " " }), ["ผู้ติดต่อ"])
+assert.deepEqual(billingInfoGaps({ sendTo: "", contact: "" }), ["ที่ส่งเอกสาร", "ผู้ติดต่อ"])
+assert.deepEqual(billingInfoGaps({ sendTo: "x", contact: " " }), ["ผู้ติดต่อ"])
 
 assert.equal(templateDocLabel("taxInvoice"), "ใบกำกับภาษี (ต้นฉบับ)")
 

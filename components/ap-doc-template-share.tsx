@@ -90,11 +90,10 @@ function InfoBlock({ label, children }: { label: string; children: React.ReactNo
 }
 
 export function ApDocTemplateCard({
-  name, code, docs, creditTerm,
-}: { name: string; code: string; docs: ApTplDocKey[]; creditTerm: string }) {
+  name, docs, creditTerm,
+}: { name: string; docs: ApTplDocKey[]; creditTerm: string }) {
   const term = creditTermText(creditTerm)
   const info = AP_BILLING_INFO
-  const taxLine = [info.taxId && `เลขประจำตัวผู้เสียภาษี ${info.taxId}`, info.branch].filter(Boolean).join(" · ")
   return (
     <div style={{ width: 540, background: BRAND.white, fontFamily: FONT, color: BRAND.body, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "20px 28px 16px" }}>
@@ -114,7 +113,7 @@ export function ApDocTemplateCard({
       <div style={{ padding: "20px 28px 8px" }}>
         <div style={{ fontSize: 12, color: BRAND.muted }}>เรียน</div>
         <div style={{ fontSize: 18, fontWeight: 600, color: BRAND.ink, lineHeight: 1.4 }}>{name}</div>
-        {code && <div style={{ fontSize: 12, color: BRAND.muted, marginTop: 2 }}>รหัสผู้ขาย {code}</div>}
+        {/* รหัสผู้ขายไม่พิมพ์บนรูป (ผู้ใช้สั่ง 22/09/2026) — ยังใช้ตั้งชื่อไฟล์ */}
       </div>
 
       <div style={{ padding: "8px 28px 4px" }}>
@@ -130,12 +129,8 @@ export function ApDocTemplateCard({
       </div>
 
       <div style={{ display: "grid", gap: 10, padding: "14px 28px 22px" }}>
+        {/* บล็อก "ออกเอกสารในนาม" (ชื่อ/ที่อยู่/เลขผู้เสียภาษี) ถอดออก 22/09/2026 ตามที่ผู้ใช้สั่ง */}
         {term && <InfoBlock label="เงื่อนไขการชำระ">{term}</InfoBlock>}
-        <InfoBlock label="ออกเอกสารในนาม">
-          <div style={{ fontWeight: 600 }}>{COMPANY.nameTh}</div>
-          <div>{COMPANY.address}</div>
-          {taxLine && <div>{taxLine}</div>}
-        </InfoBlock>
         {info.sendTo && <InfoBlock label="ส่งเอกสารที่">{info.sendTo}</InfoBlock>}
         {info.contact && <InfoBlock label="ติดต่อสอบถาม">{info.contact}</InfoBlock>}
       </div>
@@ -225,7 +220,7 @@ export function ApDocTemplateShareDialog({
               รูปจะเยื้องขวาแล้วขอบขวาโดนตัด */}
           <div className="mx-auto w-[540px] shadow-sm">
             <div ref={cardRef}>
-              <ApDocTemplateCard name={name} code={code} docs={docs} creditTerm={creditTerm} />
+              <ApDocTemplateCard name={name} docs={docs} creditTerm={creditTerm} />
             </div>
           </div>
         </div>
