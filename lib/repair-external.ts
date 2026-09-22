@@ -575,6 +575,28 @@ export function buildNoPrByCreator(rows: NoPrRow[], opts: NoPrGroupOpts): NoPrGr
     })
 }
 
+/**
+ * ใบที่ออกจากคิววันนี้ (ปิด/ชะลอ) — คันเดียวกันหลายใบในกลุ่มเดียวกัน นับเป็นคันเดียว
+ * (ผู้ใช้สั่ง 22/09/2569: NL22 สร้าง-ปิดซ้ำ 3 ใบ MR/PR/PO เดียวกัน → รายงานขึ้น NL22 ×3)
+ * เก็บใบที่เปิดก่อนสุดของแต่ละคันต่อกลุ่ม · ใบที่ไม่รู้ว่าคันไหนไม่ตัด
+ * ผู้เรียกต้องใช้ชุดที่คืนไปนับทุกยอด (ต้นวัน/รับใหม่/เสร็จ/ชะลอ) — ใบที่ตัดหายจากฝั่งเข้าและฝั่งออกพร้อมกัน
+ * สมการ ต้นวัน + ใหม่ − เสร็จ − ชะลอ = สิ้นวัน จึงยังลงตัว
+ */
+export function dropSameDayRepeats<T extends { fleetNo?: string; plate?: string; createdAt?: Date | string }>(
+  rows: T[], groupOf: (r: T) => string,
+): T[] {
+  const unit = (r: T) => String(r.fleetNo || r.plate || "").replace(/[\s.]/g, "").toUpperCase()
+  const time = (r: T) => (r.createdAt ? new Date(r.createdAt).getTime() : 0) || 0
+  const seen = new Set<string>()
+  return [...rows].sort((a, b) => time(a) - time(b)).filter((r) => {
+    if (!unit(r)) return true
+    const k = `${groupOf(r)}|${unit(r)}`
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
 /* ── รายงานสรุปประจำวันส่งกลุ่มไลน์ (รูปแบบที่ทีมใช้จริง · ผู้ใช้กำหนด 21/09/2569) ──
  * นับเฉพาะงาน "อู่นอก" ในระบบนี้เท่านั้น ไม่ดึงงานอู่ในจาก Mena-Next (ผู้ใช้สั่ง)
  * ตัวเลขมาจาก /api/repair-external/daily-summary ที่เดียว ฝั่งนี้แค่เรียงเป็นข้อความ

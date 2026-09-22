@@ -4,7 +4,7 @@
 import assert from "node:assert"
 import {
   BUYER_NES, BUYER_TAI, OWNER_NO_FLEET, buildDailySummaryText, buildNoPrByOwner, buildNoPrOverviewText,
-  buyerOfFleet, fleetsOfOwner,
+  buyerOfFleet, dropSameDayRepeats, fleetsOfOwner,
   ownerLabel, ownerOfFleet, thaiDateShort, type DailySummary,
 } from "../lib/repair-external"
 
@@ -13,6 +13,25 @@ function check(name: string, fn: () => void) {
   try { fn(); pass++; console.log(`  ✓ ${name}`) }
   catch (e) { console.error(`  ✗ ${name}\n    ${e instanceof Error ? e.message : e}`); process.exitCode = 1 }
 }
+
+console.log("ใบซ้ำในรายงาน")
+check("คันเดียวกันปิดหลายใบวันนี้ นับคันเดียว (เคส NL22 ×3) · เก็บใบที่เปิดก่อนสุด", () => {
+  const rows = [
+    { id: "c", fleetNo: "NL22", plate: "สบ.71-6235", status: "รถเสร็จ", createdAt: "2026-09-22T11:40:03.476Z" },
+    { id: "a", fleetNo: "NL22", plate: "สบ.71-6235", status: "รถเสร็จ", createdAt: "2026-09-22T11:31:12.825Z" },
+    { id: "b", fleetNo: "NL 22", plate: "สบ.71-6235", status: "รถเสร็จ(เคลมอู่)", createdAt: "2026-09-22T11:35:58.483Z" },
+    { id: "d", fleetNo: "TH1380", plate: "สบ.71-4246", status: "รถเสร็จ", createdAt: "2026-08-21T02:48:17.482Z" },
+    // คันเดียวกันแต่คนละกลุ่ม (ชะลอ) → ไม่ตัด · ไม่รู้คัน → ไม่ตัด
+    { id: "e", fleetNo: "NL22", plate: "สบ.71-6235", status: "ชะลองานซ่อม", createdAt: "2026-09-22T12:00:00.000Z" },
+    { id: "f", fleetNo: "", plate: "", status: "รถเสร็จ", createdAt: "2026-09-22T01:00:00.000Z" },
+    { id: "g", fleetNo: "", plate: "", status: "รถเสร็จ", createdAt: "2026-09-22T02:00:00.000Z" },
+    // ไม่มีเบอร์รถ → ใช้ทะเบียนแทน
+    { id: "h", plate: "สบ.70-1111", status: "รถเสร็จ", createdAt: "2026-09-22T03:00:00.000Z" },
+    { id: "i", plate: "สบ. 70-1111", status: "รถเสร็จ", createdAt: "2026-09-22T04:00:00.000Z" },
+  ]
+  const kept = dropSameDayRepeats(rows, (r) => (r.status === "ชะลองานซ่อม" ? "defer" : "done")).map((r) => r.id)
+  assert.deepStrictEqual(kept.sort(), ["a", "d", "e", "f", "g", "h"])
+})
 
 console.log("ผู้รับผิดชอบตามฟลีท")
 check("ฟลีทของแต่ละคนตรงตามที่ตกลงไว้", () => {

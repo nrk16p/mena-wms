@@ -3,7 +3,7 @@ import clientPromise from "@/lib/mongo"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
 import {
   DONE_STATUSES, JOB_TYPE_PARTS, OWNER_NO_FLEET, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS,
-  REPAIR_DONE_NO_PR_STATUS, REPAIR_DONE_STATUS, REPAIR_STATUSES, isDoneStatus, normalizeStatus, ownerOfFleet,
+  REPAIR_DONE_NO_PR_STATUS, REPAIR_DONE_STATUS, REPAIR_STATUSES, dropSameDayRepeats, isDoneStatus, normalizeStatus, ownerOfFleet,
   type DailySummary,
 } from "@/lib/repair-external"
 
@@ -32,11 +32,14 @@ export async function GET() {
   const base  = { jobType: { $ne: JOB_TYPE_PARTS } }
   const proj  = { status: 1, fleet: 1, fleetNo: 1, plate: 1, prCode: 1, dueDate: 1, createdAt: 1, statusSince: 1 }
 
-  const [active, leftToday] = await Promise.all([
+  const [active, leftTodayRaw] = await Promise.all([
     col.find({ ...base, status: { $nin: DONE_STATUSES } }).project(proj).toArray() as Promise<Row[]>,
     // ใบที่ "ออกจากคิว" วันนี้ — ปิดงาน/เคลมอู่/ชะลอ (statusSince ตั้งตอนเปลี่ยนสถานะเท่านั้น)
     col.find({ ...base, status: { $in: DONE_STATUSES }, statusSince: today }).project(proj).toArray() as Promise<Row[]>,
   ])
+
+  // คันเดียวกันปิดหลายใบวันนี้ (สร้างซ้ำ) → นับคันเดียว · ใช้ชุดนี้นับทุกยอดให้บวกลบลงตัว
+  const leftToday = dropSameDayRepeats(leftTodayRaw, (r) => (String(r.status) === REPAIR_DEFER_STATUS ? "defer" : "done"))
 
   const openedBefore = (r: Row) => bkkDate(r.createdAt ?? null) < today
   const closedToday  = leftToday.filter((r) => [REPAIR_DONE_STATUS, REPAIR_CLAIM_DONE_STATUS].includes(String(r.status)))
