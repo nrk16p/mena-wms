@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Landmark, Search, RefreshCw, AlertTriangle } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { CREDIT_TERMS } from "@/lib/ap-tracking"
-import { AP_TEMPLATE_DOCS, templateDocLabel, type ApDocTemplate, type ApTplDocKey } from "@/lib/ap-doc-template"
+import { templateDocLabel, type ApDocTemplate, type ApTplDocKey } from "@/lib/ap-doc-template"
 import { ApDocTemplateShareDialog } from "./ap-doc-template-share"
+import { ApDocTemplateEditor, putDocTemplate } from "./ap-doc-template-editor"
 import { CARD, NUM, mitr } from "./ap-style"
 
 type Supplier = {
@@ -41,7 +42,7 @@ export function ApSuppliersPage() {
   const [newName, setNewName] = useState("")
   // แม่แบบเอกสารประกบชุด — จับคู่กับแถวด้วยรหัส ATMS ก่อน ถอยไปใช้ชื่อ (เหมือน findTemplateForSupplier ฝั่ง API)
   const [templates, setTemplates] = useState<ApDocTemplate[]>([])
-  const [editing, setEditing] = useState<{ name: string; docs: ApTplDocKey[] } | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)       // ชื่อผู้ขายที่กำลังแก้แม่แบบ
   const [sharing, setSharing] = useState<Supplier | null>(null)
 
   // ลิงก์จากโมดัลใบ DD ส่งชื่อผู้ขายมาใน ?q= — อ่านหลัง mount (อ่านตอน render แรกจะ hydrate ไม่ตรงกับเซิร์ฟเวอร์)
@@ -106,12 +107,7 @@ export function ApSuppliersPage() {
     setTemplates((ts) => [...ts.filter((t) => (code ? t.code !== code : !(t.code === "" && t.name === x.name))), next])
     setEditing(null)
     try {
-      const res = await fetch("/api/ap-doc-templates", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, name: x.name, docs }),
-      })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
+      await putDocTemplate(code, x.name, docs)
       swalToast("success", docs.length ? `บันทึกแม่แบบ ${x.name} · ${docs.length} ชนิด` : `${x.name} · ไม่มีแม่แบบ`)
     } catch (e) {
       setTemplates(prev)
@@ -263,28 +259,9 @@ export function ApSuppliersPage() {
                       </div>
                     </td>
                     <td className="px-3 py-2">
-                      {editing?.name === x.name ? (
-                        <div className="space-y-1.5">
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                            {AP_TEMPLATE_DOCS.map((d) => (
-                              <label key={d.key} className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                <input type="checkbox" className="h-3.5 w-3.5 accent-emerald-600"
-                                  checked={editing.docs.includes(d.key)}
-                                  onChange={(e) => setEditing((ed) => ed && ({
-                                    ...ed,
-                                    docs: e.target.checked ? [...ed.docs, d.key] : ed.docs.filter((k) => k !== d.key),
-                                  }))} />
-                                {d.label}
-                              </label>
-                            ))}
-                          </div>
-                          <div className="flex gap-1.5">
-                            <button onClick={() => saveTemplate(x, AP_TEMPLATE_DOCS.map((d) => d.key).filter((k) => editing.docs.includes(k)))}
-                              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-700">บันทึก</button>
-                            <button onClick={() => setEditing(null)}
-                              className="rounded-lg border px-2.5 py-1 text-xs hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">ยกเลิก</button>
-                          </div>
-                        </div>
+                      {editing === x.name ? (
+                        <ApDocTemplateEditor initial={tplOf(x)?.docs ?? []}
+                          onSave={(docs) => saveTemplate(x, docs)} onCancel={() => setEditing(null)} />
                       ) : (() => {
                         const tpl = tplOf(x)
                         const docs = tpl?.docs ?? []
@@ -296,7 +273,7 @@ export function ApSuppliersPage() {
                               </span>
                             ))}
                             {!docs.length && <span className="text-[11px] text-gray-400">ยังไม่มีแม่แบบ</span>}
-                            <button onClick={() => setEditing({ name: x.name, docs })}
+                            <button onClick={() => setEditing(x.name)}
                               className="rounded-lg border border-gray-200/80 px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
                               {docs.length ? "แก้" : "ตั้งแม่แบบ"}
                             </button>

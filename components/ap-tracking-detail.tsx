@@ -23,9 +23,11 @@ import { isAccounting } from "@/lib/roles"
 import { NUM, baht, mitr } from "@/components/ap-style"
 import type { ApPay, ApRow } from "@/components/ap-types"
 import {
-  AP_TEMPLATE_DOCS, templateDocsForCheck, templateMissing, templateRequiredChecks, type ApDocTemplate,
+  AP_TEMPLATE_DOCS, templateDocsForCheck, templateMissing, templateRequiredChecks,
+  type ApDocTemplate, type ApTplDocKey,
 } from "@/lib/ap-doc-template"
 import { ApDocTemplateShareDialog } from "@/components/ap-doc-template-share"
+import { ApDocTemplateEditor, putDocTemplate } from "@/components/ap-doc-template-editor"
 
 type DepositItem = { parts_group?: string; item?: string; serial_no?: string; qty?: string; unit_price?: string; total?: string; remark?: string;
   scraped_at?: string }
@@ -183,6 +185,27 @@ export function ApTrackingDetail({
   const tplRequired = useMemo(() => new Set(templateRequiredChecks(tplDocs)), [tplDocs])
   const tplMissing  = templateMissing(tplDocs, draftDocs)
   const [shareOpen, setShareOpen] = useState(false)
+  // ตั้ง/แก้แม่แบบของผู้ขายจากในโมดัลเลย (ผู้ใช้ขอ 22/09/2026) — บันทึกทันทีที่ระดับผู้ขาย
+  // ไม่รอปุ่มบันทึกของใบ DD เพราะแม่แบบใช้กับทุกใบของเจ้านี้ ไม่ใช่ข้อมูลของใบนี้ใบเดียว
+  const [tplEdit, setTplEdit]     = useState(false)
+  const [tplSaving, setTplSaving] = useState(false)
+  const saveTpl = async (docs: ApTplDocKey[]) => {
+    setTplSaving(true)
+    try {
+      // แก้ของเดิม → ใช้รหัสของแม่แบบที่เจอ (อาจเจอด้วยชื่อ) · ตั้งใหม่ → รหัสผู้ขายจาก ap_supplier
+      const code = data?.docTemplate?.code || data?.supplierCode || ""
+      const t = await putDocTemplate(code, data?.docTemplate?.name || row.supplier, docs)
+      setData((d) => (d ? { ...d, docTemplate: t } : d))
+      setTplEdit(false)
+      swalToast("success", docs.length
+        ? `บันทึกแม่แบบ ${row.supplier} · ใช้กับทุกใบของผู้ขายนี้`
+        : `${row.supplier} · ไม่มีแม่แบบ`)
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "บันทึกแม่แบบไม่สำเร็จ")
+    } finally {
+      setTplSaving(false)
+    }
+  }
   const meta        = apStatusMeta(draftStatus)
 
   // ตัวเลือก "นอกรอบ" = พฤหัสที่ยังทันรอบ 4 ตัว (+ วันที่บันทึกไว้เดิม เผื่อเป็นพฤหัสที่ผ่านมาแล้ว)
@@ -520,24 +543,41 @@ export function ApTrackingDetail({
               <section className="space-y-2 border-t border-gray-100 pt-4 dark:border-white/10">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-sm font-bold" style={mitr}>ชุดเอกสาร</h3>
-                  {!loading && (hasTpl ? (
+                  {!loading && !tplEdit && (hasTpl ? (
                     <>
                       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
                         title={data?.docTemplate?.updatedBy ? `แก้ล่าสุด ${data.docTemplate.updatedBy}` : undefined}>
                         แม่แบบผู้ขาย · ต้องมี {tplRequired.size} ช่อง
                       </span>
+                      <button onClick={() => setTplEdit(true)}
+                        className="rounded-lg border border-gray-200/80 px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/5">
+                        แก้แม่แบบ
+                      </button>
                       <button onClick={() => setShareOpen(true)}
                         className="rounded-lg border border-gray-200/80 px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/5">
                         🖼 รูปส่งผู้ขาย
                       </button>
                     </>
                   ) : (
-                    <a href={`/ap-tracking/suppliers?q=${encodeURIComponent(row.supplier)}`} target="_blank" rel="noreferrer"
-                      className="text-[11px] text-gray-400 underline-offset-2 hover:text-emerald-700 hover:underline">
-                      ผู้ขายนี้ยังไม่มีแม่แบบเอกสาร — ตั้งได้ที่หน้าเจ้าหนี้ ↗
-                    </a>
+                    <>
+                      <span className="text-[11px] text-gray-400">ผู้ขายนี้ยังไม่มีแม่แบบเอกสาร</span>
+                      <button onClick={() => setTplEdit(true)}
+                        className="rounded-lg border border-emerald-600/40 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20">
+                        + ตั้งแม่แบบเอกสารของผู้ขายนี้
+                      </button>
+                    </>
                   ))}
                 </div>
+                {tplEdit && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                    <div className="mb-2 text-xs font-medium text-gray-700 dark:text-gray-200">
+                      เอกสารที่ <span className="text-emerald-700 dark:text-emerald-400">{row.supplier}</span> ต้องแนบเมื่อวางบิล
+                    </div>
+                    <ApDocTemplateEditor initial={tplDocs} saving={tplSaving}
+                      note="บันทึกทันที และใช้กับทุกใบ DD ของผู้ขายนี้ — ไม่เกี่ยวกับปุ่มบันทึกของใบนี้"
+                      onSave={saveTpl} onCancel={() => setTplEdit(false)} />
+                  </div>
+                )}
                 <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
                   {AP_DOC_FIELDS.map((f) => {
                     const mark = f.key === "invoice" ? (saved.invoice ?? saved.billingNote) : saved[f.key]
