@@ -2,8 +2,10 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { fetchAtmsBoard, isAtmsSettled, isAtmsSkipped, normKey } from "@/lib/atms-board"
+import { fetchAtmsBoard, findClosedMatch, isAtmsSettled, isAtmsSkipped, normKey, type ClosedWmsJob } from "@/lib/atms-board"
 import { DONE_STATUSES, JOB_TYPE_PARTS } from "@/lib/repair-external"
+import { REPAIR_LOG_COLL } from "@/lib/repair-log"
+import { bkkDate } from "@/lib/bkk-time"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -18,7 +20,8 @@ export async function GET() {
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   try {
     const [board, client] = await Promise.all([fetchAtmsBoard(), clientPromise])
-    const wms = await client.db(DB).collection(COLL)
+    const db  = client.db(DB)
+    const wms = await db.collection(COLL)
       .find(
         { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
         { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, prCode: 1, poCode: 1 } },
@@ -67,6 +70,55 @@ export async function GET() {
       })
       .filter(Boolean)
       .sort((a, b) => (b!.days - a!.days))
+
+    // ── ✅ ไม่มีใบเปิดใน WMS แต่ปิดงานไปแล้ว (รอบซ่อมเดียวกัน) — Mena-Next ยังไม่อัปเดตสถานะรถ
+    //    แยกออกจาก pending/missing: ไม่ต้องทวงให้สร้างใบ แค่โชว์ให้รู้ว่าใครปิดไปแล้ว
+    const noWms = pending.filter((p) => !p!.wms)
+    const closedFor = new Map<string, ClosedWmsJob>()   // key = plate จาก Mena-Next
+    if (noWms.length) {
+      const plates = noWms.map((p) => p!.plate).filter(Boolean)
+      const nums   = noWms.map((p) => p!.trucknum).filter(Boolean)
+      const mrs    = noWms.map((p) => p!.mrCode).filter(Boolean)
+      const closedDocs = await db.collection(COLL)
+        .find(
+          {
+            status: { $in: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS },
+            $or: [{ plate: { $in: plates } }, { fleetNo: { $in: nums } }, { mrNo: { $in: mrs } }],
+          },
+          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, statusSince: 1, statusSinceAt: 1, updatedAt: 1, editedBy: 1 } },
+        )
+        // ปิดวันเดียวกันหลายใบ (เช่นสร้างซ้ำ) → findClosedMatch เก็บใบแรกเมื่อวันเท่ากัน ให้ใบที่ปิดทีหลังสุดขึ้นก่อน
+        .sort({ statusSinceAt: -1 })
+        .toArray()
+      // คนปิดงาน = log ล่าสุดที่เปลี่ยนเป็นสถานะปัจจุบัน (editedBy อาจเป็นคนแก้ช่องอื่นทีหลัง)
+      const closers = closedDocs.length
+        ? await db.collection(REPAIR_LOG_COLL)
+            .find({ repairId: { $in: closedDocs.map((d) => String(d._id)) }, "statusChange.to": { $in: DONE_STATUSES } })
+            .project({ repairId: 1, by: 1, at: 1, "statusChange.to": 1 })
+            .sort({ at: -1 })
+            .toArray()
+        : []
+      const closerOf = (id: string, status: string) =>
+        closers.find((l) => String(l.repairId) === id && l.statusChange?.to === status)?.by as string | undefined
+      for (const p of noWms) {
+        const cands: ClosedWmsJob[] = closedDocs
+          .filter((d) =>
+            (normKey(d.plate) && normKey(d.plate) === normKey(p!.plate)) ||
+            (normKey(d.fleetNo) && normKey(d.fleetNo) === normKey(p!.trucknum)) ||
+            (normKey(d.mrNo) && normKey(d.mrNo) === normKey(p!.mrCode)))
+          .map((d) => ({
+            id: String(d._id), mrNo: String(d.mrNo ?? ""), status: String(d.status ?? ""),
+            closedAt: String(d.statusSince || bkkDate(d.statusSinceAt ?? d.updatedAt)),
+            closedBy: closerOf(String(d._id), String(d.status ?? "")) || String(d.editedBy ?? ""),
+          }))
+        const hit = findClosedMatch(p!.mrCode, p!.since, cands)
+        if (hit) closedFor.set(p!.plate, hit)
+      }
+    }
+    const closedInWms = pending
+      .filter((p) => closedFor.has(p!.plate))
+      .map((p) => ({ ...p!, closed: closedFor.get(p!.plate)! }))
+    const stillPending = pending.filter((p) => !closedFor.has(p!.plate))
 
     // ── 🔴 WMS ยัง "แจ้งซ่อมอู่นอก" แต่รถจอดจริงแล้ว
     const waitingButParked = wms
@@ -124,8 +176,9 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       fetchedAt: board.fetchedAt,
-      pending,
-      missing: pending.filter((p) => !p!.wms),
+      pending: stillPending,
+      missing: stillPending.filter((p) => !p!.wms),
+      closedInWms,
       waitingButParked,
       openNotParked,
       prFill,

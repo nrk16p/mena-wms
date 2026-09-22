@@ -49,6 +49,37 @@ export const isAtmsSettled = (step: string) => ATMS_SETTLED_STEPS.includes(step)
 export const ATMS_SKIP_STEPS = ["แย็กโม่"]
 export const isAtmsSkipped = (step: string) => ATMS_SKIP_STEPS.includes(step)
 
+/** ใบงานอู่นอกที่ปิดแล้วใน WMS (รถเสร็จ / เคลมอู่ / ชะลองานซ่อม) ของคันที่ Mena-Next ยังขึ้นว่าจอดซ่อม */
+export type ClosedWmsJob = {
+  id: string
+  mrNo: string
+  status: string
+  closedAt: string   // YYYY-MM-DD วันที่เปลี่ยนเป็นสถานะปิดงาน (statusSince)
+  closedBy: string
+}
+
+/**
+ * รถจอดซ่อมที่ไม่มีใบเปิดใน WMS — มีใบที่ "ปิดไปแล้ว" ของรอบซ่อมเดียวกันหรือเปล่า
+ * (ผู้ใช้สั่ง 22/09/2569: NL22 จัดซื้อปิดงานแล้ว แต่ Mena-Next ยังไม่อัปเดต → ขึ้นว่าขาดในระบบ)
+ * - MR ตรงกับงานใน Mena-Next = รอบเดียวกันแน่นอน
+ * - ใบไม่มี MR → นับเฉพาะที่ปิดตั้งแต่วันเริ่มจอดรอบนี้ (ปิดก่อนหน้านั้นคือรอบซ่อมเก่า)
+ * - MR ไม่ตรง = คนละรอบ → ยังถือว่าขาด
+ * closed = ใบที่ปิดแล้วของคันนั้น (จับคู่ทะเบียน/เบอร์รถมาแล้ว) · หลายใบเข้าเงื่อนไข → เอาใบที่ปิดล่าสุด
+ */
+export function findClosedMatch(mrCode: string, parkedSince: string, closed: ClosedWmsJob[]): ClosedWmsJob | null {
+  // หลาย MR ในช่องเดียว คั่นด้วย , / ; หรือเว้นวรรค — แยกทั้งสองแบบเพราะบางใบพิมพ์ "KKMR 2609..." มีช่องว่างในเลขเดียว
+  const mrsOf = (c: ClosedWmsJob) => [
+    ...c.mrNo.split(/[,/;\n]+/),
+    ...c.mrNo.split(/[\s,/;]+/),
+  ].map(normKey).filter(Boolean)
+  const latest = (xs: ClosedWmsJob[]) =>
+    xs.length ? xs.reduce((a, b) => (b.closedAt > a.closedAt ? b : a)) : null
+  const mr = normKey(mrCode)
+  const sameMr = mr ? closed.filter((c) => mrsOf(c).includes(mr)) : []
+  if (sameMr.length) return latest(sameMr)
+  return latest(closed.filter((c) => !mrsOf(c).length && !!parkedSince && !!c.closedAt && c.closedAt >= parkedSince))
+}
+
 export type AtmsBoardData = {
   jobs: AtmsOpenJob[]       // งานอู่นอกเปิดทั้งหมดใน ATMS
   parked: ParkedTruck[]     // รถจอดจริงตอนนี้

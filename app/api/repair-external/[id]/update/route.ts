@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { REPAIR_FIELD_LABELS, diffRepair, writeRepairLog, type RepairChange } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
-import { isDoneStatus, normalizeStatus, openJobConflictFilter, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
+import { fixBeYear, isDoneStatus, normalizeStatus, openJobConflictFilter, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
 import { buildDoc } from "../../route"
 
 // POST /api/repair-external/[id]/update — "อัพเดทงาน" หนึ่งครั้ง { status, stageEta, note, fields? }
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const body     = await req.json().catch(() => ({}))
   const status   = normalizeStatus(String(body.status ?? "").trim())
-  const stageEta = String(body.stageEta ?? "").trim()
+  const stageEta = fixBeYear(String(body.stageEta ?? "").trim())
   const note     = String(body.note ?? "").trim()
 
   const db  = (await clientPromise).db(DB)

@@ -260,6 +260,8 @@ type AtmsBoard = {
   fetchedAt: string
   pending: AtmsPending[]
   missing: AtmsPending[]
+  /** Mena-Next ยังขึ้นว่าจอดซ่อม แต่ใบงานรอบเดียวกันใน WMS ปิดไปแล้ว — ไม่นับเป็นขาด */
+  closedInWms?: (AtmsPending & { closed: { id: string; mrNo: string; status: string; closedAt: string; closedBy: string } })[]
   waitingButParked: { id: string; plate: string; fleetNo: string; days: number; since: string; plant: string }[]
   openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
   prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean; mrConflict: boolean; wmsMr: string }[]
@@ -1815,6 +1817,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   {atms.missing.length > 0
                     ? <span className="font-bold text-rose-600 dark:text-rose-300">· ขาด {atms.missing.length}</span>
                     : <span>· ครบ ✓</span>}
+                  {(atms.closedInWms?.length ?? 0) > 0 && (
+                    <span className="opacity-70" title="ปิดงานใน WMS แล้ว แต่ Mena-Next ยังขึ้นว่ารถจอดซ่อม — ไม่ต้องสร้างรายการใหม่">
+                      · ปิดแล้วรอ Mena-Next {atms.closedInWms!.length}
+                    </span>
+                  )}
                   {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ไม่ตรง {mrIssues.length}</span>}
                   {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR {prFill.length}</span>}
                 </>
@@ -1867,6 +1874,35 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           </button>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+                {/* ปิดงานใน WMS แล้ว (MR เดียวกัน) แต่ Mena-Next ยังไม่อัปเดตรถ — แจ้งให้รู้เฉย ๆ ไม่ต้องสร้างใบ */}
+                {(atms.closedInWms?.length ?? 0) > 0 && (
+                  <div>
+                    <p className="mb-1.5 font-bold text-slate-600 dark:text-slate-300">✅ ปิดงานใน WMS แล้ว — Mena-Next ยังขึ้นว่าจอดซ่อม ({atms.closedInWms!.length} คัน)</p>
+                    <div className="space-y-1">
+                      {atms.closedInWms!.map((m) => {
+                        const sm = statusMeta(m.closed.status)
+                        return (
+                          <div key={m.closed.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5 text-slate-600 dark:text-slate-300">
+                            <b className="min-w-[52px]">{m.trucknum || "—"}</b>
+                            <span>{m.plate}</span>
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sm.cls}`}>{sm.emoji} {m.closed.status}</span>
+                            <span className="text-[12px] opacity-80">{m.mrCode}</span>
+                            <span className="text-[12px] opacity-80">
+                              ปิดโดย {m.closed.closedBy || "—"}{m.closed.closedAt ? ` · ${fmtDateShort(m.closed.closedAt)}` : ""}
+                            </span>
+                            <span className="text-[12px] opacity-60">Mena-Next: {m.step || "-"} · จอด {m.days} วัน</span>
+                            <button
+                              onClick={() => openById(m.closed.id)}
+                              className="ml-auto shrink-0 rounded-lg border border-slate-300 px-2.5 py-1 text-[12px] font-bold hover:bg-slate-100 dark:border-white/20 dark:hover:bg-white/10"
+                            >
+                              เปิดรายการ
+                            </button>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

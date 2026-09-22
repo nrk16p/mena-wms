@@ -51,6 +51,18 @@ export const normalizeStatus = (s: string) => {
   return STATUS_ALIASES[t] ?? t
 }
 
+/**
+ * วันที่ที่ปีเป็น พ.ศ. → ค.ศ. (YYYY-MM-DD) · ช่อง <input type="date"> เป็นปฏิทิน ค.ศ.
+ * คนพิมพ์ปี 2569 ลงไปตรง ๆ จะได้ "2569-09-17" ซึ่งเป็นปี ค.ศ. 2569 (เคส NL22 22/09/2569)
+ * ปี 2400–2700 ไม่มีทางเป็นวันที่จริงของงานซ่อม → ลบ 543 · ค่าอื่นคืนเดิม
+ */
+export const fixBeYear = (s: string): string => {
+  const m = /^(\d{4})(-\d{2}-\d{2}.*)$/.exec((s ?? "").trim())
+  if (!m) return (s ?? "").trim()
+  const y = Number(m[1])
+  return y >= 2400 && y <= 2700 ? `${y - 543}${m[2]}` : `${m[1]}${m[2]}`
+}
+
 // สถานะ "รถเสร็จ" = ปิดงาน — แยกไปหน้า "รถซ่อมเสร็จ" ส่วนที่เหลือคือ "รถซ่อมอู่นอก"
 export const REPAIR_DONE_STATUS = "รถเสร็จ"
 

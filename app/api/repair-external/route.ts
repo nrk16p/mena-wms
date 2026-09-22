@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
-import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusQueryValues, statusesFor, normalizeStatus } from "@/lib/repair-external"
+import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusQueryValues, statusesFor, normalizeStatus, fixBeYear } from "@/lib/repair-external"
 import { normalizeImages } from "@/lib/media"
 import { bkkToday } from "@/lib/bkk-time"
 
@@ -24,10 +24,11 @@ export function buildDoc(body: Record<string, unknown>) {
   const s = (v: unknown) => String(v ?? "").trim()
   return {
     jobType:      s(body.jobType) === JOB_TYPE_PARTS ? JOB_TYPE_PARTS : JOB_TYPE_GARAGE,
-    receivedDate:  s(body.receivedDate),
-    garageInDate:  s(body.garageInDate),
-    dueDate:       s(body.dueDate),
-    completedDate: s(body.completedDate),
+    // ปี พ.ศ. ที่พิมพ์ลงช่องวันที่ → แปลงเป็น ค.ศ. ก่อนบันทึก (ทุกทางเขียนผ่าน buildDoc)
+    receivedDate:  fixBeYear(s(body.receivedDate)),
+    garageInDate:  fixBeYear(s(body.garageInDate)),
+    dueDate:       fixBeYear(s(body.dueDate)),
+    completedDate: fixBeYear(s(body.completedDate)),
     mrNo:         s(body.mrNo),
     symptom:      s(body.symptom),
     plate:        s(body.plate),
@@ -43,7 +44,7 @@ export function buildDoc(body: Record<string, unknown>) {
     // แปลงชื่อสถานะเดิมเป็นชื่อปัจจุบัน — ทีมภายนอกที่ยังส่ง "รอรถเข้า" มาจะไม่โดน 400
     status:       normalizeStatus(s(body.status)),
     // วันคาดว่าจะพ้นสถานะปัจจุบัน — ผูกกับขั้น เปลี่ยนสถานะทีไรต้องตั้งใหม่
-    stageEta:     s(body.stageEta),
+    stageEta:     fixBeYear(s(body.stageEta)),
     // tickbox รอใบเสนอราคา — ใช้กับงานอู่นอกเท่านั้น (อะไหล่ลงคันมีสถานะ รอใบเสนอราคา ใน workflow อยู่แล้ว)
     waitingQuote: s(body.jobType) !== JOB_TYPE_PARTS && body.waitingQuote ? "รอใบเสนอราคา" : "",
     prCode:       s(body.prCode),
