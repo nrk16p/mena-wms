@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, hasGrades, supplierCoversSelection, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, hasGrades, supplierCoversSelection, hasSections, sectionsOf, sectionTotals, type PcGroup, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -22,6 +22,11 @@ export const MIX_DISCOUNT_NOTE = "ส่วนลดไม่ถูกนำม�
 // โหมดเกรด: ยอดต่อเจ้าคิดตามเกรดที่เลือก — ป้ายแถวสุทธิบอกไว้ และเจ้าที่คิดครบไม่ได้พิมพ์ GRADE_PARTIAL แทนยอดบางส่วน
 export const GRADE_NET_LABEL = "รวมราคาทั้งหมด (สุทธิ) ตามเกรดที่เลือก"
 export const GRADE_PARTIAL = "ไม่ครบ"
+// หมวด: แถวหัว "หมวด<ชื่อ>" เต็มความกว้างตาราง + แถวยอดย่อย "รวม<ชื่อ>" ท้ายหมวด (ชื่อว่าง = SECTION_UNNAMED)
+export const SECTION_HEAD = (name: string) => `หมวด${name || SECTION_UNNAMED}`
+export const SECTION_SUB = (name: string) => `รวม${name || ` (${SECTION_UNNAMED})`}`
+export const SECTION_UNNAMED = "ไม่ระบุหมวด"
+const SECTION_FILL = "#EFEFEF"
 const SUP_W = 50           // ความกว้างคอลัมน์ราคาแต่ละช่อง (4 supplier × 2 ช่อง)
 const COL1_W = 36          // คอลัมน์ซ้ายสุด: "ลำดับ" / ป้ายเทาของบล็อกเงื่อนไข-กรรมการ (กว้างเท่ากันทั้ง 3 ตาราง)
 
@@ -140,7 +145,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   //   รายการหลายเกรด → แถวหัวรายการ (ลำดับ/ชื่อ/จำนวน/หน่วย ช่องราคาเว้นว่าง) + แถวละเกรด (ราคาต่อเจ้า + ติ๊กที่เกรด·เจ้าที่เลือก)
   // ทุกแถวต้องมี cell เท่ากับจำนวนคอลัมน์ (4 + N × 2 นับ placeholder ของ colSpan) ไม่งั้น pdfmake วาดตารางเพี้ยน
   const groups = groupsOf(doc)
-  const itemRows = groups.flatMap((g, n) => {
+  const groupRows = (g: PcGroup, n: number): any[][] => {
     const it = doc.items[g.rows[0]]   // ชื่อ/จำนวน/หน่วยเป็นของทั้งกลุ่ม (normalizeDoc sync ไว้แล้ว)
     const lead = [cell(String(n + 1)), t(it.name), cell(String(it.qty)), t(it.unit, { alignment: "center" })]
     if (g.rows.length === 1) return [[...lead, ...priceCells(g.rows[0])]]
@@ -154,7 +159,36 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
         ...priceCells(r),
       ]),
     ]
-  })
+  }
+  // ใบไม่แบ่งหมวด → แถวเหมือนเดิมทุกไบต์; แบ่งหมวด → แถวหัวหมวด + รายการในหมวด + แถวยอดย่อยต่อเจ้า (ลำดับรายการนับต่อกันทั้งใบ)
+  const sectioned = hasSections(doc)
+  const sections = sectioned ? sectionsOf(doc) : []
+  const giOf = new Map(groups.map((g, n) => [g.key, n]))
+  const sectionHeadRow = (name: string) => [
+    { colSpan: 4 + N * 2, ...t(SECTION_HEAD(name), { bold: true, fillColor: SECTION_FILL }) },
+    ...Array.from({ length: 3 + N * 2 }, () => ({})),
+  ]
+  const sectionSubRow = (sec: (typeof sections)[number]) => {
+    const tt = sectionTotals(doc, sec)
+    const graded = sec.groups.some((g) => g.rows.length > 1)
+    return [
+      { colSpan: 4, ...t(SECTION_SUB(sec.name), { alignment: "right", bold: true }) }, {}, {}, {},
+      ...Array.from({ length: N }, (_, i) => {
+        const p = sup(i) ? tt.perSupplier[i] : null
+        const v = !p || !p.priced ? { text: "", ...fill(i) }
+          : graded && !p.covers ? t(GRADE_PARTIAL, { alignment: "right", fontSize: 7, ...fill(i) })
+          : money(p.subtotal, { bold: true, ...fill(i) })
+        return [{ text: "", ...fill(i) }, v]
+      }).flat(),
+    ]
+  }
+  const itemRows = sectioned
+    ? sections.flatMap((sec) => [
+        sectionHeadRow(sec.name),
+        ...sec.groups.flatMap((g) => groupRows(g, giOf.get(g.key) ?? 0)),
+        sectionSubRow(sec),
+      ])
+    : groups.flatMap((g, n) => groupRows(g, n))
   const emptyRow = () => [
     { text: " " }, {}, {}, {},
     ...Array.from({ length: N }, (_, i) => [{ text: " ", ...fill(i) }, { text: " ", ...fill(i) }]).flat(),
@@ -170,7 +204,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   // เพื่อให้ฟอร์มยังจบในหน้าเดียว (เอกสารเลือกทั้งใบไม่เปลี่ยน — พอดีหน้าอยู่แล้วที่ MIN_ROWS)
   const minRows = MIN_ROWS - (mixed ? 2 + (showSelectionReason ? 1 : 0) + (showFewerQuotesReason ? 1 : 0) : 0)
   // แถวหัวรายการของรายการหลายเกรดเป็นแถวเพิ่มจาก items → กินโควตาแถวว่างเหมือนแถวรายการ (ไม่มีเกรด = หัก 0)
-  const headerRows = groups.filter((g) => g.rows.length > 1).length
+  const headerRows = groups.filter((g) => g.rows.length > 1).length + sections.length * 2   // + หัวหมวด/ยอดย่อย หมวดละ 2 แถว
   const blankRows = Array.from({ length: Math.max(0, minRows - doc.items.length - headerRows - 2) }, emptyRow)
 
   // ช่อง VAT บอกฐานราคาด้วย: none → "ไม่มี VAT", incl → "(รวมในราคา) / 3,683.18"

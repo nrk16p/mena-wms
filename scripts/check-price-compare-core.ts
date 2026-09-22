@@ -7,6 +7,7 @@ import {
   completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES,
   effectiveLineSupplier, allLinesAwarded, mixedTotals, mixedNet, pickLowestPerLine, bestMixNet, mixedGap, renumberAfterRemoval,
   groupsOf, countedRows, hasGrades, newGroupId, supplierCoversSelection,
+  hasSections, sectionsOf, sectionTotals, awardSection,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 import { diffPriceCompare } from "../lib/price-compare-log"
@@ -797,6 +798,118 @@ const named = (x: PriceCompare) => { x.committee = x.committee.map((m) => ({ ...
   const n2 = normalizeDoc({ ...gradesDoc(), lineSupplier: [...BEST] })
   assert.equal(n2.items[0].group, PUMP)
   assert.equal(n2.items[2].grade, "ซ่อมเดิม")
+}
+
+// --- หมวด (ตั้งชื่อเอง): แถวติดกันชื่อเดียวกัน = หมวดเดียว + ยอดย่อยต่อเจ้า + เลือกเจ้าทั้งหมวด ---
+// uh03 แบ่งเป็น อะไหล่ (Pump/Motor/HYD/เกียร์) + ค่าแรง — ทุกเจ้า excl
+function secDoc(): PriceCompare {
+  const d = uh03()
+  d.items = d.items.map((it, i) => ({ ...it, section: i < 4 ? "อะไหล่" : "ค่าแรง" }))
+  return d
+}
+{
+  // ใบเดิมไม่มีหมวด → หมวดเดียวชื่อว่าง (แสดงแบบเดิม)
+  assert.equal(hasSections(uh03()), false)
+  assert.deepEqual(sectionsOf(uh03()).map((x) => [x.name, x.rows]), [["", [0, 1, 2, 3, 4]]])
+
+  const d = secDoc()
+  assert.equal(hasSections(d), true)
+  const [parts, labor] = sectionsOf(d)
+  assert.deepEqual([parts.name, parts.rows, labor.name, labor.rows], ["อะไหล่", [0, 1, 2, 3], "ค่าแรง", [4]])
+
+  // ยอดย่อยตามที่เสนอ (ฐานเดียวกับ "รวมราคา ก่อนภาษี") — อะไหล่ถูกสุด S1, ค่าแรงถูกสุด S3
+  const tp = sectionTotals(d, parts), tl = sectionTotals(d, labor)
+  assert.deepEqual(tp.perSupplier.map((p) => p.subtotal), [43690.08, 50800, 57999.92])
+  assert.deepEqual(tl.perSupplier.map((p) => p.subtotal), [7000, 5500, 5000])
+  assert.equal(tp.lowest, 0); assert.equal(tl.lowest, 2)
+  assert.deepEqual(tp.perSupplier.map((p) => p.covers), [true, true, true])
+  // ยอดย่อยรวมกันได้เท่ายอดเดิมของเจ้านั้น และยอดสุทธิทั้งใบไม่เปลี่ยนเพราะแบ่งหมวด
+  assert.equal(round2(tp.perSupplier[0].subtotal + tl.perSupplier[0].subtotal), supplierTotals(uh03(), 0).subtotal)
+  assert.deepEqual(d.suppliers.map((_, i) => supplierTotals(d, i)), uh03().suppliers.map((_, i) => supplierTotals(uh03(), i)))
+  assert.deepEqual(pickLowestPerLine(d), pickLowestPerLine(uh03()))
+
+  // เจ้าที่ขาดราคาบางรายการ: ยอดบางส่วน + covers false + ไม่ถูกนับเป็นถูกสุดในหมวด
+  const hole = secDoc(); hole.suppliers[0].prices[1] = null
+  const th = sectionTotals(hole, sectionsOf(hole)[0])
+  assert.equal(th.perSupplier[0].subtotal, 24790.08)
+  assert.equal(th.perSupplier[0].priced, true)
+  assert.equal(th.perSupplier[0].covers, false)
+  assert.equal(th.lowest, 1, "S1 ขาด Motor → ถูกสุดในหมวดที่เสนอครบ = S2")
+  // เจ้าที่ไม่ได้เสนอสักรายการในหมวด → priced false
+  const none = secDoc(); none.suppliers[1].prices[4] = null
+  assert.equal(sectionTotals(none, sectionsOf(none)[1]).perSupplier[1].priced, false)
+
+  // เลือกถูกสุดในหมวด = pickLowestPerLine เฉพาะแถวในหมวด (แถวนอกหมวดไม่แตะ)
+  const aw = awardSection(d, parts, "lowest")
+  assert.deepEqual(aw, { lineSupplier: [1, 2, 2, 2, null], skipped: 0 })
+  // ใช้ S3 ทั้งหมวดค่าแรง ต่อจากที่เลือกอะไหล่ไว้แล้ว
+  const aw2 = awardSection({ ...d, lineSupplier: aw.lineSupplier }, labor, 3)
+  assert.deepEqual(aw2, { lineSupplier: [1, 2, 2, 2, 3], skipped: 0 })
+  assert.equal(allLinesAwarded({ ...d, lineSupplier: aw2.lineSupplier }), true)
+  // เจ้าที่ไม่ได้เสนอบางรายการ → รายการนั้นคงค่าเดิม นับ skipped
+  const hw = awardSection({ ...hole, lineSupplier: [null, 2, null, null, null] }, sectionsOf(hole)[0], 1)
+  assert.deepEqual(hw, { lineSupplier: [1, 2, 1, 1, null], skipped: 1 })
+}
+
+// หมวด + เกรด: รายการหลายเกรดอยู่ในหมวดได้ เลือกเจ้าทั้งหมวด = เกรดที่เจ้านั้นถูกสุด
+{
+  const g = gradesDoc()
+  g.items = g.items.map((it, i) => ({ ...it, section: i < 5 ? "อะไหล่" : "ค่าแรง" }))
+  const [parts, labor] = sectionsOf(g)
+  assert.deepEqual(parts.groups.map((x) => x.rows), [[0, 1, 2], [3], [4]])
+  assert.deepEqual(labor.rows, [5])
+  const a3 = awardSection(g, parts, 3)
+  assert.deepEqual(a3, { lineSupplier: [null, 3, null, 3, 3, null], skipped: 0 }, "S3: มือ 2 (25,000) ถูกกว่า มือ 1")
+  const a1 = awardSection(g, parts, 1)
+  assert.deepEqual(a1.lineSupplier, [null, null, 1, 1, 1, null], "S1 เสนอแค่ ซ่อมเดิม")
+  // เลือกเกรดอื่นอยู่แล้ว → ล้างแถวเกรดเดิมในกลุ่ม
+  assert.deepEqual(awardSection({ ...g, lineSupplier: [null, 3, null, null, null, null] }, parts, 1).lineSupplier, [null, null, 1, 1, 1, null])
+  assert.deepEqual(awardSection(g, parts, "lowest").lineSupplier, [null, null, 1, 2, 2, null])
+
+  const picked = { ...g, lineSupplier: a3.lineSupplier }
+  const tp = sectionTotals(picked, parts)
+  assert.equal(tp.lowest, null, "หมวดมีรายการหลายเกรด → ไม่ชี้ถูกสุดในหมวด")
+  assert.deepEqual(tp.perSupplier.map((p) => p.covers), [false, false, true])
+  assert.equal(tp.perSupplier[2].subtotal, 27999.92)
+  assert.deepEqual(sectionTotals(g, parts).perSupplier.map((p) => p.covers), [false, false, false], "ยังไม่เลือกเกรด → ไม่ครบทุกเจ้า")
+  assert.equal(sectionTotals(g, labor).lowest, 2)
+  // (review) หมวดที่มีแต่รายการหลายเกรดที่ยังไม่เลือก: ทุกเจ้าที่เสนอเกรดใดก็ได้ต้อง priced (ปุ่ม "ใช้ S ทั้งหมวด" ต้องโผล่) แต่ยังไม่ครบ
+  const pumpOnly = gradesDoc()
+  pumpOnly.items = pumpOnly.items.map((it, i) => ({ ...it, section: i < 3 ? "ปั๊ม" : "อื่นๆ" }))
+  const tpo = sectionTotals(pumpOnly, sectionsOf(pumpOnly)[0])
+  assert.deepEqual(tpo.perSupplier.map((p) => [p.priced, p.covers, p.subtotal]), [[true, false, 0], [true, false, 0], [true, false, 0]])
+  assert.deepEqual(awardSection(pumpOnly, sectionsOf(pumpOnly)[0], 2).lineSupplier, [2, null, null, null, null, null], "S2 เสนอแค่ มือ 1")
+}
+
+// normalizeDoc / validateDoc / log ของหมวด
+{
+  const n = normalizeDoc({
+    items: [
+      { name: "Pump", qty: 1, unit: "ตัว", section: "  อะไหล่  ", group: "g-p1", grade: "มือ 1" },
+      { name: "Pump", qty: 1, unit: "ตัว", section: "ค่าแรง", group: "g-p1", grade: "มือ 2" },
+      { name: "Seal", qty: 2, unit: "ชุด", section: "อะไหล่", group: "g-lone2", grade: "x" },
+      { name: "ค่าแรง", qty: 1, unit: "งาน", section: "ค่าแรง" },
+      { name: "อื่น", qty: 1, unit: "งาน", section: "   " },
+    ],
+    suppliers: [{ name: "x", prices: [1, 2, 3, 4, 5] }],
+  })
+  assert.equal(n.items[0].section, "อะไหล่", "ตัดช่องว่าง")
+  assert.equal(n.items[1].section, "อะไหล่", "แถวเกรดใช้หมวดของแถวแรกของกลุ่ม")
+  assert.deepEqual(n.items[2], { name: "Seal", qty: 2, unit: "ชุด", sku: undefined, section: "อะไหล่" }, "ถอด group เดี่ยวแล้วหมวดยังอยู่")
+  assert.equal("section" in n.items[4], false, "ชื่อหมวดว่าง = ไม่มี key")
+  assert.equal("section" in normalizeDoc(uh03()).items[0], false, "ใบเดิมรูปทรงเหมือนเดิม")
+  assert.equal(normalizeDoc({ items: [{ name: "a", qty: 1, unit: "", section: "ก".repeat(80) }] }).items[0].section?.length, 60)
+
+  const secErr = (x: PriceCompare) => validateDoc(x).filter((e) => e.includes("หมวด"))
+  assert.deepEqual(secErr(secDoc()), [])
+  const split = secDoc(); split.items[4].section = "อะไหล่"; split.items[2].section = "ค่าแรง"
+  assert.deepEqual(secErr(split), ['หมวด "อะไหล่" แยกเป็นหลายช่วง — ย้ายรายการให้อยู่ติดกัน หรือเปลี่ยนชื่อหมวด'])
+
+  const ch = diffPriceCompare(uh03(), secDoc()).find((c) => c.field === "sections")
+  assert.deepEqual(ch, { field: "sections", label: "หมวด", from: "ไม่แบ่งหมวด", to: "อะไหล่ (4), ค่าแรง (1)" })
+  const moved = secDoc(); moved.items[3].section = "ค่าแรง"
+  assert.equal(diffPriceCompare(secDoc(), moved).find((c) => c.field === "sections")?.to, "อะไหล่ (3), ค่าแรง (2)")
+  assert.equal(diffPriceCompare(secDoc(), secDoc()).some((c) => c.field === "sections"), false)
 }
 
 console.log("check-price-compare-core: OK")

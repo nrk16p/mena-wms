@@ -1,6 +1,6 @@
 // lib/price-compare-log.ts — audit log ของใบเทียบราคา (รูปแบบเดียวกับ lib/repair-log.ts)
 import type { Db } from "mongodb"
-import { groupsOf, type PriceCompare } from "./price-compare"
+import { groupsOf, sectionsOf, hasSections, type PriceCompare } from "./price-compare"
 
 export const PC_LOG_COLL = "price_compare_log"
 
@@ -46,6 +46,12 @@ export function diffPriceCompare(a: PriceCompare, b: PriceCompare): PcChange[] {
   const gradeRows = (d: PriceCompare) => groupsOf(d).reduce((acc, g) => acc + (g.rows.length > 1 ? g.rows.length : 0), 0)
   const ga = gradeRows(a), gb = gradeRows(b)
   if (ga !== gb) out.push({ field: "grades", label: "เกรด", from: `${ga} เกรด`, to: `${gb} เกรด` })
+  // หมวด: สรุปเป็น "ชื่อหมวด (จำนวนรายการ)" ตามลำดับ — จับได้ทั้งเพิ่ม/ลบ/เปลี่ยนชื่อหมวด และย้ายรายการข้ามหมวด
+  const secSummary = (d: PriceCompare) => hasSections(d)
+    ? sectionsOf(d).map((sec) => `${sec.name || "ไม่ระบุหมวด"} (${sec.groups.length})`).join(", ")
+    : "ไม่แบ่งหมวด"
+  const sa = secSummary(a), sb = secSummary(b)
+  if (sa !== sb) out.push({ field: "sections", label: "หมวด", from: sa, to: sb })
   // โหมดผสม: สรุปเป็น "เลือกแล้วกี่แถวจากทั้งหมด" + เวกเตอร์ผู้ได้รับมอบหมายรายแถว (- = ยังไม่เลือก)
   // เวกเตอร์ทำให้การสลับเจ้าโดยจำนวนแถวเท่าเดิม (เช่น [1,2,2] → [2,1,2]) ยังตรวจสอบย้อนหลังได้ — เป็นข้อมูลชี้ขาดว่าใครได้งาน
   // ส่วนการเพิ่ม/ลบรายการทั้งที่ยังไม่เลือกสักแถว ไม่ต้องขึ้นบรรทัดนี้ (มีบรรทัด "รายการ" บอกอยู่แล้ว)

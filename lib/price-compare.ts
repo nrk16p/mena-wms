@@ -23,6 +23,9 @@ export type PcItem = {
   // เกรด = แถวย่อยของรายการ: แถวที่ group เดียวกัน (ต้องอยู่ติดกัน) คือรายการเดียวที่มีหลายเกรด ใช้ชื่อ/จำนวน/หน่วย/sku ร่วมกัน
   // grade = ชื่อเกรดของแถวนั้น (มือ 1 / มือ 2 / ซ่อมของเดิม); ไม่มี group = รายการธรรมดา (กลุ่มขนาด 1)
   group?: string; grade?: string
+  // หมวด (ตั้งชื่อเอง เช่น อะไหล่ / ค่าแรง): แถวติดกันที่ชื่อหมวดเดียวกัน = หมวดเดียว มียอดย่อยต่อเจ้า; ไม่มี = ใบไม่แบ่งหมวด (แสดงแบบเดิม)
+  // แถวเกรดของรายการเดียวกันอยู่หมวดเดียวกันเสมอ (normalizeDoc คัดลอกจากแถวแรกของกลุ่ม)
+  section?: string
 }
 export type PcConditions = {
   payment: string; leadTime: string; warranty: string; remark: string
@@ -139,6 +142,89 @@ export function newGroupId(existing?: Iterable<string>): string {
     if (!taken.has(id)) break
   }
   return id
+}
+
+/* ---------- หมวด: ชื่อหมวดต่อแถว, แถวติดกันชื่อเดียวกัน = หมวดเดียว (ไม่กระทบยอดรวม/การเลือก — เพิ่มแค่ยอดย่อย) ---------- */
+export const SECTION_NAME_MAX = 60
+export const SECTION_SUGGESTIONS = ["อะไหล่", "ค่าแรง", "ค่าขนส่ง"]
+export type PcSection = { name: string; rows: number[]; groups: PcGroup[] }
+// ยอดย่อยของหมวดต่อเจ้า: subtotal = ผลรวมยอดรวมรายแถวตามที่เสนอ (ฐานเดียวกับแถว "รวมราคา ก่อนภาษี"), net = หลัง VAT ต่อแถว (ใช้ตัดสินถูกสุด)
+// priced = เสนอราคาอย่างน้อย 1 แถวในหมวด (รวมแถวเกรดที่ยังไม่เลือก — ใช้ตัดสินว่าจะโชว์ปุ่ม/ยอด), covers = คิดครบทุกรายการในหมวด (รายการหลายเกรดต้องเลือกแล้ว 1 เกรด และเจ้านี้เสนอเกรดนั้น)
+export type PcSectionTotals = { perSupplier: { subtotal: number; net: number; priced: boolean; covers: boolean }[]; lowest: number | null }
+
+/** ใบนี้แบ่งหมวดหรือไม่ (มีแถวไหนมีชื่อหมวด) — false = แสดงแบบเดิมทุกอย่าง */
+export function hasSections(doc: Pick<PriceCompare, "items">): boolean {
+  return doc.items.some((it) => !!it.section)
+}
+
+/** หมวดตามลำดับ: รายการ (กลุ่มเกรด) ที่ติดกันและชื่อหมวดเดียวกันรวมเป็นหมวดเดียว; ไม่มีชื่อหมวด = name "" */
+export function sectionsOf(doc: Pick<PriceCompare, "items">): PcSection[] {
+  const out: PcSection[] = []
+  for (const g of groupsOf(doc)) {
+    const name = doc.items[g.rows[0]].section ?? ""
+    const last = out[out.length - 1]
+    if (last && last.name === name) { last.groups.push(g); last.rows.push(...g.rows) }
+    else out.push({ name, rows: [...g.rows], groups: [g] })
+  }
+  return out
+}
+
+/** แถวเดียวที่แทนรายการนี้ในยอด: กลุ่มขนาด 1 = แถวนั้น, กลุ่มหลายเกรด = แถวที่เลือกแถวเดียว (ยังไม่เลือก/เลือกเกิน = null) */
+const resolvedRow = (doc: LineSupplierOpt, g: PcGroup): number | null => {
+  if (g.rows.length === 1) return g.rows[0]
+  const picked = pickedRows(doc, g)
+  return picked.length === 1 ? picked[0] : null
+}
+
+/** ยอดย่อยของหมวดต่อเจ้า (เรียงตาม doc.suppliers) + เจ้าที่ถูกสุดในหมวด (0-based)
+ *  lowest เทียบหลัง VAT เฉพาะเจ้าที่เสนอครบทุกรายการในหมวด; หมวดที่มีรายการหลายเกรด → null (เหตุผลเดียวกับ lowestNet) */
+export function sectionTotals(doc: Pick<PriceCompare, "items" | "suppliers"> & LineSupplierOpt, sec: Pick<PcSection, "groups">): PcSectionTotals {
+  const counted = countedRows(doc)
+  const perSupplier = doc.suppliers.map((s, si) => {
+    let subtotal = 0, net = 0, priced = false
+    for (const g of sec.groups) for (const i of g.rows) {
+      const lt = lineTotal(doc.items[i], s.prices[i] ?? null)
+      if (lt == null) continue
+      priced = true
+      if (!counted[i]) continue
+      subtotal += lt; net += lineNet(doc, i, si) ?? 0
+    }
+    const covers = sec.groups.every((g) => { const r = resolvedRow(doc, g); return r != null && s.prices[r] != null })
+    return { subtotal: round2(subtotal), net: round2(net), priced, covers }
+  })
+  let lowest: number | null = null
+  if (!sec.groups.some((g) => g.rows.length > 1)) {
+    let best = Infinity
+    perSupplier.forEach((p, si) => { if (p.covers && p.net < best) { best = p.net; lowest = si } })
+  }
+  return { perSupplier, lowest }
+}
+
+/** เลือกเจ้าให้ทั้งหมวดในครั้งเดียว → lineSupplier ชุดใหม่ทั้งใบ (แถวนอกหมวดคงเดิม)
+ *  "lowest" = ถูกสุดหลัง VAT ต่อรายการ (pickLowestPerLine); เลขเจ้า (1-based) = ใช้เจ้านั้นทุกรายการที่เจ้านั้นเสนอราคา
+ *  รายการหลายเกรดเลือกเกรดที่เจ้านั้นถูกสุด (แถวเกรดอื่นล้าง); รายการที่เจ้านั้นไม่ได้เสนอเลย/ไม่มีใครเสนอ → คงค่าเดิม นับเป็น skipped */
+export function awardSection(
+  doc: Pick<PriceCompare, "items" | "suppliers" | "lineSupplier">, sec: Pick<PcSection, "groups">, pick: number | "lowest",
+): { lineSupplier: (number | null)[]; skipped: number } {
+  const next = doc.items.map((_, i) => doc.lineSupplier[i] ?? null)
+  const low = pick === "lowest" ? pickLowestPerLine(doc) : null
+  let skipped = 0
+  for (const g of sec.groups) {
+    let row = -1, sup = 0
+    if (pick === "lowest") {
+      const r = g.rows.find((i) => low![i] != null)
+      if (r != null) { row = r; sup = low![r]! }
+    } else {
+      let best = Infinity
+      for (const i of g.rows) {
+        const n = lineNet(doc, i, pick - 1)
+        if (n != null && n < best) { best = n; row = i; sup = pick }
+      }
+    }
+    if (row < 0) { skipped++; continue }
+    for (const i of g.rows) next[i] = i === row ? sup : null
+  }
+  return { lineSupplier: next, skipped }
 }
 
 /** ยอดของ supplier รายหนึ่ง — คิดเฉพาะแถวที่นับ (countedRows): เกรดที่ไม่ได้เลือกไม่เข้ายอด; ไม่ส่ง lineSupplier = ยังไม่เลือกเกรดไหน */
@@ -389,22 +475,23 @@ export function normalizeDoc(input: unknown): PriceCompare {
   const rawItems: PcItem[] = (Array.isArray(b.items) ? b.items : []).map((it: any) => {
     const rawGroup = str(it?.group), grade = str(it?.grade)
     const group = GROUP_ID_RE.test(rawGroup) ? rawGroup : ""   // ไม่ตรงรูปแบบ newGroupId → ถือเป็นรายการธรรมดา
-    // รายการธรรมดาไม่มี key group/grade งอกออกมา (รูปทรงเอกสารเดิมคงเดิม); grade ไม่มีความหมายถ้าไม่มี group
-    return { name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit), sku: str(it?.sku) || undefined, ...(group ? { group, ...(grade ? { grade } : {}) } : {}) }
+    const section = str(it?.section).slice(0, SECTION_NAME_MAX).trim()
+    // รายการธรรมดาไม่มี key group/grade/section งอกออกมา (รูปทรงเอกสารเดิมคงเดิม); grade ไม่มีความหมายถ้าไม่มี group
+    return { name: str(it?.name), qty: num(it?.qty, 0), unit: str(it?.unit), sku: str(it?.sku) || undefined, ...(section ? { section } : {}), ...(group ? { group, ...(grade ? { grade } : {}) } : {}) }
   })
-  // ชื่อ/จำนวน/หน่วย/sku เป็นของทั้งรายการ: คัดลอกจากแถวแรกของกลุ่มไปทุกแถวเกรด กันข้อมูลแตก
+  // ชื่อ/จำนวน/หน่วย/sku/หมวด เป็นของทั้งรายการ: คัดลอกจากแถวแรกของกลุ่มไปทุกแถวเกรด กันข้อมูลแตก
   // group ที่เหลือแถวเดียว = รายการธรรมดา → ถอด group/grade ออก ให้รูปทรงเหมือนรายการธรรมดาทุกประการ
   const items: PcItem[] = rawItems.slice()
   for (const g of groupsOf({ items: rawItems })) {
     if (g.rows.length < 2) {
       const it = rawItems[g.rows[0]]
-      if (it.group) items[g.rows[0]] = { name: it.name, qty: it.qty, unit: it.unit, sku: it.sku }
+      if (it.group) items[g.rows[0]] = { name: it.name, qty: it.qty, unit: it.unit, sku: it.sku, ...(it.section ? { section: it.section } : {}) }
       continue
     }
     const head = rawItems[g.rows[0]]
     for (const r of g.rows.slice(1)) {
       const { group, grade } = rawItems[r]
-      items[r] = { name: head.name, qty: head.qty, unit: head.unit, sku: head.sku, group, ...(grade ? { grade } : {}) }
+      items[r] = { name: head.name, qty: head.qty, unit: head.unit, sku: head.sku, ...(head.section ? { section: head.section } : {}), group, ...(grade ? { grade } : {}) }
     }
   }
   const suppliers: PcSupplier[] = (Array.isArray(b.suppliers) ? b.suppliers : []).slice(0, MAX_SUPPLIERS).map((s: any) => {
@@ -484,6 +571,13 @@ export function validateDoc(doc: PriceCompare): string[] {
     if (g.rows.some((r) => !(doc.items[r].grade ?? "").trim())) errs.push(`${label}: ต้องระบุชื่อเกรดทุกแถว`)
   })
   if (doc.selectedSupplier != null && groups.some((g) => g.rows.length > 1)) errs.push("มีรายการหลายเกรด ต้องเลือกรายบรรทัด — ใช้การเลือกทั้งใบไม่ได้")
+  // หมวดชื่อเดียวกันต้องอยู่ช่วงเดียว (ไม่งั้นยอดย่อยแตกเป็นสองก้อนชื่อซ้ำ)
+  const seen = new Set<string>()
+  for (const sec of sectionsOf(doc)) {
+    if (!sec.name) continue
+    if (seen.has(sec.name)) { errs.push(`หมวด "${sec.name}" แยกเป็นหลายช่วง — ย้ายรายการให้อยู่ติดกัน หรือเปลี่ยนชื่อหมวด`); continue }
+    seen.add(sec.name)
+  }
   doc.committee.forEach((m, i) => {
     if (m.pickedSupplier != null && (m.pickedSupplier < 1 || m.pickedSupplier > n)) errs.push(`กรรมการช่องที่ ${i + 1}: เลือก supplier ลำดับที่ ${m.pickedSupplier} ซึ่งไม่มี`)
   })

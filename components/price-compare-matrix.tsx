@@ -5,12 +5,13 @@ import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink } from "lucide-react"
 import { VendorCombobox } from "@/components/vendor-combobox"
 import { SkuPicker, type SkuHit } from "@/components/sku-picker"
 import { benchmarkUrl } from "@/lib/intel-links"
-import { swalConfirm } from "@/lib/swal"
+import { swalConfirm, swalToast } from "@/lib/swal"
 import {
   emptySupplier, supplierTotals, lowestNet, fmtMoney, lineTotal, MAX_SUPPLIERS, VAT_MODE_LABEL,
   effectiveLineSupplier, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine, renumberAfterRemoval,
   groupsOf, hasGrades, newGroupId, supplierCoversSelection,
-  type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals, type PcGroup,
+  sectionsOf, sectionTotals, awardSection, SECTION_SUGGESTIONS, SECTION_NAME_MAX,
+  type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals, type PcGroup, type PcSection,
 } from "@/lib/price-compare"
 
 type Props = {
@@ -42,6 +43,11 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   // แถว → กลุ่มของแถวนั้น (radio ของทุกช่องในกลุ่มเป็นชุดเดียวกัน)
   const groupOfRow: PcGroup[] = []
   groups.forEach((g) => g.rows.forEach((i) => { groupOfRow[i] = g }))
+  // หมวด: ในฟอร์ม section "" (กำลังพิมพ์ชื่อ/ลบชื่อ) ยังนับว่าแบ่งหมวด ไม่งั้นหัวหมวดหายกลางการพิมพ์ — normalizeDoc ทิ้งชื่อว่างตอนบันทึก
+  const sectioned = items.some((it) => it.section != null)
+  const sections = sectionsOf(doc)
+  const giOf = new Map(groups.map((g, gi) => [g.key, gi]))   // ลำดับรายการนับต่อกันทั้งใบ ไม่เริ่มใหม่ทุกหมวด
+  const sectionOf = (g: PcGroup) => items[g.rows[0]].section
 
   const patchSupplier = (s: number, p: Partial<PcSupplier>) => onChange({ suppliers: suppliers.map((sp, i) => (i === s ? { ...sp, ...p } : sp)) })
   const setPrice = (s: number, r: number, v: number | null) => patchSupplier(s, { prices: suppliers[s].prices.map((p, i) => (i === r ? v : p)) })
@@ -63,7 +69,8 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
     lineSupplier: src.map((i) => (i == null ? null : lineSupplier[i] ?? null)),
   })
   const allRows = items.map((_, i) => i)
-  const addItem = () => reshape([...allRows, null], [...items, { name: "", qty: 1, unit: "" }])
+  // แบ่งหมวดแล้ว: รายการใหม่ต่อท้ายหมวดสุดท้าย (แถวติดกันชื่อเดียวกัน = หมวดเดียว)
+  const addItem = () => reshape([...allRows, null], [...items, { name: "", qty: 1, unit: "", ...(sectioned ? { section: items[items.length - 1]?.section ?? "" } : {}) }])
   // +เกรด: รายการธรรมดา → กลุ่ม 2 เกรด (แถวเดิม + แถวใหม่ต่อท้าย); กลุ่มอยู่แล้ว → เกรดใหม่ท้ายกลุ่ม
   // ชื่อเกรดว่างให้ผู้ใช้กรอก (validateDoc บังคับตอนบันทึก), แถวใหม่ราคาว่างทุกเจ้า + ยังไม่เลือก
   const addGrade = (g: PcGroup) => {
@@ -71,7 +78,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
     const last = g.rows[g.rows.length - 1]
     const group = head.group || newGroupId(items.flatMap((it) => (it.group ? [it.group] : [])))
     const nextItems = items.map((it, i) => (g.rows.includes(i) ? { ...it, group, grade: it.grade ?? "" } : it))
-    nextItems.splice(last + 1, 0, { name: head.name, qty: head.qty, unit: head.unit, ...(head.sku ? { sku: head.sku } : {}), group, grade: "" })
+    nextItems.splice(last + 1, 0, { name: head.name, qty: head.qty, unit: head.unit, ...(head.sku ? { sku: head.sku } : {}), ...(head.section != null ? { section: head.section } : {}), group, grade: "" })
     const src: (number | null)[] = [...allRows]
     src.splice(last + 1, 0, null)
     reshape(src, nextItems)
@@ -92,14 +99,16 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
     const survivors = g.rows.filter((i) => i !== r)
     reshape(keep, keep.map((i) => {
       if (survivors.length !== 1 || i !== survivors[0]) return items[i]
-      const { name, qty, unit, sku } = items[i]
-      return { name, qty, unit, ...(sku ? { sku } : {}) }
+      const { name, qty, unit, sku, section } = items[i]
+      return { name, qty, unit, ...(sku ? { sku } : {}), ...(section != null ? { section } : {}) }
     }))
   }
   // เลื่อนทั้งรายการ (ทุกแถวเกรดไปด้วยกัน) สลับกับรายการข้างเคียงทั้งก้อน
+  // รายการแรก/สุดท้ายของหมวด เลื่อนข้ามขอบ = ย้ายเข้าหมวดข้างเคียง (หมวดติดกันอยู่แล้ว จึงแค่เปลี่ยนชื่อหมวด ตำแหน่งเดิม)
   const moveGroup = (gi: number, dir: -1 | 1) => {
     const gj = gi + dir
     if (gj < 0 || gj >= groups.length) return
+    if (sectioned && sectionOf(groups[gj]) !== sectionOf(groups[gi])) { patchRows(groups[gi].rows, { section: sectionOf(groups[gj]) ?? "" }); return }
     const order = groups.map((g) => g.rows)
     ;[order[gi], order[gj]] = [order[gj], order[gi]]
     const src = order.flat()
@@ -112,6 +121,55 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
     suppliers: suppliers.filter((_, i) => i !== s),
     lineSupplier: lineSupplier.map((v) => renumberAfterRemoval(v, s)),
   })
+
+  // ---------- หมวด ----------
+  // ชื่อหมวดถัดไป: อะไหล่ → ค่าแรง → หมวดใหม่ (ซ้ำก็ต่อเลข) — ชื่อซ้ำกับหมวดข้างบนจะรวมเป็นหมวดเดียวทันที จึงต้องไม่ซ้ำ
+  const nextSectionName = () => {
+    const used = new Set(items.map((it) => it.section ?? ""))
+    const free = SECTION_SUGGESTIONS.slice(0, 2).find((n) => !used.has(n))
+    if (free) return free
+    for (let k = 1; ; k++) { const n = k === 1 ? "หมวดใหม่" : `หมวดใหม่ ${k}`; if (!used.has(n)) return n }
+  }
+  // ครั้งแรก: รายการที่มีอยู่ทั้งหมดเข้าหมวดแรก (ไม่เพิ่มแถวว่าง — แถวไม่มีราคาทำให้ใบไม่ครบ); ครั้งต่อไป: หมวดใหม่ + แถวว่าง 1 แถว
+  const addSection = () => {
+    if (!sectioned) { onChange({ items: items.map((it) => ({ ...it, section: nextSectionName() })) }); return }
+    reshape([...allRows, null], [...items, { name: "", qty: 1, unit: "", section: nextSectionName() }])
+  }
+  const addItemTo = (sec: PcSection) => {
+    const last = sec.rows[sec.rows.length - 1]
+    const src: (number | null)[] = [...allRows]
+    src.splice(last + 1, 0, null)
+    const nextItems = items.slice()
+    nextItems.splice(last + 1, 0, { name: "", qty: 1, unit: "", section: sec.name })
+    reshape(src, nextItems)
+  }
+  const moveSection = (si: number, dir: -1 | 1) => {
+    const sj = si + dir
+    if (sj < 0 || sj >= sections.length) return
+    const order = sections.map((x) => x.rows)
+    ;[order[si], order[sj]] = [order[sj], order[si]]
+    const src = order.flat()
+    reshape(src, src.map((i) => items[i]))
+  }
+  const removeSection = async (sec: PcSection) => {
+    const ok = await swalConfirm(`ลบหมวด${sec.name ? ` "${sec.name}"` : ""}?`, `รายการในหมวดนี้ ${sec.groups.length} รายการ และราคาของทุกเจ้าจะถูกลบด้วย`)
+    if (!ok.isConfirmed) return
+    const keep = allRows.filter((i) => !sec.rows.includes(i))
+    reshape(keep, keep.map((i) => items[i]))
+  }
+  const clearSections = async () => {
+    const ok = await swalConfirm("ยกเลิกการแบ่งหมวด?", "รายการและราคาทั้งหมดยังอยู่ครบ แค่ไม่แยกหมวดและไม่มียอดย่อยต่อหมวด")
+    if (!ok.isConfirmed) return
+    onChange({ items: items.map((it) => { const next = { ...it }; delete next.section; return next }) })
+  }
+  // เลือกเจ้าทั้งหมวด / ถูกสุดในหมวด — เขียน lineSupplier เฉพาะแถวในหมวด (กติกาเลือกรายบรรทัดเดิมทุกอย่าง)
+  const awardWholeSection = (sec: PcSection, pick: number | "lowest") => {
+    const r = awardSection(doc, sec, pick)
+    setLineSupplier(r.lineSupplier)
+    if (r.skipped > 0) swalToast("warning", pick === "lowest"
+      ? `ยังไม่มีใครเสนอราคา ${r.skipped} รายการในหมวดนี้`
+      : `S${pick} ไม่ได้เสนอราคา ${r.skipped} รายการในหมวดนี้ — คงการเลือกเดิมไว้`)
+  }
 
   const th = "px-2 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 border-b border-[#E2E8E4] dark:border-white/10"
   const td = "px-1 py-0.5 border-b border-[#EEF2F0] dark:border-white/8 align-middle"
@@ -141,6 +199,8 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
       </td>
     )
   })
+  const crossesSection = (gi: number, dir: -1 | 1) =>
+    sectioned && groups[gi + dir] != null && sectionOf(groups[gi + dir]) !== sectionOf(groups[gi])
   // ช่องลำดับ (นับต่อรายการ) + ปุ่มเลื่อนทั้งรายการ
   const orderCell = (gi: number) => (
     <td className={`${td} text-center text-xs text-gray-400`}>
@@ -148,8 +208,8 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
         <span>{gi + 1}</span>
         {!readOnly && (
           <span className="hidden group-hover:flex flex-col">
-            <button type="button" onClick={() => moveGroup(gi, -1)} title="เลื่อนขึ้น" className="text-gray-300 hover:text-gray-600"><ArrowUp size={10} /></button>
-            <button type="button" onClick={() => moveGroup(gi, 1)} title="เลื่อนลง" className="text-gray-300 hover:text-gray-600"><ArrowDown size={10} /></button>
+            <button type="button" onClick={() => moveGroup(gi, -1)} title={crossesSection(gi, -1) ? "ย้ายไปหมวดก่อนหน้า" : "เลื่อนขึ้น"} className="text-gray-300 hover:text-gray-600"><ArrowUp size={10} /></button>
+            <button type="button" onClick={() => moveGroup(gi, 1)} title={crossesSection(gi, 1) ? "ย้ายไปหมวดถัดไป" : "เลื่อนลง"} className="text-gray-300 hover:text-gray-600"><ArrowDown size={10} /></button>
           </span>
         )}
       </div>
@@ -198,8 +258,140 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
     )
   }
 
+  // แถวของรายการหนึ่ง (รายการธรรมดา = แถวเดียว, หลายเกรด = แถวหัว + แถวละเกรด)
+  const renderGroup = (g: PcGroup, gi: number) => {
+    const head = items[g.rows[0]]
+    if (g.rows.length === 1) {
+      const r = g.rows[0]
+      return (
+        <tr key={`row:${r}`} className="group">
+          {orderCell(gi)}
+          {itemCells(g)}
+          {priceCells(r, `pc-line-${r}`, `แถว ${gi + 1}`)}
+          {!readOnly && (
+            <td className={`${td} text-center`}>{groups.length > 1 && <button type="button" onClick={() => void removeGroup(g)} title="ลบแถว" className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button>}</td>
+          )}
+        </tr>
+      )
+    }
+    // รายการหลายเกรด: แถวหัว (ของทั้งรายการ ช่องราคาเว้นว่าง) + แถวเกรดละแถว — radio ชุดเดียวทั้งกลุ่ม
+    const radioName = `pc-line-${g.key}`
+    const pickedRow = g.rows.find((i) => lineSupplier[i] != null)
+    const pickedSup = pickedRow != null ? lineSupplier[pickedRow]! : null
+    return (
+      <Fragment key={`grp:${g.key}`}>
+        <tr className="group">
+          {orderCell(gi)}
+          {itemCells(g)}
+          <td colSpan={suppliers.length * 2} className={`${td} px-2 text-[11px]`}>
+            {pickedRow != null && pickedSup != null
+              ? <span className="text-emerald-700 dark:text-emerald-300">✓ เลือก เกรด {items[pickedRow].grade || "—"} · S{pickedSup} {suppliers[pickedSup - 1]?.name}</span>
+              : <span className="text-amber-700 dark:text-amber-400">{g.rows.length} เกรด — ยังไม่เลือกเกรด (เลือก 1 ช่อง: เกรด + เจ้า)</span>}
+          </td>
+          {!readOnly && (
+            <td className={`${td} text-center`}>{groups.length > 1 && <button type="button" onClick={() => void removeGroup(g)} title="ลบทั้งรายการ (ทุกเกรด)" className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button>}</td>
+          )}
+        </tr>
+        {g.rows.map((r, k) => {
+          const it = items[r]
+          const gradeLabel = it.grade?.trim() || `ที่ ${k + 1}`
+          return (
+            <tr key={`grade:${r}`}>
+              <td className={td}></td>
+              <td className={td}>
+                <div className="flex items-center gap-1 pl-3">
+                  <span className="shrink-0 text-xs text-gray-400">├ เกรด:</span>
+                  <input value={it.grade ?? ""} disabled={readOnly} onChange={(e) => patchRows([r], { grade: e.target.value })}
+                    placeholder="เช่น มือ 1 / มือ 2 / ซ่อมของเดิม" aria-label={`ชื่อเกรดที่ ${k + 1} ของรายการ ${gi + 1}`}
+                    className={`${textInput} ${!readOnly && !(it.grade ?? "").trim() ? "ring-1 ring-inset ring-amber-300" : ""}`} />
+                </div>
+              </td>
+              <td className={`${td} px-2 text-right text-xs tabular-nums text-gray-400`}>{it.qty}</td>
+              <td className={`${td} px-2 text-xs text-gray-400`}>{it.unit}</td>
+              {priceCells(r, radioName, ` ${head.name || `รายการ ${gi + 1}`} เกรด ${gradeLabel}`)}
+              {!readOnly && (
+                <td className={`${td} text-center`}><button type="button" onClick={() => removeGrade(g, r)} title="ลบเกรดนี้" className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button></td>
+              )}
+            </tr>
+          )
+        })}
+      </Fragment>
+    )
+  }
+  // แถวหัวหมวด: ชื่อหมวด (พิมพ์เอง) + จำนวนรายการ + เพิ่มรายการ/ถูกสุดในหมวด, ใต้คอลัมน์เจ้าแต่ละราย = ปุ่มใช้เจ้านั้นทั้งหมวด
+  const sectionHeader = (sec: PcSection, si: number) => {
+    const tt = sectionTotals(doc, sec)
+    const hc = "border-b border-[#F3E8D6] dark:border-white/10 bg-[#FFF8EC] dark:bg-amber-900/15 px-1 py-1"
+    return (
+      <tr className="group/sec">
+        <td colSpan={4} className={hc}>
+          <div className="flex items-center gap-1.5">
+            {!readOnly && (
+              <span className="flex flex-col">
+                <button type="button" disabled={si === 0} onClick={() => moveSection(si, -1)} title="เลื่อนหมวดขึ้น" className="text-gray-300 hover:text-gray-600 disabled:opacity-30"><ArrowUp size={10} /></button>
+                <button type="button" disabled={si === sections.length - 1} onClick={() => moveSection(si, 1)} title="เลื่อนหมวดลง" className="text-gray-300 hover:text-gray-600 disabled:opacity-30"><ArrowDown size={10} /></button>
+              </span>
+            )}
+            <span className="shrink-0 text-[11px] font-semibold text-[#B45309]">หมวด</span>
+            {readOnly
+              ? <span className="text-sm font-semibold">{sec.name || "ไม่ระบุหมวด"}</span>
+              : <input value={sec.name} maxLength={SECTION_NAME_MAX} list="pc-section-suggest" aria-label={`ชื่อหมวดที่ ${si + 1}`}
+                  onChange={(e) => patchRows(sec.rows, { section: e.target.value })} placeholder="ชื่อหมวด เช่น อะไหล่ / ค่าแรง"
+                  className={`${textInput} max-w-[220px] font-semibold ${!sec.name.trim() ? "ring-1 ring-inset ring-amber-300" : ""}`} />}
+            <span className="shrink-0 text-[11px] text-gray-400">{sec.groups.length} รายการ</span>
+            {!readOnly && (
+              <span className="ml-auto flex shrink-0 items-center gap-2">
+                <button type="button" onClick={() => addItemTo(sec)} className="inline-flex items-center gap-0.5 text-[11px] font-medium text-[#1B8C4B] hover:underline"><Plus size={12} /> รายการ</button>
+                <button type="button" onClick={() => awardWholeSection(sec, "lowest")} title="เลือกเจ้าที่ถูกสุด (หลัง VAT) ทุกรายการในหมวดนี้"
+                  className="rounded border border-[#1B8C4B]/50 px-1.5 py-0.5 text-[10px] font-semibold text-[#1B8C4B] hover:bg-[#1B8C4B]/10">ถูกสุดในหมวด</button>
+              </span>
+            )}
+          </div>
+        </td>
+        {suppliers.map((sp, s) => (
+          <td key={s} colSpan={2} className={`${hc} text-right`}>
+            {!readOnly && tt.perSupplier[s]?.priced && (
+              <button type="button" onClick={() => awardWholeSection(sec, s + 1)} title={`ใช้ S${s + 1}${sp.name ? ` ${sp.name}` : ""} ทุกรายการในหมวดนี้ที่เจ้านี้เสนอราคา`}
+                className="rounded border border-[#0E7490]/40 px-1.5 py-0.5 text-[10px] font-medium text-[#0E7490] hover:bg-[#0E7490]/10">ใช้ S{s + 1} ทั้งหมวด</button>
+            )}
+          </td>
+        ))}
+        {!readOnly && (
+          <td className={`${hc} text-center`}>
+            {sections.length > 1 && <button type="button" onClick={() => void removeSection(sec)} title="ลบหมวดนี้ (รวมรายการในหมวด)" className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button>}
+          </td>
+        )}
+      </tr>
+    )
+  }
+  // แถวยอดย่อยท้ายหมวด: ผลรวมยอดรวมรายแถวตามที่เสนอ (ก่อนส่วนลดท้ายใบ) — ถูกสุดในหมวดตัดสินหลัง VAT เฉพาะเจ้าที่เสนอครบ
+  const sectionSubtotal = (sec: PcSection) => {
+    const tt = sectionTotals(doc, sec)
+    const graded = sec.groups.some((g) => g.rows.length > 1)
+    return (
+      <tr className="text-xs">
+        <td colSpan={4} className={`${td} px-2 py-1 text-right font-semibold text-gray-600 dark:text-gray-300`}
+          title="ผลรวมยอดรวมรายแถวในหมวดนี้ตามที่แต่ละเจ้าเสนอ (ก่อนส่วนลดท้ายใบ) — ไฮไลต์ = ถูกสุดในหมวดเมื่อคิดหลัง VAT">
+          รวม{sec.name || " (ไม่ระบุหมวด)"}
+        </td>
+        {suppliers.map((_, s) => {
+          const p = tt.perSupplier[s]
+          return (
+            <td key={s} colSpan={2} className={`${td} text-right tabular-nums font-semibold ${tt.lowest === s ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20" : ""}`}>
+              {!p?.priced ? <span className="px-2 font-normal text-gray-300 dark:text-gray-600">—</span>
+                : graded && !p.covers ? <span title="ยังไม่เลือกเกรด หรือเจ้านี้ไม่ได้เสนอราคาเกรดที่เลือก" className="px-2 font-normal text-amber-700 dark:text-amber-400">ไม่ครบ</span>
+                : <span className="px-2">{fmtMoney(p.subtotal)}</span>}
+            </td>
+          )
+        })}
+        {!readOnly && <td className={td}></td>}
+      </tr>
+    )
+  }
+
   return (
     <div>
+      <datalist id="pc-section-suggest">{SECTION_SUGGESTIONS.map((n) => <option key={n} value={n} />)}</datalist>
       <div className="overflow-x-auto">
       <table className="min-w-full border-separate border-spacing-0 text-sm">
         <thead>
@@ -253,68 +445,22 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
           </tr>
         </thead>
         <tbody>
-          {groups.map((g, gi) => {
-            const head = items[g.rows[0]]
-            if (g.rows.length === 1) {
-              const r = g.rows[0]
-              return (
-                <tr key={`row:${r}`} className="group">
-                  {orderCell(gi)}
-                  {itemCells(g)}
-                  {priceCells(r, `pc-line-${r}`, `แถว ${gi + 1}`)}
-                  {!readOnly && (
-                    <td className={`${td} text-center`}>{groups.length > 1 && <button type="button" onClick={() => void removeGroup(g)} title="ลบแถว" className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button>}</td>
-                  )}
-                </tr>
-              )
-            }
-            // รายการหลายเกรด: แถวหัว (ของทั้งรายการ ช่องราคาเว้นว่าง) + แถวเกรดละแถว — radio ชุดเดียวทั้งกลุ่ม
-            const radioName = `pc-line-${g.key}`
-            const pickedRow = g.rows.find((i) => lineSupplier[i] != null)
-            const pickedSup = pickedRow != null ? lineSupplier[pickedRow]! : null
-            return (
-              <Fragment key={`grp:${g.key}`}>
-                <tr className="group">
-                  {orderCell(gi)}
-                  {itemCells(g)}
-                  <td colSpan={suppliers.length * 2} className={`${td} px-2 text-[11px]`}>
-                    {pickedRow != null && pickedSup != null
-                      ? <span className="text-emerald-700 dark:text-emerald-300">✓ เลือก เกรด {items[pickedRow].grade || "—"} · S{pickedSup} {suppliers[pickedSup - 1]?.name}</span>
-                      : <span className="text-amber-700 dark:text-amber-400">{g.rows.length} เกรด — ยังไม่เลือกเกรด (เลือก 1 ช่อง: เกรด + เจ้า)</span>}
-                  </td>
-                  {!readOnly && (
-                    <td className={`${td} text-center`}>{groups.length > 1 && <button type="button" onClick={() => void removeGroup(g)} title="ลบทั้งรายการ (ทุกเกรด)" className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button>}</td>
-                  )}
-                </tr>
-                {g.rows.map((r, k) => {
-                  const it = items[r]
-                  const gradeLabel = it.grade?.trim() || `ที่ ${k + 1}`
-                  return (
-                    <tr key={`grade:${r}`}>
-                      <td className={td}></td>
-                      <td className={td}>
-                        <div className="flex items-center gap-1 pl-3">
-                          <span className="shrink-0 text-xs text-gray-400">├ เกรด:</span>
-                          <input value={it.grade ?? ""} disabled={readOnly} onChange={(e) => patchRows([r], { grade: e.target.value })}
-                            placeholder="เช่น มือ 1 / มือ 2 / ซ่อมของเดิม" aria-label={`ชื่อเกรดที่ ${k + 1} ของรายการ ${gi + 1}`}
-                            className={`${textInput} ${!readOnly && !(it.grade ?? "").trim() ? "ring-1 ring-inset ring-amber-300" : ""}`} />
-                        </div>
-                      </td>
-                      <td className={`${td} px-2 text-right text-xs tabular-nums text-gray-400`}>{it.qty}</td>
-                      <td className={`${td} px-2 text-xs text-gray-400`}>{it.unit}</td>
-                      {priceCells(r, radioName, ` ${head.name || `รายการ ${gi + 1}`} เกรด ${gradeLabel}`)}
-                      {!readOnly && (
-                        <td className={`${td} text-center`}><button type="button" onClick={() => removeGrade(g, r)} title="ลบเกรดนี้" className="text-gray-300 hover:text-red-600"><Trash2 size={13} /></button></td>
-                      )}
-                    </tr>
-                  )
-                })}
-              </Fragment>
-            )
-          })}
+          {sections.map((sec, si) => (
+            <Fragment key={`sec:${si}:${sec.rows[0]}`}>
+              {sectioned && sectionHeader(sec, si)}
+              {sec.groups.map((g) => renderGroup(g, giOf.get(g.key) ?? 0))}
+              {sectioned && sectionSubtotal(sec)}
+            </Fragment>
+          ))}
           {!readOnly && (
             <tr><td colSpan={cols} className="px-2 py-1.5">
-              <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs font-medium text-[#1B8C4B] hover:underline"><Plus size={13} /> เพิ่มรายการ</button>
+              <div className="flex flex-wrap items-center gap-3">
+                {!sectioned && <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs font-medium text-[#1B8C4B] hover:underline"><Plus size={13} /> เพิ่มรายการ</button>}
+                <button type="button" onClick={addSection}
+                  title={sectioned ? "เพิ่มหมวดใหม่ต่อท้าย พร้อมแถวว่าง 1 แถว" : "จัดรายการเป็นหมวด เช่น อะไหล่ / ค่าแรง — รายการที่มีอยู่ทั้งหมดเข้าหมวดแรก"}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[#B45309] hover:underline"><Plus size={13} /> {sectioned ? "เพิ่มหมวด" : "แบ่งหมวด (อะไหล่ / ค่าแรง …)"}</button>
+                {sectioned && <button type="button" onClick={() => void clearSections()} className="text-xs text-gray-400 hover:text-gray-600 hover:underline">ยกเลิกการแบ่งหมวด</button>}
+              </div>
             </td></tr>
           )}
         </tbody>

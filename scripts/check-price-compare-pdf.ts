@@ -4,7 +4,7 @@ import fs from "node:fs"
 import { createHash } from "node:crypto"
 import { PDFDocument } from "pdf-lib"
 import { newDoc, emptySupplier, supplierTotals, fmtMoney, pickLowestPerLine, type PriceCompare, type PcSupplier, type PcFile } from "../lib/price-compare"
-import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE, GRADE_NET_LABEL, GRADE_PARTIAL } from "../lib/price-compare-pdf"
+import { buildPriceCompareDocDef, pdfFilename, MIX_SUBTOTAL_LABEL, MIX_NET_LABEL, MIX_DISCOUNT_NOTE, GRADE_NET_LABEL, GRADE_PARTIAL, SECTION_HEAD, SECTION_SUB } from "../lib/price-compare-pdf"
 import { renderPdfmake, seg } from "../lib/pdfmake-printer"
 import { attachmentOrder, collectAttachments, assemblePdf } from "../lib/price-compare-attachments"
 import { MEDIA_CDN_BASE, MEDIA_MAX_BYTES } from "../lib/media"
@@ -312,6 +312,59 @@ async function main() {
       fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out)
     }
     console.log("grades: OK → tmp/price-compare-grades.pdf, tmp/price-compare-grades-alt.pdf, tmp/price-compare-grades-open.pdf")
+  }
+
+  // --- หมวด: แถวหัว "หมวด<ชื่อ>" เต็มความกว้าง + แถว "รวม<ชื่อ>" ต่อเจ้า, ลำดับรายการนับต่อกันทั้งใบ, ยอดท้ายใบไม่เปลี่ยน ---
+  {
+    const sec = uh03()
+    sec.items = sec.items.map((it, i) => ({ ...it, section: i < 4 ? "อะไหล่" : "ค่าแรง" }))
+    const ddS = buildPriceCompareDocDef(sec)
+    const { widths, body } = priceTableOf(ddS)
+    assert.ok(body.every((r) => r.length === widths.length), "ทุกแถว (หัวหมวด/ยอดย่อย/รายการ/สรุป) ต้องมี cell เท่ากับจำนวนคอลัมน์")
+    const rowOf = (label: string) => body.findIndex((r) => r[0]?.text === seg(label))
+    const hp = rowOf(SECTION_HEAD("อะไหล่")), hl = rowOf(SECTION_HEAD("ค่าแรง"))
+    assert.ok(hp > 0 && hl > hp, "มีหัวหมวดอะไหล่ แล้วตามด้วยหัวหมวดค่าแรง")
+    assert.equal(body[hp][0].colSpan, widths.length, "หัวหมวดกินเต็มความกว้างตาราง")
+    assert.equal(body[hp + 1][1].text, seg("Pump Rexroth"), "รายการแรกของหมวดตามหลังหัวหมวดทันที")
+    const sp = body[rowOf(SECTION_SUB("อะไหล่"))], sl = body[rowOf(SECTION_SUB("ค่าแรง"))]
+    assert.deepEqual([5, 7, 9, 11].map((k) => sp[k].text), ["43,690.08", "50,800.00", "57,999.92", ""], "รวมอะไหล่ต่อเจ้า (S2 incl = ยอดตามที่เสนอ), ไม่มี S4 เว้นว่าง")
+    assert.deepEqual([5, 7, 9].map((k) => sl[k].text), ["7,000.00", "5,500.00", "5,000.00"], "รวมค่าแรงต่อเจ้า")
+    assert.equal(rowOf(SECTION_SUB("ค่าแรง")), hl + 2, "ยอดย่อยค่าแรงอยู่ท้ายหมวด")
+    assert.equal(body[hl + 1][0].text, "5", "ลำดับรายการนับต่อกันทั้งใบ")
+    // ยอดท้ายใบเท่าใบไม่แบ่งหมวด
+    const netOf = (b: Cell[][]) => JSON.stringify(b.find((r) => r[0]?.text === seg("รวมราคาทั้งหมด (สุทธิ)")))
+    const fresh = buildPriceCompareDocDef(uh03())   // dd ด้านบนถูก renderPdfmake เขียน layout ทับไปแล้ว — สร้างใหม่เพื่อเทียบ
+    assert.equal(netOf(body), netOf(priceTableOf(fresh).body), "แถวสุทธิเหมือนใบไม่แบ่งหมวด")
+    assert.ok(!JSON.stringify(fresh).includes(seg(SECTION_HEAD("อะไหล่"))), "ใบไม่แบ่งหมวดไม่มีแถวหัวหมวด")
+
+    // หมวด + เกรด: Pump 3 เกรด อยู่ในหมวดอะไหล่ — ยังไม่เลือกเกรด → รวมอะไหล่ ไม่ครบ ทุกเจ้าที่มีราคา
+    const gs = gradesDoc()
+    gs.items = gs.items.map((it, i) => ({ ...it, section: i < 5 ? "อะไหล่" : "ค่าแรง" }))
+    gs.lineSupplier = [null, null, null, 2, 2, 3]
+    const ddGs = buildPriceCompareDocDef(gs)
+    const gb = priceTableOf(ddGs).body
+    assert.ok(gb.every((r) => r.length === widths.length))
+    const gsub = gb.find((r) => r[0]?.text === seg(SECTION_SUB("อะไหล่")))!
+    assert.ok([5, 7, 9].every((k) => gsub[k].text === seg(GRADE_PARTIAL)), "หมวดมีรายการที่ยังไม่เลือกเกรด → ไม่ครบ")
+    const gsDone = { ...gs, lineSupplier: [null, null, 1, 2, 2, 3] }
+    const gsub2 = priceTableOf(buildPriceCompareDocDef(gsDone)).body.find((r) => r[0]?.text === seg(SECTION_SUB("อะไหล่")))!
+    assert.equal(gsub2[5].text, "24,790.08", "S1 เสนอ ซ่อมเดิม + HYD + เกียร์ = 21,000 + 1,990.08 + 1,800")
+    assert.equal(gsub2[7].text, seg(GRADE_PARTIAL), "S2 ไม่ได้เสนอ ซ่อมเดิม → ไม่ครบ")
+
+    // 3 หมวด (ชื่อว่าง 1 หมวด) + เลือกผสมครบ: ยังจบหน้าเดียว
+    const three = uh03()
+    three.items = three.items.map((it, i) => ({ ...it, section: ["อะไหล่", "อะไหล่", "น้ำมัน", "น้ำมัน", ""][i] || undefined }))
+    // S2 เป็น excl เหมือน fixture โหมดผสมด้านบน — โหมดผสม + เจ้าแบบ incl (ช่อง VAT สูง 2 บรรทัด) ล้นหน้าอยู่แล้วตั้งแต่ก่อนมีหมวด
+    three.suppliers[1].vatMode = "excl"
+    three.selectedSupplier = null; three.lineSupplier = pickLowestPerLine(three)
+    const ddThree = buildPriceCompareDocDef(three)
+    assert.ok(JSON.stringify(ddThree).includes(seg(SECTION_SUB(""))), "หมวดไม่มีชื่อพิมพ์ว่า ไม่ระบุหมวด")
+    for (const [name, def] of [["sections", ddS], ["sections-grades", ddGs], ["sections-three", ddThree]] as const) {
+      const out = await renderPdfmake(def)
+      assert.equal((await PDFDocument.load(out)).getPageCount(), 1, `ฟอร์ม ${name} ต้องเป็นหน้าเดียว`)
+      fs.writeFileSync(`tmp/price-compare-${name}.pdf`, out)
+    }
+    console.log("sections: OK → tmp/price-compare-sections.pdf, tmp/price-compare-sections-grades.pdf, tmp/price-compare-sections-three.pdf")
   }
 
   // หน้ารูปแนบ
