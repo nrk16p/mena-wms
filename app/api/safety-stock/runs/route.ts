@@ -45,14 +45,19 @@ export async function GET(req: NextRequest) {
     const dayStart = thaiMidnightUtc(now)
 
     const client = await clientPromise
-    const runs = (await client
+    const allRuns = (await client
       .db(DB)
       .collection("safety_stock_build_runs")
       .find({ startedAt: { $gte: dayStart } })
       .sort({ startedAt: 1 })
-      .limit(50) // เพดานกันกรณีมีคนยิง build รัวๆ เอง — ตารางปกติมี 6 รอบ/วัน
+      .limit(80) // เพดานกันกรณีมีคนยิง build รัวๆ เอง — ตารางปกติมี 6 รอบ + รอบ PR รายชั่วโมง 14 รอบ/วัน
       .maxTimeMS(10_000)
       .toArray()) as unknown as RunDoc[]
+
+    // รอบ PR รายชั่วโมงแยกออก — ถ้าปนเข้าตาราง รอบ 10:15 จะไปแย่งช่อง 10:00 ของ daily-cron
+    const runs = allRuns.filter((r) => r.source !== "pr-hourly")
+    const prHourly = allRuns.filter((r) => r.source === "pr-hourly")
+    const prLast = prHourly[prHourly.length - 1] ?? null
 
     // จับรอบจริงเข้าช่องตามตาราง — ช่องละไม่เกินหนึ่งรอบ รอบที่เหลือไปกอง extraRuns
     const taken = new Set<number>()
@@ -115,6 +120,13 @@ export async function GET(req: NextRequest) {
       inventoryId,
       slots,
       extraRuns,
+      prHourly: prLast
+        ? {
+            count: prHourly.length,
+            lastAt: new Date(prLast.finishedAt ?? prLast.startedAt).toISOString(),
+            status: prLast.status === "ok" ? "ok" : prLast.status === "running" ? "running" : "error",
+          }
+        : null,
       doneCount: done,
       totalCount: slots.length,
       nextAt: next?.scheduledAt ?? null,

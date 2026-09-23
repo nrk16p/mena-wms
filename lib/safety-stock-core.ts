@@ -16,8 +16,10 @@ export const WAREHOUSES: { id: string; name: string }[] = [
 /** ใครเป็นคนสั่ง build รอบนี้ — แสดงบนแถบ "รอบอัปเดตวันนี้" ให้แยกออกว่ารอบไหนมาจากอะไร
  *  "pipeline"   = api-ncac ยิง webhook มาหลัง atms_stockmovement* เขียน stockmovement_v5 เสร็จ (ตัวหลัก)
  *  "daily-cron" = cron ของ Vercel ที่ chain ต่อท้าย atms-sku-report — รอบเดียวที่ sync คงเหลือ/min/max จาก ATMS ด้วย
+ *  "pr-hourly"  = api-ncac ยิงมาหลัง atms_pr_quick (ดึงรายการ PR ทุกชั่วโมง 07:15–20:15 ไทย) — ไม่อยู่ในตาราง
+ *                 BUILD_SCHEDULE และไม่นับเป็นรอบนอกตาราง แถบแสดงแยกเป็น "PR อัปเดตล่าสุด"
  *  "manual"     = คนเรียก route เอง */
-export type BuildSource = "pipeline" | "daily-cron" | "manual"
+export type BuildSource = "pipeline" | "daily-cron" | "pr-hourly" | "manual"
 
 /** ตารางรอบ build ต่อวัน (เวลาไทย) — ใช้วาดแถบ "รอบอัปเดตวันนี้" บนหน้า /safety-stock
  *

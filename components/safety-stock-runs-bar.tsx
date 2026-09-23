@@ -33,6 +33,8 @@ type RunsPayload = {
   now: string
   slots: Slot[]
   extraRuns: { source: string; startedAt: string; status: string; written: number | null }[]
+  /** รอบ build หลังดึงรายการ PR รายชั่วโมง (ไม่อยู่ในตารางช่อง) — null = วันนี้ยังไม่มี */
+  prHourly?: { count: number; lastAt: string; status: string } | null
   doneCount: number
   totalCount: number
   nextAt: string | null
@@ -69,6 +71,7 @@ const STATUS_TEXT: Record<SlotStatus, string> = {
 const SOURCE_TEXT: Record<BuildSource, string> = {
   pipeline: "api-ncac ยิงมาหลังข้อมูลลง Mongo",
   "daily-cron": "cron รายวันของ Vercel",
+  "pr-hourly": "api-ncac ดึงรายการ PR รายชั่วโมง",
   manual: "เรียกเอง",
 }
 
@@ -234,6 +237,11 @@ export function SafetyStockRunsBar({ inventoryId }: { inventoryId: string }) {
           <span>· รอบถัดไป {bkkTime(data.nextAt)} น. (อีก {humanGap(nextGap)})</span>
         )}
         {nextGap == null && <span>· หมดรอบของวันนี้แล้ว รอบถัดไปพรุ่งนี้ {data.slots[0]?.hhmm} น.</span>}
+        {data.prHourly && (
+          <span title="ดึงรายการ PR จาก ATMS ทุกชั่วโมง 07:15–20:15 น. แล้วคำนวณใหม่ (ใบที่อนุมัติ/ลบ/เปิดใหม่ ขึ้นภายใน ~1 ชม.)">
+            · PR อัปเดตล่าสุด {bkkTime(data.prHourly.lastAt)} น.{data.prHourly.status === "error" ? " ⚠️" : ""}
+          </span>
+        )}
         {data.extraRuns.length > 0 && <span>· มีรอบนอกตารางอีก {data.extraRuns.length} รอบ</span>}
       </div>
     </div>
