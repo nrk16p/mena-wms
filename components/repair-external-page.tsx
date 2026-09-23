@@ -242,6 +242,9 @@ function DateYearHint({ value }: { value: string }) {
 }
 const dateBadCls = (v: string) => (dateYearHint(v)?.tone === "bad" ? " !border-rose-400 ring-1 ring-rose-300" : "")
 
+/** ช่อง PR/PO เก็บได้หลายเลขในสตริงเดียว คั่นด้วย , (ผู้ใช้สั่ง 23/09/2569 ให้ PR มีหลายอันเหมือน PO) */
+const splitCodes = (v: string) => v.split(",").map((c) => c.trim()).filter(Boolean)
+
 const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3 py-2 text-[13px] text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 const labelCls = "mb-0.5 block text-[11px] font-medium text-gray-500 dark:text-gray-400"
@@ -855,9 +858,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       if (sla?.over) meta.push(`⏱️ รอ PR ค้าง ${sla.hours} ชม. (เกิน 24 ชม.)`)
       if (meta.length) lines.push(`   ${meta.join("  ")}`)
       const doc: string[] = []
-      if (r.prCode) doc.push(`PR ${r.prCode}`)
+      if (r.prCode) doc.push(`PR ${splitCodes(r.prCode).join(", ")}`)
       else doc.push("⚠ ยังไม่มี PR")
-      if (r.poCode) doc.push(`PO ${r.poCode}`)
+      if (r.poCode) doc.push(`PO ${splitCodes(r.poCode).join(", ")}`)
       if (r.repairPrice > 0) doc.push(`💰 ${fmtNum(r.repairPrice)}`)
       if (doc.length) lines.push(`   ${doc.join("  ")}`)
     })
@@ -2228,8 +2231,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )}
                     {(r.prCode || r.poCode) && (
                       <div className="mt-1.5 flex flex-wrap gap-1 font-mono text-[11.5px] text-[#5B7568]">
-                        {r.prCode && <span className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PR <CopyText value={r.prCode} /></span>}
-                        {r.poCode && r.poCode.split(",").map((po) => po.trim()).filter(Boolean).map((po, i) => (
+                        {r.prCode && splitCodes(r.prCode).map((pr, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PR <CopyText value={pr} /></span>
+                        ))}
+                        {r.poCode && splitCodes(r.poCode).map((po, i) => (
                           <span key={i} className="inline-flex items-center gap-1 rounded bg-[#F6FAF7] dark:bg-white/5 px-1.5 py-0.5">PO <CopyText value={po} /></span>
                         ))}
                       </div>
@@ -2751,8 +2756,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     )}
                   </div>
                   <div className="col-span-6 sm:col-span-3">
-                    <label className={labelCls}>รหัส PR {isReq("prCode") && <span className="text-amber-500">*</span>}</label>
-                    <input value={form.prCode} onChange={(e) => setForm({ ...form, prCode: e.target.value })} className={inputCls + reqCls("prCode")} placeholder="รหัส PR" />
+                    <label className={labelCls}>รหัส PR {isReq("prCode") && <span className="text-amber-500">*</span>} <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
+                    <TagInput value={form.prCode} onChange={(v) => setForm({ ...form, prCode: v })} placeholder="พิมพ์รหัส PR แล้วกด Enter" invalid={isReq("prCode") && !form.prCode.trim()} mono />
                   </div>
                   <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>รหัส PO {isReq("poCode") && <span className="text-amber-500">*</span>} <span className="text-[10px] font-normal text-gray-400">(หลายอันได้)</span></label>
