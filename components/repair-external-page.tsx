@@ -1132,10 +1132,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         out.push({ kind: "field", key: `f-${e._id}`, at: e.at, by, e })
       }
     }
+    // Mena-Next ให้เหตุการณ์ตามทะเบียน/MR ของรถ ซึ่งอาจเป็นรอบซ่อมก่อนหน้าที่ปิดไปแล้ว
+    // (เคส TH1157 23/09/2569: ใบใหม่ยังไม่มี MR แต่ไทม์ไลน์ขึ้น 14 เหตุการณ์ของรอบ 2–21/09)
+    // ผู้ใช้เลือก: กรองด้วยวันที่สร้างใบ — เอาเฉพาะเหตุการณ์ตั้งแต่วันเปิดใบเป็นต้นไป
+    // ev.at เป็นเวลาไทยแบบไม่มี timezone จึงเทียบวันเป็นสตริงตรง ๆ ได้
+    const openedDate = bkkDateOf(editRow?.createdAt ?? "") || jobStartDate(editRow ?? {})
     for (const [i, it] of (atmsTl ?? []).entries()) {
       const problem = (it.tasks ?? []).map((t) => t.problem).filter(Boolean).join(" · ")
       for (const [j, ev] of (it.timeline_events ?? []).entries()) {
         if (!ev.at) continue
+        if (openedDate && String(ev.at).slice(0, 10) < openedDate) continue
         out.push({
           kind: "next", key: `n-${i}-${j}`, at: ev.at,
           by: ev.action_by || it.mechanic_name || "",
