@@ -23,6 +23,10 @@ function uid(): string {
     : Math.random().toString(36).slice(2)
 }
 
+// กล่องอัปโหลดที่อยู่บนหน้าตอนนี้ — ใช้ตัดสินว่ารูปที่วาง (Ctrl+V) ควรเข้ากล่องไหน
+// มีกล่องเดียวบนหน้า = วางตรงไหนก็เข้ากล่องนั้น · หลายกล่อง = ต้องชี้เมาส์/โฟกัสที่กล่องก่อน
+const mountedBoxes = new Set<object>()
+
 // PDF ใช้เส้นทางอัปโหลดของเราเอง (Spaces ตรง) — batchId sentinel "doc"
 const isPdfFile = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name)
 const isPdfName = (name: string) => /\.pdf$/i.test(name)
@@ -53,7 +57,42 @@ export function ImageUpload({
   const [dragOver, setDragOver] = useState(false)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const boxRef   = useRef<HTMLDivElement>(null)
+  const hoverRef = useRef(false)
   const batchRef = useRef<string | undefined>(undefined)
+
+  /**
+   * วางรูปที่คัดลอกมา (Ctrl/⌘+V) — เคสหลักคือคัดลอกรูปจาก LINE Desktop หรือ screenshot
+   * (ผู้ใช้ขอ 23/09/2569 "เอาได้ทุกกล่อง") · หน้าหนึ่งมีหลายกล่อง จึงต้องรู้ว่ารูปเข้ากล่องไหน:
+   * เมาส์อยู่บนกล่องไหน → กล่องนั้น · ไม่ได้ชี้กล่องไหน → กล่องที่กำลังโฟกัสอยู่
+   * กล่องแรกที่รับแล้ว preventDefault กล่องอื่นจึงไม่รับซ้ำ · คัดลอกข้อความไม่มีไฟล์ = ไม่ยุ่ง
+   */
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented || disabled) return
+      const files = e.clipboardData?.files
+      if (!files?.length) return
+      const box = boxRef.current
+      if (!box) return
+      const focused = document.activeElement
+      const mine = mountedBoxes.size === 1
+        || hoverRef.current
+        || (focused instanceof Node && box.contains(focused))
+      if (!mine) return
+      e.preventDefault()
+      addFiles(files)
+      // ไฟล์ขึ้นในกล่องทันทีอยู่แล้ว — กะพริบขอบให้รู้ว่าเข้ากล่องไหน (กล่องเด้งถามกดปิดกวนเกินไป)
+      setDragOver(true)
+      setTimeout(() => setDragOver(false), 600)
+    }
+    mountedBoxes.add(boxRef)
+    window.addEventListener("paste", onPaste)
+    return () => {
+      mountedBoxes.delete(boxRef)
+      window.removeEventListener("paste", onPaste)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, items.length, max])
 
   // notify parent of the committed (done) images whenever the set changes
   useEffect(() => {
@@ -264,7 +303,7 @@ export function ImageUpload({
   const atLimit = items.length >= max
 
   return (
-    <div>
+    <div ref={boxRef} onMouseEnter={() => { hoverRef.current = true }} onMouseLeave={() => { hoverRef.current = false }}>
       {/* Dropzone */}
       <button
         type="button"
@@ -285,10 +324,10 @@ export function ImageUpload({
           <ImagePlus size={18} />
         </span>
         <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">
-          {atLimit ? `ครบ ${max} รูปแล้ว` : "ลากรูปมาวาง หรือคลิกเพื่อเลือก"}
+          {atLimit ? `ครบ ${max} รูปแล้ว` : "ลากรูปมาวาง คลิกเพื่อเลือก หรือกด Ctrl+V"}
         </span>
         <span className="text-[11px] text-gray-400 dark:text-gray-500">
-          <span title="JPG / PNG / WebP / PDF · รูปไม่เกิน 50MB (เกิน 25MB ย่อให้อัตโนมัติ) · PDF ไม่เกิน 25MB">รูป / PDF · แนบได้หลายไฟล์</span>
+          <span title="JPG / PNG / WebP / PDF · รูปไม่เกิน 50MB (เกิน 25MB ย่อให้อัตโนมัติ) · PDF ไม่เกิน 25MB">รูป / PDF · แนบได้หลายไฟล์ · คัดลอกรูปจากไลน์มาวางได้</span>
         </span>
       </button>
 
