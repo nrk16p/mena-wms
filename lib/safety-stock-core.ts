@@ -16,34 +16,39 @@ export const WAREHOUSES: { id: string; name: string }[] = [
 /** ใครเป็นคนสั่ง build รอบนี้ — แสดงบนแถบ "รอบอัปเดตวันนี้" ให้แยกออกว่ารอบไหนมาจากอะไร
  *  "pipeline"   = api-ncac ยิง webhook มาหลัง atms_stockmovement* เขียน stockmovement_v5 เสร็จ (ตัวหลัก)
  *  "daily-cron" = cron ของ Vercel ที่ chain ต่อท้าย atms-sku-report — รอบเดียวที่ sync คงเหลือ/min/max จาก ATMS ด้วย
- *  "pr-hourly"  = api-ncac ยิงมาหลัง atms_pr_quick (ดึงรายการ PR ทุกชั่วโมง 07:15–20:15 ไทย) — ไม่อยู่ในตาราง
- *                 BUILD_SCHEDULE และไม่นับเป็นรอบนอกตาราง แถบแสดงแยกเป็น "PR อัปเดตล่าสุด"
+ *  "pr-hourly"  = api-ncac ยิงมาหลัง atms_pr_quick (ดึงรายการ PR ทุกชั่วโมง 07:15–20:15 ไทย)
  *  "manual"     = คนเรียก route เอง */
 export type BuildSource = "pipeline" | "daily-cron" | "pr-hourly" | "manual"
 
-/** ตารางรอบ build ต่อวัน (เวลาไทย) — ใช้วาดแถบ "รอบอัปเดตวันนี้" บนหน้า /safety-stock
+/** ช่องรายชั่วโมงของแถบ "รอบอัปเดตวันนี้" บนหน้า /safety-stock (เวลาไทย) — ช่องละ 1 ชั่วโมง
+ *  hhmm = รอบแรกที่คาดไว้ในชั่วโมงนั้น (ใช้บอก "รอบถัดไป") · รอบจริงทุกรอบที่เริ่มในชั่วโมงนั้นตกช่องนี้
  *
  *  ⚠️ ค่าตรงนี้ต้องตรงกับตารางจริง 2 ที่ ซึ่งอยู่คนละ repo กัน — แก้ที่โน่นแล้วต้องมาแก้ที่นี่ด้วย
- *  ไม่งั้นแถบจะโชว์ช่องที่ไม่มีรอบจริง (ขึ้นค้างเป็น "ยังไม่ถึง" ทั้งวัน) หรือรอบจริงหาช่องลงไม่ได้:
- *    • api-ncac `main.py` — atms_stockmovement (22:00 UTC = 05:00 ไทย)
- *      และ atms_stockmovement_light (1:30/5:30/9:30/13:30 UTC = 08:30/12:30/16:30/20:30 ไทย)
+ *  ไม่งั้นแถบจะโชว์ช่องที่ไม่มีรอบจริง (ขึ้น "ไม่ได้รัน") หรือรอบจริงหาช่องลงไม่ได้:
+ *    • api-ncac `main.py` — atms_stockmovement (22:00 UTC = 05:00 ไทย),
+ *      atms_stockmovement_light (1:30/5:30/9:30/13:30 UTC = 08:30/12:30/16:30/20:30 ไทย)
+ *      และ atms_pr_quick (00–13 UTC นาที 15 = 07:15–20:15 ไทย)
  *    • mena-wms `vercel.json` — atms-sku-report (03:00 UTC = 10:00 ไทย)
  *
- *  รอบ 10:00 เป็นรอบเดียวที่ sync คงเหลือ/min/max จาก ATMS ด้วย — อีก 5 รอบคำนวณจาก Mongo ล้วน
- *  (เจตนา: ยิง ATMS วันละครั้งพอ การยิงถี่คือสาเหตุที่ ATMS เคยล่ม) */
-export const BUILD_SCHEDULE: { hhmm: string; source: BuildSource; label: string }[] = [
-  { hhmm: "05:00", source: "pipeline",   label: "ดึงย้อนหลัง 2 เดือน" },
-  { hhmm: "08:30", source: "pipeline",   label: "ดึงย้อนหลัง 7 วัน" },
-  { hhmm: "10:00", source: "daily-cron", label: "sync คงเหลือ/min/max จาก ATMS" },
-  { hhmm: "12:30", source: "pipeline",   label: "ดึงย้อนหลัง 7 วัน" },
-  { hhmm: "16:30", source: "pipeline",   label: "ดึงย้อนหลัง 7 วัน" },
-  { hhmm: "20:30", source: "pipeline",   label: "ดึงย้อนหลัง 7 วัน" },
+ *  ช่อง 10:00 เป็นรอบเดียวที่ sync คงเหลือ/min/max จาก ATMS ด้วย — รอบอื่นคำนวณจาก Mongo ล้วน
+ *  (เจตนา: ยิง ATMS หนักๆ วันละครั้งพอ การยิงถี่คือสาเหตุที่ ATMS เคยล่ม) */
+export type ScheduleSlot = { hhmm: string; source: BuildSource; label: string }
+
+const MOVEMENT_LIGHT_HOURS = [8, 12, 16, 20]
+
+export const BUILD_SCHEDULE: ScheduleSlot[] = [
+  { hhmm: "05:00", source: "pipeline", label: "ความเคลื่อนไหวย้อนหลัง 2 เดือน" },
+  ...Array.from({ length: 14 }, (_, i): ScheduleSlot => {
+    const h = 7 + i
+    const hh = String(h).padStart(2, "0")
+    if (h === 10) return { hhmm: "10:00", source: "daily-cron", label: "sync คงเหลือ/min/max จาก ATMS + รายการ PR" }
+    const extra = MOVEMENT_LIGHT_HOURS.includes(h) ? ` + ความเคลื่อนไหว 7 วัน (${hh}:30)` : ""
+    return { hhmm: `${hh}:15`, source: "pr-hourly", label: `รายการ PR${extra}` }
+  }),
 ]
 
-/** รอบที่เริ่มช้ากว่าเวลาในตารางเกินเท่านี้ ไม่นับว่าเป็นของช่องนั้น — ไปนับเป็นรอบนอกตารางแทน
- *  pipeline ใช้เวลาไม่คงที่ (ATMS ช้าได้) เผื่อไว้กว้างพอควร แต่ต้องแคบกว่าระยะห่างระหว่างช่อง
- *  ที่สั้นที่สุด (05:00→08:30 = 3.5 ชม. · 08:30→10:00 = 1.5 ชม.) ไม่งั้นรอบเดียวจะไปติดสองช่อง */
-export const SLOT_MATCH_WINDOW_MIN = 80
+/** เผื่อรอบที่เริ่มก่อนต้นชั่วโมงเล็กน้อย (นาฬิกาสองเครื่องไม่ตรงกันเป๊ะ) ให้ยังนับเป็นของช่องนั้น */
+export const SLOT_LEAD_MIN = 5
 
 /** รอบที่ค้างสถานะ "running" นานเกินเท่านี้ถือว่าไม่รู้ผล — Vercel ฆ่าที่ maxDuration 300s
  *  แถวจึงไม่มีวันถูกปิด เผื่อเวลาไว้เป็น 3 เท่าก่อนจะฟ้องว่าค้าง */
@@ -70,6 +75,16 @@ export function runSlotStatus(run: RunForSlot | null, inventoryId: string, nowMs
   const wh = run.warehouses?.find((w) => w.inventoryId === inventoryId)
   if (wh) return wh.error ? "error" : "ok"
   return run.status === "ok" ? "ok" : "error"
+}
+
+/** สถานะของช่องรายชั่วโมง (อาจมีหลายรอบ เช่น 08:15 PR + 08:31 ความเคลื่อนไหว)
+ *  มีรอบไหนสำเร็จ = ✓ (ข้อมูลของชั่วโมงนั้นสดแล้ว) → ยังรันอยู่ → ไม่งั้นใช้ผลของรอบล่าสุด */
+export function hourSlotStatus(runs: RunForSlot[], inventoryId: string, nowMs: number, windowEndMs: number): RunSlotStatus {
+  if (runs.length === 0) return runSlotStatus(null, inventoryId, nowMs, windowEndMs)
+  const st = runs.map((r) => runSlotStatus(r, inventoryId, nowMs, windowEndMs))
+  if (st.includes("ok")) return "ok"
+  if (st.includes("running")) return "running"
+  return st[st.length - 1]
 }
 
 /** "เคลื่อนไหวล่าสุด" ของรอบ build — build เก็บเป็นเที่ยงคืน UTC ของวันนั้น (หรือ YYYY-MM-DD)

@@ -4,7 +4,7 @@
 // แถบ "รอบอัปเดตวันนี้" ของหน้า /safety-stock — บอกว่าวันนี้คำนวณไปแล้วกี่รอบ รอบไหนสำเร็จ/พลาด รอบหน้าอีกนานเท่าไร
 //
 // ข้อมูลมาจาก /api/safety-stock/runs (ไม่แคช) คนละ endpoint กับ payload หลักที่แคชไว้ — ดูคอมเมนต์ในไฟล์ route
-// ช่องในแถบมาจาก BUILD_SCHEDULE ใน lib/safety-stock-core.ts ซึ่งต้องตรงกับ scheduler ของ api-ncac + vercel.json
+// ช่องในแถบมาจาก BUILD_SCHEDULE ใน lib/safety-stock-core.ts (ช่องละ 1 ชั่วโมง) ซึ่งต้องตรงกับ scheduler ของ api-ncac + vercel.json
 import { useCallback, useEffect, useState } from "react"
 import { Check, X, TriangleAlert } from "lucide-react"
 import { fmtMovementDate, WAREHOUSES, type BuildSource } from "@/lib/safety-stock-core"
@@ -27,14 +27,14 @@ type Slot = {
   warehouse: { written: number; latestMovementDate: string | null; error: string | null } | null
   /** คลังอื่นที่พลาดในรอบเดียวกัน (จุดใช้ผลของคลังที่ดูอยู่) */
   otherErrors?: { inventoryId: string; error: string }[]
+  /** ทุกรอบที่เริ่มในชั่วโมงนี้ */
+  runs?: { source: BuildSource; startedAt: string; durationMs: number | null; status: SlotStatus }[]
 }
 
 type RunsPayload = {
   now: string
   slots: Slot[]
   extraRuns: { source: string; startedAt: string; status: string; written: number | null }[]
-  /** รอบ build หลังดึงรายการ PR รายชั่วโมง (ไม่อยู่ในตารางช่อง) — null = วันนี้ยังไม่มี */
-  prHourly?: { count: number; lastAt: string; status: string } | null
   doneCount: number
   totalCount: number
   nextAt: string | null
@@ -75,6 +75,13 @@ const SOURCE_TEXT: Record<BuildSource, string> = {
   manual: "เรียกเอง",
 }
 
+const SOURCE_SHORT: Record<BuildSource, string> = {
+  pipeline: "ความเคลื่อนไหว",
+  "daily-cron": "คงเหลือ/min/max",
+  "pr-hourly": "รายการ PR",
+  manual: "เรียกเอง",
+}
+
 const whName = (id: string) => WAREHOUSES.find((w) => w.id === id)?.name ?? `คลัง ${id}`
 
 function tooltipOf(s: Slot): string {
@@ -94,6 +101,13 @@ function tooltipOf(s: Slot): string {
   // error ของทั้งรอบซ้ำกับของคลังอื่นด้านล่างอยู่แล้ว — โชว์เฉพาะเมื่อไม่มีผลรายคลังให้ดู
   if (s.error && !s.warehouse) lines.push(`⚠️ ${s.error}`)
   for (const o of s.otherErrors ?? []) lines.push(`คลังอื่นในรอบนี้ — ${whName(o.inventoryId)}: ⚠️ ${o.error}`)
+  if ((s.runs?.length ?? 0) > 1) {
+    lines.push("", "ทุกรอบในชั่วโมงนี้:")
+    for (const r of s.runs ?? []) {
+      const dur = r.durationMs != null ? ` · ${Math.round(r.durationMs / 1000)} วิ` : ""
+      lines.push(`• ${bkkTime(r.startedAt)} ${SOURCE_SHORT[r.source] ?? r.source} — ${STATUS_TEXT[r.status]}${dur}`)
+    }
+  }
   return lines.join("\n")
 }
 
@@ -184,10 +198,13 @@ export function SafetyStockRunsBar({ inventoryId }: { inventoryId: string }) {
         borderRadius: 10, padding: "12px 16px 10px", marginBottom: 16,
       }}
     >
-      <style>{`@keyframes ssPulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }`}</style>
+      <style>{`@keyframes ssPulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+        .ssShort { display: none }
+        @media (max-width: 640px) { .ssFull { display: none } .ssShort { display: inline } }`}</style>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>รอบอัปเดตวันนี้</span>
+        <span style={{ fontSize: 11.5, color: "#6B7280" }}>ทุกชั่วโมง</span>
         <span style={{ fontSize: 12, color: "#9CA3AF" }}>{bkkDay(data.now)}</span>
         <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: hasProblem ? "#B45309" : "#16A34A" }}>
           เสร็จ {data.doneCount} จาก {data.totalCount} รอบ
@@ -213,8 +230,10 @@ export function SafetyStockRunsBar({ inventoryId }: { inventoryId: string }) {
               )}
               <div title={tooltipOf(s)} style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "help" }}>
                 <Dot status={s.status} />
-                <div style={{ fontSize: 11, marginTop: 6, fontWeight: s.status === "pending" ? 400 : 700, color: s.status === "pending" ? "#9CA3AF" : "#374151" }}>
-                  {s.hhmm}
+                <div style={{ fontSize: 10.5, marginTop: 6, whiteSpace: "nowrap", fontWeight: s.status === "pending" ? 400 : 700, color: s.status === "pending" ? "#9CA3AF" : "#374151" }}>
+                  {/* 15 ช่องบนจอมือถือ "07:15" ชนกัน — จอแคบโชว์แค่ชั่วโมง */}
+                  <span className="ssFull">{s.hhmm}</span>
+                  <span className="ssShort">{s.hhmm.slice(0, 2)}</span>
                 </div>
                 {s.source === "daily-cron" && (
                   <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 1, whiteSpace: "nowrap" }}>+ คงเหลือ</div>
@@ -237,11 +256,6 @@ export function SafetyStockRunsBar({ inventoryId }: { inventoryId: string }) {
           <span>· รอบถัดไป {bkkTime(data.nextAt)} น. (อีก {humanGap(nextGap)})</span>
         )}
         {nextGap == null && <span>· หมดรอบของวันนี้แล้ว รอบถัดไปพรุ่งนี้ {data.slots[0]?.hhmm} น.</span>}
-        {data.prHourly && (
-          <span title="ดึงรายการ PR จาก ATMS ทุกชั่วโมง 07:15–20:15 น. แล้วคำนวณใหม่ (ใบที่อนุมัติ/ลบ/เปิดใหม่ ขึ้นภายใน ~1 ชม.)">
-            · PR อัปเดตล่าสุด {bkkTime(data.prHourly.lastAt)} น.{data.prHourly.status === "error" ? " ⚠️" : ""}
-          </span>
-        )}
         {data.extraRuns.length > 0 && <span>· มีรอบนอกตารางอีก {data.extraRuns.length} รอบ</span>}
       </div>
     </div>
