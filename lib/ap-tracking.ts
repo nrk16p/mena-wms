@@ -600,8 +600,10 @@ export function addDays(iso: string, n: number): string {
 // ความเร่งด่วนของใบหนึ่ง — ใช้จัดสีแถบซ้ายในตาราง ตัวกรอง "ต้องรีบ" และแถบสัดส่วนยอดค้าง
 // ให้ผลเดียวกับที่ API ใช้จัดกลุ่ม unsentAging เพื่อไม่ให้ตัวเลขบนแถบกับสีในตารางเล่าคนละเรื่อง
 export type ApUrgency = "sent" | "overdue" | "due7" | "noTerm" | "ok"
-export function apUrgency(dueISO: string, sentDate: string, todayISO: string): ApUrgency {
-  if (sentDate) return "sent"
+// paid = การเงินยืนยันจ่ายแล้ว (apPaidConfirmed) — ใบที่จ่ายจากไฟล์รอบโอนโดยจัดซื้อยังไม่เคยกดส่ง
+// ไม่มี sentDate แต่หนี้จบแล้ว ห้ามขึ้น "เกิน N วัน" หรือนับเข้ายอดต้องรีบ (ผู้ใช้สั่ง 24/09/2026)
+export function apUrgency(dueISO: string, sentDate: string, todayISO: string, paid = false): ApUrgency {
+  if (sentDate || paid) return "sent"
   if (!dueISO) return "noTerm"
   if (overdueDays(dueISO, todayISO) > 0) return "overdue"
   // นับ "อีกกี่วันถึงกำหนด" ตรง ๆ และรวมวันที่ 7 ด้วย ให้ตรงกับป้าย "≤7 วัน"

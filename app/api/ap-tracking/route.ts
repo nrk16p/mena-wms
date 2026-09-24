@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
-  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apUrgency, nextThursday, todayICT,
+  parseDmy, parseAmount, dueDateOf, overdueDays, apStatusOf, apStage, apPaidConfirmed, apUrgency, nextThursday, todayICT,
   resolveCreditTerm,
   AP_STAGES, compactDocNos, docNosText, ictDate,
   apSinceOf, inApScope, monthInApScope, monthsOfYear, addDays, inDateRange,
@@ -334,7 +334,7 @@ export async function GET(req: NextRequest) {
       if (r.status !== "ส่งบัญชีแล้ว") {
         // จัดกลุ่มด้วย apUrgency ตัวเดียวกับที่ตารางใช้ระบายสีแถบซ้าย — ไม่งั้นแถบสัดส่วนกับสีในตาราง
         // จะเล่าคนละเรื่องเวลาเกณฑ์ถูกแก้ที่ใดที่หนึ่ง
-        const u = apUrgency(r.dueDate, r.sentDate, today)
+        const u = apUrgency(r.dueDate, r.sentDate, today, apPaidConfirmed(r.paid))
         if (u === "overdue") { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
         else if (u === "noTerm") { unsentAging.noTerm.n++; unsentAging.noTerm.amount += r.amount }
         else if (u === "due7") { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }

@@ -414,9 +414,17 @@ export function ApTrackingDetail({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-lg font-bold" style={mitr}>{row.depositCode}</span>
-                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${meta.cls}`}>
-                  {meta.emoji} {meta.value}
-                </span>
+                {/* จ่ายแล้วชนะสถานะเอกสาร — ใบจ่ายจากไฟล์รอบโอนอาจยังไม่ครบชุด/ไม่เคยกดส่ง
+                    แต่ป้ายต้องตรงกับแท็บ (apStage) ไม่ใช่ขึ้น "รอประกบ" */}
+                {apPaidConfirmed(row.paid) ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-xs text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                    ✅ จ่ายแล้ว{row.paid?.date ? ` ${thaiDate(row.paid.date)}` : ""}
+                  </span>
+                ) : (
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${meta.cls}`}>
+                    {meta.emoji} {meta.value}
+                  </span>
+                )}
                 {savedReview.status && (
                   <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${rvMeta.cls}`}>
                     {rvMeta.emoji} {rvMeta.label}

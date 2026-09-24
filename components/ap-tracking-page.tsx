@@ -372,8 +372,10 @@ export function ApTrackingPage() {
   // มุมมองจัดกลุ่มแบ่งหน้าเป็น "รายวัน" ไม่ใช่รายแถว — ไม่งั้นวันเดียวจะถูกหั่นคาหน้า
   // แล้วยอดรวมบนหัวกลุ่ม (คิดจากแถวที่โชว์) จะไม่ตรงกับยอดจริงของวันนั้น
   const dayGroups = useMemo(
-    () => (grouped ? groupByDate(shown, (r) => r.sentMarkedDate) : []),
-    [grouped, shown],
+    // แท็บ "จ่ายแล้ว" จัดกลุ่มตามวันจ่ายจริง (ผู้ใช้สั่ง 24/09/2026) — ใบที่การเงินนำเข้าจากไฟล์รอบโอน
+    // โดยจัดซื้อไม่เคยกดส่ง ไม่มีวันกดส่ง จะไปกองที่ "ยังไม่มีวันที่กดส่ง" ทั้งที่จ่ายไปแล้ว
+    () => (grouped ? groupByDate(shown, (r) => (tab === "paid" ? r.paid?.date : r.sentMarkedDate)) : []),
+    [grouped, shown, tab],
   )
   const units = grouped ? dayGroups.length : shown.length
 
@@ -659,7 +661,7 @@ export function ApTrackingPage() {
         <ApSupplierTable rows={supplierRows} loading={busy} onPick={pickSupplier} />
       ) : (
       <ApTable
-        rows={paged} groups={pagedGroups} showSentMarked={sentView} unit={grouped ? "วัน" : "ใบ"}
+        rows={paged} groups={pagedGroups} groupEmptyLabel={tab === "paid" ? "ยังไม่มีวันจ่าย" : undefined} showSentMarked={sentView} unit={grouped ? "วัน" : "ใบ"}
         selectMode={tab === "passed" ? "export" : "send"}
         loading={busy}
         selected={selected} onToggle={toggle} onToggleAll={toggleAll}

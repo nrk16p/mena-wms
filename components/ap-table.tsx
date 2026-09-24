@@ -14,6 +14,7 @@ type SelectMode = "send" | "export"
 function selectableReason(r: ApRow, mode: SelectMode): string {
   if (mode === "export") return ""
   if (r.sentDate) return "ส่งบัญชีไปแล้ว"
+  if (apPaidConfirmed(r.paid)) return "จ่ายเงินแล้ว"
   if (!isDocSetComplete(r.docs)) return "เอกสารยังไม่ครบชุด"
   return ""
 }
@@ -50,7 +51,9 @@ function ApDepositRow({
   showSentMarked: boolean
   selectMode: SelectMode
 }) {
-  const u   = apUrgency(r.dueDate, r.sentDate, today)
+  // จ่ายแล้ว = จบวงจร ยึดสถานะนี้ก่อนเสมอ แม้จัดซื้อยังไม่เคยกดส่ง (ใบที่การเงินนำเข้าจากไฟล์รอบโอนตรง ๆ)
+  const paid = apPaidConfirmed(r.paid)
+  const u   = apUrgency(r.dueDate, r.sentDate, today, paid)
   const why = selectableReason(r, selectMode)
   // สีขอบบนกับสีแถบซ้ายตั้งแยกกัน (border-t-* / border-l-*) — ถ้าใช้ border-gray-100 รวม
   // จะไปทับสีแถบซ้ายตามลำดับ CSS ที่ Tailwind สร้าง แล้วแถบเตือนหายไปเงียบ ๆ
@@ -92,9 +95,9 @@ function ApDepositRow({
           <div className="mt-0.5 truncate text-[11px] text-rose-600 dark:text-rose-400" title={r.review.note}>
             บัญชีตีกลับ{r.review.note ? ` · ${r.review.note}` : ""}
           </div>
-        ) : r.sentDate ? (
+        ) : r.sentDate || paid ? (
           <div className="mt-0.5 text-[11px] text-gray-400">
-            ส่งบัญชี {r.sentType} {thaiDate(r.sentDate)}
+            {r.sentDate ? `ส่งบัญชี ${r.sentType} ${thaiDate(r.sentDate)}` : "ไม่ได้กดส่งบัญชีในระบบ"}
             {r.review?.status === "ผ่าน" ? " · บัญชีตรวจผ่าน" : ""}
             {/* จ่ายจริงแล้ว สำคัญกว่ากำหนดจ่ายที่วางแผนไว้ — เลข PV มีเฉพาะใบที่มาจากทะเบียนจ่าย
                 ใบที่การเงินยืนยันด้วยไฟล์รอบโอนไม่มี PV จึงโชว์แค่วันโอน */}
@@ -114,8 +117,9 @@ function ApDepositRow({
 
       <td className="px-3 py-3 align-top text-xs">
         <div className={NUM}>{r.dueDate ? thaiDate(r.dueDate) : "—"}</div>
-        <div className={URGENCY[u].text}>
-          {u === "overdue" ? `เกิน ${r.overdue} วัน`
+        <div className={paid ? "font-medium text-teal-600 dark:text-teal-400" : URGENCY[u].text}>
+          {paid ? "จ่ายแล้ว"
+            : u === "overdue" ? `เกิน ${r.overdue} วัน`
             : u === "noTerm" ? "ยังไม่ตั้งเครดิตเทอม"
             : u === "due7" ? "ใกล้ครบกำหนด"
             : r.creditTerm ? `เครดิต ${r.creditTerm}` : ""}
@@ -139,6 +143,12 @@ function ApDepositRow({
       )}
 
       <td className="px-3 py-3 text-right align-top">
+        {paid && !r.sentDate ? (
+          // ไม่มีการส่งให้แก้ และส่งบัญชีซ้ำหลังจ่ายไม่มีความหมาย — โชว์ขั้นสุดท้ายแทนปุ่ม
+          <span className="inline-block rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-xs text-teal-700 dark:border-teal-900 dark:bg-teal-900/20 dark:text-teal-300">
+            ✅ จ่ายแล้ว
+          </span>
+        ) : (
         <button onClick={() => onSend(r)} disabled={!r.sentDate && !isDocSetComplete(r.docs)}
           title={!r.sentDate && !isDocSetComplete(r.docs) ? "เอกสารยังไม่ครบชุด" : undefined}
           className={`rounded-lg border px-2.5 py-1 text-xs transition ${r.sentDate
@@ -148,6 +158,7 @@ function ApDepositRow({
               : "cursor-not-allowed border-dashed border-gray-200 text-gray-300 dark:border-white/10 dark:text-gray-600"}`}>
           {r.sentDate ? `✅ ${r.sentType}` : "ส่งบัญชี"}
         </button>
+        )}
       </td>
     </tr>
   )
@@ -155,7 +166,7 @@ function ApDepositRow({
 
 export function ApTable({
   rows, loading, selected, onToggle, onToggleAll, onOpen, onSend, emptyNote,
-  groups, showSentMarked = false, unit = "ใบ", selectMode = "send",
+  groups, groupEmptyLabel = "ยังไม่มีวันที่กดส่ง", showSentMarked = false, unit = "ใบ", selectMode = "send",
   page, totalPages, pageNumbers, firstIdx, lastIdx, totalRows, perPage, perPageOptions, onPage, onPerPage,
 }: {
   rows: ApRow[]
@@ -169,6 +180,7 @@ export function ApTable({
   // มุมมองจัดกลุ่ม: ส่ง groups มาแทนการเรียงแถวเรียบ ๆ (rows ยังต้องส่งมาด้วย = แถวทั้งหมดของหน้านี้
   // ใช้คิดว่า "เลือกทั้งหน้า" ครอบคลุมใบไหนบ้าง จะได้ตรงกับที่ตาเห็น)
   groups?: { date: string; rows: ApRow[] }[] | null
+  groupEmptyLabel?: string  // ป้ายกลุ่มที่ไม่มีวันที่ — แท็บ "จ่ายแล้ว" จัดกลุ่มตามวันจ่าย ไม่ใช่วันกดส่ง
   showSentMarked?: boolean
   selectMode?: SelectMode
   unit?: string            // หน่วยของการแบ่งหน้า — "ใบ" ในมุมมองรายการ, "วัน" ในมุมมองจัดกลุ่ม
@@ -229,7 +241,7 @@ export function ApTable({
                     <td colSpan={cols} className="px-3 py-2">
                       <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
                         <span className="font-medium text-[#14271C] dark:text-white" style={mitr}>
-                          {g.date ? thaiDate(g.date) : "ยังไม่มีวันที่กดส่ง"}
+                          {g.date ? thaiDate(g.date) : groupEmptyLabel}
                         </span>
                         {g.date && <span className="text-gray-400">{thaiDow(g.date)}</span>}
                         <span className={`ml-auto text-gray-500 dark:text-gray-400 ${NUM}`}>
