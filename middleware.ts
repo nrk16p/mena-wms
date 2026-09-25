@@ -16,7 +16,7 @@ function withCors(res: NextResponse, origin: string | null): NextResponse {
   if (origin) {
     res.headers.set("Access-Control-Allow-Origin", origin)
     res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-    res.headers.set("Access-Control-Allow-Headers", "Content-Type, Accept, x-api-key")
+    res.headers.set("Access-Control-Allow-Headers", "Content-Type, Accept, x-api-key, x-user")
     res.headers.set("Access-Control-Max-Age", "86400")
     res.headers.set("Vary", "Origin")
   }
@@ -54,7 +54,8 @@ export async function middleware(request: NextRequest) {
   }
   // sync API เปิด public ทุก method (อ่าน + เขียน) ตามการตัดสินใจของทีม 2026-08-06
   // — ถ้าจะเพิ่มความปลอดภัยภายหลัง: ย้าย path นี้ไป MOBILE_API_PREFIXES (บังคับ x-api-key)
-  if (pathname === "/api/repair-external/sync") {
+  // /sync/upload = ขอลิงก์อัปโหลดไฟล์แนบ/ใบเสนอราคา — เปิด public เหมือน /sync (ผู้ใช้เลือก 2026-09-25)
+  if (pathname === "/api/repair-external/sync" || pathname === "/api/repair-external/sync/upload") {
     const syncOrigin = request.headers.get("origin")
     if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), syncOrigin)
     return withCors(NextResponse.next(), syncOrigin)

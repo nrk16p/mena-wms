@@ -51,14 +51,15 @@ export async function uploadImage(dataUrl: string, folder: string): Promise<stri
 const DOC_PREFIX = "media-docs"
 
 // สร้าง presigned PUT URL ให้ browser อัปโหลด PDF ตรง + คืน public URL
-export async function presignDocUpload(safeFilename: string): Promise<{ uploadUrl: string; publicUrl: string; key: string }> {
+// (sync API ภายนอกใช้ส่งรูปด้วย — ส่ง contentType ของรูปมา, ผู้เรียกต้อง PUT ด้วย Content-Type เดียวกัน)
+export async function presignDocUpload(safeFilename: string, contentType = "application/pdf"): Promise<{ uploadUrl: string; publicUrl: string; key: string }> {
   const bucket = process.env.DO_SPACES_BUCKET
   if (!bucket) throw new Error("Missing DO_SPACES_BUCKET")
   const region = process.env.DO_SPACES_REGION || "sgp1"
   const key = `${DOC_PREFIX}/${crypto.randomUUID()}/${safeFilename}`
   const uploadUrl = await getSignedUrl(
     s3(),
-    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: "application/pdf", ACL: "public-read" }),
+    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType, ACL: "public-read" }),
     { expiresIn: 600 }
   )
   const publicUrl = `https://${bucket}.${region}.digitaloceanspaces.com/${key.split("/").map(encodeURIComponent).join("/")}`

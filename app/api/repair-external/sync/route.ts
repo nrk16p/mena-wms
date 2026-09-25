@@ -5,6 +5,7 @@ import { DONE_STATUSES, isDoneStatus, JOB_TYPE_GARAGE, JOB_TYPE_PARTS, openJobCo
 import { REPAIR_LOG_COLL, diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { buildDoc, validateStatus } from "../route"
 import { bkkToday, bkkTimestamps } from "@/lib/bkk-time"
+import { MEDIA_CDN_BASE } from "@/lib/media"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -14,11 +15,31 @@ const TIME_FIELDS = ["createdAt", "updatedAt", "statusSinceAt", "lastCheckedAt"]
 // field ไฟล์ (รูป/PDF) ที่ส่งออก — images = ไฟล์แนบของงาน · quotationImages = ใบเสนอราคา · negotiationImages = หลักฐานต่อรองราคา
 const FILE_FIELDS = ["images", "quotationImages", "negotiationImages"] as const
 
-// เติม fileType ให้ปลายทางรู้ว่าเปิดเป็นรูปหรือ PDF (PDF อัปโหลดตรงเข้า Spaces ด้วย batchId "doc")
+// เติม fileType ให้ปลายทางรู้ว่าเปิดเป็นรูปหรือ PDF — ดูจากนามสกุลชื่อไฟล์ (เหมือนหน้าเว็บ)
+// เพราะ batchId "doc" มีทั้ง PDF และรูปที่อัปโหลดผ่าน /sync/upload
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function withFileType(arr: unknown): any[] {
   if (!Array.isArray(arr)) return []
-  return arr.filter(Boolean).map((f) => ({ ...f, fileType: f.batchId === "doc" ? "pdf" : "image" }))
+  return arr.filter(Boolean).map((f) => ({ ...f, fileType: /\.pdf$/i.test(String(f.filename ?? "")) ? "pdf" : "image" }))
+}
+
+// เขียนผ่าน API public — ไฟล์ batchId "doc" ต้องเป็นลิงก์ที่ได้จาก /sync/upload (ใน bucket ของเรา) เท่านั้น
+// (ไฟล์แบบอื่น normalizeImages สร้าง URL ใหม่จาก batchId/mediaId ให้เองอยู่แล้ว)
+const DOC_URL_PREFIX = `${MEDIA_CDN_BASE}/media-docs/`
+function badFileError(doc: Record<string, unknown>): string | null {
+  for (const f of FILE_FIELDS) {
+    const arr = doc[f]
+    if (!Array.isArray(arr)) continue
+    for (const it of arr) {
+      if (!it || typeof it !== "object") return `${f}: รูปแบบไฟล์ไม่ถูกต้อง — ใช้ค่า file จาก POST /sync/upload`
+      const x = it as Record<string, unknown>
+      if (x.batchId === "doc" && !String(x.webpUrl ?? "").startsWith(DOC_URL_PREFIX)) {
+        return `${f}: ลิงก์ไฟล์ต้องมาจาก POST /api/repair-external/sync/upload เท่านั้น`
+      }
+      if (!String(x.filename ?? "").trim()) return `${f}: ไฟล์ต้องมี filename`
+    }
+  }
+  return null
 }
 
 // กัน regex พิเศษจาก input ภายนอก (endpoint นี้เปิด public)
@@ -160,6 +181,8 @@ export async function POST(req: NextRequest) {
   if (statusErr) return NextResponse.json({ ok: false, error: statusErr }, { status: 400 })
   const dateErr = badDateError(doc)
   if (dateErr) return NextResponse.json({ ok: false, error: dateErr }, { status: 400 })
+  const fileErr = badFileError(doc)
+  if (fileErr) return NextResponse.json({ ok: false, error: fileErr }, { status: 400 })
 
   const by     = apiUser(req)
   const client = await clientPromise
@@ -208,6 +231,8 @@ async function updateRecord(req: NextRequest, partial: boolean) {
   if (statusErr) return NextResponse.json({ ok: false, error: statusErr }, { status: 400 })
   const dateErr = badDateError(doc, existing)
   if (dateErr) return NextResponse.json({ ok: false, error: dateErr }, { status: 400 })
+  const fileErr = badFileError(doc)
+  if (fileErr) return NextResponse.json({ ok: false, error: fileErr }, { status: 400 })
 
   // ล็อกสถานะปิดงาน — เปลี่ยน/ย้อนไม่ได้
   const existingStatus = String(existing.status ?? "")

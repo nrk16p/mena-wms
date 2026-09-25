@@ -174,16 +174,40 @@ console.log(data.count, data.items)`}</CodeBlock>
   -H "x-api-key: <API_KEY>" \\
   -H "x-user: สมชาย (ทีมจัดซื้อ)" \\
   -d '{
-    "plate": "สบ.70-1234",         // จำเป็น
-    "fleetNo": "M123",
+    // ── 🚚 ข้อมูลรถ ──
     "jobType": "อู่นอก",            // อู่นอก | อะไหล่ลงคัน (ไม่ส่ง = อู่นอก)
-    "status": "แจ้งซ่อมอู่นอก",           // จำเป็น — ตาม workflow ของประเภทงาน
-    "stageEta": "2026-08-25",       // แนะนำ — วันที่คาดว่าจะพ้นสถานะนี้ (หน้าเว็บบังคับกรอก, API ยังไม่บังคับ)
-    "receivedDate": "2026-08-06",
-    "symptom": "เบรกไม่อยู่",
-    "garage": "อู่ ก.การช่าง",
-    "mrNo": "MR-2026-001"
+    "plate": "สบ.70-1234",         // จำเป็น — ทะเบียนรถ
+    "fleetNo": "M123",             // เบอร์รถ
+    "receivedDate": "2026-08-06",  // วันที่รับแจ้ง (YYYY-MM-DD)
+    "fleet": "Mixer",              // ฟลีท
+    "plant": "โรงงาน A",            // แพล้นท์
+    "driverName": "สมศักดิ์ ใจดี",     // ชื่อคนขับ
+    "driverPhone": "081-234-5678", // เบอร์โทรคนขับ
+    "drivableStatus": "วิ่งไม่ได้",     // สภาพรถ: "" | วิ่งได้ | วิ่งไม่ได้
+    "cementStatus": "มีปูน",         // ปูนในโม่: "" | มีปูน | ไม่มีปูน
+    "breakdownLocation": "13.7563,100.5018",   // พิกัดที่รถเสีย: ลิงก์ Google Maps / lat,long / ข้อความ
+    "images": [ <file>, ... ],     // ไฟล์แนบ (รูป / PDF) — ดูหัวข้อ "อัปโหลดไฟล์" ด้านล่าง
+
+    // ── 🔧 งานซ่อม ──
+    "symptom": "เบรกไม่อยู่",        // รายละเอียดอาการ
+    "garage": "อู่ ก.การช่าง",        // อู่
+    "garageInDate": "2026-08-07",  // วันที่รถเข้าอู่ซ่อม
+    "mrNo": "MR-2026-001",         // เลขใบแจ้งซ่อม MR
+
+    // ── 🧾 ใบเสนอราคา ──
+    "quotationDetail": "ค่าแรง 8,000 + อะไหล่ 7,000",   // รายละเอียดใบเสนอราคา
+    "quotationImages": [ <file>, ... ],   // แนบใบเสนอราคา (PDF / รูป)
+
+    // ── 📋 สถานะ · เอกสาร ──
+    "status": "แจ้งซ่อมอู่นอก",       // จำเป็น — ตาม workflow ของประเภทงาน
+    "waitingQuote": true,          // ติ๊ก 🔍 รอใบเสนอราคา (เฉพาะอู่นอก) — true/false
+    "stageEta": "2026-08-10",      // แนะนำ — วันที่คาดว่าจะพ้นสถานะนี้ (หน้าเว็บบังคับกรอก, API ยังไม่บังคับ)
+    "prCode": "LBPR26080001,LBPR26080002",   // รหัส PR หลายอันคั่นด้วย ,
+    "poCode": "LBPO26080010",      // รหัส PO หลายอันคั่นด้วย ,
+    "dueDate": "2026-08-15",       // วันกำหนดเสร็จ
+    "completedDate": ""            // วันที่ซ่อมเสร็จ
   }'`}</CodeBlock>
+          <p className="text-[#9AA8A0]">ทุก field ยกเว้น <code>plate</code> / <code>status</code> ไม่บังคับ — ไม่ส่ง = ค่าว่าง · วันที่ทุกช่องใช้รูปแบบ <code>YYYY-MM-DD</code> (ปี พ.ศ. ระบบแปลงเป็น ค.ศ. ให้) · บาง status ต้องมี field ประกอบ (เช่น <code>รถเสร็จ</code> ต้องมี <code>completedDate</code>) ไม่ครบจะได้ <code>400</code> พร้อมข้อความ</p>
           <p className="text-[#9AA8A0]">ตอบกลับ <code>201</code> พร้อม <code>id</code> ของรายการ · กันซ้ำเหมือนหน้าเว็บ: รถคันเดียวกันมีรายการไม่เสร็จได้ 1 รายการ (ซ้ำ = <code>409</code> พร้อม <code>existingId</code>)</p>
 
           <p className="pt-2 font-semibold text-[#14271C] dark:text-white">✏️ PATCH — แก้บางฟิลด์ (แนะนำ เช่น อัพเดทสถานะ)</p>
@@ -203,6 +227,36 @@ console.log(data.count, data.items)`}</CodeBlock>
   -H "Content-Type: application/json" -H "x-api-key: <API_KEY>" \\
   -d '{ "id": "665f1c...", "plate": "สบ.70-1234", "status": "...", ...ฟิลด์อื่นทั้งหมด }'`}</CodeBlock>
           <p className="text-[#9AA8A0]">⚠ PUT ฟิลด์ที่ไม่ส่ง = ถูกล้างเป็นค่าว่าง — ถ้าจะแก้บางฟิลด์ใช้ PATCH เสมอ</p>
+
+          <p className="pt-2 font-semibold text-[#14271C] dark:text-white">📎 อัปโหลดไฟล์แนบ / ใบเสนอราคา (2 ขั้น)</p>
+          <p>1) ขอลิงก์อัปโหลด — รับ <code>.pdf .jpg .jpeg .png .webp</code> ไม่เกิน 25MB ต่อไฟล์ (ไม่ต้องมี API key):</p>
+          <CodeBlock>{`curl -X POST "${BASE}/api/repair-external/sync/upload" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "filename": "ใบเสนอราคา อู่ ก.pdf", "file_size": 245120 }'
+
+// ตอบกลับ
+{
+  "ok": true,
+  "upload_url": "https://mn-bucket.sgp1.digitaloceanspaces.com/media-docs/…?X-Amz-Signature=…",
+  "method": "PUT",
+  "headers": { "Content-Type": "application/pdf", "x-amz-acl": "public-read" },
+  "expires_in": 600,              // ลิงก์ใช้ได้ 10 นาที
+  "file": {                       // ← เก็บไว้ใส่ใน images / quotationImages
+    "mediaId": 0, "batchId": "doc", "filename": "ใบเสนอราคา อู่ ก.pdf",
+    "webpUrl": "https://mn-bucket.sgp1.digitaloceanspaces.com/media-docs/…/ใบเสนอราคา%20อู่%20ก.pdf",
+    "thumbnailUrl": "", "fileType": "pdf"
+  }
+}`}</CodeBlock>
+          <p>2) PUT ตัวไฟล์ไปที่ <code>upload_url</code> พร้อม <b>headers ตามที่ได้รับทุกตัว</b> (ไม่ตรง = <code>403</code>) แล้วใส่ <code>file</code> ลงในรายการ:</p>
+          <CodeBlock>{`curl -X PUT "<upload_url>" \\
+  -H "Content-Type: application/pdf" -H "x-amz-acl: public-read" \\
+  --data-binary @"ใบเสนอราคา อู่ ก.pdf"
+
+# แนบเข้าใบงาน — PATCH แทนที่ทั้ง array: ต้องส่งไฟล์เดิม (จาก GET) + ไฟล์ใหม่
+curl -X PATCH "${BASE}/api/repair-external/sync" \\
+  -H "Content-Type: application/json" -H "x-user: สมชาย (ทีมจัดซื้อ)" \\
+  -d '{ "id": "665f1c...", "quotationImages": [ ...ไฟล์เดิม, <file> ] }'`}</CodeBlock>
+          <p className="text-[#9AA8A0]">ไฟล์ที่ใส่ใน <code>images</code> / <code>quotationImages</code> / <code>negotiationImages</code> ต้องได้มาจาก <code>/sync/upload</code> หรือจาก GET เท่านั้น (ลิงก์ภายนอก = <code>400</code>) · ส่ง <code>[]</code> = ลบไฟล์ทั้งหมดออกจากใบ · รูปที่อัปโหลดผ่าน API ไม่มีรูปย่อ (<code>thumbnailUrl</code> ว่าง ใช้ <code>webpUrl</code> แทน)</p>
 
           <p className="pt-2">กติกาที่ระบบบังคับทุก method: รายการที่ปิดงานแล้ว (รถเสร็จ/ลงคันเสร็จ) <b>ย้อนสถานะไม่ได้</b> (<code>409</code>) · ทุกการเขียนลงประวัติ (history) พร้อมชื่อจาก <code>x-user</code></p>
         </Section>
