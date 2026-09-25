@@ -1,4 +1,4 @@
-import { Code2, Link2, Search, Filter, ListOrdered, FileJson, ShieldCheck, PencilLine } from "lucide-react"
+import { Code2, Link2, Search, Filter, ListOrdered, FileJson, ShieldCheck, PencilLine, Bell } from "lucide-react"
 import { CodeBlock, Param, Section } from "@/components/api-guide-ui"
 
 const BASE = "https://mena-wms.vercel.app"
@@ -49,6 +49,9 @@ export default function Page() {
             </Param>
             <Param name="comments">
               ความคิดเห็น/โน้ตในรายการ — ค่าเริ่มต้น<b>แนบมาให้เสมอ</b> (field <code>comments</code>) · ส่ง <code>comments=0</code> ถ้าต้องการ payload เบา
+            </Param>
+            <Param name="nextJobId">
+              ใช้แทน <code>vehicle</code> ได้ — ดึงใบงานที่ผูกกับรหัส Job Request ของ Mena-Next (ตรงตัว)
             </Param>
             <Param name="files">
               ไฟล์แนบ + ใบเสนอราคา — ค่าเริ่มต้น<b>แนบมาให้เสมอ</b> (field <code>images</code>, <code>quotationImages</code>, <code>negotiationImages</code> เป็นลิงก์ ไม่ใช่ตัวไฟล์) · ส่ง <code>files=0</code> ถ้าต้องการ payload เบา
@@ -174,6 +177,8 @@ console.log(data.count, data.items)`}</CodeBlock>
   -H "x-api-key: <API_KEY>" \\
   -H "x-user: สมชาย (ทีมจัดซื้อ)" \\
   -d '{
+    "nextJobId": "JR-2026-0001",   // รหัส Job Request ฝั่ง Mena-Next — ส่งซ้ำ = 409 + existingId (กันเปิดซ้ำตอน retry)
+
     // ── 🚚 ข้อมูลรถ ──
     "jobType": "อู่นอก",            // อู่นอก | อะไหล่ลงคัน (ไม่ส่ง = อู่นอก)
     "plate": "สบ.70-1234",         // จำเป็น — ทะเบียนรถ
@@ -216,7 +221,7 @@ console.log(data.count, data.items)`}</CodeBlock>
   -H "x-api-key: <API_KEY>" \\
   -H "x-user: สมชาย (ทีมจัดซื้อ)" \\
   -d '{
-    "id": "665f1c...",             // จาก GET /sync (field _id)
+    "id": "665f1c...",             // จาก GET /sync (field _id) — หรือส่ง "nextJobId" แทน id ก็ได้
     "status": "รถเข้าซ่อมอู่นอก",
     "garageInDate": "2026-08-06"
   }'`}</CodeBlock>
@@ -259,6 +264,54 @@ curl -X PATCH "${BASE}/api/repair-external/sync" \\
           <p className="text-[#9AA8A0]">ไฟล์ที่ใส่ใน <code>images</code> / <code>quotationImages</code> / <code>negotiationImages</code> ต้องได้มาจาก <code>/sync/upload</code> หรือจาก GET เท่านั้น (ลิงก์ภายนอก = <code>400</code>) · ส่ง <code>[]</code> = ลบไฟล์ทั้งหมดออกจากใบ · รูปที่อัปโหลดผ่าน API ไม่มีรูปย่อ (<code>thumbnailUrl</code> ว่าง ใช้ <code>webpUrl</code> แทน)</p>
 
           <p className="pt-2">กติกาที่ระบบบังคับทุก method: รายการที่ปิดงานแล้ว (รถเสร็จ/ลงคันเสร็จ) <b>ย้อนสถานะไม่ได้</b> (<code>409</code>) · ทุกการเขียนลงประวัติ (history) พร้อมชื่อจาก <code>x-user</code></p>
+        </Section>
+
+        <Section icon={Bell} title="เชื่อมกับ Mena-Next — แจ้งเตือน · ข้อความ · feed">
+          <p><b>ผูกใบงาน:</b> ส่ง <code>nextJobId</code> ตอน POST (หรือ PATCH ใบเดิมเพื่อผูกทีหลัง) แล้วใช้แทน <code>id</code> ได้ทุกเส้น · 1 รหัส ผูกได้ 1 ใบงาน</p>
+
+          <p className="pt-2 font-semibold text-[#14271C] dark:text-white">💬 POST /sync/comment — เขียนข้อความลงใบงาน</p>
+          <CodeBlock>{`curl -X POST "${BASE}/api/repair-external/sync/comment" \\
+  -H "Content-Type: application/json" -H "x-user: สมชาย (ยานยนต์)" \\
+  -d '{
+    "nextJobId": "JR-2026-0001",   // หรือ "id": "665f1c..."
+    "text": "ขอแยกค่าแรงกับค่าอะไหล่ในใบเสนอราคา",
+    "parentId": "66a2f1..."        // ไม่บังคับ — ตอบกลับข้อความนั้น (comments[].id จาก GET)
+  }'
+// ตอบกลับ 201 { "ok": true, "id": "665f1c...", "commentId": "66b0...", "parentId": null }`}</CodeBlock>
+          <p className="text-[#9AA8A0]">ขึ้นในไทม์ไลน์หน้าเว็บพร้อมป้าย 🔗 จาก Mena-Next · เขียนได้จนกว่าใบงานจะปิด (รถเสร็จ/ลงคันเสร็จ = <code>409</code>) · ≤ 2,000 ตัวอักษร · ใน GET ข้อความจาก API มี <code>kind: &quot;external&quot;</code></p>
+
+          <p className="pt-2 font-semibold text-[#14271C] dark:text-white">📡 GET /sync/changes — feed เหตุการณ์ทุกใบงาน (ทางหลัก)</p>
+          <CodeBlock>{`# ครั้งแรก: since = เวลาเริ่ม (ไม่ส่ง = 24 ชม.ล่าสุด)
+curl "${BASE}/api/repair-external/sync/changes?since=2026-09-25T08:00:00%2B07:00"
+# รอบต่อไป: ส่ง next_after ที่ได้ล่าสุด (เก็บไว้ฝั่ง Next) — ไม่ตกหล่น ไม่ซ้ำ
+curl "${BASE}/api/repair-external/sync/changes?after=66b1c2...&type=quotation.updated,comment.created"
+
+{
+  "ok": true, "count": 2,
+  "next_after": "66b1c9...",   // ใช้เป็น after รอบหน้า (ไม่มีอะไรใหม่ = ค่าเดิม)
+  "has_more": false,           // true = ยังมีต่อ เรียกซ้ำทันทีด้วย next_after
+  "events": [
+    {
+      "id": "66b1c5...", "type": "quotation.updated", "at": "2026-09-25T10:12:00.000+07:00",
+      "repairId": "665f1c...", "nextJobId": "JR-2026-0001",
+      "plate": "สบ.70-1234", "fleetNo": "M123", "status": "รถเข้าซ่อมอู่นอก",
+      "by": "Nest", "source": "wms",          // wms = คนกดในหน้าเว็บ · api = มาจาก /sync (ของ Next เอง)
+      "data": {
+        "newFiles": [ { "filename": "ใบเสนอราคา.pdf", "url": "https://mn-bucket…/ใบเสนอราคา.pdf", "fileType": "pdf" } ],
+        "quotationDetail": "ค่าแรง 8,000 + อะไหล่ 7,000", "fileCount": 1
+      }
+    },
+    {
+      "id": "66b1c9...", "type": "comment.created", "at": "…", "repairId": "665f1c...", "nextJobId": "JR-2026-0001",
+      "by": "Nest", "source": "wms",
+      "data": { "commentId": "66b1c8...", "parentId": null, "text": "อู่ส่งใบเสนอราคาแล้ว รบกวนตรวจ" }
+    }
+  ]
+}`}</CodeBlock>
+          <p>ชนิดเหตุการณ์ (<code>type</code>): <code>job.created</code> เปิดใบงาน · <code>status.changed</code> เปลี่ยนสถานะ (<code>data.from/to</code>) · <code>quotation.updated</code> แนบไฟล์ใบเสนอราคาเพิ่ม (<code>data.newFiles</code>) หรือแก้รายละเอียด · <code>comment.created</code> ข้อความใหม่ · กรองด้วย <code>type=a,b</code> หรือ <code>nextJobId=</code> · <code>limit</code> ≤ 500</p>
+
+          <p className="pt-2 font-semibold text-[#14271C] dark:text-white">🔔 Webhook — แจ้งทันที (ทางเสริม)</p>
+          <p>ถ้า Next ให้ URL ปลายทางมา WMS จะ <code>POST</code> เหตุการณ์ (รูปแบบเดียวกับ <code>events[]</code> ด้านบน ทีละรายการ) ไปทันทีหลังบันทึก พร้อม header <code>x-webhook-secret</code> ไว้ตรวจว่ามาจาก WMS จริง · ตอบ <code>2xx</code> ภายใน 5 วินาที · <b>ไม่ส่งซ้ำเมื่อพลาด</b> — ให้ใช้ feed ด้านบนเก็บตกเสมอ (ใช้ <code>id</code> กันประมวลผลซ้ำ)</p>
         </Section>
 
         <Section icon={ListOrdered} title="สถานะที่เป็นไปได้ (status)">

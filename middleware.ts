@@ -55,7 +55,8 @@ export async function middleware(request: NextRequest) {
   // sync API เปิด public ทุก method (อ่าน + เขียน) ตามการตัดสินใจของทีม 2026-08-06
   // — ถ้าจะเพิ่มความปลอดภัยภายหลัง: ย้าย path นี้ไป MOBILE_API_PREFIXES (บังคับ x-api-key)
   // /sync/upload = ขอลิงก์อัปโหลดไฟล์แนบ/ใบเสนอราคา — เปิด public เหมือน /sync (ผู้ใช้เลือก 2026-09-25)
-  if (pathname === "/api/repair-external/sync" || pathname === "/api/repair-external/sync/upload") {
+  // /sync/comment = Mena-Next เขียนข้อความ · /sync/changes = feed เหตุการณ์ (2026-09-25)
+  if (pathname === "/api/repair-external/sync" || pathname.startsWith("/api/repair-external/sync/")) {
     const syncOrigin = request.headers.get("origin")
     if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), syncOrigin)
     return withCors(NextResponse.next(), syncOrigin)

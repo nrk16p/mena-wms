@@ -2897,6 +2897,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                                     )}
                                   </div>
                                 )}
+                                {f.c.kind === "external" && (
+                                  <span className="mb-1 inline-flex items-center gap-1 rounded bg-[#E0F2FE] px-1.5 py-0.5 text-[10.5px] font-bold text-[#0369A1] dark:bg-sky-900/25 dark:text-sky-300">
+                                    🔗 จาก Mena-Next
+                                  </span>
+                                )}
                                 <CommentRow c={f.c} onSave={saveComment} onDelete={deleteComment} busy={posting} />
                                 {comments.filter((r) => r.parentId === f.c._id).length > 0 && (
                                   <div className="ml-4 mt-2 space-y-2 border-l-2 border-[#EEF2F0] dark:border-white/10 pl-3">

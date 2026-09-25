@@ -5,6 +5,7 @@ import clientPromise from "@/lib/mongo"
 import { writeRepairLog } from "@/lib/repair-log"
 import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobConflictFilter, statusQueryValues, statusesFor, normalizeStatus, fixBeYear, badDateError } from "@/lib/repair-external"
 import { normalizeImages } from "@/lib/media"
+import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
 import { bkkToday } from "@/lib/bkk-time"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -160,5 +161,11 @@ export async function POST(req: NextRequest) {
     at: now,
     statusChange: { from: "", to: doc.status },
   })
+  const base = eventBase(result.insertedId.toString(), doc, null, by, "wms", now)
+  const q = quotationChange(null, doc)
+  await emitRepairEvents(db, [
+    { ...base, type: "job.created", data: { jobType: doc.jobType, symptom: doc.symptom, mrNo: doc.mrNo } },
+    q && { ...base, type: "quotation.updated", data: q },
+  ])
   return NextResponse.json({ ...doc, _id: result.insertedId }, { status: 201 })
 }

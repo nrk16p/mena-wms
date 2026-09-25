@@ -6,6 +6,7 @@ import { REPAIR_LOG_COLL, diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { buildDoc, validateStatus } from "../route"
 import { bkkToday, bkkTimestamps } from "@/lib/bkk-time"
 import { MEDIA_CDN_BASE } from "@/lib/media"
+import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -42,6 +43,16 @@ function badFileError(doc: Record<string, unknown>): string | null {
   return null
 }
 
+// รหัสใบงานฝั่ง Mena-Next (Job Request) — เก็บคู่กับใบงาน WMS ไว้ผูกสองระบบ
+// ตั้งได้เฉพาะผ่าน /sync (buildDoc ไม่มี field นี้ → หน้าเว็บบันทึกทับก็ไม่หาย)
+// undefined = ไม่ได้ส่งมา (คงค่าเดิม) · error = รูปแบบผิด
+function readNextJobId(body: Record<string, unknown>): { value?: string; error?: string } {
+  if (!("nextJobId" in body)) return {}
+  const v = String(body.nextJobId ?? "").trim()
+  if (v.length > 64) return { error: "nextJobId ยาวเกิน 64 ตัวอักษร" }
+  return { value: v }
+}
+
 // กัน regex พิเศษจาก input ภายนอก (endpoint นี้เปิด public)
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -54,20 +65,22 @@ function escapeRegex(s: string) {
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const vehicle = searchParams.get("vehicle")?.trim() ?? ""
+  const nextJobId = searchParams.get("nextJobId")?.trim() ?? ""
   const scope   = searchParams.get("scope")?.trim()   ?? ""
   const type    = searchParams.get("type")?.trim()    ?? ""
   const limit   = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "100") || 100, 1), 500)
 
-  if (!vehicle) {
+  if (!vehicle && !nextJobId) {
     return NextResponse.json(
-      { ok: false, error: "กรุณาระบุ ?vehicle= ทะเบียนหรือเบอร์รถ (เช่น ?vehicle=70-1234 หรือ ?vehicle=M123)" },
+      { ok: false, error: "กรุณาระบุ ?vehicle= ทะเบียนหรือเบอร์รถ (เช่น ?vehicle=70-1234 หรือ ?vehicle=M123) หรือ ?nextJobId=" },
       { status: 400 }
     )
   }
 
   const rx = { $regex: escapeRegex(vehicle), $options: "i" }
+  // nextJobId = ตรงตัว (ผูกกับใบงานเดียว) · vehicle = ค้นบางส่วนในทะเบียน/เบอร์รถ
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const base: Record<string, any> = { $or: [{ plate: rx }, { fleetNo: rx }] }
+  const base: Record<string, any> = nextJobId ? { nextJobId } : { $or: [{ plate: rx }, { fleetNo: rx }] }
   // เอกสารเก่าไม่มี jobType = อู่นอก
   if (type === JOB_TYPE_PARTS)       base.jobType = JOB_TYPE_PARTS
   else if (type === JOB_TYPE_GARAGE) base.jobType = { $ne: JOB_TYPE_PARTS }
@@ -137,7 +150,7 @@ export async function GET(req: NextRequest) {
       const k = String(c.repairId)
       if (!cById.has(k)) cById.set(k, [])
       // id ส่งออกด้วย เพราะ reply อ้างถึงกันผ่าน parentId
-      cById.get(k)!.push({ id: String(c._id), parentId: c.parentId ?? null, text: c.text ?? "", by: c.by ?? "", at: c.at, ...(c.editedAt ? { editedAt: c.editedAt } : {}) })
+      cById.get(k)!.push({ id: String(c._id), parentId: c.parentId ?? null, kind: c.kind ?? "note", text: c.text ?? "", by: c.by ?? "", at: c.at, ...(c.editedAt ? { editedAt: c.editedAt } : {}) })
     }
     out = out.map((i) => ({ ...i, comments: cById.get(String(i._id)) ?? [] }))
   }
@@ -183,11 +196,19 @@ export async function POST(req: NextRequest) {
   if (dateErr) return NextResponse.json({ ok: false, error: dateErr }, { status: 400 })
   const fileErr = badFileError(doc)
   if (fileErr) return NextResponse.json({ ok: false, error: fileErr }, { status: 400 })
+  const nj = readNextJobId(body)
+  if (nj.error) return NextResponse.json({ ok: false, error: nj.error }, { status: 400 })
 
   const by     = apiUser(req)
   const client = await clientPromise
   const db     = client.db(DB)
   const col    = db.collection(COLL)
+
+  // Job Request เดิมส่งซ้ำ (retry) → ไม่เปิดใบใหม่ ตอบ id เดิม
+  if (nj.value) {
+    const same = await col.findOne({ nextJobId: nj.value }, { projection: { _id: 1 } })
+    if (same) return NextResponse.json({ ok: false, error: "nextJobId นี้มีใบงานอยู่แล้ว", existingId: String(same._id) }, { status: 409 })
+  }
 
   // กันซ้ำ: งานอู่นอก 1 คัน 1 ใบที่ยังไม่ปิด · อะไหล่ลงคันเปิดซ้ำคันได้
   const conflict = isDoneStatus(doc.status) ? null : openJobConflictFilter(doc)
@@ -199,30 +220,50 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date()
-  const result = await col.insertOne({ ...doc, statusSince: todayStr(), statusSinceAt: now.toISOString(), createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
+  const result = await col.insertOne({ ...doc, ...(nj.value ? { nextJobId: nj.value } : {}), statusSince: todayStr(), statusSinceAt: now.toISOString(), createdBy: by, editedBy: by, createdAt: now, updatedAt: now })
   await writeRepairLog(db, {
     repairId: result.insertedId.toString(),
     plate: doc.plate, fleetNo: doc.fleetNo,
     action: "create", by, byEmail: "", at: now,
     statusChange: { from: "", to: doc.status },
   })
-  return NextResponse.json({ ok: true, id: String(result.insertedId), ...doc }, { status: 201 })
+  const base = eventBase(result.insertedId.toString(), { ...doc, nextJobId: nj.value ?? "" }, null, by, "api", now)
+  const q = quotationChange(null, doc)
+  await emitRepairEvents(db, [
+    { ...base, type: "job.created", data: { jobType: doc.jobType, symptom: doc.symptom, mrNo: doc.mrNo } },
+    q && { ...base, type: "quotation.updated", data: q },
+  ])
+  return NextResponse.json({ ok: true, id: String(result.insertedId), nextJobId: nj.value || null, ...doc }, { status: 201 })
 }
 
 // อัปเดตรายการ (ใช้ร่วม PUT = ส่งครบทุก field / PATCH = ส่งเฉพาะ field ที่แก้)
 async function updateRecord(req: NextRequest, partial: boolean) {
   const body = await req.json().catch(() => ({}))
-  const id   = String(body.id ?? "").trim()
-  if (!ObjectId.isValid(id)) return NextResponse.json({ ok: false, error: "กรุณาระบุ id (จาก GET /sync)" }, { status: 400 })
+  const nj   = readNextJobId(body)
+  if (nj.error) return NextResponse.json({ ok: false, error: nj.error }, { status: 400 })
+  let id     = String(body.id ?? "").trim()
 
   const by     = apiUser(req)
   const client = await clientPromise
   const db     = client.db(DB)
   const col    = db.collection(COLL)
+
+  // ระบุใบงานด้วย id (WMS) หรือ nextJobId (Mena-Next) อย่างใดอย่างหนึ่ง
+  if (!ObjectId.isValid(id) && nj.value) {
+    const hit = await col.findOne({ nextJobId: nj.value }, { projection: { _id: 1 } })
+    if (!hit) return NextResponse.json({ ok: false, error: "ไม่พบใบงานของ nextJobId นี้" }, { status: 404 })
+    id = String(hit._id)
+  }
+  if (!ObjectId.isValid(id)) return NextResponse.json({ ok: false, error: "กรุณาระบุ id (จาก GET /sync) หรือ nextJobId" }, { status: 400 })
   const _id    = new ObjectId(id)
 
   const existing = await col.findOne({ _id })
   if (!existing) return NextResponse.json({ ok: false, error: "ไม่พบรายการ" }, { status: 404 })
+  // ผูก nextJobId ให้ใบเดิม — ห้ามซ้ำกับใบอื่น
+  if (nj.value && nj.value !== existing.nextJobId) {
+    const taken = await col.findOne({ nextJobId: nj.value, _id: { $ne: _id } }, { projection: { _id: 1 } })
+    if (taken) return NextResponse.json({ ok: false, error: "nextJobId นี้ผูกกับใบงานอื่นแล้ว", existingId: String(taken._id) }, { status: 409 })
+  }
 
   // PATCH: field ที่ไม่ส่งมา ใช้ค่าเดิม · PUT: ใช้ body ทั้งชุด
   const doc = buildDoc(partial ? { ...existing, ...body } : body)
@@ -252,7 +293,7 @@ async function updateRecord(req: NextRequest, partial: boolean) {
   const statusChanged = existingStatus !== doc.status
   const statusSince = statusChanged ? todayStr() : (existing.statusSince ?? "")
   const statusSinceAt = statusChanged ? now.toISOString() : (existing.statusSinceAt ?? "")
-  await col.updateOne({ _id }, { $set: { ...doc, statusSince, statusSinceAt, editedBy: by, updatedAt: now } })
+  await col.updateOne({ _id }, { $set: { ...doc, ...(nj.value !== undefined ? { nextJobId: nj.value } : {}), statusSince, statusSinceAt, editedBy: by, updatedAt: now } })
 
   // สถานะเปลี่ยนจากระบบภายนอก → เขียนข้อความอัพเดทให้อัตโนมัติ
   // ฝั่งเว็บบังคับพิมพ์ข้อความทุกครั้งอยู่แล้ว ทางนี้บังคับไม่ได้ แต่ไทม์ไลน์ต้องไม่ขาดช่วง
@@ -284,6 +325,12 @@ async function updateRecord(req: NextRequest, partial: boolean) {
       noteId,
     })
   }
+  const base = eventBase(id, { ...doc, ...(nj.value !== undefined ? { nextJobId: nj.value } : {}) }, existing, by, "api", now)
+  const q = quotationChange(existing, doc)
+  await emitRepairEvents(db, [
+    statusChanged ? { ...base, type: "status.changed", data: { from: existingStatus, to: doc.status, note: String(body.note ?? "").trim() } } : null,
+    q && { ...base, type: "quotation.updated", data: q },
+  ])
   return NextResponse.json({ ok: true, id, changed: changes.length, status: doc.status })
 }
 

@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { REPAIR_FIELD_LABELS, diffRepair, writeRepairLog, type RepairChange } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
+import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
 import { badDateError, fixBeYear, isDoneStatus, normalizeStatus, openJobConflictFilter, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
 import { buildDoc } from "../../route"
 
@@ -120,5 +121,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     noteId,
   })
 
+  const base = eventBase(id, { ...(doc ?? {}), status }, existing, by, "wms", now)
+  const q = doc ? quotationChange(existing, doc) : null
+  await emitRepairEvents(db, [
+    statusChanged ? { ...base, type: "status.changed", data: { from, to: status } } : null,
+    q && { ...base, type: "quotation.updated", data: q },
+    noteId ? { ...base, type: "comment.created", data: { commentId: noteId, parentId: null, text: note, statusFrom: from, stageEta: eta } } : null,
+  ])
   return NextResponse.json({ ok: true, commentId: noteId ?? null, statusChanged, changed: changes.length }, { status: 201 })
 }

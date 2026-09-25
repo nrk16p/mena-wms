@@ -6,6 +6,7 @@ import clientPromise from "@/lib/mongo"
 import { buildDoc } from "../route"
 import { diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
+import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
 import { badDateError, isDoneStatus, openJobConflictFilter } from "@/lib/repair-external"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -78,6 +79,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
       changes,
     })
   }
+  const base = eventBase(id, doc, existing, session?.user?.name || session?.user?.email || "", "wms", now)
+  const q = quotationChange(existing, doc)
+  await emitRepairEvents(db, [
+    statusChanged ? { ...base, type: "status.changed", data: { from: existingStatus, to: doc.status } } : null,
+    q && { ...base, type: "quotation.updated", data: q },
+  ])
   return NextResponse.json({ ok: true, changed: changes.length })
 }
 
