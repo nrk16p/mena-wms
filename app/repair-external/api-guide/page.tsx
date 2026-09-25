@@ -50,6 +50,9 @@ export default function Page() {
             <Param name="comments">
               ความคิดเห็น/โน้ตในรายการ — ค่าเริ่มต้น<b>แนบมาให้เสมอ</b> (field <code>comments</code>) · ส่ง <code>comments=0</code> ถ้าต้องการ payload เบา
             </Param>
+            <Param name="files">
+              ไฟล์แนบ + ใบเสนอราคา — ค่าเริ่มต้น<b>แนบมาให้เสมอ</b> (field <code>images</code>, <code>quotationImages</code>, <code>negotiationImages</code> เป็นลิงก์ ไม่ใช่ตัวไฟล์) · ส่ง <code>files=0</code> ถ้าต้องการ payload เบา
+            </Param>
           </ul>
         </Section>
 
@@ -96,6 +99,27 @@ console.log(data.count, data.items)`}</CodeBlock>
       "prCode": "PR-001",
       "poCode": "",
       "note": "",
+      "quotationDetail": "ค่าแรง 8,000 + อะไหล่ 7,000",   // รายละเอียดใบเสนอราคา (ข้อความ)
+      "quotationImages": [       // ไฟล์ใบเสนอราคา (รูป/PDF) · ปิดพร้อมไฟล์อื่นด้วย ?files=0
+        {
+          "fileType": "pdf",     // image | pdf
+          "filename": "ใบเสนอราคา อู่ ก.pdf",
+          "webpUrl": "https://mn-bucket.sgp1.digitaloceanspaces.com/media-docs/…/ใบเสนอราคา อู่ ก.pdf",   // PDF = ลิงก์ไฟล์ต้นฉบับ
+          "batchId": "doc",
+          "mediaId": 0
+        }
+      ],
+      "images": [                // ไฟล์แนบของงาน (รูปรถ/อาการ/เอกสาร) รูปแบบเดียวกัน
+        {
+          "fileType": "image",
+          "filename": "454307.jpg",
+          "webpUrl": "https://mn-bucket.sgp1.digitaloceanspaces.com/media/6c45…/4905/webp/454307.webp",   // รูปขนาดเต็ม (webp)
+          "thumbnailUrl": "https://mn-bucket.sgp1.digitaloceanspaces.com/media/6c45…/4905/thumbnail/454307-thumbnail.webp",   // รูปย่อ (มีเฉพาะรูป)
+          "batchId": "6c4514d6-…",
+          "mediaId": 4905
+        }
+      ],
+      "negotiationImages": [],   // หลักฐานการต่อรองราคา รูปแบบเดียวกัน
       "history": [               // ประวัติการแก้ไข (เก่า → ใหม่) · ปิดด้วย ?history=0
         {
           "action": "create",    // create | update | delete
@@ -131,7 +155,7 @@ console.log(data.count, data.items)`}</CodeBlock>
     }
   ]
 }`}</CodeBlock>
-          <p className="text-[#9AA8A0]">หมายเหตุ: ไม่รวมรูปภาพ (images) เพื่อให้ payload เล็กและเร็ว · ความคิดเห็นส่งเฉพาะชื่อผู้เขียน (<code>by</code>) ไม่ส่งอีเมล · ถ้าไม่ส่ง <code>vehicle</code> จะได้ <code>400</code> พร้อมข้อความอธิบาย</p>
+          <p className="text-[#9AA8A0]">หมายเหตุ: ไฟล์ทุกชุดส่งเป็นลิงก์สาธารณะ เปิด/ดาวน์โหลดได้ตรง ๆ ไม่ต้อง login · เช็ค <code>fileType</code> ก่อนแสดง (รูป = <code>webpUrl</code>/<code>thumbnailUrl</code>, PDF = <code>webpUrl</code> ชี้ไฟล์ PDF) · ไม่มีไฟล์ = <code>[]</code> · ความคิดเห็นส่งเฉพาะชื่อผู้เขียน (<code>by</code>) ไม่ส่งอีเมล · ถ้าไม่ส่ง <code>vehicle</code> จะได้ <code>400</code> พร้อมข้อความอธิบาย</p>
           <p className="text-[#9AA8A0]">
             🕒 <b className="text-[#37473E] dark:text-gray-200">เขตเวลา:</b> ทุก field ที่เป็นวัน-เวลา (<code>createdAt</code>, <code>updatedAt</code>, <code>statusSinceAt</code>, <code>history[].at</code>, <code>comments[].at</code>, <code>comments[].editedAt</code>)
             ส่งออกเป็น<b>เวลาไทย</b> รูปแบบ ISO 8601 พร้อม offset <code>+07:00</code> — นำไปแสดงผลได้ตรง ๆ และ parse ได้ทุกภาษา ส่วน field ที่เป็นวันที่ล้วน (<code>receivedDate</code>, <code>dueDate</code> ฯลฯ) เป็นวันไทยอยู่แล้วในรูปแบบ <code>YYYY-MM-DD</code>

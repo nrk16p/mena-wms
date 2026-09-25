@@ -11,6 +11,15 @@ const COLL = "repair_external"
 const COMMENT_COLL = "repair_external_comment"
 // field เวลาที่ต้องแปลงเป็นเวลาไทยก่อนส่งออก
 const TIME_FIELDS = ["createdAt", "updatedAt", "statusSinceAt", "lastCheckedAt"]
+// field ไฟล์ (รูป/PDF) ที่ส่งออก — images = ไฟล์แนบของงาน · quotationImages = ใบเสนอราคา · negotiationImages = หลักฐานต่อรองราคา
+const FILE_FIELDS = ["images", "quotationImages", "negotiationImages"] as const
+
+// เติม fileType ให้ปลายทางรู้ว่าเปิดเป็นรูปหรือ PDF (PDF อัปโหลดตรงเข้า Spaces ด้วย batchId "doc")
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function withFileType(arr: unknown): any[] {
+  if (!Array.isArray(arr)) return []
+  return arr.filter(Boolean).map((f) => ({ ...f, fileType: f.batchId === "doc" ? "pdf" : "image" }))
+}
 
 // กัน regex พิเศษจาก input ภายนอก (endpoint นี้เปิด public)
 function escapeRegex(s: string) {
@@ -41,8 +50,9 @@ export async function GET(req: NextRequest) {
   // เอกสารเก่าไม่มี jobType = อู่นอก
   if (type === JOB_TYPE_PARTS)       base.jobType = JOB_TYPE_PARTS
   else if (type === JOB_TYPE_GARAGE) base.jobType = { $ne: JOB_TYPE_PARTS }
-  // ตัด field รูปภาพออก — payload ใหญ่และไม่จำเป็นสำหรับการ sync สถานะ
-  const projection = { images: 0, negotiationImages: 0 }
+  // ไฟล์แนบ/ใบเสนอราคาส่งเป็นลิงก์ (ไม่ใช่ตัวไฟล์) · ปิดได้ด้วย ?files=0 ถ้าต้องการ payload เบา
+  const withFiles  = searchParams.get("files") !== "0"
+  const projection = withFiles ? {} : Object.fromEntries(FILE_FIELDS.map((f) => [f, 0]))
   const sort = { receivedDate: -1 as const, _id: -1 as const }
 
   const client = await clientPromise
@@ -114,6 +124,7 @@ export async function GET(req: NextRequest) {
   // เวลาทั้งหมดที่ส่งออกเป็นเวลาไทย (+07:00) — เดิมเป็น UTC (…Z) อ่านแล้วสับสน
   out = out.map((i) => ({
     ...bkkTimestamps(i, TIME_FIELDS),
+    ...(withFiles ? Object.fromEntries(FILE_FIELDS.map((f) => [f, withFileType(i[f])])) : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ...(i.history ? { history: i.history.map((h: any) => bkkTimestamps(h, ["at"])) } : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
