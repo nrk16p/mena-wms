@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { runBranchSync, BRANCH_IDS, AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
 import { rebuildTireDistance } from "@/lib/tire-distance"
+import { autoResolveTireRequests } from "@/lib/tire-request-auto"
 import clientPromise from "@/lib/mongo"
 
 const DB       = process.env.MONGO_DB ?? "master_data"
@@ -72,5 +73,19 @@ export async function GET(req: NextRequest) {
   // (ไม่แยก cron ใหม่ เพราะต้องรันหลัง sync เสมอ ถ้าแยกแล้วจับเวลาพลาดจะได้ข้อมูลรอบเก่า)
   const distance = await rebuildTireDistance()
 
-  return NextResponse.json({ ok: allOk, results, distance })
+  // ปิด/ปฏิเสธคำขอเปลี่ยนยางอัตโนมัติ ต่อท้ายในรอบเดียวกัน — ต้องรันหลัง sync เสมอเหมือนกัน
+  // ปิดงานได้ทุกสาขา (แค่ตรวจ tire_change ที่มีอยู่) แต่ปฏิเสธอัตโนมัติทำเฉพาะสาขาที่ sync
+  // สำเร็จรอบนี้เท่านั้น — กัน sync ล้มเหลว/ข้อมูลเก่าทำให้ auto-close มองไม่เห็นเส้นที่เปลี่ยนจริง
+  // แล้วดันไปปฏิเสธเส้นนั้นซ้ำ ครอบด้วย try/catch กันพลาดแล้วทำให้ response ของ cron หลักพัง
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let autoResolve: any = null
+  try {
+    const okBranches = results.filter((r) => r.ok).map((r) => r.branch)
+    const full = await autoResolveTireRequests({ rejectBranches: okBranches })
+    autoResolve = { ...full, details: full.details.slice(0, 50) }
+  } catch (err) {
+    autoResolve = { error: err instanceof Error ? err.message : String(err) }
+  }
+
+  return NextResponse.json({ ok: allOk, results, distance, autoResolve })
 }

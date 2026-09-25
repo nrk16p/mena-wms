@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { runBranchSync, BRANCH_IDS, AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
+import { autoResolveTireRequests } from "@/lib/tire-request-auto"
 
 // POST /api/tire-change/sync — { branch: "latkrabang" | "saraburi", phpsessid? }
 export async function POST(request: NextRequest) {
@@ -12,7 +13,19 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await runBranchSync(branch, phpsessid)
-    return NextResponse.json(result)
+
+    // sync สาขานี้สำเร็จแล้ว — ปิด/ปฏิเสธคำขอเปลี่ยนยางอัตโนมัติต่อเลยเฉพาะสาขานี้
+    // (เหมือน cron/tire-sync แต่ขอบเขตแค่สาขาที่เพิ่ง sync) ครอบ try/catch กันพลาดแล้วทำให้
+    // response การ sync หลักพัง — sync สำเร็จแล้วต้องคืนผลให้ผู้ใช้ได้ แม้ auto-resolve ล้ม
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let autoResolve: any = null
+    try {
+      autoResolve = await autoResolveTireRequests({ branches: [branch], rejectBranches: [branch] })
+    } catch (err) {
+      autoResolve = { error: err instanceof Error ? err.message : String(err) }
+    }
+
+    return NextResponse.json({ ...result, autoResolve })
   } catch (err) {
     if (err instanceof AtmsSessionError)
       return NextResponse.json({ error: "Session expired — วาง PHPSESSID ใหม่แล้วลองอีกครั้ง" }, { status: 401 })

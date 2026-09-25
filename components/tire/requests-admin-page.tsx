@@ -35,6 +35,12 @@ type RequestItem = {
   jobNo?:         string
   rejectedBy?:    string
   rejectReason?:  string
+  doneBy?:        string
+  // ปิดงาน/ปฏิเสธอัตโนมัติ (ดู lib/tire-request-auto.ts) — ไม่มีคนกดเอง
+  autoClosed?:    boolean
+  autoRejected?:  boolean
+  atmsChangeIn?:  string
+  atmsJobNo?:     string
 }
 
 type TireRequest = {
@@ -602,6 +608,18 @@ export function TireRequestsAdminPage({ branch, branchLabel }: { branch: string;
                                           title={it.rejectReason ? `เหตุผล: ${it.rejectReason}` : undefined}>
                                           {it.status ?? "pending"}
                                         </span>
+                                        {/* ปิดงาน/ปฏิเสธโดยระบบ (auto-close จาก ATMS / auto-reject ค้างเกิน 30 วัน) —
+                                            ไม่ใช่คนกด ต้องบอกให้ชัดกันสับสนว่าทำไมยางเส้นนี้ขยับสถานะเอง */}
+                                        {it.autoClosed && (
+                                          <div className="mt-1 text-[10px] text-blue-500 dark:text-blue-400" title={it.atmsChangeIn ? `ATMS เปลี่ยนเข้า ${fmtDate(it.atmsChangeIn)}` : undefined}>
+                                            ปิดอัตโนมัติ (ATMS){it.atmsJobNo ? ` · ${it.atmsJobNo}` : ""}
+                                          </div>
+                                        )}
+                                        {it.autoRejected && (
+                                          <div className="mt-1 text-[10px] text-red-400" title={it.rejectReason}>
+                                            ปฏิเสธอัตโนมัติ (ค้างเกิน 30 วัน)
+                                          </div>
+                                        )}
                                         {it.jobNo && (
                                           <div className="mt-1 text-[10px] text-gray-400">Job: <span className="font-mono font-medium text-gray-600 dark:text-gray-300">{it.jobNo}</span></div>
                                         )}
