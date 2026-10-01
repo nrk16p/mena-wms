@@ -46,8 +46,9 @@ export async function GET(req: NextRequest) {
     : []
   const poCodes = [...new Set([...poByVehicle, ...poFromPr].map((x) => s(x["รหัส"])).filter(Boolean))]
 
+  // ไม่ค้นเลข PO ตรง ๆ (ผู้ใช้สั่ง 01/10/2026) — poCodes ข้างล่างมาจากทะเบียน/หมายเหตุ PR ไม่ใช่คำค้นเลข PO
   const or: Record<string, unknown>[] = [
-    { deposit_code: rx }, { purchase_order: rx }, { supplier_ref_no: rx }, { supplier: rx },
+    { deposit_code: rx }, { supplier_ref_no: rx }, { supplier: rx },
   ]
   if (docNoCodes.length) or.push({ deposit_code: { $in: docNoCodes } })
   if (poCodes.length) or.push({ purchase_order: { $in: poCodes } })

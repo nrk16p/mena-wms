@@ -45,8 +45,9 @@ const moveStatusBucket = (sm: ApSummary | null, from: ApStatus, to: ApStatus, am
 
 // ค้นหาให้ครอบคลุมเท่าฝั่ง API (เลขบิลซัพพลายเออร์ + เลขที่เอกสารทั้ง 4 ช่อง)
 // ไม่งั้นค้นด้วยเลขใบวางบิลแล้วยอดสรุปกับตารางจะกรองคนละชุด
+// ไม่ค้นเลข PO (ผู้ใช้สั่ง 01/10/2026) — ต้องตัดตรงกันทั้ง API route + /search
 const matchQ = (r: ApRow, rx: RegExp) =>
-  rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
+  rx.test(r.depositCode) || rx.test(r.supplier)
   || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos))
   || rx.test(r.vehicle ?? "") || rx.test(r.prNote ?? "")
   || rx.test((r.paid?.paymentNos ?? []).join(" "))

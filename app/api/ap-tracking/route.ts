@@ -299,7 +299,8 @@ export async function GET(req: NextRequest) {
     // — ยอดสรุปต้องคิดจาก "ชุดเดียวกับที่ผู้ใช้กำลังมอง" ไม่งั้นตัวเลขบนแถบสรุปขัดกับตารางข้างล่าง
     if (q) {
       const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
-      rows = rows.filter((r) => rx.test(r.depositCode) || rx.test(r.purchaseOrder) || rx.test(r.supplier)
+      // ไม่ค้นเลข PO (ผู้ใช้สั่ง 01/10/2026) — ตรงกับ matchQ ฝั่งหน้า
+      rows = rows.filter((r) => rx.test(r.depositCode) || rx.test(r.supplier)
         || rx.test(r.supplierRefNo) || rx.test(docNosText(r.docNos))
         || rx.test(r.vehicle ?? "") || rx.test(r.prNote ?? "")
         || rx.test((r.paid?.paymentNos ?? []).join(" ")))

@@ -140,7 +140,7 @@ export function ApHeader({
           {!ddView && (
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-            <input value={q} onChange={(e) => onQ(e.target.value)} placeholder="ค้นหา DD / PO / เจ้าหนี้ / เลขเอกสาร"
+            <input value={q} onChange={(e) => onQ(e.target.value)} placeholder="ค้นหา DD / เจ้าหนี้ / เลขเอกสาร"
               className="w-60 rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm dark:border-white/10 dark:bg-white/5" />
             {/* ผลค้นข้ามเดือน — เดือนนี้ไม่เจอแต่ฐานมี · กดรายการ = สลับเดือน + คงคำค้นไว้กรองต่อ */}
             {crossHits !== null && (
