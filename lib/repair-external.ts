@@ -717,7 +717,7 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
 /* ── รอราคา แยกผู้รับผิดชอบฝั่งจัดซื้อ → ฟลีท (ผู้ใช้ขอ 02/10/2569) ──────────────────
  * ชุดรถ = บรรทัด "รอราคา" ของรายงานประจำวัน (QUOTE_WAIT_STATUSES) ยอดรวมจึงตรงกับบรรทัดนั้นเสมอ
  * ส่งให้จัดซื้อไปตามใบเสนอราคา — คนรับผิดชอบดูจากฟลีท (buyerOfFleet) ไม่ได้เก็บในใบงาน
- * รายคัน: เบอร์รถ + วันคาดพ้นสถานะ (stageEta) + อาการย่อ (ผู้ใช้ขอเพิ่มวันเดียวกัน)
+ * รายคัน: เบอร์รถ + วันคาดเสนอราคาเสร็จ (stageEta ของขั้นนี้) + อาการย่อ (ผู้ใช้ขอเพิ่มวันเดียวกัน)
  */
 export type QuoteWaitCar = { unit: string; stageEta: string; symptom: string }
 export type QuoteWaitGroup = { buyer: string; count: number; fleets: { fleet: string; cars: QuoteWaitCar[] }[] }
@@ -772,16 +772,12 @@ export function groupQuoteWait(
   }))
 }
 
-/** "2026-10-05" → "5/10" · วันคาดอยู่ใกล้ ๆ วันนี้ ไม่ต้องพิมพ์ปีให้ยาว */
-const dayMonth = (ymd: string) => {
-  const [, m, d] = ymd.split("-").map(Number)
-  return m && d ? `${d}/${m}` : ymd
-}
-/** "คาด 5/10" · เลยมาแล้ว "คาด 28/9 ⚠️ เลย 4 วัน" · ไม่มี "ไม่ระบุวันคาด" */
+/** วันคาดของขั้นรอราคา = คาดว่าจะเสนอราคาเสร็จ (ผู้ใช้กำหนดคำ + ใส่ปี 02/10/2569)
+ *  "คาดเสนอราคาเสร็จ 5/10/2569" · เลยมาแล้วต่อ "⚠️ เลย 4 วัน" · ไม่มี "ไม่ระบุวันคาดเสนอราคาเสร็จ" */
 function etaText(eta: string, today: string): string {
-  if (!isPlausibleDate(eta)) return "ไม่ระบุวันคาด"
+  if (!isPlausibleDate(eta)) return "ไม่ระบุวันคาดเสนอราคาเสร็จ"
   const late = dayNum(today) - dayNum(eta)
-  return `คาด ${dayMonth(eta)}${late > 0 ? ` ⚠️ เลย ${late} วัน` : ""}`
+  return `คาดเสนอราคาเสร็จ ${thaiDateShort(eta)}${late > 0 ? ` ⚠️ เลย ${late} วัน` : ""}`
 }
 
 /** ข้อความส่งไลน์ "รอราคา" — ไม่ระบุ buyer = ทุกคน (แยกคน → ฟลีท) · ระบุ = เฉพาะคนนั้น (แยกฟลีท) */

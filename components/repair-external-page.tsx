@@ -1490,7 +1490,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       build: buildFollowUpText },
     { key: "quoteWait", emoji: "🔧", label: "รอราคา — จัดซื้อทุกคน", group: "รอราคา — แยกจัดซื้อ",
       meta: "แยกคุณเนส / คุณต่าย → ฟลีท",
-      hint: `รถ${QUOTE_WAIT_STATUSES.join(" + ")} จัดกลุ่มตามคนจัดซื้อ แล้วแยกฟลีท — รายคัน: เบอร์รถ · วันคาดพ้นสถานะ · อาการย่อ`,
+      hint: `รถ${QUOTE_WAIT_STATUSES.join(" + ")} จัดกลุ่มตามคนจัดซื้อ แล้วแยกฟลีท — รายคัน: เบอร์รถ · วันคาดเสนอราคาเสร็จ · อาการย่อ`,
       build: () => buildQuoteWait() },
     ...BUYERS.map((b) => ({
       key:   `quoteWait:${b}`,
@@ -1498,7 +1498,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       label: `รอราคา — คุณ${b}`,
       group: "รอราคา — แยกจัดซื้อ",
       meta:  BUYER_FLEET_HINT[b],
-      hint:  `รถรอราคาของคุณ${b} แยกฟลีท — รายคัน: เบอร์รถ · วันคาดพ้นสถานะ · อาการย่อ`,
+      hint:  `รถรอราคาของคุณ${b} แยกฟลีท — รายคัน: เบอร์รถ · วันคาดเสนอราคาเสร็จ · อาการย่อ`,
       build: () => buildQuoteWait(b),
     })),
     ...(stats.noPrByOwner ?? []).map((g) => ({
