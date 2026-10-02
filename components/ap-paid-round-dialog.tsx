@@ -5,7 +5,7 @@
 //
 // ไฟล์ถูกอ่านในเบราว์เซอร์ ไม่อัปโหลดขึ้นเซิร์ฟเวอร์ — ส่งไปเฉพาะเลขใบ/ยอด/เลขตั้งหนี้
 // พรีวิวมาจาก API ตัวเดียวกับตอนเขียนจริง (dryRun) จึงไม่มีทางที่พรีวิวกับผลจริงคิดคนละสูตร
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { FileSpreadsheet, Upload, X } from "lucide-react"
 import { swalToast } from "@/lib/swal"
 import { parseApRoundSheet, type ApRoundSheet } from "@/lib/ap-round-import"
@@ -36,7 +36,9 @@ const ACTION_META: Record<RoundResult["action"], { label: string; cls: string }>
   skip:  { label: "ข้าม",             cls: "text-amber-700 dark:text-amber-300" },
 }
 
-export function ApPaidRoundDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+// initialFile — ปุ่ม "นำเข้าการจ่าย" เปิดไดอะล็อกรายงานจ่ายชำระก่อนเสมอ ถ้าไฟล์ที่เลือกเป็นใบปะหน้ารอบโอน
+// (ไม่มีหัวคอลัมน์ของรายงานจ่ายชำระ) จะส่งไฟล์เดิมมาที่นี่ให้อ่านต่อทันที ผู้ใช้ไม่ต้องเลือกไฟล์ซ้ำ
+export function ApPaidRoundDialog({ onClose, onDone, initialFile }: { onClose: () => void; onDone: () => void; initialFile?: File }) {
   const [fileName, setFileName]   = useState("")
   const [sheet, setSheet]         = useState<ApRoundSheet | null>(null)
   const [roundDate, setRoundDate] = useState("")
@@ -67,6 +69,14 @@ export function ApPaidRoundDialog({ onClose, onDone }: { onClose: () => void; on
       setBusy(false)
     }
   }
+
+  // อ่านไฟล์ที่ส่งต่อมาครั้งเดียวตอนเปิด — ใส่ใน timeout ไม่ setState แบบ synchronous ใน effect (กติกา lint ของรีโป)
+  useEffect(() => {
+    if (!initialFile) return
+    const t = setTimeout(() => void pickFile(initialFile), 0)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFile])
 
   const send = async (dryRun: boolean) => {
     if (!sheet || !roundDate || busy) return

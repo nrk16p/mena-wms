@@ -18,7 +18,9 @@ import { AP_FLAT_WIDTHS, apFlatRow } from "@/components/ap-export"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
 import { ApPaidRoundDialog } from "@/components/ap-paid-round-dialog"
-import { canImportPayment } from "@/lib/roles"
+import { ApPaymentImportDialog } from "@/components/ap-payment-import-dialog"
+import { ApVoucherImportDialog } from "@/components/ap-voucher-import-dialog"
+import { canImportPayment, isAccounting } from "@/lib/roles"
 import type { ApCoverRow, ApFinanceItem } from "@/lib/ap-tracking"
 import type { ApCrossHit, ApPay, ApRow, ApSummary, ApTab } from "@/components/ap-types"
 
@@ -114,6 +116,10 @@ export function ApTrackingPage() {
   const { data: session } = useSession()
   const canImportPaid = canImportPayment(session?.user?.email, session?.user?.employee?.department)
   const [paidRoundOpen, setPaidRoundOpen] = useState(false)
+  // ไฟล์ใบปะหน้ารอบโอนแบบเดิมที่เลือกจากปุ่มนำเข้าการจ่าย → เปิดไดอะล็อกเดิมพร้อมไฟล์นั้น
+  const [roundFile, setRoundFile] = useState<File | null>(null)
+  const [voucherOpen, setVoucherOpen] = useState(false)
+  const canImportVoucher = isAccounting(session?.user?.email, session?.user?.employee?.department)
   const [rows, setRows]       = useState<ApRow[]>([])
   const [summary, setSummary] = useState<ApSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -594,6 +600,7 @@ export function ApTrackingPage() {
         canPull={month === thisMonth()}
         pulling={pulling} pullProgress={pullProgress} onPull={pullAtms}
         canImportPaid={canImportPaid} onImportPaid={() => setPaidRoundOpen(true)}
+        canImportVoucher={canImportVoucher} onImportVoucher={() => setVoucherOpen(true)}
         crossHits={crossHits} onGotoHit={gotoHit}
         payTypeFilter={payTypeFilter} onPayTypeFilter={(v) => applyFilter(() => setPayTypeFilter(v))}
         passedFrom={passedFrom} passedTo={passedTo}
@@ -693,8 +700,13 @@ export function ApTrackingPage() {
       {sentFor && <SendDialog row={sentFor} onClose={() => setSentFor(null)} onSent={setSent} />}
       {financeItems && <ApFinanceRequestDialog items={financeItems} onClose={() => setFinanceItems(null)} />}
       {/* นำเข้าไฟล์รอบโอนของการเงิน — บันทึกเสร็จโหลดตารางใหม่ ใบที่เพิ่งจ่ายจะย้ายไปแท็บ "จ่ายแล้ว" เอง */}
+      {voucherOpen && <ApVoucherImportDialog onClose={() => setVoucherOpen(false)} onDone={() => { void load() }} />}
       {paidRoundOpen && (
-        <ApPaidRoundDialog onClose={() => setPaidRoundOpen(false)} onDone={() => { void load() }} />
+        <ApPaymentImportDialog onClose={() => setPaidRoundOpen(false)} onDone={() => { void load() }}
+          onRoundFile={(f) => { setPaidRoundOpen(false); setRoundFile(f) }} />
+      )}
+      {roundFile && (
+        <ApPaidRoundDialog initialFile={roundFile} onClose={() => setRoundFile(null)} onDone={() => { void load() }} />
       )}
       {/* key = เลขใบ · เปลี่ยนใบแล้ว component เกิดใหม่ ทำให้ draft เริ่มจากใบใหม่เสมอ */}
       {detailFor && (

@@ -76,3 +76,22 @@ export function swalRejectInput(sku: string) {
     ...darkOpts(),
   })
 }
+
+/** กล่องกรอกข้อความ 1 ช่อง — required = บังคับกรอก (ปุ่มยืนยันไม่ผ่านถ้าว่าง) · คืน value เมื่อกดยืนยัน */
+export function swalTextInput(o: { title: string; html?: string; label: string; placeholder?: string; required?: boolean; confirmText: string; danger?: boolean }) {
+  return Swal.fire<string>({
+    title: o.title,
+    html: o.html,
+    input: "textarea",
+    inputLabel: o.label,
+    inputPlaceholder: o.placeholder,
+    inputAttributes: { rows: "3", maxlength: "500" },
+    inputValidator: o.required ? (v) => (String(v ?? "").trim() ? null : "กรุณาระบุ") : undefined,
+    showCancelButton: true,
+    confirmButtonText: o.confirmText,
+    confirmButtonColor: o.danger ? "#dc2626" : "#0284c7",
+    cancelButtonText: "ยกเลิก",
+    reverseButtons: true,
+    ...darkOpts(),
+  })
+}

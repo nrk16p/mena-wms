@@ -105,7 +105,17 @@ function ApDepositRow({
               <span className="font-medium text-teal-600 dark:text-teal-400"> · ✅ จ่ายแล้ว {thaiDate(r.paid!.date)}{r.paid!.paymentNos?.length ? ` · ${r.paid!.paymentNos.join(", ")}` : ""}</span>
             ) : r.pay?.payDate ? (
               <span className="text-emerald-600 dark:text-emerald-400"> · 💰 กำหนดจ่าย {thaiDate(r.pay.payDate)}</span>
+            ) : r.review?.status === "ผ่าน" ? (
+              // ผ่านมาจากนำเข้าการตั้งเบิก — นำเข้าไม่คิดวันจ่าย บัญชีต้องเปิดใบมากำหนดเอง (ผู้ใช้สั่ง 01/10/2026)
+              <span className="font-medium text-amber-600 dark:text-amber-400"> · ⚠️ ยังไม่กำหนดวันจ่าย</span>
             ) : ""}
+            {r.paid?.beforePass && (
+              <span className="ml-1 rounded bg-amber-100 px-1.5 py-px font-semibold text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                title="การเงินจ่ายก่อนบัญชีกดผ่านในระบบ (จากนำเข้ารายงานจ่ายชำระ)">จ่ายก่อนผ่าน</span>
+            )}
+            {r.nextRound && !r.review?.status && (
+              <span className="text-sky-600 dark:text-sky-400" title={`${r.nextRound.note ? `${r.nextRound.note} · ` : ""}โดย ${r.nextRound.by}`}> · ⏳ บัญชี: รอรอบเครดิตถัดไป</span>
+            )}
           </div>
         ) : null}
         {/* หมายเหตุจาก PR (เลขใบแจ้งซ่อม/ทะเบียน/ช่าง) — ตัวเต็มอ่านได้จาก tooltip */}

@@ -40,6 +40,7 @@ export function ApHeader({
   sentView, sentFrom, sentTo, onSentRange, groupSent, onGroupSent, sentDays, today, crossMonth,
   canPull, pulling, pullProgress, onPull,
   canImportPaid, onImportPaid,
+  canImportVoucher, onImportVoucher,
   crossHits, onGotoHit,
   viewBy, onViewBy,
   payTypeFilter, onPayTypeFilter, onExport, exportSelected,
@@ -78,6 +79,9 @@ export function ApHeader({
   // ปุ่มนำเข้าการจ่ายจากไฟล์รอบโอนของการเงิน — เห็นเฉพาะฝ่ายการเงิน/บัญชี (เซิร์ฟเวอร์ตรวจสิทธิ์ซ้ำอีกชั้น)
   canImportPaid: boolean
   onImportPaid: () => void
+  // นำเข้าการตั้งเบิกจากรายงานตั้งเจ้าหนี้ — เห็นเฉพาะฝ่ายบัญชี (API ตรวจซ้ำ)
+  canImportVoucher: boolean
+  onImportVoucher: () => void
   // ผลค้นข้ามเดือน (โผล่เมื่อเดือนที่เปิดอยู่หาไม่เจอ) — กดแล้วกระโดดไปเดือนของใบนั้น
   crossHits: ApCrossHit[] | null
   onGotoHit: (hit: ApCrossHit) => void
@@ -177,12 +181,22 @@ export function ApHeader({
               {pulling ? `กำลังดึง ${Math.round(pullProgress)}%` : "ดึงข้อมูล ATMS"}
             </button>
           )}
-          {/* การเงินยืนยัน "จ่ายแล้ว" ด้วยไฟล์รอบโอน — จับคู่ด้วยเลข DD จึงข้ามเดือนได้ ไม่ยึดเดือนที่เปิดอยู่ */}
+          {/* ลำดับตามขั้นงาน: บัญชีตั้งเบิกก่อน (ส่งบัญชีแล้ว → ผ่าน) แล้วการเงินจ่าย (ผ่าน → จ่ายแล้ว) — ผู้ใช้สั่ง 02/10/2026
+              ป้ายฝ่ายบนปุ่มบอกว่าใครเป็นคนนำเข้า · จับคู่ด้วยเลข DD ข้ามทุกเดือน ไม่ยึดเดือนที่เปิดอยู่ */}
+          {canImportVoucher && (
+            <button onClick={onImportVoucher}
+              title="บัญชี: อัปโหลดรายงานตั้งเจ้าหนี้ — ใบที่ส่งบัญชีแล้วและพบในไฟล์ จะผ่าน + เติมเลข Voucher"
+              className="flex items-center gap-1.5 rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700/60 dark:text-emerald-300 dark:hover:bg-emerald-900/20">
+              <Upload className="h-4 w-4" />นำเข้าการตั้งเบิก
+              <span className="rounded bg-emerald-100 px-1.5 py-px text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">บัญชี</span>
+            </button>
+          )}
           {canImportPaid && (
             <button onClick={onImportPaid}
-              title="อัปโหลดไฟล์รอบโอนของการเงิน เพื่อยืนยันว่าใบไหนจ่ายเงินแล้ว (จับคู่ด้วยเลข DD ข้ามทุกเดือน)"
+              title="การเงิน: อัปโหลดรายงานจ่ายชำระเจ้าหนี้ — ใบที่ผ่านแล้วและพบในไฟล์ จะเป็นจ่ายแล้ว + เลข PV + วันจ่าย"
               className="flex items-center gap-1.5 rounded-lg border border-teal-300 px-3 py-1.5 text-sm text-teal-700 hover:bg-teal-50 dark:border-teal-700/60 dark:text-teal-300 dark:hover:bg-teal-900/20">
               <Upload className="h-4 w-4" />นำเข้าการจ่าย
+              <span className="rounded bg-teal-100 px-1.5 py-px text-[10px] font-semibold text-teal-800 dark:bg-teal-900/40 dark:text-teal-200">การเงิน</span>
             </button>
           )}
           <button onClick={onRefresh} aria-label="รีเฟรช" title="โหลดตารางใหม่จากข้อมูลที่มีอยู่"

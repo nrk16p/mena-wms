@@ -271,6 +271,8 @@ export async function GET(req: NextRequest) {
         ...(t?.pay ? { pay: t.pay } : {}),
         // หลักฐานจ่ายจริงจากการเงิน (เลข PV/วันจ่าย) — ตัวกำหนดขั้น "จ่ายแล้ว"
         ...(t?.paid ? { paid: t.paid as { paymentNos?: string[] } } : {}),
+        // ป้าย "รอรอบเครดิตถัดไป" (คำตอบของบัญชีจากนำเข้าการตั้งเบิก) — มีเฉพาะใบที่ตอบไว้
+        ...(t?.nextRound ? { nextRound: t.nextRound as { note: string; by: string; at: string } } : {}),
         note:        s(t?.note),
         status:      apStatusOf(docs, sentDate),
         // "ค้างยกมา" = ใบของเดือนอื่นที่โผล่มาในเดือนที่เปิดอยู่ — ไม่มีความหมายในโหมดช่วงวันที่กดส่ง

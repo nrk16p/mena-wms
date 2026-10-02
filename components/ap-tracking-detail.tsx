@@ -141,7 +141,8 @@ export function ApTrackingDetail({
   )
   // กล่องยืนยันตอนกดผ่าน — null = ไม่เปิด · เปิดพร้อมค่าตั้งต้น: คำขอจากจัดซื้อ + เทอมจาก master
   // manualDate = วันจ่ายที่บัญชีเลือกเองจากปฏิทิน ("" = ใช้วันที่ระบบคิด) — ได้ทุกแบบ (ผู้ใช้ขอ 22/09/2026)
-  const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string; manualDate: string } | null>(null)
+  // mode "setPay" = กำหนดวันจ่ายให้ใบที่ผ่านแล้วแต่ยังไม่มีกำหนดจ่าย (ผ่านมาจากนำเข้าการตั้งเบิก) — กล่องเดียวกัน
+  const [passConfirm, setPassConfirm] = useState<{ payType: ApPayType; creditTerm: string; payDate: string; manualDate: string; mode?: "setPay" } | null>(null)
   const payPickRef = useRef<HTMLInputElement>(null)
   const [financeOpen, setFinanceOpen] = useState(false)    // กล่องแจ้งการเงินขอนอกรอบ (ใบนี้ใบเดียว)
   const [resubmitNote, setResubmitNote] = useState("")     // สิ่งที่แก้ ก่อนส่งตรวจใหม่ (ลงประวัติ)
@@ -299,6 +300,46 @@ export function ApTrackingDetail({
       return
     }
     save()
+  }
+
+  const openSetPay = () => {
+    setPassConfirm({
+      payType: (AP_PAY_TYPES as string[]).includes(sent.type) ? (sent.type as ApPayType) : "ตามรอบ",
+      creditTerm: row.creditTerm ?? "",
+      payDate: payThursdayChoices(todayICT()).def,
+      manualDate: "",
+      mode: "setPay",
+    })
+  }
+
+  // กำหนดวันจ่ายทีหลัง — ยิงแยกจาก save() เพราะไม่ใช่การแก้ draft (ใบผ่านแล้ว ไม่มีอะไรค้างให้บันทึก)
+  const setPayNow = async (o: { payType: ApPayType; creditTerm: string; payDate: string; manualDate?: string }) => {
+    if (saving) return
+    setSaving(true)
+    try {
+      const body: Record<string, unknown> = { setPay: true, payType: o.payType }
+      if (o.creditTerm && o.creditTerm !== (row.creditTerm ?? "")) body.payCreditTerm = o.creditTerm
+      if (o.payType === "นอกรอบ" && o.payDate) body.payDate = o.payDate
+      if (o.manualDate) body.payDateManual = o.manualDate
+      const res = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
+      const payOut = (d.pay ?? null) as ApPay | null
+      setSavedPay(payOut); setPassConfirm(null)
+      onSaved(row.depositCode, {
+        docs: d.docs as ApDocs, status: d.status as ApStatus, sentType: (d.sentType ?? "") as ApSentType, sentDate: String(d.sentDate ?? ""),
+        note: String(d.note ?? ""), review: { status: d.review?.status ?? "", note: d.review?.note ?? "" }, pay: payOut,
+      })
+      loadDetail(row.depositCode, () => true)
+      swalToast("success", "กำหนดวันจ่ายแล้ว")
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : ""
+      swalError(msg ? `บันทึกไม่สำเร็จ: ${msg}` : "บันทึกไม่สำเร็จ")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const save = async (passOpts?: { payType: ApPayType; creditTerm: string; payDate: string; manualDate?: string }) => {
@@ -878,6 +919,30 @@ export function ApTrackingDetail({
                   </div>
                 )}
 
+                {/* ผ่านแล้วแต่ยังไม่มีกำหนดจ่าย — ผ่านมาจากนำเข้าการตั้งเบิก (นำเข้าไม่คิดวันจ่าย · ผู้ใช้สั่ง 01/10/2026) */}
+                {!savedPay && savedReview.status === "ผ่าน" && !row.paid?.date && !row.paid?.paymentNos?.length && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                    <span>⚠️ ผ่านแล้ว แต่ยังไม่กำหนดวันจ่าย</span>
+                    {canReview && (
+                      <button onClick={openSetPay} disabled={saving}
+                        className="ml-auto rounded-lg bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50">
+                        📅 กำหนดวันจ่าย
+                      </button>
+                    )}
+                  </div>
+                )}
+                {row.nextRound && !savedReview.status && (
+                  <div className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-900/20 dark:text-sky-300">
+                    ⏳ บัญชีตอบ: <b>รอรอบเครดิตถัดไป</b>{row.nextRound.note ? ` · ${row.nextRound.note}` : ""}
+                    <span className="text-sky-500"> · โดย {row.nextRound.by}</span>
+                  </div>
+                )}
+                {row.paid?.beforePass && (
+                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                    ⚠️ <b>จ่ายก่อนผ่าน</b> — การเงินจ่ายใบนี้ก่อนบัญชีกดผ่านในระบบ (จากนำเข้ารายงานจ่ายชำระ)
+                  </div>
+                )}
+
                 {/* กำหนดจ่ายที่ยืนยันไว้ตอนกดผ่าน — โชว์ค้างไว้ให้ทุกคนเห็นว่าเงินจะออกวันไหน */}
                 {savedPay && savedReview.status === "ผ่าน" && (
                   <div className="space-y-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
@@ -988,7 +1053,7 @@ export function ApTrackingDetail({
               onClick={() => setPassConfirm(null)}>
               <div className="w-full max-w-sm space-y-3 rounded-2xl border border-gray-200/80 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#161a23]"
                 onClick={(e) => e.stopPropagation()}>
-                <div className="font-bold" style={mitr}>✅ ยืนยันผ่าน · {row.depositCode}</div>
+                <div className="font-bold" style={mitr}>{passConfirm.mode === "setPay" ? "📅 กำหนดวันจ่าย" : "✅ ยืนยันผ่าน"} · {row.depositCode}</div>
                 <div className="text-xs text-gray-500">{row.supplier} · <span className={NUM}>{baht(row.amount)}</span> บาท</div>
 
                 <div className="flex gap-2">
@@ -1040,7 +1105,7 @@ export function ApTrackingDetail({
                   {preview ? (
                     <div className="space-y-0.5 text-xs">
                       {preview.type === "ตามรอบ" && preview.cutoff && (
-                        <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b> <span className="text-gray-400">(จากวันกดผ่านวันนี้)</span></div>
+                        <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b> <span className="text-gray-400">{passConfirm.mode === "setPay" ? "(คิดจากวันนี้)" : "(จากวันกดผ่านวันนี้)"}</span></div>
                       )}
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-emerald-700 dark:text-emerald-400">
                         <span>
@@ -1088,9 +1153,13 @@ export function ApTrackingDetail({
                     ยกเลิก
                   </button>
                   <button disabled={!preview || saving || manualTooEarly}
-                    onClick={() => save({ payType: passConfirm.payType, creditTerm: passConfirm.creditTerm, payDate: passConfirm.payDate || thuChoices.def, manualDate: manual ? passConfirm.manualDate : "" })}
+                    onClick={() => {
+                      const o = { payType: passConfirm.payType, creditTerm: passConfirm.creditTerm, payDate: passConfirm.payDate || thuChoices.def, manualDate: manual ? passConfirm.manualDate : "" }
+                      if (passConfirm.mode === "setPay") void setPayNow(o)
+                      else void save(o)
+                    }}
                     className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40">
-                    {saving ? "กำลังบันทึก…" : "ยืนยันผ่าน"}
+                    {saving ? "กำลังบันทึก…" : passConfirm.mode === "setPay" ? "ยืนยันวันจ่าย" : "ยืนยันผ่าน"}
                   </button>
                 </div>
               </div>

@@ -75,6 +75,93 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
   })
 }
 
+// ── คิดกำหนดจ่ายตอน "ผ่าน" ──────────────────────────────────────────────────────
+// ใช้ 2 ที่: กดผ่าน (review → ผ่าน) และ "กำหนดวันจ่าย" ของใบที่ผ่านแล้วแต่ยังไม่มีกำหนดจ่าย
+// (ใบที่ผ่านมาจากนำเข้าการตั้งเบิก — ผู้ใช้สั่ง 01/10/2026 ว่านำเข้าไม่คิดวันจ่าย ให้บัญชีกำหนดทีหลัง)
+// คืน NextResponse = ข้อผิดพลาดที่ต้องตอบกลับทันที · คืน { pay, log } = พร้อมเขียน
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function payOnPass(o: { client: Awaited<typeof clientPromise>; depositCode: string; current: Record<string, any> | null; body: any; by: string; byEmail: string; at: string }):
+  Promise<NextResponse | { pay: Record<string, unknown>; log: Record<string, string>[] }> {
+  const { client, depositCode, current, body, by, byEmail, at } = o
+  const log: Record<string, string>[] = []
+  const payType = s(body.payType) as ApPayType
+  if (!AP_PAY_TYPES.includes(payType)) {
+    return NextResponse.json({ error: "ต้องยืนยันประเภทการจ่าย (ตามรอบ หรือ นอกรอบ) ตอนกดผ่าน" }, { status: 400 })
+  }
+  // เครดิตเทอม: ใช้ที่ส่งมาก่อน (กรอกในกล่องยืนยันได้ — จะถูกบันทึกกลับเข้า master ด้วย)
+  // ไม่ส่งมาก็ถอยไปอ่านจาก ap_supplier ของซัพพลายเออร์ใบนี้
+  let creditTerm = s(body.payCreditTerm)
+  if (creditTerm && !(CREDIT_TERMS as readonly string[]).includes(creditTerm)) {
+    return NextResponse.json({ error: `เครดิตเทอมไม่ถูกต้อง: ${creditTerm}` }, { status: 400 })
+  }
+  const head = await client.db("atms").collection("deposit_header")
+    .findOne({ deposit_code: depositCode }, { projection: { _id: 0, supplier: 1, purchase_order: 1 } })
+  const supplier = s(head?.supplier)
+  const md = writeDb(client)
+  if (payType === "ตามรอบ" && !creditTerm && supplier) {
+    // ลำดับเดียวกับตาราง (/api/ap-tracking) — override > "ap term" บน PO ของใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
+    // ถ้าใช้คนละลำดับ วันครบกำหนดในกล่องยืนยันจะไม่ตรงกับที่คนเห็นในตาราง
+    const [sup, po] = await Promise.all([
+      md.collection("ap_supplier").findOne({ name: supplier }, { projection: { _id: 0, creditTerm: 1, override: 1, atmsTerm: 1 } }),
+      s(head?.purchase_order)
+        ? client.db("atms").collection("purchase_orders")
+            .findOne({ "รหัส": s(head?.purchase_order) }, { projection: { _id: 0, "ap term": 1 } })
+        : null,
+    ])
+    creditTerm = resolveCreditTerm(
+      s(sup?.override), s(po?.["ap term"]), s(sup?.atmsTerm) || s(sup?.creditTerm),
+    ).creditTerm
+  }
+  // นอกรอบเลือกวันโอนได้ (พฤหัสนี้ถ้ายังทันเส้นตายอังคาร / พฤหัสหน้า) — เซิร์ฟเวอร์
+  // ตรวจกับตัวเลือกที่คิดจากนาฬิกาตัวเองอีกชั้น ค่าที่หลุดมานอกตัวเลือกต้องไม่ผ่าน
+  const chosenPayDate = payType === "นอกรอบ" ? s(body.payDate) || undefined : undefined
+  // เครดิตสั้น (7D/15D) นับรอบพฤหัสจาก "วันส่งเอกสารเข้าบัญชี" — anchor คือ sentMarkedAt
+  // ซึ่งถูกตั้งใหม่ทุกครั้งที่จัดซื้อส่งตรวจใหม่หลังตีกลับ (= เริ่มรอบใหม่ตามกติกา)
+  const schedule = apPaySchedule(ictDate(at), payType, creditTerm, chosenPayDate, ictDate(s(current?.sentMarkedAt)))
+  if (!schedule) {
+    if (chosenPayDate) {
+      return NextResponse.json(
+        { error: "วันโอนที่เลือกไม่ทันรอบแล้ว (เส้นตายวันอังคาร) — เปิดกล่องยืนยันใหม่อีกครั้ง" },
+        { status: 409 },
+      )
+    }
+    // ตามรอบแต่ไม่มีเครดิตเทอมจากทั้งสองทาง — ห้ามเดา ให้กรอกมาในกล่องยืนยัน
+    return NextResponse.json(
+      { error: "คำนวณกำหนดจ่ายไม่ได้ — ซัพพลายเออร์ยังไม่มีเครดิตเทอม ระบุมาพร้อมการยืนยันผ่าน" },
+      { status: 409 },
+    )
+  }
+  // บัญชีเลือกวันจ่ายเองในปฏิทิน (ได้ทุกแบบ — ผู้ใช้ขอ 22/09/2026) ทับวันที่กติกาคิด
+  // ตรวจกับวันกดผ่านตามนาฬิกาเซิร์ฟเวอร์ · วันที่ระบบคิดเก็บคู่ไว้ที่ systemPayDate
+  const manualPayDate = s(body.payDateManual)
+  if (manualPayDate) {
+    const err = apManualPayDateError(manualPayDate, ictDate(at))
+    if (err) return NextResponse.json({ error: err }, { status: 400 })
+  }
+  const finalPay = applyManualPayDate(schedule, manualPayDate || undefined)
+  // เก็บทั้งผลลัพธ์และตัวตั้ง (basis) — ย้อนตรวจได้เสมอว่าเลขนี้คิดจากอะไร
+  const pay = { ...finalPay, basis: { passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType) }, by, at }
+  const manualNote = finalPay.manual ? ` · บัญชีเลือกวันจ่ายเอง (ระบบคิด ${thaiDate(finalPay.systemPayDate ?? "")})` : ""
+  log.push({
+    action: "กำหนดจ่ายเงิน", field: "pay",
+    detail: (payType === "ตามรอบ" && finalPay.cutoff
+      ? `ตามรอบ · ตัดรอบ ${thaiDate(finalPay.cutoff)} · จ่าย ${thaiDate(finalPay.payDate)}`
+      : `${payType} · ${finalPay.manual ? "จ่าย" : "โอนพฤหัส"} ${thaiDate(finalPay.payDate)}`) + manualNote,
+    by, byEmail, at,
+  })
+  // กรอกเทอมมากับกล่องยืนยัน → บันทึกกลับเข้า master ให้ใบต่อไปของเจ้านี้ไม่ต้องกรอกอีก
+  if (s(body.payCreditTerm) && supplier) {
+    await md.collection("ap_supplier").updateOne(
+      { name: supplier },
+      // ลง override ด้วย — sync จาก ATMS อ่าน override เป็นตัวชนะ ค่าที่คนตั้งจึงไม่ถูกทับรอบหน้า
+      { $set: { name: supplier, creditTerm, override: creditTerm, updatedBy: by, updatedAt: at } },
+      { upsert: true },
+    )
+    log.push({ action: "ตั้งเครดิตเทอมซัพพลายเออร์", field: "pay", detail: `${supplier} = ${creditTerm}`, by, byEmail, at })
+  }
+  return { pay, log }
+}
+
 // PATCH — บันทึกการติ๊ก/วันที่ส่งบัญชี/หมายเหตุ (สร้าง doc ครั้งแรกแบบ lazy) + ลง log ทุกครั้ง
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: string }> }) {
   const { code } = await ctx.params
@@ -161,6 +248,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     if (status !== s(cur.status) || note !== s(cur.note)) {
       // เก็บคนตรวจ+เวลาไว้ในก้อนเดียวกัน — ล้างสถานะ (กลับไป "ยังไม่ตรวจ") ก็ล้างคนตรวจด้วย
       set.review = status ? { status, note, by, at } : { status: "", note: "", by: "", at: "" }
+      if (status && current?.nextRound) set.nextRound = null
       // ส่งตรวจใหม่ = ส่งเอกสารเข้าบัญชีรอบใหม่ — รีเซ็ตจุดตั้งต้น (ผู้ใช้สั่ง 21/08/2026:
       // ถ้าไม่ผ่านแล้วให้นับวันที่ส่งบัญชีเป็นรอบใหม่) · กระทบทั้งคอลัมน์ "กดส่งเมื่อ"
       // และรอบพฤหัสของเครดิตสั้นตอนบัญชีกดผ่านรอบถัดไป
@@ -177,81 +265,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
       // จุดตั้งต้นคือ "วันที่กดผ่าน" (เวลาไทยของ at) · สิ่งที่จัดซื้อเลือกตอนส่งบัญชีเป็นแค่คำขอ
       // ตัวจริงคือ payType ที่บัญชียืนยันในกล่องนี้ — จึงบังคับส่งมา ไม่เดาจาก sentType เอง
       if (status === "ผ่าน") {
-        const payType = s(body.payType) as ApPayType
-        if (!AP_PAY_TYPES.includes(payType)) {
-          return NextResponse.json({ error: "ต้องยืนยันประเภทการจ่าย (ตามรอบ หรือ นอกรอบ) ตอนกดผ่าน" }, { status: 400 })
-        }
-        // เครดิตเทอม: ใช้ที่ส่งมาก่อน (กรอกในกล่องยืนยันได้ — จะถูกบันทึกกลับเข้า master ด้วย)
-        // ไม่ส่งมาก็ถอยไปอ่านจาก ap_supplier ของซัพพลายเออร์ใบนี้
-        let creditTerm = s(body.payCreditTerm)
-        if (creditTerm && !(CREDIT_TERMS as readonly string[]).includes(creditTerm)) {
-          return NextResponse.json({ error: `เครดิตเทอมไม่ถูกต้อง: ${creditTerm}` }, { status: 400 })
-        }
-        const head = await client.db("atms").collection("deposit_header")
-          .findOne({ deposit_code: depositCode }, { projection: { _id: 0, supplier: 1, purchase_order: 1 } })
-        const supplier = s(head?.supplier)
-        const md = writeDb(client)
-        if (payType === "ตามรอบ" && !creditTerm && supplier) {
-          // ลำดับเดียวกับตาราง (/api/ap-tracking) — override > "ap term" บน PO ของใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
-          // ถ้าใช้คนละลำดับ วันครบกำหนดในกล่องยืนยันจะไม่ตรงกับที่คนเห็นในตาราง
-          const [sup, po] = await Promise.all([
-            md.collection("ap_supplier").findOne({ name: supplier }, { projection: { _id: 0, creditTerm: 1, override: 1, atmsTerm: 1 } }),
-            s(head?.purchase_order)
-              ? client.db("atms").collection("purchase_orders")
-                  .findOne({ "รหัส": s(head?.purchase_order) }, { projection: { _id: 0, "ap term": 1 } })
-              : null,
-          ])
-          creditTerm = resolveCreditTerm(
-            s(sup?.override), s(po?.["ap term"]), s(sup?.atmsTerm) || s(sup?.creditTerm),
-          ).creditTerm
-        }
-        // นอกรอบเลือกวันโอนได้ (พฤหัสนี้ถ้ายังทันเส้นตายอังคาร / พฤหัสหน้า) — เซิร์ฟเวอร์
-        // ตรวจกับตัวเลือกที่คิดจากนาฬิกาตัวเองอีกชั้น ค่าที่หลุดมานอกตัวเลือกต้องไม่ผ่าน
-        const chosenPayDate = payType === "นอกรอบ" ? s(body.payDate) || undefined : undefined
-        // เครดิตสั้น (7D/15D) นับรอบพฤหัสจาก "วันส่งเอกสารเข้าบัญชี" — anchor คือ sentMarkedAt
-        // ซึ่งถูกตั้งใหม่ทุกครั้งที่จัดซื้อส่งตรวจใหม่หลังตีกลับ (= เริ่มรอบใหม่ตามกติกา)
-        const schedule = apPaySchedule(ictDate(at), payType, creditTerm, chosenPayDate, ictDate(s(current?.sentMarkedAt)))
-        if (!schedule) {
-          if (chosenPayDate) {
-            return NextResponse.json(
-              { error: "วันโอนที่เลือกไม่ทันรอบแล้ว (เส้นตายวันอังคาร) — เปิดกล่องยืนยันใหม่อีกครั้ง" },
-              { status: 409 },
-            )
-          }
-          // ตามรอบแต่ไม่มีเครดิตเทอมจากทั้งสองทาง — ห้ามเดา ให้กรอกมาในกล่องยืนยัน
-          return NextResponse.json(
-            { error: "คำนวณกำหนดจ่ายไม่ได้ — ซัพพลายเออร์ยังไม่มีเครดิตเทอม ระบุมาพร้อมการยืนยันผ่าน" },
-            { status: 409 },
-          )
-        }
-        // บัญชีเลือกวันจ่ายเองในปฏิทิน (ได้ทุกแบบ — ผู้ใช้ขอ 22/09/2026) ทับวันที่กติกาคิด
-        // ตรวจกับวันกดผ่านตามนาฬิกาเซิร์ฟเวอร์ · วันที่ระบบคิดเก็บคู่ไว้ที่ systemPayDate
-        const manualPayDate = s(body.payDateManual)
-        if (manualPayDate) {
-          const err = apManualPayDateError(manualPayDate, ictDate(at))
-          if (err) return NextResponse.json({ error: err }, { status: 400 })
-        }
-        const finalPay = applyManualPayDate(schedule, manualPayDate || undefined)
-        // เก็บทั้งผลลัพธ์และตัวตั้ง (basis) — ย้อนตรวจได้เสมอว่าเลขนี้คิดจากอะไร
-        set.pay = { ...finalPay, basis: { passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType) }, by, at }
-        const manualNote = finalPay.manual ? ` · บัญชีเลือกวันจ่ายเอง (ระบบคิด ${thaiDate(finalPay.systemPayDate ?? "")})` : ""
-        log.push({
-          action: "กำหนดจ่ายเงิน", field: "pay",
-          detail: (payType === "ตามรอบ" && finalPay.cutoff
-            ? `ตามรอบ · ตัดรอบ ${thaiDate(finalPay.cutoff)} · จ่าย ${thaiDate(finalPay.payDate)}`
-            : `${payType} · ${finalPay.manual ? "จ่าย" : "โอนพฤหัส"} ${thaiDate(finalPay.payDate)}`) + manualNote,
-          by, byEmail, at,
-        })
-        // กรอกเทอมมากับกล่องยืนยัน → บันทึกกลับเข้า master ให้ใบต่อไปของเจ้านี้ไม่ต้องกรอกอีก
-        if (s(body.payCreditTerm) && supplier) {
-          await md.collection("ap_supplier").updateOne(
-            { name: supplier },
-            // ลง override ด้วย — sync จาก ATMS อ่าน override เป็นตัวชนะ ค่าที่คนตั้งจึงไม่ถูกทับรอบหน้า
-            { $set: { name: supplier, creditTerm, override: creditTerm, updatedBy: by, updatedAt: at } },
-            { upsert: true },
-          )
-          log.push({ action: "ตั้งเครดิตเทอมซัพพลายเออร์", field: "pay", detail: `${supplier} = ${creditTerm}`, by, byEmail, at })
-        }
+        const r = await payOnPass({ client, depositCode, current, body, by, byEmail, at })
+        if (r instanceof NextResponse) return r
+        set.pay = r.pay
+        log.push(...r.log)
       } else {
         // ถอยออกจาก "ผ่าน" (ตีกลับ/ล้างผล) — กำหนดจ่ายที่คิดไว้ใช้ไม่ได้แล้ว ต้องล้างตาม
         // ไม่งั้นใบที่ถูกตีกลับจะยังโชว์วันจ่ายค้างเหมือนกระบวนการยังเดินอยู่
@@ -260,6 +277,45 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
           log.push({ action: "ยกเลิกกำหนดจ่ายเงิน", field: "pay", detail: "ผลตรวจถูกเปลี่ยนจากผ่าน", by, byEmail, at })
         }
       }
+    }
+  }
+
+  // ── กำหนดวันจ่ายทีหลัง (ใบที่ผ่านแล้วแต่ยังไม่มีกำหนดจ่าย) ──
+  // ใบที่ผ่านมาจาก "นำเข้าการตั้งเบิก" ไม่มีกำหนดจ่าย (ผู้ใช้สั่ง 01/10/2026) — บัญชีกำหนดทีหลังทีละใบ
+  // ด้วยกล่องยืนยันเดียวกับตอนกดผ่าน · วันตั้งต้นคือวันที่กดกำหนด (ตรงกับพรีวิวในกล่องที่คิดจากวันนี้)
+  if (body?.setPay === true) {
+    if (!isAccounting(session?.user?.email, session?.user?.employee?.department)) {
+      return NextResponse.json({ error: "เฉพาะฝ่ายบัญชีเท่านั้นที่กำหนดวันจ่ายได้" }, { status: 403 })
+    }
+    if (s((current?.review as ApReview | undefined)?.status) !== "ผ่าน") {
+      return NextResponse.json({ error: "กำหนดวันจ่ายได้เฉพาะใบที่บัญชีผ่านแล้ว" }, { status: 409 })
+    }
+    if (current?.pay) return NextResponse.json({ error: "ใบนี้มีกำหนดจ่ายแล้ว" }, { status: 409 })
+    const r = await payOnPass({ client, depositCode, current, body, by, byEmail, at })
+    if (r instanceof NextResponse) return r
+    set.pay = r.pay
+    log.push(...r.log)
+  }
+
+  // ── "รอรอบเครดิตถัดไป" — คำตอบของบัญชีสำหรับใบที่ส่งบัญชีแล้วแต่ไม่พบในไฟล์ตั้งเบิก ──
+  // ใบยังอยู่ขั้น "ส่งบัญชีแล้ว" แค่มีป้ายบอก · null = ล้างป้าย · ผ่าน/ไม่ผ่านแล้วป้ายถูกล้างเอง
+  if (body?.nextRound !== undefined) {
+    if (!isAccounting(session?.user?.email, session?.user?.employee?.department)) {
+      return NextResponse.json({ error: "เฉพาะฝ่ายบัญชีเท่านั้นที่ตอบได้" }, { status: 403 })
+    }
+    if (body.nextRound === null) {
+      if (current?.nextRound) {
+        set.nextRound = null
+        log.push({ action: "ยกเลิกรอรอบเครดิตถัดไป", field: "nextRound", by, byEmail, at })
+      }
+    } else {
+      const rvNow = s((current?.review as ApReview | undefined)?.status)
+      if (!s(current?.sentDate) || rvNow) {
+        return NextResponse.json({ error: "ใช้ได้เฉพาะใบที่ส่งบัญชีแล้วและยังไม่ตรวจ" }, { status: 409 })
+      }
+      const nrNote = s((body.nextRound as { note?: unknown })?.note).slice(0, AP_REVIEW_NOTE_MAX)
+      set.nextRound = { note: nrNote, by, at }
+      log.push({ action: "บัญชี: รอรอบเครดิตถัดไป", field: "nextRound", detail: nrNote, by, byEmail, at })
     }
   }
 
@@ -406,6 +462,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     sentType: s(doc.sentType),
     sentDate: sentDateOut,
     pay: doc.pay ?? null,
+    nextRound: doc.nextRound ?? null,
     note: s(doc.note),
     status: apStatusOf(docsOut, sentDateOut),
   })
