@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { fetchAtmsBoard, findClosedMatch, isAtmsSettled, isAtmsSkipped, latestClosed, normKey, type ClosedMatch, type ClosedWmsJob } from "@/lib/atms-board"
+import { NEXT_SKIP_COLL, fetchAtmsBoard, findActiveSkip, findClosedMatch, isAtmsSettled, isAtmsSkipped, latestClosed, normKey, type ClosedMatch, type ClosedWmsJob, type NextSkip } from "@/lib/atms-board"
 import { DONE_STATUSES, JOB_TYPE_PARTS } from "@/lib/repair-external"
 import { REPAIR_LOG_COLL } from "@/lib/repair-log"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
@@ -125,7 +125,28 @@ export async function GET() {
     const closedInWms = pending
       .filter((p) => closedFor.has(p!.plate))
       .map((p) => ({ ...p!, closed: closedFor.get(p!.plate)! }))
-    const stillPending = pending.filter((p) => !closedFor.has(p!.plate))
+    const notClosed = pending.filter((p) => !closedFor.has(p!.plate))
+
+    // ── ⏸ คนกดตัดออกชั่วคราว (แย๊กโม่ / ซ่อมเสร็จ) จากแถว ❌ — ไม่นับทั้งตัวหารและตัวขาด จนพ้นกำหนดหรือ MR เปลี่ยน
+    const skippedFor = new Map<string, NextSkip>()   // key = plate จาก Mena-Next
+    if (notClosed.some((p) => !p!.wms)) {
+      const skips: NextSkip[] = (await db.collection(NEXT_SKIP_COLL)
+        .find({ cancelledAt: null, until: { $gte: today } })
+        .toArray())
+        .map((d) => ({
+          id: String(d._id), plate: String(d.plate ?? ""), trucknum: String(d.trucknum ?? ""), mrCode: String(d.mrCode ?? ""),
+          reason: String(d.reason ?? ""), by: String(d.by ?? ""), at: String(d.at ?? ""), until: String(d.until ?? ""),
+        }))
+      for (const p of notClosed) {
+        if (p!.wms) continue
+        const s = findActiveSkip(p!, skips, today)
+        if (s) skippedFor.set(p!.plate, s)
+      }
+    }
+    const skipped = notClosed
+      .filter((p) => skippedFor.has(p!.plate))
+      .map((p) => ({ ...p!, skip: skippedFor.get(p!.plate)! }))
+    const stillPending = notClosed.filter((p) => !skippedFor.has(p!.plate))
 
     // ── 🔴 WMS ยัง "แจ้งซ่อมอู่นอก" แต่รถจอดจริงแล้ว
     const waitingButParked = wms
@@ -188,6 +209,7 @@ export async function GET() {
         .filter((p) => !p!.wms)
         .map((p) => (lastClosedFor.has(p!.plate) ? { ...p!, lastClosed: lastClosedFor.get(p!.plate)! } : p)),
       closedInWms,
+      skipped,
       waitingButParked,
       openNotParked,
       prFill,

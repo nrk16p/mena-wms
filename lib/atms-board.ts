@@ -101,6 +101,50 @@ export function findClosedMatch(mrCode: string, parkedSince: string, closed: Clo
   return null
 }
 
+/**
+ * ตัดคันที่ "ขาดในระบบ" ออกจากการเทียบชั่วคราว — กดจากแถว ❌ ในการ์ดเทียบ
+ * (ผู้ใช้สั่ง 02/10/2569: ME071 เป็นงานแย๊กโม่ แต่ Mena-Next ขึ้นว่ารอประเมินการซ่อม · NL21 ซ่อมเสร็จแล้วแต่ Mena-Next ยังจอด)
+ * ตัดไว้ NEXT_SKIP_DAYS วันนับจากวันที่กด — พ้นแล้ว Mena-Next ยังจอดอยู่ = กลับมาขาดเหมือนเดิม
+ */
+export const NEXT_SKIP_REASONS = ["แย๊กโม่", "ซ่อมเสร็จ"] as const
+export type NextSkipReason = (typeof NEXT_SKIP_REASONS)[number]
+export const isNextSkipReason = (v: unknown): v is NextSkipReason =>
+  typeof v === "string" && (NEXT_SKIP_REASONS as readonly string[]).includes(v)
+export const NEXT_SKIP_DAYS = 2
+export const NEXT_SKIP_COLL = "repair_external_next_skip"
+
+export type NextSkip = {
+  id: string
+  plate: string
+  trucknum: string
+  mrCode: string
+  reason: string
+  by: string
+  at: string      // ISO เวลาที่กด
+  until: string   // YYYY-MM-DD วันสุดท้ายที่ยังตัดอยู่ (รวมวันนั้น)
+}
+
+/** วันสุดท้ายที่ยังตัดอยู่ เมื่อกดวันนี้ — กด 02/10 → ตัดถึง 04/10 กลับมานับ 05/10 */
+export const nextSkipUntil = (today: string) =>
+  new Date(Date.parse(`${today}T00:00:00Z`) + NEXT_SKIP_DAYS * 86400000).toISOString().slice(0, 10)
+
+/**
+ * การตัดที่ยังใช้กับคันนี้: ทะเบียน (หรือเบอร์รถ) ตรง + MR เดียวกัน + ยังไม่พ้น until
+ * MR ใน Mena-Next เปลี่ยน = รถเข้าซ่อมรอบใหม่ → การตัดเดิมไม่ใช้ · หลายรายการ → ที่กดล่าสุด
+ */
+export function findActiveSkip(
+  p: { plate: string; trucknum: string; mrCode: string },
+  skips: NextSkip[],
+  today: string,
+): NextSkip | null {
+  const hits = skips.filter((s) =>
+    s.until >= today &&
+    normKey(s.mrCode) === normKey(p.mrCode) &&
+    ((!!normKey(s.plate) && normKey(s.plate) === normKey(p.plate)) ||
+     (!!normKey(s.trucknum) && normKey(s.trucknum) === normKey(p.trucknum))))
+  return hits.length ? hits.reduce((a, b) => (b.at > a.at ? b : a)) : null
+}
+
 export type AtmsBoardData = {
   jobs: AtmsOpenJob[]       // งานอู่นอกเปิดทั้งหมดใน ATMS
   parked: ParkedTruck[]     // รถจอดจริงตอนนี้

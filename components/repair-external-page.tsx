@@ -275,6 +275,8 @@ type AtmsPending = {
   lastClosed?: AtmsClosedRef
 }
 type AtmsClosedRef = { id: string; mrNo: string; status: string; closedAt: string; closedBy: string }
+/** คนกดตัดคันนี้ออกจากการเทียบชั่วคราว (แย๊กโม่ / ซ่อมเสร็จ) — until = วันสุดท้ายที่ยังตัดอยู่ */
+type AtmsSkipRef = { id: string; reason: string; by: string; at: string; until: string }
 type AtmsBoard = {
   ok: boolean
   fetchedAt: string
@@ -282,6 +284,8 @@ type AtmsBoard = {
   missing: AtmsPending[]
   /** Mena-Next ยังขึ้นว่าจอดซ่อม แต่ใบงานรอบเดียวกันใน WMS ปิดไปแล้ว — ไม่นับเป็นขาด */
   closedInWms?: (AtmsPending & { closed: AtmsClosedRef & { matchedBy: "mr" | "since" | "recent" } })[]
+  /** กดตัดออกจากการนับชั่วคราว 2 วัน — ไม่อยู่ใน pending/missing */
+  skipped?: (AtmsPending & { skip: AtmsSkipRef })[]
   waitingButParked: { id: string; plate: string; fleetNo: string; days: number; since: string; plant: string }[]
   openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
   prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean; mrConflict: boolean; wmsMr: string }[]
@@ -699,6 +703,50 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       status: "รถเข้าซ่อมอู่นอก",
     })
     setOpen(true)
+  }
+
+  // ตัดคันที่ขาดออกจากการนับชั่วคราว 2 วัน — งานแย๊กโม่ หรือซ่อมเสร็จแล้วแต่ Mena-Next ยังขึ้นจอด
+  const [skipBusy, setSkipBusy] = useState("")
+  async function skipFromAtms(m: AtmsPending, reason: "แย๊กโม่" | "ซ่อมเสร็จ") {
+    const name = m.trucknum || m.plate
+    const r = await swalConfirm(
+      `${name}: ${reason} — ตัดออกจากการนับ 2 วัน?`,
+      "ไม่นับว่าขาดในระบบ 2 วัน ถ้าพ้นแล้ว Mena-Next ยังขึ้นว่าจอดซ่อมอยู่ จะกลับมาอยู่ในรายการขาดอีก (MR เปลี่ยน = รอบใหม่ กลับมาทันที)",
+    )
+    if (!r.isConfirmed) return
+    setSkipBusy(m.plate)
+    try {
+      const res = await fetch("/api/repair-external/atms-board/skip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plate: m.plate, trucknum: m.trucknum, mrCode: m.mrCode, since: m.since, reason }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.ok) throw new Error(d.error || "บันทึกไม่สำเร็จ")
+      swalToast("success", `ตัด ${name} (${reason}) ถึง ${fmtDateShort(d.until)}`)
+      loadAtmsBoard()
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
+    } finally {
+      setSkipBusy("")
+    }
+  }
+  async function cancelSkip(m: AtmsPending & { skip: AtmsSkipRef }) {
+    const name = m.trucknum || m.plate
+    const r = await swalConfirm(`ยกเลิกการตัด ${name}?`, "คันนี้จะกลับไปนับว่าขาดในระบบทันที")
+    if (!r.isConfirmed) return
+    setSkipBusy(m.plate)
+    try {
+      const res = await fetch(`/api/repair-external/atms-board/skip?id=${encodeURIComponent(m.skip.id)}`, { method: "DELETE" })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.ok) throw new Error(d.error || "ยกเลิกไม่สำเร็จ")
+      swalToast("success", `${name} กลับมานับแล้ว`)
+      loadAtmsBoard()
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "ยกเลิกไม่สำเร็จ")
+    } finally {
+      setSkipBusy("")
+    }
   }
 
   // เปิดแก้ไขรายการพร้อมเติม mrNo จาก ATMS (กรณี WMS ไม่มี MR หรือ MR ไม่ตรง) — คนตรวจแล้วกดบันทึกเอง
@@ -1563,6 +1611,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   {atms.missing.length > 0
                     ? <span className="font-bold text-rose-600 dark:text-rose-300">ขาดในระบบ {atms.missing.length} คัน — คลิกดูรายการ</span>
                     : <span className="text-[#1B8C4B]">ครบทุกคันตามรถจอดซ่อมจริง ✓</span>}
+                  {(atms.skipped?.length ?? 0) > 0 && <span className="text-slate-500 dark:text-slate-400"> · ตัดชั่วคราว {atms.skipped!.length}</span>}
                 </button>
               )}
               {nextFilter === "matched" && (
@@ -1853,6 +1902,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       · ปิดแล้วรอ Mena-Next {atms.closedInWms!.length}
                     </span>
                   )}
+                  {(atms.skipped?.length ?? 0) > 0 && (
+                    <span className="opacity-70" title="กดตัดออกจากการนับชั่วคราว 2 วัน (แย๊กโม่ / ซ่อมเสร็จ) — ไม่นับเป็นขาด">
+                      · ตัดชั่วคราว {atms.skipped!.length}
+                    </span>
+                  )}
                   {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ไม่ตรง {mrIssues.length}</span>}
                   {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR {prFill.length}</span>}
                 </>
@@ -1897,12 +1951,26 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">จอด {m.days} วัน</span>
                           <span className="text-[12px] opacity-80">{m.mrCode} · {m.step || "-"}</span>
                           {m.vendor && <span className="text-[12px] opacity-60">🏭 {m.vendor}</span>}
-                          <button
-                            onClick={() => openAddFromAtms(m)}
-                            className="ml-auto shrink-0 rounded-lg bg-[#1B8C4B] px-2.5 py-1 text-[12px] font-bold text-white hover:bg-[#0F6A3C]"
-                          >
-                            <Plus size={12} className="mr-0.5 inline" /> สร้างรายการ
-                          </button>
+                          <span className="ml-auto flex shrink-0 gap-1.5">
+                            {/* ไม่ต้องเปิดใบ — ตัดออกจากการนับ 2 วัน (ผู้ใช้สั่ง 02/10/2569) */}
+                            {(["แย๊กโม่", "ซ่อมเสร็จ"] as const).map((reason) => (
+                              <button
+                                key={reason}
+                                onClick={() => skipFromAtms(m, reason)}
+                                disabled={skipBusy === m.plate}
+                                title={`${reason} — ไม่นับว่าขาดในระบบ 2 วัน`}
+                                className="rounded-lg border border-slate-300 px-2.5 py-1 text-[12px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-white/20 dark:text-slate-300 dark:hover:bg-white/10"
+                              >
+                                {reason}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => openAddFromAtms(m)}
+                              className="rounded-lg bg-[#1B8C4B] px-2.5 py-1 text-[12px] font-bold text-white hover:bg-[#0F6A3C]"
+                            >
+                              <Plus size={12} className="mr-0.5 inline" /> สร้างรายการ
+                            </button>
+                          </span>
                           {/* มีใบเก่าที่ปิดไปแล้ว แต่ไม่ใช่รอบเดียวกับ Mena-Next — บอกไว้ให้รู้ว่าไม่ได้ลืมปิดงาน (เคส TH1380) */}
                           {m.lastClosed && (
                             <div className="basis-full text-[11.5px] text-slate-500 dark:text-slate-400">
@@ -1962,6 +2030,33 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           </div>
                         )
                       })}
+                    </div>
+                  </div>
+                )}
+                {/* กดตัดออกชั่วคราว (แย๊กโม่ / ซ่อมเสร็จ) — ไม่นับเป็นขาด จนพ้นกำหนดหรือ MR เปลี่ยน */}
+                {(atms.skipped?.length ?? 0) > 0 && (
+                  <div>
+                    <p className="mb-1.5 font-bold text-slate-600 dark:text-slate-300">⏸ ตัดออกชั่วคราว ({atms.skipped!.length} คัน)</p>
+                    <p className="-mt-1 mb-1.5 text-[11px] text-slate-500 dark:text-slate-400">ไม่นับว่าขาดในระบบ 2 วันนับจากวันที่กด — พ้นแล้ว Mena-Next ยังจอดอยู่จะกลับไปอยู่ ❌</p>
+                    <div className="space-y-1">
+                      {atms.skipped!.map((m) => (
+                        <div key={m.skip.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5 text-slate-600 dark:text-slate-300">
+                          <b className="min-w-[52px]">{m.trucknum || "—"}</b>
+                          <span>{m.plate}</span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 dark:bg-white/10 dark:text-slate-200">{m.skip.reason}</span>
+                          <span className="text-[12px] opacity-80">
+                            โดย {m.skip.by || "—"}{m.skip.at ? ` · ${fmtDateShort(bkkDateOf(m.skip.at))}` : ""} · ตัดถึง {fmtDateShort(m.skip.until)}
+                          </span>
+                          <span className="text-[12px] opacity-60">Mena-Next: {m.mrCode} · {m.step || "-"} · จอด {m.days} วัน</span>
+                          <button
+                            onClick={() => cancelSkip(m)}
+                            disabled={skipBusy === m.plate}
+                            className="ml-auto shrink-0 rounded-lg border border-slate-300 px-2.5 py-1 text-[12px] font-bold hover:bg-slate-100 disabled:opacity-50 dark:border-white/20 dark:hover:bg-white/10"
+                          >
+                            ยกเลิก
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
