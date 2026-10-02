@@ -3,7 +3,7 @@ import clientPromise from "@/lib/mongo"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
 import {
   DONE_STATUSES, JOB_TYPE_PARTS, OWNER_NO_FLEET, REPAIR_CLAIM_DONE_STATUS, REPAIR_DEFER_STATUS,
-  REPAIR_DONE_NO_PR_STATUS, REPAIR_DONE_STATUS, REPAIR_STATUSES, dropSameDayRepeats, isDoneStatus, normalizeStatus, ownerOfFleet,
+  REPAIR_DONE_NO_PR_STATUS, REPAIR_DONE_STATUS, REPAIR_STATUSES, dropSameDayRepeats, groupQuoteWait, isDoneStatus, normalizeStatus, ownerOfFleet,
   type DailySummary,
 } from "@/lib/repair-external"
 
@@ -16,6 +16,7 @@ const DB = process.env.MONGO_DB ?? "master_data"
 type Row = {
   status?: string; fleet?: string; fleetNo?: string; plate?: string
   prCode?: string; dueDate?: string; createdAt?: Date | string; statusSince?: string
+  stageEta?: string; symptom?: string
 }
 const unitOf = (r: Row) => (String(r.fleetNo ?? "").trim() || String(r.plate ?? "").trim() || "-")
 /** "TH1979 (สบ.71-2875)" — รายการรถที่ปิด/ชะลอวันนี้ ทีมอ่านทั้งเบอร์รถและทะเบียน */
@@ -30,7 +31,7 @@ export async function GET() {
   const db    = (await clientPromise).db(DB)
   const col   = db.collection("repair_external")
   const base  = { jobType: { $ne: JOB_TYPE_PARTS } }
-  const proj  = { status: 1, fleet: 1, fleetNo: 1, plate: 1, prCode: 1, dueDate: 1, createdAt: 1, statusSince: 1 }
+  const proj  = { status: 1, fleet: 1, fleetNo: 1, plate: 1, prCode: 1, dueDate: 1, createdAt: 1, statusSince: 1, stageEta: 1, symptom: 1 }
 
   const [active, leftTodayRaw] = await Promise.all([
     col.find({ ...base, status: { $nin: DONE_STATUSES } }).project(proj).toArray() as Promise<Row[]>,
@@ -96,6 +97,8 @@ export async function GET() {
     byStatus,
     noPr,
     urgent: { units: urgent },
+    // รอราคา แยกคนจัดซื้อ → ฟลีท — ชุดเดียวกับบรรทัด "รอราคา" ของรายงาน (active ชุดเดียวกัน)
+    quoteWait: groupQuoteWait(active),
   }
   return NextResponse.json(summary)
 }

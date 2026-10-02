@@ -29,8 +29,11 @@ import {
   buildNoPrByOwner,
   buildDailySummaryText,
   buildNoPrOverviewText,
+  buildQuoteWaitText,
   buyerOfFleet,
   BUYERS,
+  BUYER_FLEET_HINT,
+  QUOTE_WAIT_STATUSES,
   ownerLabel,
   fleetsOfOwner,
   type DailySummary,
@@ -874,6 +877,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     return { text: buildNoPrOverviewText(await loadDailySummary(), { origin: window.location.origin }) }
   }
 
+  // รถรอราคา แยกคนจัดซื้อ → ฟลีท (buyer ว่าง = ทุกคน) — ชุดเดียวกับบรรทัด "รอราคา" ของรายงาน
+  async function buildQuoteWait(buyer?: string): Promise<LineBuild> {
+    if (typeof window === "undefined") return { empty: "เปิดบนเบราว์เซอร์เพื่อสร้างข้อความ" }
+    return { text: buildQuoteWaitText(await loadDailySummary(), { origin: window.location.origin, buyer }) }
+  }
+
   // คัดลอกรายชื่อรถที่ซ่อมเสร็จแล้วแต่ยังไม่มี PR (ส่งไลน์ให้ไปเปิด PR)
   // ยิง API ใหม่ทุกครั้ง ไม่อ่านจาก rows บนจอ — rows ถูกกรองมาจากเซิร์ฟเวอร์ตามตัวกรองที่ตั้งค้างไว้
   // ถ้าตอนนั้นกรองสถานะอื่นอยู่จะได้ 0 คัน ทั้งที่การ์ดข้าง ๆ ยังโชว์จำนวนจริง
@@ -1479,6 +1488,19 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     { key: "followUp", emoji: "📢", label: "ตามงาน", group: "ข้อความรวม",
       hint: "สถานะในระบบไม่ตรงกับรถจริง — รถจอดอยู่แต่ยังรอประเมิน / ไม่จอดแล้วแต่ยังไม่ปิดงาน / จอดจริงแต่ยังไม่มีในระบบ",
       build: buildFollowUpText },
+    { key: "quoteWait", emoji: "🔧", label: "รอราคา — จัดซื้อทุกคน", group: "รอราคา — แยกจัดซื้อ",
+      meta: "แยกคุณเนส / คุณต่าย → ฟลีท",
+      hint: `รถ${QUOTE_WAIT_STATUSES.join(" + ")} จัดกลุ่มตามคนจัดซื้อ แล้วแยกฟลีท — รายคัน: เบอร์รถ · วันคาดพ้นสถานะ · อาการย่อ`,
+      build: () => buildQuoteWait() },
+    ...BUYERS.map((b) => ({
+      key:   `quoteWait:${b}`,
+      emoji: "🧾",
+      label: `รอราคา — คุณ${b}`,
+      group: "รอราคา — แยกจัดซื้อ",
+      meta:  BUYER_FLEET_HINT[b],
+      hint:  `รถรอราคาของคุณ${b} แยกฟลีท — รายคัน: เบอร์รถ · วันคาดพ้นสถานะ · อาการย่อ`,
+      build: () => buildQuoteWait(b),
+    })),
     ...(stats.noPrByOwner ?? []).map((g) => ({
       key:   `nopr:${g.owner}`,
       emoji: "👤",

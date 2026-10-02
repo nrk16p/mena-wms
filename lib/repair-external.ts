@@ -470,6 +470,11 @@ export const BUYER_NES_FLEETS = [
   "Asia", "Asia ML", "Asia MS", "TN", "ที.เอ็น.ซีเมนต์บล็อค",
   "UMO", "Fast", "Acon", "Kpac", "Kpac ML", "จิรโชติ",
 ]
+/** คำอธิบายสั้นใต้ชื่อในแผงส่งไลน์ — ชื่อที่ทีมเรียก ไม่ซ้ำ alias แบบรายการด้านบน */
+export const BUYER_FLEET_HINT: Record<string, string> = {
+  [BUYER_NES]: "Asia ML / Asia MS / TN / UMO / Fast / Acon / Kpac ML / จิรโชติ",
+  [BUYER_TAI]: "ฟลีทที่เหลือทั้งหมด",
+}
 const NES_KEYS = new Set(BUYER_NES_FLEETS.map((f) => f.trim().toLowerCase()))
 /** ฟลีทไหนเป็นของใครฝั่งจัดซื้อ — ไม่ตรงรายการของเนส = ต่ายเสมอ (ไม่มีกลุ่ม "ไม่ระบุ") */
 export const buyerOfFleet = (fleet?: string) =>
@@ -621,6 +626,8 @@ export type DailySummary = {
   noPr:          { owner: string; count: number; fleets: { fleet: string; units: string[] }[] }[]
   /** งานที่ต้องเร่งตาม = ซ่อมเสร็จแล้ว (รถเสร็จ(ไม่มี PR)) แต่เลยวันกำหนดเสร็จ · ค้างนานสุดขึ้นก่อน */
   urgent:        { units: string[] }
+  /** รถรอราคา แยกผู้รับผิดชอบฝั่งจัดซื้อ → ฟลีท (ครบทุกคนใน BUYERS แม้ 0 คัน) */
+  quoteWait:     QuoteWaitGroup[]
 }
 
 const TH_MONTH_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
@@ -649,11 +656,14 @@ export function buildNoPrOverviewText(s: DailySummary, opts: { origin: string })
  * (ผู้ใช้กำหนด 21/09/2569 — กลุ่มไลน์คุยกันด้วยคำชุดนี้)
  * สองสถานะที่ map มาชื่อเดียวกันจะถูกรวมเป็นบรรทัดเดียวในรายงาน
  */
+const QUOTE_WAIT_LABEL = "รอราคา"
 export const REPORT_STATUS_LABEL: Record<string, string> = {
   "แจ้งซ่อมอู่นอก":    "รอส่ง JR ประเมินงานซ่อม",
-  "รถเข้าซ่อมอู่นอก":  "รอราคา",
-  "จัดทำใบเสนอราคา":   "รอราคา",
+  "รถเข้าซ่อมอู่นอก":  QUOTE_WAIT_LABEL,
+  "จัดทำใบเสนอราคา":   QUOTE_WAIT_LABEL,
 }
+/** สถานะจริงที่รวมเป็นบรรทัด "รอราคา" ของรายงาน — ใช้ชุดเดียวกันทั้งรายงานและข้อความแยกจัดซื้อ */
+export const QUOTE_WAIT_STATUSES = Object.keys(REPORT_STATUS_LABEL).filter((s) => REPORT_STATUS_LABEL[s] === QUOTE_WAIT_LABEL)
 
 /** ยุบ byStatus เป็นบรรทัดของรายงาน — เรียงตามลำดับขั้นเดิม ใช้อีโมจิของขั้นแรกในกลุ่ม
  *  from = ชื่อสถานะจริงในระบบที่รวมอยู่ในบรรทัดนี้ (ไว้พิมพ์ในวงเล็บให้เทียบกับหน้าเว็บได้) */
@@ -700,6 +710,105 @@ export function buildDailySummaryText(s: DailySummary, opts: { origin: string })
     L.push(s.urgent.units.join(" / "))
   }
 
+  if (opts.origin) L.push("", `🔗 ${opts.origin}/repair-external`)
+  return L.join("\n")
+}
+
+/* ── รอราคา แยกผู้รับผิดชอบฝั่งจัดซื้อ → ฟลีท (ผู้ใช้ขอ 02/10/2569) ──────────────────
+ * ชุดรถ = บรรทัด "รอราคา" ของรายงานประจำวัน (QUOTE_WAIT_STATUSES) ยอดรวมจึงตรงกับบรรทัดนั้นเสมอ
+ * ส่งให้จัดซื้อไปตามใบเสนอราคา — คนรับผิดชอบดูจากฟลีท (buyerOfFleet) ไม่ได้เก็บในใบงาน
+ * รายคัน: เบอร์รถ + วันคาดพ้นสถานะ (stageEta) + อาการย่อ (ผู้ใช้ขอเพิ่มวันเดียวกัน)
+ */
+export type QuoteWaitCar = { unit: string; stageEta: string; symptom: string }
+export type QuoteWaitGroup = { buyer: string; count: number; fleets: { fleet: string; cars: QuoteWaitCar[] }[] }
+
+const isQuoteWait = (status?: string) => QUOTE_WAIT_STATUSES.includes(normalizeStatus(String(status ?? "")))
+
+/** สระ/วรรณยุกต์ที่ต้องติดกับตัวหน้า — ตัดข้อความตรงนี้จะได้ตัวอักษรขาดครึ่ง */
+const THAI_MARK = /[ัิ-ฺ็-๎]/
+export const SYMPTOM_SHORT_MAX = 40
+/** อาการย่อ — บรรทัดแรก · ช่องว่างยุบ · ตัดหัวที่ไม่ใช่อาการ ("- " / "อู่นอก-CM-" ที่ Mena-Next เติม)
+ *  ยาวเกินตัดท้ายด้วย … — ตัดที่ช่องว่างถ้ามีในช่วงท้าย ไม่งั้นตัดตรงตัวอักษร (ไม่ตัดกลางสระ/วรรณยุกต์) */
+export function shortSymptom(s?: string, max = SYMPTOM_SHORT_MAX): string {
+  const t = (String(s ?? "").split(/\r?\n/).map((x) => x.trim()).find(Boolean) ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/^[-–•*·\s]+/, "")
+    .replace(/^อู่นอก-[A-Za-z]+-/, "")
+  if (t.length <= max) return t
+  let end = max
+  while (end < t.length && THAI_MARK.test(t[end])) end++
+  let cut = t.slice(0, end)
+  const sp = cut.lastIndexOf(" ")
+  if (sp >= max * 0.6) cut = cut.slice(0, sp)
+  return `${cut.replace(/[\s:,-]+$/, "")}…`
+}
+
+/** จัดกลุ่มใบที่ยังไม่ปิด → คนจัดซื้อ (ลำดับตาม BUYERS · ครบทุกคนแม้ 0 คัน) → ฟลีท (มากไปน้อย · ไม่ระบุท้ายสุด)
+ *  รถในฟลีทเรียงวันคาดใกล้สุดก่อน (เลยคาดขึ้นบนสุด) · ไม่ระบุวันคาดไว้ท้าย */
+export function groupQuoteWait(
+  rows: { status?: string; fleet?: string; fleetNo?: string; plate?: string; stageEta?: string; symptom?: string }[],
+): QuoteWaitGroup[] {
+  const byBuyer = new Map<string, Map<string, QuoteWaitCar[]>>(BUYERS.map((b) => [b, new Map()]))
+  for (const r of rows) {
+    if (!isQuoteWait(r.status)) continue
+    const fleets = byBuyer.get(buyerOfFleet(r.fleet))!
+    const fleet  = String(r.fleet ?? "").trim()
+    const car: QuoteWaitCar = {
+      unit:     String(r.fleetNo ?? "").trim() || String(r.plate ?? "").trim() || "-",
+      stageEta: fixBeYear(String(r.stageEta ?? "")),
+      symptom:  shortSymptom(r.symptom),
+    }
+    fleets.set(fleet, [...(fleets.get(fleet) ?? []), car])
+  }
+  const byEta = (a: QuoteWaitCar, b: QuoteWaitCar) =>
+    Number(!a.stageEta) - Number(!b.stageEta) || a.stageEta.localeCompare(b.stageEta) ||
+    a.unit.localeCompare(b.unit, "th", { numeric: true })
+  return [...byBuyer.entries()].map(([buyer, fleets]) => ({
+    buyer,
+    count: [...fleets.values()].reduce((n, c) => n + c.length, 0),
+    fleets: [...fleets.entries()]
+      .map(([fleet, cars]) => ({ fleet, cars: cars.sort(byEta) }))
+      .sort((a, b) => Number(!a.fleet) - Number(!b.fleet) || b.cars.length - a.cars.length || a.fleet.localeCompare(b.fleet, "th")),
+  }))
+}
+
+/** "2026-10-05" → "5/10" · วันคาดอยู่ใกล้ ๆ วันนี้ ไม่ต้องพิมพ์ปีให้ยาว */
+const dayMonth = (ymd: string) => {
+  const [, m, d] = ymd.split("-").map(Number)
+  return m && d ? `${d}/${m}` : ymd
+}
+/** "คาด 5/10" · เลยมาแล้ว "คาด 28/9 ⚠️ เลย 4 วัน" · ไม่มี "ไม่ระบุวันคาด" */
+function etaText(eta: string, today: string): string {
+  if (!isPlausibleDate(eta)) return "ไม่ระบุวันคาด"
+  const late = dayNum(today) - dayNum(eta)
+  return `คาด ${dayMonth(eta)}${late > 0 ? ` ⚠️ เลย ${late} วัน` : ""}`
+}
+
+/** ข้อความส่งไลน์ "รอราคา" — ไม่ระบุ buyer = ทุกคน (แยกคน → ฟลีท) · ระบุ = เฉพาะคนนั้น (แยกฟลีท) */
+export function buildQuoteWaitText(s: DailySummary, opts: { origin: string; buyer?: string }): string {
+  const groups = opts.buyer ? s.quoteWait.filter((g) => g.buyer === opts.buyer) : s.quoteWait
+  const total  = groups.reduce((n, g) => n + g.count, 0)
+  const who    = opts.buyer ? ` — คุณ${opts.buyer}` : ""
+  if (!total) return `🎉 ไม่มีรถ${QUOTE_WAIT_LABEL}${who} (${thaiDateShort(s.date)})`
+  const emoji = statusMeta(QUOTE_WAIT_STATUSES[0]).emoji
+  const L: string[] = [
+    opts.buyer
+      ? `${emoji} ${QUOTE_WAIT_LABEL}${who} ${total} คัน · ${thaiDateShort(s.date)}`
+      : `${emoji} ${QUOTE_WAIT_LABEL} ${total} คัน — แยกจัดซื้อและฟลีท · ${thaiDateShort(s.date)}`,
+    `(${QUOTE_WAIT_STATUSES.join(" + ")})`,
+  ]
+  // ทุกคน: คน → ฟลีท → รถ · รายคน: ฟลีท → รถ (ตัดชั้นชื่อคนออก ย่อหน้าตื้นขึ้น 1 ชั้น)
+  const pad = opts.buyer ? "" : "   "
+  for (const g of groups) {
+    if (!opts.buyer) L.push("", `👤 คุณ${g.buyer} : ${g.count} คัน`)
+    for (const f of g.fleets) {
+      if (opts.buyer) L.push("")
+      L.push(`${pad}🚚 ${f.fleet || "ไม่ระบุฟลีท"} (${f.cars.length})`)
+      for (const c of f.cars) {
+        L.push(`${pad}• ${c.unit} — ${etaText(c.stageEta, s.date)}${c.symptom ? ` · ${c.symptom}` : ""}`)
+      }
+    }
+  }
   if (opts.origin) L.push("", `🔗 ${opts.origin}/repair-external`)
   return L.join("\n")
 }

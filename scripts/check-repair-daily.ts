@@ -113,6 +113,7 @@ const sum: DailySummary = {
     { owner: OWNER_NO_FLEET, count: 1, fleets: [{ fleet: "", units: ["RX08"] }] },
   ],
   urgent: { units: ["ME232", "TH1729"] },
+  quoteWait: [],
 }
 const text = buildDailySummaryText(sum, { origin: "https://x" })
 check("หัวรายงาน + วันที่แบบไทย", () => {
