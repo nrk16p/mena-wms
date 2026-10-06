@@ -86,12 +86,17 @@ export function createSharedCache(deps: Deps = {}) {
   const sameGens = (a: Record<string, string>, b: Record<string, string>) =>
     Object.keys(b).every((t) => a[t] === b[t])
 
-  function loadAndStore<T>(o: GetOptions<T>): Promise<T> {
-    const running = inflight.get(o.key) as Promise<T> | undefined
-    if (running) return running
+  // งานโหลดที่กำลังวิ่งแยกตาม key + generation — request หลังการบันทึก (generation ใหม่)
+  // จะไม่ไปร่วมรอผลโหลดที่เริ่มก่อนบันทึก ผู้บันทึกจึงเห็นข้อมูลของตัวเองเสมอ
+  const slotOf = (key: string, gens: Record<string, string>) => `${key}|${JSON.stringify(gens)}`
+
+  async function loadAndStore<T>(o: GetOptions<T>, known?: Record<string, string>): Promise<T> {
     const tags = o.tags ?? []
+    const gens = known ?? await readGens(tags)   // จับ generation ก่อนเริ่มอ่านข้อมูล
+    const slot = slotOf(o.key, gens)
+    const running = inflight.get(slot) as Promise<T> | undefined
+    if (running) return running
     const p = (async () => {
-      const gens = await readGens(tags)   // จับ generation ก่อนเริ่มอ่านข้อมูล
       const at = now()
       const v = await o.load()
       // คืนข้อมูลแบบผ่าน JSON ทุกทาง (Date → string ฯลฯ) ให้ครั้งแรกกับครั้งที่ดึงจากแคชได้รูปแบบเดียวกันเสมอ
@@ -107,8 +112,8 @@ export function createSharedCache(deps: Deps = {}) {
         local.set(o.key, { entry, exp: now() + o.maxStaleMs })
       }
       return entry.v
-    })().finally(() => inflight.delete(o.key))
-    inflight.set(o.key, p)
+    })().finally(() => inflight.delete(slot))
+    inflight.set(slot, p)
     return p
   }
 
@@ -123,12 +128,13 @@ export function createSharedCache(deps: Deps = {}) {
           const age = now() - entry.at
           if (age < o.freshMs) return entry.v
           if (age < o.maxStaleMs) {
-            if (!inflight.has(o.key)) {
-              background(loadAndStore(o).catch((e) => console.warn(`[shared-cache] refresh ${o.key} failed:`, e instanceof Error ? e.message : e)))
+            if (!inflight.has(slotOf(o.key, gens))) {
+              background(loadAndStore(o, gens).catch((e) => console.warn(`[shared-cache] refresh ${o.key} failed:`, e instanceof Error ? e.message : e)))
             }
             return entry.v
           }
         }
+        return loadAndStore(o, gens)
       }
       return loadAndStore(o)
     },

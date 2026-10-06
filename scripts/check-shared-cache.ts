@@ -185,6 +185,21 @@ async function main() {
     const b1 = await big.get({ ...base, key: "d", load })
     assert.equal(typeof b1.at, "string", "ก้อนใหญ่ (หน่วยความจำ) ก็ต้องเป็น string")
   }
+  // 14. request หลังการบันทึกต้องไม่ไปร่วมรอผลโหลดที่เริ่มก่อนการบันทึก (อ่านสิ่งที่ตัวเองเพิ่งเขียนต้องเห็น)
+  {
+    t = 0; const { cache } = setup()
+    let release!: (v: string) => void
+    let n = 0
+    const load = () => (++n === 1 ? new Promise<string>((r) => { release = r }) : Promise.resolve("after-write"))
+    const before = cache.get({ ...base, key: "w", load })     // เริ่มโหลด (ยังไม่เสร็จ)
+    await new Promise((r) => setImmediate(r))
+    await cache.invalidate(["ap"])                             // มีคนบันทึก
+    const after = cache.get({ ...base, key: "w", load })      // request หลังบันทึก
+    await new Promise((r) => setImmediate(r))                  // ให้ request นี้ไปถึงจุดรอผลโหลดก่อน
+    release("before-write")
+    assert.equal(await before, "before-write")
+    assert.equal(await after, "after-write", "หลังบันทึกต้องไม่ได้ผลที่อ่านก่อนบันทึก")
+  }
   console.log("check-shared-cache: ok")
 }
 
