@@ -227,3 +227,10 @@ export function SectionTitle({ icon, children, right }: { icon?: ReactNode; chil
     </div>
   )
 }
+
+/** "… = 2.5 เท่า" at the end of the loader's split hint → 2.5. The hint uses only suppliers bought ≥ 2
+ *  times, so it is the ratio to show; item.priceRatio also counts one-off buys and can read 5,000×. */
+export function hintRatio(splitHint?: string | null): number | null {
+  const m = splitHint?.match(/=\s*([\d.,]+)\s*เท่า\s*$/)
+  return m ? Number(m[1].replace(/,/g, "")) : null
+}

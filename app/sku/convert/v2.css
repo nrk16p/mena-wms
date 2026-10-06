@@ -41,6 +41,8 @@
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
+/* sticky bars float over form text — keep them opaque so nothing shows through */
+.v2-solid { background: rgba(255, 255, 255, 0.97); }
 /* Plain white surface with a hairline (inner cards) */
 .v2-card { background: #fff; border: 1px solid var(--v2-border); box-shadow: 0 4px 14px -8px rgba(21, 86, 201, 0.25); }
 

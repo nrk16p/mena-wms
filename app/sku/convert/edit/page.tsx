@@ -173,17 +173,17 @@ function Workspace({ id }: { id: string }) {
 
         <section className="v2-glass rounded-[28px] p-3 sm:p-4"><Stepper steps={steps} /></section>
 
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <div className="lg:sticky lg:top-3 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+          <div className="min-w-0 lg:sticky lg:top-3 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1">
             <EvidencePanel item={item} liveStock={c.liveStock} />
           </div>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {parts && qc && (
               <div
                 role="status" aria-live="polite"
                 className={cn(
-                  "v2-glass sticky top-2 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[22px] px-4 py-3 text-sm",
+                  "v2-glass v2-solid sticky top-2 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[22px] px-4 py-3 text-sm",
                   qc.state === "short" || qc.state === "over" ? "!bg-[#fff6ea]" : "",
                 )}
               >
@@ -228,7 +228,7 @@ function Workspace({ id }: { id: string }) {
       </main>
 
       <div className="sticky bottom-3 z-20 mx-auto max-w-[1400px] px-3 sm:px-8">
-        <div className="v2-glass flex flex-wrap items-center justify-between gap-2 rounded-[28px] p-2.5 shadow-[var(--v2-shadow-lift)]">
+        <div className="v2-glass v2-solid flex flex-wrap items-center justify-between gap-2 rounded-[28px] p-2.5 shadow-[var(--v2-shadow-lift)]">
           <div className="flex items-center gap-2">
             <button type="button" className="v2-btn-soft" onClick={goBack}><ArrowLeft className="h-4 w-4" />กลับรายการ</button>
             <span aria-live="polite" className="text-xs text-[#33476b]">

@@ -8,7 +8,7 @@ import {
   AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Layers, ListChecks, Loader2, PackageOpen, PencilLine, Scissors, Search, X,
 } from "lucide-react"
 import { Mascot } from "@/components/sku-convert/mascot-v2"
-import { Chip, Skeleton, StatusChip, fmtMoney, fmtQty } from "@/components/sku-convert/ui"
+import { Chip, Skeleton, StatusChip, fmtMoney, fmtQty, hintRatio } from "@/components/sku-convert/ui"
 import { isLockLive } from "@/lib/sku-convert-core"
 import type { ConvertListResponse, ConvertListRow, Kind, RowStatus, Wh } from "@/lib/sku-convert-types"
 import { cn } from "@/lib/utils"
@@ -295,7 +295,7 @@ function Row({ row, index, kind, meEmail, now }: { row: ConvertListRow; index: n
       <td className="num">{fmtMoney(val)}</td>
       <td>
         {row.splitHint ? (
-          <Chip tone="sun" title={row.splitHint}><Scissors className="h-3 w-3" />ควรแยก{row.priceRatio ? ` ${fmtQty(Math.round(row.priceRatio * 10) / 10)} เท่า` : ""}</Chip>
+          <Chip tone="sun" title={row.splitHint}><Scissors className="h-3 w-3" />ควรแยก{hintRatio(row.splitHint) ? ` ${fmtQty(hintRatio(row.splitHint)!)} เท่า` : ""}</Chip>
         ) : null}
       </td>
       <td><StatusChip status={row.status} entryCount={row.entryCount} lockedBy={lockedBy} /></td>

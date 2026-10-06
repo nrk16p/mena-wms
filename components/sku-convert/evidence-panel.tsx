@@ -1,7 +1,7 @@
 "use client"
 
 import { AlertTriangle, History, PackageSearch, Store, TrendingUp } from "lucide-react"
-import { Chip, SectionTitle, fmtDate, fmtInt, fmtMoney, fmtQty } from "@/components/sku-convert/ui"
+import { Chip, SectionTitle, fmtDate, fmtInt, fmtMoney, fmtQty, hintRatio } from "@/components/sku-convert/ui"
 import type { ConvertDetailResponse, ConvertItem } from "@/lib/sku-convert-types"
 
 export interface EvidencePanelProps {
@@ -66,7 +66,7 @@ export function EvidencePanel({ item, liveStock }: EvidencePanelProps) {
           )}
           <Stat label="ครั้งเคลื่อนไหว" value={fmtInt(item.moves)} sub={item.lastMove ? `ล่าสุด ${fmtDate(item.lastMove)}` : undefined} />
           <Stat label="ราคารับล่าสุด" value={fmtMoney(item.lastPrice)} sub={item.lastSupplier} />
-          <Stat label="จำนวนผู้ขาย" value={fmtInt(item.nSup)} sub={item.priceRatio ? `ราคาห่างกัน ${fmtQty(Math.round(item.priceRatio * 10) / 10)} เท่า` : undefined} />
+          <Stat label="จำนวนผู้ขาย" value={fmtInt(item.nSup)} sub={hintRatio(item.splitHint) ? `ราคากลางต่างกัน ${fmtQty(hintRatio(item.splitHint)!)} เท่า` : undefined} />
         </div>
         {item.kind === "parts" && liveStock && (
           <p className={`mt-3 flex flex-wrap items-center gap-2 text-xs ${diff ? "text-[#c2570c]" : "text-[#5b6f8f]"}`}>
