@@ -7,6 +7,7 @@
 
 import clientPromise from "@/lib/mongo"
 import { readRange, batchUpdateValues, colLetter } from "@/lib/google-sheets"
+import { sharedCache, invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import {
   ACTIVE_STATUSES, EDITABLE_STATUSES,
   type HandoverDriver, type HandoverTruck, type HandoverData,
@@ -30,6 +31,7 @@ const COL = {
   trainDue: 39, receivedDate: 40,
 } as const
 const LAST_COL = colLetter(COL.receivedDate) // AO
+const SHEET_RANGE = `'${DRIVER_TAB}'!A${DATA_START_ROW}:${LAST_COL}`
 
 /* ---------- helpers ---------- */
 
@@ -86,8 +88,22 @@ async function apiGet(url: string): Promise<unknown> {
 
 /* ---------- อ่านข้อมูล ---------- */
 
+/** แถวชีตผ่านแคชกลาง — ใช้เฉพาะหน้า GET (แก้ในชีตตรง ๆ เห็นช้าสุด ~60 วิ · แก้ผ่าน WMS ล้างแคชทันที)
+ *  เส้นเขียน/กันจองซ้ำอ่านชีตสดเสมอ (fetchDrivers / resolveRow) */
+const cachedSheetRows = () => sharedCache.get({
+  key: "handover-sheet",
+  load: () => readRange(SHEET_ID, SHEET_RANGE),
+  freshMs: 30_000,
+  maxStaleMs: 60_000,
+  tags: [CACHE_TAGS.handover],
+})
+
+/** รายชื่อ พจส. จากชีตสด (ไม่ผ่านแคช) */
 export async function fetchDrivers(): Promise<HandoverDriver[]> {
-  const rows = await readRange(SHEET_ID, `'${DRIVER_TAB}'!A${DATA_START_ROW}:${LAST_COL}`)
+  return driversFromRows(await readRange(SHEET_ID, SHEET_RANGE))
+}
+
+function driversFromRows(rows: string[][]): HandoverDriver[] {
   const today = todayTh()
   const out: HandoverDriver[] = []
   rows.forEach((r, i) => {
@@ -139,19 +155,25 @@ export async function fetchDrivers(): Promise<HandoverDriver[]> {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export async function fetchTrucks(drivers: HandoverDriver[]): Promise<HandoverTruck[]> {
-  const { trucks } = await fetchTrucksWithJobs(drivers)
-  return trucks
-}
+type FleetRaw = { openJobsRaw: any; fleetRaw: any }
 
-async function fetchTrucksWithJobs(
-  drivers: HandoverDriver[]
-): Promise<{ trucks: HandoverTruck[]; jobByPlate: Map<string, any> }> {
+/** ข้อมูลดิบจาก Cloud Run 2 ตัว — ไม่ขึ้นกับรายชื่อ พจส. จึงยิงพร้อมกับการอ่านชีตได้ */
+async function fetchFleetRaw(): Promise<FleetRaw> {
   const [openJobsRaw, fleetRaw] = await Promise.all([
     apiGet(`${MONGODBAPI_URL}/repair-board/open-jobs`) as Promise<any>,
     apiGet(`${FLEET_API_URL}/fleet/current?status_id=2&status_id=3&status_id=4&status_id=5&minimal=true&branch_id=2&branch_id=5`) as Promise<any>,
   ])
+  return { openJobsRaw, fleetRaw }
+}
 
+export async function fetchTrucks(drivers: HandoverDriver[]): Promise<HandoverTruck[]> {
+  const { trucks } = buildTrucks(drivers, await fetchFleetRaw())
+  return trucks
+}
+
+function buildTrucks(
+  drivers: HandoverDriver[], { openJobsRaw, fleetRaw }: FleetRaw
+): { trucks: HandoverTruck[]; jobByPlate: Map<string, any> } {
   const jobByPlate = new Map<string, any>()
   for (const it of openJobsRaw.items ?? []) if (it.plate) jobByPlate.set(it.plate, it)
 
@@ -232,8 +254,12 @@ async function fetchTrucksWithJobs(
 }
 
 export async function fetchHandoverData(): Promise<HandoverData> {
-  const drivers = await fetchDrivers()
-  const { trucks, jobByPlate } = await fetchTrucksWithJobs(drivers)
+  // ชีตกับ Cloud Run ไม่ขึ้นต่อกัน → ยิงพร้อมกัน · รอครบก่อนค่อยโยน error ให้ error ของชีตมาก่อน (เหมือนตอนอ่านทีละอย่าง)
+  const [d, f] = await Promise.allSettled([cachedSheetRows().then(driversFromRows), fetchFleetRaw()])
+  if (d.status === "rejected") throw d.reason
+  if (f.status === "rejected") throw f.reason
+  const drivers = d.value
+  const { trucks, jobByPlate } = buildTrucks(drivers, f.value)
 
   // สถานะล่าสุดของรถที่จอง — ดูจากลิสต์รถจอดก่อน ไม่เจอค่อยหา open-job ตามทะเบียน
   const truckByNum = new Map(trucks.map((t) => [normTruckNum(t.trucknum), t]))
@@ -269,7 +295,7 @@ async function resolveRow(row: number, code: string, name: string): Promise<numb
   const cur = await readRange(SHEET_ID, `'${DRIVER_TAB}'!A${row}:${LAST_COL}${row}`)
   const r = cur[0] ?? []
   if ((r[COL.code] ?? "").trim() === code.trim() && (r[COL.name] ?? "").trim() === name.trim()) return row
-  const all = await readRange(SHEET_ID, `'${DRIVER_TAB}'!A${DATA_START_ROW}:${LAST_COL}`)
+  const all = await readRange(SHEET_ID, SHEET_RANGE)
   const idx = all.findIndex((x) =>
     (x[COL.name] ?? "").trim() === name.trim() &&
     (code.trim() === "" || (x[COL.code] ?? "").trim() === code.trim()))
@@ -283,6 +309,15 @@ async function auditLog(entry: Record<string, unknown>): Promise<void> {
     .insertOne({ ...entry, at: new Date() })
 }
 
+/** เขียนชีต แล้วล้างแคชแถวชีตเสมอ (แม้ API ตอบ error — อาจเขียนลงไปแล้ว) → GET ถัดไปเห็นทันทีทุก instance */
+async function writeSheet(data: { range: string; values: string[][] }[]): Promise<void> {
+  try {
+    await batchUpdateValues(SHEET_ID, data)
+  } finally {
+    await invalidateCache([CACHE_TAGS.handover])
+  }
+}
+
 const thDate = (d: Date) =>
   `${d.getUTCDate()}/${d.getUTCMonth() + 1}/${d.getUTCFullYear()}`
 
@@ -292,7 +327,7 @@ export async function assignTruck(input: {
   trucknum: string; plate: string; by: string; note?: string
 }): Promise<{ row: number }> {
   const row = await resolveRow(input.row, input.code, input.name)
-  await batchUpdateValues(SHEET_ID, [
+  await writeSheet([
     { range: `'${DRIVER_TAB}'!${colLetter(COL.truckNum)}${row}`, values: [[input.trucknum]] },
     { range: `'${DRIVER_TAB}'!${colLetter(COL.plate)}${row}`, values: [[input.plate]] },
   ])
@@ -319,7 +354,7 @@ export async function updateDriverStatus(input: {
     data.push({ range: `'${DRIVER_TAB}'!${colLetter(COL.leaveDate)}${row}`, values: [[today]] })
   if (input.toStatus === "รับรถแล้ว")
     data.push({ range: `'${DRIVER_TAB}'!${colLetter(COL.receivedDate)}${row}`, values: [[today]] })
-  await batchUpdateValues(SHEET_ID, data)
+  await writeSheet(data)
   await auditLog({
     action: "update_status", driverCode: input.code, driverName: input.name,
     fromStatus: input.fromStatus, toStatus: input.toStatus, by: input.by, note: input.note ?? "",
