@@ -8,6 +8,7 @@ import {
   type VendorRawRow, type LabourCode, type VendorApproval, type VendorPayload, type ServiceType, type VendorKind,
 } from "@/lib/vendor-core"
 import { VENDOR_LOG_COLL, type VendorLogEntry } from "@/lib/vendor-log"
+import { sharedCache } from "@/lib/shared-cache"
 
 const MASTER_DB = process.env.MONGO_DB ?? "master_data"
 const CODE_COLL = "labour_code_master"
@@ -79,21 +80,21 @@ async function readApprovals(): Promise<VendorApproval[]> {
     .find({}, { projection: { _id: 0 } }).toArray()) as VendorApproval[]
 }
 
-// ข้อมูลต้นทางขยับวันละครั้งจาก pipeline ATMS — ไม่มีเหตุให้ยิง DB ทุก request
-// เก็บบน globalThis ให้รอดข้าม hot-reload ตอน dev และ warm invocation บน Vercel
-// (แพตเทิร์นเดียวกับ lib/deadstock.ts)
-const TTL_MS = 60 * 60 * 1000
-
-declare global {
-  var _vendorRawCache: { at: number; fromYm: string; rows: VendorRawRow[] } | undefined
-}
+// ข้อมูลต้นทางขยับวันละไม่กี่รอบจาก pipeline ATMS — ไม่มีเหตุให้ยิง DB ทุก request
+// แคชกลางร่วมทุก instance (lib/shared-cache.ts · แพตเทิร์นเดียวกับ lib/deadstock.ts): สด 1 ชม. เท่าเดิม
+// เลยแล้วเสิร์ฟของเดิมได้ถึง 6 ชม. ระหว่างโหลดใหม่เบื้องหลัง · แคชเฉพาะ aggregation บน stockmovement
+// (WMS ไม่ได้เขียน) ไม่ผูก tag — master ที่คนแก้ (รหัส/การอนุมัติ) อ่านสดใน getVendors เสมอ
+const FRESH_MS = 60 * 60 * 1000
+const MAX_STALE_MS = 6 * 60 * 60 * 1000
 
 async function cachedRaw(force: boolean, fromYm: string): Promise<VendorRawRow[]> {
-  const hit = globalThis._vendorRawCache
-  if (!force && hit && hit.fromYm === fromYm && Date.now() - hit.at < TTL_MS) return hit.rows
-  const rows = await fetchRaw(fromYm)
-  globalThis._vendorRawCache = { at: Date.now(), fromYm, rows }
-  return rows
+  return sharedCache.get({
+    key: `vendor-raw:${fromYm}`,
+    load: () => fetchRaw(fromYm),
+    freshMs: FRESH_MS,
+    maxStaleMs: MAX_STALE_MS,
+    force,
+  })
 }
 
 /** ข้อมูลทั้งหน้า — cache เฉพาะส่วนที่หนัก (aggregation) ส่วน master ที่คนแก้
