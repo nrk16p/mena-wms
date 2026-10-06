@@ -7,6 +7,7 @@ import {
 } from "@/lib/deadstock-core"
 import { fetchOnOrderBySku } from "@/lib/on-order"
 import { fetchPrDetailIdByPr, fetchRequesterByPr } from "@/lib/pr-snapshot"
+import { sharedCache } from "@/lib/shared-cache"
 
 /** ยุบข้อมูลฝั่ง Mongo ก่อนเสมอ — ดึงแถวดิบ 54k แถวใช้ 152 วินาที ส่วนยุบก่อนใช้ 1.7 วินาที */
 async function fetchRaw(): Promise<{ layers: LayerDoc[]; issues: IssueDoc[] }> {
@@ -19,17 +20,26 @@ async function fetchRaw(): Promise<{ layers: LayerDoc[]; issues: IssueDoc[] }> {
   return { layers, issues }
 }
 
-// ข้อมูลต้นทางอัปเดตวันละครั้งจาก pipeline ATMS — ไม่มีเหตุให้ยิง DB ทุก request
-// เก็บบน globalThis เพื่อให้รอดข้าม hot-reload ตอน dev และข้าม warm invocation บน Vercel
-const TTL_MS = 60 * 60 * 1000
+// ข้อมูลต้นทางอัปเดตวันละไม่กี่รอบจาก pipeline ATMS — ไม่มีเหตุให้ยิง DB ทุก request
+// แคชกลางร่วมทุก instance (lib/shared-cache.ts): สด 1 ชม. เท่าเดิม · เลยแล้วเสิร์ฟของเดิมได้ถึง 6 ชม.
+// ระหว่างโหลดใหม่เบื้องหลัง (เดิม instance ที่แคชว่าง/หมดอายุต้องรอ query ~5.5 วินาที)
+// ไม่ผูก tag — ไม่มีเส้นไหนใน WMS เขียน collection ที่ใช้คำนวณ (ป้ายการจัดการอยู่ /api/deadstock/action แยกไม่แคช)
+const CACHE_KEY = "deadstock:v1"
+const FRESH_MS = 60 * 60 * 1000
+const MAX_STALE_MS = 6 * 60 * 60 * 1000
 
-declare global {
-  var _deadstockCache: { at: number; data: DeadstockPayload } | undefined
+/** opts.maxAgeMs — ผู้เรียกที่รับข้อมูลเก่ากว่านี้ไม่ได้ (cron safety-stock เก็บลง snapshot) จะรอผลโหลดใหม่
+ *  ต่อคิวกับการโหลดเบื้องหลังที่เพิ่งถูกสั่ง จึงไม่ยิง DB ซ้ำ */
+export async function getDeadstock(force = false, opts: { maxAgeMs?: number } = {}): Promise<DeadstockPayload> {
+  const get = (f: boolean) => sharedCache.get({
+    key: CACHE_KEY, load: loadDeadstock, freshMs: FRESH_MS, maxStaleMs: MAX_STALE_MS, force: f,
+  })
+  const data = await get(force)
+  if (!force && opts.maxAgeMs !== undefined && Date.now() - Date.parse(data.asOf) >= opts.maxAgeMs) return get(true)
+  return data
 }
 
-export async function getDeadstock(force = false): Promise<DeadstockPayload> {
-  const hit = globalThis._deadstockCache
-  if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.data
+async function loadDeadstock(): Promise<DeadstockPayload> {
   const asOf = new Date()
   const client = await clientPromise
   const { layers, issues } = await fetchRaw()
@@ -49,6 +59,5 @@ export async function getDeadstock(force = false): Promise<DeadstockPayload> {
     row.requester = (row.prCode && requesters.get(row.prCode)) || null
     row.prDetailId = (row.prCode && detailIds.get(row.prCode)) || null
   }
-  globalThis._deadstockCache = { at: Date.now(), data }
   return data
 }

@@ -216,7 +216,8 @@ export async function buildSnapshotRows(
 
   // 7) FIFO จากหน้า /deadstock — ข้อมูลประกอบ ใช้ cache เดิม ไม่ยิง DB ซ้ำ
   //    ข้อมูล FIFO มีเฉพาะคลังลาดกระบัง (inv 4) — คลังอื่นข้ามไปเลย ไม่ต้องยิง cache/DB เปล่าๆ
-  const dead = inventoryId === "4" ? await getDeadstock() : null
+  //    เก็บลง snapshot → ไม่รับของเก่าเกิน 1 ชม. (เท่า TTL เดิม) แม้แคชกลางยอมเสิร์ฟของเก่าให้หน้าเว็บได้นานกว่า
+  const dead = inventoryId === "4" ? await getDeadstock(false, { maxAgeMs: 60 * 60 * 1000 }) : null
   const fifoByCode = new Map((dead?.items ?? []).map((it) => [it.itemCode, it]))
 
   const stats: BuildStats = {
