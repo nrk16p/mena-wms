@@ -13,6 +13,8 @@ import {
 import { normalizeImages } from "@/lib/media"
 import { isAccounting } from "@/lib/roles"
 import { findTemplateForSupplier } from "@/lib/ap-doc-template-db"
+import { findDepositHead } from "@/lib/ap-search-db"
+import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
 
 export const dynamic = "force-dynamic"
 
@@ -54,20 +56,19 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
   const client = await clientPromise
   const atms = client.db("atms"), md = writeDb(client)
 
-  const head = await atms.collection("deposit_header").findOne(
-    { deposit_code: depositCode },
-    { projection: { _id: 0, deposit_id: 1, purchase_order: 1, supplier: 1 } },
-  )
+  // หัวใบจากภาพรวม deposit_header ที่แคชไว้ร่วมกับหน้าค้น (ไม่มี index ที่ deposit_code — findOne = collscan)
+  // ไม่เจอในภาพรวมถอยไปอ่าน DB ตรงเอง · ส่วนที่ WMS เขียน (tracking/แม่แบบ/ผู้ขาย) ยังอ่านสดทุกครั้ง
+  const head = await findDepositHead(atms, depositCode)
   const [tracking, items, po, tpl] = await Promise.all([
     md.collection(COLL).findOne({ depositCode }, { projection: { _id: 0 } }),
-    head?.deposit_id != null
-      ? atms.collection("deposit_items").find({ deposit_id: head.deposit_id }, { projection: { _id: 0 } }).limit(300).toArray()
+    head?.depositId != null
+      ? atms.collection("deposit_items").find({ deposit_id: head.depositId }, { projection: { _id: 0 } }).limit(300).toArray()
       : [],
-    head?.purchase_order
-      ? atms.collection("purchase_orders").findOne({ "รหัส": s(head.purchase_order) }, { projection: { _id: 0 } })
+    head?.hasPo
+      ? atms.collection("purchase_orders").findOne({ "รหัส": head.purchaseOrder }, { projection: { _id: 0 } })
       : null,
     // แม่แบบเอกสารของผู้ขาย — ตัวช่วยบอกในหมวดชุดเอกสาร (ไม่ใช่กติกาครบชุด)
-    findTemplateForSupplier(md, s(head?.supplier)),
+    findTemplateForSupplier(md, head?.supplier ?? ""),
   ])
   return NextResponse.json({
     tracking: tracking ?? null, items, po,
@@ -157,6 +158,8 @@ async function payOnPass(o: { client: Awaited<typeof clientPromise>; depositCode
       { $set: { name: supplier, creditTerm, override: creditTerm, updatedBy: by, updatedAt: at } },
       { upsert: true },
     )
+    // ล้างแคชทันที — คำขอนี้อาจไปตกที่ตรวจข้อมูลส่วนอื่นแล้วตอบ 400 โดยไม่ถึงการเขียน ap_tracking
+    await invalidateCache([CACHE_TAGS.ap])
     log.push({ action: "ตั้งเครดิตเทอมซัพพลายเออร์", field: "pay", detail: `${supplier} = ${creditTerm}`, by, byEmail, at })
   }
   return { pay, log }
@@ -445,6 +448,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     { $set: set, $push: { log: { $each: log, $slice: -LOG_KEEP } }, $setOnInsert: { createdAt: at, createdBy: by } } as any,
     { upsert: true, returnDocument: "after" },
   )
+  // ล้างแคชหน้า AP (ค้นข้ามเดือน/รายเจ้าหนี้ ฯลฯ) — ครั้งถัดไปทุก instance ต้องเห็นค่าที่เพิ่งบันทึก
+  await invalidateCache([CACHE_TAGS.ap])
 
   if (!doc) return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 })
 
