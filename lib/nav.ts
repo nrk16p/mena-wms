@@ -15,7 +15,7 @@ import {
   Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
   Landmark, Layers, LayoutDashboard, MapPin, PackageSearch, PackageX,
-  PlusCircle, Scale, ShieldCheck, TableProperties, Truck, Wrench,
+  PlusCircle, Scale, ShieldCheck, Shuffle, TableProperties, Truck, Wrench,
 } from "lucide-react"
 
 export type NavItem = {
@@ -86,6 +86,8 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ค้นหา / ดูอะไหล่ทั้งหมด" },
       { href: "/sku/new", label: "เพิ่ม SKU ใหม่", icon: PlusCircle,
         desc: "สร้างรหัสอัตโนมัติ" },
+      { href: "/sku/convert", label: "แปลงรหัส ATMS", icon: Shuffle,
+        desc: "แยก/แปลงรหัส ATMS เป็น SKU ใหม่" },
       { href: "/sku/my-submissions", label: "รายการของฉัน", icon: Inbox,
         desc: "SKU ที่ส่งไป รอ/ผ่านอนุมัติ" },
       { href: "/sku/oe-search", label: "ค้นหา OE", icon: GitCompare,
