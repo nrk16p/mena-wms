@@ -4,7 +4,8 @@
 //     เกิน maxStaleMs → รอโหลดใหม่ (ไม่เสิร์ฟของเก่าเกินกำหนด)
 //   • ล้างด้วย tag: invalidate(["ap"]) ตอนบันทึก → ครั้งถัดไปทุก instance โหลดใหม่ทันที
 //     ใช้ "generation" ต่อ tag เก็บใน store — ผลที่เริ่มโหลดก่อนการบันทึกแต่เสร็จทีหลังจะไม่ถูกนับว่าใหม่
-//   • ก้อนเกิน maxBytes (Runtime Cache รับ ≤ 2 MB) → ไม่เก็บ แค่คืนผล
+//   • ก้อนเกิน maxBytes (Runtime Cache รับ ≤ 2 MB) → เก็บในหน่วยความจำของ instance แทน (แบบเดิม)
+//     generation ยังอ่านจาก store กลาง การล้างด้วย tag จึงมีผลกับก้อนนี้ทุก instance เหมือนกัน
 //   • store พัง/ช้า → ทำเหมือนไม่มีแคช ไม่ทำให้ request ล้ม
 //
 // นอก Vercel (dev / สคริปต์) getCache() ถอยไปใช้แคชในหน่วยความจำเองอัตโนมัติ
@@ -57,6 +58,7 @@ export function createSharedCache(deps: Deps = {}) {
   const maxBytes = deps.maxBytes ?? DEFAULT_MAX_BYTES
   let store = deps.store
   const inflight = new Map<string, Promise<unknown>>()
+  const local = new Map<string, { entry: Entry<unknown>; exp: number }>()   // ก้อนใหญ่เกิน store กลาง
   const warned = new Set<string>()
 
   // เตือนครั้งเดียวต่อชนิดปัญหา (ไม่ให้ log ท่วมทุก request แต่ปัญหาคนละชนิดยังเห็นครบ)
@@ -92,11 +94,12 @@ export function createSharedCache(deps: Deps = {}) {
       const entry: Entry<T> = { v, at, gens }
       const bytes = Buffer.byteLength(JSON.stringify(entry))
       if (bytes <= maxBytes) {
+        local.delete(o.key)
         try {
           await getStore()?.set(`v:${o.key}`, entry, { ttl: Math.ceil(o.maxStaleMs / 1000), tags, name: o.key.split(":")[0] })
         } catch (e) { warn("set failed", e) }
       } else {
-        warn(`skip ${o.key} (${Math.round(bytes / 1024)} KB > limit)`, "")
+        local.set(o.key, { entry, exp: now() + o.maxStaleMs })
       }
       return v
     })().finally(() => inflight.delete(o.key))
@@ -108,7 +111,9 @@ export function createSharedCache(deps: Deps = {}) {
     async get<T>(o: GetOptions<T>): Promise<T> {
       if (!o.force) {
         const [raw, gens] = await Promise.all([safeGet(`v:${o.key}`), readGens(o.tags ?? [])])
-        const entry = raw as Entry<T> | null
+        const loc = local.get(o.key)
+        if (loc && loc.exp <= now()) local.delete(o.key)
+        const entry = (raw ?? (loc && loc.exp > now() ? loc.entry : null)) as Entry<T> | null
         if (entry && typeof entry === "object" && "at" in entry && sameGens(entry.gens ?? {}, gens)) {
           const age = now() - entry.at
           if (age < o.freshMs) return entry.v

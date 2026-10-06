@@ -112,12 +112,24 @@ async function main() {
     await flush()
     assert.equal(await cache.get({ ...base, load }), "v3", "ผลที่อ่านก่อนการบันทึกต้องถูกทิ้ง")
   }
-  // 8. ก้อนใหญ่เกิน maxBytes → ไม่เก็บ แต่ยังคืนผลถูกต้อง
+  // 8. ก้อนใหญ่เกิน maxBytes → ไม่เขียนลง store กลาง แต่เก็บในหน่วยความจำของ instance แทน (เท่ากับพฤติกรรมเดิม)
   {
-    t = 0; const { cache, store } = setup(50); const c = counter(["x".repeat(200), "y".repeat(200)])
+    t = 0; const { cache, store } = setup(50); const c = counter(["x".repeat(200), "y".repeat(200), "z".repeat(200)])
     assert.equal(await cache.get({ ...base, load: c.load }), "x".repeat(200))
-    assert.equal(await cache.get({ ...base, load: c.load }), "y".repeat(200), "ไม่ได้เก็บ จึงโหลดใหม่")
-    assert.equal(store.sets, 0, "ต้องไม่เขียนก้อนใหญ่ลง store")
+    assert.equal(await cache.get({ ...base, load: c.load }), "x".repeat(200), "ก้อนใหญ่ต้องได้จากหน่วยความจำ ไม่โหลดซ้ำ")
+    assert.equal(store.sets, 0, "ต้องไม่เขียนก้อนใหญ่ลง store กลาง")
+    // stale-while-revalidate ใช้ได้กับก้อนใหญ่ด้วย
+    t = 2000
+    assert.equal(await cache.get({ ...base, load: c.load }), "x".repeat(200))
+    await flush()
+    assert.equal(await cache.get({ ...base, load: c.load }), "y".repeat(200))
+    // ล้างด้วย tag ต้องมีผลกับก้อนในหน่วยความจำด้วย (generation อ่านจาก store กลาง)
+    await cache.invalidate(["ap"])
+    assert.equal(await cache.get({ ...base, load: c.load }), "z".repeat(200), "invalidate ต้องล้างก้อนในหน่วยความจำด้วย")
+    // เกิน maxStale → ทิ้งก้อนในหน่วยความจำ
+    t = 2000 + 6000
+    const late = counter(["late"])
+    assert.equal(await cache.get({ ...base, load: late.load }), "late")
   }
   // 9. store พัง → ยังได้ผลจากการโหลด ไม่ throw
   {
