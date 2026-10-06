@@ -17,15 +17,17 @@ export async function GET() {
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
 
   try {
-    const [board, client] = await Promise.all([fetchAtmsBoard(), clientPromise])
-
     // ใบงานอู่นอกที่ยังไม่ปิดใน WMS — ไว้บอกว่างานฝั่ง Mena-Next มีคู่ในระบบเราหรือยัง
-    const wms = await client.db(DB).collection(COLL)
-      .find(
-        { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
-        { projection: { plate: 1, fleetNo: 1, status: 1, garage: 1 } },
-      )
-      .toArray()
+    // ไม่ขึ้นกับข้อมูล ATMS → อ่านพร้อมกับที่รอ Cloud Run
+    const [board, wms] = await Promise.all([
+      fetchAtmsBoard(),
+      clientPromise.then((c) => c.db(DB).collection(COLL)
+        .find(
+          { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
+          { projection: { plate: 1, fleetNo: 1, status: 1, garage: 1 } },
+        )
+        .toArray()),
+    ])
 
     const wmsByPlate = new Map<string, (typeof wms)[number]>()
     const wmsByNum   = new Map<string, (typeof wms)[number]>()

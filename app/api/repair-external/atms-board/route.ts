@@ -19,14 +19,18 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
   try {
-    const [board, client] = await Promise.all([fetchAtmsBoard(), clientPromise])
-    const db  = client.db(DB)
-    const wms = await db.collection(COLL)
-      .find(
-        { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
-        { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, prCode: 1, poCode: 1 } },
-      )
-      .toArray()
+    // ใบเปิดใน WMS ไม่ขึ้นกับข้อมูล ATMS → อ่านพร้อมกับที่รอ Cloud Run
+    const [board, client, wms] = await Promise.all([
+      fetchAtmsBoard(),
+      clientPromise,
+      clientPromise.then((c) => c.db(DB).collection(COLL)
+        .find(
+          { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
+          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, prCode: 1, poCode: 1 } },
+        )
+        .toArray()),
+    ])
+    const db = client.db(DB)
 
     const wmsByPlate = new Map<string, (typeof wms)[number]>()
     const wmsByNum   = new Map<string, (typeof wms)[number]>()
@@ -78,6 +82,14 @@ export async function GET() {
     const noWms = pending.filter((p) => !p!.wms)
     const closedFor     = new Map<string, ClosedMatch>()    // key = plate จาก Mena-Next
     const lastClosedFor = new Map<string, ClosedWmsJob>()
+    const readSkips = async (): Promise<NextSkip[]> => (await db.collection(NEXT_SKIP_COLL)
+      .find({ cancelledAt: null, until: { $gte: today } })
+      .toArray())
+      .map((d) => ({
+        id: String(d._id), plate: String(d.plate ?? ""), trucknum: String(d.trucknum ?? ""), mrCode: String(d.mrCode ?? ""),
+        reason: String(d.reason ?? ""), by: String(d.by ?? ""), at: String(d.at ?? ""), until: String(d.until ?? ""),
+      }))
+    let skipsRead: NextSkip[] | null = null   // อ่านล่วงหน้าพร้อม log คนปิด (เฉพาะเมื่อแน่ใจว่าต้องใช้)
     if (noWms.length) {
       const plates = noWms.map((p) => p!.plate).filter(Boolean)
       const nums   = noWms.map((p) => p!.trucknum).filter(Boolean)
@@ -93,18 +105,8 @@ export async function GET() {
         // ปิดวันเดียวกันหลายใบ (เช่นสร้างซ้ำ) → findClosedMatch เก็บใบแรกเมื่อวันเท่ากัน ให้ใบที่ปิดทีหลังสุดขึ้นก่อน
         .sort({ statusSinceAt: -1 })
         .toArray()
-      // คนปิดงาน = log ล่าสุดที่เปลี่ยนเป็นสถานะปัจจุบัน (editedBy อาจเป็นคนแก้ช่องอื่นทีหลัง)
-      const closers = closedDocs.length
-        ? await db.collection(REPAIR_LOG_COLL)
-            .find({ repairId: { $in: closedDocs.map((d) => String(d._id)) }, "statusChange.to": { $in: DONE_STATUSES } })
-            .project({ repairId: 1, by: 1, at: 1, "statusChange.to": 1 })
-            .sort({ at: -1 })
-            .toArray()
-        : []
-      const closerOf = (id: string, status: string) =>
-        closers.find((l) => String(l.repairId) === id && l.statusChange?.to === status)?.by as string | undefined
-      for (const p of noWms) {
-        const cands: ClosedWmsJob[] = closedDocs
+      const candsOf = (p: (typeof noWms)[number], closerOf: (id: string, status: string) => string | undefined): ClosedWmsJob[] =>
+        closedDocs
           .filter((d) =>
             (normKey(d.plate) && normKey(d.plate) === normKey(p!.plate)) ||
             (normKey(d.fleetNo) && normKey(d.fleetNo) === normKey(p!.trucknum)) ||
@@ -114,6 +116,28 @@ export async function GET() {
             closedAt: String(d.statusSince || bkkDate(d.statusSinceAt ?? d.updatedAt)),
             closedBy: closerOf(String(d._id), String(d.status ?? "")) || String(d.editedBy ?? ""),
           }))
+      // คันไหนจับคู่ใบปิดได้ไม่ขึ้นกับ "คนปิด" (findClosedMatch ดูแค่ MR/วันปิด) → รู้ก่อนเลยว่าจะยังมีคันขาดไหม
+      // ถ้ามี (ต้องอ่านรายการตัดแน่ ๆ) ยิงพร้อมกับ log คนปิด แทนที่จะรอกันทีละคิวรี — จำนวนคิวรีเท่าเดิม
+      const closedPlates = new Set(noWms
+        .filter((p) => findClosedMatch(p!.mrCode, p!.since, candsOf(p, () => undefined), today))
+        .map((p) => p!.plate))
+      const needSkips = noWms.some((p) => !closedPlates.has(p!.plate))
+      // คนปิดงาน = log ล่าสุดที่เปลี่ยนเป็นสถานะปัจจุบัน (editedBy อาจเป็นคนแก้ช่องอื่นทีหลัง)
+      const [closers, skips] = await Promise.all([
+        closedDocs.length
+          ? db.collection(REPAIR_LOG_COLL)
+              .find({ repairId: { $in: closedDocs.map((d) => String(d._id)) }, "statusChange.to": { $in: DONE_STATUSES } })
+              .project({ repairId: 1, by: 1, at: 1, "statusChange.to": 1 })
+              .sort({ at: -1 })
+              .toArray()
+          : [],
+        needSkips ? readSkips() : null,
+      ])
+      skipsRead = skips
+      const closerOf = (id: string, status: string) =>
+        closers.find((l) => String(l.repairId) === id && l.statusChange?.to === status)?.by as string | undefined
+      for (const p of noWms) {
+        const cands = candsOf(p, closerOf)
         const hit = findClosedMatch(p!.mrCode, p!.since, cands, today)
         if (hit) closedFor.set(p!.plate, hit)
         else {
@@ -130,13 +154,7 @@ export async function GET() {
     // ── ⏸ คนกดตัดออกชั่วคราว (แย๊กโม่ / ซ่อมเสร็จ) จากแถว ❌ — ไม่นับทั้งตัวหารและตัวขาด จนพ้นกำหนดหรือ MR เปลี่ยน
     const skippedFor = new Map<string, NextSkip>()   // key = plate จาก Mena-Next
     if (notClosed.some((p) => !p!.wms)) {
-      const skips: NextSkip[] = (await db.collection(NEXT_SKIP_COLL)
-        .find({ cancelledAt: null, until: { $gte: today } })
-        .toArray())
-        .map((d) => ({
-          id: String(d._id), plate: String(d.plate ?? ""), trucknum: String(d.trucknum ?? ""), mrCode: String(d.mrCode ?? ""),
-          reason: String(d.reason ?? ""), by: String(d.by ?? ""), at: String(d.at ?? ""), until: String(d.until ?? ""),
-        }))
+      const skips = skipsRead ?? await readSkips()
       for (const p of notClosed) {
         if (p!.wms) continue
         const s = findActiveSkip(p!, skips, today)
