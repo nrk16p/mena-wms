@@ -62,15 +62,20 @@ async function main() {
     assert.equal(c.calls(), 1, "miss พร้อมกันต้องรอผลโหลดเดียวกัน")
   }
   // 3. เลยช่วงสดแต่ยังไม่เกิน maxStale → คืนค่าเก่าทันที + โหลดใหม่เบื้องหลังครั้งเดียว
+  //    (ถือผลโหลดเบื้องหลังค้างไว้ ให้ request ที่สองมาระหว่างโหลดแน่นอน)
   {
-    t = 0; const { cache } = setup(); const c = counter(["v1", "v2"])
-    await cache.get({ ...base, load: c.load })
+    t = 0; const { cache } = setup()
+    let calls = 0
+    let release!: (v: string) => void
+    const load = () => (++calls === 1 ? Promise.resolve("v1") : new Promise<string>((r) => { release = r }))
+    await cache.get({ ...base, load })
     t = 2000
-    assert.equal(await cache.get({ ...base, load: c.load }), "v1", "stale ต้องได้ค่าเก่าทันที")
-    assert.equal(await cache.get({ ...base, load: c.load }), "v1")
+    assert.equal(await cache.get({ ...base, load }), "v1", "stale ต้องได้ค่าเก่าทันที")
+    assert.equal(await cache.get({ ...base, load }), "v1", "ระหว่างโหลดเบื้องหลัง ยังได้ค่าเก่า")
+    assert.equal(calls, 2, "โหลดเบื้องหลังครั้งเดียว แม้มีหลาย request ระหว่างนั้น")
+    release("v2")
     await flush()
-    assert.equal(c.calls(), 2, "โหลดเบื้องหลังครั้งเดียว แม้มีหลาย request ระหว่างนั้น")
-    assert.equal(await cache.get({ ...base, load: c.load }), "v2", "หลังโหลดเบื้องหลังเสร็จ ได้ค่าใหม่")
+    assert.equal(await cache.get({ ...base, load }), "v2", "หลังโหลดเบื้องหลังเสร็จ ได้ค่าใหม่")
   }
   // 4. เกิน maxStale → รอโหลดใหม่ (ไม่คืนค่าเก่าเกินกำหนด)
   {
