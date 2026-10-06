@@ -172,6 +172,19 @@ async function main() {
     assert.equal(await cache.get({ ...base, key: "a", load: async () => "A" }), "A")
     assert.equal(await cache.get({ ...base, key: "b", load: async () => "B" }), "B", "key ชนกันต้องนับเป็น miss ไม่ใช่ได้ข้อมูลของ a")
   }
+  // 13. ทุกทางคืนข้อมูลรูปแบบเดียวกัน (JSON) — Date ใน store กลางกลายเป็น string อยู่แล้ว
+  //     ครั้งแรก (miss) และก้อนในหน่วยความจำต้องเป็น string เหมือนกัน ไม่ใช่บางครั้ง Date บางครั้ง string
+  {
+    t = 0; const { cache } = setup()
+    const load = async () => ({ at: new Date(0) })
+    const first = await cache.get({ ...base, key: "d", load })
+    const second = await cache.get({ ...base, key: "d", load })
+    assert.equal(typeof first.at, "string", "miss ต้องได้ string เหมือนตอนดึงจากแคช")
+    assert.deepEqual(first, second)
+    const big = setup(10).cache
+    const b1 = await big.get({ ...base, key: "d", load })
+    assert.equal(typeof b1.at, "string", "ก้อนใหญ่ (หน่วยความจำ) ก็ต้องเป็น string")
+  }
   console.log("check-shared-cache: ok")
 }
 

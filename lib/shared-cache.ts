@@ -7,6 +7,7 @@
 //   • ก้อนเกิน maxBytes (Runtime Cache รับ ≤ 2 MB) → เก็บในหน่วยความจำของ instance แทน (แบบเดิม)
 //     generation ยังอ่านจาก store กลาง การล้างด้วย tag จึงมีผลกับก้อนนี้ทุก instance เหมือนกัน
 //   • store พัง/ช้า → ทำเหมือนไม่มีแคช ไม่ทำให้ request ล้ม
+//   • ผลที่คืนผ่าน JSON เสมอ (Date กลายเป็น string) — load() ควรคืนข้อมูลที่เป็น JSON อยู่แล้ว
 //
 // นอก Vercel (dev / สคริปต์) getCache() ถอยไปใช้แคชในหน่วยความจำเองอัตโนมัติ
 import { createHash } from "node:crypto"
@@ -93,8 +94,10 @@ export function createSharedCache(deps: Deps = {}) {
       const gens = await readGens(tags)   // จับ generation ก่อนเริ่มอ่านข้อมูล
       const at = now()
       const v = await o.load()
-      const entry: Entry<T> = { k: o.key, v, at, gens }
-      const bytes = Buffer.byteLength(JSON.stringify(entry))
+      // คืนข้อมูลแบบผ่าน JSON ทุกทาง (Date → string ฯลฯ) ให้ครั้งแรกกับครั้งที่ดึงจากแคชได้รูปแบบเดียวกันเสมอ
+      const json = JSON.stringify({ k: o.key, v, at, gens })
+      const entry = JSON.parse(json) as Entry<T>
+      const bytes = Buffer.byteLength(json)
       if (bytes <= maxBytes) {
         local.delete(o.key)
         try {
@@ -103,7 +106,7 @@ export function createSharedCache(deps: Deps = {}) {
       } else {
         local.set(o.key, { entry, exp: now() + o.maxStaleMs })
       }
-      return v
+      return entry.v
     })().finally(() => inflight.delete(o.key))
     inflight.set(o.key, p)
     return p
