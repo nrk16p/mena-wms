@@ -1,6 +1,7 @@
 // lib/rfq.ts — ชั้นคุย MongoDB ของ Vendor RFQ · ตรรกะอยู่ใน rfq-core
-import { ObjectId, type WithId, type Document } from "mongodb"
+import { ObjectId, type WithId, type Document, type Collection } from "mongodb"
 import clientPromise from "@/lib/mongo"
+import { onceUntilOk } from "@/lib/once"
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   newToken, effectiveStatus, canTransition, canVendorWrite, progress, SVC_SHEET, SHEET_ORDER, RETIRED_JOB_CODES,
@@ -19,11 +20,25 @@ const PART_COLL = "rfq_part_catalog"
 const META_COLL = "rfq_catalog_meta"
 
 async function db() { return (await clientPromise).db(DB) }
+
+// index สร้างครั้งเดียวต่อ process (เดิมยิง createIndex ทุกครั้งที่เรียก) — ตัวไหนล้มให้ลองทั้งชุดใหม่ครั้งถัดไป
+// ล้มเหลวไม่ทำให้ request ล้ม (เหมือนเดิม)
+const ensureInviteIndexes = onceUntilOk(async (col: Collection<RfqInvite>) => {
+  const errs: unknown[] = []
+  for (const make of [   // ทีละตัวตามเดิม · ตัวหนึ่งล้มยังสร้างตัวถัดไป
+    () => col.createIndex({ token: 1 }, { unique: true }),
+    () => col.createIndex({ vendor: 1, createdAt: -1 }),
+    () => col.createIndex({ status: 1, deadline: 1 }),
+  ]) await make().catch((e: unknown) => { errs.push(e) })
+  if (errs.length) throw errs[0]
+})
+const ensureLogIndex = onceUntilOk(async (col: Collection<RfqLogEntry>) => {
+  await col.createIndex({ inviteId: 1, at: -1 })
+})
+
 async function invites() {
   const col = (await db()).collection<RfqInvite>(INVITE_COLL)
-  await col.createIndex({ token: 1 }, { unique: true }).catch(() => {})
-  await col.createIndex({ vendor: 1, createdAt: -1 }).catch(() => {})
-  await col.createIndex({ status: 1, deadline: 1 }).catch(() => {})
+  await ensureInviteIndexes(col).catch(() => {})
   return col
 }
 
@@ -71,7 +86,7 @@ async function writeLog(entries: RfqLogEntry[]) {
   if (!entries.length) return
   try {
     const col = (await db()).collection<RfqLogEntry>(LOG_COLL)
-    await col.createIndex({ inviteId: 1, at: -1 }).catch(() => {})
+    await ensureLogIndex(col).catch(() => {})
     await col.insertMany(entries, { ordered: false })
   } catch (e) { console.error("[rfq-log] write failed", e) }
 }
