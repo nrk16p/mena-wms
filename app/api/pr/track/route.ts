@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 
 export const dynamic = "force-dynamic"
 
@@ -28,5 +29,6 @@ export async function PUT(req: NextRequest) {
     { $set: { prCode, expectedDelivery, note, updatedAt: new Date(), updatedBy: by } },
     { upsert: true },
   )
+  await invalidateCache([CACHE_TAGS.pr])   // GET /api/pr แคชไว้ — ให้เห็นวันใหม่ทันที
   return NextResponse.json({ ok: true, prCode, expectedDelivery })
 }
