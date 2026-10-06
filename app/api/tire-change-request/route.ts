@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
@@ -189,6 +190,7 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date(),
     }
     await col.updateOne({ _id: existing._id }, { $set: refresh })
+    await invalidateCache([CACHE_TAGS.tire])
     return NextResponse.json({ ...existing, ...refresh, _id: existing._id })
   }
 
@@ -213,6 +215,7 @@ export async function POST(req: NextRequest) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await col.insertOne(doc as any)
+  await invalidateCache([CACHE_TAGS.tire])
 
   return NextResponse.json({ ...doc, _id: result.insertedId }, { status: 201 })
 }

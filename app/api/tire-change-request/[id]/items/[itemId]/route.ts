@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { itemAppointment, rollupRequestStatus } from "@/lib/tire-request-status"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -69,6 +70,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       { _id: new ObjectId(id), "items._id": new ObjectId(itemId) },
       { $set: { "items.$.jobNo": jobNo, "items.$.jobNoUpdatedBy": by, "items.$.jobNoUpdatedAt": now } }
     )
+    await invalidateCache([CACHE_TAGS.tire])
     return NextResponse.json({ ok: true, jobNo })
   }
 
@@ -126,17 +128,23 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       splitAt: now,
       items: moving,
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const inserted = await col.insertOne(fresh as any)
+    // insert สำเร็จแล้ว pull พัง = มีใบใหม่โผล่แล้ว → ล้างแคชยางเสมอหลังเขียน
+    let inserted
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      inserted = await col.insertOne(fresh as any)
 
-    await col.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        $pull: { items: { _id: { $in: moving.map((it) => new ObjectId(String(it._id))) } } } as any,
-        $set: { status: newReqStatus, updatedAt: now },
-      }
-    )
+      await col.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          $pull: { items: { _id: { $in: moving.map((it) => new ObjectId(String(it._id))) } } } as any,
+          $set: { status: newReqStatus, updatedAt: now },
+        }
+      )
+    } finally {
+      await invalidateCache([CACHE_TAGS.tire])
+    }
 
     return NextResponse.json({
       ok: true,
@@ -172,6 +180,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const reqSet: Record<string, any> = { updatedAt: now, status: rollupRequestStatus(nextItems, doc.appointmentDate) }
     if (scheduled.length > 0) reqSet.appointmentDate = new Date(Math.max(...scheduled))
     await col.updateOne({ _id: new ObjectId(id) }, { $set: reqSet })
+    await invalidateCache([CACHE_TAGS.tire])
 
     return NextResponse.json({ ok: true, appointmentDate: date, requestStatus: reqSet.status })
   }
@@ -205,6 +214,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const reqSet: Record<string, any> = { status: requestStatus, updatedAt: now }
     if (requestStatus === "done") { reqSet.doneBy = by; reqSet.doneAt = now }
     await col.updateOne({ _id: new ObjectId(id) }, { $set: reqSet })
+    await invalidateCache([CACHE_TAGS.tire])
 
     return NextResponse.json({ ok: true, itemStatus: "done", requestStatus })
   }
@@ -257,6 +267,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const newStatus = rollupRequestStatus(nextItems, doc.appointmentDate)
 
   await col.updateOne({ _id: new ObjectId(id) }, { $set: { status: newStatus, updatedAt: now } })
+  await invalidateCache([CACHE_TAGS.tire])
 
   return NextResponse.json({ ok: true, itemStatus: action === "approve" ? "approved" : "rejected", requestStatus: newStatus })
 }

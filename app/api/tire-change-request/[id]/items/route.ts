@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { uploadImage } from "@/lib/spaces"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -91,6 +92,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { $push: { items: item }, $set: reqSet } as any
   )
+  await invalidateCache([CACHE_TAGS.tire])
 
   return NextResponse.json({ ok: true, itemId: item._id, photoUrls, requestStatus: reqSet.status ?? parentStatus }, { status: 201 })
 }
