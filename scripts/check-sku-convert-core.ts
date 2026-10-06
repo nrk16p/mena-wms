@@ -3,7 +3,7 @@
  */
 import assert from "node:assert"
 import {
-  buildCodeBook, emptyEntry, entryFromSuggest, entryMissing, entryWrong, isLockLive, LOCK_MS,
+  buildCodeBook, emptyEntry, entryFromSuggest, entryMissing, entryWrong, isLockLive, L1_FILTER, LOCK_MS,
   qtyCheck, rowStatus, sanitizeEntries, skuPreview, splitFrom,
 } from "../lib/sku-convert-core"
 import type { Entry, MasterCodeRow } from "../lib/sku-convert-types"
@@ -107,6 +107,17 @@ check("one incomplete card = draft", () =>
   assert.strictEqual(rowStatus("parts", 10, [good({ qty: 10 }), good({ qty: 0, l2: "" })], book), "draft"))
 check("svc ignores qty", () =>
   assert.strictEqual(rowStatus("svc", 0, [good({ type: "LAB", l2: "ENGL", l3: "", unit: "DAY", qty: null })], book), "done"))
+
+console.log("L1 filter (shared with /sku/new)")
+check("TOL allowed for PRT only, LAB L1 allowed for LAB only", () => {
+  assert.ok(L1_FILTER.PRT.includes("TOL") && !L1_FILTER.PM.includes("TOL") && !L1_FILTER.LAB.includes("TOL"))
+  assert.ok(L1_FILTER.LAB.includes("LAB") && !L1_FILTER.PRT.includes("LAB"))
+})
+check("/sku/new imports L1_FILTER instead of keeping its own copy", () => {
+  const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../app/sku/new/page.tsx"), "utf8")
+  assert.ok(src.includes('import { L1_FILTER } from "@/lib/sku-convert-core"'))
+  assert.ok(!/const L1_FILTER\s*[:=]/.test(src))
+})
 
 console.log("helpers")
 check("sku preview with and without L3", () => {

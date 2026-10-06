@@ -9,11 +9,13 @@ import type {
 export const NO_L3_TYPES = ["LAB", "SVC", "CLN", "TRP"]
 /** Types entered with price 0 (same list as lib/codes.ts EXPENSE_TYPES_NO_PRICE). */
 export const NO_PRICE_TYPES = ["LAB", "SVC", "CLN", "TRP", "ACC"]
-/** Allowed L1 per type — copied from app/sku/new/page.tsx L1_FILTER. */
+/** Allowed L1 per type — the single source for /sku/new and /sku/convert.
+ *  TOL (เครื่องมือและอุปกรณ์โรงซ่อม) for PRT and LAB (ค่าแรงซ่อม ไม่ระบุระบบ) for LAB added 2026-10-06 with the
+ *  L1/L2/L3 coverage of the ATMS worklist (lean_project/sku_split/taxonomy/merge_report.md). */
 export const L1_FILTER: Record<string, string[]> = {
-  PRT: ["ENG", "COL", "FUL", "TRN", "SUS", "BRK", "STR", "ELC", "EXH", "TYR", "LUB", "MXS", "REF", "PTO", "TRL", "BOD", "SAF", "CSM", "ACS"],
+  PRT: ["ENG", "COL", "FUL", "TRN", "SUS", "BRK", "STR", "ELC", "EXH", "TYR", "LUB", "MXS", "REF", "PTO", "TRL", "BOD", "SAF", "CSM", "ACS", "TOL"],
   PM: ["ENG", "COL", "FUL", "TRN", "SUS", "BRK", "STR", "ELC", "TYR", "LUB", "MXS", "PTO", "ACS"],
-  LAB: ["ENG", "TRN", "BRK", "SUS", "STR", "ELC", "MXS", "TRL", "BOD", "TYR", "PTO", "ACS", "ACC"],
+  LAB: ["ENG", "TRN", "BRK", "SUS", "STR", "ELC", "MXS", "TRL", "BOD", "TYR", "PTO", "ACS", "ACC", "LAB"],
   SVC: ["SVC"],
   CLN: ["CLN"],
   TRP: ["TRP"],

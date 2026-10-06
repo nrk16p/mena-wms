@@ -13,6 +13,7 @@ import { ImageUpload } from "@/components/image-upload"
 import { swalError } from "@/lib/swal"
 import type { SkuImage } from "@/lib/media"
 import PartsPage from "@/app/codes/parts/page"
+import { L1_FILTER } from "@/lib/sku-convert-core"
 
 type CodeMap = Record<string, { th: string; en: string }>
 
@@ -73,16 +74,7 @@ export default function NewSkuPage() {
   const toMap = (rows: Row[]): CodeMap =>
     Object.fromEntries(rows.map((r) => [r.code, { th: r.th, en: r.en }]))
 
-  // Which L1 codes are appropriate per expense type
-  const L1_FILTER: Record<string, string[]> = {
-    PRT: ["ENG","COL","FUL","TRN","SUS","BRK","STR","ELC","EXH","TYR","LUB","MXS","REF","PTO","TRL","BOD","SAF","CSM","ACS"],
-    PM:  ["ENG","COL","FUL","TRN","SUS","BRK","STR","ELC","TYR","LUB","MXS","PTO","ACS"],
-    LAB: ["ENG","TRN","BRK","SUS","STR","ELC","MXS","TRL","BOD","TYR","PTO","ACS","ACC"],
-    SVC: ["SVC"],
-    CLN: ["CLN"],
-    TRP: ["TRP"],
-    ACC: ["BOD","ENG","TRN","BRK","SUS","ACC"],
-  }
+  // Which L1 codes are appropriate per expense type — single source shared with /sku/convert
 
   // All L1 options fetched from DB, filtered by expense type in the component
   const [allL1Options, setAllL1Options] = useState<CodeMap>({})
