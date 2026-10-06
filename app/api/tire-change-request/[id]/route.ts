@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
@@ -59,6 +60,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         { _id: new ObjectId(id) },
         { $set: { plate, plateUpdatedBy: by, plateUpdatedAt: now, updatedAt: now } },
       )
+      await invalidateCache([CACHE_TAGS.tire])
       return NextResponse.json({ ok: true, plate })
     }
 
@@ -133,5 +135,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     { $set: { ...update, updatedAt: now } },
     arrayFilters ? { arrayFilters } : {}
   )
+  await invalidateCache([CACHE_TAGS.tire])
   return NextResponse.json({ ok: true, status: update.status })
 }

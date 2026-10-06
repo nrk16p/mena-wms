@@ -13,6 +13,7 @@
 
 import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { itemAppointment, rollupRequestStatus } from "@/lib/tire-request-status"
 
 const DB        = process.env.MONGO_DB ?? "master_data"
@@ -284,7 +285,12 @@ export async function autoResolveTireRequests(opts: AutoResolveOptions = {}): Pr
   }
 
   if (!dryRun && bulkOps.length > 0) {
-    await reqCol.bulkWrite(bulkOps, { ordered: false })
+    // ordered:false พังบางใบก็ยังเขียนใบอื่นไปแล้ว → ล้างแคชยางเสมอหลังเขียน
+    try {
+      await reqCol.bulkWrite(bulkOps, { ordered: false })
+    } finally {
+      await invalidateCache([CACHE_TAGS.tire])
+    }
   }
 
   return { closedItems, rejectedItems, requestsTouched, dryRun, details }

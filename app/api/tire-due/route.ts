@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
+import type { Collection } from "mongodb"
 import clientPromise from "@/lib/mongo"
+import { sharedCache, invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { rebuildTireDistance } from "@/lib/tire-distance"
+import { tireDueKey, nextSnoozeEnd, type TireDueParams } from "@/lib/tire-due-cache"
 import { DUE_LABEL, snoozeDays, SOURCE_LABEL, positionOrder, type DueLevel, type DistanceSource } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
+const CACHE_FRESH_MS     = 5 * 60_000
+const CACHE_MAX_STALE_MS = 60 * 60_000
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -113,6 +118,32 @@ export async function GET(req: NextRequest) {
   const client = await clientPromise
   const col = client.db(DB).collection("tire_distance")
 
+  // แคช: tire_distance เขียนผ่าน WMS เท่านั้น (cron คำนวณใหม่ / พัก / รับเรื่อง) ทุกเส้นล้าง tag "tire"
+  // ผลขึ้นกับเวลาแค่ "เส้นที่พักไว้หมดพักหรือยัง" → key พ่วงเวลาพักที่หมดถัดไป (ดู lib/tire-due-cache.ts)
+  const now = new Date()
+  const snoozeEnds = await sharedCache.get({
+    key: "tire-due:snooze-ends",
+    tags: [CACHE_TAGS.tire],
+    freshMs: CACHE_FRESH_MS,
+    maxStaleMs: CACHE_MAX_STALE_MS,
+    load: async () => (await col.distinct("snoozedUntil", { snoozedUntil: { $gt: new Date() } }))
+      .map((d) => new Date(d).getTime())
+      .filter((ms) => !Number.isNaN(ms)),
+  })
+  const key = tireDueKey({ branch, unit, q, group, includeSnoozed, countsOnly }, nextSnoozeEnd(snoozeEnds, now.getTime()))
+
+  const payload = await sharedCache.get({
+    key,
+    tags: [CACHE_TAGS.tire],
+    freshMs: CACHE_FRESH_MS,
+    maxStaleMs: CACHE_MAX_STALE_MS,
+    load: () => listView(col, { branch, unit, q, group, includeSnoozed, countsOnly }, now),
+  })
+  return NextResponse.json(payload)
+}
+
+// รายการฝั่งแอดมิน — now = เวลาของ request (ใช้ตัดสินเส้นที่พักไว้ ทุกคิวรีใช้ค่าเดียวกัน)
+async function listView(col: Collection, { branch, unit, q, group, includeSnoozed, countsOnly }: TireDueParams, now: Date) {
   // ตัวกรองหลายชั้นมี $or ของตัวเอง (ค้นหา / ยังไม่ snooze / กลุ่ม nodistance)
   // ถ้า spread รวมกันตรงๆ ตัวหลังจะทับ $or ตัวหน้าเงียบๆ — ต้องต่อกันด้วย $and เสมอ
   const all = (...parts: Filter[]): Filter => {
@@ -128,11 +159,11 @@ export async function GET(req: NextRequest) {
   const search: Filter = q
     ? { $or: [{ plate: { $regex: q, $options: "i" } }, { fleetNo: { $regex: q, $options: "i" } }] }
     : {}
-  const notSnoozed: Filter = { $or: [{ snoozedUntil: null }, { snoozedUntil: { $lte: new Date() } }] }
+  const notSnoozed: Filter = { $or: [{ snoozedUntil: null }, { snoozedUntil: { $lte: now } }] }
 
   const groupFilter = GROUP_FILTER[group] ?? GROUP_FILTER.alert
   const listFilter =
-    group === "snoozed" ? all(base, search, { snoozedUntil: { $gt: new Date() } })
+    group === "snoozed" ? all(base, search, { snoozedUntil: { $gt: now } })
     : includeSnoozed    ? all(base, search, groupFilter)
     :                     all(base, search, groupFilter, notSnoozed)
 
@@ -154,7 +185,7 @@ export async function GET(req: NextRequest) {
       }),
     ),
     col.find({}).sort({ computedAt: -1 }).limit(1).project({ computedAt: 1, dataThrough: 1 }).next(),
-    col.countDocuments(all(base, search, { snoozedUntil: { $gt: new Date() } })),
+    col.countDocuments(all(base, search, { snoozedUntil: { $gt: now } })),
     vehiclesByLevel,
   ])
 
@@ -167,13 +198,13 @@ export async function GET(req: NextRequest) {
     alert: new Set([...platesOf("over"), ...platesOf("due")]).size,
   }
 
-  return NextResponse.json({
+  return {
     items,
     summary: { ...Object.fromEntries(counts), snoozed },
     vehicles,
     computedAt:  meta?.computedAt  ?? null,
     dataThrough: meta?.dataThrough ?? null,
-  })
+  }
 }
 
 // POST /api/tire-due — สั่งคำนวณใหม่เอง (ปกติรอบจริงพ่วงท้าย cron tire-sync)
@@ -224,6 +255,7 @@ export async function PATCH(req: NextRequest) {
         : { acceptedAt: null, acceptedBy: "", acceptedNote: "" },
     })
     if (!res.matchedCount) return NextResponse.json({ error: "ไม่พบยางของทะเบียนนี้" }, { status: 404 })
+    await invalidateCache([CACHE_TAGS.tire])
     return NextResponse.json({
       ok: true, plate, tires: res.matchedCount,
       acceptedAt: acc ? now : null, acceptedBy: acc ? String(body.by ?? "").trim() : "",
@@ -248,6 +280,7 @@ export async function PATCH(req: NextRequest) {
   const client = await clientPromise
   const res = await client.db(DB).collection("tire_distance").updateMany(filter, { $set: update })
   if (!res.matchedCount) return NextResponse.json({ error: "ไม่พบยางของทะเบียนนี้" }, { status: 404 })
+  await invalidateCache([CACHE_TAGS.tire])
 
   return NextResponse.json({ ok: true, plate, tires: res.matchedCount, snoozeDays: on ? days : 0, ...update })
 }

@@ -6,6 +6,7 @@
 
 import type { Db } from "mongodb"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import {
   dueLevel, monthRange, normalizePlateForGps, normalizeProductKey,
   sumMonthlyDistance, isTrailerUnit, isSpareTire, isNotATire, isIgnoredPlate, isFrontTire,
@@ -397,11 +398,16 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
       col.createIndex({ branch: 1, level: 1, usedPct: -1 }),
       col.createIndex({ computedAt: 1 }),
     ])
-    for (let i = 0; i < ops.length; i += 500) {
-      await col.bulkWrite(ops.slice(i, i + 500), { ordered: false })
+    try {
+      for (let i = 0; i < ops.length; i += 500) {
+        await col.bulkWrite(ops.slice(i, i + 500), { ordered: false })
+      }
+      // ยางที่ถูกถอดออกไปแล้วรอบนี้ไม่มีในผลลัพธ์ → ลบทิ้ง ไม่งั้นค้างเตือนทั้งที่ไม่ได้อยู่บนรถแล้ว
+      await col.deleteMany({ computedAt: { $lt: runAt } })
+    } finally {
+      // เขียนไปแล้ว (แม้พังกลางทาง) → ล้างแคชยาง หน้าจอเห็นผลรอบใหม่ทันที
+      await invalidateCache([CACHE_TAGS.tire])
     }
-    // ยางที่ถูกถอดออกไปแล้วรอบนี้ไม่มีในผลลัพธ์ → ลบทิ้ง ไม่งั้นค้างเตือนทั้งที่ไม่ได้อยู่บนรถแล้ว
-    await col.deleteMany({ computedAt: { $lt: runAt } })
 
     return {
       ok: true, tires: tires.length, computed, noSpec, noDistance,

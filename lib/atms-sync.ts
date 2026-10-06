@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx"
 import https from "node:https"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { BRANCH_IDS, stockBranchFor } from "@/lib/tire-branch-map"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
@@ -133,24 +134,29 @@ export async function runBranchSync(branch: string, phpsessid: string): Promise<
 
   const client   = await clientPromise
   const col      = client.db(DB).collection(COLL)
-  await col.deleteMany({ branch })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await col.insertMany(docs as any)
-
-  const stockCol     = client.db(DB).collection("tire_stock")
-  const latestDocs   = docs.filter((d) => d.isLatest && d.serialNo)
-  const stockUpdates = latestDocs.map((d) => ({
-    updateOne: {
-      filter: { branch: stockBranchFor(branch, d.atmsBranchId), serialNo: d.serialNo },
-      update: { $set: { status: STATUS_MAP[d.sellRepairStatus] ?? "In Stock", updatedAt: syncedAt } },
-    },
-  }))
-  let stockUpdated = 0
-  if (stockUpdates.length > 0) {
+  // ลบแล้วใส่ใหม่ทั้งสาขา — พังกลางทางก็ถือว่าข้อมูลเปลี่ยนไปแล้ว ล้างแคชยางเสมอหลังเขียน
+  try {
+    await col.deleteMany({ branch })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r = await stockCol.bulkWrite(stockUpdates as any)
-    stockUpdated = r.modifiedCount
-  }
+    await col.insertMany(docs as any)
 
-  return { branch, count: docs.length, stockUpdated, syncedAt }
+    const stockCol     = client.db(DB).collection("tire_stock")
+    const latestDocs   = docs.filter((d) => d.isLatest && d.serialNo)
+    const stockUpdates = latestDocs.map((d) => ({
+      updateOne: {
+        filter: { branch: stockBranchFor(branch, d.atmsBranchId), serialNo: d.serialNo },
+        update: { $set: { status: STATUS_MAP[d.sellRepairStatus] ?? "In Stock", updatedAt: syncedAt } },
+      },
+    }))
+    let stockUpdated = 0
+    if (stockUpdates.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await stockCol.bulkWrite(stockUpdates as any)
+      stockUpdated = r.modifiedCount
+    }
+
+    return { branch, count: docs.length, stockUpdated, syncedAt }
+  } finally {
+    await invalidateCache([CACHE_TAGS.tire])
+  }
 }

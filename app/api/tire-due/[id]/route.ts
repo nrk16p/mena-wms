@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { ObjectId } from "mongodb"
 import clientPromise from "@/lib/mongo"
+import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { snoozeDays } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
@@ -37,5 +38,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .updateOne({ _id: new ObjectId(id) }, { $set: update })
 
   if (!res.matchedCount) return NextResponse.json({ error: "ไม่พบรายการ" }, { status: 404 })
+  await invalidateCache([CACHE_TAGS.tire])
   return NextResponse.json({ ok: true, snoozeDays: on ? days : 0, ...update })
 }
