@@ -157,6 +157,21 @@ async function main() {
     assert.equal(await cache.get({ ...base, key: "b", load: async () => "B" }), "B")
     assert.equal(await cache.get({ ...base, key: "a", load: async () => "X" }), "A")
   }
+  // 12. key ชนกันใน store (hash ซ้ำ) → ต้องไม่เสิร์ฟข้อมูลของ key อื่น
+  {
+    t = 0
+    const inner = fakeStore()
+    const slot = (k: string) => (k.startsWith("v:") ? "v:*" : k)   // ทุก key ข้อมูลชนช่องเดียวกัน
+    const colliding: CacheStore = {
+      get: (k) => inner.get(slot(k)),
+      set: (k, v, o) => inner.set(slot(k), v, o),
+      delete: (k) => inner.delete(slot(k)),
+      expireTag: (tag) => inner.expireTag(tag),
+    }
+    const cache = createSharedCache({ store: colliding, now: () => t, background: (p) => { bg.push(p) } })
+    assert.equal(await cache.get({ ...base, key: "a", load: async () => "A" }), "A")
+    assert.equal(await cache.get({ ...base, key: "b", load: async () => "B" }), "B", "key ชนกันต้องนับเป็น miss ไม่ใช่ได้ข้อมูลของ a")
+  }
   console.log("check-shared-cache: ok")
 }
 

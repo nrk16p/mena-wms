@@ -9,6 +9,7 @@
 //   • store พัง/ช้า → ทำเหมือนไม่มีแคช ไม่ทำให้ request ล้ม
 //
 // นอก Vercel (dev / สคริปต์) getCache() ถอยไปใช้แคชในหน่วยความจำเองอัตโนมัติ
+import { createHash } from "node:crypto"
 import { getCache } from "@vercel/functions"
 import { after } from "next/server"
 
@@ -27,7 +28,7 @@ export const CACHE_TAGS = {
   handover: "handover", // ชีต Onboarding (ส่งมอบรถ พจส.ใหม่)
 } as const
 
-type Entry<T> = { v: T; at: number; gens: Record<string, string> }
+type Entry<T> = { k: string; v: T; at: number; gens: Record<string, string> }   // k = key เต็ม กัน hash ชน
 
 export type GetOptions<T> = {
   key: string
@@ -70,7 +71,8 @@ export function createSharedCache(deps: Deps = {}) {
   }
   const getStore = (): CacheStore | null => {
     if (store) return store
-    try { store = getCache({ namespace: "wms" }) as CacheStore } catch (e) { warn("no cache store", e); return null }
+    // hash ค่าเริ่มต้นของ getCache เป็น 32 บิต (ชนได้) — ใช้ sha256 แทน และเทียบ key เต็มตอนอ่านอีกชั้น
+    try { store = getCache({ namespace: "wms", keyHashFunction: (k) => createHash("sha256").update(k).digest("hex") }) as CacheStore } catch (e) { warn("no cache store", e); return null }
     return store
   }
   const safeGet = async (key: string): Promise<unknown | null> => {
@@ -91,7 +93,7 @@ export function createSharedCache(deps: Deps = {}) {
       const gens = await readGens(tags)   // จับ generation ก่อนเริ่มอ่านข้อมูล
       const at = now()
       const v = await o.load()
-      const entry: Entry<T> = { v, at, gens }
+      const entry: Entry<T> = { k: o.key, v, at, gens }
       const bytes = Buffer.byteLength(JSON.stringify(entry))
       if (bytes <= maxBytes) {
         local.delete(o.key)
@@ -114,7 +116,7 @@ export function createSharedCache(deps: Deps = {}) {
         const loc = local.get(o.key)
         if (loc && loc.exp <= now()) local.delete(o.key)
         const entry = (raw ?? (loc && loc.exp > now() ? loc.entry : null)) as Entry<T> | null
-        if (entry && typeof entry === "object" && "at" in entry && sameGens(entry.gens ?? {}, gens)) {
+        if (entry && typeof entry === "object" && entry.k === o.key && sameGens(entry.gens ?? {}, gens)) {
           const age = now() - entry.at
           if (age < o.freshMs) return entry.v
           if (age < o.maxStaleMs) {
