@@ -15,6 +15,7 @@ import clientPromise from "@/lib/mongo"
 import { AP_NOS_MAX, apStage, cleanDocNos, ictDate, inApScope, parseAmount, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
 import { AP_VOUCHER_MAX } from "@/lib/ap-voucher-import"
 import { isAccounting } from "@/lib/roles"
+import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
 
 export const dynamic = "force-dynamic"
 
@@ -153,6 +154,8 @@ export async function POST(req: NextRequest) {
     if (ops.length) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const res = await md.collection(COLL).bulkWrite(ops as any, { ordered: false })
+        // ล้างแคชหน้า AP — ordered:false พังกลางทางก็อาจเขียนไปบางใบแล้ว จึงล้างทั้งกรณีสำเร็จและพัง
+        .finally(() => invalidateCache([CACHE_TAGS.ap]))
       written = res.modifiedCount
       // ใบที่เขียนสำเร็จหลุดจาก "ส่งบัญชีแล้ว" แล้ว — อ่านกลับสถานะจริงแทนการเดา (บางใบอาจโดน filter กันไว้)
       const after = await md.collection(COLL).find({ depositCode: { $in: toPass.map((r) => r.depositCode) }, "review.status": "ผ่าน" },
