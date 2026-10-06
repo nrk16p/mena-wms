@@ -12,3 +12,10 @@ export const atmsPrUrl = (code: string, id?: string | null) => id
 export const atmsPoUrl = (code: string, id?: string | null) => id
   ? `${BASE}/purchase.order/view/id/${id}`
   : `${BASE}/purchase.order/index?code=${encodeURIComponent(code)}`
+
+/** เลขใบที่ ATMS คืนมาตรงกับที่ค้นเป๊ะไหม (เทียบแบบ api-ncac: ตัดช่องว่างหัวท้าย + ไม่สนตัวพิมพ์)
+ *  api-ncac ยอมคืนผลจาก prefix / ผลเดียวที่เจอด้วย — ผลแบบนั้นเปลี่ยนได้เมื่อมีใบใหม่ จึงไม่ควรแคช */
+export const isExactMrMatch = (found: unknown, query: string) => {
+  const q = query.trim().toLowerCase()
+  return !!q && typeof found === "string" && found.trim().toLowerCase() === q
+}

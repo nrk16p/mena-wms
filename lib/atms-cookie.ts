@@ -42,9 +42,10 @@ const NCAC = process.env.NCAC_BASE ?? "https://api-ncac.onrender.com"
 /**
  * ยิง NCAC (ที่ต้องใช้ session ATMS) แทนผู้ใช้ที่ login อยู่
  * ใช้ PHPSESSID ของผู้ใช้ก่อน แล้วค่อย fallback env — เจอ session หมดอายุจะสลับไปอีกค่าแล้วลองซ้ำ 1 รอบ
+ * googleId: ส่งมาเองได้ (เช่นตอนโหลดแคชเบื้องหลังที่ไม่มี session ของ request) — ไม่ส่งจะอ่านจาก session ปัจจุบัน
  */
-export async function ncacWithSession(path: string) {
-  const googleId   = await currentGoogleId()
+export async function ncacWithSession(path: string, googleIdIn?: string) {
+  const googleId   = googleIdIn ?? await currentGoogleId()
   const envCookie  = process.env.ATMS_SESSION ?? ""
   const userCookie = await fetchAtmsCookie(googleId)
 
