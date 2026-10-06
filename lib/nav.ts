@@ -8,6 +8,7 @@
 //   • visibleToEmails บนกลุ่ม → เห็นเฉพาะ email ที่ระบุ (ไม่ระบุ = เห็นทุกคน)
 //   • branch บนเมนู          → ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขานั้น (lib/branch-scope.ts)
 //   • adminOnly บนเมนู       → เห็นเฉพาะ role = admin
+//   • hidden บนเมนู          → ซ่อนจากทุกคน (หน้ายังเปิดได้ทาง URL ตรง)
 //   • hideOnHome / subheader → ไม่ขึ้นบนการ์ดหน้าหลัก (เป็นของ sidebar อย่างเดียว)
 
 import type { ElementType } from "react"
@@ -28,6 +29,8 @@ export type NavItem = {
   subheader?: boolean
   indent?: boolean
   adminOnly?: boolean
+  /** ซ่อนจาก sidebar และหน้าหลักทุกคน — หน้ายังเปิดได้ทาง URL ตรง */
+  hidden?: boolean
   /** เมนูของสาขานี้เท่านั้น — ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขา (lib/branch-scope.ts) */
   branch?: string
   /** ป้ายบนการ์ดหน้าหลัก (ไม่ระบุ = ใช้ label) */
@@ -70,7 +73,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/", label: "หน้าหลัก", icon: LayoutDashboard, exact: true, hideOnHome: true },
       { href: "/atms-new-sku-report/baseline", label: "นิยามตัวชี้วัด", icon: BookOpen, exact: true,
-        desc: "นิยาม & วิธีนับ SKU เกิดใหม่" },
+        hidden: true, desc: "นิยาม & วิธีนับ SKU เกิดใหม่" },
     ],
   },
   {
@@ -81,7 +84,7 @@ export const NAV_GROUPS: NavGroup[] = [
     collapsible: true,
     items: [
       { href: "/atms-new-sku-report", label: "SKU ใหม่ ATMS", icon: BarChart3, exact: true,
-        desc: "รายงาน SKU เกิดใหม่รายเดือน" },
+        hidden: true, desc: "รายงาน SKU เกิดใหม่รายเดือน" },
       { href: "/sku", label: "รายการ SKU", icon: PackageSearch, exact: true,
         desc: "ค้นหา / ดูอะไหล่ทั้งหมด" },
       { href: "/sku/new", label: "เพิ่ม SKU ใหม่", icon: PlusCircle,
@@ -261,6 +264,7 @@ function groupVisible(group: NavGroup, viewer: Viewer) {
 }
 
 function itemVisible(item: NavItem, viewer: Viewer) {
+  if (item.hidden) return false
   if (item.adminOnly && !viewer.isAdmin) return false
   if (item.branch && viewer.canSeeBranch && !viewer.canSeeBranch(item.branch)) return false
   return true
