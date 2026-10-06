@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { CREDIT_TERMS } from "@/lib/ap-tracking"
+import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
 
 export const dynamic = "force-dynamic"
 
@@ -60,5 +61,6 @@ export async function PUT(req: NextRequest) {
     } },
     { upsert: true },
   )
+  await invalidateCache([CACHE_TAGS.ap])   // เครดิตเทอมใหม่ต้องเห็นทันทีในทุกหน้า AP
   return NextResponse.json({ ok: true, name, creditTerm: effective, override: creditTerm })
 }

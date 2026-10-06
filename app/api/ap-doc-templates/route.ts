@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { cleanTemplateDocs } from "@/lib/ap-doc-template"
 import { AP_DOC_TEMPLATE_COLL, toTemplate } from "@/lib/ap-doc-template-db"
+import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
 
 export const dynamic = "force-dynamic"
 
@@ -56,5 +57,6 @@ export async function PUT(req: NextRequest) {
     } as Record<string, unknown>,
     { upsert: true },
   )
+  await invalidateCache([CACHE_TAGS.ap])   // แม่แบบใหม่ต้องเห็นทันทีในทุกหน้า AP
   return NextResponse.json({ ok: true, template: { code, name, docs, source: "manual", updatedBy: by, updatedAt: at } })
 }

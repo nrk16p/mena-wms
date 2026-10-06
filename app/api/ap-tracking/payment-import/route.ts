@@ -16,6 +16,7 @@ import clientPromise from "@/lib/mongo"
 import { apStage, cleanDocNos, inApScope, parseAmount, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
 import { AP_PAYMENT_REPORT_MAX } from "@/lib/ap-payment-report-import"
 import { canImportPayment } from "@/lib/roles"
+import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
 
 export const dynamic = "force-dynamic"
 
@@ -200,6 +201,8 @@ export async function POST(req: NextRequest) {
     if (ops.length) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const res = await md.collection(COLL).bulkWrite(ops as any, { ordered: false })
+        // ล้างแคชหน้า AP — ordered:false พังกลางทางก็อาจเขียนไปบางใบแล้ว จึงล้างทั้งกรณีสำเร็จและพัง
+        .finally(() => invalidateCache([CACHE_TAGS.ap]))
       written = res.modifiedCount + res.upsertedCount
       // อ่านกลับว่าใบไหนได้ PV ครบจริง — ใบที่โดน filter กันไว้จะยังอยู่กลุ่มเดิมให้เห็น
       const want = results.filter((r) => WRITE_ACTIONS.has(r.action))
