@@ -296,6 +296,8 @@ type AtmsBoard = {
   garageFill?: { id: string; plate: string; fleetNo: string; status: string; wmsGarage: string; wmsLinked: boolean; nextGarage: string; kind: "empty" | "spelling" | "different"; mrCode: string; mrConflict: boolean; wmsMr: string }[]
   /** ใบงานที่ยังเปิดอยู่ ผูกอู่กับ ATMS (garageAtmsId) แล้วกี่ใบ */
   garageLinked?: { linked: number; total: number }
+  /** รอบนี้ปรับอู่ใน WMS ตาม Mena-Next อัตโนมัติ (MR ตรงกัน) */
+  garageFollowed?: { id: string; from: string; to: string }[]
   byKey: Record<string, { parkedDays: number | null; since: string; step: string; stepAt: string; vendor: string; mrCode: string; mrId: number }>
 }
 // รายการจาก /maintenance-requests (ATMS) — เก็บเฉพาะ field ที่ใช้แสดง timeline
@@ -325,8 +327,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // กรองเฉพาะรายการสถานะขัดแย้ง (งานซ่อมไม่ปิดแต่รถวิ่งงาน)
   const [conflictOnly, setConflictOnly] = useState(false)
   const [garages, setGarages] = useState<Garage[]>([])
-  // ติ๊ก "อัปเดต Mena-Next ด้วย" ในหน้ารายละเอียด — ยิงย้ายอู่หลังบันทึกสำเร็จ (ถามก่อนทุกครั้ง ไม่ยิงเอง)
-  const [pushNext, setPushNext] = useState(false)
+  // ติ๊ก "อัปเดต Mena-Next ด้วย" ในหน้ารายละเอียด — ยิงย้ายอู่หลังบันทึกสำเร็จ
+  // ติ๊กไว้ให้ตั้งแต่เปิด (เป้าหมาย: ฝั่งไหนเปลี่ยน อีกฝั่งต้องเปลี่ยนด้วย — ผู้ใช้ 07/10/2569) เอาออกเองได้
+  const [pushNext, setPushNext] = useState(true)
   const [garageSyncBusy, setGarageSyncBusy] = useState("")
   const [loading, setLoading] = useState(true)
 
@@ -820,7 +823,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
 
   function openEdit(r: RepairExternal) {
     planLinkRef.current = null
-    setPushNext(false)
+    setPushNext(true)
     setEditId(r._id)
     setEditRow(r)
     setUpdNote("")
@@ -1523,7 +1526,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       setPushNext(false)
       loadAtmsBoard()
     } catch (e) {
-      swalError(`บันทึกใน WMS แล้ว แต่ส่งอู่ไป Mena-Next ไม่สำเร็จ — ${e instanceof Error ? e.message : e}`)
+      swalError(`บันทึกใน WMS แล้ว แต่ส่งอู่ไป Mena-Next ไม่สำเร็จ — ${e instanceof Error ? e.message : e} · อู่ใน WMS จะถูกเปลี่ยนกลับตาม Mena-Next จนกว่าจะส่งสำเร็จ (ลองกดอัพเดทงานอีกครั้ง)`)
     }
   }
 
@@ -2006,6 +2009,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ไม่ตรง {mrIssues.length}</span>}
                   {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR {prFill.length}</span>}
                   {garageFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· อู่ไม่ตรง {garageFill.length}</span>}
+                  {(atms.garageFollowed?.length ?? 0) > 0 && (
+                    <span className="opacity-70" title={atms.garageFollowed!.map((f) => `${f.from || "(ว่าง)"} → ${f.to}`).join("\n")}>
+                      · อู่ปรับตาม Mena-Next {atms.garageFollowed!.length}
+                    </span>
+                  )}
                   {atms.garageLinked && atms.garageLinked.total > 0 && (
                     <span className="opacity-70" title="ใบงานที่ยังเปิดอยู่ ที่อู่ผูกกับรหัส ATMS แล้ว (ชื่อชุดเดียวกับ Mena-Next)">
                       · อู่ผูก ATMS {atms.garageLinked.linked}/{atms.garageLinked.total}
@@ -2272,7 +2280,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                         </div>
                       ))}
                     </div>
-                    <p className="mt-1 text-[11px] opacity-70">ถ้าอู่ใน WMS ถูก แต่ Mena-Next ผิด → เปิดใบงาน เลือกอู่ที่ถูก แล้วติ๊ก &quot;อัปเดต Mena-Next ด้วย&quot;</p>
+                    <p className="mt-1 text-[11px] opacity-70">คันที่ MR ตรงกัน ระบบปรับตาม Mena-Next ให้เองแล้ว · ที่เหลือคือ MR ว่าง/คนละใบ · ถ้าอู่ใน WMS ถูก แต่ Mena-Next ผิด → เปิดใบงาน เลือกอู่ที่ถูก แล้วกดอัพเดทงาน (ระบบส่งไป Mena-Next ให้)</p>
                   </div>
                 )}
                 {!hasIssue && <p className="opacity-80">รถค้างซ่อมอู่นอกทุกคันมีรายการในระบบครบ และเลข MR/PR/อู่ ตรงกันทั้งหมด 🎉</p>}
@@ -2881,7 +2889,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     {canPushNext && (
                       <label className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11.5px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-200">
                         <input type="checkbox" checked={pushNext} onChange={(e) => setPushNext(e.target.checked)} className="mt-0.5" />
-                        <span>อัปเดต Mena-Next ด้วย — ย้ายอู่ของงาน {formNext?.mrCode} เป็นอู่นี้ <span className="opacity-70">(Mena-Next บันทึกเป็น &quot;ย้ายอู่&quot; เปิดช่วงซ่อมใหม่ · ส่งตอนกดอัพเดทงาน)</span></span>
+                        <span>อัปเดต Mena-Next ด้วย — ย้ายอู่ของงาน {formNext?.mrCode} เป็นอู่นี้ <span className="opacity-70">(Mena-Next บันทึกเป็น &quot;ย้ายอู่&quot; · ส่งตอนกดอัพเดทงาน)</span>
+                          {!pushNext && <b className="mt-0.5 block text-rose-600 dark:text-rose-300">ไม่ติ๊ก = อู่ใน WMS จะถูกเปลี่ยนกลับตาม Mena-Next อัตโนมัติ (สองระบบต้องตรงกัน)</b>}</span>
                       </label>
                     )}
                   </div>

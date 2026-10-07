@@ -46,6 +46,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e instanceof Error ? e.message : e) }, { status: 502 })
   }
+  // กันโหลดหน้าถัดไปดึงอู่เก่าจาก cache ของ Mena-Next กลับมาทับ (followNextGarages เว้นช่วงนี้)
+  await db.collection(COLL).updateOne({ _id: doc._id }, { $set: { nextPushAt: new Date() } })
   await writeRepairLog(db, {
     repairId: id,
     plate: String(doc.plate ?? ""), fleetNo: String(doc.fleetNo ?? ""),

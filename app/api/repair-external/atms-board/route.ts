@@ -7,6 +7,7 @@ import { DONE_STATUSES, JOB_TYPE_PARTS, likelySameGarage } from "@/lib/repair-ex
 import { REPAIR_LOG_COLL } from "@/lib/repair-log"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
 import { garageKey } from "@/lib/atms-garage"
+import { followNextGarages } from "@/lib/garage-mapping"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -27,7 +28,7 @@ export async function GET() {
       clientPromise.then((c) => c.db(DB).collection(COLL)
         .find(
           { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
-          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, garageAtmsId: 1, prCode: 1, poCode: 1 } },
+          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, prCode: 1, poCode: 1 } },
         )
         .toArray()),
     ])
@@ -207,6 +208,27 @@ export async function GET() {
 
     // ── 🏭 ชื่ออู่ใน WMS ไม่ตรงกับ Mena-Next (ทั้งคู่อ้างชื่อ ATMS ชุดเดียวกัน) — ทุกคันที่จับคู่ได้ ไม่จำกัดว่าต้องจอดอยู่
     //    WMS ยังไม่กรอกอู่ก็นับ (เติมจาก Mena-Next ได้) · Mena-Next ไม่มีชื่ออู่ = เทียบไม่ได้ ข้าม
+    // ── Mena-Next เป็นหลักเรื่องอู่: MR ตรงกัน → WMS ตาม Mena-Next อัตโนมัติ (ทุกเคส — ผู้ใช้เลือก 07/10/2569)
+    //    ล้มเหลวไม่กระทบการเทียบ · ปรับแล้วแก้ค่าในหน่วยความจำให้ garageFill/garageLinked เห็นค่าใหม่เลย
+    let garageFollowed: { id: string; from: string; to: string }[] = []
+    try {
+      const follow = wms
+        .filter((w) => !FINISHED.includes(w.status) && normKey(w.mrNo))
+        .map((w) => ({ w, job: jobByPlate.get(normKey(w.plate)) }))
+        .filter(({ w, job }) => !!job?.vendor && normKey(w.mrNo) === normKey(job.mrCode) &&
+          (garageKey(w.garage) !== garageKey(job.vendor) || !w.garageAtmsId))
+      if (follow.length) {
+        garageFollowed = await followNextGarages(db, follow.map(({ w, job }) => ({
+          id: w._id, plate: String(w.plate ?? ""), fleetNo: String(w.fleetNo ?? ""),
+          garage: (w.garage as string | undefined) ?? null, nextPushAt: w.nextPushAt, vendor: job!.vendor,
+        })))
+        const byId = new Map(garageFollowed.map((f) => [f.id, f.to]))
+        for (const w of wms) if (byId.has(String(w._id))) { w.garage = byId.get(String(w._id)); w.garageAtmsId = true }
+      }
+    } catch (e) {
+      console.error("[atms-board] followNextGarages", e)
+    }
+
     const garageFill = wms
       .filter((w) => !FINISHED.includes(w.status))
       .map((w) => {
@@ -255,6 +277,7 @@ export async function GET() {
       prFill,
       garageFill,
       garageLinked,
+      garageFollowed,
       byKey,
     })
   } catch (e) {

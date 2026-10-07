@@ -186,3 +186,40 @@ export async function followAtmsRenames(db: Db): Promise<number> {
   }
   return n
 }
+
+/** ยิงย้ายอู่ไป Mena-Next แล้ว ข้อมูล open-jobs ยัง cache ค่าเก่าได้ถึง 5 นาที — ช่วงนี้ห้ามดึงกลับ ไม่งั้นจะเขียนทับอู่ที่เพิ่งแก้ */
+const PUSH_GRACE_MS = 10 * 60 * 1000
+
+/**
+ * Mena-Next เป็นหลักเรื่องอู่ (ผู้ใช้เลือก 07/10/2569 แบบ "อัตโนมัติทุกเคส"):
+ * ใบงาน WMS ที่ MR ตรงกับงานที่เปิดใน Mena-Next → อู่ใน WMS ตาม Mena-Next เสมอ (รวมกรณีคนละอู่)
+ * อยากให้ WMS ชนะ → ต้องติ๊ก "อัปเดต Mena-Next ด้วย" ตอนแก้ (ยิงย้ายอู่ไปฝั่งโน้นก่อน)
+ * เขียนแบบมีเงื่อนไขชื่อเดิม — โหลดหน้าพร้อมกันหลายคนก็ไม่ลง log ซ้ำ · คืน id ที่ปรับแล้ว
+ */
+export async function followNextGarages(
+  db: Db,
+  items: { id: ObjectId; plate: string; fleetNo: string; garage: string | null; nextPushAt?: Date | string | null; vendor: string }[],
+): Promise<{ id: string; from: string; to: string }[]> {
+  const atms = await getAtmsGarages()
+  const now = new Date()
+  const done: { id: string; from: string; to: string }[] = []
+  const logs = []
+  for (const it of items) {
+    if (it.nextPushAt && now.getTime() - new Date(it.nextPushAt).getTime() < PUSH_GRACE_MS) continue
+    const g = atms.find((x) => garageKey(x.name) === garageKey(it.vendor))
+    if (!g) continue
+    const r = await db.collection(COLLS.repair).updateOne(
+      { _id: it.id, garage: it.garage ?? null },
+      { $set: { garage: g.name, garageAtmsId: g.atmsId, updatedAt: now } },
+    )
+    if (!r.modifiedCount) continue
+    done.push({ id: String(it.id), from: it.garage ?? "", to: g.name })
+    if (garageKey(it.garage) !== garageKey(g.name)) logs.push({
+      repairId: String(it.id), plate: it.plate, fleetNo: it.fleetNo, action: "update" as const,
+      by: "Mena-Next (อัตโนมัติ)", byEmail: "", at: now,
+      changes: [{ field: "garage", label: "อู่ (ตาม Mena-Next)", from: it.garage ?? "", to: g.name }],
+    })
+  }
+  if (logs.length) await db.collection(REPAIR_LOG_COLL).insertMany(logs)
+  return done
+}
