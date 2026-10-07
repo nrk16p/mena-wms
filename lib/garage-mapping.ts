@@ -187,8 +187,11 @@ export async function followAtmsRenames(db: Db): Promise<number> {
   return n
 }
 
-/** ยิงย้ายอู่ไป Mena-Next แล้ว ข้อมูล open-jobs ยัง cache ค่าเก่าได้ถึง 5 นาที — ช่วงนี้ห้ามดึงกลับ ไม่งั้นจะเขียนทับอู่ที่เพิ่งแก้ */
+/** ยิงย้ายอู่ไป Mena-Next แล้ว open-jobs ยังเป็นค่าเก่าอยู่พักหนึ่ง — ช่วงนี้ห้ามดึงกลับ ไม่งั้นจะเขียนทับอู่ที่เพิ่งแก้
+ *  - 10 นาทีแรก: ไม่ดึงเลย
+ *  - ถึง 24 ชม.: ไม่ดึงถ้า Mena-Next ยังแสดงอู่เดิมก่อนยิง (nextPushFrom) = ข้อมูลยังไม่อัปเดต */
 const PUSH_GRACE_MS = 10 * 60 * 1000
+const PUSH_STALE_MS = 24 * 60 * 60 * 1000
 
 /**
  * Mena-Next เป็นหลักเรื่องอู่ (ผู้ใช้เลือก 07/10/2569 แบบ "อัตโนมัติทุกเคส"):
@@ -198,14 +201,16 @@ const PUSH_GRACE_MS = 10 * 60 * 1000
  */
 export async function followNextGarages(
   db: Db,
-  items: { id: ObjectId; plate: string; fleetNo: string; garage: string | null; nextPushAt?: Date | string | null; vendor: string }[],
+  items: { id: ObjectId; plate: string; fleetNo: string; garage: string | null; nextPushAt?: Date | string | null; nextPushFrom?: string | null; vendor: string }[],
 ): Promise<{ id: string; from: string; to: string }[]> {
   const atms = await getAtmsGarages()
   const now = new Date()
   const done: { id: string; from: string; to: string }[] = []
   const logs = []
   for (const it of items) {
-    if (it.nextPushAt && now.getTime() - new Date(it.nextPushAt).getTime() < PUSH_GRACE_MS) continue
+    const sincePush = it.nextPushAt ? now.getTime() - new Date(it.nextPushAt).getTime() : Infinity
+    if (sincePush < PUSH_GRACE_MS) continue
+    if (sincePush < PUSH_STALE_MS && it.nextPushFrom && garageKey(it.vendor) === garageKey(it.nextPushFrom)) continue
     const g = atms.find((x) => garageKey(x.name) === garageKey(it.vendor))
     if (!g) continue
     const r = await db.collection(COLLS.repair).updateOne(

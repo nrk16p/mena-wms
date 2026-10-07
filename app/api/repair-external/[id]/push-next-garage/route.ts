@@ -3,17 +3,20 @@ import { ObjectId } from "mongodb"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { fetchOpenJobByMr, moveNextJobVendor } from "@/lib/atms-board"
-import { findAtmsGarage } from "@/lib/atms-garage"
+import { moveNextJobVendor } from "@/lib/atms-board"
+import { currentSegment, resolveNextJob } from "@/lib/next-job-map"
 import { writeRepairLog } from "@/lib/repair-log"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
 type Params = { params: Promise<{ id: string }> }
+// ครั้งแรกต้องไล่อ่าน timeline ของ Mena-Next ~300 งาน (ทำตาราง MR → job_id) — เผื่อเวลาเกิน default
+export const maxDuration = 60
 
 // POST /api/repair-external/[id]/push-next-garage — ส่งอู่ของใบงานนี้ไป Mena-Next (จับคู่ด้วย MR)
 // เรียกหลังบันทึกใบงานแล้ว และเฉพาะเมื่อผู้ใช้ติ๊ก "อัปเดต Mena-Next ด้วย" (ผู้ใช้กำหนด 07/10/2569: ถามก่อนทุกครั้ง)
 // อ่านค่าสดจาก Mena-Next ก่อนยิง — อู่ตรงกันอยู่แล้ว = ไม่ยิง (กันเปิดช่วง "ย้ายอู่" ซ้ำ)
+// รหัสงาน Mena-Next ≠ MR id → หาเองจาก timeline (lib/next-job-map.ts) ไม่ต้องให้ทีม Mena-Next แก้อะไร
 export async function POST(_req: NextRequest, { params }: Params) {
   const { id } = await params
   if (!ObjectId.isValid(id)) return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 })
@@ -31,29 +34,33 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   let job
   try {
-    job = await fetchOpenJobByMr(String(doc.mrNo))
+    job = await resolveNextJob(db, String(doc.mrNo))
   } catch (e) {
-    return NextResponse.json({ ok: false, error: `อ่านข้อมูล Mena-Next ไม่สำเร็จ: ${String(e)}` }, { status: 502 })
+    return NextResponse.json({ ok: false, error: `อ่านข้อมูล Mena-Next ไม่สำเร็จ: ${String(e instanceof Error ? e.message : e)}` }, { status: 502 })
   }
-  if (!job || !job.jobId) return NextResponse.json({ ok: false, error: `ไม่พบงานอู่นอกที่เปิดอยู่ใน Mena-Next ของ MR ${doc.mrNo}` }, { status: 409 })
+  if (!job) return NextResponse.json({ ok: false, error: `ไม่พบงานซ่อมใน Mena-Next ของ MR ${doc.mrNo}` }, { status: 409 })
+  if (job.closed_at) return NextResponse.json({ ok: false, error: `งานของ MR ${doc.mrNo} ใน Mena-Next ปิดไปแล้ว — ย้ายอู่ไม่ได้` }, { status: 409 })
 
-  // open-jobs ส่ง vendor_id มาเป็น null บ่อย → ถ้าไม่มี id ใช้ชื่อหา id ใน ATMS
-  const currentId = job.vendorId ?? (await findAtmsGarage(job.vendor).catch(() => null))?.atmsId ?? null
-  if (currentId === vendorId) return NextResponse.json({ ok: true, skipped: true, message: "อู่ใน Mena-Next ตรงกันอยู่แล้ว" })
+  const seg = currentSegment(job)
+  const fromName = seg?.vendor_name || "-"
+  if (seg?.repair_mode === "external" && Number(seg.vendor_id) === vendorId) {
+    return NextResponse.json({ ok: true, skipped: true, message: "อู่ใน Mena-Next ตรงกันอยู่แล้ว" })
+  }
 
   try {
-    await moveNextJobVendor(job.jobId, vendorId, by)
+    await moveNextJobVendor(job.job_id, vendorId, by)
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e instanceof Error ? e.message : e) }, { status: 502 })
   }
-  // กันโหลดหน้าถัดไปดึงอู่เก่าจาก cache ของ Mena-Next กลับมาทับ (followNextGarages เว้นช่วงนี้)
-  await db.collection(COLL).updateOne({ _id: doc._id }, { $set: { nextPushAt: new Date() } })
+  // open-jobs ของ Mena-Next ตามหลัง timeline (ทดสอบจริง 07/10/2569: >40 วิ) — จำอู่ก่อนยิงไว้
+  // followNextGarages จะไม่ดึงอู่เก่านี้กลับมาทับ จนกว่า open-jobs จะอัปเดต (หรือพ้น 24 ชม.)
+  await db.collection(COLL).updateOne({ _id: doc._id }, { $set: { nextPushAt: new Date(), nextPushFrom: fromName } })
   await writeRepairLog(db, {
     repairId: id,
     plate: String(doc.plate ?? ""), fleetNo: String(doc.fleetNo ?? ""),
     action: "update",
     by, byEmail: email, at: new Date(),
-    changes: [{ field: "nextGarage", label: "อู่ใน Mena-Next (ย้ายอู่)", from: job.vendor || "-", to: String(doc.garage ?? "") }],
+    changes: [{ field: "nextGarage", label: "อู่ใน Mena-Next (ย้ายอู่)", from: fromName, to: String(doc.garage ?? "") }],
   })
-  return NextResponse.json({ ok: true, jobId: job.jobId, from: job.vendor, to: doc.garage })
+  return NextResponse.json({ ok: true, jobId: job.job_id, from: fromName, to: doc.garage })
 }

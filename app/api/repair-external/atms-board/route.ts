@@ -28,7 +28,7 @@ export async function GET() {
       clientPromise.then((c) => c.db(DB).collection(COLL)
         .find(
           { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
-          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, prCode: 1, poCode: 1 } },
+          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, nextPushFrom: 1, prCode: 1, poCode: 1 } },
         )
         .toArray()),
     ])
@@ -220,7 +220,7 @@ export async function GET() {
       if (follow.length) {
         garageFollowed = await followNextGarages(db, follow.map(({ w, job }) => ({
           id: w._id, plate: String(w.plate ?? ""), fleetNo: String(w.fleetNo ?? ""),
-          garage: (w.garage as string | undefined) ?? null, nextPushAt: w.nextPushAt, vendor: job!.vendor,
+          garage: (w.garage as string | undefined) ?? null, nextPushAt: w.nextPushAt, nextPushFrom: w.nextPushFrom, vendor: job!.vendor,
         })))
         const byId = new Map(garageFollowed.map((f) => [f.id, f.to]))
         for (const w of wms) if (byId.has(String(w._id))) { w.garage = byId.get(String(w._id)); w.garageAtmsId = true }

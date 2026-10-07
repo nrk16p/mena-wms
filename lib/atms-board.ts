@@ -17,7 +17,6 @@ export type AtmsOpenJob = {
   stepAt: string        // YYYY-MM-DD ของ event ล่าสุด
   vendor: string        // ชื่ออู่ (= atms.supplier_master.name)
   vendorId: number | null  // รหัสอู่ (= supplier_master.atmsId) — open-jobs มักส่ง null มา ใช้ชื่อเทียบแทน
-  jobId: number         // maintenance_job_id — ใช้ยิงย้ายอู่กลับ Mena-Next
   openedAt: string      // YYYY-MM-DD วันเปิดงาน
   severity: string      // light | medium | heavy
   prAmount: number
@@ -157,12 +156,11 @@ export type AtmsBoardData = {
 export const normKey = (s: string | null | undefined) =>
   (s ?? "").toString().replace(/[\s.]/g, "").trim().toUpperCase()
 
-async function apiGet(url: string, fresh = false): Promise<unknown> {
+async function apiGet(url: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: { "X-API-Key": API_KEY },
     // ให้ Next cache ฝั่ง fetch 5 นาที — ข้อมูล ATMS เองก็ cache 5 นาทีอยู่แล้ว
-    // fresh = ก่อนเขียนกลับ Mena-Next ต้องเห็นค่าปัจจุบันจริง ไม่ใช่ของ 5 นาทีก่อน
-    ...(fresh ? { cache: "no-store" as const } : { next: { revalidate: 300 } }),
+    next: { revalidate: 300 },
   })
   if (!res.ok) throw new Error(`ATMS API ${res.status}: ${url.split("?")[0]}`)
   return res.json()
@@ -176,7 +174,6 @@ function mapOpenJobs(openJobsRaw: any): AtmsOpenJob[] {
       const j = i.open_maintenance_job
       const links: any[] = j.purchase_links ?? []
       return {
-        jobId: Number(j.maintenance_job_id) || 0,
         vendorId: Number(j.vendor_id) || null,
         prCodes: links.map((l) => l.pr_code).filter(Boolean),
         poCodes: links.flatMap((l) => l.purchase_orders ?? []).map((p: any) => p.po_code).filter(Boolean),
@@ -194,16 +191,8 @@ function mapOpenJobs(openJobsRaw: any): AtmsOpenJob[] {
     })
 }
 
-/** งานอู่นอกที่เปิดอยู่ใน Mena-Next ของ MR นี้ (อ่านสด ไม่ผ่าน cache) — null = ไม่มีงานเปิด */
-export async function fetchOpenJobByMr(mrCode: string): Promise<AtmsOpenJob | null> {
-  const mr = normKey(mrCode)
-  if (!mr) return null
-  const raw = await apiGet(`${MONGODBAPI_URL}/repair-board/open-jobs`, true)
-  return mapOpenJobs(raw).find((j) => normKey(j.mrCode) === mr) ?? null
-}
-
 /**
- * ย้ายอู่ของงานใน Mena-Next = ปิดช่วงซ่อมเดิม แล้วเปิดช่วงใหม่ที่อู่ vendorId (POST /maintenance-jobs/{id}/segments)
+ * ย้ายอู่ของงานใน Mena-Next (jobId = รหัสงานของ Mena-Next จาก lib/next-job-map ไม่ใช่ MR id) = ปิดช่วงซ่อมเดิม แล้วเปิดช่วงใหม่ที่อู่ vendorId (POST /maintenance-jobs/{id}/segments)
  * ไม่ใช่การแก้ชื่อเฉย ๆ — ไทม์ไลน์/สถิติฝั่ง Mena-Next จะเห็นเป็นการย้ายอู่ จึงยิงเฉพาะเมื่อผู้ใช้ติ๊กยืนยันเท่านั้น
  */
 export async function moveNextJobVendor(jobId: number, vendorId: number, by: string): Promise<void> {

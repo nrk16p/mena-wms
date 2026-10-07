@@ -4,6 +4,7 @@ import { rebuildTireDistance } from "@/lib/tire-distance"
 import { autoResolveTireRequests } from "@/lib/tire-request-auto"
 import clientPromise from "@/lib/mongo"
 import { followAtmsRenames } from "@/lib/garage-mapping"
+import { scanNewNextJobs } from "@/lib/next-job-map"
 
 const DB       = process.env.MONGO_DB ?? "master_data"
 const BRANCHES = Object.keys(BRANCH_IDS) // ["latkrabang", "saraburi"]
@@ -96,5 +97,13 @@ export async function GET(req: NextRequest) {
     garageRenamed = { error: err instanceof Error ? err.message : String(err) }
   }
 
-  return NextResponse.json({ ok: allOk, results, distance, autoResolve, garageRenamed })
+  // เติมตาราง MR → รหัสงาน Mena-Next (งานใหม่ตั้งแต่รอบก่อน) — ปุ่มส่งอู่ไป Mena-Next ไม่ต้องไล่หาเองตอนกด
+  let nextJobsAdded: number | { error: string } = 0
+  try {
+    nextJobsAdded = await scanNewNextJobs(client.db(DB))
+  } catch (err) {
+    nextJobsAdded = { error: err instanceof Error ? err.message : String(err) }
+  }
+
+  return NextResponse.json({ ok: allOk, results, distance, autoResolve, garageRenamed, nextJobsAdded })
 }
