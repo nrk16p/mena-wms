@@ -15,6 +15,10 @@ const MOBILE_API_PREFIXES = [
   "/api/vehicles",
 ]
 
+// sync อู่ WMS ⇄ Mena-Next เรียกแบบ server-to-server ได้ด้วย x-api-key = ATMS_API_KEY (key เดียวกับที่ WMS ใช้คุยกับ Mena-Next)
+// ไม่ต้องมี session — route ตรวจ key ซ้ำเองแล้วบันทึกผู้ทำเป็น "ระบบ (API key)"
+const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\/[^/]+\/push-next-garage$/]
+
 function withCors(res: NextResponse, origin: string | null): NextResponse {
   if (origin) {
     res.headers.set("Access-Control-Allow-Origin", origin)
@@ -92,6 +96,10 @@ export async function middleware(request: NextRequest) {
   }
 
   // Mobile app access via API key
+  if (GARAGE_SYNC_API.some((r) => r.test(pathname))) {
+    const k = request.headers.get("x-api-key")
+    if (k && process.env.ATMS_API_KEY && k === process.env.ATMS_API_KEY) return NextResponse.next()
+  }
   const isMobileApi = MOBILE_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
   const origin = request.headers.get("origin")
   // Why the x-api-key check failed (if it did) — used to build a diagnosable 401 below

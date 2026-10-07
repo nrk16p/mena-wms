@@ -6,6 +6,7 @@ import clientPromise from "@/lib/mongo"
 import { fetchOpenJobsFresh, moveNextGarage, normKey } from "@/lib/atms-board"
 import { garageKey, getAtmsGarages } from "@/lib/atms-garage"
 import { writeRepairLog } from "@/lib/repair-log"
+import { API_KEY_ACTOR, hasGarageSyncApiKey } from "@/lib/garage-sync-run"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -14,13 +15,15 @@ type Params = { params: Promise<{ id: string }> }
 // POST /api/repair-external/[id]/push-next-garage — ส่งอู่ของใบงานนี้ไป Mena-Next (จับคู่ด้วย MR)
 // ใช้ endpoint เดียวกับปุ่มแก้อู่ในหน้าเว็บ Mena-Next (moveNextGarage) → open-jobs / หน้า Pending Maintenance เปลี่ยนทันที
 // อ่านค่าสดก่อนยิง — อู่ตรงกันอยู่แล้ว = ไม่ยิง · ส่งไม่ได้ = WMS คงอู่ที่คนแก้ไว้ (ไม่ถูกปรับกลับ)
-export async function POST(_req: NextRequest, { params }: Params) {
+export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
   if (!ObjectId.isValid(id)) return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 })
-  const session = await getServerSession(authOptions)
+  // ผู้ใช้ที่ login (กดจากฟอร์ม) หรือระบบภายนอกที่ส่ง x-api-key = ATMS_API_KEY
+  const viaKey  = hasGarageSyncApiKey(req)
+  const session = viaKey ? null : await getServerSession(authOptions)
   const email   = session?.user?.email ?? ""
-  if (!email) return NextResponse.json({ ok: false, error: "กรุณาเข้าสู่ระบบ" }, { status: 401 })
-  const by = session?.user?.name || email
+  if (!viaKey && !email) return NextResponse.json({ ok: false, error: "กรุณาเข้าสู่ระบบ" }, { status: 401 })
+  const by = viaKey ? API_KEY_ACTOR : (session?.user?.name || email)
 
   const db  = (await clientPromise).db(DB)
   const doc = await db.collection(COLL).findOne({ _id: new ObjectId(id) })

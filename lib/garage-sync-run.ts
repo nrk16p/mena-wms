@@ -63,3 +63,10 @@ export async function runGarageSync(db: Db) {
   await db.collection<{ _id: string }>(LOCK_COLL).updateOne({ _id: LOCK_ID }, { $set: { running: false, finishedAt: new Date(), ms: Date.now() - t0, last: result } })
   return result
 }
+
+/** เรียกแบบ server-to-server ด้วย x-api-key = ATMS_API_KEY (middleware ปล่อยผ่าน · ตรวจซ้ำที่ route) */
+export function hasGarageSyncApiKey(req: Request): boolean {
+  const k = req.headers.get("x-api-key")
+  return !!k && !!process.env.ATMS_API_KEY && k === process.env.ATMS_API_KEY
+}
+export const API_KEY_ACTOR = "ระบบ (API key)"
