@@ -200,7 +200,7 @@ const PUSH_GRACE_MS = 10 * 60 * 1000
  */
 export async function followNextGarages(
   db: Db,
-  items: { id: ObjectId; plate: string; fleetNo: string; garage: string | null; nextPushAt?: Date | string | null; nextPushFrom?: string | null; vendor: string }[],
+  items: { id: ObjectId; plate: string; fleetNo: string; garage: string | null; garageAtmsId?: unknown; nextPushAt?: Date | string | null; nextPushFrom?: string | null; vendor: string }[],
 ): Promise<{ id: string; from: string; to: string }[]> {
   const atms = await getAtmsGarages()
   const now = new Date()
@@ -212,9 +212,11 @@ export async function followNextGarages(
     if (it.nextPushFrom && garageKey(it.vendor) === garageKey(it.nextPushFrom)) continue
     const g = atms.find((x) => garageKey(x.name) === garageKey(it.vendor))
     if (!g) continue
+    // อู่ตรงกันอยู่แล้ว (และผูกรหัสแล้ว) → ไม่แตะเลย — กัน updatedAt ถูกเขียนทุกรอบ sync
+    if (garageKey(it.garage) === garageKey(g.name) && Number(it.garageAtmsId) === g.atmsId) continue
     const r = await db.collection(COLLS.repair).updateOne(
       { _id: it.id, garage: it.garage ?? null },
-      { $set: { garage: g.name, garageAtmsId: g.atmsId, updatedAt: now } },
+      { $set: { garage: g.name, garageAtmsId: g.atmsId, ...(garageKey(it.garage) !== garageKey(g.name) ? { updatedAt: now } : {}) } },
     )
     if (!r.modifiedCount) continue
     done.push({ id: String(it.id), from: it.garage ?? "", to: g.name })

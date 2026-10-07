@@ -53,7 +53,7 @@ export async function runGarageSync(db: Db) {
       .filter((w) => byMr.has(normKey(w.mrNo)))
       .map((w) => ({
         id: w._id, plate: String(w.plate ?? ""), fleetNo: String(w.fleetNo ?? ""), garage: (w.garage as string | undefined) ?? null,
-        nextPushAt: w.nextPushAt ?? null, nextPushFrom: w.nextPushFrom ?? null, vendor: byMr.get(normKey(w.mrNo))!,
+        garageAtmsId: w.garageAtmsId, nextPushAt: w.nextPushAt ?? null, nextPushFrom: w.nextPushFrom ?? null, vendor: byMr.get(normKey(w.mrNo))!,
       }))
     const done = await followNextGarages(db, items)
     result = { checked: items.length, followed: done.length }
