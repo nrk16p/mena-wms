@@ -26,7 +26,7 @@ Date: 2026-10-07 · Branch: `feat/superadmin-users` · แทนที่ส่�
 |---|---|---|---|---|---|---|---|---|
 | sku | E | E | V | — | V | — | V | V |
 | pr | E | E | V | V | E | — | V | E |
-| ap | — | V | E | E | — | — | V | — |
+| ap | — | E (2026-10-07) | E | E | — | — | V | — |
 | price-compare | V | E | V | — | — | — | V | — |
 | vendor | E | E | V | — | — | — | V | — |
 | safety-stock | V | E | V | — | — | — | V | — |

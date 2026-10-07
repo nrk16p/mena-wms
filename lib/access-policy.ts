@@ -40,7 +40,8 @@ const DEPT_POLICY: Record<string, Access> = {
     tire: "edit", repair: "edit", "driver-handover": "view",
   }),
   "procurement": row({
-    sku: "edit", pr: "edit", ap: "view", "price-compare": "edit", vendor: "edit", "safety-stock": "edit",
+    // เจ้าหนี้: จัดซื้อแก้ได้ (ผู้ใช้สั่ง 2026-10-07) — ปุ่มตรวจผ่าน/ยืนยันจ่ายยังจำกัดบัญชี/การเงินตามเดิม (lib/roles.ts)
+    sku: "edit", pr: "edit", ap: "edit", "price-compare": "edit", vendor: "edit", "safety-stock": "edit",
     deadstock: "edit", tire: "view", repair: "edit",
   }),
   "accounting": row({

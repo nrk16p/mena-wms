@@ -16,7 +16,7 @@ assert.deepEqual(u("ยานยนต์"), {
   "safety-stock": "view", deadstock: "edit", tire: "edit", repair: "edit", "driver-handover": "view", "ai-mixer": "none",
 })
 assert.equal(u("Procurement")["safety-stock"], "edit")
-assert.equal(u("Procurement").ap, "view")
+assert.equal(u("Procurement").ap, "edit")
 assert.equal(u("Procurement")["driver-handover"], "none")
 assert.equal(u("Accounting").ap, "edit")
 assert.equal(u("Accounting")["price-compare"], "view")
