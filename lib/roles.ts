@@ -2,6 +2,7 @@ export const ADMIN_EMAILS = new Set([
   "bunphak.p@menatransport.co.th",
   "kittaboon.l@menatransport.co.th",
   "narongkorn.a@menatransport.co.th",
+  "sutiwat.c@menatransport.co.th",   // Assistant Process Excellence Manager — ผู้ใช้สั่งเพิ่ม 2026-10-07
 ])
 
 export function isAdmin(email: string | null | undefined): boolean {
