@@ -5,6 +5,7 @@ import { FileText, Search, RefreshCw, X, ChevronRight } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { atmsPrUrl, atmsPoUrl } from "@/lib/atms-links"
 import { INTEL_BENCHMARK_URL, benchmarkUrl } from "@/lib/intel-links"
+import { refreshWaitMin, REFRESH_COOLDOWN_MIN } from "@/lib/pr-refresh"
 
 type Cmp = "ok" | "anomaly" | "no_po"
 type VatRule = "incl" | "excl"
@@ -42,7 +43,7 @@ type Row = {
 type Stage = "pr" | "po_ok" | "po_bad" | "due" | "overdue"
 type PoDetail = { code: string; date: string; supplier: string; total: number; received: string; approver: string; due: string; detail_id: string }
 type LastRefresh = { at: string | null; from_date: string; ok: boolean } | null
-type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; by_stage: Record<Stage, number>; last_refresh?: LastRefresh; rows: Row[] }
+type ApiResp = { count: number; total_value: number; no_po: number; by_cmp: Record<Cmp, number>; by_stage: Record<Stage, number>; last_refresh?: LastRefresh; last_full_refresh_at?: string | null; rows: Row[] }
 
 // เวลาแบบ "x นาที/ชม./วันที่แล้ว" (ไทย)
 function timeAgo(iso: string | null): string {
@@ -226,15 +227,8 @@ export function PrPage() {
     }
   }
 
-  // นาทีที่ต้องรอก่อนรีเฟรชได้อีก (rate-limit 60 นาที จาก run ล่าสุด)
-  const cooldownMin = useMemo(() => {
-    const at = data?.last_refresh?.at
-    if (!at) return 0
-    const t = Date.parse(at.endsWith("Z") || at.includes("+") ? at : at + "Z")
-    if (isNaN(t)) return 0
-    const ageMin = (Date.now() - t) / 60000
-    return ageMin < 60 ? Math.ceil(60 - ageMin) : 0
-  }, [data])
+  // นาทีที่ต้องรอก่อนรีเฟรชได้อีก (ทุก 30 นาที นับจากรอบดึงเต็มล่าสุด — lib/pr-refresh.ts)
+  const cooldownMin = useMemo(() => refreshWaitMin(data?.last_full_refresh_at ?? null, Date.now()), [data])
 
   // สั่งดึงข้อมูลใหม่ (light 7 วัน) + progress อิงเวลา จนจบแล้ว reload
   async function doRefresh() {
@@ -374,7 +368,7 @@ export function PrPage() {
         <button
           onClick={doRefresh}
           disabled={refreshing || cooldownMin > 0}
-          title={cooldownMin > 0 ? `รีเฟรชได้อีกใน ${cooldownMin} นาที (จำกัด 1 ครั้ง/ชม.)` : "ดึงข้อมูลใหม่จาก ATMS (30 วันล่าสุด ~12 นาที)"}
+          title={cooldownMin > 0 ? `รีเฟรชได้อีกใน ${cooldownMin} นาที (จำกัด 1 ครั้ง/${REFRESH_COOLDOWN_MIN} นาที)` : "ดึงข้อมูลใหม่จาก ATMS (30 วันล่าสุด ~12 นาที)"}
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition ${
             refreshing || cooldownMin > 0
               ? "cursor-not-allowed border border-gray-200 dark:border-white/10 text-gray-400"

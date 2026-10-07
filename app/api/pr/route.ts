@@ -3,6 +3,7 @@ import type { Db, MongoClient } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import { isPrClosed } from "@/lib/safety-stock-core"
 import { sharedCache, CACHE_TAGS } from "@/lib/shared-cache"
+import { parseRunTime, REFRESH_COUNTED_PIPELINES } from "@/lib/pr-refresh"
 import {
   prListCacheKey, runMarker, fleetPairs, bkkToday,
   PR_LIST_FRESH_MS, PR_LIST_MAX_STALE_MS, PR_FLEET_KEY, PR_FLEET_FRESH_MS, PR_FLEET_MAX_STALE_MS,
@@ -344,6 +345,16 @@ async function buildPrList(
     ? { at: (run.finished_at ?? run.created_at) as string | null, from_date: s(run.from_date), ok: !!run.ok }
     : null
 
+  // รอบดึงเต็มล่าสุด (ไม่นับรอบ PR รายชั่วโมง) — หน้า /pr ใช้นับถอยหลังปุ่ม "ดึงข้อมูล ATMS" (lib/pr-refresh.ts)
+  let last_full_refresh_at: string | null = null
+  try {
+    const full = await db.collection("procurement_runs")
+      .find({ pipeline: { $in: REFRESH_COUNTED_PIPELINES } }, { projection: { created_at: 1 } })
+      .sort({ created_at: -1 }).limit(1).next()
+    const t = parseRunTime(full?.created_at as string | Date | null)
+    last_full_refresh_at = t === null ? null : new Date(t).toISOString()
+  } catch { /* ไม่มีก็ข้าม — ปุ่มกดได้ เซิร์ฟเวอร์ตัดสินซ้ำอีกชั้น */ }
+
   return {
     count: rows.length,
     total_value: rows.reduce((a, r) => a + (r.total || 0), 0),
@@ -351,6 +362,7 @@ async function buildPrList(
     by_cmp: byCmp,
     by_stage: byStage,
     last_refresh,
+    last_full_refresh_at,
     rows,
   }
 }

@@ -495,7 +495,7 @@ export function ApTrackingPage() {
   }
 
   // ดึงข้อมูลสดจาก ATMS — ใช้ endpoint เดียวกับปุ่มรีเฟรชหน้า /pr (pipeline light ตัวเดียวกัน
-  // rate-limit ร่วมกัน 1 ครั้ง/ชม.) · จบแล้วโหลดตารางใหม่ให้เอง
+  // rate-limit ร่วมกัน ทุก 30 นาที — lib/pr-refresh.ts) · จบแล้วโหลดตารางใหม่ให้เอง
   const pullAtms = async () => {
     if (pulling) return
     setPulling(true); setPullProgress(2)
