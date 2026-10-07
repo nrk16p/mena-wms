@@ -6,6 +6,7 @@
 //
 // กติกาการมองเห็น
 //   • visibleToEmails บนกลุ่ม → เห็นเฉพาะ email ที่ระบุ (ไม่ระบุ = เห็นทุกคน)
+//   • superadminOnly บนกลุ่ม  → เห็นเฉพาะ superadmin (lib/roles.ts) — เมนูผู้ดูแลระบบ
 //   • branch บนเมนู          → ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขานั้น (lib/branch-scope.ts)
 //   • adminOnly บนเมนู       → เห็นเฉพาะ role = admin
 //   • hidden บนเมนู          → ซ่อนจากทุกคน (หน้ายังเปิดได้ทาง URL ตรง)
@@ -16,7 +17,7 @@ import {
   Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
   Landmark, Layers, LayoutDashboard, MapPin, PackageSearch, PackageX,
-  PlusCircle, Scale, ShieldCheck, Shuffle, TableProperties, Truck, Wrench,
+  PlusCircle, Scale, ShieldCheck, Shuffle, TableProperties, Truck, Users, Wrench,
 } from "lucide-react"
 
 export type NavItem = {
@@ -48,6 +49,8 @@ export type NavGroup = {
   items: NavItem[]
   collapsible?: boolean
   visibleToEmails?: string[]
+  /** เห็นเฉพาะ superadmin (viewer.isSuperAdmin) — middleware บล็อก /admin/* ให้อีกชั้น */
+  superadminOnly?: boolean
   // ── ข้อมูลสำหรับการ์ดโมดูลบนหน้าหลัก ──
   /** ชื่อโมดูลบนหน้าหลัก (ไม่ระบุ = ใช้ label) */
   homeTitle?: string
@@ -260,16 +263,32 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ถาม-ตอบ/ช่วยวางแผนงานซ่อม (ทดสอบ)" },
     ],
   },
+  {
+    // key "admin" = sectionForPage("/admin/...") ใน lib/access-policy.ts — superadmin เท่านั้น
+    key: "admin",
+    label: "ผู้ดูแลระบบ",
+    homeDesc: "ผู้ใช้ แผนก และสิทธิ์รายส่วนงาน — ตั้งทับรายคนได้",
+    homeIcon: ShieldCheck, color: "#1B8C4B", bg: "#EAF6EE", homeOrder: 95,
+    collapsible: true,
+    superadminOnly: true,
+    items: [
+      { href: "/admin/users", label: "ผู้ใช้และสิทธิ์", icon: Users, exact: true,
+        desc: "สิทธิ์ตามแผนก + ตั้งทับรายคน + ประวัติการเปลี่ยน" },
+    ],
+  },
 ]
 
 type Viewer = {
   email?: string | null
   isAdmin?: boolean
+  /** session.user.isSuperAdmin — ใช้กับกลุ่ม superadminOnly */
+  isSuperAdmin?: boolean
   /** true = ผู้ใช้เห็นสาขานี้ได้ (ส่ง canSeeBranch(scope, b) เข้ามา) */
   canSeeBranch?: (branch: string) => boolean
 }
 
 function groupVisible(group: NavGroup, viewer: Viewer) {
+  if (group.superadminOnly && !viewer.isSuperAdmin) return false
   return !group.visibleToEmails || group.visibleToEmails.includes(viewer.email ?? "")
 }
 
