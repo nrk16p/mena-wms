@@ -35,7 +35,8 @@ const OVERSIGHT: Access = { ...all("view"), "ai-mixer": "none" }
 
 const DEPT_POLICY: Record<string, Access> = {
   "ยานยนต์": row({
-    sku: "edit", pr: "edit", "price-compare": "view", vendor: "edit", "safety-stock": "view", deadstock: "view",
+    // ของค้างคลัง: ยานยนต์แก้ได้ (ผู้ใช้สั่ง 2026-10-07) · Safety Stock ยังดูอย่างเดียว
+    sku: "edit", pr: "edit", "price-compare": "view", vendor: "edit", "safety-stock": "view", deadstock: "edit",
     tire: "edit", repair: "edit", "driver-handover": "view",
   }),
   "procurement": row({

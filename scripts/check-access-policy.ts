@@ -13,7 +13,7 @@ const u = (department: string | null, email = "someone@menatransport.co.th") => 
 // 1. ตารางสิทธิ์ตามแผนก (ร่างที่อนุมัติ 2026-10-07)
 assert.deepEqual(u("ยานยนต์"), {
   sku: "edit", pr: "edit", ap: "none", "price-compare": "view", vendor: "edit",
-  "safety-stock": "view", deadstock: "view", tire: "edit", repair: "edit", "driver-handover": "view", "ai-mixer": "none",
+  "safety-stock": "view", deadstock: "edit", tire: "edit", repair: "edit", "driver-handover": "view", "ai-mixer": "none",
 })
 assert.equal(u("Procurement")["safety-stock"], "edit")
 assert.equal(u("Procurement").ap, "view")

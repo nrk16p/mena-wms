@@ -29,7 +29,8 @@ Date: 2026-10-07 · Branch: `feat/superadmin-users` · แทนที่ส่�
 | ap | — | V | E | E | — | — | V | — |
 | price-compare | V | E | V | — | — | — | V | — |
 | vendor | E | E | V | — | — | — | V | — |
-| safety-stock / deadstock | V | E | V | — | — | — | V | — |
+| safety-stock | V | E | V | — | — | — | V | — |
+| deadstock | E (2026-10-07) | E | V | — | — | — | V | — |
 | tire | E | V | — | — | V | — | V | — |
 | repair | E | E | V | — | V | — | V | — |
 | driver-handover | V | — | — | — | E | E | V | — |
