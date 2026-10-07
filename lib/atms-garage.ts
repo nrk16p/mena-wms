@@ -42,9 +42,18 @@ export async function findAtmsGarage(name: string): Promise<AtmsGarage | null> {
   return (await getAtmsGarages()).find((g) => garageKey(g.name) === k) ?? null
 }
 
+/** ชื่อเดิมที่มีคนยืนยันจับคู่ทั้งชื่อแล้วที่หน้า /garages (garage_name_map) — เช่น Mena-Next/คนส่ง "ปทุม2" มาอีก */
+async function findByConfirmedAlias(name: string): Promise<AtmsGarage | null> {
+  const client = await clientPromise
+  const m = await client.db(process.env.MONGO_DB ?? "master_data").collection("garage_name_map")
+    .findOne({ key: garageKey(name), scope: "name", undoneAt: null }, { sort: { at: -1 }, projection: { atmsId: 1 } })
+  if (!m) return null
+  return (await getAtmsGarages()).find((g) => g.atmsId === Number(m.atmsId)) ?? null
+}
+
 /**
  * เติม garageAtmsId ให้ doc ก่อนบันทึก (ทุกทางเขียน: หน้าเว็บ / sync API / แผนซ่อม)
- * - ชื่อตรง ATMS → garage = ชื่อตาม ATMS (สะกด/ช่องว่างตามต้นทาง) + garageAtmsId
+ * - ชื่อตรง ATMS (หรือเป็นชื่อเดิมที่ยืนยันจับคู่แล้ว) → garage = ชื่อตาม ATMS + garageAtmsId
  * - ไม่ตรง (ชื่อเดิมที่ยังไม่จับคู่ หรือ Mena-Next ส่งชื่ออื่นมา) → เก็บชื่อตามที่ส่งมา + garageAtmsId = null
  *   (รับไว้ก่อน ไม่ตีกลับ — หน้าเว็บขึ้นป้าย "ยังไม่ผูก ATMS")
  * ATMS ล่ม/อ่านไม่ได้ → ไม่บล็อกการบันทึก แค่ไม่เติม id (คงค่าเดิมถ้ามี)
@@ -52,7 +61,7 @@ export async function findAtmsGarage(name: string): Promise<AtmsGarage | null> {
 export async function attachGarageId<T extends { garage: string }>(doc: T, existing?: Record<string, unknown> | null): Promise<T & { garageAtmsId: number | null }> {
   if (!doc.garage) return { ...doc, garageAtmsId: null }
   try {
-    const g = await findAtmsGarage(doc.garage)
+    const g = await findAtmsGarage(doc.garage) ?? await findByConfirmedAlias(doc.garage)
     return g ? { ...doc, garage: g.name, garageAtmsId: g.atmsId } : { ...doc, garageAtmsId: null }
   } catch (e) {
     console.error("[atms-garage] lookup failed", e)

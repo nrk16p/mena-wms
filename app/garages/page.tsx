@@ -1,5 +1,5 @@
-import { GarageMasterPage } from "@/components/garage-master-page"
+import { GarageMappingPage } from "@/components/garage-mapping-page"
 
 export default function Page() {
-  return <GarageMasterPage />
+  return <GarageMappingPage />
 }

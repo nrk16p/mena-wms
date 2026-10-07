@@ -3,6 +3,7 @@ import { runBranchSync, BRANCH_IDS, AtmsSessionError, AtmsNetworkError } from "@
 import { rebuildTireDistance } from "@/lib/tire-distance"
 import { autoResolveTireRequests } from "@/lib/tire-request-auto"
 import clientPromise from "@/lib/mongo"
+import { followAtmsRenames } from "@/lib/garage-mapping"
 
 const DB       = process.env.MONGO_DB ?? "master_data"
 const BRANCHES = Object.keys(BRANCH_IDS) // ["latkrabang", "saraburi"]
@@ -87,5 +88,13 @@ export async function GET(req: NextRequest) {
     autoResolve = { error: err instanceof Error ? err.message : String(err) }
   }
 
-  return NextResponse.json({ ok: allOk, results, distance, autoResolve })
+  // ATMS เปลี่ยนชื่อซัพพลายเออร์ → ชื่ออู่ในใบงานซ่อมตามไปด้วย (ผูกด้วย garageAtmsId) — ไม่มี cron ว่าง (Hobby 2 ตัว) จึงฝากรอบนี้
+  let garageRenamed: number | { error: string } = 0
+  try {
+    garageRenamed = await followAtmsRenames(client.db(DB))
+  } catch (err) {
+    garageRenamed = { error: err instanceof Error ? err.message : String(err) }
+  }
+
+  return NextResponse.json({ ok: allOk, results, distance, autoResolve, garageRenamed })
 }

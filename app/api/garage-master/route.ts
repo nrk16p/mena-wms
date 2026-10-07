@@ -20,23 +20,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(items.map((it) => ({ ...it, count: countByName.get(it.name as string) || 0 })))
 }
 
-// POST /api/garage-master — เพิ่มอู่ใหม่ (กันชื่อซ้ำแบบ case-insensitive)
-export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const name = String(body.name ?? "").trim()
-  if (!name) return NextResponse.json({ error: "กรุณาระบุชื่ออู่" }, { status: 400 })
-
-  const client = await clientPromise
-  const col    = client.db(DB).collection(COLL)
-
-  const existing = await col.findOne({ name: { $regex: `^${escapeRegex(name)}$`, $options: "i" } })
-  if (existing) return NextResponse.json(existing)
-
-  const doc    = { name, createdAt: new Date() }
-  const result = await col.insertOne(doc)
-  return NextResponse.json({ ...doc, _id: result.insertedId }, { status: 201 })
-}
-
-function escapeRegex(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+// POST /api/garage-master — ปิดแล้ว (07/10/2569): ชื่ออู่ใช้ซัพพลายเออร์ใน ATMS เท่านั้น ไม่เพิ่มชื่อเองอีก
+// (garage_master เก็บไว้อ่านอย่างเดียวเป็นประวัติ)
+export async function POST() {
+  return NextResponse.json({ error: "เพิ่มอู่เองไม่ได้แล้ว — ให้จัดซื้อเพิ่มซัพพลายเออร์ใน ATMS (ขึ้นในรายการวันถัดไป)" }, { status: 410 })
 }
