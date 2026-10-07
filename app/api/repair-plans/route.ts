@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { PLAN_STATUS_VALUES, PLAN_CANCELLED } from "@/lib/repair-plan"
+import { attachGarageId } from "@/lib/atms-garage"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_plans"
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
 // เพราะ PUT ใช้ buildPlanDoc แก้ฟอร์มทั้งใบ ถ้ารวมไว้จะโดนฟอร์มที่ไม่มี field นี้ล้างค่าทิ้ง
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const doc  = buildPlanDoc(body)
+  const doc  = await attachGarageId(buildPlanDoc(body))
   const err  = validatePlan(doc)
   if (err) return NextResponse.json({ error: err }, { status: 400 })
 

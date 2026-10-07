@@ -7,6 +7,7 @@ import { buildDoc, validateStatus } from "../route"
 import { bkkToday, bkkTimestamps } from "@/lib/bkk-time"
 import { MEDIA_CDN_BASE } from "@/lib/media"
 import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
+import { attachGarageId } from "@/lib/atms-garage"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -187,7 +188,7 @@ const todayStr = () => bkkToday()
 // POST /api/repair-external/sync — เปิดรายการใหม่ (กติกาเดียวกับหน้าเว็บ)
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
-  const doc  = buildDoc(body)
+  const doc  = await attachGarageId(buildDoc(body))
   if (!doc.plate)  return NextResponse.json({ ok: false, error: "กรุณาระบุ plate (ทะเบียนรถ)" }, { status: 400 })
   if (!doc.status) return NextResponse.json({ ok: false, error: "กรุณาระบุ status" }, { status: 400 })
   const statusErr = validateStatus(doc.jobType, doc.status)
@@ -266,7 +267,7 @@ async function updateRecord(req: NextRequest, partial: boolean) {
   }
 
   // PATCH: field ที่ไม่ส่งมา ใช้ค่าเดิม · PUT: ใช้ body ทั้งชุด
-  const doc = buildDoc(partial ? { ...existing, ...body } : body)
+  const doc = await attachGarageId(buildDoc(partial ? { ...existing, ...body } : body), existing)
 
   const statusErr = validateStatus(doc.jobType, doc.status)
   if (statusErr) return NextResponse.json({ ok: false, error: statusErr }, { status: 400 })

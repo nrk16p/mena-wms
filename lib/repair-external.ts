@@ -188,13 +188,29 @@ export function garageAliases(name: string): string[] {
   return [...out]
 }
 
+// alias ชุด A กับ B เป็นอู่เดียวกันเมื่อตรงกันเป๊ะ หรือตัวหนึ่งเป็นคำขึ้นต้นของอีกตัว (ยาว ≥ 6 กันจับมั่ว — ห้ามใช้ includes)
+const aliasesRelated = (as: string[], bs: string[]) =>
+  as.some((x) => bs.some((y) => x === y || (x.length >= 6 && y.startsWith(x)) || (y.length >= 6 && x.startsWith(y))))
+
+/** ชื่ออู่สองชื่อน่าจะเป็นอู่เดียวกัน (สะกดต่าง / ชื่อย่อ vs ชื่อนิติบุคคล) — ใช้แยก "แค่สะกดต่าง" ออกจาก "คนละอู่" */
+export const sameGarage = (a: string, b: string) => aliasesRelated(garageAliases(a), garageAliases(b))
+
+/**
+ * แบบหลวมกว่า sameGarage — ใช้เฉพาะเมื่อสองชื่อผูกกับงานเดียวกันอยู่แล้ว (ทะเบียน + MR เดียวกัน)
+ * ชื่อเรียกสั้นของคนพิมพ์มักเป็นคำขึ้นต้น/ส่วนหนึ่งของชื่อใน ATMS: "เมจิก" ⊂ "เมจิกโซลูชั่น", "ขะหนำ" ⊂ "ขะหนำรัตนวงค์"
+ * includes ยอมเฉพาะคำยาว ≥ 4 (กันคำสั้นอย่าง "เทพ" ไปจับ "กรุงเทพ")
+ */
+export function likelySameGarage(a: string, b: string): boolean {
+  if (sameGarage(a, b)) return true
+  const as = garageAliases(a), bs = garageAliases(b)
+  return as.some((x) => bs.some((y) =>
+    y.startsWith(x) || x.startsWith(y) || (x.length >= 4 && y.includes(x)) || (y.length >= 4 && x.includes(y))))
+}
+
 /** จัดกลุ่มชื่ออู่ที่น่าจะเป็นอู่เดียวกัน — คืนเฉพาะกลุ่มที่มีมากกว่า 1 ชื่อ */
 export function groupSimilarGarages(names: string[]): string[][] {
   const alias = new Map(names.map((n) => [n, garageAliases(n)] as const))
-  // ชื่อ A กับ B เป็นกลุ่มเดียวกันเมื่อ alias ตรงกันเป๊ะ หรือ alias หนึ่งเป็นคำขึ้นต้นของอีกอัน (ยาว ≥ 6 กันจับมั่ว)
-  const related = (a: string, b: string) =>
-    (alias.get(a) ?? []).some((x) =>
-      (alias.get(b) ?? []).some((y) => x === y || (x.length >= 6 && y.startsWith(x)) || (y.length >= 6 && x.startsWith(y))))
+  const related = (a: string, b: string) => aliasesRelated(alias.get(a) ?? [], alias.get(b) ?? [])
   const groups: string[][] = []
   const used = new Set<string>()
   for (const n of names) {

@@ -15,7 +15,9 @@ export type AtmsOpenJob = {
   mrId: number
   step: string          // ขั้นตอนปัจจุบันใน ATMS เช่น รถซ่อม / รออะไหล่ / รถซ่อมเสร็จสิ้น
   stepAt: string        // YYYY-MM-DD ของ event ล่าสุด
-  vendor: string        // ชื่ออู่
+  vendor: string        // ชื่ออู่ (= atms.supplier_master.name)
+  vendorId: number | null  // รหัสอู่ (= supplier_master.atmsId) — open-jobs มักส่ง null มา ใช้ชื่อเทียบแทน
+  jobId: number         // maintenance_job_id — ใช้ยิงย้ายอู่กลับ Mena-Next
   openedAt: string      // YYYY-MM-DD วันเปิดงาน
   severity: string      // light | medium | heavy
   prAmount: number
@@ -155,29 +157,27 @@ export type AtmsBoardData = {
 export const normKey = (s: string | null | undefined) =>
   (s ?? "").toString().replace(/[\s.]/g, "").trim().toUpperCase()
 
-async function apiGet(url: string): Promise<unknown> {
+async function apiGet(url: string, fresh = false): Promise<unknown> {
   const res = await fetch(url, {
     headers: { "X-API-Key": API_KEY },
     // ให้ Next cache ฝั่ง fetch 5 นาที — ข้อมูล ATMS เองก็ cache 5 นาทีอยู่แล้ว
-    next: { revalidate: 300 },
+    // fresh = ก่อนเขียนกลับ Mena-Next ต้องเห็นค่าปัจจุบันจริง ไม่ใช่ของ 5 นาทีก่อน
+    ...(fresh ? { cache: "no-store" as const } : { next: { revalidate: 300 } }),
   })
   if (!res.ok) throw new Error(`ATMS API ${res.status}: ${url.split("?")[0]}`)
   return res.json()
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export async function fetchAtmsBoard(): Promise<AtmsBoardData> {
-  const [openJobsRaw, fleetRaw] = await Promise.all([
-    apiGet(`${MONGODBAPI_URL}/repair-board/open-jobs`) as Promise<any>,
-    apiGet(`${FLEET_API_URL}/fleet/current?status_id=2&status_id=4&status_id=5&minimal=true&branch_id=2&branch_id=5`) as Promise<any>,
-  ])
-
-  const jobs: AtmsOpenJob[] = (openJobsRaw.items ?? [])
+function mapOpenJobs(openJobsRaw: any): AtmsOpenJob[] {
+  return (openJobsRaw.items ?? [])
     .filter((i: any) => i.open_maintenance_job?.repair_mode_label === "อู่นอก")
     .map((i: any) => {
       const j = i.open_maintenance_job
       const links: any[] = j.purchase_links ?? []
       return {
+        jobId: Number(j.maintenance_job_id) || 0,
+        vendorId: Number(j.vendor_id) || null,
         prCodes: links.map((l) => l.pr_code).filter(Boolean),
         poCodes: links.flatMap((l) => l.purchase_orders ?? []).map((p: any) => p.po_code).filter(Boolean),
         plate: i.plate ?? "",
@@ -192,6 +192,40 @@ export async function fetchAtmsBoard(): Promise<AtmsBoardData> {
         expectedDone: (j.expected_done_at ?? "").slice(0, 10),
       }
     })
+}
+
+/** งานอู่นอกที่เปิดอยู่ใน Mena-Next ของ MR นี้ (อ่านสด ไม่ผ่าน cache) — null = ไม่มีงานเปิด */
+export async function fetchOpenJobByMr(mrCode: string): Promise<AtmsOpenJob | null> {
+  const mr = normKey(mrCode)
+  if (!mr) return null
+  const raw = await apiGet(`${MONGODBAPI_URL}/repair-board/open-jobs`, true)
+  return mapOpenJobs(raw).find((j) => normKey(j.mrCode) === mr) ?? null
+}
+
+/**
+ * ย้ายอู่ของงานใน Mena-Next = ปิดช่วงซ่อมเดิม แล้วเปิดช่วงใหม่ที่อู่ vendorId (POST /maintenance-jobs/{id}/segments)
+ * ไม่ใช่การแก้ชื่อเฉย ๆ — ไทม์ไลน์/สถิติฝั่ง Mena-Next จะเห็นเป็นการย้ายอู่ จึงยิงเฉพาะเมื่อผู้ใช้ติ๊กยืนยันเท่านั้น
+ */
+export async function moveNextJobVendor(jobId: number, vendorId: number, by: string): Promise<void> {
+  const res = await fetch(`${FLEET_API_URL}/maintenance-jobs/${jobId}/segments`, {
+    method: "POST",
+    headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ repair_mode: "external", vendor_id: vendorId, created_by: (by || "WMS").slice(0, 100) }),
+    cache: "no-store",
+  }).catch((e) => { throw new Error(`ติดต่อ Mena-Next ไม่ได้ (${e instanceof Error ? e.message : e})`) })
+  if (!res.ok) {
+    const t = await res.text().catch(() => "")
+    throw new Error(`Mena-Next ${res.status}: ${t.slice(0, 300)}`)
+  }
+}
+
+export async function fetchAtmsBoard(): Promise<AtmsBoardData> {
+  const [openJobsRaw, fleetRaw] = await Promise.all([
+    apiGet(`${MONGODBAPI_URL}/repair-board/open-jobs`) as Promise<any>,
+    apiGet(`${FLEET_API_URL}/fleet/current?status_id=2&status_id=4&status_id=5&minimal=true&branch_id=2&branch_id=5`) as Promise<any>,
+  ])
+
+  const jobs = mapOpenJobs(openJobsRaw)
 
   const parked: ParkedTruck[] = []
   for (const st of fleetRaw.data ?? [])

@@ -8,6 +8,7 @@ import { diffRepair, writeRepairLog } from "@/lib/repair-log"
 import { bkkToday } from "@/lib/bkk-time"
 import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
 import { badDateError, isDoneStatus, openJobConflictFilter } from "@/lib/repair-external"
+import { attachGarageId } from "@/lib/atms-garage"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -28,7 +29,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const { id } = await params
   if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 })
   const body = await req.json()
-  const doc  = buildDoc(body)
+  const doc  = await attachGarageId(buildDoc(body))
 
   const session = await getServerSession(authOptions)
   const client  = await clientPromise

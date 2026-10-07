@@ -7,7 +7,13 @@ import { createPortal } from "react-dom"
 import { ChevronDown, X, Check, Plus } from "lucide-react"
 import { swalError } from "@/lib/swal"
 
-export type Garage = { _id: string; name: string }
+/** _id = atmsId (เป็น string) สำหรับอู่จาก ATMS · type = ประเภทซัพพลายเออร์ใน ATMS · legacy = ชื่อเดิมที่ยังไม่ผูก ATMS (ใช้ในตัวกรองเท่านั้น) */
+export type Garage = { _id: string; name: string; type?: string; legacy?: boolean }
+
+// เทียบแบบไม่สนช่องว่างซ้อน — ชื่อใน ATMS มีช่องว่างสองเคาะปนอยู่
+const looseKey = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase()
+// รายชื่อ ATMS มีพันกว่าราย — วาดแค่ส่วนบน ที่เหลือให้พิมพ์ค้นหา
+const MAX_SHOWN = 200
 
 // ความสูงโดยประมาณของ dropdown (ช่องค้นหา + รายการ max-h-48) — ใช้ตัดสินว่าจะกางลงหรือกางขึ้น
 const DROP_H = 260
@@ -18,7 +24,7 @@ export const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 
 export function GarageCombobox({
-  value, garages, onChange, onCreated, filterMode, placeholder,
+  value, garages, onChange, onCreated, filterMode, placeholder, noCreate, emptyHint,
 }: {
   value: string
   garages: Garage[]
@@ -26,6 +32,8 @@ export function GarageCombobox({
   onCreated?: (g: Garage) => void
   filterMode?: boolean   // โหมดตัวกรอง: ไม่มีปุ่มเพิ่มอู่ใหม่
   placeholder?: string
+  noCreate?: boolean     // รายชื่อมาจาก ATMS — ห้ามพิมพ์ชื่อใหม่เอง (ต้องไปเพิ่มซัพพลายเออร์ใน ATMS)
+  emptyHint?: string     // ข้อความเมื่อค้นหาไม่เจอ
 }) {
   const [open, setOpen]     = useState(false)
   const [text, setText]     = useState("")
@@ -66,9 +74,11 @@ export function GarageCombobox({
     }
   }, [open])
 
-  const filtered = garages.filter((g) => g.name.toLowerCase().includes(text.trim().toLowerCase()))
-  const exactMatch = garages.some((g) => g.name.toLowerCase() === text.trim().toLowerCase())
-  const canCreate = !filterMode && text.trim().length > 0 && !exactMatch
+  const q = looseKey(text)
+  const matched = garages.filter((g) => looseKey(g.name).includes(q))
+  const filtered = matched.slice(0, MAX_SHOWN)
+  const exactMatch = garages.some((g) => looseKey(g.name) === q)
+  const canCreate = !filterMode && !noCreate && q.length > 0 && !exactMatch
 
   async function createGarage() {
     const name = text.trim()
@@ -114,7 +124,7 @@ export function GarageCombobox({
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && canCreate) { e.preventDefault(); createGarage() } }}
-              placeholder={filterMode ? "ค้นหาอู่..." : "ค้นหา หรือพิมพ์ชื่ออู่ใหม่..."}
+              placeholder={filterMode || noCreate ? "ค้นหาอู่ (ชื่อเต็มหรือชื่อในวงเล็บ)..." : "ค้นหา หรือพิมพ์ชื่ออู่ใหม่..."}
               className="w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#151a10] px-2.5 py-1.5 text-sm focus:border-[#1B8C4B] focus:outline-none"
             />
           </div>
@@ -131,8 +141,12 @@ export function GarageCombobox({
                 onClick={() => { onChange(g.name); setText(""); setOpen(false) }}
                 className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-[#F0FDF4] dark:hover:bg-white/5"
               >
-                {g.name}
-                {value === g.name && <Check size={14} className="text-[#1B8C4B]" />}
+                <span className="min-w-0 flex-1">
+                  {g.name}
+                  {g.legacy && <span className="ml-1.5 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">ชื่อเดิม</span>}
+                  {!g.legacy && g.type && g.type !== "อู่" && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500 dark:bg-white/10 dark:text-gray-400">{g.type}</span>}
+                </span>
+                {looseKey(value) === looseKey(g.name) && <Check size={14} className="shrink-0 text-[#1B8C4B]" />}
               </button>
             ))}
             {canCreate && (
@@ -145,8 +159,11 @@ export function GarageCombobox({
                 <Plus size={14} /> เพิ่มอู่ “{text.trim()}”
               </button>
             )}
+            {matched.length > MAX_SHOWN && (
+              <p className="px-3 py-1.5 text-[11px] text-gray-400">แสดง {MAX_SHOWN} จาก {matched.length} ราย — พิมพ์ค้นหาเพื่อแคบลง</p>
+            )}
             {!canCreate && filtered.length === 0 && (
-              <p className="px-3 py-2 text-xs text-gray-400">ไม่พบอู่</p>
+              <p className="px-3 py-2 text-xs text-gray-400">{emptyHint || "ไม่พบอู่"}</p>
             )}
           </div>
         </div>,

@@ -88,7 +88,8 @@ console.log(data.count, data.items)`}</CodeBlock>
       "fleetNo": "M123",            // เบอร์รถ
       "fleet": "Mixer",
       "plant": "โรงงาน A",
-      "garage": "อู่ ก.การช่าง",
+      "garage": "บริษัท ปทุม 2 เซอร์วิส จำกัด",
+      "garageAtmsId": 662,           // รหัสอู่ ATMS (= vendor_id ใน Mena-Next) · null = ชื่อยังไม่ผูก ATMS
       "status": "ซ่อมมีกำหนดเสร็จ",   // สถานะปัจจุบัน
       "statusSince": "2026-07-20",
       "stageEta": "2026-07-25",      // คาดว่าจะพ้น "สถานะปัจจุบัน" เมื่อไหร่ (ผูกกับขั้น ไม่ใช่ทั้งใบ)
@@ -195,7 +196,8 @@ console.log(data.count, data.items)`}</CodeBlock>
 
     // ── 🔧 งานซ่อม ──
     "symptom": "เบรกไม่อยู่",        // รายละเอียดอาการ
-    "garage": "อู่ ก.การช่าง",        // อู่
+    "garage": "บริษัท ปทุม 2 เซอร์วิส จำกัด", // อู่ = ชื่อซัพพลายเออร์ใน ATMS ตรงตัว (ชุดเดียวกับ vendor_name ของ Mena-Next)
+                                   // ตรง ATMS → ระบบเติม garageAtmsId (= vendor_id) ให้ · ไม่ตรง → รับไว้ แต่ขึ้นว่า "ยังไม่ผูก ATMS"
     "garageInDate": "2026-08-07",  // วันที่รถเข้าอู่ซ่อม
     "mrNo": "MR-2026-001",         // เลขใบแจ้งซ่อม MR
 

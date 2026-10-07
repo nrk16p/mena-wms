@@ -3,9 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { NEXT_SKIP_COLL, fetchAtmsBoard, findActiveSkip, findClosedMatch, isAtmsSettled, isAtmsSkipped, latestClosed, normKey, type ClosedMatch, type ClosedWmsJob, type NextSkip } from "@/lib/atms-board"
-import { DONE_STATUSES, JOB_TYPE_PARTS } from "@/lib/repair-external"
+import { DONE_STATUSES, JOB_TYPE_PARTS, likelySameGarage } from "@/lib/repair-external"
 import { REPAIR_LOG_COLL } from "@/lib/repair-log"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
+import { garageKey } from "@/lib/atms-garage"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -26,7 +27,7 @@ export async function GET() {
       clientPromise.then((c) => c.db(DB).collection(COLL)
         .find(
           { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
-          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, prCode: 1, poCode: 1 } },
+          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, garageAtmsId: 1, prCode: 1, poCode: 1 } },
         )
         .toArray()),
     ])
@@ -204,6 +205,27 @@ export async function GET() {
       })
       .filter(Boolean)
 
+    // ── 🏭 ชื่ออู่ใน WMS ไม่ตรงกับ Mena-Next (ทั้งคู่อ้างชื่อ ATMS ชุดเดียวกัน) — ทุกคันที่จับคู่ได้ ไม่จำกัดว่าต้องจอดอยู่
+    //    WMS ยังไม่กรอกอู่ก็นับ (เติมจาก Mena-Next ได้) · Mena-Next ไม่มีชื่ออู่ = เทียบไม่ได้ ข้าม
+    const garageFill = wms
+      .filter((w) => !FINISHED.includes(w.status))
+      .map((w) => {
+        const job = jobByPlate.get(normKey(w.plate))
+        if (!job?.vendor || garageKey(w.garage) === garageKey(job.vendor)) return null
+        return {
+          id: String(w._id), plate: w.plate, fleetNo: w.fleetNo ?? "", status: w.status,
+          wmsGarage: String(w.garage ?? ""), wmsLinked: !!w.garageAtmsId, nextGarage: job.vendor,
+          // empty = WMS ยังไม่กรอก · spelling = อู่เดียวกันแค่สะกดต่าง · different = น่าจะคนละอู่ (ต้องให้คนตัดสิน)
+          kind: !String(w.garage ?? "").trim() ? "empty" : likelySameGarage(String(w.garage), job.vendor) ? "spelling" : "different",
+          mrCode: job.mrCode,
+          mrConflict: !!normKey(w.mrNo) && normKey(w.mrNo) !== normKey(job.mrCode),
+          wmsMr: w.mrNo ?? "",
+        }
+      })
+      .filter(Boolean)
+    const openWms = wms.filter((w) => !FINISHED.includes(w.status))
+    const garageLinked = { linked: openWms.filter((w) => !!w.garageAtmsId).length, total: openWms.length }
+
     // ── ข้อมูลราย "คัน" สำหรับ chip ในตาราง — key ทั้งทะเบียนและเบอร์รถ
     const byKey: Record<string, { parkedDays: number | null; since: string; step: string; stepAt: string; vendor: string; mrCode: string; mrId: number }> = {}
     const put = (key: string, plate: string) => {
@@ -231,6 +253,8 @@ export async function GET() {
       waitingButParked,
       openNotParked,
       prFill,
+      garageFill,
+      garageLinked,
       byKey,
     })
   } catch (e) {

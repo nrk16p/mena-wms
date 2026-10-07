@@ -117,7 +117,7 @@ const API_PREFIXES: [string, Section | "admin"][] = [
   ["/api/tire-change", "tire"], ["/api/tire-change-request", "tire"], ["/api/tire-due", "tire"],
   ["/api/tire-fleet", "tire"], ["/api/tire-master", "tire"], ["/api/tire-mr", "tire"],
   ["/api/tire-spec-master", "tire"], ["/api/tire-stock", "tire"], ["/api/tire-distance", "tire"],
-  ["/api/repair-external", "repair"], ["/api/garage-master", "repair"], ["/api/repair-plans", "repair"],
+  ["/api/repair-external", "repair"], ["/api/garage-master", "repair"], ["/api/garages", "repair"], ["/api/repair-plans", "repair"],
   ["/api/repair-history", "repair"], ["/api/vehicle-daily", "repair"],
   ["/api/driver-handover", "driver-handover"],
   ["/api/ai-mixer-maintenance", "ai-mixer"],
@@ -126,7 +126,7 @@ const API_PREFIXES: [string, Section | "admin"][] = [
 
 /** API ที่หลายส่วนงานเรียกอ่าน (dropdown / รายชื่อ / ค้นหา) — อ่านได้ทุกคนที่ล็อกอิน การเขียนยังคุมตามเจ้าของ */
 const SHARED_READ = [
-  "/api/vehicles", "/api/vehicle-daily", "/api/codes", "/api/garage-master", "/api/vendors/names",
+  "/api/vehicles", "/api/vehicle-daily", "/api/codes", "/api/garage-master", "/api/garages", "/api/vendors/names",
   "/api/repair-history", "/api/sku",
 ]
 

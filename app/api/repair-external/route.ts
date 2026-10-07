@@ -7,6 +7,7 @@ import { JOB_TYPE_GARAGE, JOB_TYPE_PARTS, DONE_STATUSES, isDoneStatus, openJobCo
 import { normalizeImages } from "@/lib/media"
 import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
 import { bkkToday } from "@/lib/bkk-time"
+import { attachGarageId } from "@/lib/atms-garage"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -127,7 +128,7 @@ export async function GET(req: NextRequest) {
 // POST /api/repair-external — เพิ่มรายการซ่อมใหม่
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const doc  = buildDoc(body)
+  const doc  = await attachGarageId(buildDoc(body))
   if (!doc.plate)  return NextResponse.json({ error: "กรุณาระบุทะเบียนรถ" }, { status: 400 })
   if (!doc.status) return NextResponse.json({ error: "กรุณาเลือกสถานะ" }, { status: 400 })
   const dateErr = badDateError(doc)

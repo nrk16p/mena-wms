@@ -292,6 +292,10 @@ type AtmsBoard = {
   waitingButParked: { id: string; plate: string; fleetNo: string; days: number; since: string; plant: string }[]
   openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
   prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean; mrConflict: boolean; wmsMr: string }[]
+  /** ชื่ออู่ใน WMS ไม่ตรงกับ Mena-Next (ทั้งคู่อ้างชื่อ ATMS) — เติม/แก้ตาม Mena-Next ได้ */
+  garageFill?: { id: string; plate: string; fleetNo: string; status: string; wmsGarage: string; wmsLinked: boolean; nextGarage: string; kind: "empty" | "spelling" | "different"; mrCode: string; mrConflict: boolean; wmsMr: string }[]
+  /** ใบงานที่ยังเปิดอยู่ ผูกอู่กับ ATMS (garageAtmsId) แล้วกี่ใบ */
+  garageLinked?: { linked: number; total: number }
   byKey: Record<string, { parkedDays: number | null; since: string; step: string; stepAt: string; vendor: string; mrCode: string; mrId: number }>
 }
 // รายการจาก /maintenance-requests (ATMS) — เก็บเฉพาะ field ที่ใช้แสดง timeline
@@ -321,6 +325,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // กรองเฉพาะรายการสถานะขัดแย้ง (งานซ่อมไม่ปิดแต่รถวิ่งงาน)
   const [conflictOnly, setConflictOnly] = useState(false)
   const [garages, setGarages] = useState<Garage[]>([])
+  const [legacyGarages, setLegacyGarages] = useState<Garage[]>([])
+  // ติ๊ก "อัปเดต Mena-Next ด้วย" ในหน้ารายละเอียด — ยิงย้ายอู่หลังบันทึกสำเร็จ (ถามก่อนทุกครั้ง ไม่ยิงเอง)
+  const [pushNext, setPushNext] = useState(false)
+  const [garageSyncBusy, setGarageSyncBusy] = useState("")
   const [loading, setLoading] = useState(true)
 
   // ดึงสถานะรายวันของทุกทะเบียนในหน้า (ผ่าน proxy → mena-intelligence, cache 5 นาที) — fail-soft
@@ -517,11 +525,21 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }, [mode, q, fType, fStatus, fGarage, fFleet, dateFrom, dateTo])
 
+  // ช่องอู่ = รายชื่อ ATMS (ชุดเดียวกับ Mena-Next) · ตัวกรองรวมชื่อเดิมใน garage_master ด้วย
+  // ไม่งั้นใบงานเก่าที่ยังไม่ได้จับคู่ชื่อจะกรองหาไม่ได้
   const loadGarages = useCallback(async () => {
     try {
-      const res  = await fetch("/api/garage-master")
-      const data = await res.json()
-      setGarages(Array.isArray(data) ? data : [])
+      const [a, l] = await Promise.all([
+        fetch("/api/garages/atms").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/garage-master").then((r) => r.json()).catch(() => []),
+      ])
+      const atmsList: Garage[] = (Array.isArray(a?.garages) ? a.garages : [])
+        .map((g: { atmsId: number; name: string; type: string }) => ({ _id: String(g.atmsId), name: g.name, type: g.type }))
+      setGarages(atmsList)
+      const known = new Set(atmsList.map((g) => g.name.replace(/\s+/g, " ").trim()))
+      setLegacyGarages((Array.isArray(l) ? l : [])
+        .filter((g: Garage) => !known.has(String(g.name ?? "").replace(/\s+/g, " ").trim()))
+        .map((g: Garage) => ({ _id: "legacy:" + g._id, name: g.name, legacy: true })))
     } catch { /* ignore */ }
   }, [])
 
@@ -777,8 +795,41 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   function setJobType(jt: string) {
     setForm((f) => ({ ...f, jobType: jt, status: isDone ? doneStatusFor(jt) : statusesFor(jt)[0].value }))
   }
+  // เปิดแก้ไขพร้อมเติมอู่ตาม Mena-Next (กรณี MR คนละใบ ต้องให้คนตรวจก่อน) — คนกดบันทึกเอง
+  function openEditFillGarage(p: NonNullable<AtmsBoard["garageFill"]>[number]) {
+    const r = rows.find((x) => x._id === p.id)
+    if (!r) { swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน"); return }
+    openEdit(r)
+    setForm((f) => ({ ...f, garage: p.nextGarage }))
+  }
+
+  // ใช้ชื่ออู่ตาม Mena-Next/ATMS กับใบงาน (ทีละใบ หรือทั้งหมดที่ MR ไม่ขัดกัน) — server หาคู่เองจาก Mena-Next
+  async function syncGarageFromNext(ids: string[], label: string) {
+    if (!ids.length) return
+    if (ids.length > 1) {
+      const r = await swalConfirm(`ใช้ชื่ออู่ตาม Mena-Next ${ids.length} ใบ?`, "เปลี่ยนชื่ออู่ในใบงาน WMS ให้ตรงกับ Mena-Next (ชื่อตาม ATMS) · บันทึกในประวัติของแต่ละใบ")
+      if (!r.isConfirmed) return
+    }
+    setGarageSyncBusy(label)
+    try {
+      const res = await fetch("/api/repair-external/garage-sync", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.ok) throw new Error(d.error || "อัปเดตชื่ออู่ไม่สำเร็จ")
+      const skip = (d.skipped ?? []) as { id: string; reason: string }[]
+      swalToast(d.updated ? "success" : "info", `อัปเดตชื่ออู่ ${d.updated} ใบ${skip.length ? ` · ข้าม ${skip.length} (${skip[0].reason})` : ""}`)
+      load(); loadAtmsBoard()
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "อัปเดตชื่ออู่ไม่สำเร็จ")
+    } finally {
+      setGarageSyncBusy("")
+    }
+  }
+
   function openEdit(r: RepairExternal) {
     planLinkRef.current = null
+    setPushNext(false)
     setEditId(r._id)
     setEditRow(r)
     setUpdNote("")
@@ -1398,6 +1449,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       )
     })()
 
+  // ── อู่ในฟอร์ม เทียบ ATMS / Mena-Next ──
+  const gKey = (x: string) => (x ?? "").replace(/\s+/g, " ").trim().toLowerCase()
+  const formNext = atms?.byKey[atmsKey(form.plate)] ?? (form.fleetNo ? atms?.byKey[atmsKey(form.fleetNo)] : undefined)
+  const formGarageInAtms = !!form.garage && garages.some((g) => gKey(g.name) === gKey(form.garage))
+  const formNextVendor = formNext?.vendor ?? ""
+  const formGarageDiffNext = !!formNextVendor && gKey(formNextVendor) !== gKey(form.garage)
+  // ยิงย้ายอู่ไป Mena-Next ได้เมื่อ: ใบเดิม · อู่ผูก ATMS · MR ตรงกับงานที่เปิดใน Mena-Next · อู่ต่างกัน
+  const canPushNext = !!editId && !isParts && formGarageInAtms && formGarageDiffNext &&
+    !!form.mrNo.trim() && !!formNext?.mrCode && atmsKey(form.mrNo) === atmsKey(formNext.mrCode)
+
   // ── อัพเดทงานในหน้ารายละเอียด: เทียบกับค่าที่บันทึกไว้ว่ามีอะไรจะบันทึกบ้าง ──
   const dirtyFields: string[] = editId && editRow ? [
     ...FORM_FIELD_KEYS.filter((k) => {
@@ -1418,6 +1479,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     dirtyFields.length ? `แก้ ${dirtyFields.length} ช่อง` : "",
     statusDirty ? "เปลี่ยนสถานะ" : etaDirty ? "วันคาด" : "",
     noteTyped ? "ข้อความ" : "",
+    pushNext && canPushNext ? "ย้ายอู่ Mena-Next" : "",
   ].filter(Boolean).join(" + ")
 
   // อัพเดทงาน (ใบเดิม) — ช่องที่แก้ + สถานะ + วันคาด + ข้อความ บันทึกในคำขอเดียว
@@ -1426,6 +1488,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     setSaveErr(null)
     const fail = (msg: string) => { setSaveErr(msg); swalError(msg) }
     if (!form.plate.trim()) { fail("กรุณาระบุทะเบียนรถ"); return }
+    const wantPush = pushNext && canPushNext
+    // ไม่ได้แก้อะไรในใบงาน แต่ติ๊กส่งอู่ไป Mena-Next → ยิงอย่างเดียว
+    if (!isDirty && wantPush) { setSaving(true); try { await pushGarageToNext(editId) } finally { setSaving(false) } openById(editId); return }
     if (!isDirty) { fail("ยังไม่มีอะไรเปลี่ยน — แก้ช่องข้อมูล เปลี่ยนสถานะ หรือพิมพ์ว่าเกิดอะไรขึ้นก่อน"); return }
     const fields = { ...form, images: formImages, negotiationImages: formNegImages, quotationImages: formQuotImages }
     const bad = validateJobUpdate({
@@ -1445,7 +1510,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "อัพเดทไม่สำเร็จ")
       await linkPlan(editId)
-      swalToast("success", data.statusChanged ? `อัพเดทเป็น “${form.status}” แล้ว` : "อัพเดทงานแล้ว")
+      if (wantPush) await pushGarageToNext(editId)
+      else swalToast("success", data.statusChanged ? `อัพเดทเป็น “${form.status}” แล้ว` : "อัพเดทงานแล้ว")
       load(); loadStats(); loadAtmsBoard()
       // อยู่ในใบเดิมต่อ — ดึงค่าล่าสุด + ไทม์ไลน์ใหม่ (ล้างข้อความที่พิมพ์ไว้ด้วย)
       openById(editId)
@@ -1453,6 +1519,20 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
       fail(e instanceof Error ? e.message : "อัพเดทไม่สำเร็จ")
     } finally {
       setSaving(false)
+    }
+  }
+
+  // ส่งอู่ของใบงาน (ที่บันทึกแล้ว) ไป Mena-Next = ย้ายอู่ของงานที่ MR ตรงกัน · ไม่สำเร็จ ใบงาน WMS ยังบันทึกอยู่
+  async function pushGarageToNext(id: string) {
+    try {
+      const res = await fetch(`/api/repair-external/${id}/push-next-garage`, { method: "POST" })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.ok) throw new Error(d.error || "ส่งไป Mena-Next ไม่สำเร็จ")
+      swalToast("success", d.skipped ? "บันทึกแล้ว · อู่ใน Mena-Next ตรงกันอยู่แล้ว" : "บันทึกแล้ว + ย้ายอู่ใน Mena-Next แล้ว")
+      setPushNext(false)
+      loadAtmsBoard()
+    } catch (e) {
+      swalError(`บันทึกใน WMS แล้ว แต่ส่งอู่ไป Mena-Next ไม่สำเร็จ — ${e instanceof Error ? e.message : e}`)
     }
   }
 
@@ -1680,7 +1760,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-[140px] flex-1">
-            <GarageCombobox value={fGarage} garages={garages} onChange={setFGarage} filterMode placeholder="🏭 ทุกอู่" />
+            <GarageCombobox value={fGarage} garages={[...garages, ...legacyGarages]} onChange={setFGarage} filterMode placeholder="🏭 ทุกอู่" />
           </div>
           <div className="min-w-[140px] flex-1">
             <FilterCombobox value={fFleet} options={stats.fleetDist.map((f) => f.fleet)} onChange={setFFleet} placeholder="🚚 ทุกฟลีท" />
@@ -1904,7 +1984,10 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         const inWms = atms ? atms.pending.filter((p) => p.wms) : []
         const mrIssues = inWms.filter((p) => p.wms!.mrMatch !== "match" && p.mrCode)
         const prFill = atms?.prFill ?? []
-        const hasIssue = (atms?.missing.length ?? 0) > 0 || mrIssues.length > 0 || prFill.length > 0 || alertRows.length > 0
+        const garageFill = atms?.garageFill ?? []
+        // กดทีเดียวได้เฉพาะ "อู่เดียวกันแค่สะกดต่าง / WMS ยังว่าง" — คนละอู่ต้องตัดสินทีละคัน (อาจเป็น Mena-Next ที่ผิด)
+        const garageBulk = garageFill.filter((g) => !g.mrConflict && g.kind !== "different").map((g) => g.id)
+        const hasIssue = (atms?.missing.length ?? 0) > 0 || mrIssues.length > 0 || prFill.length > 0 || garageFill.length > 0 || alertRows.length > 0
         return (
           <div id="atms-compare" className={`mb-4 rounded-[12px] border px-3 py-2 text-[12px] ${hasIssue ? "border-indigo-300 bg-indigo-50/70 text-indigo-900 dark:border-indigo-500/40 dark:bg-indigo-900/15 dark:text-indigo-200" : "border-[#D8EFE0] bg-[#F0FDF4] text-[#14532D] dark:border-emerald-500/30 dark:bg-emerald-900/10 dark:text-emerald-200"}`}>
             {/* บรรทัดเดียวจบ — ตัวเลขเทียบ Mena-Next และจำนวนงานที่สถานะไม่ตรง เคยเป็นสองแถบซ้อนกัน
@@ -1931,6 +2014,12 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   )}
                   {mrIssues.length > 0 && <span className="text-amber-700 dark:text-amber-300">· MR ไม่ตรง {mrIssues.length}</span>}
                   {prFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· ไม่มี PR {prFill.length}</span>}
+                  {garageFill.length > 0 && <span className="text-amber-700 dark:text-amber-300">· อู่ไม่ตรง {garageFill.length}</span>}
+                  {atms.garageLinked && atms.garageLinked.total > 0 && (
+                    <span className="opacity-70" title="ใบงานที่ยังเปิดอยู่ ที่อู่ผูกกับรหัส ATMS แล้ว (ชื่อชุดเดียวกับ Mena-Next)">
+                      · อู่ผูก ATMS {atms.garageLinked.linked}/{atms.garageLinked.total}
+                    </span>
+                  )}
                 </>
               )}
               {alertRows.length > 0 && (
@@ -2135,7 +2224,67 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     </div>
                   </div>
                 )}
-                {!hasIssue && <p className="opacity-80">รถค้างซ่อมอู่นอกทุกคันมีรายการในระบบครบ และเลข MR/PR ตรงกันทั้งหมด 🎉</p>}
+                {/* ชื่ออู่ไม่ตรงกับ Mena-Next — ทั้งสองระบบใช้ชื่อซัพพลายเออร์ ATMS ชุดเดียวกัน */}
+                {garageFill.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                      <p className="font-bold text-amber-700 dark:text-amber-300">🏭 ชื่ออู่ไม่ตรงกับ Mena-Next ({garageFill.length} คัน)</p>
+                      {garageBulk.length > 0 && (
+                        <button
+                          onClick={() => void syncGarageFromNext(garageBulk, "all")}
+                          disabled={!!garageSyncBusy}
+                          className="ml-auto shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-[12px] font-bold text-white hover:bg-amber-700 disabled:opacity-60"
+                          title="ใช้ชื่ออู่ตาม Mena-Next กับคันที่เป็นอู่เดียวกันแค่สะกดต่าง หรือ WMS ยังไม่ระบุอู่ · คันที่น่าจะคนละอู่ / MR คนละใบ ต้องตัดสินทีละคัน"
+                        >
+                          {garageSyncBusy === "all" ? "กำลังอัปเดต..." : `ใช้ตาม Mena-Next ทั้งหมด (${garageBulk.length})`}
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      {garageFill.map((g) => (
+                        <div key={g.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-white/70 dark:bg-white/5 px-3 py-1.5">
+                          <b className="min-w-[52px]">{g.fleetNo || "—"}</b>
+                          <span>{g.plate}</span>
+                          <span className="text-[12px] opacity-60">WMS: {g.wmsGarage || "ยังไม่ระบุอู่"}{g.wmsGarage && !g.wmsLinked ? " (ชื่อเดิม)" : ""}</span>
+                          <span className="text-[12px] opacity-60">→</span>
+                          <span className="text-[12px] font-semibold">Mena-Next: {g.nextGarage}</span>
+                          {g.kind === "different" && !g.mrConflict && (
+                            <span className="rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-bold text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                              title="ชื่อไม่คล้ายกัน — อาจเป็นคนละอู่จริง ตรวจว่าฝั่งไหนถูก: WMS ผิด → ใช้ตาม Mena-Next · Mena-Next ผิด → เปิดใบงานแล้วติ๊กอัปเดต Mena-Next">
+                              น่าจะคนละอู่
+                            </span>
+                          )}
+                          {g.mrConflict && (
+                            <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                              title={`MR ในระบบ = ${g.wmsMr} แต่งานที่เปิดใน Mena-Next = ${g.mrCode} — อาจเป็นคนละรอบซ่อม ตรวจก่อนเปลี่ยน`}>
+                              ⚠ MR คนละใบ ({g.wmsMr})
+                            </span>
+                          )}
+                          {g.kind === "different" && !g.mrConflict && (
+                            <button onClick={() => { const r = rows.find((x) => x._id === g.id); if (r) openEdit(r); else swalError("ไม่พบรายการในหน้านี้ — ลองล้างตัวกรองก่อน") }}
+                              className="ml-auto shrink-0 rounded-lg border border-indigo-300 px-2.5 py-1 text-[12px] font-bold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-900/30"
+                              title="WMS ถูก Mena-Next ผิด — เปิดใบงาน แล้วติ๊ก &quot;อัปเดต Mena-Next ด้วย&quot;">
+                              WMS ถูก
+                            </button>
+                          )}
+                          {g.mrConflict ? (
+                            <button onClick={() => openEditFillGarage(g)}
+                              className="ml-auto shrink-0 rounded-lg border border-amber-400 px-2.5 py-1 text-[12px] font-bold text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/30">
+                              เปิดตรวจ
+                            </button>
+                          ) : (
+                            <button onClick={() => void syncGarageFromNext([g.id], g.id)} disabled={!!garageSyncBusy}
+                              className={(g.kind === "different" ? "" : "ml-auto ") + "shrink-0 rounded-lg border border-amber-400 px-2.5 py-1 text-[12px] font-bold text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:text-amber-300 dark:hover:bg-amber-900/30"}>
+                              {garageSyncBusy === g.id ? "..." : "ใช้ตาม Mena-Next"}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[11px] opacity-70">ถ้าอู่ใน WMS ถูก แต่ Mena-Next ผิด → เปิดใบงาน เลือกอู่ที่ถูก แล้วติ๊ก &quot;อัปเดต Mena-Next ด้วย&quot;</p>
+                  </div>
+                )}
+                {!hasIssue && <p className="opacity-80">รถค้างซ่อมอู่นอกทุกคันมีรายการในระบบครบ และเลข MR/PR/อู่ ตรงกันทั้งหมด 🎉</p>}
               </div>
             )}
           </div>
@@ -2723,7 +2872,27 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   </div>
                   <div className="col-span-6 sm:col-span-3">
                     <label className={labelCls}>{isParts ? "ร้านค้า / ผู้ขาย" : "อู่"}</label>
-                    <GarageCombobox value={form.garage} garages={garages} onChange={(name) => setForm({ ...form, garage: name })} onCreated={(g) => { setGarages((prev) => [...prev, g].sort((a, b) => a.name.localeCompare(b.name, "th"))) }} />
+                    <GarageCombobox value={form.garage} garages={garages} onChange={(name) => setForm({ ...form, garage: name })} noCreate
+                      emptyHint="ไม่มีใน ATMS — ให้จัดซื้อเพิ่มซัพพลายเออร์ใน ATMS ก่อน (ขึ้นในรายการวันถัดไป)" />
+                    {/* ชื่ออู่ชุดเดียวกับ Mena-Next = ชื่อซัพพลายเออร์ใน ATMS */}
+                    {!!form.garage && !formGarageInAtms && garages.length > 0 && (
+                      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-300">⚠ ชื่อเดิม ยังไม่ผูกกับ ATMS — เลือกใหม่จากรายการให้ตรงกับ Mena-Next</p>
+                    )}
+                    {!isParts && formGarageDiffNext && (
+                      <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-indigo-700 dark:text-indigo-300">
+                        <span>Mena-Next: {formNextVendor}</span>
+                        <button type="button" onClick={() => setForm({ ...form, garage: formNextVendor })}
+                          className="rounded border border-indigo-300 px-1.5 py-0.5 font-semibold hover:bg-indigo-50 dark:border-indigo-500/40 dark:hover:bg-indigo-900/30">
+                          ใช้ตาม Mena-Next
+                        </button>
+                      </p>
+                    )}
+                    {canPushNext && (
+                      <label className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11.5px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-200">
+                        <input type="checkbox" checked={pushNext} onChange={(e) => setPushNext(e.target.checked)} className="mt-0.5" />
+                        <span>อัปเดต Mena-Next ด้วย — ย้ายอู่ของงาน {formNext?.mrCode} เป็นอู่นี้ <span className="opacity-70">(Mena-Next บันทึกเป็น &quot;ย้ายอู่&quot; เปิดช่วงซ่อมใหม่ · ส่งตอนกดอัพเดทงาน)</span></span>
+                      </label>
+                    )}
                   </div>
                   {!isParts && (
                     <div className="col-span-6 sm:col-span-3">
@@ -3065,8 +3234,8 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                     <button onClick={() => void requestClose()} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5">ปิด</button>
                     <button
                       onClick={() => void submitUpdate()}
-                      disabled={saving || !isDirty}
-                      title={isDirty ? updateSummary : "ยังไม่มีอะไรเปลี่ยน"}
+                      disabled={saving || (!isDirty && !(pushNext && canPushNext))}
+                      title={isDirty || (pushNext && canPushNext) ? updateSummary : "ยังไม่มีอะไรเปลี่ยน"}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-[#1B8C4B] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0F6A3C] disabled:opacity-50"
                     >
                       ✍️ {saving ? "กำลังอัพเดท..." : "อัพเดทงาน"}

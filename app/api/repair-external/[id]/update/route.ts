@@ -8,6 +8,7 @@ import { bkkToday } from "@/lib/bkk-time"
 import { emitRepairEvents, eventBase, quotationChange } from "@/lib/repair-events"
 import { badDateError, fixBeYear, isDoneStatus, normalizeStatus, openJobConflictFilter, stageEtaRequired, validateJobUpdate } from "@/lib/repair-external"
 import { buildDoc } from "../../route"
+import { attachGarageId } from "@/lib/atms-garage"
 
 // POST /api/repair-external/[id]/update — "อัพเดทงาน" หนึ่งครั้ง { status, stageEta, note, fields? }
 //
@@ -50,12 +51,13 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   // ช่องข้อมูลที่แก้มาพร้อมกัน — สถานะ/วันคาดยึดค่าจากอัพเดทนี้เสมอ ไม่ใช่จากฟอร์ม
   const doc = body.fields && typeof body.fields === "object"
-    ? { ...buildDoc(body.fields as Record<string, unknown>), status, stageEta: eta }
+    ? { ...await attachGarageId(buildDoc(body.fields as Record<string, unknown>), existing), status, stageEta: eta }
     : null
   // เทียบทุกช่องที่ buildDoc ให้มา (รวมรูปแนบซึ่ง diffRepair ไม่นับ) · ค่าที่ใบงานไม่เคยมี = ค่าว่างของชนิดนั้น
   const blank = (v: unknown) => (Array.isArray(v) ? [] : typeof v === "number" ? 0 : "")
   const fieldsChanged = !!doc && Object.entries(doc).some(([k, v]) =>
-    k !== "status" && k !== "stageEta" && JSON.stringify(existing[k] ?? blank(v)) !== JSON.stringify(v))
+    // garageAtmsId คำนวณจากชื่ออู่ (attachGarageId) ไม่ใช่ช่องที่คนกรอก — ไม่นับเป็นการแก้
+    k !== "status" && k !== "stageEta" && k !== "garageAtmsId" && JSON.stringify(existing[k] ?? blank(v)) !== JSON.stringify(v))
 
   const bad = validateJobUpdate({ status, stageEta, note, current: existing, fields: doc, fieldsChanged })
   if (bad) return NextResponse.json(bad, { status: 400 })

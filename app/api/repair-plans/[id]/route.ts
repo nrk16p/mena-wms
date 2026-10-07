@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { buildPlanDoc, validatePlan } from "../route"
 import { PLAN_STATUS_VALUES } from "@/lib/repair-plan"
+import { attachGarageId } from "@/lib/atms-garage"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_plans"
@@ -15,7 +16,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const { id } = await params
   if (!ObjectId.isValid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 })
   const body = await req.json()
-  const doc  = buildPlanDoc(body)
+  const doc  = await attachGarageId(buildPlanDoc(body))
   const err  = validatePlan(doc)
   if (err) return NextResponse.json({ error: err }, { status: 400 })
 
