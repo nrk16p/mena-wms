@@ -187,11 +187,10 @@ export async function followAtmsRenames(db: Db): Promise<number> {
   return n
 }
 
-/** ยิงย้ายอู่ไป Mena-Next แล้ว open-jobs ยังเป็นค่าเก่าอยู่พักหนึ่ง — ช่วงนี้ห้ามดึงกลับ ไม่งั้นจะเขียนทับอู่ที่เพิ่งแก้
+/** คนแก้อู่ใน WMS แล้ว (ส่งไป Mena-Next สำเร็จหรือส่งไม่ได้ก็ตาม) — ห้ามดึงอู่เดิมของ Mena-Next กลับมาทับ
  *  - 10 นาทีแรก: ไม่ดึงเลย
- *  - ถึง 24 ชม.: ไม่ดึงถ้า Mena-Next ยังแสดงอู่เดิมก่อนยิง (nextPushFrom) = ข้อมูลยังไม่อัปเดต */
+ *  - หลังจากนั้น: ไม่ดึงตราบใดที่ Mena-Next ยังแสดงอู่เดิมตอนแก้ (nextPushFrom) — ดึงเมื่อ Mena-Next เปลี่ยนเป็นอู่อื่นจริง */
 const PUSH_GRACE_MS = 10 * 60 * 1000
-const PUSH_STALE_MS = 24 * 60 * 60 * 1000
 
 /**
  * Mena-Next เป็นหลักเรื่องอู่ (ผู้ใช้เลือก 07/10/2569 แบบ "อัตโนมัติทุกเคส"):
@@ -210,7 +209,7 @@ export async function followNextGarages(
   for (const it of items) {
     const sincePush = it.nextPushAt ? now.getTime() - new Date(it.nextPushAt).getTime() : Infinity
     if (sincePush < PUSH_GRACE_MS) continue
-    if (sincePush < PUSH_STALE_MS && it.nextPushFrom && garageKey(it.vendor) === garageKey(it.nextPushFrom)) continue
+    if (it.nextPushFrom && garageKey(it.vendor) === garageKey(it.nextPushFrom)) continue
     const g = atms.find((x) => garageKey(x.name) === garageKey(it.vendor))
     if (!g) continue
     const r = await db.collection(COLLS.repair).updateOne(

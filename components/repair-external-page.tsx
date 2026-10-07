@@ -1521,6 +1521,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     try {
       const res = await fetch(`/api/repair-external/${id}/push-next-garage`, { method: "POST" })
       const d = await res.json().catch(() => ({}))
+      if (d.kept) { swalError(d.error); setPushNext(false); loadAtmsBoard(); return }
       if (!res.ok || !d.ok) throw new Error(d.error || "ส่งไป Mena-Next ไม่สำเร็จ")
       swalToast("success", d.skipped ? "บันทึกแล้ว · อู่ใน Mena-Next ตรงกันอยู่แล้ว" : "บันทึกแล้ว + ย้ายอู่ใน Mena-Next แล้ว")
       setPushNext(false)

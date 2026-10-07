@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { moveNextJobVendor } from "@/lib/atms-board"
+import { fetchAtmsBoard, moveNextJobVendor, normKey } from "@/lib/atms-board"
 import { currentSegment, resolveNextJob } from "@/lib/next-job-map"
 import { writeRepairLog } from "@/lib/repair-log"
 
@@ -38,8 +38,21 @@ export async function POST(_req: NextRequest, { params }: Params) {
   } catch (e) {
     return NextResponse.json({ ok: false, error: `อ่านข้อมูล Mena-Next ไม่สำเร็จ: ${String(e instanceof Error ? e.message : e)}` }, { status: 502 })
   }
-  if (!job) return NextResponse.json({ ok: false, error: `ไม่พบงานซ่อมใน Mena-Next ของ MR ${doc.mrNo}` }, { status: 409 })
-  if (job.closed_at) return NextResponse.json({ ok: false, error: `งานของ MR ${doc.mrNo} ใน Mena-Next ปิดไปแล้ว — ย้ายอู่ไม่ได้` }, { status: 409 })
+  // ส่งไม่ได้ (Mena-Next ไม่มีงานของ MR นี้ในตารางงาน / งานปิดแล้ว) → WMS คงอู่ที่คนแก้ไว้
+  // จำอู่ที่ Mena-Next แสดงอยู่ตอนนี้ (open-jobs) — followNextGarages จะไม่ดึงอู่นี้กลับมาทับ จนกว่า Mena-Next จะเปลี่ยนเป็นอู่อื่น
+  // (บั๊ก 07/10/2569: ME086 จัดซื้อแก้อู่พร้อมออก PO แล้วโดนปรับกลับภายใน 7 วิ)
+  if (!job || job.closed_at) {
+    const shown = await fetchAtmsBoard()
+      .then((b) => b.jobs.find((j) => normKey(j.mrCode) === normKey(doc.mrNo))?.vendor ?? "")
+      .catch(() => "")
+    await db.collection(COLL).updateOne({ _id: doc._id }, { $set: { nextPushAt: new Date(), nextPushFrom: shown } })
+    return NextResponse.json({
+      ok: false, kept: true,
+      error: !job
+        ? `Mena-Next ยังไม่มีงานซ่อมของ MR ${doc.mrNo} ในระบบงาน — ส่งอู่ไปไม่ได้ · อู่ใน WMS คงไว้ตามที่แก้ (ไม่ถูกปรับกลับ)`
+        : `งานของ MR ${doc.mrNo} ใน Mena-Next ปิดไปแล้ว — ส่งอู่ไปไม่ได้ · อู่ใน WMS คงไว้ตามที่แก้`,
+    }, { status: 409 })
+  }
 
   const seg = currentSegment(job)
   const fromName = seg?.vendor_name || "-"

@@ -76,6 +76,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   const set: Record<string, unknown> = { ...(doc ?? {}), status, stageEta: eta, editedBy: by, updatedAt: now }
+  // คนแก้อู่ → เริ่มช่วงพักทันที กันรอบ sync ตาม Mena-Next ดึงอู่เดิมกลับมาทับระหว่างที่กำลังส่งไป Mena-Next
+  if (doc && String(existing.garage ?? "") !== String(doc.garage ?? "")) { set.nextPushAt = now; set.nextPushFrom = null }
   // วันเข้าสถานะขยับเฉพาะตอนสถานะเปลี่ยนจริง — ไม่งั้น "ค้างในสถานะกี่วัน" จะถูกรีเซ็ตทุกครั้งที่อัพเดท
   if (statusChanged) {
     set.statusSince   = bkkToday()

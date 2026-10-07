@@ -64,7 +64,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const statusSince = statusChanged ? bkkToday() : (existing.statusSince ?? "")
   const statusSinceAt = statusChanged ? now.toISOString() : (existing.statusSinceAt ?? "")
   const editedBy = session?.user?.name || session?.user?.email || existing.editedBy || ""
-  await col.updateOne({ _id: new ObjectId(id) }, { $set: { ...doc, statusSince, statusSinceAt, editedBy, updatedAt: now } })
+  // คนแก้อู่ → เริ่มช่วงพักทันที กันรอบ sync ตาม Mena-Next ดึงอู่เดิมกลับมาทับระหว่างที่กำลังส่งไป Mena-Next
+  const garageEdited = String(existing.garage ?? "") !== String(doc.garage ?? "") ? { nextPushAt: now, nextPushFrom: null } : {}
+  await col.updateOne({ _id: new ObjectId(id) }, { $set: { ...doc, ...garageEdited, statusSince, statusSinceAt, editedBy, updatedAt: now } })
 
   // บันทึก log เฉพาะเมื่อมีการเปลี่ยนแปลงจริง
   if (changes.length > 0) {
