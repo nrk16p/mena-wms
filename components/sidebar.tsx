@@ -39,6 +39,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     isAdmin,
     canSeeBranch: (b) => canSeeBranch(scope, b),
     access: session?.user?.access,
+    isSuperAdmin: session?.user?.isSuperAdmin,
   })
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
