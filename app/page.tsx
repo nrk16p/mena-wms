@@ -24,8 +24,9 @@ export default function Home() {
       email: session?.user?.email,
       isAdmin: session?.user?.role === "admin",
       canSeeBranch: (b) => canSeeBranch(scope, b),
+      access: session?.user?.access,
     }),
-    [session?.user?.email, session?.user?.role, scope],
+    [session?.user?.email, session?.user?.role, session?.user?.access, scope],
   )
   const hour = new Date().getHours()
   const greeting = hour < 12 ? "สวัสดีตอนเช้า" : hour < 17 ? "สวัสดีตอนบ่าย" : "สวัสดีตอนเย็น"

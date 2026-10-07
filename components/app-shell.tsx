@@ -6,6 +6,7 @@ import { Sidebar } from "./sidebar"
 import { Navbar } from "./navbar"
 import { TourHighlight } from "./tour-highlight"
 import { SessionGuard } from "./session-guard"
+import { ViewOnlyBanner } from "./view-only-banner"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -37,7 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <SessionGuard />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Navbar onMenuClick={() => setNavOpen(true)} />
-        <main className="main-canvas flex-1 overflow-y-auto px-3 py-4 lg:px-7 lg:py-6">{children}</main>
+        <main className="main-canvas flex-1 overflow-y-auto px-3 py-4 lg:px-7 lg:py-6"><ViewOnlyBanner />{children}</main>
       </div>
     </>
   )

@@ -9,9 +9,11 @@
 //   • branch บนเมนู          → ซ่อนถ้าผู้ใช้ไม่มีสิทธิ์เห็นสาขานั้น (lib/branch-scope.ts)
 //   • adminOnly บนเมนู       → เห็นเฉพาะ role = admin
 //   • hidden บนเมนู          → ซ่อนจากทุกคน (หน้ายังเปิดได้ทาง URL ตรง)
+//   • access (สิทธิ์ตามแผนก) → ซ่อนกลุ่มที่ key ตรงส่วนงานที่ผู้ใช้ "ไม่เห็น" (lib/access-policy.ts)
 //   • hideOnHome / subheader → ไม่ขึ้นบนการ์ดหน้าหลัก (เป็นของ sidebar อย่างเดียว)
 
 import type { ElementType } from "react"
+import type { Access } from "./access-policy"
 import {
   Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
@@ -267,9 +269,12 @@ type Viewer = {
   isAdmin?: boolean
   /** true = ผู้ใช้เห็นสาขานี้ได้ (ส่ง canSeeBranch(scope, b) เข้ามา) */
   canSeeBranch?: (branch: string) => boolean
+  /** สิทธิ์ตามแผนกจาก session — ไม่ส่ง (session ยังโหลดไม่เสร็จ) = ไม่ซ่อน */
+  access?: Access
 }
 
 function groupVisible(group: NavGroup, viewer: Viewer) {
+  if (viewer.access && (viewer.access as Record<string, string>)[group.key] === "none") return false
   return !group.visibleToEmails || group.visibleToEmails.includes(viewer.email ?? "")
 }
 

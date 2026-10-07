@@ -161,7 +161,8 @@ export async function middleware(request: NextRequest) {
       const message = decision.need === "edit"
         ? `คุณมีสิทธิ์ดูอย่างเดียวในส่วน "${label}" — แก้ไขไม่ได้`
         : `คุณไม่มีสิทธิ์เข้าถึงส่วน "${label}"`
-      return NextResponse.json({ error: "no_access", message, section: decision.section, need: decision.need }, { status: 403 })
+      // error = ข้อความไทย (หน้าส่วนใหญ่แสดง data.error ตรง ๆ) · code ไว้ให้โค้ดแยกกรณี
+      return NextResponse.json({ error: message, code: "no_access", section: decision.section, need: decision.need }, { status: 403 })
     }
     const url = new URL("/unauthorized", request.url)
     url.searchParams.set("from", pathname)

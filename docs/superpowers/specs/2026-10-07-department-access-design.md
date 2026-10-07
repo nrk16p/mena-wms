@@ -49,7 +49,7 @@ Date: 2026-10-07 · Branch: `feat/superadmin-users` · แทนที่ส่�
 
 หลังเส้นทาง public / cron / mobile x-api-key เดิม: `getToken()` (cookie ปลอม → login / 401) →
 `/admin` เฉพาะ superadmin → คำนวณสิทธิ์จาก token (แผนก + override + admin) → หน้า: `none` → `/unauthorized`
-· API: GET ต้อง ≥ view (ยกเว้น API ร่วม) · เขียนต้อง edit → 403 `{ error: "no_access", section, need }`
+· API: GET ต้อง ≥ view (ยกเว้น API ร่วม) · เขียนต้อง edit → 403 `{ error: <ข้อความไทย>, code: "no_access", section, need }`
 
 ## Session
 

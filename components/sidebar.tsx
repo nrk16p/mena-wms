@@ -38,6 +38,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     email: userEmail,
     isAdmin,
     canSeeBranch: (b) => canSeeBranch(scope, b),
+    access: session?.user?.access,
   })
 
   useEffect(() => { setGroupOpen({}) }, [pathname])

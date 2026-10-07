@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import {
   accessFor, sectionForPage, sectionForApi, checkRequest, SECTIONS, type Access,
 } from "../lib/access-policy"
-import { NAV_GROUPS } from "../lib/nav"
+import { NAV_GROUPS, sidebarGroups, homeModules } from "../lib/nav"
 
 const SUPER = "narongkorn.a@menatransport.co.th"
 const ADMIN = "bunphak.p@menatransport.co.th"
@@ -123,5 +123,18 @@ for (const g of NAV_GROUPS) {
     assert.equal(sectionForPage(it.href), g.key, `${it.href} อยู่กลุ่ม ${g.key}`)
   }
 }
+
+// 9. เมนู sidebar / หน้าหลัก ซ่อนส่วนงานที่ "ไม่เห็น"
+const fin = u("Finance")
+const side = sidebarGroups({ email: "f@menatransport.co.th", access: fin }).map((g) => g.key)
+assert.ok(side.includes("ap"), "การเงินเห็นเจ้าหนี้")
+assert.ok(side.includes("pr"), "การเงินเห็น PR (ดูอย่างเดียว)")
+assert.ok(!side.includes("sku"), "การเงินไม่เห็น SKU")
+assert.ok(!side.includes("tire"), "การเงินไม่เห็นยาง")
+assert.ok(side.includes("overview"), "หน้าหลักเห็นเสมอ")
+const home = homeModules({ email: "f@menatransport.co.th", access: fin }).map((m) => m.key)
+assert.ok(home.includes("ap") && !home.includes("sku"))
+// ไม่ส่ง access (ยังโหลด session ไม่เสร็จ) → เหมือนเดิม ไม่ซ่อน
+assert.ok(sidebarGroups({ email: "x" }).some((g) => g.key === "sku"))
 
 console.log("check-access-policy: ok")
