@@ -331,6 +331,9 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // ติ๊กไว้ให้ตั้งแต่เปิด (เป้าหมาย: ฝั่งไหนเปลี่ยน อีกฝั่งต้องเปลี่ยนด้วย — ผู้ใช้ 07/10/2569) เอาออกเองได้
   const [pushNext, setPushNext] = useState(true)
   const [garageSyncBusy, setGarageSyncBusy] = useState("")
+  // อู่ที่ Mena-Next แสดงตอนเปิดใบงาน — ไว้เทียบก่อนบันทึกว่าระหว่างเปิดฟอร์ม Mena-Next เปลี่ยนไปหรือยัง
+  const [nextAtOpen, setNextAtOpen] = useState<string | null>(null)
+  const openIdRef = useRef<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   // ดึงสถานะรายวันของทุกทะเบียนในหน้า (ผ่าน proxy → mena-intelligence, cache 5 นาที) — fail-soft
@@ -838,7 +841,26 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     loadLog(r)
     // ดึง Mena-Next ให้เลย ไม่ต้องรอกดปุ่ม — fail-soft ถ้า ATMS ล่มก็ยังเปิดฟอร์มได้ปกติ
     if (jobTypeOf(r) !== JOB_TYPE_PARTS) loadAtmsTimeline(r)
+    openIdRef.current = r._id
+    setNextAtOpen(null)
+    if (jobTypeOf(r) !== JOB_TYPE_PARTS && r.mrNo?.trim()) void syncGarageOnOpen(r)
     setOpen(true)
+  }
+
+  // เปิดใบงาน → อ่านอู่ปัจจุบันใน Mena-Next ของใบนี้ (สด) · ต่างกัน = ปรับ WMS ตาม Mena-Next ทันที (กติกาเดียวกับรอบ sync)
+  // ผู้ใช้จึงไม่เห็นอู่เก่าเลย แม้รอบ sync 2 นาทียังไม่มาถึง · ไม่แตะช่องอู่ถ้าผู้ใช้เริ่มแก้ไปแล้ว
+  async function syncGarageOnOpen(r: RepairExternal) {
+    try {
+      const d = await fetch(`/api/repair-external/${r._id}/next-garage?apply=1`).then((x) => x.json())
+      if (openIdRef.current !== r._id || !d?.ok || !d.found) return
+      setNextAtOpen(d.nextVendor)
+      if (d.applied) {
+        setEditRow((prev) => (prev && prev._id === r._id ? { ...prev, garage: d.garage } : prev))
+        setForm((f) => (f.garage === r.garage ? { ...f, garage: d.garage } : f))
+        swalToast("info", `Mena-Next เปลี่ยนอู่เป็น “${d.garage}” — อัปเดตใบงานให้แล้ว`)
+        load()
+      }
+    } catch { /* อ่าน Mena-Next ไม่ได้ — เปิดฟอร์มต่อได้ตามปกติ */ }
   }
 
   // โหลด timeline ATMS ของคันนี้ (ปีปัจจุบัน + mr_id ถ้ารู้)
@@ -1494,6 +1516,17 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     if (bad) { fail(bad.error); return }
     const dateErr = badDateError(fields as unknown as Record<string, unknown>, editRow as unknown as Record<string, unknown>)
     if (dateErr) { fail(dateErr); return }
+    // ก่อนบันทึกอู่: ระหว่างเปิดฟอร์ม มีคนไปเปลี่ยนอู่ใน Mena-Next หรือเปล่า — ถามก่อน ไม่ทับกันแบบไม่รู้ตัว
+    if ((dirtyFields.includes("garage") || wantPush) && nextAtOpen !== null) {
+      const d = await fetch(`/api/repair-external/${editId}/next-garage`).then((x) => x.json()).catch(() => null)
+      if (d?.ok && d.found && gKey(d.nextVendor) !== gKey(nextAtOpen) && gKey(d.nextVendor) !== gKey(form.garage)) {
+        const r = await swalConfirm(
+          `Mena-Next เพิ่งเปลี่ยนอู่เป็น “${d.nextVendor}”`,
+          `ระหว่างที่คุณเปิดฟอร์มนี้ มีคนเปลี่ยนอู่ใน Mena-Next · กดยืนยัน = ใช้อู่ที่คุณเลือก (“${form.garage || "-"}”)${wantPush ? " และส่งทับไปที่ Mena-Next" : ""} · ยกเลิก = กลับไปตรวจก่อน`,
+        )
+        if (!r.isConfirmed) { setNextAtOpen(d.nextVendor); return }
+      }
+    }
     setSaving(true)
     try {
       const res = await fetch(`/api/repair-external/${editId}/update`, {
