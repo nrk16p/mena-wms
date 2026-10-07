@@ -124,7 +124,8 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    key: "tracking",
+    // key = ส่วนงานใน lib/access-policy.ts (สิทธิ์ตามแผนก) — แยกจากเจ้าหนี้ 2026-10-07
+    key: "pr",
     label: "จัดการติดตามสินค้า",
     homeDesc: "ติดตามการสั่งซื้อ ตั้งแต่คำขอจนของถึงมือ",
     homeIcon: FileText, color: "#7C3AED", bg: "#F3E8FF", homeOrder: 10,
@@ -134,6 +135,19 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "PR อนุมัติแล้ว รอเปิด PO / รอรับของ" },
       { href: "/order-tracking", label: "ติดตามคำขอเปิด PO", icon: ClipboardList, exact: true,
         desc: "แจ้งขอซื้อ · จัดซื้อรับเรื่อง · ปิดจบอัตโนมัติ" },
+      { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen,
+        desc: "วิธีอ่านสถานะและตัวกรอง" },
+      { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen,
+        desc: "ขั้นตอนแจ้งเรื่อง-รับเรื่อง-ปิดงาน" },
+    ],
+  },
+  {
+    key: "ap",
+    label: "จัดการเจ้าหนี้",
+    homeDesc: "ใบวางบิล รอบวางบิล และสถานะจ่ายเงิน",
+    homeIcon: Banknote, color: "#B45309", bg: "#FEF3C7", homeOrder: 12,
+    collapsible: true,
+    items: [
       { href: "/ap-tracking", label: "ติดตามเจ้าหนี้", icon: Banknote, exact: true,
         desc: "ใบวางบิล · รอบวางบิล · สถานะจ่ายเงิน" },
       { href: "/ap-tracking/dashboard", label: "แดชบอร์ดเจ้าหนี้", icon: LayoutDashboard,
@@ -142,10 +156,6 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ทะเบียนผู้ขายและเครดิตเทอม" },
       { href: "/ap-tracking/audit", label: "ตรวจความครบถ้วนข้อมูล", icon: ShieldCheck,
         desc: "หาเอกสารที่ข้อมูลขาด/ไม่ตรง" },
-      { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen,
-        desc: "วิธีอ่านสถานะและตัวกรอง" },
-      { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen,
-        desc: "ขั้นตอนแจ้งเรื่อง-รับเรื่อง-ปิดงาน" },
     ],
   },
   {

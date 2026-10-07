@@ -8,6 +8,15 @@ export function isAdmin(email: string | null | undefined): boolean {
   return ADMIN_EMAILS.has(email ?? "")
 }
 
+// ── superadmin ──────────────────────────────────────────────────────────────
+// คนเดียวที่เปิดหน้า /admin/users (ดูผู้ใช้ทั้งหมด + ตั้งสิทธิ์ทับรายคน) · กำหนดในโค้ดเท่านั้น
+// ให้ผ่านหน้าเว็บไม่ได้ จึงไม่มีทางล็อกตัวเองออกหรือมีใครตั้งตัวเองเป็น superadmin
+export const SUPERADMIN_EMAIL = "narongkorn.a@menatransport.co.th"
+
+export function isSuperAdmin(email: string | null | undefined): boolean {
+  return (email ?? "").toLowerCase() === SUPERADMIN_EMAIL
+}
+
 // ── ผู้อนุมัติอู่ (AVL) ─────────────────────────────────────────────────────
 // เปลี่ยน "สถานะอนุมัติ" ในหน้า /vendors ได้ โดยไม่ต้องเป็นแอดมินทั้งระบบ
 // (ผู้ใช้ขอเพิ่ม natchaphak.k + nopparut.a 2026-09-10) · แอดมินทำได้เสมอ
