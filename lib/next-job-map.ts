@@ -87,3 +87,42 @@ export async function resolveNextJob(db: Db, mrCode: string): Promise<NextJob | 
   await saveJobs(db, fresh)
   return fresh.find((j) => !j.closed_at) ?? fresh[0] ?? null
 }
+
+/**
+ * อู่ปัจจุบันจาก timeline ของ Mena-Next สำหรับใบงาน WMS ที่ยังเปิด (MR ตรงกับงานในตารางของ Mena-Next)
+ * ทำไม timeline: open-jobs ไม่ตามการย้ายอู่แบบทันที (วัดจริง 07/10/2569: >46 นาทียังไม่เปลี่ยน) แต่ timeline เปลี่ยนทันที
+ * ไล่หางานใหม่ครั้งเดียวต่อรอบ แล้วอ่าน timeline เฉพาะ MR ที่มีงานใน Mena-Next (ใบอื่นข้าม — ไม่มีอะไรให้เทียบ)
+ */
+export async function nextVendorsForOpenWms(db: Db, wmsColl: string, doneStatuses: string[]) {
+  const wms = await db.collection(wmsColl).find(
+    { status: { $nin: doneStatuses }, mrNo: { $nin: ["", null] }, jobType: { $ne: "อะไหล่ลงคัน" } },
+    { projection: { plate: 1, fleetNo: 1, mrNo: 1, garage: 1, nextPushAt: 1, nextPushFrom: 1 } },
+  ).toArray()
+  await scanNewNextJobs(db)
+  const keys = [...new Set(wms.map((w) => normMr(w.mrNo)))]
+  // MR เดียวมีหลายงานได้ → งานที่ยังไม่ปิด รหัสล่าสุด (ตามข้อมูลในตาราง — ยืนยันสถานะจาก timeline สดอีกที)
+  const rows = await db.collection(NEXT_JOB_MAP_COLL).find({ mrKey: { $in: keys } }).sort({ _id: -1 }).toArray()
+  const jobOf = new Map<string, { id: number; closed: boolean }>()
+  for (const r of rows) {
+    const cur = jobOf.get(r.mrKey)
+    if (!cur || (cur.closed && !r.closedAt)) jobOf.set(r.mrKey, { id: Number(r._id), closed: !!r.closedAt })
+  }
+  const ids = [...new Set([...jobOf.values()].map((v) => v.id))]
+  const jobs = new Map<number, NextJob>()
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const got = await Promise.all(ids.slice(i, i + BATCH).map((id) => fetchNextJob(id).catch(() => null)))
+    const ok = got.filter((j): j is NextJob => !!j)
+    ok.forEach((j) => jobs.set(j.job_id, j))
+    await saveJobs(db, ok)
+  }
+  const out: { id: (typeof wms)[number]["_id"]; plate: string; fleetNo: string; garage: string | null; nextPushAt?: Date | null; nextPushFrom?: string | null; vendor: string }[] = []
+  for (const w of wms) {
+    const j = jobs.get(jobOf.get(normMr(w.mrNo))?.id ?? -1)
+    const seg = j && !j.closed_at ? currentSegment(j) : null
+    if (seg?.repair_mode === "external" && seg.vendor_name) out.push({
+      id: w._id, plate: String(w.plate ?? ""), fleetNo: String(w.fleetNo ?? ""), garage: (w.garage as string | undefined) ?? null,
+      nextPushAt: w.nextPushAt ?? null, nextPushFrom: w.nextPushFrom ?? null, vendor: seg.vendor_name,
+    })
+  }
+  return out
+}
