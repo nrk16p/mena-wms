@@ -325,7 +325,6 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // กรองเฉพาะรายการสถานะขัดแย้ง (งานซ่อมไม่ปิดแต่รถวิ่งงาน)
   const [conflictOnly, setConflictOnly] = useState(false)
   const [garages, setGarages] = useState<Garage[]>([])
-  const [legacyGarages, setLegacyGarages] = useState<Garage[]>([])
   // ติ๊ก "อัปเดต Mena-Next ด้วย" ในหน้ารายละเอียด — ยิงย้ายอู่หลังบันทึกสำเร็จ (ถามก่อนทุกครั้ง ไม่ยิงเอง)
   const [pushNext, setPushNext] = useState(false)
   const [garageSyncBusy, setGarageSyncBusy] = useState("")
@@ -525,21 +524,13 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
     }
   }, [mode, q, fType, fStatus, fGarage, fFleet, dateFrom, dateTo])
 
-  // ช่องอู่ = รายชื่อ ATMS (ชุดเดียวกับ Mena-Next) · ตัวกรองรวมชื่อเดิมใน garage_master ด้วย
-  // ไม่งั้นใบงานเก่าที่ยังไม่ได้จับคู่ชื่อจะกรองหาไม่ได้
+  // ช่องอู่และตัวกรอง = รายชื่อ ATMS เท่านั้น (ชุดเดียวกับ Mena-Next) — ชื่อที่ตั้งเองไม่ขึ้นให้เลือกแล้ว
+  // (ผู้ใช้สั่ง 07/10/2569) ใบงานเก่าที่ยังใช้ชื่อเดิมไปจับคู่ที่หน้า /garages
   const loadGarages = useCallback(async () => {
     try {
-      const [a, l] = await Promise.all([
-        fetch("/api/garages/atms").then((r) => r.json()).catch(() => ({})),
-        fetch("/api/garage-master").then((r) => r.json()).catch(() => []),
-      ])
-      const atmsList: Garage[] = (Array.isArray(a?.garages) ? a.garages : [])
-        .map((g: { atmsId: number; name: string; type: string }) => ({ _id: String(g.atmsId), name: g.name, type: g.type }))
-      setGarages(atmsList)
-      const known = new Set(atmsList.map((g) => g.name.replace(/\s+/g, " ").trim()))
-      setLegacyGarages((Array.isArray(l) ? l : [])
-        .filter((g: Garage) => !known.has(String(g.name ?? "").replace(/\s+/g, " ").trim()))
-        .map((g: Garage) => ({ _id: "legacy:" + g._id, name: g.name, legacy: true })))
+      const a = await fetch("/api/garages/atms").then((r) => r.json()).catch(() => ({}))
+      setGarages((Array.isArray(a?.garages) ? a.garages : [])
+        .map((g: { atmsId: number; name: string; type: string }) => ({ _id: String(g.atmsId), name: g.name, type: g.type })))
     } catch { /* ignore */ }
   }, [])
 
@@ -1760,7 +1751,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-[140px] flex-1">
-            <GarageCombobox value={fGarage} garages={[...garages, ...legacyGarages]} onChange={setFGarage} filterMode placeholder="🏭 ทุกอู่" />
+            <GarageCombobox value={fGarage} garages={garages} onChange={setFGarage} filterMode placeholder="🏭 ทุกอู่" />
           </div>
           <div className="min-w-[140px] flex-1">
             <FilterCombobox value={fFleet} options={stats.fleetDist.map((f) => f.fleet)} onChange={setFFleet} placeholder="🚚 ทุกฟลีท" />
@@ -2876,7 +2867,7 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                       emptyHint="ไม่มีใน ATMS — ให้จัดซื้อเพิ่มซัพพลายเออร์ใน ATMS ก่อน (ขึ้นในรายการวันถัดไป)" />
                     {/* ชื่ออู่ชุดเดียวกับ Mena-Next = ชื่อซัพพลายเออร์ใน ATMS */}
                     {!!form.garage && !formGarageInAtms && garages.length > 0 && (
-                      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-300">⚠ ชื่อเดิม ยังไม่ผูกกับ ATMS — เลือกใหม่จากรายการให้ตรงกับ Mena-Next</p>
+                      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-300">⚠ ชื่อที่ตั้งเอง ไม่อยู่ใน ATMS — เลือกใหม่จากรายการให้ตรงกับ Mena-Next</p>
                     )}
                     {!isParts && formGarageDiffNext && (
                       <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-indigo-700 dark:text-indigo-300">

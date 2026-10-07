@@ -453,7 +453,7 @@ export function RepairPlanTab({
               </div>
               <div>
                 <label className={labelCls}>อู่ *</label>
-                <GarageCombobox value={form.garage} garages={garages} onChange={(name) => setForm((f) => ({ ...f, garage: name }))} />
+                <GarageCombobox value={form.garage} garages={garages} onChange={(name) => setForm((f) => ({ ...f, garage: name }))} noCreate emptyHint="ไม่มีใน ATMS — ให้จัดซื้อเพิ่มซัพพลายเออร์ใน ATMS ก่อน" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

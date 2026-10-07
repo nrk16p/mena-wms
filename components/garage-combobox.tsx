@@ -7,8 +7,8 @@ import { createPortal } from "react-dom"
 import { ChevronDown, X, Check, Plus } from "lucide-react"
 import { swalError } from "@/lib/swal"
 
-/** _id = atmsId (เป็น string) สำหรับอู่จาก ATMS · type = ประเภทซัพพลายเออร์ใน ATMS · legacy = ชื่อเดิมที่ยังไม่ผูก ATMS (ใช้ในตัวกรองเท่านั้น) */
-export type Garage = { _id: string; name: string; type?: string; legacy?: boolean }
+/** _id = atmsId (เป็น string) สำหรับอู่จาก ATMS · type = ประเภทซัพพลายเออร์ใน ATMS */
+export type Garage = { _id: string; name: string; type?: string }
 
 // เทียบแบบไม่สนช่องว่างซ้อน — ชื่อใน ATMS มีช่องว่างสองเคาะปนอยู่
 const looseKey = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase()
@@ -143,8 +143,7 @@ export function GarageCombobox({
               >
                 <span className="min-w-0 flex-1">
                   {g.name}
-                  {g.legacy && <span className="ml-1.5 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">ชื่อเดิม</span>}
-                  {!g.legacy && g.type && g.type !== "อู่" && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500 dark:bg-white/10 dark:text-gray-400">{g.type}</span>}
+                  {g.type && g.type !== "อู่" && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500 dark:bg-white/10 dark:text-gray-400">{g.type}</span>}
                 </span>
                 {looseKey(value) === looseKey(g.name) && <Check size={14} className="shrink-0 text-[#1B8C4B]" />}
               </button>
