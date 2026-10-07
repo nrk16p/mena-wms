@@ -6,6 +6,15 @@ import { SECTION_LABELS, type Section } from "@/lib/access-policy"
 export default async function Unauthorized({ searchParams }: { searchParams: Promise<{ from?: string; section?: string }> }) {
   const { from, section } = await searchParams
   const label = section === "admin" ? "ผู้ดูแลระบบ" : SECTION_LABELS[section as Section]
+  if (section === "expired") {
+    return (
+      <div className="mx-auto mt-16 max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center dark:border-gray-800 dark:bg-gray-900">
+        <ShieldAlert className="mx-auto h-10 w-10 text-amber-500" aria-hidden />
+        <h1 className="mt-3 text-lg font-semibold text-gray-900 dark:text-white">สิทธิ์เข้าใช้งานหมดอายุแล้ว</h1>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">สิทธิ์ผู้ตรวจสอบภายนอกสิ้นสุดตามกำหนด หากต้องใช้งานต่อ ติดต่อผู้ดูแลระบบ</p>
+      </div>
+    )
+  }
   return (
     <div className="mx-auto mt-16 max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center dark:border-gray-800 dark:bg-gray-900">
       <ShieldAlert className="mx-auto h-10 w-10 text-amber-500" aria-hidden />

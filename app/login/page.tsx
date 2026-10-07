@@ -1,6 +1,7 @@
 "use client"
 
 import { signIn, useSession } from "next-auth/react"
+import { AUDITOR_DOMAIN } from "@/lib/external-auditors"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, Suspense } from "react"
 
@@ -84,6 +85,14 @@ function LoginContent() {
           <p className="mt-4 text-center text-[11px] tracking-wide text-white">
             @menatransport.co.th <span className="font-medium text-[12px] text-red-700 ml-1">only</span>
           </p>
+
+          {/* ผู้ตรวจสอบภายนอก (lib/external-auditors.ts) — ให้ Google แสดงบัญชีโดเมน amtaudit.com */}
+          <button
+            onClick={() => signIn("google", { callbackUrl: "/" }, { hd: AUDITOR_DOMAIN })}
+            className="mt-3 w-full cursor-pointer text-center text-[11px] text-white/80 underline underline-offset-2 hover:text-white"
+          >
+            ผู้ตรวจสอบภายนอก (AMT Audit) เข้าสู่ระบบที่นี่
+          </button>
         </div>
       </div>
     </div>

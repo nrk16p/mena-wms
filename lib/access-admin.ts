@@ -10,6 +10,7 @@ import {
   type Access, type Level, type Overrides, type Section,
 } from "./access-policy"
 import { isAdmin, isSuperAdmin } from "./roles"
+import { isExternalAuditor, AUDITOR_EXPIRES_LABEL } from "./external-auditors"
 import { SITES } from "./dept-access"
 
 const isLevel = (v: unknown): v is Level => v === "none" || v === "view" || v === "edit"
@@ -97,6 +98,8 @@ export type AdminUserRow = WmsUser & {
   effective: Access
   isAdmin: boolean
   isSuperAdmin: boolean
+  /** ตั้งทับไม่ได้เพราะอะไร (admin / superadmin / ผู้ตรวจสอบภายนอก) · null = ตั้งทับได้ */
+  lockedReason: string | null
 }
 
 export function buildUserRow(u: WmsUser, rawOverrides: unknown): AdminUserRow {
@@ -108,6 +111,7 @@ export function buildUserRow(u: WmsUser, rawOverrides: unknown): AdminUserRow {
     effective: accessFor({ department: u.department, email: u.email, overrides }),
     isAdmin: isAdmin(u.email) || isSuperAdmin(u.email),
     isSuperAdmin: isSuperAdmin(u.email),
+    lockedReason: overrideBlockedReason(u.email),
   }
 }
 
@@ -128,6 +132,7 @@ export function overrideBlockedReason(email: string | null | undefined): string 
   const e = (email ?? "").toLowerCase()
   if (isSuperAdmin(e)) return "superadmin ได้สิทธิ์แก้ได้ทุกส่วนเสมอ — ตั้งทับไม่ได้"
   if (isAdmin(e)) return "แอดมินระบบได้สิทธิ์แก้ได้ทุกส่วนเสมอ — ตั้งทับไม่มีผล"
+  if (isExternalAuditor(e)) return `ผู้ตรวจสอบภายนอก: ดูอย่างเดียวเท่าจัดซื้อ ถึง ${AUDITOR_EXPIRES_LABEL} (กำหนดใน lib/external-auditors.ts) — ตั้งทับไม่ได้`
   return null
 }
 

@@ -5,8 +5,9 @@ import { refreshAccess } from "./access-refresh"
 import { accessFor, type Overrides } from "./access-policy"
 import { loginWithGoogleIdToken, fetchEmployee, idTokenDebug, MENA_API_BASE } from "./mena-api"
 import { missingEmployeeFields } from "./session-profile"
+import { EMPLOYEE_DOMAIN, auditorProfile, isExternalAuditor, signInAllowed } from "./external-auditors"
 
-const ALLOWED_DOMAIN = "menatransport.co.th"
+const ALLOWED_DOMAIN = EMPLOYEE_DOMAIN
 
 // log โปรไฟล์ผู้ใช้ทุกครั้งที่ login สำเร็จ
 //   • dev  → เห็นใน terminal ที่รัน `next dev`
@@ -50,8 +51,8 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user, account, profile }) {
       const email = user?.email ?? profile?.email ?? ""
-      const domain = email.split("@")[1]?.toLowerCase()
-      if (domain !== ALLOWED_DOMAIN) return false // → /login?error=AccessDenied
+      // พนักงาน @menatransport.co.th + ผู้ตรวจสอบภายนอกในรายชื่อที่ยังไม่หมดอายุ (lib/external-auditors.ts)
+      if (!signInAllowed(email, undefined)) return false // → /login?error=AccessDenied
 
       // ยืนยันกับ Google ว่าอีเมลนี้ผ่านการ verify แล้วจริง
       // claim มาจาก id_token ที่ Google เซ็น (NextAuth verify ลายเซ็นให้แล้วตอนแลก code)
@@ -63,8 +64,8 @@ export const authOptions: NextAuthOptions = {
           console.warn(`[auth] blocked unverified google email: ${email}`)
           return "/login?error=EmailNotVerified"
         }
-        // hd = Google Workspace hosted domain — ถ้ามีต้องตรงกับองค์กร (กัน alias จากบัญชีนอก)
-        if (g?.hd && g.hd.toLowerCase() !== ALLOWED_DOMAIN) {
+        // hd = Google Workspace hosted domain — ถ้ามีต้องตรงกับโดเมนอีเมล (กัน alias จากบัญชีนอก)
+        if (!signInAllowed(email, g?.hd)) {
           console.warn(`[auth] blocked foreign hosted domain: ${g.hd} (${email})`)
           return false
         }
@@ -78,7 +79,14 @@ export const authOptions: NextAuthOptions = {
 
         // ส่ง Google id_token ไปแลกกับ Mena API (POST /auth/login/google) — ทำเฉพาะตอน sign-in ครั้งแรก
         // fail-soft: ถ้า API ล่ม/cold start ยังให้ login เข้าระบบ WMS ได้ตามปกติ
-        if (account.provider === "google" && account.id_token) {
+        if (isExternalAuditor(token.email)) {
+          // ผู้ตรวจสอบภายนอกไม่มีในระบบ HR — ไม่แลก token กับ Mena API ใช้โปรไฟล์แทน
+          token.apiToken = undefined
+          token.apiTokenExpires = undefined
+          token.employee = auditorProfile(token.email as string)
+          token.apiAuthError = undefined
+          logLogin(token, { apiStatus: "skipped — external auditor", employee: token.employee })
+        } else if (account.provider === "google" && account.id_token) {
           try {
             const login = await loginWithGoogleIdToken(account.id_token)
             let employee = login.profile ?? undefined

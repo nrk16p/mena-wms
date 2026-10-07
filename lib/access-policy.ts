@@ -4,7 +4,9 @@
 //   • สิทธิ์ต่อส่วนงานมี 3 ระดับ: none (ไม่เห็น) · view (ดูอย่างเดียว) · edit (แก้ได้)
 //   • ที่มา: แผนกจาก HR → ตาราง DEPT_POLICY · ไม่อยู่ในตาราง/ไม่มีข้อมูล → ทั่วไป
 //   • IT / admin / superadmin → edit ทุกส่วน · superadmin ตั้งทับรายคนได้ (overrides)
+//   • ผู้ตรวจสอบภายนอก (lib/external-auditors.ts) → เท่าจัดซื้อแต่ดูอย่างเดียว · หมดอายุ = ไม่เห็นอะไรเลย
 import { isAdmin, isSuperAdmin } from "./roles"
+import { auditorActive, isExternalAuditor } from "./external-auditors"
 
 export const SECTIONS = [
   "sku", "pr", "ap", "price-compare", "vendor", "safety-stock", "deadstock",
@@ -73,8 +75,13 @@ export function departmentAccess(department: string | null | undefined): Access 
 
 export type Overrides = Partial<Record<Section, Level>>
 
-export function accessFor(p: { department?: string | null; email?: string | null; overrides?: Overrides | null }): Access {
+export function accessFor(p: { department?: string | null; email?: string | null; overrides?: Overrides | null; now?: number }): Access {
   if (isSuperAdmin(p.email) || isAdmin(p.email)) return all("edit")
+  if (isExternalAuditor(p.email)) {
+    if (!auditorActive(p.email, p.now)) return all("none")
+    const proc = departmentAccess("procurement")
+    return Object.fromEntries(SECTIONS.map((s) => [s, proc[s] === "none" ? "none" : "view"])) as Access
+  }
   const a = departmentAccess(p.department)
   for (const [s, lv] of Object.entries(p.overrides ?? {})) {
     if ((SECTIONS as readonly string[]).includes(s) && isLevel(lv)) a[s as Section] = lv

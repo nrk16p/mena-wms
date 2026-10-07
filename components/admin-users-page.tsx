@@ -349,7 +349,7 @@ function AccessDrawer({
 }) {
   const [draft, setDraft] = useState<Overrides>(user.overrides)
   const [saving, setSaving] = useState(false)
-  const readOnly = user.isAdmin || user.isSuperAdmin
+  const readOnly = user.isAdmin || user.isSuperAdmin || Boolean(user.lockedReason)
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose()
@@ -418,7 +418,9 @@ function AccessDrawer({
           {readOnly && (
             <div className="mb-3 flex items-start gap-2 rounded-[10px] bg-[#EAF6EE] dark:bg-[#1B8C4B]/10 px-3 py-2 text-xs text-[#14532D] dark:text-[#86EFAC]">
               <ShieldCheck size={14} className="mt-0.5 shrink-0" />
-              {user.isSuperAdmin ? "superadmin" : "แอดมินระบบ"} ได้สิทธิ์ &quot;แก้ได้&quot; ทุกส่วนงานเสมอ — ตั้งทับไม่ได้ (กำหนดในโค้ด lib/roles.ts)
+              {user.isSuperAdmin || user.isAdmin
+                ? <>{user.isSuperAdmin ? "superadmin" : "แอดมินระบบ"} ได้สิทธิ์ &quot;แก้ได้&quot; ทุกส่วนงานเสมอ — ตั้งทับไม่ได้ (กำหนดในโค้ด lib/roles.ts)</>
+                : user.lockedReason}
             </div>
           )}
 
