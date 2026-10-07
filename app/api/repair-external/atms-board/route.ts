@@ -7,7 +7,6 @@ import { DONE_STATUSES, JOB_TYPE_PARTS, likelySameGarage } from "@/lib/repair-ex
 import { REPAIR_LOG_COLL } from "@/lib/repair-log"
 import { bkkDate, bkkToday } from "@/lib/bkk-time"
 import { garageKey } from "@/lib/atms-garage"
-import { followNextGarages } from "@/lib/garage-mapping"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -208,27 +207,8 @@ export async function GET() {
 
     // ── 🏭 ชื่ออู่ใน WMS ไม่ตรงกับ Mena-Next (ทั้งคู่อ้างชื่อ ATMS ชุดเดียวกัน) — ทุกคันที่จับคู่ได้ ไม่จำกัดว่าต้องจอดอยู่
     //    WMS ยังไม่กรอกอู่ก็นับ (เติมจาก Mena-Next ได้) · Mena-Next ไม่มีชื่ออู่ = เทียบไม่ได้ ข้าม
-    // ── Mena-Next เป็นหลักเรื่องอู่: MR ตรงกัน → WMS ตาม Mena-Next อัตโนมัติ (ทุกเคส — ผู้ใช้เลือก 07/10/2569)
-    //    ล้มเหลวไม่กระทบการเทียบ · ปรับแล้วแก้ค่าในหน่วยความจำให้ garageFill/garageLinked เห็นค่าใหม่เลย
-    let garageFollowed: { id: string; from: string; to: string }[] = []
-    try {
-      const follow = wms
-        .filter((w) => !FINISHED.includes(w.status) && normKey(w.mrNo))
-        .map((w) => ({ w, job: jobByPlate.get(normKey(w.plate)) }))
-        .filter(({ w, job }) => !!job?.vendor && normKey(w.mrNo) === normKey(job.mrCode) &&
-          (garageKey(w.garage) !== garageKey(job.vendor) || !w.garageAtmsId))
-      if (follow.length) {
-        garageFollowed = await followNextGarages(db, follow.map(({ w, job }) => ({
-          id: w._id, plate: String(w.plate ?? ""), fleetNo: String(w.fleetNo ?? ""),
-          garage: (w.garage as string | undefined) ?? null, nextPushAt: w.nextPushAt, nextPushFrom: w.nextPushFrom, vendor: job!.vendor,
-        })))
-        const byId = new Map(garageFollowed.map((f) => [f.id, f.to]))
-        for (const w of wms) if (byId.has(String(w._id))) { w.garage = byId.get(String(w._id)); w.garageAtmsId = true }
-      }
-    } catch (e) {
-      console.error("[atms-board] followNextGarages", e)
-    }
-
+    // การปรับอู่ตาม Mena-Next ย้ายไปอยู่ที่ /api/garage-sync/tick (open-jobs สด ทุก 2 นาทีขณะมีคนเปิด WMS)
+    // ที่นี่ใช้ open-jobs ที่ cache 5 นาที — ถ้าปรับตามจากค่านี้จะดึงอู่เก่ากลับมาทับรอบที่ใช้ค่าสด
     const garageFill = wms
       .filter((w) => !FINISHED.includes(w.status))
       .map((w) => {
@@ -277,7 +257,6 @@ export async function GET() {
       prFill,
       garageFill,
       garageLinked,
-      garageFollowed,
       byKey,
     })
   } catch (e) {

@@ -4,7 +4,8 @@
 // → ใบงานเก็บ garage = ชื่อตาม ATMS + garageAtmsId ไว้ผูกถาวร (ATMS เปลี่ยนชื่อ → ไล่ปรับตาม id ได้)
 import clientPromise from "@/lib/mongo"
 
-export type AtmsGarage = { atmsId: number; name: string; type: string; branch: string }
+/** name = ตัดช่องว่างซ้อนแล้ว (แสดง/เก็บใน WMS) · rawName = ตรงตัวตาม ATMS (ส่งให้ Mena-Next ซึ่งใช้ชื่อดิบ) */
+export type AtmsGarage = { atmsId: number; name: string; rawName: string; type: string; branch: string }
 
 const ATMS_DB  = "atms"
 const SUP_COLL = "supplier_master"
@@ -26,6 +27,7 @@ export async function getAtmsGarages(): Promise<AtmsGarage[]> {
     .map((d) => ({
       atmsId: Number(d.atmsId) || 0,
       name:   String(d.name ?? "").replace(/\s+/g, " ").trim(),
+      rawName: String(d.name ?? "").trim(),
       type:   String(d.type ?? ""),
       branch: String(d.branch ?? ""),
     }))

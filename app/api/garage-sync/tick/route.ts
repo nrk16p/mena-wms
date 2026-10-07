@@ -5,8 +5,8 @@ import clientPromise from "@/lib/mongo"
 import { claimGarageSync, runGarageSync } from "@/lib/garage-sync-run"
 
 const DB = process.env.MONGO_DB ?? "master_data"
-// รอบหนึ่งอ่าน timeline ของ Mena-Next ทีละ 10 งาน (~7 วิ/ชุด) — เผื่อเวลาให้ after() ทำจนจบ
-export const maxDuration = 120
+// รอบหนึ่ง = อ่าน open-jobs สด 1 ครั้ง + เทียบใบงาน WMS (~1–3 วิ)
+export const maxDuration = 30
 
 // POST /api/garage-sync/tick — แท็บ WMS ที่เปิดอยู่ส่งมาทุก 2 นาที (components/garage-sync-heartbeat.tsx)
 // ตอบทันที · ถ้าถึงรอบ ทำ sync ต่อหลังตอบ (after) ผู้ใช้ไม่ต้องรอ

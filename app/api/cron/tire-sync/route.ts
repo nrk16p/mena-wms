@@ -4,7 +4,6 @@ import { rebuildTireDistance } from "@/lib/tire-distance"
 import { autoResolveTireRequests } from "@/lib/tire-request-auto"
 import clientPromise from "@/lib/mongo"
 import { followAtmsRenames } from "@/lib/garage-mapping"
-import { scanNewNextJobs } from "@/lib/next-job-map"
 import { claimGarageSync, runGarageSync } from "@/lib/garage-sync-run"
 
 const DB       = process.env.MONGO_DB ?? "master_data"
@@ -98,14 +97,6 @@ export async function GET(req: NextRequest) {
     garageRenamed = { error: err instanceof Error ? err.message : String(err) }
   }
 
-  // เติมตาราง MR → รหัสงาน Mena-Next (งานใหม่ตั้งแต่รอบก่อน) — ปุ่มส่งอู่ไป Mena-Next ไม่ต้องไล่หาเองตอนกด
-  let nextJobsAdded: number | { error: string } = 0
-  try {
-    nextJobsAdded = await scanNewNextJobs(client.db(DB))
-  } catch (err) {
-    nextJobsAdded = { error: err instanceof Error ? err.message : String(err) }
-  }
-
   // ตัวสำรองของ sync อู่ Mena-Next → WMS (ปกติผู้ใช้ WMS ที่เปิดหน้าอยู่เป็นตัวเรียกทุก 2 นาที) — วันไหนไม่มีใครเปิดก็ยังตรงกันวันละรอบ
   let garageFollowed: unknown = null
   try {
@@ -115,5 +106,5 @@ export async function GET(req: NextRequest) {
     garageFollowed = { error: err instanceof Error ? err.message : String(err) }
   }
 
-  return NextResponse.json({ ok: allOk, results, distance, autoResolve, garageRenamed, nextJobsAdded, garageFollowed })
+  return NextResponse.json({ ok: allOk, results, distance, autoResolve, garageRenamed, garageFollowed })
 }

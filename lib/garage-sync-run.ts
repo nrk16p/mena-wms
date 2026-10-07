@@ -1,10 +1,10 @@
 // lib/garage-sync-run.ts
-// รอบ sync อู่ Mena-Next → WMS (ผ่าน timeline) — ตัวเรียกหลักคือ "ผู้ใช้ WMS ที่เปิดหน้าอยู่" (ผู้ใช้กำหนด 07/10/2569)
+// รอบ sync อู่ Mena-Next → WMS (open-jobs สด) — ตัวเรียกหลักคือ "ผู้ใช้ WMS ที่เปิดหน้าอยู่" (ผู้ใช้กำหนด 07/10/2569)
 // ทุกแท็บที่เปิดดูอยู่ส่งสัญญาณทุก 2 นาที → ล็อกกลางใน Mongo ให้ทำงานจริงได้ไม่เกิน 1 รอบต่อ 2 นาที ไม่ว่าเปิดกี่คน
 // ไม่มีใครเปิด = ไม่ sync · cron รายวัน (tire-sync) เรียก force เป็นตัวสำรอง
 import type { Db } from "mongodb"
 import { followNextGarages } from "@/lib/garage-mapping"
-import { nextVendorsForOpenWms } from "@/lib/next-job-map"
+import { fetchOpenJobsFresh, normKey } from "@/lib/atms-board"
 import { DONE_STATUSES } from "@/lib/repair-external"
 
 const LOCK_COLL = "sync_locks"
@@ -42,7 +42,19 @@ export async function runGarageSync(db: Db) {
   const t0 = Date.now()
   let result: { checked: number; followed: number; error?: string }
   try {
-    const items = await nextVendorsForOpenWms(db, "repair_external", DONE_STATUSES)
+    // open-jobs สด = ค่าเดียวกับหน้า Pending Maintenance ของ Mena-Next (หน้าเว็บเขียนผ่าน endpoint ที่อัปเดต open-jobs ทันที)
+    const jobs = await fetchOpenJobsFresh()
+    const byMr = new Map(jobs.filter((j) => j.vendor && j.mrCode).map((j) => [normKey(j.mrCode), j.vendor]))
+    const wms = await db.collection("repair_external").find(
+      { status: { $nin: DONE_STATUSES }, mrNo: { $nin: ["", null] }, jobType: { $ne: "อะไหล่ลงคัน" } },
+      { projection: { plate: 1, fleetNo: 1, mrNo: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, nextPushFrom: 1 } },
+    ).toArray()
+    const items = wms
+      .filter((w) => byMr.has(normKey(w.mrNo)))
+      .map((w) => ({
+        id: w._id, plate: String(w.plate ?? ""), fleetNo: String(w.fleetNo ?? ""), garage: (w.garage as string | undefined) ?? null,
+        nextPushAt: w.nextPushAt ?? null, nextPushFrom: w.nextPushFrom ?? null, vendor: byMr.get(normKey(w.mrNo))!,
+      }))
     const done = await followNextGarages(db, items)
     result = { checked: items.length, followed: done.length }
   } catch (e) {

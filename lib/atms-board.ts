@@ -191,20 +191,31 @@ function mapOpenJobs(openJobsRaw: any): AtmsOpenJob[] {
     })
 }
 
+/** open-jobs สด (ไม่ผ่าน cache 5 นาที) — ใช้ตอน sync อู่ที่ต้องเห็นค่าปัจจุบันจริง */
+export async function fetchOpenJobsFresh(): Promise<AtmsOpenJob[]> {
+  const res = await fetch(`${MONGODBAPI_URL}/repair-board/open-jobs`, { headers: { "X-API-Key": API_KEY }, cache: "no-store" })
+  if (!res.ok) throw new Error(`ATMS API ${res.status}: open-jobs`)
+  return mapOpenJobs(await res.json())
+}
+
 /**
- * ย้ายอู่ของงานใน Mena-Next (jobId = รหัสงานของ Mena-Next จาก lib/next-job-map ไม่ใช่ MR id) = ปิดช่วงซ่อมเดิม แล้วเปิดช่วงใหม่ที่อู่ vendorId (POST /maintenance-jobs/{id}/segments)
- * ไม่ใช่การแก้ชื่อเฉย ๆ — ไทม์ไลน์/สถิติฝั่ง Mena-Next จะเห็นเป็นการย้ายอู่ จึงยิงเฉพาะเมื่อผู้ใช้ติ๊กยืนยันเท่านั้น
+ * ย้ายอู่ของงานใน Mena-Next — endpoint เดียวกับปุ่มดินสอ "อู่" ในหน้า Pending Maintenance ของ Mena-Next
+ * (ดักจากหน้าเว็บ 07/10/2569: POST /maintenance-requests/{mr_id}/timeline/segments { repair_mode, vendor_name, started_at })
+ * open-jobs เปลี่ยนตามทันที · งานที่สถานะสุดท้ายเป็น "รถซ่อมเสร็จสิ้น" แล้ว Mena-Next ตอบ 400
  */
-export async function moveNextJobVendor(jobId: number, vendorId: number, by: string): Promise<void> {
-  const res = await fetch(`${FLEET_API_URL}/maintenance-jobs/${jobId}/segments`, {
+export async function moveNextGarage(mrId: number, vendorName: string): Promise<void> {
+  const startedAt = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 19)   // เวลาไทย แบบที่หน้าเว็บส่ง
+  const res = await fetch(`${MONGODBAPI_URL}/maintenance-requests/${mrId}/timeline/segments`, {
     method: "POST",
     headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ repair_mode: "external", vendor_id: vendorId, created_by: (by || "WMS").slice(0, 100) }),
+    body: JSON.stringify({ repair_mode: "external", vendor_name: vendorName, started_at: startedAt }),
     cache: "no-store",
   }).catch((e) => { throw new Error(`ติดต่อ Mena-Next ไม่ได้ (${e instanceof Error ? e.message : e})`) })
   if (!res.ok) {
     const t = await res.text().catch(() => "")
-    throw new Error(`Mena-Next ${res.status}: ${t.slice(0, 300)}`)
+    let msg = t
+    try { msg = JSON.parse(t).detail ?? t } catch { /* ใช้ข้อความดิบ */ }
+    throw new Error(`Mena-Next ${res.status}: ${String(msg).slice(0, 300)}`)
   }
 }
 
