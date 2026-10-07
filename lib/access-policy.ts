@@ -33,6 +33,12 @@ const GENERAL = row({ sku: "view", pr: "edit" })
 const DISPATCH = row({ sku: "view", pr: "edit", tire: "view", repair: "view", "driver-handover": "edit" })
 const OVERSIGHT: Access = { ...all("view"), "ai-mixer": "none" }
 
+// บัญชี / การเงิน สิทธิ์เท่ากัน (ผู้ใช้สั่ง 2026-10-07) — ปุ่มตรวจผ่าน (บัญชี) / ยืนยันจ่าย (การเงิน) ยังแยกตามเดิม (lib/roles.ts)
+const ACCOUNTING_FINANCE = row({
+  sku: "view", pr: "view", ap: "edit", "price-compare": "view", vendor: "view", "safety-stock": "view",
+  deadstock: "view", repair: "view",
+})
+
 const DEPT_POLICY: Record<string, Access> = {
   "ยานยนต์": row({
     // ของค้างคลัง: ยานยนต์แก้ได้ (ผู้ใช้สั่ง 2026-10-07) · Safety Stock ยังดูอย่างเดียว
@@ -44,11 +50,8 @@ const DEPT_POLICY: Record<string, Access> = {
     sku: "edit", pr: "edit", ap: "edit", "price-compare": "edit", vendor: "edit", "safety-stock": "edit",
     deadstock: "edit", tire: "view", repair: "edit",
   }),
-  "accounting": row({
-    sku: "view", pr: "view", ap: "edit", "price-compare": "view", vendor: "view", "safety-stock": "view",
-    deadstock: "view", repair: "view",
-  }),
-  "finance": row({ pr: "view", ap: "edit" }),
+  "accounting": ACCOUNTING_FINANCE,
+  "finance": ACCOUNTING_FINANCE,
   "จัดส่งลาดกระบัง": DISPATCH,
   "จัดส่งสระบุรี": DISPATCH,
   "จัดส่งบางปะกง": DISPATCH,

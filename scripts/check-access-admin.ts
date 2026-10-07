@@ -73,12 +73,12 @@ assert.equal(describeChange({ section: "sku", from: "view", to: null }), "จั
 {
   const row = buildUserRow(
     { email: "x@menatransport.co.th", name: "X", department: "Finance", siteId: 1 },
-    { sku: "view", ap: "bogus" },
+    { sku: "edit", ap: "bogus" },
   )
-  assert.equal(row.departmentAccess.sku, "none")
-  assert.equal(row.effective.sku, "view")
+  assert.equal(row.departmentAccess.sku, "view")
+  assert.equal(row.effective.sku, "edit")
   assert.equal(row.effective.ap, "edit") // ค่าขยะไม่ถูกใช้
-  assert.deepEqual(row.overrides, { sku: "view" }) // ส่งเฉพาะค่าที่ใช้ได้กลับไปให้หน้าเว็บ
+  assert.deepEqual(row.overrides, { sku: "edit" }) // ส่งเฉพาะค่าที่ใช้ได้กลับไปให้หน้าเว็บ
   assert.equal(row.isAdmin, false)
   assert.equal(row.isSuperAdmin, false)
 }
