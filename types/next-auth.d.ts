@@ -1,6 +1,7 @@
 import "next-auth"
 import "next-auth/jwt"
 import type { EmployeeProfile } from "@/lib/mena-api"
+import type { Access } from "@/lib/access-policy"
 
 declare module "next-auth" {
   interface Session {
@@ -11,6 +12,9 @@ declare module "next-auth" {
       role: "admin" | "user"
       /** โปรไฟล์พนักงานจาก Mena API (undefined ถ้า login ฝั่ง API ไม่สำเร็จ) */
       employee?: EmployeeProfile
+      /** สิทธิ์ต่อส่วนงานที่คำนวณแล้ว (แผนก + override + admin) — lib/access-policy.ts */
+      access: Access
+      isSuperAdmin: boolean
     }
     /** ข้อความ error ถ้าแลก id_token กับ Mena API ไม่ผ่าน */
     apiAuthError?: string
@@ -25,5 +29,9 @@ declare module "next-auth/jwt" {
     apiTokenExpires?: number
     employee?: EmployeeProfile
     apiAuthError?: string
+    /** override รายส่วนงานที่ superadmin ตั้งทับ (wms_access_overrides) */
+    accessOverrides?: Record<string, unknown>
+    /** เวลาที่รีเฟรชสิทธิ์ล่าสุด (ms) — lib/access-refresh.ts */
+    accessAt?: number
   }
 }

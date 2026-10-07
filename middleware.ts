@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
+import { accessFor, checkRequest, SECTION_LABELS, type Overrides, type Section } from "./lib/access-policy"
+import { isSuperAdmin } from "./lib/roles"
 
 // API routes the mobile app may call with an x-api-key header instead of a browser session
 const MOBILE_API_PREFIXES = [
@@ -139,14 +141,39 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
+  // ตรวจ JWT จริง — เดิมเช็คแค่ว่ามี cookie (cookie ปลอมผ่านได้) · ถอดรหัสไม่ผ่าน = เหมือนไม่ได้ล็อกอิน
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
+  if (!token) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized — invalid session" }, { status: 401 })
+    }
+    const loginUrl = new URL("/login", request.url)
+    loginUrl.searchParams.set("callbackUrl", pathname + request.nextUrl.search)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // สิทธิ์ตามแผนก (lib/access-policy.ts): ไม่เห็น → บล็อกหน้า + API · ดูอย่างเดียว → บล็อก API ที่เขียนข้อมูล
+  const access = accessFor({ department: token.employee?.department, email: token.email, overrides: token.accessOverrides as Overrides })
+  const decision = checkRequest({ pathname, method: request.method, access, isSuperAdmin: isSuperAdmin(token.email) })
+  if (!decision.ok) {
+    const label = decision.section === "admin" ? "ผู้ดูแลระบบ" : SECTION_LABELS[decision.section as Section]
+    if (decision.api) {
+      const message = decision.need === "edit"
+        ? `คุณมีสิทธิ์ดูอย่างเดียวในส่วน "${label}" — แก้ไขไม่ได้`
+        : `คุณไม่มีสิทธิ์เข้าถึงส่วน "${label}"`
+      return NextResponse.json({ error: "no_access", message, section: decision.section, need: decision.need }, { status: 403 })
+    }
+    const url = new URL("/unauthorized", request.url)
+    url.searchParams.set("from", pathname)
+    url.searchParams.set("section", decision.section)
+    return NextResponse.redirect(url)
+  }
+
   // Code Dictionary: pages + GET are open to all; writes are admin-only.
   const isCodesApi      = pathname === CODES_API_PREFIX || pathname.startsWith(CODES_API_PREFIX + "/")
   const isCodesApiWrite = isCodesApi && !READ_METHODS.has(request.method)
-  if (isCodesApiWrite) {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
-    if (token?.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
-    }
+  if (isCodesApiWrite && token.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 })
   }
 
   return NextResponse.next()

@@ -1,6 +1,8 @@
 import type { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
-import { isAdmin } from "./roles"
+import { isAdmin, isSuperAdmin } from "./roles"
+import { refreshAccess } from "./access-refresh"
+import { accessFor, type Overrides } from "./access-policy"
 import { loginWithGoogleIdToken, fetchEmployee, idTokenDebug, MENA_API_BASE } from "./mena-api"
 import { missingEmployeeFields } from "./session-profile"
 
@@ -118,6 +120,8 @@ export const authOptions: NextAuthOptions = {
         }
       }
       token.role = isAdmin(token.email as string) ? "admin" : "user"
+      // สิทธิ์ตามแผนก: override ที่ superadmin ตั้ง + บันทึกผู้ใช้ — ตอน login และทุก 5 นาที (lib/access-refresh.ts)
+      await refreshAccess(token, undefined, Boolean(account))
       return token
     },
     async session({ session, token }) {
@@ -126,6 +130,8 @@ export const authOptions: NextAuthOptions = {
         if (token.sub) (session.user as { id?: string }).id = token.sub
         session.user.employee = token.employee
         session.apiAuthError = token.apiAuthError
+        session.user.access = accessFor({ department: token.employee?.department, email: token.email, overrides: token.accessOverrides as Overrides })
+        session.user.isSuperAdmin = isSuperAdmin(token.email)
       }
       return session
     },
