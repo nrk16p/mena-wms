@@ -27,7 +27,7 @@ export async function GET() {
       clientPromise.then((c) => c.db(DB).collection(COLL)
         .find(
           { status: { $nin: DONE_STATUSES }, jobType: { $ne: JOB_TYPE_PARTS } },
-          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, nextPushFrom: 1, prCode: 1, poCode: 1 } },
+          { projection: { plate: 1, fleetNo: 1, mrNo: 1, status: 1, receivedDate: 1, dueDate: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, nextPushFrom: 1, garageSyncHold: 1, prCode: 1, poCode: 1 } },
         )
         .toArray()),
     ])
@@ -217,6 +217,7 @@ export async function GET() {
         return {
           id: String(w._id), plate: w.plate, fleetNo: w.fleetNo ?? "", status: w.status,
           wmsGarage: String(w.garage ?? ""), wmsLinked: !!w.garageAtmsId, nextGarage: job.vendor,
+          hold: w.garageSyncHold?.reason ? String(w.garageSyncHold.reason) : "",
           // empty = WMS ยังไม่กรอก · spelling = อู่เดียวกันแค่สะกดต่าง · different = น่าจะคนละอู่ (ต้องให้คนตัดสิน)
           kind: !String(w.garage ?? "").trim() ? "empty" : likelySameGarage(String(w.garage), job.vendor) ? "spelling" : "different",
           mrCode: job.mrCode,

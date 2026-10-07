@@ -293,7 +293,7 @@ type AtmsBoard = {
   openNotParked: { id: string; plate: string; fleetNo: string; status: string; receivedDate: string; dueDate: string; atmsStep: string }[]
   prFill: { id: string; plate: string; fleetNo: string; status: string; mrCode: string; prCodes: string[]; poCodes: string[]; poEmpty: boolean; mrConflict: boolean; wmsMr: string }[]
   /** ชื่ออู่ใน WMS ไม่ตรงกับ Mena-Next (ทั้งคู่อ้างชื่อ ATMS) — เติม/แก้ตาม Mena-Next ได้ */
-  garageFill?: { id: string; plate: string; fleetNo: string; status: string; wmsGarage: string; wmsLinked: boolean; nextGarage: string; kind: "empty" | "spelling" | "different"; mrCode: string; mrConflict: boolean; wmsMr: string }[]
+  garageFill?: { id: string; plate: string; fleetNo: string; status: string; wmsGarage: string; wmsLinked: boolean; nextGarage: string; kind: "empty" | "spelling" | "different"; hold?: string; mrCode: string; mrConflict: boolean; wmsMr: string }[]
   /** ใบงานที่ยังเปิดอยู่ ผูกอู่กับ ATMS (garageAtmsId) แล้วกี่ใบ */
   garageLinked?: { linked: number; total: number }
   /** รอบนี้ปรับอู่ใน WMS ตาม Mena-Next อัตโนมัติ (MR ตรงกัน) */
@@ -2248,6 +2248,11 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                           <span className="text-[12px] opacity-60">WMS: {g.wmsGarage || "ยังไม่ระบุอู่"}{g.wmsGarage && !g.wmsLinked ? " (ชื่อเดิม)" : ""}</span>
                           <span className="text-[12px] opacity-60">→</span>
                           <span className="text-[12px] font-semibold">Mena-Next: {g.nextGarage}</span>
+                          {g.hold && (
+                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-bold text-slate-700 dark:bg-white/10 dark:text-slate-200" title={g.hold}>
+                              ⏸ หยุด sync อัตโนมัติ — ตรวจแล้วแก้อู่เองเพื่อปลด
+                            </span>
+                          )}
                           {g.kind === "different" && !g.mrConflict && (
                             <span className="rounded bg-orange-100 px-1.5 py-0.5 text-[11px] font-bold text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
                               title="ชื่อไม่คล้ายกัน — อาจเป็นคนละอู่จริง ตรวจว่าฝั่งไหนถูก: WMS ผิด → ใช้ตาม Mena-Next · Mena-Next ผิด → เปิดใบงานแล้วติ๊กอัปเดต Mena-Next">

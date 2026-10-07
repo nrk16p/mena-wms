@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     const g = await findAtmsGarage(job.vendor)
     if (!g) { skipped.push({ id, reason: `ไม่พบ "${job.vendor}" ใน ATMS` }); continue }
     if (garageKey(d.garage) === garageKey(g.name) && Number(d.garageAtmsId) === g.atmsId) { skipped.push({ id, reason: "ตรงกันอยู่แล้ว" }); continue }
-    await col.updateOne({ _id: d._id }, { $set: { garage: g.name, garageAtmsId: g.atmsId, editedBy: by, updatedAt: now } })
+    await col.updateOne({ _id: d._id }, { $set: { garage: g.name, garageAtmsId: g.atmsId, garageSyncHold: null, editedBy: by, updatedAt: now } })
     await writeRepairLog(db, {
       repairId: id,
       plate: String(d.plate ?? ""), fleetNo: String(d.fleetNo ?? ""),

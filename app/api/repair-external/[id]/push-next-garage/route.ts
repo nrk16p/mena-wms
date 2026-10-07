@@ -7,6 +7,7 @@ import { fetchOpenJobsFresh, moveNextGarage, normKey } from "@/lib/atms-board"
 import { garageKey, getAtmsGarages } from "@/lib/atms-garage"
 import { writeRepairLog } from "@/lib/repair-log"
 import { API_KEY_ACTOR, hasGarageSyncApiKey } from "@/lib/garage-sync-run"
+import { PUSH_MAX, recentGarageChanges } from "@/lib/garage-mapping"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "repair_external"
@@ -31,6 +32,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   const garage = String(doc.garage ?? "").trim()
   if (!garage || !Number(doc.garageAtmsId)) return NextResponse.json({ ok: false, error: "อู่ในใบงานนี้ยังไม่ผูกกับ ATMS — เลือกอู่จากรายการ ATMS ก่อน" }, { status: 400 })
   if (!String(doc.mrNo ?? "").trim()) return NextResponse.json({ ok: false, error: "ใบงานนี้ยังไม่มีเลข MR — จับคู่กับ Mena-Next ไม่ได้" }, { status: 400 })
+
+  // กันยิงไป Mena-Next รัว ๆ — ไม่เกิน PUSH_MAX ครั้ง / ใบ / ชม.
+  if (await recentGarageChanges(db, id, { field: "nextGarage" }) >= PUSH_MAX) {
+    return NextResponse.json({ ok: false, error: `ใบนี้ส่งอู่ไป Mena-Next ครบ ${PUSH_MAX} ครั้งใน 1 ชม. แล้ว — รอสักพักแล้วลองใหม่ (กันแก้ไปมาเกิน)` }, { status: 429 })
+  }
 
   // ส่งไม่ได้ → คงอู่ WMS + จำอู่ที่ Mena-Next แสดงอยู่ (followNextGarages จะไม่ดึงอู่นั้นกลับมาทับ จนกว่า Mena-Next เปลี่ยนเป็นอู่อื่น)
   const keep = async (shown: string, error: string) => {

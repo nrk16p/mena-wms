@@ -47,13 +47,13 @@ export async function runGarageSync(db: Db) {
     const byMr = new Map(jobs.filter((j) => j.vendor && j.mrCode).map((j) => [normKey(j.mrCode), j.vendor]))
     const wms = await db.collection("repair_external").find(
       { status: { $nin: DONE_STATUSES }, mrNo: { $nin: ["", null] }, jobType: { $ne: "อะไหล่ลงคัน" } },
-      { projection: { plate: 1, fleetNo: 1, mrNo: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, nextPushFrom: 1 } },
+      { projection: { plate: 1, fleetNo: 1, mrNo: 1, garage: 1, garageAtmsId: 1, nextPushAt: 1, nextPushFrom: 1, garageSyncHold: 1 } },
     ).toArray()
     const items = wms
       .filter((w) => byMr.has(normKey(w.mrNo)))
       .map((w) => ({
         id: w._id, plate: String(w.plate ?? ""), fleetNo: String(w.fleetNo ?? ""), garage: (w.garage as string | undefined) ?? null,
-        garageAtmsId: w.garageAtmsId, nextPushAt: w.nextPushAt ?? null, nextPushFrom: w.nextPushFrom ?? null, vendor: byMr.get(normKey(w.mrNo))!,
+        garageAtmsId: w.garageAtmsId, garageSyncHold: w.garageSyncHold, nextPushAt: w.nextPushAt ?? null, nextPushFrom: w.nextPushFrom ?? null, vendor: byMr.get(normKey(w.mrNo))!,
       }))
     const done = await followNextGarages(db, items)
     result = { checked: items.length, followed: done.length }

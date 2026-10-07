@@ -192,6 +192,22 @@ export async function followAtmsRenames(db: Db): Promise<number> {
  *  - หลังจากนั้น: ไม่ดึงตราบใดที่ Mena-Next ยังแสดงอู่เดิมตอนแก้ (nextPushFrom) — ดึงเมื่อ Mena-Next เปลี่ยนเป็นอู่อื่นจริง */
 const PUSH_GRACE_MS = 10 * 60 * 1000
 
+/** กันแก้อู่เกิน (ผู้ใช้สั่ง 07/10/2569 หลัง ME103 สลับไปมา 13 ครั้งใน 15 นาที)
+ *  - sync อัตโนมัติเปลี่ยนอู่ใบเดียวได้ไม่เกิน AUTO_MAX ครั้ง / ชม. — ถึงแล้วหยุด sync ใบนั้น (garageSyncHold) ให้คนตรวจ
+ *  - ส่งอู่ไป Mena-Next ได้ไม่เกิน PUSH_MAX ครั้ง / ใบ / ชม. */
+export const AUTO_MAX = 3
+export const PUSH_MAX = 5
+const LIMIT_WINDOW_MS = 60 * 60 * 1000
+export const AUTO_ACTOR = "Mena-Next (อัตโนมัติ)"
+
+/** นับจากประวัติ: ใบนี้ถูกเปลี่ยนอู่โดย actor/field นี้กี่ครั้งใน 1 ชม.ที่ผ่านมา */
+export async function recentGarageChanges(db: Db, repairId: string, q: { by?: string; field: string }) {
+  return db.collection(REPAIR_LOG_COLL).countDocuments({
+    repairId, at: { $gte: new Date(Date.now() - LIMIT_WINDOW_MS) },
+    ...(q.by ? { by: q.by } : {}), "changes.field": q.field,
+  })
+}
+
 /**
  * Mena-Next เป็นหลักเรื่องอู่ (ผู้ใช้เลือก 07/10/2569 แบบ "อัตโนมัติทุกเคส"):
  * ใบงาน WMS ที่ MR ตรงกับงานที่เปิดใน Mena-Next → อู่ใน WMS ตาม Mena-Next เสมอ (รวมกรณีคนละอู่)
@@ -200,13 +216,14 @@ const PUSH_GRACE_MS = 10 * 60 * 1000
  */
 export async function followNextGarages(
   db: Db,
-  items: { id: ObjectId; plate: string; fleetNo: string; garage: string | null; garageAtmsId?: unknown; nextPushAt?: Date | string | null; nextPushFrom?: string | null; vendor: string }[],
+  items: { id: ObjectId; plate: string; fleetNo: string; garage: string | null; garageAtmsId?: unknown; nextPushAt?: Date | string | null; nextPushFrom?: string | null; garageSyncHold?: unknown; vendor: string }[],
 ): Promise<{ id: string; from: string; to: string }[]> {
   const atms = await getAtmsGarages()
   const now = new Date()
   const done: { id: string; from: string; to: string }[] = []
   const logs = []
   for (const it of items) {
+    if (it.garageSyncHold) continue   // หยุด sync ใบนี้ไว้แล้ว (เปลี่ยนบ่อยผิดปกติ) — รอคนแก้อู่เองถึงจะปลด
     const sincePush = it.nextPushAt ? now.getTime() - new Date(it.nextPushAt).getTime() : Infinity
     if (sincePush < PUSH_GRACE_MS) continue
     if (it.nextPushFrom && garageKey(it.vendor) === garageKey(it.nextPushFrom)) continue
@@ -214,6 +231,13 @@ export async function followNextGarages(
     if (!g) continue
     // อู่ตรงกันอยู่แล้ว (และผูกรหัสแล้ว) → ไม่แตะเลย — กัน updatedAt ถูกเขียนทุกรอบ sync
     if (garageKey(it.garage) === garageKey(g.name) && Number(it.garageAtmsId) === g.atmsId) continue
+    // เปลี่ยนชื่ออู่จริง + ครบโควตาแล้ว → หยุด sync ใบนี้ แทนที่จะสลับไปมาไม่จบ
+    if (garageKey(it.garage) !== garageKey(g.name) && await recentGarageChanges(db, String(it.id), { by: AUTO_ACTOR, field: "garage" }) >= AUTO_MAX) {
+      await db.collection(COLLS.repair).updateOne({ _id: it.id }, { $set: {
+        garageSyncHold: { at: now, reason: `ปรับอู่ตาม Mena-Next ครบ ${AUTO_MAX} ครั้งใน 1 ชม. — หยุดอัตโนมัติ รอคนตรวจ`, nextVendor: it.vendor },
+      } })
+      continue
+    }
     const r = await db.collection(COLLS.repair).updateOne(
       { _id: it.id, garage: it.garage ?? null },
       { $set: { garage: g.name, garageAtmsId: g.atmsId, ...(garageKey(it.garage) !== garageKey(g.name) ? { updatedAt: now } : {}) } },
@@ -222,7 +246,7 @@ export async function followNextGarages(
     done.push({ id: String(it.id), from: it.garage ?? "", to: g.name })
     if (garageKey(it.garage) !== garageKey(g.name)) logs.push({
       repairId: String(it.id), plate: it.plate, fleetNo: it.fleetNo, action: "update" as const,
-      by: "Mena-Next (อัตโนมัติ)", byEmail: "", at: now,
+      by: AUTO_ACTOR, byEmail: "", at: now,
       changes: [{ field: "garage", label: "อู่ (ตาม Mena-Next)", from: it.garage ?? "", to: g.name }],
     })
   }
