@@ -12,7 +12,10 @@ export const apFlatRow = (r: ApRow) => ({
   "PO": r.purchaseOrder,
   "ทะเบียนรถ": r.vehicle ?? "",
   "เบอร์รถ": r.fleetNo ?? "",
-  "ยอดเงิน": r.amount,
+  // ยอดที่ใช้ทำงานคือรวมสุทธิ · เก็บยอดก่อน VAT กับ VAT ไว้คนละช่องให้กระทบยอดกับ ATMS ได้
+  "รวมสุทธิ": r.netAmount,
+  "ยอดก่อน VAT": r.amount,
+  "VAT": r.vat ? Math.round((r.netAmount - r.amount) * 100) / 100 : 0,
   "เครดิตเทอม": r.creditTerm,
   "ประเภทการส่ง": r.pay?.type || r.sentType,
   "กดส่งเมื่อ": r.sentMarkedDate ?? "",
@@ -26,4 +29,4 @@ export const apFlatRow = (r: ApRow) => ({
   "หมายเหตุ": r.note,
 })
 
-export const AP_FLAT_WIDTHS = [14, 11, 16, 30, 13, 12, 10, 12, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))
+export const AP_FLAT_WIDTHS = [14, 11, 16, 30, 13, 12, 10, 12, 13, 9, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 24].map((w) => ({ wch: w }))

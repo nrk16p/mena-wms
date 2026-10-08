@@ -10,10 +10,11 @@
 import { NextResponse, type NextRequest } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
-  AP_GO_LIVE, aggregateSupplierYear, apStage, inApScope, parseAmount, parseDmy, todayICT,
+  AP_GO_LIVE, aggregateSupplierYear, apNetAmount, apStage, inApScope, parseAmount, parseDmy, todayICT,
   type ApDocs, type ApSupplierYearInput,
 } from "@/lib/ap-tracking"
 import { CACHE_TAGS, sharedCache } from "@/lib/shared-cache"
+import { getVatPoCodes } from "@/lib/ap-vat"
 
 export const dynamic = "force-dynamic"
 
@@ -69,6 +70,8 @@ async function loadSupplierYear(year: string, warehouse: string) {
         .maxTimeMS(30_000).toArray() as Doc[]
     : []
   const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
+  // ยอดรายเจ้าหนี้ = รวมสุทธิ (ชุดเดียวกับหน้าหลัก/แดชบอร์ด) ดู lib/ap-vat.ts
+  const vatPos = await getVatPoCodes()
 
   let dataAsOf = ""
   const items: ApSupplierYearInput[] = []
@@ -81,7 +84,7 @@ async function loadSupplierYear(year: string, warehouse: string) {
     items.push({
       supplier: s(h.supplier),
       purchaseOrder: s(h.purchase_order),
-      amount: parseAmount(h.amount),
+      amount: apNetAmount(parseAmount(h.amount), vatPos.has(s(h.purchase_order))),
       receivedAt,
       stage: apStage({
         docs: (t?.docs ?? {}) as ApDocs,

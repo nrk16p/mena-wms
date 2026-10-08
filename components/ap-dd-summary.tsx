@@ -13,7 +13,8 @@ import type { ApRow } from "@/components/ap-types"
 
 const toItem = (r: ApRow): ApDdSummaryItem => ({
   depositCode: r.depositCode, receivedAt: r.receivedAt, supplier: r.supplier,
-  vehicle: r.vehicle, fleetNo: r.fleetNo, amount: r.amount, creditTerm: r.creditTerm,
+  // ยอดที่ตอบเจ้าหนี้ต้องเป็นรวมสุทธิ (ยอดที่จะจ่ายจริง) ไม่ใช่ยอดก่อน VAT ของหัวใบ ATMS
+  vehicle: r.vehicle, fleetNo: r.fleetNo, amount: r.netAmount, creditTerm: r.creditTerm,
   payDate: r.pay?.payDate, paidDate: r.paid?.date,
 })
 
@@ -61,7 +62,7 @@ export function ApDdSummaryPanel() {
       missing: result.codes.filter((c) => !by.has(c)),
     }
   }, [result])
-  const total    = found.reduce((n, r) => n + r.amount, 0)
+  const total    = found.reduce((n, r) => n + r.netAmount, 0)
   const lineText = useMemo(() => apDdSummaryText(found.map(toItem), todayICT()), [found])
 
   const copy = async () => {
@@ -135,7 +136,7 @@ export function ApDdSummaryPanel() {
                     <th className={`${TH_CLS} text-left`}>ซัพพลายเออร์</th>
                     <th className={`${TH_CLS} text-left`}>ทะเบียนรถ</th>
                     <th className={`${TH_CLS} text-left`}>เบอร์รถ</th>
-                    <th className={`${TH_CLS} text-right`}>ยอดเงิน</th>
+                    <th className={`${TH_CLS} text-right`}>รวมสุทธิ</th>
                     <th className={`${TH_CLS} text-left`}>เครดิตเทอม</th>
                     <th className={`${TH_CLS} text-left`}>กำหนดจ่าย</th>
                     <th className={`${TH_CLS} text-left`}>จ่ายจริง</th>
@@ -149,7 +150,7 @@ export function ApDdSummaryPanel() {
                       <td className="px-3 py-2">{r.supplier || dash}</td>
                       <td className={TD_CLS}>{r.vehicle || dash}</td>
                       <td className={TD_CLS}>{r.fleetNo || dash}</td>
-                      <td className={`${TD_CLS} text-right ${NUM}`}>{baht(r.amount)}</td>
+                      <td className={`${TD_CLS} text-right ${NUM}`}>{baht(r.netAmount)}</td>
                       <td className={TD_CLS}>{r.creditTerm || dash}</td>
                       <td className={TD_CLS}>{isIso(r.pay?.payDate) ? thaiDate(r.pay!.payDate) : dash}</td>
                       <td className={TD_CLS}>

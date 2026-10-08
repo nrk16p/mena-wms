@@ -568,6 +568,33 @@ export function parseAmount(s: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+// ── VAT / รวมสุทธิ ───────────────────────────────────────────────────────────
+// ยอดหัวใบ DD จาก ATMS (deposit_header.amount) = ผลรวมรายการสินค้า = ยอด "ก่อน VAT"
+// ยอดที่ต้องจ่ายจริง (รวมสุทธิ) = amount × factor ของ PO ใบนั้น · ที่มาของกติกาและตัวเลขที่วัดได้
+// อยู่ที่ lib/ap-vat.ts (ไฟล์นี้เป็น logic ล้วน ไม่แตะฐานข้อมูล)
+export const AP_VAT_RATE = 0.07
+
+const AMOUNT_EPS = 0.02      // บาท — เทียบยอดที่ ATMS ปัดเศษมาแล้ว
+
+/** factor ของ PO จากยอดรวม PO เทียบผลรวมรายการ: 1.07 เมื่อ VAT แยก · 1 เมื่อรวมมาแล้ว/เพี้ยน */
+export function apVatFactor(poTotal: number, poSubtotal: number): number {
+  if (!(poTotal > 0) || !(poSubtotal > 0)) return 1
+  if (Math.abs(poTotal - poSubtotal) <= AMOUNT_EPS) return 1
+  if (Math.abs(poTotal - poSubtotal * (1 + AP_VAT_RATE)) <= AMOUNT_EPS) return 1 + AP_VAT_RATE
+  return 1
+}
+
+/** รวมสุทธิของใบ DD — vat = ใบนี้อยู่บน PO ที่คิด VAT แยก (ดู getVatPoCodes) */
+export function apNetAmount(amount: number, vat: boolean): number {
+  if (!vat) return round2(amount)
+  return round2(amount * (1 + AP_VAT_RATE))
+}
+
+/** VAT ที่บวกเพิ่มของใบ DD — รวมสุทธิ ลบ ยอดก่อน VAT (ปัดแล้วทั้งคู่ ผลต่างจึงลงตัวกับที่โชว์) */
+export function apVatAmount(amount: number, vat: boolean): number {
+  return vat ? round2(apNetAmount(amount, vat) - round2(amount)) : 0
+}
+
 // คำนวณด้วย UTC เสมอ กัน timezone เลื่อนวัน
 const toUTC = (iso: string) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)

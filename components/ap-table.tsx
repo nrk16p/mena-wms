@@ -123,7 +123,16 @@ function ApDepositRow({
         {r.note && <div className="mt-0.5 truncate text-[11px] italic text-gray-400" title={r.note}>“{r.note}”</div>}
       </td>
 
-      <td className={`px-3 py-3 text-right align-top font-medium ${NUM}`}>{baht(r.amount)}</td>
+      {/* ยอดที่โชว์ = รวมสุทธิ (ที่ต้องจ่ายจริง) · ใบที่ PO คิด VAT แยก มีบรรทัดยอดก่อน VAT กำกับไว้
+          ให้ย้อนตรวจกับใบ DD ใน ATMS ได้ (ATMS โชว์ยอดก่อน VAT) — ดู lib/ap-vat.ts */}
+      <td className={`px-3 py-3 text-right align-top font-medium ${NUM}`}>
+        {baht(r.netAmount)}
+        {r.vat && (
+          <div className="mt-0.5 text-[11px] font-normal text-gray-400" title="ยอดก่อน VAT ตามใบ DD ใน ATMS (รวมสุทธิ = ยอดนี้ + VAT 7%)">
+            ก่อน VAT {baht(r.amount)}
+          </div>
+        )}
+      </td>
 
       <td className="px-3 py-3 align-top text-xs">
         <div className={NUM}>{r.dueDate ? thaiDate(r.dueDate) : "—"}</div>
@@ -225,7 +234,7 @@ export function ApTable({
                   className="h-4 w-4 accent-emerald-600" />
               </th>
               <th className="px-3 py-2.5 text-left font-medium">ใบรับของ</th>
-              <th className="px-3 py-2.5 text-right font-medium">ยอดเงิน</th>
+              <th className="px-3 py-2.5 text-right font-medium">รวมสุทธิ</th>
               <th className="px-3 py-2.5 text-left font-medium">กำหนดชำระ</th>
               <th className="px-3 py-2.5 text-left font-medium">เอกสาร</th>
               {showSentMarked && <th className="px-3 py-2.5 text-left font-medium">กดส่งเมื่อ</th>}
@@ -258,7 +267,7 @@ export function ApTable({
                           {g.rows.length.toLocaleString("th-TH")} ใบ
                         </span>
                         <span className={`font-medium ${NUM}`}>
-                          {baht(g.rows.reduce((sum, x) => sum + x.amount, 0))}
+                          {baht(g.rows.reduce((sum, x) => sum + x.netAmount, 0))}
                         </span>
                       </div>
                     </td>

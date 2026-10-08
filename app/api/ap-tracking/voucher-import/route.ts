@@ -12,7 +12,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { AP_NOS_MAX, apStage, cleanDocNos, ictDate, inApScope, parseAmount, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
+import { apNetAmount, AP_NOS_MAX, apStage, cleanDocNos, ictDate, inApScope, parseAmount, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
+import { getVatPoCodes } from "@/lib/ap-vat"
 import { AP_VOUCHER_MAX } from "@/lib/ap-voucher-import"
 import { isAccounting } from "@/lib/roles"
 import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
@@ -99,7 +100,10 @@ export async function POST(req: NextRequest) {
   // หัวใบจาก ATMS — ทุกใบในไฟล์ + ใบค้าง (deposit_header ไม่มี index ที่ deposit_code: สแกนครั้งเดียว ~19k)
   const pendingCodes = pending.filter((t) => stageOf(t) === "sent").map((t) => s(t.depositCode))
   const heads = await atms.collection("deposit_header").find({ deposit_code: { $in: [...new Set([...codes, ...pendingCodes])] } },
-    { projection: { _id: 0, deposit_code: 1, supplier: 1, amount: 1, warehouse: 1, received_at: 1 } }).maxTimeMS(20_000).toArray() as Doc[]
+    { projection: { _id: 0, deposit_code: 1, supplier: 1, amount: 1, warehouse: 1, received_at: 1, purchase_order: 1 } }).maxTimeMS(20_000).toArray() as Doc[]
+  // ยอดที่โชว์เทียบกับไฟล์ตั้งเบิก = รวมสุทธิ ชุดเดียวกับหน้าหลัก (ดู lib/ap-vat.ts)
+  const vatPos = await getVatPoCodes()
+  const netOf = (h: Doc | undefined) => apNetAmount(parseAmount(h?.amount), vatPos.has(s(h?.purchase_order)))
   const headBy = new Map(heads.map((h) => [s(h.deposit_code), h]))
   const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
 
@@ -109,7 +113,7 @@ export async function POST(req: NextRequest) {
     const track = trackBy.get(code)
     const known = new Set(cleanDocNos(track?.voucherNos))
     const base = {
-      depositCode: code, supplier: s(head?.supplier), warehouse: s(head?.warehouse), amount: parseAmount(head?.amount),
+      depositCode: code, supplier: s(head?.supplier), warehouse: s(head?.warehouse), amount: netOf(head),
       receivedAt: parseDmy(head?.received_at), vouchers: file.vouchers, newVouchers: file.vouchers.filter((v) => !known.has(v)),
       docDate: file.docDate,
     }
@@ -173,7 +177,7 @@ export async function POST(req: NextRequest) {
       const head = headBy.get(code)
       const sentMarkedDate = s(t.sentMarkedAt) ? ictDate(s(t.sentMarkedAt)) : s(t.sentDate)
       return {
-        depositCode: code, supplier: s(head?.supplier), warehouse: s(head?.warehouse), amount: parseAmount(head?.amount),
+        depositCode: code, supplier: s(head?.supplier), warehouse: s(head?.warehouse), amount: netOf(head),
         receivedAt: parseDmy(head?.received_at), sentMarkedDate, sentType: s(t.sentType),
         afterFile: Boolean(fileTo && sentMarkedDate > fileTo),
         ...(t.nextRound ? { nextRound: t.nextRound as VoucherUnmatched["nextRound"] } : {}),

@@ -7,8 +7,10 @@ import {
   AP_STAGES, compactDocNos, docNosText, ictDate,
   apSinceOf, inApScope, monthInApScope, monthsOfYear, addDays, inDateRange,
   parseDdList, AP_DD_SUMMARY_MAX,
+  apNetAmount,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
+import { getVatPoCodes } from "@/lib/ap-vat"
 
 export const dynamic = "force-dynamic"
 
@@ -185,10 +187,13 @@ export async function GET(req: NextRequest) {
     const supNames = [...new Set(heads.map((h) => s(h.supplier)).filter(Boolean))]
 
     // 2) overlay: tracking + เครดิตเทอม + ข้อมูล PO (ทุกอันจำกัดด้วย $in จากชุดข้างบน)
-    const [tracks, sups, pos] = await Promise.all([
+    // vatPos = รหัส PO ที่คิด VAT แยก — ใช้คิด "รวมสุทธิ" ของแต่ละใบ (ดู lib/ap-vat.ts)
+    //          ก้อนเดียวทั้งระบบ แคชร่วมกับก้อน atms อื่น ไม่ใช่คิวรีต่อเดือน/ต่อใบ
+    const [tracks, sups, pos, vatPos] = await Promise.all([
       codes.length ? md.collection("ap_tracking").find({ depositCode: { $in: codes } }, { projection: { _id: 0, log: 0 } }).toArray() as Promise<Doc[]> : [],
       supNames.length ? md.collection("ap_supplier").find({ name: { $in: supNames } }, { projection: { _id: 0, name: 1, creditTerm: 1, override: 1, atmsTerm: 1 } }).toArray() as Promise<Doc[]> : [],
       poCodes.length ? atms.collection("purchase_orders").find({ "รหัส": { $in: poCodes } }, { projection: { _id: 0, "รหัส": 1, "รวม": 1, "กำหนดส่งสินค้า": 1, "สถานะการรับสินค้า": 1, "ยานพาหนะ": 1, "ใบขอสั่งซื้อ (PR)": 1, "ap term": 1 } }).toArray() as Promise<Doc[]> : [],
+      getVatPoCodes(),
     ])
     // หมายเหตุอยู่บน PR (ATMS ไม่ใส่มากับ PO/DD) — เชื่อมอีกฮ็อป: DD → PO → PR
     // ในหมายเหตุมีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง ซึ่งคือสิ่งที่คนใช้ค้นหางานจริง
@@ -236,6 +241,7 @@ export async function GET(req: NextRequest) {
       // เทอมของใบนี้: override ของคน > "ap term" บน PO ใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
       const { creditTerm, termSource } = resolveCreditTerm(sup?.override ?? "", s(po?.["ap term"]), sup?.master ?? "")
       const dueDate    = dueDateOf(receivedAt, creditTerm)
+      const vat        = vatPos.has(s(h.purchase_order))
       return {
         depositCode: code,
         depositId:   typeof h.deposit_id === "number" ? h.deposit_id : null,
@@ -246,6 +252,10 @@ export async function GET(req: NextRequest) {
         supplier:    s(h.supplier),
         supplierRefNo: s(h.supplier_ref_no),
         amount:      parseAmount(h.amount),
+        // รวมสุทธิ = ยอดที่ต้องจ่ายจริง · vat = ใบนี้อยู่บน PO ที่คิด VAT แยก (ดู lib/ap-vat.ts)
+        // ส่ง netAmount มาด้วยทุกแถวเพื่อให้ตาราง/ยอดรวม/ส่งออก ใช้เลขชุดเดียวกับที่เซิร์ฟเวอร์คิด
+        netAmount:   apNetAmount(parseAmount(h.amount), vat),
+        ...(vat ? { vat: true } : {}),
         receivedAt,
         createdAt:   parseDmy(h.created_at),
         creditTerm, dueDate,
@@ -331,19 +341,21 @@ export async function GET(req: NextRequest) {
     const byStage = Object.fromEntries(AP_STAGES.map((s) => [s.key, blank()])) as Record<ApStage, { n: number; amount: number }>
     const thu = nextThursday(today)
     const thisThursday = { date: thu, n: 0, amount: 0 }
+    // ยอดสรุปทุกถังคิดจาก netAmount (รวมสุทธิ) — ตัวเดียวกับที่ตารางโชว์ ไม่งั้นแถบสรุปกับตารางขัดกัน
     for (const r of countRows) {
-      const b = byStatus[r.status]; b.n++; b.amount += r.amount
-      const sb = byStage[apStage(r)]; sb.n++; sb.amount += r.amount
+      const amt = r.netAmount
+      const b = byStatus[r.status]; b.n++; b.amount += amt
+      const sb = byStage[apStage(r)]; sb.n++; sb.amount += amt
       if (r.status !== "ส่งบัญชีแล้ว") {
         // จัดกลุ่มด้วย apUrgency ตัวเดียวกับที่ตารางใช้ระบายสีแถบซ้าย — ไม่งั้นแถบสัดส่วนกับสีในตาราง
         // จะเล่าคนละเรื่องเวลาเกณฑ์ถูกแก้ที่ใดที่หนึ่ง
         const u = apUrgency(r.dueDate, r.sentDate, today, apPaidConfirmed(r.paid))
-        if (u === "overdue") { overdue.n++; overdue.amount += r.amount; unsentAging.overdue.n++; unsentAging.overdue.amount += r.amount }
-        else if (u === "noTerm") { unsentAging.noTerm.n++; unsentAging.noTerm.amount += r.amount }
-        else if (u === "due7") { unsentAging.due7.n++; unsentAging.due7.amount += r.amount }
-        else { unsentAging.notDue.n++; unsentAging.notDue.amount += r.amount }
+        if (u === "overdue") { overdue.n++; overdue.amount += amt; unsentAging.overdue.n++; unsentAging.overdue.amount += amt }
+        else if (u === "noTerm") { unsentAging.noTerm.n++; unsentAging.noTerm.amount += amt }
+        else if (u === "due7") { unsentAging.due7.n++; unsentAging.due7.amount += amt }
+        else { unsentAging.notDue.n++; unsentAging.notDue.amount += amt }
       }
-      if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += r.amount }
+      if (r.sentType === "นอกรอบ" && r.sentDate === thu) { thisThursday.n++; thisThursday.amount += amt }
     }
 
     // กรองสถานะเป็น "ขั้นสุดท้าย" หลังคิดยอดสรุปเสร็จแล้ว และมีผลเฉพาะแถวที่ส่งกลับไปแสดงในตาราง

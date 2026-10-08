@@ -8,7 +8,7 @@ import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc, isWeekendISO,
   billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
-  apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
+  apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline, apVatAmount,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingPayThursdays,
@@ -488,7 +488,14 @@ export function ApTrackingDetail({
               </div>
             </div>
             <div className="ml-auto text-right">
-              <div className={`text-xl font-bold ${NUM}`}>{baht(row.amount)}</div>
+              {/* ยอดใหญ่ = รวมสุทธิที่ต้องจ่าย · ใบที่ PO คิด VAT แยก กางให้เห็นว่าคิดมาจากอะไร
+                  (ใบ DD ใน ATMS โชว์ยอดก่อน VAT — ต้องกระทบยอดกันได้) ดู lib/ap-vat.ts */}
+              <div className={`text-xl font-bold ${NUM}`}>{baht(row.netAmount)}</div>
+              {row.vat && (
+                <div className={`text-[11px] text-gray-400 ${NUM}`}>
+                  ก่อน VAT {baht(row.amount)} + VAT 7% {baht(apVatAmount(row.amount, true))}
+                </div>
+              )}
               <div className="text-xs text-gray-400">{row.purchaseOrder || "ไม่มี PO"}</div>
             </div>
             <button onClick={requestClose} aria-label="ปิด"
@@ -1054,7 +1061,7 @@ export function ApTrackingDetail({
               <div className="w-full max-w-sm space-y-3 rounded-2xl border border-gray-200/80 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#161a23]"
                 onClick={(e) => e.stopPropagation()}>
                 <div className="font-bold" style={mitr}>{passConfirm.mode === "setPay" ? "📅 กำหนดวันจ่าย" : "✅ ยืนยันผ่าน"} · {row.depositCode}</div>
-                <div className="text-xs text-gray-500">{row.supplier} · <span className={NUM}>{baht(row.amount)}</span> บาท</div>
+                <div className="text-xs text-gray-500">{row.supplier} · <span className={NUM}>{baht(row.netAmount)}</span> บาท</div>
 
                 <div className="flex gap-2">
                   {AP_PAY_TYPES.map((t) => (
@@ -1169,7 +1176,7 @@ export function ApTrackingDetail({
 
         {financeOpen && (
           <ApFinanceRequestDialog onClose={() => setFinanceOpen(false)}
-            items={[{ depositCode: row.depositCode, supplier: row.supplier, amount: row.amount,
+            items={[{ depositCode: row.depositCode, supplier: row.supplier, amount: row.netAmount,
               purchaseOrder: row.purchaseOrder, docNos: nos }]} />
         )}
 

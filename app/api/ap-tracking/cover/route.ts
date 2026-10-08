@@ -3,7 +3,8 @@
 // ต้องมี endpoint แยกเพราะตารางหลักไม่แบกรายการสินค้า (โมดัลดึงทีละใบ แต่ export ต้องทีละหลายร้อยใบ)
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { cleanDocNos, parseAmount, parseDmy } from "@/lib/ap-tracking"
+import { apVatAmount, cleanDocNos, parseAmount, parseDmy } from "@/lib/ap-tracking"
+import { getVatPoCodes } from "@/lib/ap-vat"
 
 export const dynamic = "force-dynamic"
 
@@ -22,10 +23,10 @@ export async function POST(req: NextRequest) {
   const atms = client.db("atms")
   const heads = await atms.collection("deposit_header")
     .find({ deposit_code: { $in: codes } },
-      { projection: { _id: 0, deposit_id: 1, deposit_code: 1, supplier: 1, received_at: 1, amount: 1 } })
+      { projection: { _id: 0, deposit_id: 1, deposit_code: 1, supplier: 1, received_at: 1, amount: 1, purchase_order: 1 } })
     .maxTimeMS(30_000).toArray()
   const ids = heads.map((h) => h.deposit_id).filter((x) => typeof x === "number")
-  const [items, tracks] = await Promise.all([
+  const [items, tracks, vatPos] = await Promise.all([
     atms.collection("deposit_items")
       .find({ deposit_id: { $in: ids } }, { projection: { _id: 0, deposit_id: 1, item: 1, total: 1 } })
       .maxTimeMS(30_000).toArray(),
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
       .find({ depositCode: { $in: codes } },
         { projection: { _id: 0, depositCode: 1, voucherNos: 1, billingNoteNos: 1, note: 1 } })
       .maxTimeMS(30_000).toArray(),
+    getVatPoCodes(),
   ])
   const itemsBy = new Map<number, { item: string; total: number }[]>()
   for (const it of items) {
@@ -56,9 +58,13 @@ export async function POST(req: NextRequest) {
         note: s(t?.note),
       }
       const its = itemsBy.get(h.deposit_id as number) ?? []
-      return its.length
+      const lines = its.length
         ? its.map((it) => ({ ...base, item: it.item, amount: it.total }))
         : [{ ...base, item: "", amount: parseAmount(h.amount) }]
+      // ใบที่ PO คิด VAT แยก: ต่อท้ายอีก 1 บรรทัดเป็น VAT ของใบนั้น — ยอดรวมท้ายฟอร์มจึงเท่ากับ
+      // รวมสุทธิที่ตั้งเบิกจริง ส่วนบรรทัดสินค้ายังเป็นราคาตามใบ DD ใน ATMS (ก่อน VAT) ตามฟอร์มเดิม
+      const vat = apVatAmount(parseAmount(h.amount), vatPos.has(s(h.purchase_order)))
+      return vat ? [...lines, { ...base, item: "VAT 7%", amount: vat }] : lines
     })
   return NextResponse.json({ rows })
 }

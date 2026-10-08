@@ -72,7 +72,7 @@ function SendDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className={`${CARD} w-full max-w-sm space-y-3 p-4`} onClick={(e) => e.stopPropagation()}>
         <div className="font-bold" style={mitr}>ส่งบัญชี · {row.depositCode}</div>
-        <div className="text-xs text-gray-500">{row.supplier} · <span className={NUM}>{baht(row.amount)}</span> บาท</div>
+        <div className="text-xs text-gray-500">{row.supplier} · <span className={NUM}>{baht(row.netAmount)}</span> บาท</div>
 
         <div className="space-y-2">
           <div className="text-sm font-medium">💸 นอกรอบ — โอนทุกวันพฤหัส (ปิดรอบอังคาร → จ่ายพฤหัสสัปดาห์ถัดไป)</div>
@@ -412,7 +412,7 @@ export function ApTrackingPage() {
   }, [safePage, totalPages])
 
   const selectedRows = useMemo(() => shown.filter((r) => selected.has(r.depositCode)), [shown, selected])
-  const selectedAmount = selectedRows.reduce((s, r) => s + r.amount, 0)
+  const selectedAmount = selectedRows.reduce((s, r) => s + r.netAmount, 0)
 
   const toggle = (code: string) =>
     setSelected((prev) => {
@@ -471,7 +471,7 @@ export function ApTrackingPage() {
     setDetailFor((d) => d && d.depositCode === depositCode ? { ...d, ...next } : d)
     // ส่ง/ยกเลิกส่งบัญชี กระทบยอดเงินหลายก้อนพร้อมกัน (โอนพฤหัส · เกินกำหนด · aging) — ดึงสรุปใหม่ทั้งชุด
     if (sentMoved) { load(); return }
-    if (before) setSummary((sm) => moveStatusBucket(sm, before.status, status, before.amount))
+    if (before) setSummary((sm) => moveStatusBucket(sm, before.status, status, before.netAmount))
   }
 
   const setSent = async (row: ApRow, type: "" | "นอกรอบ" | "ตามรอบ", date: string) => {
@@ -645,7 +645,7 @@ export function ApTrackingPage() {
           )}
           {/* แจ้งการเงินจากใบที่เลือก — ราย DD เลือกหลายใบได้ (ผู้ใช้สั่ง 19/08/2026) */}
           <button onClick={() => setFinanceItems(selectedRows.map((r) => ({
-              depositCode: r.depositCode, supplier: r.supplier, amount: r.amount,
+              depositCode: r.depositCode, supplier: r.supplier, amount: r.netAmount,
               purchaseOrder: r.purchaseOrder, docNos: r.docNos,
             })))}
             className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/30">

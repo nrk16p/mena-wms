@@ -3,7 +3,8 @@
 // (คลัง × สถานะ × เดือน ราว 600 แถว ไม่กี่ KB) ไม่ใช่แถวดิบ 16k แถวที่ชนเพดาน 4.5MB
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { AP_GO_LIVE, apStage, monthInApScope, parseAmount, parseDmy, type ApDocs } from "@/lib/ap-tracking"
+import { AP_GO_LIVE, apNetAmount, apStage, monthInApScope, parseAmount, parseDmy, type ApDocs } from "@/lib/ap-tracking"
+import { getVatPoCodes } from "@/lib/ap-vat"
 
 export const dynamic = "force-dynamic"
 
@@ -16,8 +17,11 @@ export async function GET() {
   // หัวใบทุกเดือน — projection เล็กที่สุดที่พอคำนวณได้ (ทั้ง collection ~16k ใบ วิ่งครั้งเดียวจบ)
   const heads = await client.db("atms").collection("deposit_header")
     .find({ $nor: [{ supplier: "", purchase_order: "" }] },     // ตัดคืนสต๊อกภายในเหมือนหน้าหลัก
-      { projection: { _id: 0, deposit_code: 1, warehouse: 1, amount: 1, received_at: 1, created_at: 1 } })
+      { projection: { _id: 0, deposit_code: 1, warehouse: 1, amount: 1, received_at: 1, created_at: 1, purchase_order: 1 } })
     .maxTimeMS(30_000).toArray()
+
+  // รหัส PO ที่คิด VAT แยก — ยอดในแดชบอร์ดต้องเป็นรวมสุทธิชุดเดียวกับหน้าหลัก (ดู lib/ap-vat.ts)
+  const vatPos = await getVatPoCodes()
 
   const tracks = await client.db(MD).collection("ap_tracking")
     .find({}, { projection: { _id: 0, depositCode: 1, docs: 1, sentDate: 1, "review.status": 1, "paid.paymentNos": 1 } })
@@ -44,7 +48,7 @@ export async function GET() {
     const key = `${ym}|${warehouse}|${stage}`
     const cur = agg.get(key) ?? { ym, warehouse, stage, n: 0, amount: 0 }
     cur.n++
-    cur.amount += parseAmount(h.amount)
+    cur.amount += apNetAmount(parseAmount(h.amount), vatPos.has(s(h.purchase_order)))
     agg.set(key, cur)
   }
 
