@@ -1,24 +1,22 @@
-// lib/external-auditors.ts — ผู้ตรวจสอบภายนอก (AMT Audit) เข้า WMS ชั่วคราว (ผู้ใช้สั่ง 2026-10-07)
+// lib/external-auditors.ts — ช่องทางผู้ตรวจสอบภายนอก (AMT Audit) เข้า WMS
 //
-//   • เฉพาะ 5 อีเมลด้านล่าง · login ด้วย Google Workspace ของ amtaudit.com
+// ** ปิดอยู่ตั้งแต่ 8/10/2569 (ผู้ใช้สั่ง) — EXTERNAL_AUDITORS ว่าง = ไม่มีใครนอก
+//    @menatransport.co.th login ได้ · ปุ่มในหน้า login เอาออกแล้วด้วย **
+//
+// กลไกยังอยู่ครบ ถ้าจะเปิดใช้อีกครั้ง: ใส่อีเมลใน EXTERNAL_AUDITORS + ตั้ง AUDITOR_EXPIRES_AT
 //   • สิทธิ์ = เท่าแผนกจัดซื้อ แต่ "ดูอย่างเดียว" ทุกส่วน (lib/access-policy.ts accessFor) — ตั้งทับรายคนไม่ได้
-//   • หมดสิทธิ์อัตโนมัติ 31/10/2569 23:59 เวลาไทย: login ไม่ได้ + middleware ตัดคนที่ค้าง login อยู่
+//   • หมดอายุตาม AUDITOR_EXPIRES_AT: login ไม่ได้ + middleware ตัดคนที่ค้าง login อยู่
 //   • ไม่มีโปรไฟล์ HR → ใช้ auditorProfile() แทน (แผนกแสดงในหน้า /admin/users)
-// ต่ออายุ / เพิ่มคน = แก้ค่าในไฟล์นี้ · ตรวจด้วย scripts/check-external-auditors.ts
+// ตรวจด้วย scripts/check-external-auditors.ts
 import type { EmployeeProfile } from "./mena-api"
 
 export const EMPLOYEE_DOMAIN = "menatransport.co.th"
 export const AUDITOR_DOMAIN = "amtaudit.com"
 
-export const EXTERNAL_AUDITORS = [
-  "panthip@amtaudit.com",
-  "jirapinya@amtaudit.com",
-  "pannakan@amtaudit.com",
-  "panida@amtaudit.com",
-  "piyarat.w@amtaudit.com",
-] as const
+// ว่างไว้ = ไม่มีผู้ตรวจสอบภายนอกคนไหน login ได้ (เอา 5 อีเมล amtaudit.com ออก 8/10/2569)
+export const EXTERNAL_AUDITORS: readonly string[] = []
 
-/** สิ้นวัน 31 ต.ค. 2569 เวลาไทย */
+/** สิ้นวัน 31 ต.ค. 2569 เวลาไทย — ใช้เมื่อเปิดช่องทางนี้อีกครั้งเท่านั้น */
 export const AUDITOR_EXPIRES_AT = Date.parse("2026-10-31T23:59:59.999+07:00")
 export const AUDITOR_EXPIRES_LABEL = "31 ต.ค. 2569"
 export const AUDITOR_DEPARTMENT = "ผู้ตรวจสอบภายนอก (AMT Audit)"

@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
 import { accessFor, checkRequest, SECTION_LABELS, type Overrides, type Section } from "./lib/access-policy"
 import { isSuperAdmin } from "./lib/roles"
-import { auditorActive, isExternalAuditor } from "./lib/external-auditors"
+import { signInAllowed } from "./lib/external-auditors"
 
 // API routes the mobile app may call with an x-api-key header instead of a browser session
 const MOBILE_API_PREFIXES = [
@@ -161,10 +161,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // ผู้ตรวจสอบภายนอกหมดอายุ (lib/external-auditors.ts) → ตัดทุกหน้า/ทุก API แม้ยัง login ค้างอยู่
-  if (isExternalAuditor(token.email) && !auditorActive(token.email)) {
+  // อีเมลนี้ยังมีสิทธิ์เข้าระบบอยู่ไหม (lib/external-auditors.ts signInAllowed) — เช็คทุก request
+  // ไม่ใช่แค่ตอน login: ผู้ตรวจสอบภายนอกที่หมดอายุ/ถูกเอาออกจากรายชื่อ ต้องถูกตัดทันที
+  // ไม่ต้องรอ JWT หมดอายุ (30 วัน) — ไม่งั้นจะตกไปได้สิทธิ์ "ทั่วไป" ซึ่งแก้ใบขอซื้อได้
+  if (!signInAllowed(token.email, null)) {
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "สิทธิ์ผู้ตรวจสอบภายนอกหมดอายุแล้ว", code: "auditor_expired" }, { status: 403 })
+      return NextResponse.json({ error: "บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานแล้ว", code: "access_revoked" }, { status: 403 })
     }
     if (pathname !== "/unauthorized") {
       const url = new URL("/unauthorized", request.url)
