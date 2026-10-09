@@ -53,6 +53,8 @@ type DueRow = {
   acceptedBy?:  string
   fleetNo:      string
   vehicleType:  string
+  fleet:        string
+  plant:        string
 }
 
 // คอลัมน์ไฟล์ Excel — เรียงตามลำดับที่คนอ่านใช้จริง: รถคันไหน → ยางเส้นไหน → เหลืออีกเท่าไหร่
@@ -60,6 +62,8 @@ const EXPORT_COLS: ExcelCol[] = [
   { key: "branch",   header: "สาขา",            width: 11, group: "รถ", align: "center" },
   { key: "plate",    header: "ทะเบียน",          width: 13, group: "รถ" },
   { key: "fleetNo",  header: "เบอร์รถ",          width: 10, group: "รถ", align: "center" },
+  { key: "fleet",    header: "ฟลีท",             width: 14, group: "รถ" },
+  { key: "plant",    header: "แพล้นท์",           width: 18, group: "รถ" },
   { key: "type",     header: "ประเภทรถ",         width: 26, group: "รถ" },
 
   { key: "pos",      header: "ตำแหน่งยาง",       width: 26, group: "ยาง" },
@@ -91,6 +95,8 @@ type VehicleGroup = {
   plate:       string
   fleetNo:     string
   vehicleType: string
+  fleet:       string
+  plant:       string
   rows:        DueRow[]
   acceptedAt:  string | null
   acceptedBy:  string
@@ -241,6 +247,8 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
             branch:   branchLabel(r.branch),
             plate:    r.plate,
             fleetNo:  r.fleetNo || "",
+            fleet:    r.fleet || "",
+            plant:    r.plant || "",
             type:     r.vehicleType || "",
             pos:      r.tirePosition,
             product:  r.product,
@@ -310,12 +318,15 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       let g = m.get(key)
       if (!g) {
         g = { branch: r.branch, plate: r.plate, fleetNo: r.fleetNo ?? "", vehicleType: r.vehicleType ?? "",
+              fleet: r.fleet ?? "", plant: r.plant ?? "",
               rows: [], acceptedAt: null, acceptedBy: "", over: 0, due: 0, warn: 0, maxPct: 0 }
         m.set(key, g)
       }
       // ยางของคันเดียวกันบางเส้นอาจเก็บเบอร์รถไม่ครบ — เอาค่าแรกที่เจอ
       if (!g.fleetNo     && r.fleetNo)     g.fleetNo     = r.fleetNo
       if (!g.vehicleType && r.vehicleType) g.vehicleType = r.vehicleType
+      if (!g.fleet       && r.fleet)       g.fleet       = r.fleet
+      if (!g.plant       && r.plant)       g.plant       = r.plant
       // รับเรื่องทีเดียวทั้งคัน — เส้นไหนมีข้อมูลก็ใช้ของเส้นนั้นแทนทั้งคันได้
       if (!g.acceptedAt && r.acceptedAt) { g.acceptedAt = r.acceptedAt; g.acceptedBy = r.acceptedBy ?? "" }
       g.rows.push(r)
@@ -583,6 +594,8 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
             <tr>
               <th className={thCls} style={fontThai}>ทะเบียน</th>
               <th className={thCls} style={fontThai}>เบอร์รถ</th>
+              <th className={thCls} style={fontThai}>ฟลีท</th>
+              <th className={thCls} style={fontThai}>แพล้นท์</th>
               <th className={thCls} style={fontThai}>ประเภทรถ</th>
               <th className={thCls} style={fontThai}>ยางที่ต้องเปลี่ยน</th>
               <th className={thCls} style={fontThai}>ใช้ไปมากสุด</th>
@@ -592,9 +605,9 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
           </thead>
           <tbody className="divide-y divide-[#EEF2F0] dark:divide-white/8">
             {loading ? (
-              <tr><td colSpan={7} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>กำลังโหลด...</td></tr>
+              <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>กำลังโหลด...</td></tr>
             ) : groups.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>ไม่มีรายการในกลุ่มนี้</td></tr>
+              <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>ไม่มีรายการในกลุ่มนี้</td></tr>
             ) : groups.map((g) => {
               const key    = `${g.branch}|${g.plate}`
               const isOpen = opened.has(key)
@@ -612,6 +625,8 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
                       </span>
                     </td>
                     <td className={tdCls + " font-mono text-[#14271C] dark:text-white"}>{g.fleetNo || "—"}</td>
+                    <td className={tdCls + " whitespace-nowrap"} style={fontThai}>{g.fleet || "—"}</td>
+                    <td className={tdCls + " max-w-[160px] truncate"} style={fontThai} title={g.plant}>{g.plant || "—"}</td>
                     <td className={tdCls + " max-w-[220px] truncate"} style={fontThai} title={g.vehicleType}>{g.vehicleType || "—"}</td>
                     <td className={tdCls}>
                       <div className="flex flex-wrap items-center gap-1">
@@ -677,7 +692,7 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
                     return (
                       <tr key={r._id} className={"bg-[#FAFCFB] dark:bg-white/[0.02]" + (snoozedOn ? " opacity-55" : "")}>
                         <td className={tdCls + " pl-8"} style={fontThai}>{r.tirePosition || "—"}</td>
-                        <td className={tdCls + " max-w-[200px] truncate"} style={fontThai} title={`${r.product} ${r.serialNo}`} colSpan={2}>
+                        <td className={tdCls + " max-w-[200px] truncate"} style={fontThai} title={`${r.product} ${r.serialNo}`} colSpan={4}>
                           {r.product || "—"}
                           {r.serialNo && <span className="ml-1.5 font-mono text-[10.5px] text-[#9AA8A0]">{r.serialNo}</span>}
                         </td>
@@ -691,7 +706,7 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
                             <span className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold ${dueChipCls[r.level]}`}>{r.usedPct}%</span>
                           )}
                         </td>
-                        <td className={tdCls + " text-right"}>
+                        <td className={tdCls + " text-right"} colSpan={2}>
                           <button type="button" onClick={() => onSnooze(r, !snoozedOn)}
                             title={snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : "พักการแจ้งเตือน"}
                             className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}>

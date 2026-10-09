@@ -208,11 +208,11 @@ async function loadSpecs(db: Db, serials: string[]): Promise<SpecLookup> {
   return { byBranchProduct, byProduct, byModel, byStock }
 }
 
-// ── เบอร์รถ / ประเภทรถ ────────────────────────────────────────────────────
+// ── เบอร์รถ / ประเภทรถ / ฟลีท / แพล้นท์ ────────────────────────────────────────────────────
 // คนวางแผนเรียกรถด้วย "เบอร์รถ" ไม่ใช่ทะเบียน — ต้องมีติดไปกับทุกแถว
 // vehicle_master.fleetNo ครอบคลุมมากสุด (T-0080 / M-0003) ที่ขาดเติมจาก
 // atms.truck_master_monthly.truck_no (TH1299) ของเดือนล่าสุด — คนละระบบเลขแต่เรียก "เบอร์รถ" เหมือนกัน
-type VehicleInfo = { fleetNo: string; vehicleType: string }
+type VehicleInfo = { fleetNo: string; vehicleType: string; fleet: string; plant: string }
 
 async function loadVehicleInfo(db: Db, plates: string[]): Promise<Map<string, VehicleInfo>> {
   const out = new Map<string, VehicleInfo>()
@@ -220,28 +220,36 @@ async function loadVehicleInfo(db: Db, plates: string[]): Promise<Map<string, Ve
 
   const masters = await db.collection("vehicle_master")
     .find({ plate: { $in: plates } })
-    .project({ plate: 1, fleetNo: 1, vehicleType: 1 })
+    .project({ plate: 1, fleetNo: 1, vehicleType: 1, fleet: 1, plant: 1 })
     .toArray()
   for (const m of masters) {
     out.set(String(m.plate), {
       fleetNo:     String(m.fleetNo ?? "").trim(),
       vehicleType: String(m.vehicleType ?? "").trim(),
+      fleet:       String(m.fleet ?? "").trim(),
+      plant:       String(m.plant ?? "").trim(),
     })
   }
 
-  const missing = plates.filter((p) => !out.get(p)?.fleetNo)
+  const missing = plates.filter((p) => { const v = out.get(p); return !v?.fleetNo || !v?.plant })
   if (missing.length > 0) {
     const tmc    = db.client.db("atms").collection("truck_master_monthly")
     const months = await tmc.distinct("month_year")
     const latest = [...months].sort().pop()
     if (latest) {
       const rows = await tmc.find({ month_year: latest, plate: { $in: missing } })
-        .project({ plate: 1, truck_no: 1 })
+        .project({ plate: 1, truck_no: 1, plant: 1, customer: 1 })
         .toArray()
       for (const r of rows) {
         const plate = String(r.plate)
         const prev  = out.get(plate)
-        out.set(plate, { fleetNo: String(r.truck_no ?? "").trim(), vehicleType: prev?.vehicleType ?? "" })
+        out.set(plate, {
+          fleetNo:     prev?.fleetNo || String(r.truck_no ?? "").trim(),
+          vehicleType: prev?.vehicleType ?? "",
+          // ATMS เรียกฟลีทว่า "customer" (Scco L / Cpac ML) — ชุดเดียวกับ vehicle_master.fleet
+          fleet:       prev?.fleet || String(r.customer ?? "").trim(),
+          plant:       prev?.plant || String(r.plant ?? "").trim(),
+        })
       }
     }
   }
@@ -376,6 +384,8 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
               isSpare: spare,
               fleetNo:     vehicles.get(plate)?.fleetNo ?? "",
               vehicleType: vehicles.get(plate)?.vehicleType ?? "",
+              fleet:       vehicles.get(plate)?.fleet ?? "",
+              plant:       vehicles.get(plate)?.plant ?? "",
               changeIn: validDate ? changeIn : null,
               kmUsed, source, partial,
               specDistance, specSource, specAxle: front ? "front" : "rear", usedPct, level,
