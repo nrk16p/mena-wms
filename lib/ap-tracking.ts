@@ -1078,3 +1078,17 @@ export function apDdSummaryText(items: ApDdSummaryItem[], todayISO: string): str
   lines.push(`🧾 รวม ${items.length.toLocaleString("th-TH")} ใบ · ${thb(total)} บาท`)
   return lines.join("\n")
 }
+
+/** ยอดรายบรรทัดของใบปะหน้าเมื่อใบนั้น PO คิด VAT แยก — ยุบ VAT เข้ายอดสินค้าแทนการต่อบรรทัด
+ *  "VAT 7%" (ผู้ใช้สั่ง 12/10/2026: ช่องชื่อสินค้าต้องเป็นสินค้าจริงเท่านั้น)
+ *  เศษจากการปัดรายบรรทัดถูกกลบที่บรรทัดสุดท้าย ผลรวมของใบจึงเท่ากับ apNetAmount() พอดี
+ *  ถ้ายอดรายชิ้นรวมไม่เท่ายอดหัวใบ (ข้อมูล ATMS ไม่ครบ) จะไม่กลบ — ห้ามปั้นยอดที่ไม่มีที่มา */
+export function apCoverLineAmounts(itemTotals: number[], headAmount: number, vat: boolean): number[] {
+  const lines = itemTotals.map((t) => round2(t))
+  if (!vat || !lines.length) return lines
+  const scaled = lines.map((t) => round2(t * (1 + AP_VAT_RATE)))
+  if (round2(lines.reduce((n, t) => n + t, 0)) !== round2(headAmount)) return scaled
+  const diff = round2(apNetAmount(headAmount, true) - round2(scaled.reduce((n, t) => n + t, 0)))
+  if (diff) scaled[scaled.length - 1] = round2(scaled[scaled.length - 1] + diff)
+  return scaled
+}

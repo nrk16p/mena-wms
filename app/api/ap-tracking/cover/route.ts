@@ -3,7 +3,7 @@
 // ต้องมี endpoint แยกเพราะตารางหลักไม่แบกรายการสินค้า (โมดัลดึงทีละใบ แต่ export ต้องทีละหลายร้อยใบ)
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { apVatAmount, cleanDocNos, parseAmount, parseDmy } from "@/lib/ap-tracking"
+import { apCoverLineAmounts, apNetAmount, cleanDocNos, parseAmount, parseDmy } from "@/lib/ap-tracking"
 import { getVatPoCodes } from "@/lib/ap-vat"
 
 export const dynamic = "force-dynamic"
@@ -57,14 +57,14 @@ export async function POST(req: NextRequest) {
         billingNo: cleanDocNos(t?.billingNoteNos).join(", "),
         note: s(t?.note),
       }
+      // ใบที่ PO คิด VAT แยก: ยุบ VAT เข้ายอดรายบรรทัด (ไม่ต่อบรรทัด "VAT 7%" ในช่องชื่อสินค้า
+      // — ผู้ใช้สั่ง 12/10/2026) ยอดรวมท้ายฟอร์มจึงยังเท่ากับรวมสุทธิที่ตั้งเบิกจริง
+      const vat = vatPos.has(s(h.purchase_order))
       const its = itemsBy.get(h.deposit_id as number) ?? []
-      const lines = its.length
-        ? its.map((it) => ({ ...base, item: it.item, amount: it.total }))
-        : [{ ...base, item: "", amount: parseAmount(h.amount) }]
-      // ใบที่ PO คิด VAT แยก: ต่อท้ายอีก 1 บรรทัดเป็น VAT ของใบนั้น — ยอดรวมท้ายฟอร์มจึงเท่ากับ
-      // รวมสุทธิที่ตั้งเบิกจริง ส่วนบรรทัดสินค้ายังเป็นราคาตามใบ DD ใน ATMS (ก่อน VAT) ตามฟอร์มเดิม
-      const vat = apVatAmount(parseAmount(h.amount), vatPos.has(s(h.purchase_order)))
-      return vat ? [...lines, { ...base, item: "VAT 7%", amount: vat }] : lines
+      const amounts = apCoverLineAmounts(its.map((it) => it.total), parseAmount(h.amount), vat)
+      return its.length
+        ? its.map((it, i) => ({ ...base, item: it.item, amount: amounts[i] }))
+        : [{ ...base, item: "", amount: apNetAmount(parseAmount(h.amount), vat) }]
     })
   return NextResponse.json({ rows })
 }
