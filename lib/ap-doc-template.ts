@@ -3,6 +3,7 @@
 //
 // ที่มา: ~/Documents/project/เอกสารปะกบชุดส่งบัญชีตามผู้ขาย.xlsx (ผู้ขาย × ชนิดเอกสาร, ติ๊ก ☑/☐)
 // แม่แบบเก็บชื่อเอกสาร "ตามที่ผู้ขายรู้จัก" (ใบวางบิล กับ ใบแจ้งหนี้ แยกกัน) เพราะรูปที่ส่งให้ผู้ขายต้องบอกชัด
+// บิลเงินสด/ใบส่งของ เคยชี้ช่องติ๊กรวมอันเดียว (bill) — 12/10/2026 แยกเป็นช่องติ๊กของตัวเองแล้ว ชี้ตรงตัว 1:1
 // ส่วนช่องติ๊กบนใบ DD ถูกรวมไว้ตั้งแต่ 17/08/2026 → แต่ละชนิดชี้ไปที่ช่องติ๊ก (check) ของ AP_DOC_FIELDS
 //
 // กติกาที่ผู้ใช้เลือก 22/09/2026: แม่แบบเป็น "ตัวช่วยบอก" เท่านั้น — ไม่เปลี่ยนกติกาครบชุด/ส่งบัญชี
@@ -20,8 +21,8 @@ export const AP_TEMPLATE_DOCS: { key: ApTplDocKey; label: string; excel: string;
   { key: "receipt",      label: "ใบเสร็จรับเงิน",          excel: "ใบเสร็จรับเงิน",  check: "receipt" },
   { key: "taxInvoice",   label: "ใบกำกับภาษี (ต้นฉบับ)",   excel: "ใบกำกับภาษี",    check: "taxInvoice" },
   { key: "invoice",      label: "ใบแจ้งหนี้",              excel: "ใบแจ้งหนี้",      check: "invoice" },
-  { key: "cashBill",     label: "บิลเงินสด",              excel: "บิลเงินสด",       check: "bill" },
-  { key: "deliveryNote", label: "ใบส่งของ",               excel: "ใบส่งของ",        check: "bill" },
+  { key: "cashBill",     label: "บิลเงินสด",              excel: "บิลเงินสด",       check: "cashBill" },
+  { key: "deliveryNote", label: "ใบส่งของ",               excel: "ใบส่งของ",        check: "deliveryNote" },
   { key: "debtAck",      label: "ใบรับสภาพหนี้",           excel: "",               check: "debtAck" },
 ]
 
@@ -65,7 +66,7 @@ export function templateMissing(docs: ApTplDocKey[] | undefined, marks: ApDocs):
 }
 
 // ชนิดเอกสารในแม่แบบที่ชี้มาที่ช่องติ๊กนี้ — ขึ้นใต้ป้าย "ต้องมี" ให้รู้ว่าผู้ขายส่งอะไรมา
-// (ช่อง "บิล/ใบส่งของ" ของเจ้าหนึ่งอาจหมายถึงบิลเงินสด อีกเจ้าหมายถึงใบส่งของ)
+// เหลือช่องรวมแค่ "ใบแจ้งหนี้/ใบวางบิล" ช่องเดียว (บิลเงินสด/ใบส่งของ แยกช่องกันแล้ว 12/10/2026)
 export function templateDocsForCheck(docs: ApTplDocKey[] | undefined, check: ApDocKey): string[] {
   const want = new Set(docs ?? [])
   return AP_TEMPLATE_DOCS.filter((d) => d.check === check && want.has(d.key)).map((d) => d.excel || d.label)

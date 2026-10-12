@@ -10,7 +10,7 @@
 
 import type { SkuImage } from "@/lib/media"
 
-export type ApDocKey = "bill" | "invoice" | "taxInvoice" | "receipt" | "debtAck" | "billingNote"
+export type ApDocKey = "cashBill" | "deliveryNote" | "invoice" | "taxInvoice" | "receipt" | "debtAck" | "bill" | "billingNote"
 export type ApDocMark = { checked: boolean; by: string; at: string }
 export type ApDocs = Partial<Record<ApDocKey, ApDocMark>>
 export type ApItems = Record<string, ApDocMark>          // คีย์ = apItemKeys() ของรายการสินค้าในใบ
@@ -20,8 +20,11 @@ export type ApStatus = "รอประกบ" | "ครบชุด" | "ส่�
 
 // ใบวางบิลรวมเข้ากับใบแจ้งหนี้ 2026-08-17 (ผู้ใช้สั่ง) — เจ้าหนี้ส่วนใหญ่ส่งมาเป็นชุดเดียวกัน
 // คีย์ที่ใช้เขียนคือ "invoice" ส่วน "billingNote" กลายเป็นคีย์เก่า (ไม่มีช่องติ๊กของตัวเองแล้ว)
+// แยก "บิลเงินสด" กับ "ใบส่งของ" ออกจากกัน 12/10/2026 (ผู้ใช้สั่ง) — เดิมเป็นช่องรวม "บิล/ใบส่งของ" (คีย์ bill)
+// คีย์ bill กลายเป็นช่องเก่า: โชว์เฉพาะใบที่เคยติ๊กไว้ (AP_LEGACY_DOC_FIELDS) ให้บัญชีย้ายติ๊กเอง ไม่เดาแทน
 export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = [
-  { key: "bill",       label: "บิล/ใบส่งของ",          short: "บิล" },
+  { key: "cashBill",     label: "บิลเงินสด",           short: "บิลเงินสด" },
+  { key: "deliveryNote", label: "ใบส่งของ",            short: "ใบส่งของ" },
   { key: "invoice",    label: "ใบแจ้งหนี้/ใบวางบิล",   short: "แจ้งหนี้/วางบิล" },
   { key: "taxInvoice", label: "ต้นฉบับใบกำกับภาษี",   short: "ใบกำกับ" },
   { key: "receipt",    label: "ใบเสร็จรับเงิน",        short: "ใบเสร็จ" },
@@ -31,7 +34,18 @@ export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = 
 
 // คีย์เก่าที่ยังต้อง "นับ" และ "เขียนได้": ใบที่เคยติ๊กใบวางบิลไว้ต้องไม่หลุดสถานะครบชุด
 // และต้องล้างค่าได้เมื่อผู้ใช้เอาติ๊กช่องรวมออก (ไม่งั้นจะเหลือติ๊กผีที่มองไม่เห็นแต่ทำให้ยังครบชุด)
-export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote"]
+export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote", "bill"]
+
+// ช่องเก่าที่ยังมีช่องติ๊กของตัวเอง แต่โชว์เฉพาะใบที่เคยติ๊กไว้ (หรือมีไฟล์แนบชนิดนั้น)
+// billingNote ไม่อยู่ในนี้เพราะถูกรวมเข้าช่อง invoice ผ่าน docChecked อยู่แล้ว ไม่ต้องมีแถวของตัวเอง
+export const AP_LEGACY_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = [
+  { key: "bill", label: "บิล/ใบส่งของ (แบบเก่า)", short: "บิลเก่า" },
+]
+
+// ทุกช่องที่หน้าเว็บมีช่องติ๊กของตัวเอง — หน้าเว็บวนจากตัวนี้ตัวเดียว ทั้ง draft, นับว่าแก้อะไร และ payload
+export const AP_TICK_FIELDS: { key: ApDocKey; label: string; short: string }[] = [
+  ...AP_DOC_FIELDS, ...AP_LEGACY_DOC_FIELDS,
+]
 
 // เลขที่เอกสาร — ATMS ไม่มีให้ ต้องคีย์เอง · ใบ DD ใบเดียวมีเอกสารชนิดเดียวกันได้หลายใบ จึงเก็บเป็นลิสต์
 // เดิมมีช่องเดียว (taxInvoiceNos) — เพิ่มอีก 3 ช่องวันที่ 18/08/2026 ตามที่ผู้ใช้สั่ง
@@ -104,6 +118,7 @@ const AP_RETIRED_DOC_LABELS: Record<string, string> = {
 
 export function apDocLabel(key: string): string {
   return AP_DOC_FIELDS.find((f) => f.key === key)?.label
+    ?? AP_LEGACY_DOC_FIELDS.find((f) => f.key === key)?.label
     ?? AP_NO_FIELDS.find((f) => f.key === key)?.label
     ?? AP_RETIRED_DOC_LABELS[key] ?? key
 }

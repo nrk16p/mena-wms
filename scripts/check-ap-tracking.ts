@@ -3,7 +3,7 @@
 import assert from "node:assert/strict"
 import {
   parseDmy, parseAmount, dueDateOf, overdueDays, nextThursday,
-  isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, FINANCE_DOC_KEYS, docChecked, thaiDate,
+  isDocSetComplete, apStatusOf, termDays, AP_DOC_FIELDS, AP_LEGACY_DOC_FIELDS, AP_TICK_FIELDS, FINANCE_DOC_KEYS, docChecked, thaiDate,
   missingDocLabels, todayICT, ICT_OFFSET_MS, thaiDateTime,
   AP_GO_LIVE, inApScope, monthInApScope, apSinceOf,
   apDocLabel, apItemKeys, apItemsDone, apItemVerification, apFilesByDoc, upcomingThursdays, addDays,
@@ -69,19 +69,31 @@ for (const d of upcomingThursdays("2026-08-11", 6)) {
 
 // --- โครงช่องเอกสาร (ถอด DD/PO ออก 2026-08-17: ระบบมีข้อมูลใบรับของ+PO อยู่แล้ว ไม่ต้องให้คนติ๊กซ้ำ
 //     และใบที่ไม่มี PO ผูกใน ATMS จะติดค้าง "รอประกบ" ตลอดไปจนส่งบัญชีไม่ได้) ---
-assert.equal(AP_DOC_FIELDS.length, 5, "ใบวางบิลรวมกับใบแจ้งหนี้แล้ว + ใบรับสภาพหนี้ (19/08/2026)")
-assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["bill","invoice","taxInvoice","receipt","debtAck"])
-assert.equal(AP_DOC_FIELDS[4].label, "ใบรับสภาพหนี้")
-assert.equal(AP_DOC_FIELDS[1].label, "ใบแจ้งหนี้/ใบวางบิล")
-// คีย์เก่ายังต้องถูกนับ ไม่งั้นใบที่เคยติ๊กใบวางบิลไว้จะหลุดจากสถานะครบชุดเงียบ ๆ
-assert.deepEqual(FINANCE_DOC_KEYS, ["bill","invoice","taxInvoice","receipt","debtAck","billingNote"])
+// แยกบิลเงินสด/ใบส่งของ ออกจากช่องรวม "บิล/ใบส่งของ" 12/10/2026 (ผู้ใช้สั่ง)
+assert.equal(AP_DOC_FIELDS.length, 6, "แยกบิลเงินสด/ใบส่งของ + ใบวางบิลรวมกับใบแจ้งหนี้ + ใบรับสภาพหนี้")
+assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["cashBill","deliveryNote","invoice","taxInvoice","receipt","debtAck"])
+assert.equal(AP_DOC_FIELDS[5].label, "ใบรับสภาพหนี้")
+assert.equal(AP_DOC_FIELDS[2].label, "ใบแจ้งหนี้/ใบวางบิล")
+assert.equal(AP_DOC_FIELDS[0].label, "บิลเงินสด")
+assert.equal(AP_DOC_FIELDS[1].label, "ใบส่งของ")
+// คีย์เก่ายังต้องถูกนับ ไม่งั้นใบที่เคยติ๊กใบวางบิล/บิลรวมไว้จะหลุดจากสถานะครบชุดเงียบ ๆ
+assert.deepEqual(FINANCE_DOC_KEYS, ["cashBill","deliveryNote","invoice","taxInvoice","receipt","debtAck","billingNote","bill"])
+// ช่องเก่าที่ยังมีช่องติ๊กของตัวเอง (โชว์เฉพาะใบที่เคยติ๊ก) — billingNote ไม่อยู่ในนี้ เพราะรวมเข้า invoice แล้ว
+assert.deepEqual(AP_LEGACY_DOC_FIELDS.map((f) => f.key), ["bill"])
+assert.deepEqual(AP_TICK_FIELDS.map((f) => f.key),
+  ["cashBill","deliveryNote","invoice","taxInvoice","receipt","debtAck","bill"])
 assert.equal(isDocSetComplete({ debtAck: mark }), true, "ใบรับสภาพหนี้ใบเดียวก็นับว่าครบชุด")
 
 // --- docChecked: ช่องรวมต้องขึ้นติ๊กเมื่อใบเก่าติ๊กไว้ที่ billingNote ---
 assert.equal(docChecked({ invoice: mark }, "invoice"), true)
 assert.equal(docChecked({ billingNote: mark }, "invoice"), true, "ของเก่าที่ติ๊กใบวางบิลต้องยังเห็นว่าติ๊ก")
 assert.equal(docChecked({}, "invoice"), false)
-assert.equal(docChecked({ billingNote: mark }, "bill"), false, "ไม่ลามไปช่องอื่น")
+assert.equal(docChecked({ billingNote: mark }, "cashBill"), false, "ไม่ลามไปช่องอื่น")
+// ติ๊กเก่าที่ช่องรวม bill ไม่ลามไปช่องใหม่ทั้งสอง — บัญชีย้ายติ๊กเอง ระบบไม่เดาว่าเป็นบิลเงินสดหรือใบส่งของ
+assert.equal(docChecked({ bill: mark }, "cashBill"), false, "ไม่เดาแทนว่าติ๊กเก่าคือบิลเงินสด")
+assert.equal(docChecked({ bill: mark }, "deliveryNote"), false, "ไม่เดาแทนว่าติ๊กเก่าคือใบส่งของ")
+assert.equal(docChecked({ bill: mark }, "bill"), true, "แต่ยังเห็นติ๊กในช่องเก่าของตัวเอง")
+assert.equal(isDocSetComplete({ bill: mark }), true, "และยังนับว่าครบชุดเหมือนเดิม")
 assert.equal(isDocSetComplete({ billingNote: mark }), true, "ใบเก่าที่มีแค่ใบวางบิลยังครบชุด")
 
 // --- เงื่อนไขครบชุด: มีเอกสารการเงินอย่างน้อย 1 ใน 5 ---
@@ -107,7 +119,9 @@ for (const docs of [{}, { bill: mark }, { dd: mark } as ApDocs, { taxInvoice: ma
 }
 
 // --- ป้ายชื่อช่องเอกสาร (ประวัติของเก่ายังอ้างถึง dd/po ต้องอ่านออก ไม่ใช่โชว์คีย์ดิบ) ---
-assert.equal(apDocLabel("bill"), "บิล/ใบส่งของ")
+assert.equal(apDocLabel("cashBill"), "บิลเงินสด")
+assert.equal(apDocLabel("deliveryNote"), "ใบส่งของ")
+assert.equal(apDocLabel("bill"), "บิล/ใบส่งของ (แบบเก่า)", "ช่องเก่ายังต้องมีป้ายไว้อ่านประวัติ")
 assert.equal(apDocLabel("dd"), "DD (ใบรับของ)", "ช่องที่ถอดออกแล้วยังต้องมีป้ายไว้อ่านประวัติ")
 assert.equal(apDocLabel("po"), "PO (ใบสั่งซื้อ)")
 assert.equal(apDocLabel("ไม่รู้จัก"), "ไม่รู้จัก", "คีย์แปลกปลอมคืนค่าเดิม ไม่พัง")

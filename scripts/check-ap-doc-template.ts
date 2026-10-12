@@ -23,8 +23,10 @@ assert.deepEqual(cleanTemplateDocs(undefined), [])
 
 // --- templateRequiredChecks: ใบวางบิล + ใบแจ้งหนี้ = ช่องเดียว · เรียงตาม AP_DOC_FIELDS ---
 assert.deepEqual(templateRequiredChecks(["billingNote", "receipt", "taxInvoice", "invoice"]), ["invoice", "taxInvoice", "receipt"])
-assert.deepEqual(templateRequiredChecks(["cashBill"]), ["bill"])
-assert.deepEqual(templateRequiredChecks(["cashBill", "deliveryNote"]), ["bill"])
+// บิลเงินสด/ใบส่งของ แยกช่องกันแล้ว 12/10/2026 — ชี้ช่องติ๊กของตัวเองคนละช่อง
+assert.deepEqual(templateRequiredChecks(["cashBill"]), ["cashBill"])
+assert.deepEqual(templateRequiredChecks(["cashBill", "deliveryNote"]), ["cashBill", "deliveryNote"])
+assert.deepEqual(templateRequiredChecks(["deliveryNote"]), ["deliveryNote"])
 assert.deepEqual(templateRequiredChecks([]), [])
 assert.deepEqual(templateRequiredChecks(undefined), [])
 
@@ -45,7 +47,9 @@ assert.ok(templateMissing(pongchom, partial).length > 0, "แต่แม่แ�
 
 // --- templateDocsForCheck: ช่องรวมบอกได้ว่าผู้ขายส่งชนิดไหน ---
 assert.deepEqual(templateDocsForCheck(["billingNote", "invoice"], "invoice"), ["ใบวางบิล", "ใบแจ้งหนี้"])
-assert.deepEqual(templateDocsForCheck(["cashBill"], "bill"), ["บิลเงินสด"])
+assert.deepEqual(templateDocsForCheck(["cashBill"], "cashBill"), ["บิลเงินสด"])
+assert.deepEqual(templateDocsForCheck(["deliveryNote"], "deliveryNote"), ["ใบส่งของ"])
+assert.deepEqual(templateDocsForCheck(["cashBill"], "deliveryNote"), [], "ติ๊กบิลเงินสดไม่ลามไปใบส่งของ")
 assert.deepEqual(templateDocsForCheck(["debtAck"], "debtAck"), ["ใบรับสภาพหนี้"], "ชนิดที่ไม่มีใน Excel ใช้ label")
 assert.deepEqual(templateDocsForCheck(["cashBill"], "invoice"), [])
 

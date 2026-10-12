@@ -98,6 +98,8 @@ function readWorkbook(file: string, recs: Map<string, Rec>, stat: Record<string,
       if (!DD_RE.test(code)) { if (code) stat.skippedNonDd++; continue }
       stat.rows++
       const r = recs.get(code) ?? { docs: new Set<ApDocKey>(), sentType: "", sentDate: "", sendDocDate: "", notes: new Set<string>(), srcs: [], sentConflict: false }
+      // คอลัมน์ "บิล" ของไฟล์เก่า = ช่องรวม bill (กลายเป็นช่องเก่าตอนแยกบิลเงินสด/ใบส่งของ 12/10/2026)
+      // ของเก่าคงไว้ที่คีย์เดิมถูกแล้ว — ไฟล์ไม่ได้บอกว่าแถวไหนเป็นบิลเงินสดหรือใบส่งของ
       for (const k of ["bill", "invoice", "taxInvoice", "receipt", "billingNote"] as const) {
         if (ticked(row[L[k]])) r.docs.add(k as ApDocKey)
       }

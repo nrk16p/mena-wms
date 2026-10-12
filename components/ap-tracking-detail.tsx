@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
-  AP_DOC_FIELDS, AP_FILES_MAX, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX,
+  AP_DOC_FIELDS, AP_FILES_MAX, AP_LEGACY_DOC_FIELDS, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX, AP_TICK_FIELDS,
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc, isWeekendISO,
   billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
   apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline, apVatAmount,
@@ -53,11 +53,11 @@ const TABS: { key: Tab; label: string }[] = [
 
 // ค่าตั้งต้นของช่องติ๊ก — ใช้ docChecked เพื่อให้ช่องรวม "ใบแจ้งหนี้/ใบวางบิล" ขึ้นถูกกับใบเก่า
 const draftOf = (docs: ApDocs): Draft =>
-  Object.fromEntries(AP_DOC_FIELDS.map((f) => [f.key, docChecked(docs, f.key)])) as Draft
+  Object.fromEntries(AP_TICK_FIELDS.map((f) => [f.key, docChecked(docs, f.key)])) as Draft
 
 // draft (แค่ true/false) → รูปร่าง ApDocs เพื่อส่งให้กติกาตัวเดียวกับที่เซิร์ฟเวอร์ใช้ตรวจครบชุด
 const docsOf = (d: Draft): ApDocs =>
-  Object.fromEntries(AP_DOC_FIELDS.map((f) => [f.key, { checked: d[f.key], by: "", at: "" }])) as ApDocs
+  Object.fromEntries(AP_TICK_FIELDS.map((f) => [f.key, { checked: d[f.key], by: "", at: "" }])) as ApDocs
 
 // ประวัติ 1 บรรทัดอ้างถึงอะไร — ช่องเอกสาร (รวมช่องเก่าที่ถอดออกแล้ว), รายการสินค้า, หรือไม่มีหัวข้อ
 function logSubject(field?: string): string {
@@ -158,7 +158,7 @@ export function ApTrackingDetail({
   const [saving, setSaving]     = useState(false)
 
   const changed = useMemo(
-    () => AP_DOC_FIELDS.map((f) => f.key).filter((k) => draft[k] !== docChecked(saved, k)),
+    () => AP_TICK_FIELDS.map((f) => f.key).filter((k) => draft[k] !== docChecked(saved, k)),
     [draft, saved],
   )
   // เทียบหลังทำความสะอาด — พิมพ์แล้วลบจนเหลือค่าเดิมต้องไม่นับว่าแก้ · นับแยกทีละช่อง
@@ -678,6 +678,29 @@ export function ApTrackingDetail({
                     )
                   })}
                 </div>
+                {/* ช่องเก่า "บิล/ใบส่งของ" (ก่อนแยกบิลเงินสด/ใบส่งของ 12/10/2026) — โชว์เฉพาะใบที่เคยติ๊กไว้
+                    หรือมีไฟล์แนบชนิดนั้น · ยังนับว่าครบชุด เอาติ๊กออกได้เมื่อย้ายไปช่องใหม่เรียบร้อยแล้ว */}
+                {AP_LEGACY_DOC_FIELDS.filter((f) => docChecked(saved, f.key) || (fileCounts[f.key] ?? 0) > 0).map((f) => {
+                  const n = fileCounts[f.key] ?? 0
+                  const mark = saved[f.key]
+                  return (
+                    <label key={f.key} className="flex cursor-pointer select-none items-center gap-2 rounded-lg border border-dashed border-gray-200 px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
+                      <input type="checkbox" checked={draft[f.key]}
+                        onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.checked }))}
+                        className="h-4 w-4 cursor-pointer accent-gray-400" />
+                      <span className={draft[f.key] !== docChecked(saved, f.key) ? "font-medium text-amber-700 dark:text-amber-400" : "text-gray-500"}>
+                        {f.label}
+                        <span className="block text-[10px] font-normal text-gray-400">ช่องเก่า — ติ๊กช่องบิลเงินสด/ใบส่งของให้ตรงจริง แล้วเอาติ๊กนี้ออก</span>
+                      </span>
+                      {n > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400" title={`มีไฟล์แนบ ${n} ไฟล์`}>📎{n}</span>}
+                      {mark?.checked && mark.by && (
+                        <span className="ml-auto text-[10px] text-gray-400" title={`${mark.by} · ${thaiDateTime(mark.at || "")}`}>
+                          {mark.by.split(" ")[0]}
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
                 <div className="text-xs">
                   {isDocSetComplete(draftDocs)
                     ? <span className="text-emerald-700 dark:text-emerald-400">ครบชุดแล้ว — ส่งบัญชีได้</span>
@@ -753,6 +776,9 @@ export function ApTrackingDetail({
                           className={`rounded-lg border bg-white px-2 py-1 dark:bg-white/5 ${f.docType ? "border-gray-200/80 dark:border-white/10" : "border-amber-400 text-amber-700 dark:text-amber-400"}`}>
                           <option value="">— เลือกประเภท —</option>
                           {AP_DOC_FIELDS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+                          {/* ช่องเก่า — มีไว้ให้ไฟล์ที่เคยเลือกชนิดเก่าไว้ยังโชว์ชนิดถูก (เลือกใหม่ได้ด้วย) */}
+                          {AP_LEGACY_DOC_FIELDS.filter((d) => files.some((x) => x.docType === d.key))
+                            .map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
                         </select>
                       </div>
                     ))}

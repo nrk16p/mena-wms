@@ -3,7 +3,7 @@
 import { Fragment } from "react"
 import { Paperclip } from "lucide-react"
 import {
-  AP_DOC_FIELDS, apPaidConfirmed, apUrgency, atmsPoUrl, docChecked, isDocSetComplete, thaiDate, thaiDateTime, thaiDow, todayICT,
+  AP_DOC_FIELDS, AP_LEGACY_DOC_FIELDS, apPaidConfirmed, apUrgency, atmsPoUrl, docChecked, isDocSetComplete, thaiDate, thaiDateTime, thaiDow, todayICT,
 } from "@/lib/ap-tracking"
 import { NUM, URGENCY, baht, mitr } from "@/components/ap-style"
 import type { ApRow } from "@/components/ap-types"
@@ -19,9 +19,10 @@ function selectableReason(r: ApRow, mode: SelectMode): string {
   return ""
 }
 
-// จุด 5 จุดแทนช่องติ๊ก 5 คอลัมน์ — กวาดสายตาแถวเดียวก็รู้ว่าขาดกี่ใบ รายละเอียดอยู่ใน tooltip
+// จุดหนึ่งจุดต่อช่องติ๊กหนึ่งช่อง — กวาดสายตาแถวเดียวก็รู้ว่าขาดกี่ใบ รายละเอียดอยู่ใน tooltip
+// tooltip นับช่องเก่าที่ยังติ๊กค้างด้วย (เช่น "บิล/ใบส่งของ" ก่อนแยกบิลเงินสด/ใบส่งของ) แต่ไม่ขึ้นจุดให้
 function DocDots({ row }: { row: ApRow }) {
-  const on = AP_DOC_FIELDS.filter((f) => docChecked(row.docs, f.key))
+  const on = [...AP_DOC_FIELDS, ...AP_LEGACY_DOC_FIELDS].filter((f) => docChecked(row.docs, f.key))
   const title = on.length ? `มีแล้ว: ${on.map((f) => f.label).join(", ")}` : "ยังไม่มีเอกสารการเงินสักใบ"
   return (
     <span className="inline-flex items-center gap-1" title={title}>
