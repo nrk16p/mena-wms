@@ -23,13 +23,20 @@ assert.equal(short.payDate, "2026-10-01", "7D ส่ง จ. 21/09 ทันเ�
 assert.equal(applyManualPayDate(short, "2026-10-01").manual, undefined, "เลือกตรงกับที่ระบบคิด = ไม่ใช่เลือกเอง")
 assert.equal(applyManualPayDate(short, "2026-10-08").manual, true)
 
-// ตรวจวันที่: ต้องเป็นวันที่จริง และไม่ย้อนหลังกว่าวันกดผ่าน (วันเดียวกันได้)
-assert.equal(apManualPayDateError("2026-11-12", "2026-09-22"), "")
-assert.equal(apManualPayDateError("2026-09-22", "2026-09-22"), "", "จ่ายวันกดผ่านเลยได้")
-assert.match(apManualPayDateError("2026-09-21", "2026-09-22"), /ย้อนหลัง/)
-assert.match(apManualPayDateError("2026-02-31", "2026-01-01"), /ไม่ใช่วันที่/)
-assert.match(apManualPayDateError("12/11/2026", "2026-01-01"), /ไม่ใช่วันที่/)
-assert.match(apManualPayDateError("", "2026-01-01"), /ไม่ใช่วันที่/)
+// ตรวจวันที่: ขอแค่เป็นวันที่จริง — ย้อนหลังได้ไม่จำกัด (ผู้ใช้ขอ 12/10/2026 โอนจริงไปก่อนแล้วค่อยมากด)
+assert.equal(apManualPayDateError("2026-11-12"), "")
+assert.equal(apManualPayDateError("2026-09-22"), "", "จ่ายวันกดผ่านเลยได้")
+assert.equal(apManualPayDateError("2026-09-21"), "", "ย้อนหลังกว่าวันกดผ่านได้ (เตือนใน UI เท่านั้น)")
+assert.equal(apManualPayDateError("2025-01-05"), "", "ย้อนข้ามปีก็ได้")
+assert.match(apManualPayDateError("2026-02-31"), /ไม่ใช่วันที่/)
+assert.match(apManualPayDateError("12/11/2026"), /ไม่ใช่วันที่/)
+assert.match(apManualPayDateError(""), /ไม่ใช่วันที่/)
+
+// เลือกย้อนหลัง → ยังทับวันระบบได้ตามปกติ และติด manual
+const back = applyManualPayDate(sys, "2026-09-10")
+assert.equal(back.payDate, "2026-09-10")
+assert.equal(back.manual, true)
+assert.equal(back.systemPayDate, "2026-11-05")
 
 // เสาร์-อาทิตย์ (เตือนเฉย ๆ)
 assert.equal(isWeekendISO("2026-11-07"), true, "ส. 7 พ.ย. 2026")

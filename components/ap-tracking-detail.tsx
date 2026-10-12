@@ -1054,7 +1054,8 @@ export function ApTrackingDetail({
           // วันจ่ายที่จะใช้จริง: ที่บัญชีเลือกเอง (ถ้าต่างจากที่ระบบคิด) ไม่งั้นวันที่ระบบคิด
           const manual = !!preview && !!passConfirm.manualDate && passConfirm.manualDate !== preview.payDate
           const effectivePayDate = manual ? passConfirm.manualDate : preview?.payDate ?? ""
-          const manualTooEarly = manual && passConfirm.manualDate < todayICT()
+          // ย้อนหลังได้ (ผู้ใช้ขอ 12/10/2026 — ของจริงโอนไปก่อนแล้วค่อยมากดในระบบ) แค่เตือน ไม่บล็อก
+          const manualBackdated = manual && passConfirm.manualDate < todayICT()
           return (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-4"
               onClick={() => setPassConfirm(null)}>
@@ -1130,7 +1131,7 @@ export function ApTrackingDetail({
                             className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:bg-transparent dark:text-emerald-300">
                             📅 เปลี่ยนวัน
                           </button>
-                          <input ref={payPickRef} type="date" min={todayICT()} value={effectivePayDate} aria-label="เลือกวันจ่าย"
+                          <input ref={payPickRef} type="date" value={effectivePayDate} aria-label="เลือกวันจ่าย"
                             onChange={(e) => setPassConfirm((p) => p && { ...p, manualDate: e.target.value === preview.payDate ? "" : e.target.value })}
                             className="pointer-events-none absolute inset-0 h-full w-full opacity-0" tabIndex={-1} />
                         </span>
@@ -1145,8 +1146,8 @@ export function ApTrackingDetail({
                       {manual && isWeekendISO(effectivePayDate) && (
                         <div className="text-[11px] text-amber-600">⚠️ วันที่เลือกตรงวันเสาร์/อาทิตย์</div>
                       )}
-                      {manualTooEarly && (
-                        <div className="text-[11px] text-rose-600">วันที่เลือกย้อนหลังกว่าวันนี้ — เลือกใหม่</div>
+                      {manualBackdated && (
+                        <div className="text-[11px] text-amber-600">⚠️ วันที่เลือกย้อนหลังกว่าวันนี้ — ใช้ได้ถ้าโอนไปแล้วจริง</div>
                       )}
                     </div>
                   ) : (
@@ -1159,7 +1160,7 @@ export function ApTrackingDetail({
                     className="rounded-lg border border-gray-200/80 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
                     ยกเลิก
                   </button>
-                  <button disabled={!preview || saving || manualTooEarly}
+                  <button disabled={!preview || saving}
                     onClick={() => {
                       const o = { payType: passConfirm.payType, creditTerm: passConfirm.creditTerm, payDate: passConfirm.payDate || thuChoices.def, manualDate: manual ? passConfirm.manualDate : "" }
                       if (passConfirm.mode === "setPay") void setPayNow(o)

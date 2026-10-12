@@ -133,16 +133,20 @@ async function payOnPass(o: { client: Awaited<typeof clientPromise>; depositCode
     )
   }
   // บัญชีเลือกวันจ่ายเองในปฏิทิน (ได้ทุกแบบ — ผู้ใช้ขอ 22/09/2026) ทับวันที่กติกาคิด
-  // ตรวจกับวันกดผ่านตามนาฬิกาเซิร์ฟเวอร์ · วันที่ระบบคิดเก็บคู่ไว้ที่ systemPayDate
+  // ย้อนหลังกว่าวันกดผ่านได้ (ผู้ใช้ขอ 12/10/2026) · วันที่ระบบคิดเก็บคู่ไว้ที่ systemPayDate
   const manualPayDate = s(body.payDateManual)
   if (manualPayDate) {
-    const err = apManualPayDateError(manualPayDate, ictDate(at))
+    const err = apManualPayDateError(manualPayDate)
     if (err) return NextResponse.json({ error: err }, { status: 400 })
   }
   const finalPay = applyManualPayDate(schedule, manualPayDate || undefined)
+  // ย้อนหลัง = โอนไปก่อนแล้วค่อยมากดในระบบ — ติดไว้ใน log ให้ย้อนดูได้ว่าใบนี้กดทีหลัง
+  const backdated = !!finalPay.manual && finalPay.payDate < ictDate(at)
   // เก็บทั้งผลลัพธ์และตัวตั้ง (basis) — ย้อนตรวจได้เสมอว่าเลขนี้คิดจากอะไร
   const pay = { ...finalPay, basis: { passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType) }, by, at }
-  const manualNote = finalPay.manual ? ` · บัญชีเลือกวันจ่ายเอง (ระบบคิด ${thaiDate(finalPay.systemPayDate ?? "")})` : ""
+  const manualNote = finalPay.manual
+    ? ` · บัญชีเลือกวันจ่ายเอง${backdated ? " ย้อนหลัง" : ""} (ระบบคิด ${thaiDate(finalPay.systemPayDate ?? "")})`
+    : ""
   log.push({
     action: "กำหนดจ่ายเงิน", field: "pay",
     detail: (payType === "ตามรอบ" && finalPay.cutoff
