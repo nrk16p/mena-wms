@@ -124,12 +124,12 @@ function ApDepositRow({
         {r.note && <div className="mt-0.5 truncate text-[11px] italic text-gray-400" title={r.note}>“{r.note}”</div>}
       </td>
 
-      {/* ยอดที่โชว์ = รวมสุทธิ (ที่ต้องจ่ายจริง) · ใบที่ PO คิด VAT แยก มีบรรทัดยอดก่อน VAT กำกับไว้
-          ให้ย้อนตรวจกับใบ DD ใน ATMS ได้ (ATMS โชว์ยอดก่อน VAT) — ดู lib/ap-vat.ts */}
+      {/* ยอดที่โชว์ = "รวมสุทธิ" ที่ ATMS คิดไว้ในหน้าใบ DD · ใบที่มีภาษีมีบรรทัดยอดก่อนภาษี
+          กำกับไว้ให้ย้อนตรวจกับหน้า DD ได้ทั้งสองบรรทัด */}
       <td className={`px-3 py-3 text-right align-top font-medium ${NUM}`}>
         {baht(r.netAmount)}
         {r.vat && (
-          <div className="mt-0.5 text-[11px] font-normal text-gray-400" title="ยอดก่อน VAT ตามใบ DD ใน ATMS (รวมสุทธิ = ยอดนี้ + VAT 7%)">
+          <div className="mt-0.5 text-[11px] font-normal text-gray-400" title={`ยอดก่อนภาษีตามหน้าใบ DD ใน ATMS (ภาษี ${r.vatRate || "?"}% → รวมสุทธิ ${baht(r.netAmount)})`}>
             ก่อน VAT {baht(r.amount)}
           </div>
         )}

@@ -603,31 +603,50 @@ export function parseAmount(s: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
-// ── VAT / รวมสุทธิ ───────────────────────────────────────────────────────────
-// ยอดหัวใบ DD จาก ATMS (deposit_header.amount) = ผลรวมรายการสินค้า = ยอด "ก่อน VAT"
-// ยอดที่ต้องจ่ายจริง (รวมสุทธิ) = amount × factor ของ PO ใบนั้น · ที่มาของกติกาและตัวเลขที่วัดได้
-// อยู่ที่ lib/ap-vat.ts (ไฟล์นี้เป็น logic ล้วน ไม่แตะฐานข้อมูล)
-export const AP_VAT_RATE = 0.07
-
-const AMOUNT_EPS = 0.02      // บาท — เทียบยอดที่ ATMS ปัดเศษมาแล้ว
-
-/** factor ของ PO จากยอดรวม PO เทียบผลรวมรายการ: 1.07 เมื่อ VAT แยก · 1 เมื่อรวมมาแล้ว/เพี้ยน */
-export function apVatFactor(poTotal: number, poSubtotal: number): number {
-  if (!(poTotal > 0) || !(poSubtotal > 0)) return 1
-  if (Math.abs(poTotal - poSubtotal) <= AMOUNT_EPS) return 1
-  if (Math.abs(poTotal - poSubtotal * (1 + AP_VAT_RATE)) <= AMOUNT_EPS) return 1 + AP_VAT_RATE
-  return 1
+// ── รวมสุทธิของใบ DD ─────────────────────────────────────────────────────────
+// ยอดที่ต้องจ่าย = "รวมสุทธิ" ที่ ATMS คิดไว้แล้วในหน้าใบ DD — scraper เก็บลง
+// atms.deposit_header.amount_net (+ grand_total / vat_rate / vat_amount) ตั้งแต่ 13/10/2026
+// **ห้ามคำนวณ VAT เองทุกกรณี** (ผู้ใช้สั่ง 13/10/2026: ใช้ข้อมูลจริงรายใบเท่านั้น)
+//
+// ทำไม: อัตราภาษีเป็นของ "แต่ละใบ DD" ไม่ใช่ของใบ PO และไม่ใช่ของผู้ขาย — วัดจริงกับหน้า ATMS
+//   LBDD26100363 ผงซักฟอก → ภาษี 7% รวมสุทธิ 428.00 (PO รวม 428 ตรงกัน)
+//   LBDD26090768 ค่าขนส่ง  → ภาษี 0% รวมสุทธิ 2,000.00 (PO รวม 2,140 ไม่ตรง)
+//   ผู้ขายรายเดียวกัน (ศรีเต็งกลการ, supplier_master.vatRate = "7") ออกได้ทั้ง 7% และ 0%
+// เคยเดาจาก factor ของ PO (08/10/2026) แล้วผิดกับใบค่าขนส่ง/ค่าแรง · เคยถอด VAT ทิ้งทั้งหมด
+// (13/10/2026 be92a35) แล้วผิดกับใบที่มีภาษีจริง — ทั้งสองทางเลิกใช้แล้ว
+export type ApDepositAmounts = {
+  amount?: unknown        // คอลัมน์ "รวม" จากหน้า index = ยอดก่อนภาษี
+  amount_net?: unknown    // "รวมสุทธิ" จากหน้าใบ DD = ยอดที่ต้องจ่าย
+  grand_total?: unknown
+  vat_amount?: unknown
+  vat_rate?: unknown
+  // หัวใบมาจาก Mongo ทั้งก้อน (WithId<Document>) — index signature ไว้รับของจริงได้ตรง ๆ
+  // โดยไม่ต้อง cast ที่ทุกจุดเรียก (และปิด weak-type check ที่ฟ้องเพราะฟิลด์เป็น optional หมด)
+  [k: string]: unknown
 }
 
-/** รวมสุทธิของใบ DD — vat = ใบนี้อยู่บน PO ที่คิด VAT แยก (ดู getVatPoCodes) */
-export function apNetAmount(amount: number, vat: boolean): number {
-  if (!vat) return round2(amount)
-  return round2(amount * (1 + AP_VAT_RATE))
+/** ยอดที่ต้องจ่ายของใบ DD · ใบที่ยังไม่ถูก sync ยอดสุทธิ ถอยไปใช้ amount (ยอดก่อนภาษี)
+ *  ไม่ใช่ 0 — ยอดหายทั้งใบอันตรายกว่ายอดขาด VAT และ scraper กำลังไล่เติมอยู่ */
+export function apNetOf(h: ApDepositAmounts | null | undefined): number {
+  const net = parseAmount(h?.amount_net)
+  return net > 0 ? net : round2(parseAmount(h?.amount))
 }
 
-/** VAT ที่บวกเพิ่มของใบ DD — รวมสุทธิ ลบ ยอดก่อน VAT (ปัดแล้วทั้งคู่ ผลต่างจึงลงตัวกับที่โชว์) */
-export function apVatAmount(amount: number, vat: boolean): number {
-  return vat ? round2(apNetAmount(amount, vat) - round2(amount)) : 0
+/** ยอดก่อนภาษีของใบ DD — ใช้ grand_total จากหน้าใบ DD ถ้ามี ไม่มีก็ amount จากหน้า index */
+export function apGrossOf(h: ApDepositAmounts | null | undefined): number {
+  const g = parseAmount(h?.grand_total)
+  return g > 0 ? g : round2(parseAmount(h?.amount))
+}
+
+/** VAT ของใบ DD ตามที่ ATMS คิด (บาท) */
+export function apVatOf(h: ApDepositAmounts | null | undefined): number {
+  return round2(parseAmount(h?.vat_amount))
+}
+
+/** อัตราภาษีของใบ DD ตามที่ ATMS โชว์ ("7" / "0") — "" เมื่อยังไม่ถูก sync */
+export function apVatRateOf(h: ApDepositAmounts | null | undefined): string {
+  const r = String(h?.vat_rate ?? "").trim()
+  return r && Number.isFinite(Number(r)) ? r : ""
 }
 
 // คำนวณด้วย UTC เสมอ กัน timezone เลื่อนวัน
@@ -1115,16 +1134,17 @@ export function apDdSummaryText(items: ApDdSummaryItem[], todayISO: string): str
   return lines.join("\n")
 }
 
-/** ยอดรายบรรทัดของใบปะหน้าเมื่อใบนั้น PO คิด VAT แยก — ยุบ VAT เข้ายอดสินค้าแทนการต่อบรรทัด
- *  "VAT 7%" (ผู้ใช้สั่ง 12/10/2026: ช่องชื่อสินค้าต้องเป็นสินค้าจริงเท่านั้น)
- *  เศษจากการปัดรายบรรทัดถูกกลบที่บรรทัดสุดท้าย ผลรวมของใบจึงเท่ากับ apNetAmount() พอดี
- *  ถ้ายอดรายชิ้นรวมไม่เท่ายอดหัวใบ (ข้อมูล ATMS ไม่ครบ) จะไม่กลบ — ห้ามปั้นยอดที่ไม่มีที่มา */
-export function apCoverLineAmounts(itemTotals: number[], headAmount: number, vat: boolean): number[] {
+/** ยอดรายบรรทัดของใบปะหน้าเมื่อใบนั้นมีภาษี — ยุบ VAT เข้ายอดสินค้าแทนการต่อบรรทัด "VAT 7%"
+ *  (ผู้ใช้สั่ง 12/10/2026: ช่องชื่อสินค้าต้องเป็นสินค้าจริงเท่านั้น)
+ *  ปันส่วนด้วยอัตราจริงของใบ (รวมสุทธิ ÷ ยอดก่อนภาษี) ไม่ใช่ 1.07 ที่เดาไว้ · เศษจากการปัด
+ *  รายบรรทัดถูกกลบที่บรรทัดสุดท้าย ผลรวมของใบจึงเท่ากับรวมสุทธิของ ATMS พอดี
+ *  ถ้ายอดรายชิ้นรวมไม่เท่ายอดก่อนภาษีของหัวใบ (ข้อมูล ATMS ไม่ครบ) จะไม่กลบ — ห้ามปั้นยอด */
+export function apCoverLineAmounts(itemTotals: number[], gross: number, net: number): number[] {
   const lines = itemTotals.map((t) => round2(t))
-  if (!vat || !lines.length) return lines
-  const scaled = lines.map((t) => round2(t * (1 + AP_VAT_RATE)))
-  if (round2(lines.reduce((n, t) => n + t, 0)) !== round2(headAmount)) return scaled
-  const diff = round2(apNetAmount(headAmount, true) - round2(scaled.reduce((n, t) => n + t, 0)))
+  if (!lines.length || !(gross > 0) || round2(net) === round2(gross)) return lines
+  const scaled = lines.map((t) => round2((t * net) / gross))
+  if (round2(lines.reduce((n, t) => n + t, 0)) !== round2(gross)) return scaled
+  const diff = round2(round2(net) - round2(scaled.reduce((n, t) => n + t, 0)))
   if (diff) scaled[scaled.length - 1] = round2(scaled[scaled.length - 1] + diff)
   return scaled
 }

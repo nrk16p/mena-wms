@@ -13,8 +13,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { apNetAmount, apStage, cleanDocNos, inApScope, parseAmount, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
-import { getVatPoCodes } from "@/lib/ap-vat"
+import { apNetOf, apStage, cleanDocNos, inApScope, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
 import { AP_PAYMENT_REPORT_MAX } from "@/lib/ap-payment-report-import"
 import { canImportPayment } from "@/lib/roles"
 import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
@@ -118,10 +117,9 @@ export async function POST(req: NextRequest) {
     : []
   for (const t of more) have.set(s(t.depositCode), t)
   const heads = await atms.collection("deposit_header").find({ deposit_code: { $in: codes } },
-    { projection: { _id: 0, deposit_code: 1, supplier: 1, amount: 1, warehouse: 1, received_at: 1, purchase_order: 1 } }).maxTimeMS(20_000).toArray() as Doc[]
+    { projection: { _id: 0, deposit_code: 1, supplier: 1, amount: 1, amount_net: 1, grand_total: 1, vat_amount: 1, vat_rate: 1, warehouse: 1, received_at: 1, purchase_order: 1 } }).maxTimeMS(20_000).toArray() as Doc[]
   const headBy = new Map(heads.map((h) => [s(h.deposit_code), h]))
-  // ยอดหัวใบที่เอาไปเทียบกับยอดในไฟล์การเงิน ต้องเป็นรวมสุทธิ — การเงินโอนรวม VAT (ดู lib/ap-vat.ts)
-  const vatPos = await getVatPoCodes()
+  // ยอดหัวใบที่เอาไปเทียบกับยอดในไฟล์การเงิน ต้องเป็นรวมสุทธิ — การเงินโอนรวม VAT
 
   const results: PaymentResult[] = codes.map((code) => {
     const a = perDd.get(code)!
@@ -132,7 +130,7 @@ export async function POST(req: NextRequest) {
     const pvs = [...a.pvs].sort()
     const base = {
       depositCode: code, supplier: s(head?.supplier), warehouse: s(head?.warehouse),
-      amount: apNetAmount(parseAmount(head?.amount), vatPos.has(s(head?.purchase_order))),
+      amount: apNetOf(head),
       receivedAt: parseDmy(head?.received_at), pvs, newPvs: pvs.filter((p) => !known.has(p)),
       payDate: a.date, payAmount: a.payAmount, lapos: [...a.lapos].sort(), sharedWith: a.shared.size,
     }

@@ -7,10 +7,9 @@ import {
   AP_STAGES, compactDocNos, docNosText, ictDate,
   apSinceOf, inApScope, monthInApScope, monthsOfYear, addDays, inDateRange,
   parseDdList, AP_DD_SUMMARY_MAX,
-  apNetAmount,
+  apNetOf, apGrossOf, apVatOf, apVatRateOf,
   type ApDocs, type ApStage, type ApStatus,
 } from "@/lib/ap-tracking"
-import { getVatPoCodes } from "@/lib/ap-vat"
 
 export const dynamic = "force-dynamic"
 
@@ -178,7 +177,7 @@ export async function GET(req: NextRequest) {
       { $unset: "_sortDate" },
       { $project: {
         _id: 0, deposit_id: 1, deposit_code: 1, warehouse: 1, purchase_order: 1, purchase_order_id: 1,
-        supplier: 1, supplier_ref_no: 1, amount: 1, created_at: 1, received_at: 1,
+        supplier: 1, supplier_ref_no: 1, amount: 1, amount_net: 1, grand_total: 1, vat_amount: 1, vat_rate: 1, created_at: 1, received_at: 1,
       } },
     ]).toArray() as Doc[]
 
@@ -187,13 +186,12 @@ export async function GET(req: NextRequest) {
     const supNames = [...new Set(heads.map((h) => s(h.supplier)).filter(Boolean))]
 
     // 2) overlay: tracking + เครดิตเทอม + ข้อมูล PO (ทุกอันจำกัดด้วย $in จากชุดข้างบน)
-    // vatPos = รหัส PO ที่คิด VAT แยก — ใช้คิด "รวมสุทธิ" ของแต่ละใบ (ดู lib/ap-vat.ts)
+    // ยอดสุทธิ/ภาษีอ่านตรงจากหัวใบ (ATMS คิดมาแล้วรายใบ) — ไม่ต้องไปถามใบ PO อีก
     //          ก้อนเดียวทั้งระบบ แคชร่วมกับก้อน atms อื่น ไม่ใช่คิวรีต่อเดือน/ต่อใบ
-    const [tracks, sups, pos, vatPos] = await Promise.all([
+    const [tracks, sups, pos] = await Promise.all([
       codes.length ? md.collection("ap_tracking").find({ depositCode: { $in: codes } }, { projection: { _id: 0, log: 0 } }).toArray() as Promise<Doc[]> : [],
       supNames.length ? md.collection("ap_supplier").find({ name: { $in: supNames } }, { projection: { _id: 0, name: 1, creditTerm: 1, override: 1, atmsTerm: 1 } }).toArray() as Promise<Doc[]> : [],
       poCodes.length ? atms.collection("purchase_orders").find({ "รหัส": { $in: poCodes } }, { projection: { _id: 0, "รหัส": 1, "รวม": 1, "กำหนดส่งสินค้า": 1, "สถานะการรับสินค้า": 1, "ยานพาหนะ": 1, "ใบขอสั่งซื้อ (PR)": 1, "ap term": 1 } }).toArray() as Promise<Doc[]> : [],
-      getVatPoCodes(),
     ])
     // หมายเหตุอยู่บน PR (ATMS ไม่ใส่มากับ PO/DD) — เชื่อมอีกฮ็อป: DD → PO → PR
     // ในหมายเหตุมีเลขใบแจ้งซ่อม/ทะเบียน/ชื่อช่าง ซึ่งคือสิ่งที่คนใช้ค้นหางานจริง
@@ -241,7 +239,7 @@ export async function GET(req: NextRequest) {
       // เทอมของใบนี้: override ของคน > "ap term" บน PO ใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
       const { creditTerm, termSource } = resolveCreditTerm(sup?.override ?? "", s(po?.["ap term"]), sup?.master ?? "")
       const dueDate    = dueDateOf(receivedAt, creditTerm)
-      const vat        = vatPos.has(s(h.purchase_order))
+      const vat        = apVatOf(h) > 0
       return {
         depositCode: code,
         depositId:   typeof h.deposit_id === "number" ? h.deposit_id : null,
@@ -251,10 +249,11 @@ export async function GET(req: NextRequest) {
         purchaseOrder: s(h.purchase_order),
         supplier:    s(h.supplier),
         supplierRefNo: s(h.supplier_ref_no),
-        amount:      parseAmount(h.amount),
-        // รวมสุทธิ = ยอดที่ต้องจ่ายจริง · vat = ใบนี้อยู่บน PO ที่คิด VAT แยก (ดู lib/ap-vat.ts)
+        amount:      apGrossOf(h),
+        // รวมสุทธิ = ยอดที่ต้องจ่ายจริง ตามที่ ATMS คิดไว้ในหน้าใบ DD · vat = ใบนี้มีภาษี
         // ส่ง netAmount มาด้วยทุกแถวเพื่อให้ตาราง/ยอดรวม/ส่งออก ใช้เลขชุดเดียวกับที่เซิร์ฟเวอร์คิด
-        netAmount:   apNetAmount(parseAmount(h.amount), vat),
+        netAmount:   apNetOf(h),
+        vatRate:     apVatRateOf(h),
         ...(vat ? { vat: true } : {}),
         receivedAt,
         createdAt:   parseDmy(h.created_at),

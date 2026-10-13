@@ -9,7 +9,7 @@ import {
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc, isWeekendISO,
   billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
   AP_LOCKED_MSG, apLockedAfterPass,
-  apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline, apVatAmount,
+  apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
   upcomingPayThursdays,
@@ -494,12 +494,12 @@ export function ApTrackingDetail({
               </div>
             </div>
             <div className="ml-auto text-right">
-              {/* ยอดใหญ่ = รวมสุทธิที่ต้องจ่าย · ใบที่ PO คิด VAT แยก กางให้เห็นว่าคิดมาจากอะไร
-                  (ใบ DD ใน ATMS โชว์ยอดก่อน VAT — ต้องกระทบยอดกันได้) ดู lib/ap-vat.ts */}
+              {/* ยอดใหญ่ = "รวมสุทธิ" ที่ ATMS คิดไว้ในหน้าใบ DD (ไม่ได้คำนวณเอง) · ใบที่มีภาษี
+                  กางให้เห็นว่าคิดมาจากอะไร เทียบกับหน้า DD ใน ATMS ได้ทุกบรรทัด */}
               <div className={`text-xl font-bold ${NUM}`}>{baht(row.netAmount)}</div>
               {row.vat && (
                 <div className={`text-[11px] text-gray-400 ${NUM}`}>
-                  ก่อน VAT {baht(row.amount)} + VAT 7% {baht(apVatAmount(row.amount, true))}
+                  ก่อน VAT {baht(row.amount)} + VAT {row.vatRate || "?"}% {baht(row.netAmount - row.amount)}
                 </div>
               )}
               <div className="text-xs text-gray-400">{row.purchaseOrder || "ไม่มี PO"}</div>

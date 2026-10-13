@@ -13,8 +13,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { apNetAmount, apPaidConfirmed, parseAmount, thaiDate } from "@/lib/ap-tracking"
-import { getVatPoCodes } from "@/lib/ap-vat"
+import { apNetOf, apPaidConfirmed, parseAmount, thaiDate } from "@/lib/ap-tracking"
 import { AP_ROUND_MAX } from "@/lib/ap-round-import"
 import { canImportPayment } from "@/lib/roles"
 import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
@@ -104,12 +103,11 @@ export async function POST(req: NextRequest) {
   const client = await clientPromise
   const atms = client.db("atms")
   const md = writeDb(client)
-  const [heads, tracks, vatPos] = await Promise.all([
+  const [heads, tracks] = await Promise.all([
     atms.collection("deposit_header").find({ deposit_code: { $in: codes } },
-      { projection: { _id: 0, deposit_code: 1, supplier: 1, amount: 1, warehouse: 1, received_at: 1, purchase_order: 1 } }).maxTimeMS(20_000).toArray() as Promise<Doc[]>,
+      { projection: { _id: 0, deposit_code: 1, supplier: 1, amount: 1, amount_net: 1, grand_total: 1, vat_amount: 1, vat_rate: 1, warehouse: 1, received_at: 1, purchase_order: 1 } }).maxTimeMS(20_000).toArray() as Promise<Doc[]>,
     md.collection(COLL).find({ depositCode: { $in: codes } },
       { projection: { _id: 0, depositCode: 1, "review.status": 1, paid: 1, voucherNos: 1 } }).maxTimeMS(20_000).toArray() as Promise<Doc[]>,
-    getVatPoCodes(),
   ])
   const headBy = new Map(heads.map((h) => [s(h.deposit_code), h]))
   const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
@@ -128,8 +126,8 @@ export async function POST(req: NextRequest) {
       continue
     }
     // ยอดหัวใบที่เทียบกับไฟล์รอบโอน = รวมสุทธิ (การเงินโอนรวม VAT) — ไม่งั้นทุกใบที่มี VAT
-    // ขึ้นเตือน "ยอดต่าง" ทั้งที่จ่ายถูกต้อง (ดู lib/ap-vat.ts)
-    const headAmount = apNetAmount(parseAmount(head.amount), vatPos.has(s(head.purchase_order)))
+    // ขึ้นเตือน "ยอดต่าง" ทั้งที่จ่ายถูกต้อง
+    const headAmount = apNetOf(head)
     base.headAmount = headAmount
     const review = s((track?.review as { status?: string } | undefined)?.status)
     const paid = track?.paid as { paymentNos?: string[]; date?: string; source?: string } | undefined

@@ -3,8 +3,7 @@
 // ต้องมี endpoint แยกเพราะตารางหลักไม่แบกรายการสินค้า (โมดัลดึงทีละใบ แต่ export ต้องทีละหลายร้อยใบ)
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { apCoverLineAmounts, apNetAmount, cleanDocNos, parseAmount, parseDmy } from "@/lib/ap-tracking"
-import { getVatPoCodes } from "@/lib/ap-vat"
+import { apCoverLineAmounts, apGrossOf, apNetOf, cleanDocNos, parseAmount, parseDmy } from "@/lib/ap-tracking"
 
 export const dynamic = "force-dynamic"
 
@@ -23,10 +22,10 @@ export async function POST(req: NextRequest) {
   const atms = client.db("atms")
   const heads = await atms.collection("deposit_header")
     .find({ deposit_code: { $in: codes } },
-      { projection: { _id: 0, deposit_id: 1, deposit_code: 1, supplier: 1, received_at: 1, amount: 1, purchase_order: 1 } })
+      { projection: { _id: 0, deposit_id: 1, deposit_code: 1, supplier: 1, received_at: 1, amount: 1, amount_net: 1, grand_total: 1, vat_amount: 1, vat_rate: 1, purchase_order: 1 } })
     .maxTimeMS(30_000).toArray()
   const ids = heads.map((h) => h.deposit_id).filter((x) => typeof x === "number")
-  const [items, tracks, vatPos] = await Promise.all([
+  const [items, tracks] = await Promise.all([
     atms.collection("deposit_items")
       .find({ deposit_id: { $in: ids } }, { projection: { _id: 0, deposit_id: 1, item: 1, total: 1 } })
       .maxTimeMS(30_000).toArray(),
@@ -34,7 +33,6 @@ export async function POST(req: NextRequest) {
       .find({ depositCode: { $in: codes } },
         { projection: { _id: 0, depositCode: 1, voucherNos: 1, billingNoteNos: 1, note: 1 } })
       .maxTimeMS(30_000).toArray(),
-    getVatPoCodes(),
   ])
   const itemsBy = new Map<number, { item: string; total: number }[]>()
   for (const it of items) {
@@ -57,14 +55,13 @@ export async function POST(req: NextRequest) {
         billingNo: cleanDocNos(t?.billingNoteNos).join(", "),
         note: s(t?.note),
       }
-      // ใบที่ PO คิด VAT แยก: ยุบ VAT เข้ายอดรายบรรทัด (ไม่ต่อบรรทัด "VAT 7%" ในช่องชื่อสินค้า
+      // ใบที่มีภาษี: ยุบ VAT เข้ายอดรายบรรทัด (ไม่ต่อบรรทัด "VAT 7%" ในช่องชื่อสินค้า
       // — ผู้ใช้สั่ง 12/10/2026) ยอดรวมท้ายฟอร์มจึงยังเท่ากับรวมสุทธิที่ตั้งเบิกจริง
-      const vat = vatPos.has(s(h.purchase_order))
       const its = itemsBy.get(h.deposit_id as number) ?? []
-      const amounts = apCoverLineAmounts(its.map((it) => it.total), parseAmount(h.amount), vat)
+      const amounts = apCoverLineAmounts(its.map((it) => it.total), apGrossOf(h), apNetOf(h))
       return its.length
         ? its.map((it, i) => ({ ...base, item: it.item, amount: amounts[i] }))
-        : [{ ...base, item: "", amount: apNetAmount(parseAmount(h.amount), vat) }]
+        : [{ ...base, item: "", amount: apNetOf(h) }]
     })
   return NextResponse.json({ rows })
 }

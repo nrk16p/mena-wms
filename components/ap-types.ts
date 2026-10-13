@@ -29,10 +29,10 @@ export type ApRow = {
   depositCode: string; depositId: number | null; warehouse: string
   poId?: number          // id ภายในของ PO ใน ATMS — ไว้ทำลิงก์ (มีเฉพาะแถวที่ ATMS ผูก PO ไว้)
   purchaseOrder: string; supplier: string; supplierRefNo: string
-  // amount = ยอดหัวใบจาก ATMS (ผลรวมรายการสินค้า = ก่อน VAT) · netAmount = รวมสุทธิที่ต้องจ่ายจริง
-  // vat = ใบนี้อยู่บน PO ที่คิด VAT แยก (ส่งมาเฉพาะใบที่มี VAT — ไม่แบกคีย์ false ทั้งตาราง)
-  // ยอดที่โชว์/รวม/ส่งออก ใช้ netAmount เสมอ · amount เก็บไว้ให้ย้อนตรวจกับ ATMS (ดู lib/ap-vat.ts)
-  amount: number; netAmount: number; vat?: boolean
+  // ยอดที่โชว์/รวม/ส่งออก ใช้ netAmount เสมอ = "รวมสุทธิ" ที่ ATMS คิดไว้ในหน้าใบ DD
+  // amount = ยอดก่อนภาษีของใบเดียวกัน (grand total) · vat = ใบนี้มีภาษี (ส่งมาเฉพาะใบที่มี
+  // — ไม่แบกคีย์ false ทั้งตาราง) · vatRate = อัตราที่ ATMS โชว์ ("7"/"0"/"" เมื่อยังไม่ sync)
+  amount: number; netAmount: number; vat?: boolean; vatRate?: string
   receivedAt: string; createdAt: string
   creditTerm: string; dueDate: string; overdue: number
   // เทอมนี้มาจากไหน — "override" คนตั้งเอง · "po" จาก ap term บน PO · "supplier" จาก master ซัพพลายเออร์

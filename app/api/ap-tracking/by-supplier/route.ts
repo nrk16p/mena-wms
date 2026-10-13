@@ -10,11 +10,10 @@
 import { NextResponse, type NextRequest } from "next/server"
 import clientPromise from "@/lib/mongo"
 import {
-  AP_GO_LIVE, aggregateSupplierYear, apNetAmount, apStage, inApScope, parseAmount, parseDmy, todayICT,
+  AP_GO_LIVE, aggregateSupplierYear, apNetOf, apStage, inApScope, parseDmy, todayICT,
   type ApDocs, type ApSupplierYearInput,
 } from "@/lib/ap-tracking"
 import { CACHE_TAGS, sharedCache } from "@/lib/shared-cache"
-import { getVatPoCodes } from "@/lib/ap-vat"
 
 export const dynamic = "force-dynamic"
 
@@ -59,7 +58,7 @@ async function loadSupplierYear(year: string, warehouse: string) {
   if (warehouse) match.warehouse = warehouse
 
   const heads = await atms.collection("deposit_header")
-    .find(match, { projection: { _id: 0, deposit_code: 1, supplier: 1, purchase_order: 1, amount: 1, received_at: 1, created_at: 1 } })
+    .find(match, { projection: { _id: 0, deposit_code: 1, supplier: 1, purchase_order: 1, amount: 1, amount_net: 1, grand_total: 1, vat_amount: 1, vat_rate: 1, received_at: 1, created_at: 1 } })
     .maxTimeMS(30_000).toArray() as Doc[]
 
   const codes  = heads.map((h) => s(h.deposit_code)).filter(Boolean)
@@ -70,8 +69,7 @@ async function loadSupplierYear(year: string, warehouse: string) {
         .maxTimeMS(30_000).toArray() as Doc[]
     : []
   const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
-  // ยอดรายเจ้าหนี้ = รวมสุทธิ (ชุดเดียวกับหน้าหลัก/แดชบอร์ด) ดู lib/ap-vat.ts
-  const vatPos = await getVatPoCodes()
+  // ยอดรายเจ้าหนี้ = รวมสุทธิที่ ATMS คิดไว้รายใบ (ชุดเดียวกับหน้าหลัก/แดชบอร์ด)
 
   let dataAsOf = ""
   const items: ApSupplierYearInput[] = []
@@ -84,7 +82,7 @@ async function loadSupplierYear(year: string, warehouse: string) {
     items.push({
       supplier: s(h.supplier),
       purchaseOrder: s(h.purchase_order),
-      amount: apNetAmount(parseAmount(h.amount), vatPos.has(s(h.purchase_order))),
+      amount: apNetOf(h),
       receivedAt,
       stage: apStage({
         docs: (t?.docs ?? {}) as ApDocs,
