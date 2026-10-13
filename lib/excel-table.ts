@@ -93,7 +93,10 @@ const thin = { style: "thin" as const, color: { argb: GRID } }
 
 /** ประกอบ workbook ที่จัดหน้าเสร็จแล้ว — แยกจากตัวดาวน์โหลดเพื่อให้ทดสอบนอกเบราว์เซอร์ได้ */
 export async function buildExcelTable(t: ExcelTable) {
-  const ExcelJS = await import("exceljs")
+  // ในเบราว์เซอร์ package ชี้ไป browser build ที่ export ตรง ๆ · ใน Node (สคริปต์ตรวจไฟล์)
+  // ได้ namespace ที่ API อยู่ใต้ .default — รับทั้งสองแบบ ไม่งั้น new Workbook() พังนอกเบราว์เซอร์
+  const mod = await import("exceljs")
+  const ExcelJS = ((mod as unknown as { default?: typeof mod }).default ?? mod)
 
   const cols = t.columns
   const n = cols.length

@@ -6,7 +6,7 @@
 import type { Db, Document, Filter } from "mongodb"
 import { buildCodeBook, LOCK_MS, rowStatus } from "./sku-convert-core"
 import type {
-  CodeBook, ConvertCounts, ConvertItem, ConvertListResponse, ConvertListRow, Entry, Kind, Lock, MasterCodeRow,
+  CodeBook, ConvertCounts, ConvertExportRow, ConvertItem, ConvertListResponse, ConvertListRow, Entry, Kind, Lock, MasterCodeRow,
   RowStatus, Wh,
 } from "./sku-convert-types"
 
@@ -54,6 +54,26 @@ function freeFor(email: string, now: Date): Filter<ItemDoc> {
 }
 
 // ---------------------------------------------------------------- list
+
+/** ทุกแถวทุกคลังทุกประเภท สำหรับไฟล์ Excel — ไม่แบ่งหน้า ไม่รับตัวกรอง
+ *  (ผู้ใช้สั่ง 13/10/2026) · เรียงคลัง → ประเภท → งานที่เคลื่อนไหวมากก่อน ให้เหมือนที่เห็นบนหน้า
+ *  ส่งเฉพาะคอลัมน์ที่ไฟล์ใช้ ก้อนใหญ่ (lots/suppliers/suggest/entries) ไม่ถูกดึงมาเลย —
+ *  4,729 แถวเต็มชุด ≈ 1 MB ของ JSON ถ้าลากทุกฟิลด์จะหลายสิบ MB */
+export async function exportItems(db: Db): Promise<ConvertExportRow[]> {
+  const rows = await items(db).aggregate<ConvertExportRow>([
+    { $sort: { wh: 1, kind: 1, ...SORT } },
+    {
+      $project: {
+        _id: 0, code: 1, name: 1, warehouse: 1, wh: 1, kind: 1, group: 1,
+        atmsQty: 1, atmsValue: 1, lastPrice: 1, lastSupplier: 1, status: 1,
+        splitHint: 1, haveSku: 1, asOf: 1, updatedAt: 1,
+        entryCount: { $size: { $ifNull: ["$entries", []] } },
+        updatedByName: { $ifNull: ["$updatedBy.name", ""] },
+      },
+    },
+  ], { maxTimeMS: 30_000 }).toArray()
+  return toJson<ConvertExportRow[]>(rows)
+}
 
 export async function listItems(db: Db, q: ListQuery): Promise<ConvertListResponse> {
   const tab: Filter<ItemDoc> = { wh: q.wh, kind: q.kind }

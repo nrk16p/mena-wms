@@ -114,6 +114,15 @@ export type ConvertListRow = Omit<ConvertItem, "lots" | "suppliers" | "suggest" 
   entryCount: number
 }
 
+/** หนึ่งแถวในไฟล์ Excel ของหน้ารายการ — คอลัมน์ตามที่ผู้ใช้สั่ง 13/10/2026 */
+export type ConvertExportRow = Pick<ConvertItem,
+  | "code" | "name" | "warehouse" | "wh" | "kind" | "group" | "atmsQty" | "atmsValue"
+  | "lastPrice" | "lastSupplier" | "status" | "splitHint" | "haveSku" | "asOf" | "updatedAt"
+> & {
+  entryCount: number
+  updatedByName: string
+}
+
 export interface ConvertCounts {
   all: number
   todo: number

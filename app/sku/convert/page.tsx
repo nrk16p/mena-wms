@@ -5,8 +5,9 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import {
-  AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Layers, ListChecks, Loader2, PackageOpen, PencilLine, Scissors, Search, X,
+  AlertTriangle, ChevronLeft, ChevronRight, CircleCheck, Layers, ListChecks, Loader2, PackageOpen, PencilLine, Scissors, Search, Sheet, X,
 } from "lucide-react"
+import { swalError, swalToast } from "@/lib/swal"
 import { Mascot } from "@/components/sku-convert/mascot-v2"
 import { Chip, Skeleton, StatusChip, fmtMoney, fmtQty, hintRatio } from "@/components/sku-convert/ui"
 import { isLockLive } from "@/lib/sku-convert-core"
@@ -76,6 +77,7 @@ function ListInner() {
   const [error, setError] = useState("")
   const [now, setNow] = useState(() => Date.now())
   const [reload, setReload] = useState(0)
+  const [xlsx, setXlsx] = useState(false)
 
   const apiQuery = useMemo(() => {
     const p = new URLSearchParams({ wh, kind, page: String(page) })
@@ -116,6 +118,25 @@ function ListInner() {
     { key: "hint", label: "ควรแยก", value: counts?.hint, icon: Scissors, tile: "v2-tile-sun", active: hint, on: () => setParams({ hint: hint ? null : "1", status: null }) },
   ]
   const pct = counts && counts.all ? Math.round((counts.done / counts.all) * 1000) / 10 : 0
+
+  // โหลด Excel ทั้งชุด (ทุกคลังทุกประเภท ไม่สนตัวกรองบนหน้า — ผู้ใช้สั่ง 13/10/2026)
+  // exceljs เป็นก้อนใหญ่ จึง import ตอนกดปุ่มเท่านั้น ไม่ให้ถ่วงการโหลดหน้า
+  const downloadXlsx = useCallback(async () => {
+    if (xlsx) return
+    setXlsx(true)
+    try {
+      const res = await fetch("/api/sku-convert/export")
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? "ดึงข้อมูลไม่สำเร็จ")
+      const { downloadConvertXlsx } = await import("@/components/sku-convert/export-xlsx")
+      const n = await downloadConvertXlsx(d.rows, d.asOf)
+      swalToast("success", `โหลดไฟล์ Excel แล้ว ${n.toLocaleString("th-TH")} รหัส`)
+    } catch (e) {
+      swalError(`โหลด Excel ไม่สำเร็จ: ${e instanceof Error ? e.message : "ไม่ทราบสาเหตุ"}`)
+    } finally {
+      setXlsx(false)
+    }
+  }, [xlsx])
 
   return (
     <>
@@ -173,6 +194,12 @@ function ListInner() {
                 <button key={t.v} role="tab" aria-selected={kind === t.v} type="button" className="v2-btn-soft" onClick={() => setParams({ kind: t.v === "parts" ? null : t.v })}>{t.label}</button>
               ))}
             </div>
+            {/* ไฟล์ได้ทั้งชุดเสมอ ไม่ใช่แค่ที่กรองอยู่ — เขียนบอกใน title ไม่ให้เข้าใจผิด */}
+            <button type="button" onClick={downloadXlsx} disabled={xlsx} className="v2-btn-soft ml-auto"
+              title="โหลดไฟล์ Excel ของทุกคลังทุกประเภททั้งชุด (ไม่ขึ้นกับตัวกรองที่เลือกไว้)">
+              {xlsx ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : <Sheet aria-hidden className="h-3.5 w-3.5" />}
+              {xlsx ? "กำลังทำไฟล์…" : "โหลด Excel (ทั้งชุด)"}
+            </button>
           </div>
 
           {/* filters */}
