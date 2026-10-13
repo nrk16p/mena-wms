@@ -7,7 +7,7 @@ import {
   AP_FILES_MAX, AP_NO_FIELDS, AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
   AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate, resolveCreditTerm,
   apManualPayDateError, applyManualPayDate,
-  apLockedAfterPass, AP_LOCKED_MSG,
+  apLockedAfterPass, apPaidConfirmed, AP_LOCKED_MSG,
   apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate,
   type ApDocKey, type ApDocs, type ApFile, type ApPayType, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
@@ -299,10 +299,18 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
         if (r instanceof NextResponse) return r
         set.pay = r.pay
         log.push(...r.log)
-      } else {
+      } else if (current?.pay) {
         // ถอยออกจาก "ผ่าน" (ตีกลับ/ล้างผล) — กำหนดจ่ายที่คิดไว้ใช้ไม่ได้แล้ว ต้องล้างตาม
         // ไม่งั้นใบที่ถูกตีกลับจะยังโชว์วันจ่ายค้างเหมือนกระบวนการยังเดินอยู่
-        if (current?.pay) {
+        //
+        // ยกเว้นใบที่การเงินจ่ายไปแล้ว (ผู้ใช้สั่ง 13/10/2026): การตีกลับกลายเป็นทางออกเดียว
+        // ของใบที่ล็อก (apLockedAfterPass) บัญชีจึงต้องตีกลับใบที่จ่ายแล้วเพื่อเปิดให้แก้ —
+        // ถ้าล้าง pay ตามไปด้วย กำหนดจ่ายที่บัญชีกดไว้จริงจะหาย ซึ่งเป็นค่าที่ห้ามเขียนทับ
+        // (กติกาเดิม: pay ที่บัญชีกดผ่าน = ค่าจริง) · เงินออกไปแล้ว จะล้างทำไม
+        if (apPaidConfirmed(current.paid as { paymentNos?: string[]; date?: string } | undefined)) {
+          log.push({ action: "ตีกลับใบที่จ่ายแล้ว — คงกำหนดจ่ายเดิม", field: "pay",
+            detail: thaiDate(s((current.pay as { date?: string } | undefined)?.date)), by, byEmail, at })
+        } else {
           set.pay = null
           log.push({ action: "ยกเลิกกำหนดจ่ายเงิน", field: "pay", detail: "ผลตรวจถูกเปลี่ยนจากผ่าน", by, byEmail, at })
         }
