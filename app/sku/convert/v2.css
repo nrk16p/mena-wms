@@ -1,6 +1,10 @@
 /* menaIT V.2 look — scoped to /sku/convert. Everything lives under .v2-scope or a v2- prefixed class;
    the only global rules are the @keyframes (all v2- prefixed). Source: menait-service app/globals.css. */
 
+/* ฟอนต์โฮสต์เองในโปรเจกต์ (public/fonts/v2) ไม่ได้ดึงจาก Google ตอน build อีกแล้ว —
+   ไฟล์ @font-face สร้างด้วย scripts/fetch-v2-fonts.mts ดูเหตุผลในหัวสคริปต์ */
+@import "./v2-fonts.css";
+
 .v2-scope {
   --v2-brand-50: #f0faff; --v2-brand-100: #d9f3ff; --v2-brand-200: #b9e9fb; --v2-brand-400: #3da5ff;
   --v2-brand-500: #2584f7; --v2-brand-600: #1c6ef2; --v2-brand-700: #1556c9;
@@ -11,8 +15,8 @@
   --v2-shadow-card: 0 8px 24px -10px rgba(21, 86, 201, 0.25);
   --v2-shadow-lift: 0 16px 30px -12px rgba(28, 110, 242, 0.45);
   --v2-shadow-cta: 0 8px 18px -8px rgba(28, 110, 242, 0.8);
-  --v2-font-display: var(--font-v2-prompt), var(--font-v2-noto), sans-serif;
-  --v2-font-body: var(--font-v2-noto), var(--font-v2-prompt), Tahoma, sans-serif;
+  --v2-font-display: "Prompt", "Noto Sans Thai", sans-serif;
+  --v2-font-body: "Noto Sans Thai", "Prompt", Tahoma, sans-serif;
 
   color-scheme: light;
   color: var(--v2-ink-900);
