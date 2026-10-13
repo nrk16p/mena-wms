@@ -8,6 +8,7 @@ import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_LEGACY_DOC_FIELDS, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX, AP_TICK_FIELDS,
   AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc, isWeekendISO,
   billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
+  AP_LOCKED_MSG, apLockedAfterPass,
   apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline, apVatAmount,
   atmsDepositUrl, atmsPoUrl, cleanDocNos, readDocNos, docChecked,
   dueDateOf, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate, thaiDateTime, todayICT,
@@ -133,6 +134,11 @@ export function ApTrackingDetail({
   const [files, setFiles]           = useState<ApFile[]>([])
   const [savedReview, setSavedReview] = useState<ApReview>({ status: "", note: "" })
   const [savedPay, setSavedPay] = useState<ApPay | null>(null)
+  // ใบที่บัญชีตรวจผ่าน/จ่ายเงินแล้ว — จัดซื้อแก้อะไรไม่ได้อีก (ผู้ใช้สั่ง 13/10/2026)
+  // ต้องให้บัญชีตีกลับก่อน ใบจึงกลับมาแก้ได้ · ฝ่ายบัญชีเองยังแก้ได้ตามเดิม
+  // ปิดช่องที่นี่เพื่อให้คนเห็นว่าทำไมกดไม่ได้ — ตัวกันจริงคือ 409 จาก API
+  const locked = !canReview && apLockedAfterPass({ review: savedReview, paid: row.paid ?? null })
+  const lockTip = locked ? AP_LOCKED_MSG : undefined
   // เทียบค่าที่แช่ไว้กับสูตรปัจจุบัน (lib ตัวเดียวกับ scripts/backfill-ap-pay.ts)
   // null = ตรงกติกาวันนี้แล้ว · มีค่า = ใบนี้ค้างสูตรเก่า ต้องขึ้นธงเตือน
   const payOutdated = useMemo(
@@ -649,10 +655,11 @@ export function ApTrackingDetail({
                     const merged = AP_TEMPLATE_DOCS.filter((d) => d.check === f.key).length > 1
                     const kinds = need && merged ? templateDocsForCheck(tplDocs, f.key) : []
                     return (
-                      <label key={f.key} className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-white/5">
-                        <input type="checkbox" checked={draft[f.key]}
+                      <label key={f.key} title={lockTip}
+                        className={`flex select-none items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5"}`}>
+                        <input type="checkbox" checked={draft[f.key]} disabled={locked}
                           onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.checked }))}
-                          className="h-4 w-4 cursor-pointer accent-emerald-600" />
+                          className="h-4 w-4 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed" />
                         <span className={draft[f.key] !== docChecked(saved, f.key)
                           ? "font-medium text-amber-700 dark:text-amber-400"
                           : hasTpl && !need ? "text-gray-400" : ""}>
@@ -684,10 +691,11 @@ export function ApTrackingDetail({
                   const n = fileCounts[f.key] ?? 0
                   const mark = saved[f.key]
                   return (
-                    <label key={f.key} className="flex cursor-pointer select-none items-center gap-2 rounded-lg border border-dashed border-gray-200 px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5">
-                      <input type="checkbox" checked={draft[f.key]}
+                    <label key={f.key} title={lockTip}
+                      className={`flex select-none items-center gap-2 rounded-lg border border-dashed border-gray-200 px-2 py-1.5 text-sm dark:border-white/10 ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5"}`}>
+                      <input type="checkbox" checked={draft[f.key]} disabled={locked}
                         onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.checked }))}
-                        className="h-4 w-4 cursor-pointer accent-gray-400" />
+                        className="h-4 w-4 cursor-pointer accent-gray-400 disabled:cursor-not-allowed" />
                       <span className={draft[f.key] !== docChecked(saved, f.key) ? "font-medium text-amber-700 dark:text-amber-400" : "text-gray-500"}>
                         {f.label}
                         <span className="block text-[10px] font-normal text-gray-400">ช่องเก่า — ติ๊กช่องบิลเงินสด/ใบส่งของให้ตรงจริง แล้วเอาติ๊กนี้ออก</span>
@@ -737,14 +745,14 @@ export function ApTrackingDetail({
                         </div>
                         {list.map((v, i) => (
                           <div key={i} className="flex items-center gap-1">
-                            <input value={v} maxLength={AP_NO_MAX} placeholder={f.label}
+                            <input value={v} maxLength={AP_NO_MAX} placeholder={f.label} disabled={locked} title={lockTip}
                               onChange={(e) => setNoAt(f.key, i, e.target.value)}
-                              className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm dark:bg-white/5 ${edited ? "border-amber-400" : "border-gray-200/80 dark:border-white/10"}`} />
-                            <button onClick={() => removeNo(f.key, i)} title={`ลบ${f.label}นี้`}
-                              className="shrink-0 rounded-lg border border-gray-200/80 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-white/10 dark:hover:bg-rose-900/20">✕</button>
+                              className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/5 ${edited ? "border-amber-400" : "border-gray-200/80 dark:border-white/10"}`} />
+                            <button onClick={() => removeNo(f.key, i)} disabled={locked} title={lockTip ?? `ลบ${f.label}นี้`}
+                              className="shrink-0 rounded-lg border border-gray-200/80 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-rose-900/20">✕</button>
                           </div>
                         ))}
-                        {list.length < AP_NOS_MAX && (
+                        {list.length < AP_NOS_MAX && !locked && (
                           <button onClick={() => addNo(f.key)}
                             className="rounded-lg border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-white/20 dark:text-gray-300 dark:hover:bg-white/5">
                             + เพิ่ม{f.short}
@@ -761,8 +769,12 @@ export function ApTrackingDetail({
                   <h3 className="text-sm font-bold" style={mitr}>ไฟล์แนบ</h3>
                   <span className="text-xs text-gray-400">{files.length}/{AP_FILES_MAX} ไฟล์ · รูปหรือ PDF · ไม่บังคับ</span>
                 </div>
-                {/* key พลิกตอนโหลดเสร็จ → uploader เกิดใหม่พร้อมไฟล์ที่บันทึกไว้เป็นค่าตั้งต้น */}
-                <ImageUpload key={loading ? "up-loading" : "up-ready"} initial={savedFiles} onChange={onUpload} max={AP_FILES_MAX} />
+                {/* key พลิกตอนโหลดเสร็จ → uploader เกิดใหม่พร้อมไฟล์ที่บันทึกไว้เป็นค่าตั้งต้น
+                    ใบที่ล็อกแล้วไม่โชว์ uploader เลย — การแนบไฟล์ติ๊กช่องเอกสารให้อัตโนมัติ
+                    จึงเป็นทางอ้อมเข้าช่องที่ล็อกไว้ (ไฟล์เดิมยังเปิดดูได้ตามปกติข้างล่าง) */}
+                {locked
+                  ? <div className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400 dark:border-white/10">{AP_LOCKED_MSG}</div>
+                  : <ImageUpload key={loading ? "up-loading" : "up-ready"} initial={savedFiles} onChange={onUpload} max={AP_FILES_MAX} />}
                 {files.length > 0 && (
                   <div className="space-y-1">
                     <div className="text-xs text-gray-400">เลือกประเภทเอกสารของแต่ละไฟล์ — เลือกแล้วระบบติ๊กช่องนั้นให้</div>
@@ -770,10 +782,10 @@ export function ApTrackingDetail({
                       <div key={f.webpUrl} className="flex items-center gap-2 text-xs">
                         <a href={f.webpUrl} target="_blank" rel="noreferrer"
                           className="flex-1 truncate text-blue-600 hover:underline" title={f.filename}>{f.filename}</a>
-                        <select value={f.docType ?? ""}
+                        <select value={f.docType ?? ""} disabled={locked} title={lockTip}
                           onChange={(e) => setFiles((prev) => prev.map((x) =>
                             x.webpUrl === f.webpUrl ? { ...x, docType: e.target.value as ApDocKey | "" } : x))}
-                          className={`rounded-lg border bg-white px-2 py-1 dark:bg-white/5 ${f.docType ? "border-gray-200/80 dark:border-white/10" : "border-amber-400 text-amber-700 dark:text-amber-400"}`}>
+                          className={`rounded-lg border bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/5 ${f.docType ? "border-gray-200/80 dark:border-white/10" : "border-amber-400 text-amber-700 dark:text-amber-400"}`}>
                           <option value="">— เลือกประเภท —</option>
                           {AP_DOC_FIELDS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
                           {/* ช่องเก่า — มีไว้ให้ไฟล์ที่เคยเลือกชนิดเก่าไว้ยังโชว์ชนิดถูก (เลือกใหม่ได้ด้วย) */}
@@ -820,9 +832,16 @@ export function ApTrackingDetail({
                     ? <span className="text-xs text-emerald-700 dark:text-emerald-400">บันทึกไว้: {savedSent.type} {thaiDate(savedSent.date)}</span>
                     : <span className="text-xs text-gray-400">ยังไม่ได้ส่งบัญชี</span>}
                 </div>
+                {/* ใบที่ผ่าน/จ่ายแล้ว: โชว์รอบที่บันทึกไว้อย่างเดียว — กดส่งซ้ำหรือยกเลิกการส่งไม่ได้ */}
+                {locked && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+                    🔒 {AP_LOCKED_MSG}
+                  </div>
+                )}
 
                 <label className="flex flex-wrap items-center gap-2 text-sm">
-                  <input type="radio" name="apSent" className="h-4 w-4 accent-emerald-600"
+                  <input type="radio" name="apSent" disabled={locked} title={lockTip}
+                    className="h-4 w-4 accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
                     checked={sent.type === "ตามรอบ"}
                     onChange={() => setSent({ type: "ตามรอบ", date: sent.type === "ตามรอบ" ? sent.date
                       : shortCredit ? payThursday(todayICT())
@@ -839,15 +858,16 @@ export function ApTrackingDetail({
                     <span className="text-gray-500">
                       ส่งเอกสารวันนี้ → ปิดรอบ {thaiDate(billingCutoff(todayICT()))} → จ่าย
                     </span>
-                    <input type="date" value={sent.date} onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
-                      className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 dark:border-white/10 dark:bg-white/5" />
+                    <input type="date" value={sent.date} disabled={locked} title={lockTip}
+                      onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
+                      className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5" />
                     {sent.date && <span className="text-gray-400">({thaiDate(sent.date)})</span>}
                   </div>
                 )}
                 {sent.type === "ตามรอบ" && !shortCredit && (
                   <div className="flex flex-wrap items-center gap-2 pl-6 text-xs">
                     <span className="text-gray-500">นับจาก</span>
-                    <input type="date" value={baseDate}
+                    <input type="date" value={baseDate} disabled={locked} title={lockTip}
                       onChange={(e) => {
                         const b = e.target.value
                         setBaseDate(b)
@@ -855,7 +875,7 @@ export function ApTrackingDetail({
                         if (d) setSent({ type: "ตามรอบ", date: d })
                       }}
                       className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 dark:border-white/10 dark:bg-white/5" />
-                    {baseDate !== row.receivedAt && (
+                    {baseDate !== row.receivedAt && !locked && (
                       <button onClick={() => {
                         setBaseDate(row.receivedAt)
                         const d = dueDateOf(row.receivedAt, row.creditTerm)
@@ -863,21 +883,24 @@ export function ApTrackingDetail({
                       }} className="text-blue-600 hover:underline">ใช้วันที่ทำ DD</button>
                     )}
                     <span className="text-gray-500">→ ครบกำหนด</span>
-                    <input type="date" value={sent.date} onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
-                      className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 dark:border-white/10 dark:bg-white/5" />
+                    <input type="date" value={sent.date} disabled={locked} title={lockTip}
+                      onChange={(e) => setSent({ type: "ตามรอบ", date: e.target.value })}
+                      className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5" />
                     {sent.date && <span className="text-gray-400">({thaiDate(sent.date)})</span>}
                   </div>
                 )}
 
                 <label className="flex flex-wrap items-center gap-2 text-sm">
-                  <input type="radio" name="apSent" className="h-4 w-4 accent-emerald-600"
+                  <input type="radio" name="apSent" disabled={locked} title={lockTip}
+                    className="h-4 w-4 accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
                     checked={sent.type === "นอกรอบ"}
                     onChange={() => setSent({ type: "นอกรอบ", date: sent.type === "นอกรอบ" ? sent.date : (thursdays[0] ?? "") })} />
                   <span className="font-medium">💸 นอกรอบ</span>
                   <span className="text-xs text-gray-500">โอนทุกวันพฤหัส</span>
                   {sent.type === "นอกรอบ" && (
-                    <select value={sent.date} onChange={(e) => setSent({ type: "นอกรอบ", date: e.target.value })}
-                      className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-white/5">
+                    <select value={sent.date} disabled={locked} title={lockTip}
+                      onChange={(e) => setSent({ type: "นอกรอบ", date: e.target.value })}
+                      className="rounded-lg border border-gray-200/80 bg-white px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5">
                       {thursdays.map((d, i) => (
                         <option key={d} value={d}>{thaiDate(d)}{i === 0 ? " (พฤหัสนี้)" : i === 1 ? " (พฤหัสหน้า)" : ""}</option>
                       ))}
@@ -896,7 +919,7 @@ export function ApTrackingDetail({
                       ✉️ แจ้งการเงิน
                     </button>
                   )}
-                  {sent.date && (
+                  {sent.date && !locked && (
                     <button onClick={() => setSent({ type: "", date: "" })} className="ml-auto text-rose-600 hover:underline">
                       ยกเลิกการส่งบัญชี
                     </button>
@@ -1027,14 +1050,14 @@ export function ApTrackingDetail({
                 </div>
                 {nos.voucherNos.map((v, i) => (
                   <div key={i} className="flex items-center gap-1">
-                    <input value={v} maxLength={AP_NO_MAX} placeholder="เช่น LAPO26080130"
+                    <input value={v} maxLength={AP_NO_MAX} placeholder="เช่น LAPO26080130" disabled={locked} title={lockTip}
                       onChange={(e) => setNoAt("voucherNos", i, e.target.value)}
-                      className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm dark:bg-white/5 ${nosChangedKeys.includes("voucherNos") ? "border-amber-400" : "border-gray-200/80 dark:border-white/10"}`} />
-                    <button onClick={() => removeNo("voucherNos", i)} title="ลบเลขนี้"
-                      className="shrink-0 rounded-lg border border-gray-200/80 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 dark:border-white/10 dark:hover:bg-rose-900/20">✕</button>
+                      className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/5 ${nosChangedKeys.includes("voucherNos") ? "border-amber-400" : "border-gray-200/80 dark:border-white/10"}`} />
+                    <button onClick={() => removeNo("voucherNos", i)} disabled={locked} title={lockTip ?? "ลบเลขนี้"}
+                      className="shrink-0 rounded-lg border border-gray-200/80 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-rose-900/20">✕</button>
                   </div>
                 ))}
-                {nos.voucherNos.length < AP_NOS_MAX && (
+                {nos.voucherNos.length < AP_NOS_MAX && !locked && (
                   <button onClick={() => addNo("voucherNos")}
                     className="rounded-lg border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 dark:border-white/20 dark:text-gray-300 dark:hover:bg-white/5">
                     + เพิ่มเลข Voucher

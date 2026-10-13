@@ -7,6 +7,7 @@ import {
   AP_FILES_MAX, AP_NO_FIELDS, AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
   AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate, resolveCreditTerm,
   apManualPayDateError, applyManualPayDate,
+  apLockedAfterPass, AP_LOCKED_MSG,
   apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate,
   type ApDocKey, type ApDocs, type ApFile, type ApPayType, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
@@ -184,6 +185,28 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
   const client = await clientPromise
   const col = writeDb(client).collection(COLL)
   const current = await col.findOne({ depositCode })
+
+  // ── ใบที่บัญชีตรวจผ่าน/จ่ายแล้ว = ปิดรับการแก้จากจัดซื้อ (ผู้ใช้สั่ง 13/10/2026) ──
+  // ด่านเดียวครอบทุกช่องที่เปลี่ยนตัวเลข/สถานะของใบ — เดิมแต่ละบล็อกตรวจแค่ความครบชุดของเอกสาร
+  // ไม่มีใครดูขั้นของใบ จึงมีเคสจัดซื้อกดส่งบัญชีซ้ำ + แก้เลขที่ใบวางบิลหลังการเงินจ่ายไปแล้ว
+  // (LBDD26090015 จ่าย 10/09 แก้อีกที 25/09) · ทางออกคือบัญชีตีกลับ แล้วใบจะกลับมาแก้ได้เอง
+  //
+  // ตรวจที่ชั้นนี้ด้วย ไม่ใช่แค่ disabled ฝั่งหน้าเว็บ — ช่องที่ปิดไว้ไม่ได้กันการยิง API ตรง
+  // หมายเหตุกับติ๊กหลักฐานรายการสินค้าไม่อยู่ในด่าน — ไม่กระทบสถานะหรือยอดเงินของใบ
+  if (apLockedAfterPass({
+    review: current?.review as ApReview | undefined,
+    paid: current?.paid as { paymentNos?: string[]; date?: string } | undefined,
+  }) && !isAccounting(session?.user?.email, session?.user?.employee?.department)) {
+    const touched = [
+      body?.docs && typeof body.docs === "object" ? "ติ๊กชุดเอกสาร" : "",
+      AP_NO_FIELDS.some((f) => body?.[f.key] !== undefined) ? "เลขที่เอกสาร" : "",
+      body?.files !== undefined ? "ไฟล์แนบ" : "",
+      body?.sentType !== undefined || body?.sentDate !== undefined ? "การส่งบัญชี" : "",
+    ].filter(Boolean)
+    if (touched.length) {
+      return NextResponse.json({ error: `${AP_LOCKED_MSG} (${touched.join(" · ")})` }, { status: 409 })
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const set: Record<string, any> = { depositCode, updatedAt: at, updatedBy: by }
