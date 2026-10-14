@@ -119,7 +119,8 @@ function ListInner() {
   ]
   const pct = counts && counts.all ? Math.round((counts.done / counts.all) * 1000) / 10 : 0
 
-  // โหลด Excel ทั้งชุด (ทุกคลังทุกประเภท ไม่สนตัวกรองบนหน้า — ผู้ใช้สั่ง 13/10/2026)
+  // โหลด Excel ทั้งชุด 2 ชีต: "รหัส ATMS" ทุกรหัส + "SKU ใหม่" ที่กรอกไว้แล้ว
+  // (ทุกคลังทุกประเภท ไม่สนตัวกรองบนหน้า — ผู้ใช้สั่ง 13/10/2026 ยืนยัน 14/10/2026)
   // exceljs เป็นก้อนใหญ่ จึง import ตอนกดปุ่มเท่านั้น ไม่ให้ถ่วงการโหลดหน้า
   const downloadXlsx = useCallback(async () => {
     if (xlsx) return
@@ -129,8 +130,10 @@ function ListInner() {
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error ?? "ดึงข้อมูลไม่สำเร็จ")
       const { downloadConvertXlsx } = await import("@/components/sku-convert/export-xlsx")
-      const n = await downloadConvertXlsx(d.rows, d.asOf)
-      swalToast("success", `โหลดไฟล์ Excel แล้ว ${n.toLocaleString("th-TH")} รหัส`)
+      await downloadConvertXlsx(d.rows, d.entries, d.asOf)
+      swalToast("success",
+        `โหลดไฟล์ Excel แล้ว — ${d.rows.length.toLocaleString("th-TH")} รหัส`
+        + ` · SKU ใหม่ ${d.entries.length.toLocaleString("th-TH")} รายการ`)
     } catch (e) {
       swalError(`โหลด Excel ไม่สำเร็จ: ${e instanceof Error ? e.message : "ไม่ทราบสาเหตุ"}`)
     } finally {
@@ -196,7 +199,7 @@ function ListInner() {
             </div>
             {/* ไฟล์ได้ทั้งชุดเสมอ ไม่ใช่แค่ที่กรองอยู่ — เขียนบอกใน title ไม่ให้เข้าใจผิด */}
             <button type="button" onClick={downloadXlsx} disabled={xlsx} className="v2-btn-soft ml-auto"
-              title="โหลดไฟล์ Excel ของทุกคลังทุกประเภททั้งชุด (ไม่ขึ้นกับตัวกรองที่เลือกไว้)">
+              title="โหลดไฟล์ Excel 2 ชีต: รหัส ATMS ทั้งชุด + SKU ใหม่ที่กรอกไว้แล้ว (ทุกคลังทุกประเภท ไม่ขึ้นกับตัวกรองที่เลือกไว้)">
               {xlsx ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : <Sheet aria-hidden className="h-3.5 w-3.5" />}
               {xlsx ? "กำลังทำไฟล์…" : "โหลด Excel (ทั้งชุด)"}
             </button>

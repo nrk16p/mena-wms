@@ -1,8 +1,11 @@
-// ไฟล์ Excel ของหน้ารายการแปลงรหัส ATMS (/sku/convert)
-// คอลัมน์ตามที่ผู้ใช้สั่ง 13/10/2026 · เอาทุกคลังทุกประเภททั้งชุด ไม่สนตัวกรองบนหน้า
-// (ไฟล์ไว้ส่งต่อ/แบ่งงาน คนรับไม่รู้ว่าคนกดตั้งตัวกรองอะไรไว้ตอนนั้น)
-import { downloadExcelTable, XLS_DATE_FMT, XLS_DATETIME_FMT, xlsDate, type ExcelCol, type ExcelRow } from "@/lib/excel-table"
-import type { ConvertExportRow } from "@/lib/sku-convert-types"
+// ไฟล์ Excel ของหน้ารายการแปลงรหัส ATMS (/sku/convert) — ไฟล์เดียว 2 ชีต
+//   ชีต "รหัส ATMS" = งานทั้งชุดและความคืบหน้า (ทุกรหัส)
+//   ชีต "SKU ใหม่"  = ผลที่กรอกไว้ แถวละ 1 SKU เอาไปสร้าง SKU จริงต่อได้ (เฉพาะรหัสที่กรอกแล้ว)
+// คอลัมน์ชีตแรกตามที่ผู้ใช้สั่ง 13/10/2026 · ชีตที่สองเพิ่ม 14/10/2026
+// เอาทุกคลังทุกประเภททั้งชุด ไม่สนตัวกรองบนหน้า — ไฟล์ไว้ส่งต่อ/แบ่งงาน คนรับไม่รู้ว่า
+// คนกดตั้งตัวกรองอะไรไว้ตอนนั้น (ยืนยันอีกครั้ง 14/10/2026)
+import { downloadExcelBook, XLS_DATE_FMT, XLS_DATETIME_FMT, xlsDate, type ExcelCol, type ExcelRow } from "@/lib/excel-table"
+import type { ConvertEntryExportRow, ConvertExportRow } from "@/lib/sku-convert-types"
 
 const STATUS_LABEL: Record<string, string> = { todo: "ยังไม่ทำ", draft: "ร่าง", done: "ครบ" }
 // สีเดียวกับชิปสถานะบนหน้าเว็บ (ARGB) — คนที่เปิดไฟล์กับคนที่ดูหน้าเว็บต้องเห็นภาพเดียวกัน
@@ -57,19 +60,106 @@ export function convertXlsxRows(rows: ConvertExportRow[]): ExcelRow[] {
   }))
 }
 
-/** คืนจำนวนแถวที่เขียนลงไฟล์ */
-export async function downloadConvertXlsx(rows: ConvertExportRow[], asOf: string): Promise<number> {
+export const CONVERT_ENTRY_XLSX_COLUMNS: ExcelCol[] = [
+  { key: "code",      header: "รหัส ATMS",    width: 16, group: "รหัสเดิมใน ATMS" },
+  { key: "srcName",   header: "ชื่อเดิม",      width: 32, group: "รหัสเดิมใน ATMS", wrap: true },
+  { key: "warehouse", header: "คลัง",          width: 16, group: "รหัสเดิมใน ATMS" },
+  { key: "status",    header: "สถานะรหัส",    width: 11, align: "center", group: "รหัสเดิมใน ATMS" },
+  { key: "seq",       header: "SKU ที่",       width: 8,  align: "center", numFmt: "#,##0", group: "SKU ใหม่" },
+  { key: "sku",       header: "รหัส SKU",      width: 26, group: "SKU ใหม่" },
+  { key: "nameTh",    header: "ชื่อไทย",       width: 36, group: "SKU ใหม่", wrap: true },
+  { key: "nameEn",    header: "ชื่ออังกฤษ",    width: 28, group: "SKU ใหม่", wrap: true },
+  { key: "whTh",      header: "คลัง",          width: 14, group: "ผังรหัส" },
+  { key: "type",      header: "ประเภท",        width: 8,  align: "center", group: "ผังรหัส" },
+  { key: "typeTh",    header: "ประเภท (ชื่อ)", width: 16, group: "ผังรหัส" },
+  { key: "l1",        header: "L1",            width: 7,  align: "center", group: "ผังรหัส" },
+  { key: "l1Th",      header: "ระบบ (L1)",     width: 22, group: "ผังรหัส" },
+  { key: "l2",        header: "L2",            width: 7,  align: "center", group: "ผังรหัส" },
+  { key: "l2Th",      header: "ชุดย่อย (L2)",  width: 24, group: "ผังรหัส" },
+  { key: "l3",        header: "L3",            width: 7,  align: "center", group: "ผังรหัส" },
+  { key: "l3Th",      header: "ชิ้นส่วน (L3)", width: 24, group: "ผังรหัส" },
+  { key: "partNo",    header: "Part No.",      width: 20, group: "รายละเอียด" },
+  { key: "oemRef",    header: "OEM",           width: 20, group: "รายละเอียด" },
+  { key: "brandTh",   header: "แบรนด์",        width: 18, group: "รายละเอียด" },
+  { key: "gradeTh",   header: "เกรด",          width: 20, group: "รายละเอียด" },
+  { key: "unitTh",    header: "หน่วย",         width: 10, align: "center", group: "รายละเอียด" },
+  { key: "price",     header: "ราคา",          width: 12, align: "right", numFmt: "#,##0.00", group: "รายละเอียด" },
+  { key: "positions", header: "ตำแหน่ง",       width: 22, group: "รายละเอียด", wrap: true },
+  { key: "vehicles",  header: "รุ่นรถ",        width: 26, group: "รายละเอียด", wrap: true },
+  { key: "qty",       header: "แบ่งจำนวน",     width: 11, align: "right", numFmt: "#,##0.##", group: "แบ่งของเดิม" },
+  { key: "mergedCodes", header: "รหัสที่ยุบรวม", width: 26, group: "แบ่งของเดิม", wrap: true },
+  { key: "note",      header: "หมายเหตุ",      width: 30, group: "แบ่งของเดิม", wrap: true },
+]
+
+/** แถวของชีต "SKU ใหม่" — แยกออกมาให้ scripts/check-sku-convert-xlsx.mts ตรวจได้เหมือนชีตแรก */
+export function convertEntryXlsxRows(rows: ConvertEntryExportRow[]): ExcelRow[] {
+  return rows.map((r) => ({
+    // SKU ที่ยังกรอกไม่ครบจะยังไม่มีรหัส (skuPreview ต้องมี wh/type/L1/L2 ก่อน) — เน้นไว้ให้เห็นว่าต้องกลับไปแก้
+    tone: r.sku ? undefined : "warn",
+    ink: { status: STATUS_INK[r.status] ?? "FF14271C" },
+    cells: {
+      code: r.code,
+      srcName: r.srcName,
+      warehouse: r.warehouse,
+      status: STATUS_LABEL[r.status] ?? r.status,
+      seq: r.seq,
+      sku: r.sku,
+      nameTh: r.nameTh,
+      nameEn: r.nameEn,
+      whTh: r.whTh,
+      type: r.type,
+      typeTh: r.typeTh,
+      l1: r.l1,
+      l1Th: r.l1Th,
+      l2: r.l2,
+      l2Th: r.l2Th,
+      l3: r.l3,
+      l3Th: r.l3Th,
+      partNo: r.partNo,
+      oemRef: r.oemRef,
+      brandTh: r.brandTh,
+      gradeTh: r.gradeTh,
+      unitTh: r.unitTh,
+      price: r.price,
+      positions: r.positions,
+      vehicles: r.vehicles,
+      // ค่าแรง/บริการไม่มีการแบ่งจำนวน — เว้นว่าง ไม่ใส่ 0 ให้เข้าใจผิดว่าแบ่งไว้ 0
+      qty: r.kind === "svc" ? null : r.qty,
+      mergedCodes: r.mergedCodes,
+      note: r.note,
+    },
+  }))
+}
+
+/** คืนจำนวนแถวที่เขียนลงไฟล์ (รวมสองชีต) */
+export async function downloadConvertXlsx(
+  rows: ConvertExportRow[],
+  entries: ConvertEntryExportRow[],
+  asOf: string,
+): Promise<number> {
   const done = rows.filter((r) => r.status === "done").length
   const d = xlsDate(asOf, true) ?? new Date()
   const stamp = `${String(d.getDate()).padStart(2, "0")}${String(d.getMonth() + 1).padStart(2, "0")}${d.getFullYear() + 543 - 2500}`
-  return downloadExcelTable({
-    fileName: `แปลงรหัส ATMS ${stamp}.xlsx`,
-    sheetName: "แปลงรหัส ATMS",
-    title: "แปลงรหัส ATMS → SKU ใหม่",
-    subtitle: `ทุกคลังทุกประเภท ${rows.length.toLocaleString("th-TH")} รหัส · ครบแล้ว `
-      + `${done.toLocaleString("th-TH")} รหัส · ส่งออก ${d.toLocaleString("th-TH")}`,
-    columns: CONVERT_XLSX_COLUMNS,
-    rows: convertXlsxRows(rows),
-    freezeCols: 2,
-  })
+  const n = (v: number) => v.toLocaleString("th-TH")
+  const stampedAt = `ส่งออก ${d.toLocaleString("th-TH")}`
+
+  return downloadExcelBook(`แปลงรหัส ATMS ${stamp}.xlsx`, [
+    {
+      sheetName: "รหัส ATMS",
+      title: "แปลงรหัส ATMS → SKU ใหม่",
+      subtitle: `ทุกคลังทุกประเภท ${n(rows.length)} รหัส · ครบแล้ว ${n(done)} รหัส · ${stampedAt}`,
+      columns: CONVERT_XLSX_COLUMNS,
+      rows: convertXlsxRows(rows),
+      freezeCols: 2,
+    },
+    {
+      sheetName: "SKU ใหม่",
+      title: "SKU ใหม่ที่กรอกไว้แล้ว",
+      subtitle: `${n(entries.length)} SKU จาก ${n(new Set(entries.map((e) => e.code)).size)} รหัส ATMS`
+        + ` · รหัสที่ยังไม่ได้กรอกไม่อยู่ในชีตนี้ · ${stampedAt}`,
+      columns: CONVERT_ENTRY_XLSX_COLUMNS,
+      rows: convertEntryXlsxRows(entries),
+      freezeCols: 2,
+    },
+  ])
 }

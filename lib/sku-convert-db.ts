@@ -6,8 +6,8 @@
 import type { Db, Document, Filter } from "mongodb"
 import { buildCodeBook, LOCK_MS, rowStatus } from "./sku-convert-core"
 import type {
-  CodeBook, ConvertCounts, ConvertExportRow, ConvertItem, ConvertListResponse, ConvertListRow, Entry, Kind, Lock, MasterCodeRow,
-  RowStatus, Wh,
+  CodeBook, ConvertCounts, ConvertEntrySource, ConvertExportRow, ConvertItem, ConvertListResponse, ConvertListRow, Entry, Kind,
+  Lock, MasterCodeRow, RowStatus, Wh,
 } from "./sku-convert-types"
 
 export const COLL = "sku_convert_items"
@@ -73,6 +73,18 @@ export async function exportItems(db: Db): Promise<ConvertExportRow[]> {
     },
   ], { maxTimeMS: 30_000 }).toArray()
   return toJson<ConvertExportRow[]>(rows)
+}
+
+/** รหัสที่กรอก SKU ใหม่ไว้แล้ว พร้อม entries ทั้งก้อน สำหรับชีต "SKU ใหม่"
+ *  รหัสที่ยังไม่ได้กรอกไม่ถูกดึงมาเลย — ชีตนี้คือ "ผลงานที่กรอกไว้" ไม่ใช่รายการงานที่ต้องทำ
+ *  เรียงลำดับเดียวกับ exportItems เพื่อให้สองชีตไล่สายตาคู่กันได้ */
+export async function exportEntries(db: Db): Promise<ConvertEntrySource[]> {
+  const rows = await items(db).aggregate<ConvertEntrySource>([
+    { $match: { "entries.0": { $exists: true } } },
+    { $sort: { wh: 1, kind: 1, ...SORT } },
+    { $project: { _id: 0, code: 1, name: 1, warehouse: 1, kind: 1, status: 1, entries: 1 } },
+  ], { maxTimeMS: 30_000 }).toArray()
+  return toJson<ConvertEntrySource[]>(rows)
 }
 
 export async function listItems(db: Db, q: ListQuery): Promise<ConvertListResponse> {

@@ -123,6 +123,39 @@ export type ConvertExportRow = Pick<ConvertItem,
   updatedByName: string
 }
 
+/** ต้นทางของชีต "SKU ใหม่" — รหัส ATMS หนึ่งรหัสพร้อม SKU ที่กรอกไว้ทั้งหมดของมัน */
+export type ConvertEntrySource = Pick<ConvertItem, "code" | "name" | "warehouse" | "kind" | "status" | "entries">
+
+/** หนึ่งแถวในชีต "SKU ใหม่" = หนึ่ง SKU ที่กรอกไว้ — รหัสคู่กับชื่อไทยทุกช่องที่เป็นรหัส
+ *  เพราะคนรับไฟล์อ่านรหัส ENG/OIL/OFT ไม่ออก แต่คนที่เอาไปสร้าง SKU ต้องใช้รหัส */
+export interface ConvertEntryExportRow {
+  code: string                // รหัส ATMS ต้นทาง
+  srcName: string             // ชื่อเดิมใน ATMS
+  warehouse: string
+  kind: Kind
+  status: RowStatus
+  seq: number                 // SKU ที่เท่าไหร่ของรหัสนี้ (1 = ใบแรก)
+  sku: string                 // รหัส SKU ที่จะได้ (ยังไม่มีเลขท้าย)
+  wh: string;    whTh: string
+  type: string;  typeTh: string
+  l1: string;    l1Th: string
+  l2: string;    l2Th: string
+  l3: string;    l3Th: string
+  nameTh: string
+  nameEn: string
+  partNo: string
+  oemRef: string
+  unit: string;  unitTh: string
+  price: number | null
+  grade: string; gradeTh: string
+  brand: string; brandTh: string
+  positions: string           // ชื่อไทย คั่นด้วย ", "
+  vehicles: string
+  qty: number | null
+  mergedCodes: string         // รหัส ATMS อื่นที่ยุบรวมมาอยู่ SKU นี้
+  note: string
+}
+
 export interface ConvertCounts {
   all: number
   todo: number

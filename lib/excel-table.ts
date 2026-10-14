@@ -9,6 +9,8 @@
 // โหลด exceljs ตอนกดปุ่มเท่านั้น (ก้อนใหญ่) — ห้าม import ไว้บนสุดของหน้า
 // ที่ import ตรง ๆ ได้เพราะ package ชี้ browser build ให้เองแล้ว
 
+import type { Workbook } from "exceljs"
+
 import { BKK_OFFSET_MS } from "@/lib/bkk-time"
 
 /* ── โทนสี: ชุดเดียวกับหน้าเว็บ WMS (ARGB ไม่มี # และมี alpha นำหน้า) ────────── */
@@ -53,7 +55,8 @@ export type ExcelRow = {
 }
 
 export type ExcelTable = {
-  fileName:   string
+  /** ชื่อไฟล์ — ใส่เมื่อตารางนี้เป็นไฟล์ของตัวเอง · เป็นชีตหนึ่งใน downloadExcelBook ไม่ต้องใส่ */
+  fileName?:  string
   sheetName:  string
   title:      string
   /** บรรทัดเล็กใต้หัวเรื่อง — ควรบอกว่าไฟล์นี้กรองอะไรมาและส่งออกเมื่อไหร่ */
@@ -93,11 +96,31 @@ const thin = { style: "thin" as const, color: { argb: GRID } }
 
 /** ประกอบ workbook ที่จัดหน้าเสร็จแล้ว — แยกจากตัวดาวน์โหลดเพื่อให้ทดสอบนอกเบราว์เซอร์ได้ */
 export async function buildExcelTable(t: ExcelTable) {
+  return buildExcelBook([t])
+}
+
+/**
+ * workbook หลายชีตในไฟล์เดียว — ชีตเรียงตามลำดับที่ส่งมา
+ *
+ * ใช้กับงานที่คนรับต้องดูสองมุมพร้อมกัน (เช่น "รหัสต้นทาง" กับ "ผลที่กรอกไว้")
+ * ถ้าแยกเป็นสองไฟล์ คนรับมักเปิดแค่ไฟล์เดียวแล้วเข้าใจว่าครบแล้ว
+ */
+export async function buildExcelBook(tables: ExcelTable[]) {
   // ในเบราว์เซอร์ package ชี้ไป browser build ที่ export ตรง ๆ · ใน Node (สคริปต์ตรวจไฟล์)
   // ได้ namespace ที่ API อยู่ใต้ .default — รับทั้งสองแบบ ไม่งั้น new Workbook() พังนอกเบราว์เซอร์
   const mod = await import("exceljs")
   const ExcelJS = ((mod as unknown as { default?: typeof mod }).default ?? mod)
 
+  const wb = new ExcelJS.Workbook()
+  wb.creator = "MENA WMS"
+  wb.created = new Date()
+  for (const t of tables) addExcelSheet(wb, t)
+
+  return wb
+}
+
+/** เขียนตารางหนึ่งลงเป็นชีตหนึ่งของ workbook ที่เปิดไว้แล้ว */
+function addExcelSheet(wb: Workbook, t: ExcelTable) {
   const cols = t.columns
   const n = cols.length
   const hasGroups = cols.some((c) => c.group)
@@ -106,10 +129,6 @@ export async function buildExcelTable(t: ExcelTable) {
   const groupRow = hasGroups ? 4 : 0
   const headRow  = hasGroups ? 5 : 4
   const firstData = headRow + 1
-
-  const wb = new ExcelJS.Workbook()
-  wb.creator = "MENA WMS"
-  wb.created = new Date()
 
   const ws = wb.addWorksheet(t.sheetName, {
     views: [{
@@ -223,13 +242,21 @@ export async function buildExcelTable(t: ExcelTable) {
       to:   { row: headRow + t.rows.length, column: n },
     }
   }
-
-  return wb
 }
 
 /** สร้างไฟล์แล้วสั่งดาวน์โหลดเลย — คืนจำนวนแถวที่เขียนจริงไว้ให้เอาไปขึ้น toast */
 export async function downloadExcelTable(t: ExcelTable): Promise<number> {
-  const wb = await buildExcelTable(t)
+  return downloadExcelBook(t.fileName ?? `${t.sheetName}.xlsx`, [t])
+}
+
+/**
+ * ไฟล์เดียวหลายชีต แล้วสั่งดาวน์โหลด — คืนจำนวนแถวรวมทุกชีตไว้ขึ้น toast
+ *
+ * ชื่อไฟล์แยกออกมาเป็นพารามิเตอร์เพราะ `fileName` ของแต่ละตารางใช้ไม่ได้ตอนรวมไฟล์
+ * (จะหยิบของชีตแรกมาใช้ก็ได้ แต่เป็นชื่อที่เขียนไว้สำหรับ "ไฟล์ของชีตนั้น" ไม่ใช่ของทั้งเล่ม)
+ */
+export async function downloadExcelBook(fileName: string, tables: ExcelTable[]): Promise<number> {
+  const wb = await buildExcelBook(tables)
 
   const buf = await wb.xlsx.writeBuffer()
   const blob = new Blob([buf as ArrayBuffer], {
@@ -238,10 +265,10 @@ export async function downloadExcelTable(t: ExcelTable): Promise<number> {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
-  a.download = t.fileName
+  a.download = fileName
   a.click()
   // ปล่อยช้าหน่อย — บาง browser ยังอ่าน blob อยู่ตอน click เพิ่งคืนค่า
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 
-  return t.rows.length
+  return tables.reduce((n, t) => n + t.rows.length, 0)
 }
