@@ -3,6 +3,7 @@ export const ADMIN_EMAILS = new Set([
   "kittaboon.l@menatransport.co.th",
   "narongkorn.a@menatransport.co.th",
   "sutiwat.c@menatransport.co.th",   // Assistant Process Excellence Manager — ผู้ใช้สั่งเพิ่ม 2026-10-07
+  "natchaphak.k@menatransport.co.th", // Deputy COO (Tarn) — ผู้ใช้สั่งเพิ่ม 2026-10-15 · เป็น superadmin ด้วย
 ])
 
 export function isAdmin(email: string | null | undefined): boolean {
@@ -10,12 +11,18 @@ export function isAdmin(email: string | null | undefined): boolean {
 }
 
 // ── superadmin ──────────────────────────────────────────────────────────────
-// คนเดียวที่เปิดหน้า /admin/users (ดูผู้ใช้ทั้งหมด + ตั้งสิทธิ์ทับรายคน) · กำหนดในโค้ดเท่านั้น
+// คนที่เปิดหน้า /admin/users ได้ (ดูผู้ใช้ทั้งหมด + ตั้งสิทธิ์ทับรายคน) · กำหนดในโค้ดเท่านั้น
 // ให้ผ่านหน้าเว็บไม่ได้ จึงไม่มีทางล็อกตัวเองออกหรือมีใครตั้งตัวเองเป็น superadmin
-export const SUPERADMIN_EMAIL = "narongkorn.a@menatransport.co.th"
+// เดิมเป็นค่าเดี่ยว (SUPERADMIN_EMAIL) — เปลี่ยนเป็นลิสต์ 2026-10-15 ตอนเพิ่ม Tarn (Deputy COO)
+// ทุกคนในลิสต์นี้ควรอยู่ใน ADMIN_EMAILS ด้วย เพราะสิทธิ์เฉพาะทางบางตัว (อนุมัติอู่ · บัญชี ·
+// การเงิน) เช็ก isAdmin() ตรง ๆ ไม่ได้เช็ก superadmin
+export const SUPERADMIN_EMAILS = new Set([
+  "narongkorn.a@menatransport.co.th",
+  "natchaphak.k@menatransport.co.th",  // Deputy COO (Tarn) — ผู้ใช้สั่งเพิ่ม 2026-10-15
+])
 
 export function isSuperAdmin(email: string | null | undefined): boolean {
-  return (email ?? "").toLowerCase() === SUPERADMIN_EMAIL
+  return SUPERADMIN_EMAILS.has((email ?? "").toLowerCase())
 }
 
 // ── ผู้อนุมัติอู่ (AVL) ─────────────────────────────────────────────────────
