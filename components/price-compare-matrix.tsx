@@ -1,8 +1,9 @@
 "use client"
 // components/price-compare-matrix.tsx — ตารางเทียบราคา รายการ × Supplier 1–4 + สรุปยอด (คำนวณสดจาก lib/price-compare)
-import { Fragment } from "react"
-import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink } from "lucide-react"
+import { Fragment, useState } from "react"
+import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink, UserPlus, Link2, AlertTriangle, BadgeCheck } from "lucide-react"
 import { VendorCombobox } from "@/components/vendor-combobox"
+import { NewVendorDialog, LinkAtmsDialog } from "@/components/pc-provisional-vendor"
 import { SkuPicker, type SkuHit } from "@/components/sku-picker"
 import { benchmarkUrl } from "@/lib/intel-links"
 import { swalConfirm, swalToast } from "@/lib/swal"
@@ -10,6 +11,7 @@ import {
   emptySupplier, supplierTotals, lowestNet, fmtMoney, lineTotal, MAX_SUPPLIERS, VAT_MODE_LABEL,
   effectiveLineSupplier, allLinesAwarded, mixedTotals, bestMixNet, pickLowestPerLine, renumberAfterRemoval,
   groupsOf, hasGrades, newGroupId, supplierCoversSelection,
+  isProvisionalSupplier, provisionalCount, unlinkedProvisionalAwards, awardedSupplierNums, MAX_PROVISIONAL,
   sectionsOf, sectionTotals, awardSection, SECTION_SUGGESTIONS, SECTION_NAME_MAX,
   type PriceCompare, type PcItem, type PcSupplier, type PcVatMode, type PcTotals, type PcGroup, type PcSection,
 } from "@/lib/price-compare"
@@ -48,6 +50,13 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   const sections = sectionsOf(doc)
   const giOf = new Map(groups.map((g, gi) => [g.key, gi]))   // ลำดับรายการนับต่อกันทั้งใบ ไม่เริ่มใหม่ทุกหมวด
   const sectionOf = (g: PcGroup) => items[g.rows[0]].section
+
+  // เจ้าใหม่ที่ยังไม่ขึ้นทะเบียน: ช่องที่เปิดกล่อง "เจ้าใหม่" / ช่องที่กำลังผูกทะเบียน (null = ไม่มีกล่องเปิด)
+  const [newVendorFor, setNewVendorFor] = useState<number | null>(null)
+  const [linkFor, setLinkFor] = useState<number | null>(null)
+  const provCount = provisionalCount(doc)
+  const unlinkedAwards = unlinkedProvisionalAwards(doc)
+  const awarded = new Set(awardedSupplierNums(doc))
 
   const patchSupplier = (s: number, p: Partial<PcSupplier>) => onChange({ suppliers: suppliers.map((sp, i) => (i === s ? { ...sp, ...p } : sp)) })
   const setPrice = (s: number, r: number, v: number | null) => patchSupplier(s, { prices: suppliers[s].prices.map((p, i) => (i === r ? v : p)) })
@@ -392,6 +401,55 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   return (
     <div>
       <datalist id="pc-section-suggest">{SECTION_SUGGESTIONS.map((n) => <option key={n} value={n} />)}</datalist>
+
+      {/* ด่านขึ้นทะเบียน: ผู้ได้รับเลือกยังเป็นชื่อชั่วคราว → ปิดใบไม่ได้ (canTransition บล็อกอีกชั้นฝั่ง server) */}
+      {unlinkedAwards.length > 0 && (
+        <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-900/20">
+          <div className="flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-200">
+            <AlertTriangle size={13} />ผู้ได้รับเลือกยังเป็นชื่อชั่วคราว — ปิดใบไม่ได้
+          </div>
+          <div className="mt-1 text-amber-800 dark:text-amber-200">
+            {unlinkedAwards.join(" · ")} ยังไม่มีตัวตนใน ATMS · ขึ้นทะเบียนใน ATMS ก่อน แล้วกดผูกทะเบียนที่หัวช่องของเจ้านั้น
+            {!readOnly && suppliers.map((sp, s) => (
+              isProvisionalSupplier(sp) && awarded.has(s + 1)
+                ? <button key={s} type="button" onClick={() => setLinkFor(s)}
+                    className="ml-2 inline-flex items-center gap-1 rounded border border-amber-500 px-1.5 py-0.5 font-semibold text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40">
+                    <Link2 size={11} />ผูกทะเบียน S{s + 1}
+                  </button>
+                : null
+            ))}
+          </div>
+        </div>
+      )}
+      {provCount > 0 && unlinkedAwards.length === 0 && (
+        <div className="mb-2 text-[11px] text-gray-500 dark:text-gray-400">
+          มีชื่อชั่วคราว {provCount} ราย ({MAX_PROVISIONAL} รายต่อใบ) — ถ้าเจ้านั้นชนะ ต้องผูกทะเบียน ATMS ก่อนปิดใบ · แพ้ราคาก็ปล่อยไว้ได้
+        </div>
+      )}
+
+      {newVendorFor != null && (
+        <NewVendorDialog
+          docNo={doc.docNo}
+          onClose={() => setNewVendorFor(null)}
+          onDone={(v) => {
+            patchSupplier(newVendorFor, { name: v.name, provisional: true, atmsId: undefined, garageId: undefined, ...(Object.keys(v.contact).length ? { contact: v.contact } : {}) })
+            setNewVendorFor(null)
+            swalToast("success", `เพิ่มชื่อชั่วคราว "${v.name}" แล้ว`)
+          }}
+        />
+      )}
+      {linkFor != null && (
+        <LinkAtmsDialog
+          name={suppliers[linkFor]?.name ?? ""}
+          onClose={() => setLinkFor(null)}
+          onDone={(g) => {
+            // เขียนทับด้วยชื่อมาตรฐานจาก ATMS — ชื่อที่ใช้ต่อใน PR/PO/AP ต้องสะกดชุดเดียวกัน
+            patchSupplier(linkFor, { name: g.name, atmsId: g.atmsId, provisional: true })
+            setLinkFor(null)
+            swalToast("success", `ผูกทะเบียนกับ "${g.name}" แล้ว`)
+          }}
+        />
+      )}
       <div className="overflow-x-auto">
       <table className="min-w-full border-separate border-spacing-0 text-sm">
         <thead>
@@ -405,18 +463,49 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                 <div className="flex items-center gap-1">
                   <span className="shrink-0 rounded bg-[#0E7490]/10 px-1.5 py-0.5 text-[10px] text-[#0E7490]">S{s + 1}</span>
                   <div className="flex-1">
-                    {readOnly ? <span className="font-medium">{sp.name}</span> : (
-                      // S1–S4 เลือกได้เฉพาะจากรายชื่อ AVL (/vendors) — ไม่มีพิมพ์ชื่อใหม่ (ผู้ใช้กำหนด 2026-09-10)
-                      // garageId ของเดิม (garage_master) เลิกผูก: คีย์ถาวรคือชื่ออู่ตาม AVL
+                    {readOnly || isProvisionalSupplier(sp) ? <span className="font-medium">{sp.name}</span> : (
+                      // S1–S4 เลือกจากรายชื่อ AVL (/vendors) — เจ้าใหม่ที่ยังไม่มีในทะเบียนใช้ปุ่ม "เจ้าใหม่" ข้างล่าง
+                      // (ชื่อชั่วคราว 16/10/2026) · garageId ของเดิม (garage_master) เลิกผูก: คีย์ถาวรคือชื่ออู่ตาม AVL
                       <VendorCombobox
                         value={sp.name}
-                        onChange={(v) => patchSupplier(s, { name: v?.vendor ?? "", garageId: undefined })}
+                        onChange={(v) => patchSupplier(s, { name: v?.vendor ?? "", garageId: undefined, provisional: undefined, atmsId: undefined, contact: undefined })}
                         placeholder={`Supplier ${s + 1}`}
                       />
                     )}
                   </div>
                   {!readOnly && suppliers.length > 1 && (
                     <button type="button" onClick={() => removeSupplier(s)} title="ลบ supplier" className="text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
+                  )}
+                </div>
+                {/* ป้ายสถานะทะเบียนของเจ้ารายนี้ + ทางเข้าสร้างชื่อชั่วคราว (ช่องที่ยังว่าง) */}
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {isProvisionalSupplier(sp) && (
+                    <>
+                      <span title="ยังไม่มีในทะเบียน ATMS — ผูกทะเบียนก่อนปิดใบถ้าเจ้านี้ชนะ"
+                        className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                        <AlertTriangle size={10} />ชั่วคราว
+                      </span>
+                      {!readOnly && (
+                        <>
+                          <button type="button" onClick={() => setLinkFor(s)} className="text-[10px] font-semibold text-[#0E7490] hover:underline">ผูกทะเบียน</button>
+                          <button type="button" title="ล้างชื่อนี้ออกจากช่อง" onClick={() => patchSupplier(s, { name: "", provisional: undefined, atmsId: undefined, contact: undefined })}
+                            className="text-[10px] text-gray-400 hover:text-red-600">ล้างชื่อ</button>
+                        </>
+                      )}
+                    </>
+                  )}
+                  {sp.provisional && sp.atmsId && (
+                    <span title={`ผูกกับทะเบียน ATMS แล้ว (atmsId ${sp.atmsId})`}
+                      className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                      <BadgeCheck size={10} />ขึ้นทะเบียนแล้ว
+                    </span>
+                  )}
+                  {!readOnly && !sp.name.trim() && (
+                    <button type="button" onClick={() => setNewVendorFor(s)} disabled={provCount >= MAX_PROVISIONAL}
+                      title={provCount >= MAX_PROVISIONAL ? `ชื่อชั่วคราวได้ไม่เกิน ${MAX_PROVISIONAL} รายต่อใบ` : "เจ้าใหม่ที่ยังไม่มีในทะเบียน — ใส่ชื่อชั่วคราว"}
+                      className="inline-flex items-center gap-1 rounded border border-dashed border-amber-400 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-40 dark:text-amber-300 dark:hover:bg-amber-900/20">
+                      <UserPlus size={10} />เจ้าใหม่
+                    </button>
                   )}
                 </div>
                 <input value={sp.note} disabled={readOnly} onChange={(e) => patchSupplier(s, { note: e.target.value })} placeholder="หมายเหตุ เช่น ราคานี้เป็นราคาซ่อมของเดิม" className={`${textInput} mt-1 text-xs font-normal`} />

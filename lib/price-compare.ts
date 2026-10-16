@@ -5,6 +5,7 @@ export type PcStatus = "ร่าง" | "รอลงนาม" | "เสร็�
 export const PC_STATUSES: PcStatus[] = ["ร่าง", "รอลงนาม", "เสร็จสิ้น"]
 export const MAX_SUPPLIERS = 4
 export const MIN_QUOTES = 3          // แนวปฏิบัติจัดซื้อ: ใบเสนอราคาครบอย่างน้อย 3 ราย ไม่งั้นต้องระบุเหตุผล
+export const MAX_PROVISIONAL = 2     // ชื่อชั่วคราวต่อใบ — ต้องเหลือที่ให้เจ้าในทะเบียนเทียบด้วยเสมอ
 export const VAT_RATE = 0.07
 export type PcVatMode = "excl" | "incl" | "none"
 export const VAT_MODE_LABEL: Record<PcVatMode, string> = { excl: "ราคาก่อน VAT", incl: "ราคารวม VAT แล้ว", none: "ไม่มี VAT" }
@@ -31,8 +32,15 @@ export type PcConditions = {
   payment: string; leadTime: string; warranty: string; remark: string
   bays: string; menaTrucksIn: string; statusA: string; statusB: string
 }
+/** ผู้ติดต่อของเจ้าใหม่ที่ยังไม่ขึ้นทะเบียน — เก็บไว้ให้คนขึ้นทะเบียน ATMS ต่อได้ ไม่ใช้คำนวณอะไร */
+export type PcVendorContact = { person?: string; phone?: string; taxId?: string }
 export type PcSupplier = {
   name: string; garageId?: string; note: string
+  // ── เจ้าใหม่ที่ยังไม่มีในทะเบียน (ผู้ใช้อนุมัติแนวทาง 16/10/2026) ───────────────────────
+  // provisional = ชื่อชั่วคราวที่จัดซื้อพิมพ์เอง ตอนขอราคายังไม่รู้ว่าจะได้ใช้เจ้านี้ไหม จึงไม่บังคับ
+  // ขึ้นทะเบียนก่อน · atmsId = ผูกกับ atms.supplier_master แล้ว (เจ้าตัวจริง) → เลิกเป็นชั่วคราว
+  // แต่คงธง provisional ไว้เป็นร่องรอยว่าใบนี้เริ่มจากชื่อชั่วคราว
+  provisional?: boolean; atmsId?: number; contact?: PcVendorContact
   prices: (number | null)[]; discount: number
   vatMode: PcVatMode          // ฐานราคาที่เสนอ — เทียบกันที่ "สุทธิที่ต้องจ่ายจริง"
   quoteDate: string; validUntil: string   // YYYY-MM-DD
@@ -397,12 +405,44 @@ export function completeSupplierCount(doc: Pick<PriceCompare, "items" | "supplie
 export const isQuoteExpired = (s: Pick<PcSupplier, "validUntil">, today: string): boolean =>
   !!s.validUntil && s.validUntil.slice(0, 10) < today.slice(0, 10)
 
+/* ---------- เจ้าใหม่ที่ยังไม่ขึ้นทะเบียน (ชื่อชั่วคราว) ---------- */
+
+/** ยังเป็นชื่อชั่วคราวจริง ๆ = ตั้งธงไว้และยังไม่ผูก atms.supplier_master */
+export const isProvisionalSupplier = (s: Pick<PcSupplier, "provisional" | "atmsId">): boolean =>
+  !!s.provisional && !s.atmsId
+
+export const provisionalCount = (doc: Pick<PriceCompare, "suppliers">): number =>
+  doc.suppliers.filter((s) => isProvisionalSupplier(s)).length
+
+/** มีผู้เสนอราคาที่อยู่ในทะเบียนแล้วอย่างน้อย 1 ราย (เทียบกับเจ้าใหม่ได้) */
+export const hasRegisteredQuote = (doc: Pick<PriceCompare, "suppliers">): boolean =>
+  doc.suppliers.some((s) => s.name.trim() && !isProvisionalSupplier(s))
+
+/** เจ้าที่ "ได้งาน" ในใบนี้ (1-based) — รวมทั้งเลือกทั้งใบและปักธงรายบรรทัด */
+export function awardedSupplierNums(doc: Pick<PriceCompare, "selectedSupplier" | "lineSupplier">): number[] {
+  const out = new Set<number>()
+  if (doc.selectedSupplier != null) out.add(doc.selectedSupplier)
+  for (const v of doc.lineSupplier) if (v != null) out.add(v)
+  return [...out].sort((a, b) => a - b)
+}
+
+/** ชื่อเจ้าที่ได้งานแต่ยังเป็นชื่อชั่วคราว — ด่านก่อนปิดใบ (ออก PR/PO ต่อไม่ได้ถ้าไม่มีตัวตนใน ATMS) */
+export function unlinkedProvisionalAwards(doc: Pick<PriceCompare, "suppliers" | "selectedSupplier" | "lineSupplier">): string[] {
+  return awardedSupplierNums(doc)
+    .map((n) => doc.suppliers[n - 1])
+    .filter((s): s is PcSupplier => !!s && isProvisionalSupplier(s))
+    .map((s) => s.name || "(ไม่มีชื่อ)")
+}
+
 export function isComplete(doc: PriceCompare, opts: { requireCommitteeNames?: boolean } = {}): { ok: boolean; missing: string[] } {
   const requireNames = opts.requireCommitteeNames ?? true
   const missing: string[] = []
   if (doc.items.length === 0) missing.push("รายการ")
   const full = completeSupplierCount(doc)
   if (full < 1) missing.push("supplier อย่างน้อย 1 รายที่มีราคาครบทุกแถว")
+  // เจ้าใหม่พิมพ์ชื่อเข้ามาเทียบได้ แต่ห้ามเป็นชื่อชั่วคราวทั้งใบ — ต้องมีเจ้าในทะเบียนเทียบด้วยอย่างน้อย 1 ราย
+  if (doc.suppliers.some((s) => s.name.trim()) && !hasRegisteredQuote(doc))
+    missing.push("ผู้เสนอราคาที่อยู่ในทะเบียน (AVL) อย่างน้อย 1 ราย — ชื่อชั่วคราวทั้งใบไม่ได้")
   else if (full < MIN_QUOTES && !doc.fewerQuotesReason.trim()) missing.push(`ใบเสนอราคาครบ ${MIN_QUOTES} ราย หรือระบุเหตุผลที่มีน้อยกว่า ${MIN_QUOTES} ราย`)
   if (requireNames && doc.committee.some((m) => !m.name.trim())) missing.push("ชื่อกรรมการ")
   const mixed = allLinesAwarded(doc)   // โหมด mix เต็มรูปแบบ: ทุกรายการกำหนด supplier ของตัวเองแล้ว ไม่ต้องพึ่ง selectedSupplier ของทั้งใบ
@@ -451,6 +491,11 @@ export function canTransition(from: PcStatus, to: PcStatus, doc: PriceCompare): 
       if (!allLinesAwarded(doc)) return { ok: false, reason: lineSelectionGaps(doc).join(", ") }
     } else if (doc.selectedSupplier == null && !allLinesAwarded(doc)) return { ok: false, reason: "ยังไม่เลือกผู้ได้รับเลือก" }
     if (doc.committee.some((m) => !m.name.trim() || !m.signedDate)) return { ok: false, reason: "ชื่อและวันที่ลงนามของกรรมการยังไม่ครบ 4 ช่อง" }
+    // ด่านขึ้นทะเบียน: ปิดใบได้ต่อเมื่อผู้ได้รับเลือกมีตัวตนใน atms.supplier_master แล้ว
+    // (ปลายทาง PR/PO/ตั้งเบิก ดึงผู้ขายจาก ATMS — ปิดใบด้วยชื่อชั่วคราวแล้วไปตายที่ปลายทาง)
+    const unlinked = unlinkedProvisionalAwards(doc)
+    if (unlinked.length)
+      return { ok: false, reason: `ผู้ได้รับเลือกยังเป็นชื่อชั่วคราว (${unlinked.join(", ")}) — ขึ้นทะเบียนใน ATMS แล้วกด "ผูกทะเบียน" ก่อนปิดใบ` }
     return { ok: true }
   }
   if (from === "รอลงนาม" && to === "ร่าง") return { ok: true }
@@ -498,8 +543,14 @@ export function normalizeDoc(input: unknown): PriceCompare {
     const c = s?.conditions ?? {}
     const prices = Array.isArray(s?.prices) ? s.prices.map(numOrNull) : []
     // NOTE: เอกสารเก่าอาจมี s.extraOptions (ร่าง multi-grade ที่ถูกตัดทิ้ง) — ทิ้งเงียบๆ ไม่ต้อง migrate
+    const atmsId = numOrNull(s?.atmsId)
+    const contact = s?.contact ?? {}
+    const person = str(contact.person), phone = str(contact.phone), taxId = str(contact.taxId)
     return {
       name: str(s?.name), garageId: s?.garageId ? str(s.garageId) : undefined, note: str(s?.note),
+      ...(s?.provisional ? { provisional: true as const } : {}),
+      ...(atmsId != null && Number.isInteger(atmsId) && atmsId > 0 ? { atmsId } : {}),
+      ...(person || phone || taxId ? { contact: { ...(person ? { person } : {}), ...(phone ? { phone } : {}), ...(taxId ? { taxId } : {}) } } : {}),
       prices: items.map((_, i) => prices[i] ?? null),
       discount: num(s?.discount, 0),
       vatMode: (["excl", "incl", "none"] as PcVatMode[]).includes(s?.vatMode) ? (s.vatMode as PcVatMode) : "excl",
@@ -548,6 +599,10 @@ export function validateDoc(doc: PriceCompare): string[] {
     if (s.prices.some((p) => p != null && p < 0)) errs.push(`Supplier ${i + 1}: ราคาติดลบไม่ได้`)
     if (s.discount < 0) errs.push(`Supplier ${i + 1}: ส่วนลดติดลบไม่ได้`)
   })
+  doc.suppliers.forEach((s, i) => {
+    if (s.provisional && !s.name.trim()) errs.push(`Supplier ${i + 1}: ชื่อชั่วคราวต้องมีชื่อ`)
+  })
+  if (provisionalCount(doc) > MAX_PROVISIONAL) errs.push(`ชื่อชั่วคราวได้ไม่เกิน ${MAX_PROVISIONAL} รายต่อใบ`)
   const n = doc.suppliers.length
   if (doc.selectedSupplier != null && (doc.selectedSupplier < 1 || doc.selectedSupplier > n)) errs.push(`ผู้ได้รับเลือกต้องอยู่ระหว่าง Supplier 1–${n}`)
   // normalizeDoc ล้างให้อยู่แล้ว — ด่านนี้กันเอกสารที่ประกอบมือ/มาจาก DB เก่าที่ยังตั้งค้างทั้งคู่ (ตีความยอดสุทธิได้สองแบบ)

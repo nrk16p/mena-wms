@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, hasGrades, supplierCoversSelection, hasSections, sectionsOf, sectionTotals, type PcGroup, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, hasGrades, supplierCoversSelection, hasSections, sectionsOf, sectionTotals, type PcGroup, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, isProvisionalSupplier, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -22,6 +22,8 @@ export const MIX_DISCOUNT_NOTE = "ส่วนลดไม่ถูกนำม�
 // โหมดเกรด: ยอดต่อเจ้าคิดตามเกรดที่เลือก — ป้ายแถวสุทธิบอกไว้ และเจ้าที่คิดครบไม่ได้พิมพ์ GRADE_PARTIAL แทนยอดบางส่วน
 export const GRADE_NET_LABEL = "รวมราคาทั้งหมด (สุทธิ) ตามเกรดที่เลือก"
 export const GRADE_PARTIAL = "ไม่ครบ"
+// เจ้าใหม่ที่ยังไม่ขึ้นทะเบียน ATMS (ชื่อชั่วคราว 16/10/2026) — ต่อท้ายชื่อในหัวคอลัมน์
+export const PROVISIONAL_MARK = "(ชั่วคราว)"
 // หมวด: แถวหัว "หมวด<ชื่อ>" เต็มความกว้างตาราง + แถวยอดย่อย "รวม<ชื่อ>" ท้ายหมวด (ชื่อว่าง = SECTION_UNNAMED)
 export const SECTION_HEAD = (name: string) => `หมวด${name || SECTION_UNNAMED}`
 export const SECTION_SUB = (name: string) => `รวม${name || ` (${SECTION_UNNAMED})`}`
@@ -124,9 +126,12 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
   const supplierHead = Array.from({ length: N }, (_, i) => [
     { colSpan: 2, ...cell(`Supplier ${i + 1}`, { bold: true, ...fill(i) }) }, {},
   ]).flat()
-  const supplierName = Array.from({ length: N }, (_, i) => [
-    { colSpan: 2, ...t(sup(i)?.name ?? "", { alignment: "center", bold: true, ...fill(i) }) }, {},
-  ]).flat()
+  // เจ้าที่ยังไม่ขึ้นทะเบียน ATMS ต่อท้ายชื่อว่าชั่วคราว — กรรมการที่เซ็นต้องเห็นว่าเจ้านี้ยังไม่มีตัวตนในระบบ
+  const supplierName = Array.from({ length: N }, (_, i) => {
+    const sp = sup(i)
+    const nm = sp ? sp.name + (isProvisionalSupplier(sp) ? ` ${PROVISIONAL_MARK}` : "") : ""
+    return [{ colSpan: 2, ...t(nm, { alignment: "center", bold: true, ...fill(i) }) }, {}]
+  }).flat()
   const supplierSub = Array.from({ length: N }, (_, i) => [
     cell("ราคา/หน่วย", { fontSize: 7, ...fill(i) }), t("ยอดรวม", { alignment: "center", fontSize: 7, ...fill(i) }),
   ]).flat()

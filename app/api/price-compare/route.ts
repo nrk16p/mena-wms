@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
-import { newDoc, normalizeDoc, validateDoc, supplierTotals, lowestNet, allLinesAwarded, mixedTotals, hasGrades, bestMixNet, type PriceCompare } from "@/lib/price-compare"
+import { newDoc, normalizeDoc, validateDoc, supplierTotals, lowestNet, allLinesAwarded, mixedTotals, hasGrades, bestMixNet, provisionalCount, unlinkedProvisionalAwards, type PriceCompare } from "@/lib/price-compare"
 import { PC_COLL, nextDocNo } from "@/lib/price-compare-db"
 import { writePcLog } from "@/lib/price-compare-log"
 
@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
       selectedName: mixed ? `ผสม ${mixed.suppliersUsed} เจ้า` : d.selectedSupplier ? d.suppliers[d.selectedSupplier - 1]?.name ?? "" : "",
       selectedNet: mixed ? mixed.grand : d.selectedSupplier ? supplierTotals(d, d.selectedSupplier - 1).net : null,
       lowestNet: grades ? bestMixNet(d) : li == null ? null : supplierTotals(d, li).net,
+      // ชื่อชั่วคราว: provisional = มีกี่ราย · blockedByProvisional = ผู้ได้รับเลือกยังไม่ผูกทะเบียน (ปิดใบไม่ได้)
+      provisional: provisionalCount(d),
+      blockedByProvisional: unlinkedProvisionalAwards(d).length > 0,
     }
   })
   return NextResponse.json(items)

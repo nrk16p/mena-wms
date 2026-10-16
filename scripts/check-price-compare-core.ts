@@ -8,6 +8,7 @@ import {
   effectiveLineSupplier, allLinesAwarded, mixedTotals, mixedNet, pickLowestPerLine, bestMixNet, mixedGap, renumberAfterRemoval,
   groupsOf, countedRows, hasGrades, newGroupId, supplierCoversSelection,
   hasSections, sectionsOf, sectionTotals, awardSection,
+  isProvisionalSupplier, provisionalCount, hasRegisteredQuote, awardedSupplierNums, unlinkedProvisionalAwards, MAX_PROVISIONAL,
   type PriceCompare, type PcSupplier,
 } from "../lib/price-compare"
 import { diffPriceCompare } from "../lib/price-compare-log"
@@ -910,6 +911,81 @@ function secDoc(): PriceCompare {
   const moved = secDoc(); moved.items[3].section = "ค่าแรง"
   assert.equal(diffPriceCompare(secDoc(), moved).find((c) => c.field === "sections")?.to, "อะไหล่ (3), ค่าแรง (2)")
   assert.equal(diffPriceCompare(secDoc(), secDoc()).some((c) => c.field === "sections"), false)
+}
+
+// --- เจ้าใหม่ที่ยังไม่ขึ้นทะเบียน (ชื่อชั่วคราว 16/10/2026) ---
+{
+  const prov = (name: string, prices: number[], extra: Partial<PcSupplier> = {}): PcSupplier =>
+    ({ ...emptySupplier(5), name, prices, provisional: true, ...extra })
+
+  assert.equal(isProvisionalSupplier({ provisional: true }), true)
+  assert.equal(isProvisionalSupplier({ provisional: true, atmsId: 1234 }), false, "ผูกทะเบียนแล้วเลิกเป็นชั่วคราว")
+  assert.equal(isProvisionalSupplier({}), false)
+
+  // normalize: ธง/atmsId/ผู้ติดต่อ รอดผ่าน DB · ค่าขยะถูกทิ้ง · ช่องว่างไม่สร้าง contact เปล่า
+  const n = normalizeDoc({
+    items: [{ name: "a", qty: 1, unit: "" }],
+    suppliers: [
+      { name: "อู่ใหม่", prices: [10], provisional: true, contact: { person: " สมชาย ", phone: "081", taxId: "" } },
+      { name: "อู่ผูกแล้ว", prices: [12], provisional: true, atmsId: "4821" },
+      { name: "อู่เถื่อน", prices: [13], provisional: true, atmsId: -5 },
+      { name: "ปกติ", prices: [11] },
+    ],
+  })
+  assert.deepEqual(n.suppliers[0].contact, { person: "สมชาย", phone: "081" })
+  assert.equal(n.suppliers[0].provisional, true)
+  assert.equal(n.suppliers[1].atmsId, 4821, "atmsId string → number")
+  assert.equal(n.suppliers[2].atmsId, undefined, "atmsId ติดลบทิ้ง")
+  assert.equal("provisional" in n.suppliers[3], false, "เจ้าปกติไม่มีธงติดมา")
+  assert.equal(provisionalCount(n), 2)
+  assert.equal(hasRegisteredQuote(n), true)
+
+  // เพดานชื่อชั่วคราวต่อใบ
+  const over = uh03()
+  over.suppliers = [prov("ใหม่ 1", [1, 1, 1, 1, 1]), prov("ใหม่ 2", [2, 2, 2, 2, 2]), prov("ใหม่ 3", [3, 3, 3, 3, 3])]
+  assert.ok(validateDoc(over).some((e) => e.includes(`ไม่เกิน ${MAX_PROVISIONAL}`)), "เกินเพดานต้องเตือน")
+  const noName = uh03()
+  noName.suppliers = [{ ...emptySupplier(5), name: "", provisional: true, prices: [1, 1, 1, 1, 1] }]
+  assert.ok(validateDoc(noName).some((e) => e.includes("ชื่อชั่วคราวต้องมีชื่อ")))
+
+  // ชั่วคราวทั้งใบ = ส่งลงนามไม่ได้ (ต้องมีเจ้าในทะเบียนเทียบด้วยอย่างน้อย 1 ราย)
+  const allProv = uh03()
+  allProv.suppliers = [prov("ใหม่ 1", [1, 1, 1, 1, 1]), prov("ใหม่ 2", [2, 2, 2, 2, 2])]
+  allProv.selectedSupplier = 1
+  assert.equal(hasRegisteredQuote(allProv), false)
+  assert.ok(isComplete(allProv).missing.some((m) => m.includes("ทะเบียน (AVL)")), "ชั่วคราวทั้งใบต้องขาดเจ้าในทะเบียน")
+  assert.equal(canTransition("ร่าง", "รอลงนาม", allProv).ok, false)
+
+  // ด่านปิดใบ: ผู้ได้รับเลือกเป็นชั่วคราว → ปิดไม่ได้ จนผูก atmsId
+  const win = uh03()
+  win.suppliers = [...win.suppliers.slice(0, 2), prov("อู่ใหม่ ก", [1, 1, 1, 1, 1])]
+  win.selectedSupplier = 3
+  win.selectionReason = "คุณภาพดีกว่า"
+  win.committee = win.committee.map((m) => ({ ...m, name: "ผู้ลงนาม", signedDate: "2026-10-16" }))
+  assert.deepEqual(awardedSupplierNums(win), [3])
+  assert.deepEqual(unlinkedProvisionalAwards(win), ["อู่ใหม่ ก"])
+  const blocked = canTransition("รอลงนาม", "เสร็จสิ้น", win)
+  assert.equal(blocked.ok, false)
+  assert.ok(blocked.reason?.includes("ผูกทะเบียน"), blocked.reason)
+  // ผูกแล้วปิดได้
+  win.suppliers[2] = { ...win.suppliers[2], name: "อู่ใหม่ ก จำกัด", atmsId: 9001 }
+  assert.deepEqual(unlinkedProvisionalAwards(win), [])
+  assert.equal(canTransition("รอลงนาม", "เสร็จสิ้น", win).ok, true)
+
+  // แพ้ราคา = ไม่ต้องผูก (ปิดใบได้ตามปกติ)
+  const lost = uh03()
+  lost.suppliers = [...lost.suppliers, prov("อู่ใหม่ ข", [99, 99, 99, 99, 99])]
+  lost.selectedSupplier = 1
+  lost.selectionReason = ""
+  lost.committee = lost.committee.map((m) => ({ ...m, name: "ผู้ลงนาม", signedDate: "2026-10-16" }))
+  assert.deepEqual(unlinkedProvisionalAwards(lost), [])
+  assert.equal(canTransition("รอลงนาม", "เสร็จสิ้น", lost).ok, true)
+
+  // โหมดผสมรายบรรทัด: ปักธงแถวเดียวให้เจ้าชั่วคราวก็ติดด่าน
+  const mix = uh03()
+  mix.suppliers = [...mix.suppliers, prov("อู่ใหม่ ค", [5, 5, 5, 5, 5])]
+  mix.lineSupplier = [4, null, null, null, null]
+  assert.deepEqual(unlinkedProvisionalAwards(mix), ["อู่ใหม่ ค"])
 }
 
 console.log("check-price-compare-core: OK")

@@ -11,6 +11,7 @@ export type PcListRow = {
   preparedBy: { name: string; email: string }; updatedAt: string; createdAt: string; revision: number
   supplierCount: number; selectedSupplier: number | null; selectedName: string
   selectedNet: number | null; lowestNet: number | null
+  provisional?: number; blockedByProvisional?: boolean
 }
 
 export const STATUS_STYLE: Record<PcStatus, string> = {
@@ -132,7 +133,14 @@ export function PriceCompareList() {
                 <td className="px-3 py-2 font-medium">{r.title || <span className="text-gray-400">(ยังไม่ระบุ)</span>}</td>
                 <td className="px-3 py-2">{r.requestDept}</td>
                 <td className="px-3 py-2 text-center">{r.supplierCount}</td>
-                <td className="px-3 py-2">{r.selectedName ? (r.selectedSupplier ? `${r.selectedSupplier}. ${r.selectedName}` : r.selectedName) : <span className="text-gray-400">—</span>}</td>
+                <td className="px-3 py-2">
+                  {r.selectedName ? (r.selectedSupplier ? `${r.selectedSupplier}. ${r.selectedName}` : r.selectedName) : <span className="text-gray-400">—</span>}
+                  {/* ชื่อชั่วคราวที่ยังไม่ผูกทะเบียน ATMS — ใบนี้ปิดไม่ได้จนกว่าจะผูก */}
+                  {r.blockedByProvisional && (
+                    <span title="ผู้ได้รับเลือกยังเป็นชื่อชั่วคราว — ผูกทะเบียน ATMS ก่อนปิดใบ"
+                      className="ml-1.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">รอผูกทะเบียน</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {r.selectedNet != null ? fmtMoney(r.selectedNet) : r.lowestNet != null ? <span className="text-gray-400" title="สุทธิต่ำสุด (ยังไม่เลือก)">{fmtMoney(r.lowestNet)}</span> : ""}
                 </td>
