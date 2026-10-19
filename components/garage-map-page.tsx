@@ -10,13 +10,14 @@
 // ถ้าวันหลังต้องการระยะขับจริง ต่อ API เส้นทางเพิ่มที่ฝั่ง /api/vendors/map ได้โดยหน้านี้ไม่ต้องแก้
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Crosshair, Loader2, MapPin, Phone, Route, Search, TriangleAlert, Copy, Check } from "lucide-react"
+import { Crosshair, History, Loader2, MapPin, Phone, Route, Search, TriangleAlert, Copy, Check } from "lucide-react"
 import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline } from "leaflet"
 import { REPAIR_TYPES } from "@/lib/repair-type-master"
 import { canApproveVendor } from "@/lib/roles"
 import { swalError, swalToast } from "@/lib/swal"
 import type { GarageHit } from "@/lib/garage-geo"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
+import { GarageHistoryModal } from "@/components/garage-history-modal"
 import { mitr, num } from "@/components/vendor-shared"
 import { loadThaiAddress, listProvinces, listDistricts, listSubdistricts, type ProvinceNode } from "@/lib/thai-address"
 
@@ -59,6 +60,8 @@ export function GarageMapPage() {
   const [err, setErr] = useState("")
   const [active, setActive] = useState<string | null>(null)
   const [copied, setCopied] = useState("")
+  // ป๊อปอัปประวัติซ่อมของอู่ที่กด (ชื่ออู่ = คีย์เดียวที่ต้องใช้)
+  const [historyFor, setHistoryFor] = useState<string | null>(null)
 
   // เลือกพื้นที่แทนการวางพิกัด — คนแจ้งรถเสียบางทีบอกได้แค่ชื่อย่าน
   const [addr, setAddr] = useState<ProvinceNode[]>([])
@@ -155,8 +158,9 @@ export function GarageMapPage() {
       if (res.origin) {
         originMarkerRef.current = L.marker([res.origin.lat, res.origin.lng], { icon: pin("🚚", "#B91C1C") })
           .addTo(map).bindTooltip("จุดที่รถเสีย", { direction: "top" })
-        const near = withGeo.slice(0, 5).map((g) => [g.geo!.lat, g.geo!.lng] as [number, number])
-        map.fitBounds(L.latLngBounds([[res.origin.lat, res.origin.lng], ...near]).pad(0.25), { maxZoom: 13 })
+        // โฟกัสแค่ 3 อันดับแรก — ถ้ารวม 5 อันดับ อันที่ไกล 13 กม. จะลากให้ซูมออกจนอู่ที่ใกล้สุดจมหาย
+        const near = withGeo.slice(0, 3).map((g) => [g.geo!.lat, g.geo!.lng] as [number, number])
+        map.fitBounds(L.latLngBounds([[res.origin.lat, res.origin.lng], ...near]).pad(0.3), { maxZoom: 14 })
       }
     })()
   }, [res])
@@ -233,7 +237,7 @@ export function GarageMapPage() {
   return (
     <div style={{ ...mitr, display: "flex", height: "calc(100vh - 56px)", background: "#FAFAFA" }}>
       {/* ── ซ้าย: ค้นหา + ตัวกรอง + รายการ */}
-      <div style={{ width: 460, minWidth: 460, borderRight: "1px solid #E4E4E7", display: "flex", flexDirection: "column", background: "#fff" }}>
+      <div style={{ width: 492, minWidth: 492, borderRight: "1px solid #E4E4E7", display: "flex", flexDirection: "column", background: "#fff" }}>
         <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #F1F1F3" }}>
           <div style={{ fontSize: 17, fontWeight: 700, color: "#18181B" }}>หาอู่ใกล้ที่สุด</div>
           <div style={{ fontSize: 12, color: "#71717A", marginTop: 2 }}>
@@ -298,7 +302,9 @@ export function GarageMapPage() {
         {/* สรุปผล */}
         <div style={{ padding: "7px 16px", fontSize: 11, color: "#71717A", background: "#FAFAFA", borderBottom: "1px solid #F1F1F3" }}>
           {err ? <span style={{ color: "#B91C1C" }}><TriangleAlert size={11} style={{ display: "inline", marginRight: 4 }} />{err}</span>
-            : res ? <>พบ {num(items.length)} อู่ · มีพิกัด {num(shown.length)} · {res.origin ? "เรียงจากใกล้ไปไกล" : "ยังไม่ได้ระบุจุดที่รถเสีย — เรียงตามอู่ที่ใช้บ่อย"}</>
+            : res ? <>{res.origin
+                ? <>แสดง <b style={{ color: "#3F3F46" }}>{num(shown.length)}</b> อู่ที่รู้ที่ตั้ง เรียงตามเวลาขับถึง{noGeo.length > 0 && <> · อีก {num(noGeo.length)} อู่ยังไม่มีพิกัด อยู่ท้ายรายการ</>}</>
+                : <>พบ {num(items.length)} อู่ · ยังไม่ได้ระบุจุดที่รถเสีย จึงเรียงตามอู่ที่ใช้บ่อย</>}</>
               : "กำลังโหลด…"}
         </div>
 
@@ -307,6 +313,7 @@ export function GarageMapPage() {
             <GarageCard key={g.name} g={g} rank={i + 1} active={active === g.name} copied={copied}
               onCopy={copy} onHover={() => setActive(g.name)}
               canRoute={!!res?.origin} routing={routing === g.name}
+              onHistory={() => setHistoryFor(g.name)}
               routeInfo={route?.vendor === g.name ? route : null}
               onRoute={() => void showRoute(g)}
               onFocusMap={() => { if (g.geo) mapRef.current?.setView([g.geo.lat, g.geo.lng], 14) }} />
@@ -319,22 +326,36 @@ export function GarageMapPage() {
           )}
           {noGeo.map((g) => (
             <div key={g.name} style={{ padding: "9px 16px", borderBottom: "1px solid #F4F4F5", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, color: "#52525B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</div>
-                <div style={{ fontSize: 10.5, color: "#A1A1AA" }}>
-                  {g.jobs > 0 ? `เคยซ่อมให้ ${g.jobs} ใบ` : "ยังไม่เคยใช้"}{g.phone ? ` · ${g.phone}` : ""}
-                </div>
-              </div>
-              {canEdit && (
-                <button onClick={() => void saveLocation(g.name)}
-                  style={{ border: "1px solid #D4D4D8", background: "#fff", color: "#6D28D9", borderRadius: 7, padding: "3px 9px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  ใส่พิกัด
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <button onClick={() => setHistoryFor(g.name)} title="ดูประวัติการซ่อมของอู่นี้"
+                  style={{ border: 0, background: "none", padding: 0, textAlign: "left", cursor: "pointer", fontSize: 12.5, color: "#3F3F46", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
+                  {g.name}
                 </button>
-              )}
+                <div style={{ fontSize: 11, color: g.jobs > 0 ? "#047857" : "#A1A1AA" }}>
+                  {g.jobs > 0 ? `เคยซ่อมให้ ${g.jobs} ใบ` : "ยังไม่เคยใช้"}
+                </div>
+                {g.phone && <div style={{ fontSize: 12, color: "#18181B", marginTop: 1 }}>{g.phone}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                {canEdit && (
+                  <button onClick={() => void saveLocation(g.name)}
+                    style={{ border: "1px solid #D4D4D8", background: "#fff", color: "#6D28D9", borderRadius: 7, padding: "5px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    ใส่พิกัด
+                  </button>
+                )}
+                {(g.phone.match(/0\d[\d-]{7,}/) ?? [""])[0].replace(/-/g, "") && (
+                  <a href={`tel:${(g.phone.match(/0\d[\d-]{7,}/) ?? [""])[0].replace(/-/g, "")}`}
+                    style={{ background: "#047857", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 11.5, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                    <Phone size={12} /> โทร
+                  </a>
+                )}
+              </div>
             </div>
           ))}
         </div>
       </div>
+
+      {historyFor && <GarageHistoryModal vendor={historyFor} onClose={() => setHistoryFor(null)} />}
 
       {/* ── ขวา: แผนที่ */}
       <div style={{ flex: 1, position: "relative" }}>
@@ -347,10 +368,10 @@ export function GarageMapPage() {
   )
 }
 
-function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap, onRoute, canRoute, routing, routeInfo }: {
+function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap, onRoute, canRoute, routing, routeInfo, onHistory }: {
   g: GarageHit; rank: number; active: boolean; copied: string
   onCopy: (t: string, k: string) => void; onHover: () => void; onFocusMap: () => void
-  onRoute: () => void; canRoute: boolean; routing: boolean
+  onRoute: () => void; canRoute: boolean; routing: boolean; onHistory: () => void
   routeInfo: { km: number; min: number } | null
 }) {
   const tel = (g.phone.match(/0\d[\d-]{7,}/) ?? [""])[0].replace(/-/g, "")
@@ -364,7 +385,10 @@ function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap, onRo
       <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
         <span style={{ fontSize: 11, color: "#A1A1AA", minWidth: 14 }}>{rank}.</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#18181B", lineHeight: 1.35 }}>{g.name}</div>
+          <button onClick={(e) => { e.stopPropagation(); onHistory() }} title="ดูประวัติการซ่อมของอู่นี้"
+            style={{ border: 0, background: "none", padding: 0, textAlign: "left", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#18181B", lineHeight: 1.35 }}>
+            {g.name}
+          </button>
           <div style={{ fontSize: 11, color: "#71717A", marginTop: 2 }}>
             {g.address ? [g.address.subdistrict, g.address.district, g.address.province].filter(Boolean).join(" · ") : "—"}
           </div>
@@ -400,33 +424,65 @@ function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap, onRo
         {g.works.length === 0 && <span style={{ fontSize: 10, color: "#A1A1AA" }}>ยังไม่ได้ระบุประเภทงาน</span>}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 7, fontSize: 11, color: "#71717A" }}>
-        <span>{g.jobs > 0 ? `เคยซ่อมให้ ${g.jobs} ใบ` : "ยังไม่เคยใช้"}{g.lastJob ? ` · ล่าสุด ${g.lastJob}` : ""}</span>
-        <span style={{ flex: 1 }} />
+      {/* แถวปฏิบัติการ — ปลายทางของหน้านี้คือ "โทร" จึงโชว์เบอร์เต็มให้เห็นเลย
+          ไม่ต้องกดคัดลอกหรือ hover ก่อน (ผู้ใช้ขอ 19/10/2569) และให้ปุ่มโทรเด่นปุ่มเดียว
+          ที่เหลือเป็นไอคอนเงียบ ๆ — เดิม 4 ปุ่มน้ำหนักเท่ากันจนตัดคำขึ้นบรรทัดใหม่ */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 11 }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                       color: g.jobs > 0 ? "#047857" : "#A1A1AA", fontWeight: g.jobs > 0 ? 600 : 400 }}>
+          {g.jobs > 0 ? `เคยซ่อมให้ ${g.jobs} ใบ${g.lastJob ? ` · ล่าสุด ${g.lastJob}` : ""}` : "ยังไม่เคยใช้"}
+        </span>
+        <IconBtn label="ดูประวัติการซ่อมของอู่นี้" onClick={(e) => { e.stopPropagation(); onHistory() }}>
+          <History size={13} />
+        </IconBtn>
         {canRoute && (
-          <button onClick={(e) => { e.stopPropagation(); onRoute() }} disabled={routing}
-            style={{ border: `1px solid ${routeInfo ? "#6D28D9" : "#E4E4E7"}`, background: routeInfo ? "#F5F3FF" : "#fff", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer", color: "#6D28D9", display: "flex", alignItems: "center", gap: 4 }}>
-            {routing ? <Loader2 size={11} className="animate-spin" /> : <Route size={11} />}
-            {routeInfo ? "ซ่อนเส้นทาง" : "ดูเส้นทาง"}
-          </button>
+          <IconBtn label={routeInfo ? "ซ่อนเส้นทาง" : "ดูเส้นทางขับไปอู่นี้"} active={!!routeInfo} disabled={routing}
+            onClick={(e) => { e.stopPropagation(); onRoute() }}>
+            {routing ? <Loader2 size={13} className="animate-spin" /> : <Route size={13} />}
+          </IconBtn>
+        )}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+        {g.phone ? (
+          <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: "#18181B", lineHeight: 1.35 }}>
+            <Phone size={11} style={{ display: "inline", marginRight: 4, color: "#71717A", verticalAlign: "-1px" }} />
+            {g.phone}
+          </span>
+        ) : (
+          <span style={{ flex: 1, fontSize: 11, color: "#A1A1AA", display: "flex", alignItems: "center", gap: 4 }}>
+            <MapPin size={12} /> ไม่มีเบอร์ใน ATMS
+          </span>
         )}
         {g.phone && (
-          <>
-            <button onClick={(e) => { e.stopPropagation(); onCopy(g.phone, g.name) }}
-              title={g.phone}
-              style={{ border: "1px solid #E4E4E7", background: "#fff", borderRadius: 6, padding: "2px 7px", fontSize: 11, cursor: "pointer", color: "#52525B", display: "flex", alignItems: "center", gap: 4 }}>
-              {copied === g.name ? <Check size={11} color="#047857" /> : <Copy size={11} />} คัดลอกเบอร์
-            </button>
-            {tel && (
-              <a href={`tel:${tel}`} onClick={(e) => e.stopPropagation()}
-                style={{ background: "#047857", color: "#fff", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
-                <Phone size={11} /> โทร
-              </a>
-            )}
-          </>
+          <IconBtn label={`คัดลอกเบอร์ ${g.phone}`} onClick={(e) => { e.stopPropagation(); onCopy(g.phone, g.name) }}>
+            {copied === g.name ? <Check size={13} color="#047857" /> : <Copy size={13} />}
+          </IconBtn>
         )}
-        {!g.phone && <span style={{ color: "#A1A1AA", display: "flex", alignItems: "center", gap: 4 }}><MapPin size={11} /> ไม่มีเบอร์ใน ATMS</span>}
+        {tel && (
+          <a href={`tel:${tel}`} onClick={(e) => e.stopPropagation()} title={`โทร ${tel}`}
+            style={{ background: "#047857", color: "#fff", borderRadius: 7, padding: "6px 14px", fontSize: 12, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", flexShrink: 0 }}>
+            <Phone size={13} /> โทร
+          </a>
+        )}
       </div>
     </div>
+  )
+}
+
+/** ปุ่มรองในใบรายการ — ขนาดเท่ากันทุกปุ่ม เป้ากด 28px และมี tooltip บอกว่าทำอะไร */
+function IconBtn({ children, label, onClick, active, disabled }: {
+  children: React.ReactNode; label: string; active?: boolean; disabled?: boolean
+  onClick: (e: React.MouseEvent) => void
+}) {
+  return (
+    <button onClick={onClick} title={label} aria-label={label} disabled={disabled}
+      style={{
+        width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
+        border: `1px solid ${active ? "#6D28D9" : "#E4E4E7"}`, background: active ? "#F5F3FF" : "#fff",
+        color: active ? "#6D28D9" : "#52525B", borderRadius: 7, cursor: disabled ? "default" : "pointer", flexShrink: 0,
+      }}>
+      {children}
+    </button>
   )
 }
