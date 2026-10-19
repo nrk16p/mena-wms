@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
         head.forEach((g, i) => { g.roadKm = legs[i]?.km ?? null; g.roadMin = legs[i]?.min ?? null })
         const headSet = new Set(head)
         const reordered = [...head].sort((a, b) => {
+          if (!!a.workUnknown !== !!b.workUnknown) return a.workUnknown ? 1 : -1
           if (a.matchesAll !== b.matchesAll) return a.matchesAll ? -1 : 1
           if (a.roadMin !== null && b.roadMin !== null) return a.roadMin - b.roadMin
           if (a.roadMin !== null) return -1

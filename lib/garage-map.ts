@@ -3,9 +3,12 @@
 import clientPromise from "@/lib/mongo"
 import geoSeed from "@/data/garage-geo.json"
 import pinSeed from "@/data/garage-pins.json"
+import fleetSeed from "@/data/fleet-garages.json"
+import mapLayers from "@/data/map-layers.json"
 import { byCode } from "@/lib/repair-type-master"
 import { garageKey } from "@/lib/atms-garage"
-import type { GarageHit, GarageGeo, GarageAddress, GeoPrecision } from "@/lib/garage-geo"
+import { haversineKm } from "@/lib/garage-geo"
+import type { GarageHit, GarageGeo, GarageAddress, GeoPrecision, GarageSource } from "@/lib/garage-geo"
 
 const DB      = process.env.MONGO_DB ?? "master_data"
 const AP_COLL = "vendor_approval"
@@ -27,6 +30,40 @@ const PINS = pinSeed as unknown as Record<string, PinRow>
 const PIN_BY_KEY = new Map(Object.entries(PINS).map(([name, v]) => [garageKey(name), v]))
 /** ชื่อในไฟล์ seed สะกดตาม ATMS — เทียบด้วย garageKey เหมือนที่อื่นทั้งระบบ */
 const SEED_BY_KEY = new Map(Object.entries(SEED).map(([name, v]) => [garageKey(name), v]))
+
+/** ทะเบียนอู่ของฝ่ายยานยนต์ (ชีต "ประเภทอู่ซ่อม2026") — สร้างด้วย scripts/build-fleet-garages.mjs */
+type FleetRow = {
+  name: string; zone: string; works: string[]; phone: string; address: string; pending: boolean
+  area: { province: string; district: string; subdistrict: string } | null
+  geo: { lat: number; lng: number; precision: GeoPrecision } | null
+}
+const FLEET = fleetSeed as unknown as FleetRow[]
+
+/** หมวดงานในชีตยานยนต์ → รหัสประเภทงานอู่นอกของ AVL ให้ตัวกรองประเภทงานใช้ร่วมกันได้
+ *  "นอกสถานที่" กับ "ติดฟิล์ม" ไม่มีรหัสคู่ใน AVL จึงโชว์เป็นป้ายอย่างเดียว */
+const FLEET_CODES: Record<string, string[]> = {
+  "ช่วงล่าง/เบรค/คลัทซ์": ["S35", "S37"],
+  "เครื่องยนต์": ["S33"],
+  "ระบบโม่": ["S45"],
+  "ตัวถัง/บอดี้": ["S57", "S43"],
+  "แอร์": ["S39"],
+  "หัวฉีด/ปั้ม": ["S61"],
+  "ทำท่อไอเสีย": ["S47"],
+}
+
+/** หมุดร้านซ่อมทั้งหมดใน My Map (ชุดเดียวกับเลเยอร์ส้มบนแผนที่) */
+type ShopPin = { n: string; t: string; lat: number; lng: number }
+const SHOPS = (mapLayers as unknown as { shops: ShopPin[] }).shops
+
+/** เบอร์โทรเป็นตัวเลขล้วน ใช้จับว่าเป็นเจ้าเดียวกันข้ามแหล่ง (แม่นกว่าชื่อมาก) */
+const phonesOf = (s: string) =>
+  [...String(s ?? "").matchAll(/0\d[\d\- ]{7,12}/g)].map((m) => m[0].replace(/\D/g, "")).filter((x) => x.length >= 9 && x.length <= 10)
+
+/** แก่นชื่อ: ตัดคำนำหน้า/คำกลาง ๆ และวงเล็บออก เพื่อเทียบชื่อข้ามแหล่ง */
+const coreName = (s: string) =>
+  String(s ?? "").replace(/\(.*?\)/g, " ")
+    .replace(/บริษัท|ห้างหุ้นส่วนจำกัด|หจก\.?|บจก\.?|จำกัด|นางสาว|นาย|นาง|อู่|ร้าน|ศูนย์|เซอร์วิส|เซอร์วิช|การช่าง|ช่าง|เครดิต|เงินสด|\(รอAdd\)/g, " ")
+    .replace(/\s+/g, "").toLowerCase()
 
 let cache: { at: number; items: GarageHit[] } | null = null
 
@@ -86,6 +123,11 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
     const job  = jobsByKey.get(k)
     const codes = Array.isArray(doc.codes) ? doc.codes : []
     return {
+      source: "avl" as GarageSource,
+      sources: ["avl"] as GarageSource[],
+      fleetWorks: [],
+      onsite: false,
+      zone: "",
       name: String(doc.vendor ?? "").trim(),
       atmsId: Number(doc.atmsId) || (sup?.atmsId as number) || null,
       phone: String(sup?.phone ?? ""),
@@ -106,8 +148,78 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
     }
   })
 
+  mergeFleet(items)
+  addShopPins(items)
+
   cache = { at: Date.now(), items }
   return items
+}
+
+/** ชีตยานยนต์: ถ้าเป็นเจ้าเดียวกับใน AVL (เบอร์ตรง หรือแก่นชื่อตรง) เติมข้อมูลให้ ไม่งั้นเพิ่มเป็นอู่ใหม่ */
+function mergeFleet(items: GarageHit[]) {
+  const byPhone = new Map<string, GarageHit>()
+  for (const g of items) for (const p of phonesOf(g.phone)) byPhone.set(p, g)
+  const byCore = new Map(items.map((g) => [coreName(g.name), g]).filter(([k]) => (k as string).length >= 3) as [string, GarageHit][])
+
+  for (const f of FLEET) {
+    const codes = [...new Set(f.works.flatMap((w) => FLEET_CODES[w] ?? []))]
+    const hit = phonesOf(f.phone).map((p) => byPhone.get(p)).find(Boolean) ?? byCore.get(coreName(f.name))
+    const geo: GarageGeo | null = f.geo ? { lat: f.geo.lat, lng: f.geo.lng, precision: f.geo.precision, source: "ชีตทะเบียนอู่ยานยนต์" } : null
+    const address: GarageAddress | null = f.area
+      ? { full: f.address, subdistrict: f.area.subdistrict, district: f.area.district, province: f.area.province }
+      : null
+    if (hit) {
+      hit.sources.push("fleet")
+      hit.fleetWorks = f.works
+      hit.onsite = f.works.includes("นอกสถานที่")
+      hit.zone = f.zone
+      hit.codes = [...new Set([...hit.codes, ...codes])]
+      if (!hit.phone) hit.phone = f.phone
+      // พิกัดหน้าอู่จากชีตชนะพิกัดระดับตำบลจากที่อยู่จดทะเบียน
+      if (geo && (!hit.geo || (hit.geo.precision !== "หน้าอู่" && geo.precision === "หน้าอู่"))) hit.geo = geo
+      if (!hit.address && address) hit.address = address
+      continue
+    }
+    items.push({
+      source: "fleet", sources: ["fleet"], fleetWorks: f.works, onsite: f.works.includes("นอกสถานที่"), zone: f.zone,
+      name: f.name.replace(/\(รอAdd\)/i, "").trim(),
+      atmsId: null, phone: f.phone, branch: "", codes,
+      works: [...new Set(codes.map((c) => byCode(c)?.work).filter((w): w is string => !!w))],
+      status: f.pending ? "รอเพิ่มเข้าระบบ" : "",
+      geo, address,
+      distanceKm: null, roadKm: null, roadMin: null, matchesAll: false,
+      jobs: 0, lastJob: "", poCount: 0, poBaht: 0,
+    })
+  }
+}
+
+/** หมุดร้านซ่อมใน My Map ที่ยังไม่ซ้ำกับอู่ไหนเลย → เพิ่มเป็นอู่ระดับ "pin"
+ *  ซ้ำ = เบอร์ตรงกัน หรือเป็นหมุดที่จับคู่กับ AVL ไว้แล้ว หรืออยู่ห่างอู่ที่ชื่อคล้ายกันไม่เกิน 300 ม. */
+function addShopPins(items: GarageHit[]) {
+  const usedPins = new Set(Object.values(PINS).map((p) => p.pinName))
+  const phones = new Set(items.flatMap((g) => phonesOf(g.phone)))
+  for (const s of SHOPS) {
+    if (usedPins.has(s.n)) {
+      const owner = items.find((g) => PIN_BY_KEY.get(garageKey(g.name))?.pinName === s.n)
+      if (owner && !owner.sources.includes("pin")) owner.sources.push("pin")
+      continue
+    }
+    const ph = phonesOf(`${s.n} ${s.t}`)
+    const twin = ph.some((p) => phones.has(p))
+      ? items.find((g) => phonesOf(g.phone).some((p) => ph.includes(p)))
+      : items.find((g) => g.geo && haversineKm(g.geo, s) < 0.3 && coreName(g.name).length >= 2 && coreName(s.n).includes(coreName(g.name)))
+    if (twin) { if (!twin.sources.includes("pin")) twin.sources.push("pin"); continue }
+    // ชื่อหมุดมักมีเบอร์ต่อท้าย ตัดออกให้อ่านง่าย เบอร์ไปอยู่ช่องเบอร์แทน
+    const name = s.n.replace(/0\d[\d\- ]{7,12}/g, "").replace(/\s+/g, " ").trim() || s.n
+    items.push({
+      source: "pin", sources: ["pin"], fleetWorks: [], onsite: false, zone: "",
+      name, atmsId: null, phone: ph[0] ?? "", branch: "", codes: [], works: [], status: "",
+      geo: { lat: s.lat, lng: s.lng, precision: "หน้าอู่", source: "หมุด My Map ยานยนต์" },
+      address: null,
+      distanceKm: null, roadKm: null, roadMin: null, matchesAll: false,
+      jobs: 0, lastJob: "", poCount: 0, poBaht: 0,
+    })
+  }
 }
 
 /**

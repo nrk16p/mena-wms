@@ -24,8 +24,26 @@ export type GarageAddress = {
   province: string
 }
 
+/**
+ * แหล่งที่มาของอู่ — บอกผู้ใช้ว่าเชื่อได้แค่ไหน (ผู้ใช้สั่ง 19/10/2569: โชว์ทุกอย่างที่มีก่อน ค่อยคลีนทีหลัง)
+ *   avl   = อยู่ในทะเบียน AVL ผ่านการอนุมัติ มีประวัติซ่อม
+ *   fleet = อยู่ในชีตทะเบียนอู่ของฝ่ายยานยนต์ (มีประเภทงาน 9 หมวด) แต่ยังไม่อยู่ใน AVL
+ *   pin   = หมุดร้านซ่อมใน My Map ของยานยนต์ มีแค่ชื่อกับเบอร์
+ */
+export type GarageSource = "avl" | "fleet" | "pin"
+
 /** อู่ 1 รายที่ส่งให้หน้าจอ */
 export type GarageHit = {
+  /** แหล่งหลักที่ใช้จัดป้าย (avl > fleet > pin) */
+  source: GarageSource
+  /** ทุกแหล่งที่เจออู่นี้ — ใช้บอกว่าข้อมูลยืนยันกันหลายทาง */
+  sources: GarageSource[]
+  /** หมวดงานตามชีตยานยนต์ (ภาษาที่ช่างใช้) — ว่าง = ไม่มีข้อมูลจากชีต */
+  fleetWorks: string[]
+  /** ชีตยานยนต์ติ๊กว่า "นอกสถานที่" = ออกไปซ่อมหน้างานได้ */
+  onsite: boolean
+  /** โซนที่ยานยนต์จัดไว้ในชีต เช่น "ลาดกระบัง/มีนบุรี/กิ่งแก้ว/หนองจอก" */
+  zone: string
   name: string
   atmsId: number | null
   phone: string
@@ -45,6 +63,8 @@ export type GarageHit = {
   roadMin: number | null
   /** ทำได้ครบทุกประเภทงานที่ผู้ใช้ติ๊กไว้ */
   matchesAll: boolean
+  /** ผู้ใช้เลือกประเภทงานแต่อู่นี้ไม่มีข้อมูลงานเลย → ไม่ตัดทิ้ง ไปอยู่กลุ่ม "โทรถาม" ท้ายรายการ */
+  workUnknown?: boolean
   jobs: number
   lastJob: string
   poCount: number
@@ -123,9 +143,13 @@ export function rankGarages(
         roadMin: null as number | null,
       }
     })
-    .filter((g) => (want.length ? g._hits > 0 : true))
+    // อู่ที่ไม่มีข้อมูลประเภทงานเลย ไม่ตัดทิ้งตอนผู้ใช้เลือกงาน (BA 19/10/2569: ตัดทิ้งแล้วผู้ใช้นึกว่าไม่มีอู่)
+    // ไปรวมเป็นกลุ่มท้ายรายการแทน — อู่ที่มีข้อมูลแต่ไม่ทำงานนั้นยังตัดออกเหมือนเดิม
+    .map((g) => ({ ...g, workUnknown: want.length > 0 && g.codes.length === 0 && !g.fleetWorks.length }))
+    .filter((g) => (want.length ? g._hits > 0 || g.workUnknown : true))
 
   rows.sort((a, b) => {
+    if (a.workUnknown !== b.workUnknown) return a.workUnknown ? 1 : -1
     if (a.matchesAll !== b.matchesAll) return a.matchesAll ? -1 : 1
     const ad = a.distanceKm, bd = b.distanceKm
     if (ad === null && bd === null) return b.jobs - a.jobs
