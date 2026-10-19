@@ -65,8 +65,11 @@ export async function POST(req: NextRequest) {
   const db = client.db(DB)
   const key = createHash("sha1").update([norm(name), norm(group), type, l1Hint.join("+")].join("|")).digest("hex")
 
+  // เอาแต่ผลที่ AI ตอบได้จริง — ผลสำรอง (lexical) ที่เกิดจากคีย์หาย/โควตาเต็ม ไม่เก็บและไม่ใช้ซ้ำ
+  // (เคสจริง 19/10/2026: ตอน GROQ_API_KEY ยังไม่มีผลบน Vercel คำตอบสำรองถูกแคชไว้ แล้วผู้ใช้เห็น
+  //  ข้อความ "ยังไม่ได้ตั้งค่า GROQ_API_KEY" ค้างอยู่ทั้งที่คีย์ใช้ได้แล้ว)
   const cached = await db.collection<{ key: string; result: SuggestResult; at: Date }>(CACHE_COLL)
-    .findOne({ key, at: { $gte: new Date(Date.now() - CACHE_DAYS * 864e5) } })
+    .findOne({ key, "result.engine": "groq", at: { $gte: new Date(Date.now() - CACHE_DAYS * 864e5) } })
   if (cached?.result?.options?.length) {
     return NextResponse.json({ ...cached.result, cached: true })
   }
@@ -83,7 +86,7 @@ export async function POST(req: NextRequest) {
 
   // เขียนแคช/log แบบไม่ขวางคำตอบ — ล้มก็แค่ถาม AI ซ้ำรอบหน้า
   await Promise.all([
-    result.options.length
+    result.engine === "groq" && result.options.length
       ? db.collection(CACHE_COLL).updateOne({ key }, { $set: { key, result, at: new Date() } }, { upsert: true })
       : Promise.resolve(),
     db.collection(LOG_COLL).insertOne({
