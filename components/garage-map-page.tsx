@@ -205,7 +205,7 @@ export function GarageMapPage() {
     return () => { cancelled = true }
   }, [])
 
-  // ── กรองฝั่งหน้าจอ: พื้นที่ · มีเบอร์ · อู่ประจำ · ออกนอกสถานที่
+  // ── กรองฝั่งหน้าจอ: พื้นที่ · มีเบอร์ · อู่ AVL · ออกนอกสถานที่
   // พื้นที่ไม่มีอู่เลย (เช่น ตาก) ห้ามปล่อยว่าง — ถอยไปโชว์อู่ที่ใกล้กลางพื้นที่ที่สุดแทน
   const { items, areaEmpty } = useMemo(() => {
     let all = res?.items ?? []
@@ -365,7 +365,7 @@ export function GarageMapPage() {
           </div>
           <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 12.5, color: C.ink2 }}>
             <Toggle on={onlyPhone} onClick={() => setOnlyPhone((v) => !v)}>เฉพาะที่มีเบอร์</Toggle>
-            <Toggle on={onlyAvl} onClick={() => setOnlyAvl((v) => !v)}>เฉพาะอู่ประจำ</Toggle>
+            <Toggle on={onlyAvl} onClick={() => setOnlyAvl((v) => !v)}>เฉพาะอู่ AVL</Toggle>
           </div>
         </div>
 
@@ -477,7 +477,7 @@ export function GarageMapPage() {
 }
 
 /** หมุดอู่บนแผนที่ — สีตามความน่าเชื่อถือ ตรงกับป้ายในใบรายการ
- *  มินต์ = อู่ประจำ · ฟ้า = ยานยนต์แนะนำ · ส้มขอบประ = ยังไม่ผ่านอนุมัติ / ที่ตั้งโดยประมาณ */
+ *  มินต์ = อู่ AVL · ฟ้า = อู่ที่ยังไม่ได้ยืนยัน · ส้มขอบประ = ยังไม่ผ่านอนุมัติ / ที่ตั้งโดยประมาณ */
 function garageIcon(L: typeof import("leaflet"), g: GarageHit, rank: number, on: boolean) {
   const approx = g.geo?.precision !== "หน้าอู่"
   const t = trustOf(g)
@@ -501,12 +501,12 @@ function TrustBadge({ g }: { g: GarageHit }) {
   const base: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap" }
   if (t === "avl") return (
     <span style={{ ...base, background: C.mint, color: "#fff" }}>
-      <ShieldCheck size={11} /> อู่ประจำ{g.jobs > 0 ? ` · เคยซ่อม ${g.jobs} ใบ` : ""}
+      <ShieldCheck size={11} /> อู่ AVL{g.jobs > 0 ? ` · เคยซ่อม ${g.jobs} ใบ` : ""}
     </span>
   )
   if (t === "fleet") return (
     <span style={{ ...base, background: "#fff", color: C.brand, border: `1.5px solid ${C.brand}` }}>
-      <Wrench size={11} /> ยานยนต์แนะนำ
+      <Wrench size={11} /> อู่ที่ยังไม่ได้ยืนยัน
     </span>
   )
   return (
@@ -679,8 +679,8 @@ function Legend({ open, onToggle, plantCusts, onPlantCust, onAllPlants, showFuel
       </button>
       {open && (
         <div style={{ display: "grid", gap: 7, marginTop: 9 }}>
-          <Row icon={dot({ borderRadius: 999, background: C.mint, border: "2px solid #fff", boxShadow: "0 0 0 1px #cfe3fb" })}>อู่ประจำ (ทะเบียน AVL)</Row>
-          <Row icon={dot({ borderRadius: 999, background: C.brand, border: "2px solid #fff", boxShadow: "0 0 0 1px #cfe3fb" })}>ยานยนต์แนะนำ</Row>
+          <Row icon={dot({ borderRadius: 999, background: C.mint, border: "2px solid #fff", boxShadow: "0 0 0 1px #cfe3fb" })}>อู่ AVL</Row>
+          <Row icon={dot({ borderRadius: 999, background: C.brand, border: "2px solid #fff", boxShadow: "0 0 0 1px #cfe3fb" })}>อู่ที่ยังไม่ได้ยืนยัน</Row>
           <Row icon={dot({ borderRadius: 4, background: "#fff", border: `2px dashed ${C.sun}` })}>ยังไม่อนุมัติ / ที่ตั้งประมาณ</Row>
           <Row icon={dot({ borderRadius: 3, background: `conic-gradient(${CUSTOMERS.map((c, i) => `${c.color} ${i * 72}deg ${(i + 1) * 72}deg`).join(",")})` })}>
             <LayerSwitch on={plantCusts.length === CUSTOMERS.length} onClick={onAllPlants} icon={<Factory size={12} />}>แพล้นท์ทุกลูกค้า</LayerSwitch>

@@ -235,12 +235,12 @@ function Td({ children, right }: { children?: React.ReactNode; right?: boolean }
   return <td style={{ padding: "9px 12px", textAlign: right ? "right" : "left", verticalAlign: "middle" }}>{children}</td>
 }
 
-/** แถบสัดส่วนอู่ตามที่มา: อู่ประจำ (มินต์) · ยานยนต์แนะนำ (ฟ้า) · ยังไม่อนุมัติ (ส้ม) */
+/** แถบสัดส่วนอู่ตามที่มา: อู่ AVL (มินต์) · อู่ที่ยังไม่ได้ยืนยัน (ฟ้า) · ยังไม่อนุมัติ (ส้ม) */
 function SourceBar({ r }: { r: CoverageRow }) {
   if (!r.garages) return <span style={{ color: C.muted }}>—</span>
   const parts = [
-    { n: r.bySource.avl, c: C.mint, l: "อู่ประจำ" },
-    { n: r.bySource.fleet, c: C.brand, l: "ยานยนต์แนะนำ" },
+    { n: r.bySource.avl, c: C.mint, l: "อู่ AVL" },
+    { n: r.bySource.fleet, c: C.brand, l: "อู่ที่ยังไม่ได้ยืนยัน" },
     { n: r.bySource.pin, c: C.sun, l: "ยังไม่อนุมัติ" },
   ]
   return (
@@ -249,7 +249,7 @@ function SourceBar({ r }: { r: CoverageRow }) {
         {parts.map((p) => p.n > 0 && <div key={p.l} style={{ width: `${(p.n / r.garages) * 100}%`, background: p.c }} />)}
       </div>
       <div style={{ fontSize: 11, color: C.muted, marginTop: 3, whiteSpace: "nowrap" }}>
-        ประจำ {r.bySource.avl} · แนะนำ {r.bySource.fleet} · ยังไม่อนุมัติ {r.bySource.pin}
+        AVL {r.bySource.avl} · ยังไม่ยืนยัน {r.bySource.fleet} · ยังไม่อนุมัติ {r.bySource.pin}
       </div>
     </div>
   )
