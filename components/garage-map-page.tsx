@@ -10,12 +10,13 @@
 // ถ้าวันหลังต้องการระยะขับจริง ต่อ API เส้นทางเพิ่มที่ฝั่ง /api/vendors/map ได้โดยหน้านี้ไม่ต้องแก้
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Crosshair, Loader2, MapPin, Phone, Search, TriangleAlert, Copy, Check } from "lucide-react"
-import type { Map as LeafletMap, Marker as LeafletMarker } from "leaflet"
+import { Crosshair, Loader2, MapPin, Phone, Route, Search, TriangleAlert, Copy, Check } from "lucide-react"
+import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline } from "leaflet"
 import { REPAIR_TYPES } from "@/lib/repair-type-master"
 import { canApproveVendor } from "@/lib/roles"
 import { swalError, swalToast } from "@/lib/swal"
 import type { GarageHit } from "@/lib/garage-geo"
+import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { mitr, num } from "@/components/vendor-shared"
 import { loadThaiAddress, listProvinces, listDistricts, listSubdistricts, type ProvinceNode } from "@/lib/thai-address"
 
@@ -36,6 +37,10 @@ const OUTSIDE_WORKS: { work: string; codes: string[] }[] = (() => {
   }
   return [...m].map(([work, codes]) => ({ work, codes }))
 })()
+
+/** ตัวเลือกใน dropdown — ใช้ชื่องานเป็นคีย์ตรง ๆ (th เว้นว่างเพื่อไม่ให้ชื่อซ้ำสองรอบในป้าย) */
+const WORK_OPTIONS: Record<string, { th: string; en: string }> =
+  Object.fromEntries(OUTSIDE_WORKS.map(({ work }) => [work, { th: work, en: "" }]))
 
 const PRECISION_NOTE: Record<string, string> = {
   "หน้าอู่": "พิกัดที่ยืนยันแล้ว",
@@ -63,6 +68,9 @@ export function GarageMapPage() {
   const mapRef = useRef<LeafletMap | null>(null)
   const markersRef = useRef<LeafletMarker[]>([])
   const originMarkerRef = useRef<LeafletMarker | null>(null)
+  const routeRef = useRef<LeafletPolyline | null>(null)
+  const [route, setRoute] = useState<{ vendor: string; km: number; min: number } | null>(null)
+  const [routing, setRouting] = useState("")
   const boxRef = useRef<HTMLDivElement>(null)
 
   const codes = useMemo(
@@ -124,6 +132,7 @@ export function GarageMapPage() {
       markersRef.current.forEach((m) => m.remove())
       markersRef.current = []
       originMarkerRef.current?.remove()
+      routeRef.current?.remove(); routeRef.current = null; setRoute(null)
 
       const pin = (text: string, bg: string) => L.divIcon({
         className: "",
@@ -151,6 +160,35 @@ export function GarageMapPage() {
       }
     })()
   }, [res])
+
+  /** วาดเส้นทางขับจริงจากจุดที่รถเสียไปอู่ที่กด — กดซ้ำที่เจ้าเดิมคือเอาเส้นออก */
+  const showRoute = useCallback(async (g: GarageHit) => {
+    const map = mapRef.current
+    if (!map || !g.geo || !res?.origin) return
+    if (route?.vendor === g.name) {
+      routeRef.current?.remove(); routeRef.current = null; setRoute(null)
+      return
+    }
+    setRouting(g.name)
+    try {
+      const qs = new URLSearchParams({
+        fromLat: String(res.origin.lat), fromLng: String(res.origin.lng),
+        toLat: String(g.geo.lat), toLng: String(g.geo.lng),
+      })
+      const r = await fetch(`/api/vendors/map/route-line?${qs}`)
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error ?? "หาเส้นทางไม่ได้")
+      const L = (await import("leaflet")).default
+      routeRef.current?.remove()
+      routeRef.current = L.polyline(j.line as [number, number][], { color: "#6D28D9", weight: 5, opacity: .8 }).addTo(map)
+      map.fitBounds(routeRef.current.getBounds().pad(0.15))
+      setRoute({ vendor: g.name, km: j.km, min: j.min })
+    } catch (e) {
+      void swalError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRouting("")
+    }
+  }, [res, route])
 
   const onSubmit = (e: React.FormEvent) => { e.preventDefault(); void search(at, codes) }
 
@@ -237,29 +275,22 @@ export function GarageMapPage() {
             </select>
           </div>
 
-          {/* ตัวกรองประเภทงาน — ติ๊กได้หลายอัน (ผู้ใช้ขอ 19/10/2569) */}
+          {/* ตัวกรองประเภทงาน — เลือกได้หลายอย่าง เป็น dropdown เพราะมี 36 ประเภท
+              ถ้าโชว์เป็นชิปทั้งหมดจะกินพื้นที่จนรายการอู่หาย (ผู้ใช้ขอ 19/10/2569) */}
           <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 11, color: "#71717A", marginBottom: 5, display: "flex", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 11, color: "#71717A", marginBottom: 2, display: "flex", justifyContent: "space-between" }}>
               <span>ประเภทงานที่ต้องซ่อม (เลือกได้หลายอย่าง)</span>
               {works.length > 0 && (
                 <button onClick={() => setWorks([])} style={{ border: 0, background: "none", color: "#6D28D9", fontSize: 11, cursor: "pointer" }}>ล้าง</button>
               )}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {OUTSIDE_WORKS.map(({ work }) => {
-                const on = works.includes(work)
-                return (
-                  <button key={work}
-                    onClick={() => setWorks((w) => on ? w.filter((x) => x !== work) : [...w, work])}
-                    style={{
-                      padding: "3px 9px", borderRadius: 999, fontSize: 11, cursor: "pointer",
-                      border: `1px solid ${on ? "#6D28D9" : "#E4E4E7"}`,
-                      background: on ? "#6D28D9" : "#fff", color: on ? "#fff" : "#52525B", fontWeight: on ? 600 : 400,
-                    }}>
-                    {work}
-                  </button>
-                )
-              })}
+            <div style={{ border: "1px solid #D4D4D8", borderRadius: 8, padding: "0 8px" }}>
+              <MultiSelectCombobox
+                options={WORK_OPTIONS} values={works} onChange={setWorks}
+                placeholder="— ทุกประเภทงาน —"
+                searchPlaceholder="พิมพ์ชื่อประเภทงาน เช่น โม่ / เบรก / แอร์"
+                showCode={false} emptyText="ไม่พบประเภทงานที่ค้นหา"
+              />
             </div>
           </div>
         </div>
@@ -275,6 +306,9 @@ export function GarageMapPage() {
           {shown.map((g, i) => (
             <GarageCard key={g.name} g={g} rank={i + 1} active={active === g.name} copied={copied}
               onCopy={copy} onHover={() => setActive(g.name)}
+              canRoute={!!res?.origin} routing={routing === g.name}
+              routeInfo={route?.vendor === g.name ? route : null}
+              onRoute={() => void showRoute(g)}
               onFocusMap={() => { if (g.geo) mapRef.current?.setView([g.geo.lat, g.geo.lng], 14) }} />
           ))}
 
@@ -306,16 +340,18 @@ export function GarageMapPage() {
       <div style={{ flex: 1, position: "relative" }}>
         <div ref={boxRef} style={{ position: "absolute", inset: 0 }} />
         <div style={{ position: "absolute", left: 12, bottom: 12, zIndex: 500, background: "rgba(255,255,255,.94)", borderRadius: 8, padding: "7px 11px", fontSize: 11, color: "#52525B", boxShadow: "0 1px 6px rgba(0,0,0,.16)", maxWidth: 340 }}>
-          คลิกบนแผนที่เพื่อตั้งจุดที่รถเสีย · ระยะที่แสดงเป็นเส้นตรง ไม่ใช่ระยะขับจริง
+          คลิกบนแผนที่เพื่อตั้งจุดที่รถเสีย · ระยะและเวลาเป็นการขับตามถนนจริง (ไม่รวมรถติดตอนนั้น) · กด "ดูเส้นทาง" ในใบรายการเพื่อวาดเส้น
         </div>
       </div>
     </div>
   )
 }
 
-function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap }: {
+function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap, onRoute, canRoute, routing, routeInfo }: {
   g: GarageHit; rank: number; active: boolean; copied: string
   onCopy: (t: string, k: string) => void; onHover: () => void; onFocusMap: () => void
+  onRoute: () => void; canRoute: boolean; routing: boolean
+  routeInfo: { km: number; min: number } | null
 }) {
   const tel = (g.phone.match(/0\d[\d-]{7,}/) ?? [""])[0].replace(/-/g, "")
   return (
@@ -334,10 +370,20 @@ function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap }: {
           </div>
         </div>
         {g.distanceKm !== null && (
-          <span title={g.geo ? PRECISION_NOTE[g.geo.precision] : ""}
-            style={{ fontSize: 13, fontWeight: 700, color: g.geo?.precision === "หน้าอู่" ? "#047857" : "#6D28D9", whiteSpace: "nowrap" }}>
-            {g.distanceKm} กม.{g.geo?.precision !== "หน้าอู่" && <span style={{ fontSize: 10, fontWeight: 400, color: "#A1A1AA" }}> ~</span>}
-          </span>
+          <div style={{ textAlign: "right", whiteSpace: "nowrap" }}
+            title={[
+              g.roadKm !== null ? `ระยะขับจริงตามถนน ${g.roadKm} กม. · เวลาขับราว ${g.roadMin} นาที (ไม่รวมรถติดตอนนั้น)` : "",
+              `เส้นตรง ${g.distanceKm} กม.`,
+              g.geo ? PRECISION_NOTE[g.geo.precision] : "",
+            ].filter(Boolean).join("\n")}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: g.geo?.precision === "หน้าอู่" ? "#047857" : "#6D28D9" }}>
+              {g.roadKm !== null ? `${g.roadKm} กม.` : `${g.distanceKm} กม.`}
+              {g.geo?.precision !== "หน้าอู่" && <span style={{ fontSize: 10, fontWeight: 400, color: "#A1A1AA" }}> ~</span>}
+            </div>
+            {g.roadMin !== null
+              ? <div style={{ fontSize: 11, color: "#52525B" }}>ขับราว {g.roadMin} นาที</div>
+              : <div style={{ fontSize: 10, color: "#A1A1AA" }}>เส้นตรง</div>}
+          </div>
         )}
       </div>
 
@@ -357,6 +403,13 @@ function GarageCard({ g, rank, active, copied, onCopy, onHover, onFocusMap }: {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 7, fontSize: 11, color: "#71717A" }}>
         <span>{g.jobs > 0 ? `เคยซ่อมให้ ${g.jobs} ใบ` : "ยังไม่เคยใช้"}{g.lastJob ? ` · ล่าสุด ${g.lastJob}` : ""}</span>
         <span style={{ flex: 1 }} />
+        {canRoute && (
+          <button onClick={(e) => { e.stopPropagation(); onRoute() }} disabled={routing}
+            style={{ border: `1px solid ${routeInfo ? "#6D28D9" : "#E4E4E7"}`, background: routeInfo ? "#F5F3FF" : "#fff", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer", color: "#6D28D9", display: "flex", alignItems: "center", gap: 4 }}>
+            {routing ? <Loader2 size={11} className="animate-spin" /> : <Route size={11} />}
+            {routeInfo ? "ซ่อนเส้นทาง" : "ดูเส้นทาง"}
+          </button>
+        )}
         {g.phone && (
           <>
             <button onClick={(e) => { e.stopPropagation(); onCopy(g.phone, g.name) }}

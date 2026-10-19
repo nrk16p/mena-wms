@@ -11,10 +11,16 @@ interface MultiSelectComboboxProps {
   onChange:  (values: string[]) => void
   placeholder?: string
   className?: string
+  /** ข้อความในช่องค้นหาตอนเปิด dropdown — ตั้งเองได้เพราะหน้าอื่นไม่ได้เลือก "รุ่นรถ" */
+  searchPlaceholder?: string
+  /** false = ไม่ต้องโชว์คอลัมน์รหัส (ใช้เมื่อคีย์คือชื่อที่อ่านออกอยู่แล้ว ไม่งั้นชื่อซ้ำสองรอบ) */
+  showCode?: boolean
+  emptyText?: string
 }
 
 export function MultiSelectCombobox({
   options, values, onChange, placeholder = "— ทุกรุ่น / ไม่ระบุ —", className,
+  searchPlaceholder = "ค้นหารุ่นรถ / ทะเบียน...", showCode = true, emptyText = "ไม่พบรุ่นรถที่ค้นหา",
 }: MultiSelectComboboxProps) {
   const [query, setQuery] = useState("")
   const [open, setOpen]   = useState(false)
@@ -91,7 +97,7 @@ export function MultiSelectCombobox({
               if (e.key === "Escape") { setOpen(false); setQuery("") }
               if (e.key === "Enter" && filtered.length === 1) { e.preventDefault(); add(filtered[0][0]) }
             }}
-            placeholder="ค้นหารุ่นรถ / ทะเบียน..."
+            placeholder={searchPlaceholder}
             className="flex-1 min-w-[140px] bg-transparent outline-none text-sm text-gray-900 dark:text-white placeholder-gray-400"
             onClick={(e) => e.stopPropagation()}
           />
@@ -120,7 +126,7 @@ export function MultiSelectCombobox({
         <div className="absolute z-50 top-full mt-1 left-0 right-0 max-h-60 overflow-y-auto rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0f1117] shadow-xl">
           {filtered.length === 0 ? (
             <p className="px-3 py-3 text-sm text-gray-400 text-center">
-              {available.length === 0 ? "เลือกครบทุกรุ่นแล้ว" : "ไม่พบรุ่นรถที่ค้นหา"}
+              {available.length === 0 ? "เลือกครบทุกอย่างแล้ว" : emptyText}
             </p>
           ) : (
             filtered.map(([code, v]) => (
@@ -130,8 +136,8 @@ export function MultiSelectCombobox({
                 onClick={() => add(code)}
                 className="w-full text-left px-3 py-2 text-sm flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
               >
-                <span className="font-mono text-[11px] text-gray-400 w-28 shrink-0">{code}</span>
-                <span className="text-gray-900 dark:text-white flex-1">{v.th}</span>
+                {showCode && <span className="font-mono text-[11px] text-gray-400 w-28 shrink-0">{code}</span>}
+                <span className="text-gray-900 dark:text-white flex-1">{v.th || code}</span>
                 {v.en && <span className="text-gray-400 text-[11px] shrink-0">{v.en}</span>}
               </button>
             ))

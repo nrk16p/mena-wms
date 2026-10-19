@@ -39,6 +39,10 @@ export type GarageHit = {
   address: GarageAddress | null
   /** ระยะเส้นตรงจากจุดที่ค้นหา (กม.) — null เมื่ออู่ยังไม่มีพิกัด */
   distanceKm: number | null
+  /** ระยะขับจริงตามถนน (กม.) — เติมให้เฉพาะอู่ชุดแรกที่ใกล้ที่สุด · null = ยังไม่ได้คำนวณ */
+  roadKm: number | null
+  /** เวลาขับโดยประมาณ (นาที) — จากความเร็วปกติของถนนเส้นนั้น ไม่รวมสภาพจราจรตอนนั้น */
+  roadMin: number | null
   /** ทำได้ครบทุกประเภทงานที่ผู้ใช้ติ๊กไว้ */
   matchesAll: boolean
   jobs: number
@@ -115,6 +119,8 @@ export function rankGarages(
         matchesAll: want.length > 0 && hitCount === want.length,
         _hits: hitCount,
         distanceKm: origin && g.geo ? Math.round(haversineKm(origin, g.geo) * 10) / 10 : null,
+        roadKm: null as number | null,
+        roadMin: null as number | null,
       }
     })
     .filter((g) => (want.length ? g._hits > 0 : true))

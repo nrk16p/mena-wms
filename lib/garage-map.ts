@@ -85,6 +85,8 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
       geo: pickGeo(doc, seed),
       address: pickAddress(doc, seed),
       distanceKm: null,
+      roadKm: null,
+      roadMin: null,
       matchesAll: false,
       jobs: Number(job?.jobs) || 0,
       lastJob: String(job?.lastJob ?? ""),
@@ -97,14 +99,51 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
   return items
 }
 
-/** ยิงตามลิงก์ย่อ maps.app.goo.gl เพื่อเอาพิกัดจาก url ปลายทาง (ทำฝั่งเซิร์ฟเวอร์ เลี่ยง CORS) */
+/**
+ * ยิงตามลิงก์ย่อ maps.app.goo.gl เพื่อเอาพิกัดจาก url ปลายทาง (ทำฝั่งเซิร์ฟเวอร์ เลี่ยง CORS)
+ *
+ * ⚠ ต้องอ่าน Location จาก 302 ตรง ๆ และต้องไม่ส่ง User-Agent ของเบราว์เซอร์:
+ * ถ้า Google เห็นว่าเป็นเบราว์เซอร์ มันจะตอบ 200 เป็นหน้า JS ที่ไม่มีพิกัดอยู่เลย
+ * แต่ถ้าเป็น client ธรรมดา (curl) จะได้ 302 ที่มี /@lat,lng และ !3d!4d มาเต็ม ๆ
+ */
 export async function resolveShortLink(url: string): Promise<string> {
   const r = await fetch(url, {
-    redirect: "follow",
-    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36" },
+    redirect: "manual",
+    headers: { "User-Agent": "curl/8.4.0" },
     signal: AbortSignal.timeout(8000),
   })
-  return r.url || ""
+  return r.headers.get("location") || r.url || ""
+}
+
+export type RoadLeg = { km: number; min: number }
+
+/**
+ * ระยะขับจริง + เวลาขับ จากจุดเดียวไปหลายอู่ในคำขอเดียว (OSRM table service — ฟรี ไม่ต้องใช้คีย์)
+ * ใช้กับอู่ชุดแรกเท่านั้น (ค่าเริ่มต้น 20 แห่ง) เพราะ url ยาวตามจำนวนจุด และเซิร์ฟเวอร์สาธารณะมีโควตา
+ * ล้มเหลว/ช้า → คืน null ทั้งชุด หน้าจอยังใช้ระยะเส้นตรงต่อได้ ไม่พัง
+ */
+export async function roadMatrix(
+  origin: { lat: number; lng: number },
+  dests: { lat: number; lng: number }[],
+): Promise<(RoadLeg | null)[]> {
+  if (!dests.length) return []
+  const coords = [origin, ...dests].map((p) => `${p.lng},${p.lat}`).join(";")
+  const url = `https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=duration,distance`
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(9000) })
+    if (!r.ok) return dests.map(() => null)
+    const j = await r.json() as { code?: string; durations?: number[][]; distances?: number[][] }
+    if (j.code !== "Ok" || !j.durations?.[0] || !j.distances?.[0]) return dests.map(() => null)
+    const dur = j.durations[0], dis = j.distances[0]
+    // ช่องแรกคือจุดตั้งต้นเทียบกับตัวเอง จึงเริ่มอ่านที่ index 1
+    return dests.map((_, i) => {
+      const sec = dur[i + 1], m = dis[i + 1]
+      if (typeof sec !== "number" || typeof m !== "number") return null
+      return { km: Math.round((m / 1000) * 10) / 10, min: Math.round(sec / 60) }
+    })
+  } catch {
+    return dests.map(() => null)
+  }
 }
 
 export function clearGarageCache() { cache = null }
