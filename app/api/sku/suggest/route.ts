@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { suggestTaxonomy, type SuggestResult } from "@/lib/sku-suggest"
+import { suggestTaxonomy, type FieldChoices, type SuggestResult } from "@/lib/sku-suggest"
 import type { MasterCodeRow } from "@/lib/sku-convert-types"
 import { GROUP_HINT } from "@/lib/atms-sku-autofill"
 
@@ -28,15 +28,32 @@ export const maxDuration = 60
 
 let bookCache: { rows: MasterCodeRow[]; at: number } | null = null
 
+const DICTS = ["SYSTEM_L1", "SUB_ASSEMBLY_L2", "COMPONENT_L3", "POSITION", "VEHICLE_TYPE", "UNIT", "GRADE"]
+
 async function codeRows(): Promise<MasterCodeRow[]> {
   if (bookCache && Date.now() - bookCache.at < BOOK_TTL_MS) return bookCache.rows
   const client = await clientPromise
   const rows = await client.db(DB).collection<MasterCodeRow>("master_codes")
-    .find({ dict: { $in: ["SYSTEM_L1", "SUB_ASSEMBLY_L2", "COMPONENT_L3"] } },
+    .find({ dict: { $in: DICTS } },
           { projection: { _id: 0, dict: 1, code: 1, th: 1, en: 1, parent: 1, order: 1, meta: 1 } })
     .toArray()
   bookCache = { rows, at: Date.now() }
   return rows
+}
+
+/** ตัวเลือกของช่องเล็ก ๆ ที่ส่งให้ LLM เลือก · Grade/หน่วย ของประเภท LAB เป็นอีกชุด (meta.expenseType) */
+function fieldChoices(rows: MasterCodeRow[], type: string): FieldChoices {
+  const isLab = type === "LAB"
+  const of = (dict: string, splitByLab = false) =>
+    rows.filter((r) => r.dict === dict && (!splitByLab || (r.meta?.expenseType === "LAB") === isLab))
+        .map((r) => ({ code: r.code, th: r.th }))
+  const units = of("UNIT")
+  return {
+    positions: of("POSITION"),
+    vehicles: of("VEHICLE_TYPE"),
+    units: isLab ? units.filter((u) => ["DAY", "HR"].includes(u.code)) : units,
+    grades: of("GRADE", true),
+  }
 }
 
 const norm = (v: string) => v.replace(/\s+/g, " ").trim().toLowerCase()
@@ -47,7 +64,7 @@ export async function POST(req: NextRequest) {
   if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
   const body = await req.json().catch(() => null) as
-    { name?: string; group?: string; type?: string; brand?: string; l1Hint?: string[] } | null
+    { name?: string; group?: string; type?: string; brand?: string; l1Hint?: string[]; atmsUnit?: string } | null
   const name = (body?.name ?? "").trim().slice(0, 200)
   const type = (body?.type ?? "").trim().toUpperCase()
   if (name.length < 2) return NextResponse.json({ error: "ต้องมีชื่อสินค้าอย่างน้อย 2 ตัวอักษร" }, { status: 400 })
@@ -63,7 +80,11 @@ export async function POST(req: NextRequest) {
 
   const client = await clientPromise
   const db = client.db(DB)
-  const key = createHash("sha1").update([norm(name), norm(group), type, l1Hint.join("+")].join("|")).digest("hex")
+  // คำตอบขึ้นกับยี่ห้อ (Grade) และหน่วยของ ATMS ด้วย — ต้องอยู่ในกุญแจแคช ไม่งั้นได้คำตอบของอีกเคส
+  const atmsUnit = (body?.atmsUnit ?? "").trim().slice(0, 40)
+  const key = createHash("sha1")
+    .update([norm(name), norm(group), type, norm(brand), norm(atmsUnit), l1Hint.join("+")].join("|"))
+    .digest("hex")
 
   // เอาแต่ผลที่ AI ตอบได้จริง — ผลสำรอง (lexical) ที่เกิดจากคีย์หาย/โควตาเต็ม ไม่เก็บและไม่ใช้ซ้ำ
   // (เคสจริง 19/10/2026: ตอน GROQ_API_KEY ยังไม่มีผลบน Vercel คำตอบสำรองถูกแคชไว้ แล้วผู้ใช้เห็น
@@ -82,7 +103,11 @@ export async function POST(req: NextRequest) {
   }
 
   const rows = await codeRows()
-  const result = await suggestTaxonomy(rows, { name, group, type, brand, l1Hint })
+  const result = await suggestTaxonomy(rows, {
+    name, group, type, brand, l1Hint,
+    atmsUnit,
+    choices: fieldChoices(rows, type),
+  })
 
   // เขียนแคช/log แบบไม่ขวางคำตอบ — ล้มก็แค่ถาม AI ซ้ำรอบหน้า
   await Promise.all([

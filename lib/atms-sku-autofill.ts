@@ -91,6 +91,24 @@ export function brandFromAtms(brand: string): string {
   return BRAND_BLANK.has(b) ? "" : b
 }
 
+/** เลขที่ "หน้าตาเหมือนเบอร์อะไหล่" ที่ปนอยู่ในชื่อสินค้าของ ATMS
+ *  คนคลังมักพิมพ์ไว้ในวงเล็บ เช่น "เบ้ากุญแจประตูขวา HINO500 (69005-E0570)" หรือวางลอยไว้ท้ายชื่อ
+ *  **ดึงจากข้อความจริงเท่านั้น ไม่มีการเดา** — เบอร์อะไหล่ผิดหนึ่งตัวคือสั่งของผิดชิ้น
+ *  กติกา: ต้องมีขีดคั่น และมีตัวเลขรวมกัน ≥4 ตัว เพื่อไม่ให้รุ่นรถ (FM1AK1M-SHT) หรือขนาดยาง
+ *  (11R22.5) หลุดมาเป็นเบอร์อะไหล่ */
+export function extractPartNo(name: string): string {
+  const text = (name || "").trim()
+  if (!text) return ""
+  const digits = (v: string) => (v.match(/\d/g) ?? []).length
+  const ok = (v: string) => v.includes("-") && digits(v) >= 4
+  const inParens = [...text.matchAll(/\(([A-Za-z0-9][A-Za-z0-9\-/.]{4,})\)/g)].map((m) => m[1])
+  for (const v of inParens) if (ok(v)) return v.toUpperCase()
+  for (const tok of text.split(/[\s,()]+/)) {
+    if (/^[A-Za-z0-9]{1,6}-[A-Za-z0-9-]{3,}$/.test(tok) && ok(tok)) return tok.toUpperCase()
+  }
+  return ""
+}
+
 /** เบอร์อะไหล่: ATMS เก็บรหัส Oracle ไว้ช่องเดียว ซึ่งบางคลังใส่เบอร์อะไหล่จริง บางคลังใส่เลขบัญชี
  *  เลข 6 หลักล้วน = รหัสผังบัญชี (เช่น 622104) ไม่ใช่เบอร์อะไหล่ — ไม่เติม */
 export function partNoFromAtms(oracleCode: string): string {
@@ -102,6 +120,9 @@ export function partNoFromAtms(oracleCode: string): string {
 
 export type AtmsSkuRow = {
   code: string
+  /** ราคาซื้อล่าสุดของรหัสนี้จากประวัติ ATMS (ไม่ใช่ค่าที่ประมาณขึ้นมา) */
+  lastPrice?: number | null
+  lastSupplier?: string | null
   name?: string
   group?: string
   warehouse?: string
@@ -119,6 +140,10 @@ export type AtmsPrefill = {
   nameTh: string
   brand: string
   partNo: string
+  /** ที่มาของเบอร์อะไหล่ — เอาไปบอกผู้ใช้ว่าเลขนี้มาจากไหน */
+  partNoFrom: "oracle" | "name" | ""
+  price: string
+  lastSupplier: string
   unit: string
   wh: string
   type: string
@@ -133,10 +158,17 @@ export function prefillFromAtms(row: AtmsSkuRow): AtmsPrefill {
   const hint = GROUP_HINT[(row.group || "").trim()] ?? {}
   const unit = UNIT_FROM_ATMS[(row.unit || "").trim()] ?? ""
   const wh = whFromAtms(row.warehouse || "")
+  const fromOracle = partNoFromAtms(row.oracleCode || "")
+  const fromName = fromOracle ? "" : extractPartNo(row.name || "")
+  const price = typeof row.lastPrice === "number" && row.lastPrice > 0
+    ? String(Math.round(row.lastPrice * 100) / 100) : ""
   return {
     nameTh: (row.name || "").trim(),
     brand: brandFromAtms(row.brand || ""),
-    partNo: partNoFromAtms(row.oracleCode || ""),
+    partNo: fromOracle || fromName,
+    partNoFrom: fromOracle ? "oracle" : fromName ? "name" : "",
+    price,
+    lastSupplier: (row.lastSupplier || "").trim(),
     unit,
     wh,
     type: hint.type ?? "",

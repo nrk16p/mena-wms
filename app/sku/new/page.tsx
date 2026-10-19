@@ -15,7 +15,7 @@ import type { SkuImage } from "@/lib/media"
 import PartsPage from "@/app/codes/parts/page"
 import { L1_FILTER } from "@/lib/sku-convert-core"
 import { AtmsCodePicker } from "@/components/atms-code-picker"
-import { SkuSuggestBox } from "@/components/sku-suggest-box"
+import { SkuSuggestBox, type SuggestFields } from "@/components/sku-suggest-box"
 import type { AtmsLookupResult } from "@/app/api/sku/atms-lookup/route"
 
 type CodeMap = Record<string, { th: string; en: string }>
@@ -177,6 +177,13 @@ export default function NewSkuPage() {
       .then((d) => setPreviewSku(d.sku ?? ""))
   }, [wh, type, l1, l2, l3])
 
+  /** รหัส → ชื่อไทย ของช่องที่ตัวช่วยเสนอ ใช้แสดงให้คนอ่านรู้เรื่อง (เช่น BT → ล่าง) */
+  const suggestLabels: Record<string, string> = Object.fromEntries(
+    [posOptions, vehicleOptions, unitOptions, gradeOptions].flatMap((m) =>
+      Object.entries(m).map(([k, v]) => [k, v.th])
+    )
+  )
+
   const noPrice    = EXPENSE_TYPES_NO_PRICE.includes(type)
   const l3Required = !["LAB", "SVC", "CLN", "TRP"].includes(type)
 
@@ -203,7 +210,14 @@ export default function NewSkuPage() {
     const filled: string[] = []
     if (p.nameTh && !nameTh.trim()) { setNameTh(p.nameTh); filled.push("ชื่อ (TH)") }
     if (p.brand && !brand.trim()) { setBrand(p.brand); filled.push("ยี่ห้อ") }
-    if (p.partNo && !partNo.trim()) { setPartNo(p.partNo); filled.push("เบอร์อะไหล่") }
+    if (p.partNo && !partNo.trim()) {
+      setPartNo(p.partNo)
+      filled.push(p.partNoFrom === "name" ? "เบอร์อะไหล่ (จากชื่อใน ATMS)" : "เบอร์อะไหล่")
+    }
+    // ราคาซื้อล่าสุดจากประวัติ ATMS ของรหัสนี้ — เป็นราคาที่ซื้อจริง ไม่ใช่ค่าที่ประมาณขึ้นมา
+    if (p.price && !price.trim() && !EXPENSE_TYPES_NO_PRICE.includes(p.type || type)) {
+      setPrice(p.price); filled.push("ราคา (ซื้อล่าสุด)")
+    }
     if (p.wh && !touched.wh) { setWh(p.wh); filled.push("คลัง") }
     if (p.type && !touched.type) { setType(p.type); filled.push("ประเภท") }
     if (p.unit && !touched.unit) { setUnit(p.unit); filled.push("หน่วย") }
@@ -212,6 +226,14 @@ export default function NewSkuPage() {
     setAtmsInfo(result)
     setAtmsFilled(filled)
     setAtmsError("")
+  }
+
+  /** ใช้ช่องที่ตัวช่วยเสนอ (ตำแหน่ง/รุ่นรถ/หน่วย/Grade) — เขียนทับได้ เพราะคนกดปุ่มเองแล้ว */
+  function applyFields(f: SuggestFields) {
+    if (f.positions.length) setPositions(f.positions)
+    if (f.vehicles.length) setVehicles((prev) => [...new Set([...prev, ...f.vehicles])])
+    if (f.unit) { setUnit(f.unit); setTouched((t) => ({ ...t, unit: true })) }
+    if (f.grade && gradeOptions[f.grade]) setGrade(f.grade)
   }
 
   /** เลือกหมวดจากตัวช่วย — ตั้ง L1 ไว้ก่อน ส่วน L2/L3 รอให้ตัวเลือกของชั้นนั้นโหลดมาก่อน (ดู useEffect ด้านล่าง)
@@ -309,6 +331,12 @@ export default function NewSkuPage() {
                 {atmsInfo.row.unit && <span className="text-gray-500"> · หน่วย {atmsInfo.row.unit}</span>}
                 {atmsInfo.row.warehouse && <span className="text-gray-500"> · {atmsInfo.row.warehouse}</span>}
               </p>
+              {atmsInfo.row.lastPrice != null && (
+                <p className="text-[11px] text-gray-600 dark:text-gray-300 mt-0.5">
+                  ซื้อล่าสุด {atmsInfo.row.lastPrice.toLocaleString("th-TH", { minimumFractionDigits: 2 })} บาท
+                  {atmsInfo.row.lastSupplier && <span className="text-gray-500"> · {atmsInfo.row.lastSupplier}</span>}
+                </p>
+              )}
               <p className="text-[10px] mt-1">
                 {atmsInfo.source === "atms"
                   ? <span className="text-green-600 dark:text-green-400">อ่านสดจาก ATMS เมื่อสักครู่</span>
@@ -352,9 +380,12 @@ export default function NewSkuPage() {
           group={atmsInfo?.row?.group ?? ""}
           type={type}
           brand={brand}
+          atmsUnit={atmsInfo?.row?.unit ?? ""}
           l1Hint={atmsInfo?.prefill?.l1Options ?? []}
+          labels={suggestLabels}
           onPick={applySuggestion}
           onUseName={(th, en) => { setNameTh(th); if (en) setNameEn(en) }}
+          onUseFields={applyFields}
         />
 
         {/* Row 2: L1 + L2 + L3 */}

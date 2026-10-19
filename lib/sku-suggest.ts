@@ -23,6 +23,15 @@ const TIMEOUT_MS = 20_000
  *  (วัดจริง 19/10/2026) และคำตอบไม่ได้ดีขึ้นเลย เพราะตัวที่ถูกมักอยู่ 10 อันดับแรกอยู่แล้ว */
 const CANDIDATES = 24
 
+/** ตัวเลือกของช่องเล็ก ๆ ที่ส่งไปให้ LLM เลือก (POSITION 18 · VEHICLE_TYPE 22 · GRADE 10 · UNIT 19
+ *  — เล็กพอจะใส่ทั้งชุดในพรอมต์ ไม่ต้องคัดก่อนเหมือนผังสินค้า) */
+export type FieldChoices = {
+  positions: { code: string; th: string }[]
+  vehicles: { code: string; th: string }[]
+  units: { code: string; th: string }[]
+  grades: { code: string; th: string }[]
+}
+
 export type SuggestInput = {
   /** ชื่อสินค้าที่เห็นในทะเบียน ATMS หรือที่ผู้ใช้พิมพ์ไว้ */
   name: string
@@ -33,6 +42,9 @@ export type SuggestInput = {
   /** L1 ที่กลุ่มของ ATMS ชี้มา — ใช้ดันตัวเลือก ไม่ใช่ล็อกคำตอบ */
   l1Hint?: string[]
   brand?: string
+  /** หน่วยที่อ่านได้จาก ATMS — ให้ AI ยืนยัน/แก้ ไม่ใช่เดาใหม่ทั้งหมด */
+  atmsUnit?: string
+  choices?: FieldChoices
 }
 
 export type SuggestOption = {
@@ -43,6 +55,14 @@ export type SuggestOption = {
   confidence: number
 }
 
+/** ช่องที่ AI ช่วยเลือกได้ นอกจากหมวด — ทุกค่าต้องเป็นรหัสที่มีอยู่ในผังของเรา */
+export type SuggestFields = {
+  positions: string[]
+  vehicles: string[]
+  unit: string
+  grade: string
+}
+
 export type SuggestResult = {
   /** groq = LLM เลือกให้ · lexical = เทียบตัวอักษรล้วน (ไม่มีคีย์/เรียกไม่สำเร็จ) */
   engine: "groq" | "lexical"
@@ -50,6 +70,10 @@ export type SuggestResult = {
   /** ชื่อมาตรฐานที่เสนอ — ว่างเมื่อ engine=lexical */
   nameTh: string
   nameEn: string
+  /** ช่องอื่นที่เสนอ (ตำแหน่ง/รุ่นรถ/หน่วย/Grade) — ว่างเมื่อ engine=lexical */
+  fields: SuggestFields
+  /** คำอธิบายสั้นว่าทำไมเลือก Grade นั้น — Grade ผิดมีผลกับการเทียบราคา */
+  gradeWhy: string
   note: string
   ms: number
 }
@@ -77,28 +101,60 @@ const SYSTEM = `คุณเป็นวิศวกรอะไหล่รถ�
 - ห้ามใส่: ยี่ห้ออะไหล่ (มีช่องแยก) · จำนวน/หน่วย · ราคา · คำว่า "อะไหล่"
 - ชื่ออังกฤษ: Title Case เช่น "Clutch Booster, Lower, 105mm, HINO"
 
+ช่องอื่นที่ต้องเลือกให้ด้วย (เลือกจากรหัสที่ให้มาเท่านั้น ไม่มั่นใจให้เว้นว่าง "" หรือ [])
+- positions: ตำแหน่งบนรถ เอาจากคำในชื่อ (ล่าง→BT, หน้า→FN, ขวา→RT, ใน→IN) ไม่มีคำบอกตำแหน่ง → ["GN"]
+- vehicles: รุ่นรถที่ชื่อระบุไว้ · ชื่อบอกแค่ยี่ห้อ → เลือกรุ่น "(ทุกรุ่น)" ของยี่ห้อนั้น · ไม่บอกเลย → []
+- unit: หน่วยนับ · ถ้าหน่วยที่ ATMS ให้มาใช้ได้อยู่แล้วให้คงค่านั้น
+- grade: ชั้นคุณภาพ ดูจากยี่ห้ออะไหล่
+  ยี่ห้อเป็นผู้ผลิตรถ (HINO/ISUZU/UD/FUSO) หรือระบุว่าแท้ → G1 หรือ G2
+  ยี่ห้ออะไหล่ทั่วไปที่มีแบรนด์ → G3 · บอกว่าเก่า/เซียงกง → G4 · ไม่มียี่ห้อเลย → เว้นว่าง ให้คนเลือก
+  **ยี่ห้อรถที่ติดมาในชื่อสินค้าไม่ใช่ยี่ห้ออะไหล่** เช่น "ไส้กรอง ISUZU" อาจเป็นของเทียบ ห้ามสรุปเป็น G1
+
+**ห้ามเดาเบอร์อะไหล่ เบอร์แท้ เบอร์เทียบ และราคา** ระบบมีเลขจริงจาก ATMS อยู่แล้ว ไม่ต้องตอบช่องพวกนี้
+
 ตอบเป็น JSON เท่านั้น ตามรูปนี้
 {"l1":"","l2":"","l3":"","confidence":0.0,"why":"เหตุผลสั้นไม่เกิน 25 คำ",
  "alternatives":[{"l1":"","l2":"","l3":"","why":""}],
- "nameTh":"","nameEn":""}`
+ "nameTh":"","nameEn":"",
+ "positions":[],"vehicles":[],"unit":"","grade":"","gradeWhy":""}`
+
+const list = (rows: { code: string; th: string }[] | undefined) =>
+  (rows ?? []).map((r) => `${r.code}=${r.th}`).join(" · ") || "(ไม่มี)"
 
 function userPrompt(input: SuggestInput, cands: ScoredLeaf[]): string {
   const lines = cands.map((c) => `${c.path}  = ${c.label}`).join("\n")
+  const c = input.choices
   return `ชื่อที่คนคลังพิมพ์ไว้: ${input.name}
 กลุ่มสินค้าใน ATMS: ${input.group || "(ไม่มี)"}
 ประเภทค่าใช้จ่าย: ${input.type}
 ยี่ห้ออะไหล่: ${input.brand || "(ไม่มี)"}
+หน่วยที่ ATMS ใช้: ${input.atmsUnit || "(ไม่มี)"}
 
-ตัวเลือกที่เลือกได้ (รูปแบบ L1:L2:L3 = ระบบ › ชุดประกอบ › ชิ้นส่วน)
+ตัวเลือกหมวด (รูปแบบ L1:L2:L3 = ระบบ › ชุดประกอบ › ชิ้นส่วน)
 ${lines}
+${c ? `
+ตำแหน่ง: ${list(c.positions)}
+รุ่นรถ: ${list(c.vehicles)}
+หน่วย: ${list(c.units)}
+Grade: ${list(c.grades)}` : ""}
 
-เลือกตัวเลือกที่ตรงที่สุด 1 อัน และอีก 2 อันเป็นทางเลือก แล้วตั้งชื่อมาตรฐานไทย/อังกฤษ`
+เลือกหมวดที่ตรงที่สุด 1 อัน + ทางเลือก 2 อัน · ตั้งชื่อมาตรฐานไทย/อังกฤษ · เลือกช่องที่เหลือให้ด้วย`
 }
 
 type GroqReply = {
   l1?: unknown; l2?: unknown; l3?: unknown; confidence?: unknown; why?: unknown
   nameTh?: unknown; nameEn?: unknown
+  positions?: unknown; vehicles?: unknown; unit?: unknown; grade?: unknown; gradeWhy?: unknown
   alternatives?: { l1?: unknown; l2?: unknown; l3?: unknown; why?: unknown }[]
+}
+
+const EMPTY_FIELDS: SuggestFields = { positions: [], vehicles: [], unit: "", grade: "" }
+
+/** รับเฉพาะรหัสที่มีอยู่ในรายการที่ส่งไปจริง — รหัสที่ LLM คิดขึ้นเองถูกทิ้งทั้งหมด */
+function pickCodes(v: unknown, allowed: { code: string }[] | undefined, max: number): string[] {
+  const ok = new Set((allowed ?? []).map((a) => a.code))
+  const arr = Array.isArray(v) ? v : typeof v === "string" ? [v] : []
+  return [...new Set(arr.map((x) => s(x)).filter((x) => ok.has(x)))].slice(0, max)
 }
 
 const s = (v: unknown) => (v == null ? "" : String(v).trim())
@@ -122,7 +178,7 @@ function lexicalResult(cands: ScoredLeaf[], note: string, ms: number): SuggestRe
   return {
     engine: "lexical",
     options: cands.slice(0, 3).map((c) => toOption(c, "ชื่อใกล้เคียงกับหมวดนี้", Math.min(1, c.score * 2))),
-    nameTh: "", nameEn: "", note, ms,
+    nameTh: "", nameEn: "", fields: EMPTY_FIELDS, gradeWhy: "", note, ms,
   }
 }
 
@@ -133,7 +189,7 @@ export async function suggestTaxonomy(
   const t0 = Date.now()
   const leaves = buildLeaves(rows, input.type)
   if (!leaves.length) {
-    return { engine: "lexical", options: [], nameTh: "", nameEn: "",
+    return { engine: "lexical", options: [], nameTh: "", nameEn: "", fields: EMPTY_FIELDS, gradeWhy: "",
              note: `ไม่มีผังสินค้าสำหรับประเภท ${input.type}`, ms: Date.now() - t0 }
   }
   const query = expandQuery(input.name, input.group)
@@ -213,11 +269,20 @@ export async function suggestTaxonomy(
   // ซึ่งเป็นของคนละชิ้น) · เตือนแบบตรวจได้เอง ไม่ต้องเชื่อว่า LLM จะทำตามกฎในพรอมต์ทุกครั้ง
   const renamed = !headPreserved(input.name, nameTh)
   const head = input.name.trim().split(/[\s\d(/,.-]/)[0]
+  const ch = input.choices
+  const fields: SuggestFields = {
+    positions: pickCodes(reply.positions, ch?.positions, 4),
+    vehicles: pickCodes(reply.vehicles, ch?.vehicles, 4),
+    unit: pickCodes(reply.unit, ch?.units, 1)[0] ?? "",
+    grade: pickCodes(reply.grade, ch?.grades, 1)[0] ?? "",
+  }
   return {
     engine: "groq",
     options,
     nameTh,
     nameEn: s(reply.nameEn).slice(0, 120),
+    fields,
+    gradeWhy: s(reply.gradeWhy).slice(0, 200),
     note: renamed ? `AI เปลี่ยนคำว่า "${head}" ในชื่อใหม่ — ตรวจว่าเป็นชิ้นส่วนเดียวกันก่อนกดใช้` : "",
     ms: Date.now() - t0,
   }
