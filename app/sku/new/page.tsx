@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import {
@@ -14,6 +14,9 @@ import { swalError } from "@/lib/swal"
 import type { SkuImage } from "@/lib/media"
 import PartsPage from "@/app/codes/parts/page"
 import { L1_FILTER } from "@/lib/sku-convert-core"
+import { AtmsCodePicker } from "@/components/atms-code-picker"
+import { SkuSuggestBox } from "@/components/sku-suggest-box"
+import type { AtmsLookupResult } from "@/app/api/sku/atms-lookup/route"
 
 type CodeMap = Record<string, { th: string; en: string }>
 
@@ -51,7 +54,15 @@ export default function NewSkuPage() {
   const [vehicles, setVehicles] = useState<string[]>([])
   const [grade, setGrade]     = useState("OEM")
   const [atmsCodes, setAtmsCodes] = useState<string[]>([])
-  const [atmsInput, setAtmsInput] = useState("")
+  /** ผลอ่านทะเบียนสินค้า ATMS ของรหัสที่เพิ่งเลือก — เอาไว้โชว์ว่าเติมช่องไหนให้ และใช้เป็นเบาะแสของตัวช่วยจัดหมวด */
+  const [atmsInfo, setAtmsInfo] = useState<AtmsLookupResult | null>(null)
+  const [atmsFilled, setAtmsFilled] = useState<string[]>([])
+  const [atmsError, setAtmsError] = useState("")
+  /** ช่องที่ผู้ใช้แก้เองแล้ว — ของ ATMS จะไม่เขียนทับ (ช่องพวกนี้มีค่าตั้งต้นอยู่ เช็กว่า "ว่าง" ไม่ได้) */
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  /** หมวดที่เลือกจากตัวช่วยและยังตั้งค่าไม่ครบสามชั้น — เก็บใน ref เพราะไม่ได้เอาไปแสดงผล
+   *  ตั้งค่าต่อเมื่อตัวเลือกของชั้นถัดไปโหลดเสร็จ (ดูใน .then ของ L2/L3) */
+  const pendingPickRef = useRef<{ l1: string; l2: string; l3: string } | null>(null)
   const [images, setImages] = useState<SkuImage[]>([])
 
   const [previewSku, setPreviewSku] = useState("")
@@ -114,7 +125,13 @@ export default function NewSkuPage() {
     if (!l1) { setL2Options({}); return }
     fetch(`/api/codes/SUB_ASSEMBLY_L2?parent=${l1}&expenseType=${type}`)
       .then((r) => r.json())
-      .then((rows: Row[]) => setL2Options(toMap(rows)))
+      .then((rows: Row[]) => {
+        const map = toMap(rows)
+        setL2Options(map)
+        // หมวดที่เลือกจากตัวช่วยจัดหมวด — ตั้ง L2 ได้แล้วเมื่อรายการของ L1 นี้มาถึง
+        const p = pendingPickRef.current
+        if (p && p.l1 === l1 && p.l2 && map[p.l2]) setL2(p.l2)
+      })
       .catch(() => setL2Options({}))
   }, [l1, type])
 
@@ -123,7 +140,15 @@ export default function NewSkuPage() {
     if (!l1 || !l2) { setL3Options({}); setL3(""); return }
     fetch(`/api/codes/COMPONENT_L3?parent=${l1}:${l2}&expenseType=${type}`)
       .then((r) => r.json())
-      .then((rows: Row[]) => setL3Options(toMap(rows)))
+      .then((rows: Row[]) => {
+        const map = toMap(rows)
+        setL3Options(map)
+        const p = pendingPickRef.current
+        if (p && p.l1 === l1 && p.l2 === l2) {
+          if (p.l3 && map[p.l3]) setL3(p.l3)
+          pendingPickRef.current = null        // ครบสามชั้นแล้ว (หรือหา L3 ที่เสนอมาไม่เจอ)
+        }
+      })
       .catch(() => setL3Options({}))
   }, [l1, l2, type])
 
@@ -165,6 +190,37 @@ export default function NewSkuPage() {
     if (type === "LAB" && !LAB_UNITS.includes(unit)) setUnit("DAY")
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type])
+
+  /** เลือกรหัส ATMS แล้วเติมฟอร์มให้ — เขียนเฉพาะช่องที่ยังไม่ถูกแตะ ของที่คนกรอกไว้ถือว่าถูกต้องกว่า */
+  function applyAtms(code: string, result: AtmsLookupResult | null) {
+    if (!result || !result.found || !result.prefill) {
+      setAtmsInfo(null)
+      setAtmsFilled([])
+      setAtmsError(`หารหัส ${code} ในทะเบียนสินค้า ATMS ไม่พบ — รหัสยังใช้ได้ แต่ต้องกรอกข้อมูลเอง`)
+      return
+    }
+    const p = result.prefill
+    const filled: string[] = []
+    if (p.nameTh && !nameTh.trim()) { setNameTh(p.nameTh); filled.push("ชื่อ (TH)") }
+    if (p.brand && !brand.trim()) { setBrand(p.brand); filled.push("ยี่ห้อ") }
+    if (p.partNo && !partNo.trim()) { setPartNo(p.partNo); filled.push("เบอร์อะไหล่") }
+    if (p.wh && !touched.wh) { setWh(p.wh); filled.push("คลัง") }
+    if (p.type && !touched.type) { setType(p.type); filled.push("ประเภท") }
+    if (p.unit && !touched.unit) { setUnit(p.unit); filled.push("หน่วย") }
+    // L1 เติมเฉพาะกลุ่มที่ชี้ระบบมาตัวเดียว · กลุ่มที่คร่อมหลายระบบปล่อยให้ตัวช่วยจัดหมวด/คนเลือก
+    if (p.l1 && !l1) { setL1(p.l1); filled.push("ระบบ L1") }
+    setAtmsInfo(result)
+    setAtmsFilled(filled)
+    setAtmsError("")
+  }
+
+  /** เลือกหมวดจากตัวช่วย — ตั้ง L1 ไว้ก่อน ส่วน L2/L3 รอให้ตัวเลือกของชั้นนั้นโหลดมาก่อน (ดู useEffect ด้านล่าง)
+   *  ตั้งทั้งสามชั้นพร้อมกันไม่ได้ เพราะ effect ของ L1/L2 ล้างชั้นล่างทิ้งทุกครั้งที่ชั้นบนเปลี่ยน */
+  function applySuggestion(o: { l1: string; l2: string; l3: string }) {
+    pendingPickRef.current = o
+    setL1(o.l1)
+    if (o.l1 === l1 && l2Options[o.l2]) setL2(o.l2)   // L1 เดิม = รายการ L2 มีอยู่แล้ว ไม่มี fetch ใหม่มาปลุก
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -237,39 +293,40 @@ export default function NewSkuPage() {
           <label className={`block text-[11px] font-semibold uppercase tracking-widest mb-2 ${atmsCodes.length === 0 && error ? "text-red-500 dark:text-red-400" : "text-blue-500 dark:text-blue-400"}`}>
             รหัสสินค้า ATMS <span className="normal-case font-normal">(จำเป็น — อย่างน้อย 1 รหัส)</span>
           </label>
-          {/* Tags */}
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {atmsCodes.map((code) => (
-              <span key={code} className="inline-flex items-center gap-1 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-xs font-mono">
-                {code}
-                <button type="button" onClick={() => setAtmsCodes((p) => p.filter((c) => c !== code))} className="hover:text-red-500 transition-colors">×</button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={atmsInput}
-              onChange={(e) => setAtmsInput(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.key === "Enter" || e.key === ",") && atmsInput.trim()) {
-                  e.preventDefault()
-                  const v = atmsInput.trim()
-                  if (!atmsCodes.includes(v)) setAtmsCodes((p) => [...p, v])
-                  setAtmsInput("")
-                }
-              }}
-              placeholder="พิมพ์รหัส แล้วกด Enter หรือ ,"
-              className="flex-1 rounded-lg border border-blue-200 dark:border-blue-700/50 bg-white dark:bg-[#0f1117] text-gray-900 dark:text-white px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
-            />
-            <button
-              type="button"
-              onClick={() => { if (atmsInput.trim() && !atmsCodes.includes(atmsInput.trim())) { setAtmsCodes((p) => [...p, atmsInput.trim()]); setAtmsInput("") } }}
-              className="rounded-lg bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold transition-colors"
-            >
-              เพิ่ม
-            </button>
-          </div>
-          <p className="text-[10px] text-blue-400 dark:text-blue-600 mt-1.5">รหัสอ้างอิงจากระบบ ATMS — เพิ่มได้หลายรหัส</p>
+          <AtmsCodePicker
+            codes={atmsCodes}
+            onAdd={(c) => setAtmsCodes((prev) => (prev.includes(c) ? prev : [...prev, c]))}
+            onRemove={(c) => setAtmsCodes((prev) => prev.filter((x) => x !== c))}
+            onResolved={applyAtms}
+            invalid={atmsCodes.length === 0 && !!error}
+          />
+          {atmsError && <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">{atmsError}</p>}
+          {atmsInfo?.row && (
+            <div className="mt-2 rounded-lg bg-white/70 dark:bg-white/5 border border-blue-100 dark:border-white/10 px-2.5 py-2">
+              <p className="text-[11px] text-gray-700 dark:text-gray-200 leading-relaxed">
+                <span className="font-medium">{atmsInfo.row.name || "(ไม่มีชื่อใน ATMS)"}</span>
+                {atmsInfo.row.group && <span className="text-gray-500"> · {atmsInfo.row.group}</span>}
+                {atmsInfo.row.unit && <span className="text-gray-500"> · หน่วย {atmsInfo.row.unit}</span>}
+                {atmsInfo.row.warehouse && <span className="text-gray-500"> · {atmsInfo.row.warehouse}</span>}
+              </p>
+              <p className="text-[10px] mt-1">
+                {atmsInfo.source === "atms"
+                  ? <span className="text-green-600 dark:text-green-400">อ่านสดจาก ATMS เมื่อสักครู่</span>
+                  : <span className="text-amber-600 dark:text-amber-400">ATMS ไม่ตอบ — ใช้ข้อมูลที่ซิงก์ไว้รอบล่าสุด</span>}
+                {atmsFilled.length > 0
+                  ? <span className="text-gray-500"> · เติมให้แล้ว: {atmsFilled.join(", ")}</span>
+                  : <span className="text-gray-400"> · ไม่ได้เติมช่องไหน (กรอกไว้แล้วทั้งหมด)</span>}
+              </p>
+              {atmsInfo.prefill && (atmsInfo.prefill.unmapped.unit || atmsInfo.prefill.unmapped.warehouse) && (
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  เทียบรหัสของเราไม่ได้ ต้องเลือกเอง:
+                  {atmsInfo.prefill.unmapped.unit ? ` หน่วย "${atmsInfo.prefill.unmapped.unit}"` : ""}
+                  {atmsInfo.prefill.unmapped.warehouse ? ` คลัง "${atmsInfo.prefill.unmapped.warehouse}"` : ""}
+                </p>
+              )}
+            </div>
+          )}
+          <p className="text-[10px] text-blue-400 dark:text-blue-600 mt-1.5">รหัสอ้างอิงจากระบบ ATMS — เพิ่มได้หลายรหัส · เลือกแล้วระบบดึงข้อมูลมาช่วยกรอก</p>
         </div>
       </div>
 
@@ -278,17 +335,27 @@ export default function NewSkuPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>คลังสินค้า *</label>
-            <select value={wh} onChange={(e) => setWh(e.target.value)} className={selectCls} required>
+            <select value={wh} onChange={(e) => { setWh(e.target.value); setTouched((t) => ({ ...t, wh: true })) }} className={selectCls} required>
               {Object.entries(whOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
           <div>
             <label className={labelCls}>ประเภทค่าใช้จ่าย *</label>
-            <select value={type} onChange={(e) => setType(e.target.value)} className={selectCls} required>
+            <select value={type} onChange={(e) => { setType(e.target.value); setTouched((t) => ({ ...t, type: true })) }} className={selectCls} required>
               {Object.entries(typeOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
         </div>
+
+        <SkuSuggestBox
+          name={nameTh.trim() || atmsInfo?.row?.name || ""}
+          group={atmsInfo?.row?.group ?? ""}
+          type={type}
+          brand={brand}
+          l1Hint={atmsInfo?.prefill?.l1Options ?? []}
+          onPick={applySuggestion}
+          onUseName={(th, en) => { setNameTh(th); if (en) setNameEn(en) }}
+        />
 
         {/* Row 2: L1 + L2 + L3 */}
         <div className="grid grid-cols-3 gap-4">
@@ -371,7 +438,7 @@ export default function NewSkuPage() {
           </div>
           <div>
             <label className={labelCls}>หน่วย *</label>
-            <select value={unit} onChange={(e) => setUnit(e.target.value)} className={selectCls} required>
+            <select value={unit} onChange={(e) => { setUnit(e.target.value); setTouched((t) => ({ ...t, unit: true })) }} className={selectCls} required>
               {Object.entries(filteredUnitOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
             </select>
           </div>
