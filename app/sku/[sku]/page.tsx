@@ -246,6 +246,7 @@ export default function EditSkuPage() {
               options={brandOptions}
               value={brandValue}
               onChange={setBrandValue}
+              onCreated={(code, label) => setBrandOptions((p) => ({ ...p, [code]: label }))}
               className={inputCls}
             />
           </div>

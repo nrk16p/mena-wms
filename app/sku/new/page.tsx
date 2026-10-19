@@ -483,6 +483,7 @@ export default function NewSkuPage() {
               options={brandOptions}
               value={brand}
               onChange={setBrand}
+              onCreated={(code, label) => setBrandOptions((p) => ({ ...p, [code]: label }))}
               className={inputCls}
             />
           </div>
