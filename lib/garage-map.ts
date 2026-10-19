@@ -5,6 +5,7 @@ import geoSeed from "@/data/garage-geo.json"
 import pinSeed from "@/data/garage-pins.json"
 import fleetSeed from "@/data/fleet-garages.json"
 import mapLayers from "@/data/map-layers.json"
+import garageAreas from "@/data/garage-areas.json"
 import { byCode } from "@/lib/repair-type-master"
 import { garageKey } from "@/lib/atms-garage"
 import { haversineKm } from "@/lib/garage-geo"
@@ -50,6 +51,9 @@ const FLEET_CODES: Record<string, string[]> = {
   "หัวฉีด/ปั้ม": ["S61"],
   "ทำท่อไอเสีย": ["S47"],
 }
+
+/** จังหวัด/อำเภอของหมุดร้านซ่อม (reverse geocode ไว้แล้ว — scripts/build-garage-areas.mjs) คีย์ "lat,lng" 4 ตำแหน่ง */
+const PIN_AREAS = garageAreas as unknown as Record<string, { province: string; district: string }>
 
 /** หมุดร้านซ่อมทั้งหมดใน My Map (ชุดเดียวกับเลเยอร์ส้มบนแผนที่) */
 type ShopPin = { n: string; t: string; lat: number; lng: number }
@@ -150,6 +154,8 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
 
   mergeFleet(items)
   addShopPins(items)
+  // อู่ AVL ที่ได้พิกัดจากหมุด My Map แต่ไม่มีที่อยู่ — ใช้จังหวัดของหมุดนั้นแทน ตัวกรองจังหวัดจะได้ไม่ทำอู่หาย
+  for (const g of items) if (!g.address && g.geo) g.address = areaOfPin(g.geo)
 
   cache = { at: Date.now(), items }
   return items
@@ -193,6 +199,11 @@ function mergeFleet(items: GarageHit[]) {
   }
 }
 
+function areaOfPin(s: { lat: number; lng: number }): GarageAddress | null {
+  const a = PIN_AREAS[`${s.lat.toFixed(4)},${s.lng.toFixed(4)}`]
+  return a?.province ? { full: "", subdistrict: "", district: a.district, province: a.province } : null
+}
+
 /** หมุดร้านซ่อมใน My Map ที่ยังไม่ซ้ำกับอู่ไหนเลย → เพิ่มเป็นอู่ระดับ "pin"
  *  ซ้ำ = เบอร์ตรงกัน หรือเป็นหมุดที่จับคู่กับ AVL ไว้แล้ว หรืออยู่ห่างอู่ที่ชื่อคล้ายกันไม่เกิน 300 ม. */
 function addShopPins(items: GarageHit[]) {
@@ -215,7 +226,7 @@ function addShopPins(items: GarageHit[]) {
       source: "pin", sources: ["pin"], fleetWorks: [], onsite: false, zone: "",
       name, atmsId: null, phone: ph[0] ?? "", branch: "", codes: [], works: [], status: "",
       geo: { lat: s.lat, lng: s.lng, precision: "หน้าอู่", source: "หมุด My Map ยานยนต์" },
-      address: null,
+      address: areaOfPin(s),
       distanceKm: null, roadKm: null, roadMin: null, matchesAll: false,
       jobs: 0, lastJob: "", poCount: 0, poBaht: 0,
     })

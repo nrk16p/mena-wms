@@ -233,6 +233,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/vendors/map", label: "หาอู่ใกล้ที่สุด", icon: MapPin, exact: true,
         desc: "รถเสียตรงไหน อู่ไหนอยู่ใกล้และรับงานนั้นได้" },
+      { href: "/vendors/coverage", label: "สรุปอู่รายจังหวัด", icon: BarChart3, exact: true,
+        desc: "จังหวัดไหนรถเยอะแต่อู่น้อย ต้องหาอู่เพิ่ม" },
       { href: "/vendors/by-service", label: "เลือกอู่ตามประเภทงาน", icon: Wrench, exact: true,
         desc: "งานประเภทนี้ใช้อู่ไหนได้บ้าง" },
       { href: "/vendors", label: "ตารางความสามารถอู่", icon: Factory, exact: true,

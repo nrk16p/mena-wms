@@ -125,7 +125,6 @@ export function GarageMapPage() {
     }
   }, [])
 
-  useEffect(() => { void search("", []) }, [search])
   useEffect(() => { void loadThaiAddress().then(setAddr) }, [])
   // เปลี่ยนชิปงานแล้วค้นใหม่ทันที ไม่ต้องกดปุ่ม
   useEffect(() => { void search(at, codes) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [codes])
@@ -153,6 +152,18 @@ export function GarageMapPage() {
       setErr("ค้นหาพื้นที่ไม่สำเร็จ ลองใหม่อีกครั้ง"); setLoading(false)
     }
   }, [codes, search])
+
+  // ตัวจัดการคลิกแผนที่ผูกไว้ครั้งเดียว จึงอ่านฟังก์ชันล่าสุดผ่าน ref
+  const choosePlaceRef = useRef(choosePlace)
+  choosePlaceRef.current = choosePlace
+
+  // เปิดจากหน้าสรุปรายจังหวัด (?area=จังหวัด) → ตั้งพื้นที่ให้เลย ไม่ต้องพิมพ์ซ้ำ
+  useEffect(() => {
+    const area = new URLSearchParams(window.location.search).get("area")
+    if (area) void choosePlaceRef.current({ kind: "area", label: `จ.${area}`, province: area, district: "" })
+    else void search("", [])
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [])
 
   const clearPlace = () => { setPlace(null); setAt(""); void search("", codes) }
 
@@ -188,9 +199,6 @@ export function GarageMapPage() {
     })()
     return () => { cancelled = true }
   }, [])
-  // ตัวจัดการคลิกแผนที่ผูกไว้ครั้งเดียว จึงอ่านฟังก์ชันล่าสุดผ่าน ref
-  const choosePlaceRef = useRef(choosePlace)
-  choosePlaceRef.current = choosePlace
 
   // ── กรองฝั่งหน้าจอ: พื้นที่ · มีเบอร์ · อู่ประจำ · ออกนอกสถานที่
   // พื้นที่ไม่มีอู่เลย (เช่น ตาก) ห้ามปล่อยว่าง — ถอยไปโชว์อู่ที่ใกล้กลางพื้นที่ที่สุดแทน
@@ -774,7 +782,7 @@ function SmartSearch({ addr, place, onPick, onClear }: {
           style={{ position: "absolute", zIndex: 600, top: "calc(100% + 6px)", left: 0, right: 0, maxHeight: 300, overflowY: "auto", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: "0 16px 32px -14px rgba(15,39,72,.4)", padding: 4 }}>
           {!q.trim() && <div style={{ padding: "6px 10px 4px", fontSize: 11.5, color: C.muted }}>แพล้นท์ · พิมพ์เพื่อค้นทั้งหมด {PLANTS.length} แห่ง หรือชื่อจังหวัด/อำเภอ</div>}
           {hits.length === 0
-            ? <div style={{ padding: "10px 12px", fontSize: 13, color: C.muted }}>ไม่เจอ "{q}" ลองพิมพ์สั้นลง หรือแตะจุดบนแผนที่แทน</div>
+            ? <div style={{ padding: "10px 12px", fontSize: 13, color: C.muted }}>ไม่เจอ “{q}” ลองพิมพ์สั้นลง หรือแตะจุดบนแผนที่แทน</div>
             : hits.map((p, i) => {
                 const Icon = p.kind === "plant" ? Factory : p.kind === "area" ? MapPin : Crosshair
                 return (
