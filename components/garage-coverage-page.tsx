@@ -5,8 +5,9 @@
 // สีชุด menaIT V.2 · ตัวเลขจาก /api/vendors/coverage
 import { Fragment, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { ChevronDown, ChevronRight, Factory, Loader2, MapPin, Phone, Search, ShieldCheck, Truck, TriangleAlert, Wrench } from "lucide-react"
+import { ChevronDown, ChevronRight, Download, Factory, Loader2, MapPin, Phone, Search, ShieldCheck, Truck, TriangleAlert, Wrench } from "lucide-react"
 import type { CoverageRow } from "@/lib/garage-coverage"
+import { swalError, swalToast } from "@/lib/swal"
 
 type Data = {
   asOf: string
@@ -43,6 +44,19 @@ export function GarageCoveragePage() {
   const [q, setQ] = useState("")
   const [sort, setSort] = useState<SortKey>("need")
   const [open, setOpen] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  const exportXlsx = async () => {
+    if (!data) return
+    setExporting(true)
+    try {
+      const { downloadCoverageXlsx } = await import("@/components/garage-coverage-xlsx")
+      await downloadCoverageXlsx(data)
+      void swalToast("success", "ดาวน์โหลดไฟล์ Excel แล้ว")
+    } catch (e) {
+      void swalError(e instanceof Error ? e.message : "ทำไฟล์ Excel ไม่สำเร็จ")
+    } finally { setExporting(false) }
+  }
 
   useEffect(() => {
     fetch("/api/vendors/coverage")
@@ -118,6 +132,10 @@ export function GarageCoveragePage() {
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นจังหวัด หรืออำเภอ"
               style={{ border: 0, outline: "none", fontSize: 13.5, flex: 1, fontFamily: BODY, color: C.ink }} />
           </div>
+          <button onClick={() => void exportXlsx()} disabled={exporting}
+            style={{ display: "flex", alignItems: "center", gap: 6, border: `1.5px solid ${C.mint}`, background: C.mintSoft, color: C.mintText, borderRadius: 12, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: exporting ? "wait" : "pointer", fontFamily: BODY }}>
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} {exporting ? "กำลังทำไฟล์…" : "ดาวน์โหลด Excel"}
+          </button>
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: 12.5, color: C.muted }}>เรียงตาม</span>
           {([["need", "ต้องหาอู่ก่อน"], ["trucks", "รถมากสุด"], ["garages", "อู่มากสุด"], ["name", "ชื่อจังหวัด"]] as [SortKey, string][]).map(([k, label]) => (
@@ -317,11 +335,14 @@ function Detail({ r, works }: { r: CoverageRow; works: string[] }) {
                   {[g.district, g.works.join(" · ")].filter(Boolean).join(" — ") || "ยังไม่มีข้อมูลงาน"}
                 </div>
               </div>
-              {/0\d[\d-]{7,}/.test(g.phone) && (
-                <a href={`tel:${(g.phone.match(/0\d[\d-]{7,}/) ?? [""])[0].replace(/-/g, "")}`} title={g.phone}
-                  style={{ display: "flex", alignItems: "center", gap: 4, color: C.brand, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>
-                  <Phone size={12} /> โทร
+              {/0\d[\d-]{7,}/.test(g.phone) ? (
+                // โชว์เบอร์เต็ม (ผู้ใช้สั่ง) กดแล้วโทรได้เลยบนมือถือ
+                <a href={`tel:${(g.phone.match(/0\d[\d-]{7,}/) ?? [""])[0].replace(/-/g, "")}`} title={`โทร ${g.phone}`}
+                  style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0, color: C.brandDark, background: C.brandSoft, borderRadius: 999, padding: "4px 10px", fontSize: 12.5, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                  <Phone size={12} /> {g.phone}
                 </a>
+              ) : (
+                <span style={{ flexShrink: 0, fontSize: 11.5, color: C.muted, whiteSpace: "nowrap" }}>ยังไม่มีเบอร์</span>
               )}
             </div>
           ))}

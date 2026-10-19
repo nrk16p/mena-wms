@@ -7,26 +7,13 @@
 import clientPromise from "@/lib/mongo"
 import plantLoc from "@/data/plant-locations.json"
 import { getGarages } from "@/lib/garage-map"
-import type { GarageHit, GarageSource } from "@/lib/garage-geo"
+import type { GarageSource } from "@/lib/garage-geo"
 
 const PLANTS = (plantLoc as unknown as { plants: Record<string, { province: string; district: string }> }).plants
 export const UNKNOWN = "ไม่รู้จังหวัด"
 
-/** 9 หมวดงานตามชีตยานยนต์ — คอลัมน์ "ครอบคลุมงาน" ในหน้าสรุป (รหัส AVL ที่นับว่าทำหมวดนั้นได้) */
-export const COVERAGE_WORKS: { label: string; fleet: string; codes: string[] }[] = [
-  { label: "ช่วงล่าง/เบรก", fleet: "ช่วงล่าง/เบรค/คลัทซ์", codes: ["S35", "S37"] },
-  { label: "เครื่องยนต์", fleet: "เครื่องยนต์", codes: ["S33"] },
-  { label: "ระบบโม่", fleet: "ระบบโม่", codes: ["S45"] },
-  { label: "ตัวถัง", fleet: "ตัวถัง/บอดี้", codes: ["S57", "S43"] },
-  { label: "นอกสถานที่", fleet: "นอกสถานที่", codes: [] },
-  { label: "แอร์", fleet: "แอร์", codes: ["S39"] },
-  { label: "หัวฉีด/ปั๊ม", fleet: "หัวฉีด/ปั้ม", codes: ["S61"] },
-  { label: "ฟิล์ม", fleet: "ติดฟิลม์", codes: [] },
-  { label: "ท่อไอเสีย", fleet: "ทำท่อไอเสีย", codes: ["S47"] },
-]
-
-const doesWork = (g: GarageHit, w: (typeof COVERAGE_WORKS)[number]) =>
-  g.fleetWorks.includes(w.fleet) || w.codes.some((c) => g.codes.includes(c))
+export { COVERAGE_WORKS, doesWork } from "@/lib/garage-coverage-works"
+import { COVERAGE_WORKS, doesWork } from "@/lib/garage-coverage-works"
 
 export type CoverageGarage = { name: string; source: GarageSource; phone: string; district: string; works: string[] }
 export type CoverageRow = {
