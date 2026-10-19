@@ -55,7 +55,10 @@ export async function fetchLiveNet(
       cache: "no-store",
       signal: ctl.signal,
     })
-    if (!res.ok) return out
+    if (!res.ok) {
+      console.warn(`[ap-net-live] NCAC ${res.status} — ใช้ยอดในฐานต่อ (${list.length} ใบ)`)
+      return out
+    }
     const data = await res.json().catch(() => null) as { rows?: RawRow[] } | null
     for (const r of data?.rows ?? []) {
       const code = str(r.deposit_code)
@@ -72,7 +75,9 @@ export async function fetchLiveNet(
         changed: Boolean(r.changed),
       })
     }
-  } catch {
+  } catch (e) {
+    // เงียบไม่ได้ — ถ้าเรียกไม่ได้ทุกครั้ง ยอดจะกลับไปเก่าโดยไม่มีใครรู้ (เคส 19/10/2026 ซ้ำ)
+    console.warn(`[ap-net-live] เรียก NCAC ไม่สำเร็จ: ${e instanceof Error ? e.message : e}`)
     return out                       // timeout / NCAC ล่ม — fail-open ตามกติกาด้านบน
   } finally {
     clearTimeout(timer)
