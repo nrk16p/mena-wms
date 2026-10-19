@@ -120,17 +120,16 @@ export async function POST(req: NextRequest) {
 
   // Auto-increment SEQ per wh+type+l1+l2+l3 (include pending in count so SKU is reserved)
   const prefix = `${wh}-${type}-${l1}-${l2}-${l3}-`
-  const last   = await col
-    .find({ SKU: { $regex: `^${prefix}` } })
-    .sort({ SKU: -1 })
-    .limit(1)
-    .toArray()
+  async function nextSeq() {
+    const last = await col
+      .find({ SKU: { $regex: `^${prefix}` } })
+      .sort({ SKU: -1 })
+      .limit(1)
+      .toArray()
+    return last.length > 0 ? parseInt(last[0].SKU.split("-").pop() ?? "0") + 1 : 1
+  }
 
-  const seq = last.length > 0
-    ? parseInt(last[0].SKU.split("-").pop() ?? "0") + 1
-    : 1
-
-  const sku      = buildSku(wh, type, l1, l2, l3, seq)
+  let sku        = buildSku(wh, type, l1, l2, l3, await nextSeq())
   const noPrice  = ["LAB", "SVC", "CLN", "TRP", "ACC"].includes(type)
   const price    = noPrice ? 0 : (parseFloat(rest.price) || 0)
   const userIsAdmin = isAdmin(session.user.email)
@@ -164,6 +163,20 @@ export async function POST(req: NextRequest) {
     updatedAt:         new Date(),
   }
 
-  await col.insertOne(doc)
+  // สองคนกดบันทึกพร้อมกันเคยได้เลขเดียวกัน (เคยเกิดจริง 3 ใบบน SR-LAB-SUS-BUS-0001)
+  // ตอนนี้ master_sku มี unique index ที่ SKU แล้ว ชนกันจะได้ error E11000 → ขอเลขถัดไปแล้วลองใหม่
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await col.insertOne(doc)
+      break
+    } catch (err) {
+      const isDupKey = typeof err === "object" && err !== null && (err as { code?: number }).code === 11000
+      if (!isDupKey || attempt >= 5) throw err
+      sku     = buildSku(wh, type, l1, l2, l3, await nextSeq())
+      doc.SKU = sku
+      delete (doc as { _id?: unknown })._id
+    }
+  }
+
   return NextResponse.json({ sku, status: doc.status, doc }, { status: 201 })
 }

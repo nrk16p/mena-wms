@@ -38,6 +38,10 @@ type Detail = {
     & Partial<ApDocNos>) | null
   items: DepositItem[]
   po: Record<string, unknown> | null
+  // ยอด "รวมสุทธิ" ที่ดึงสดจากหน้าใบ DD ใน ATMS ตอนเปิดโมดัล (19/10/2026)
+  // null = ดึงไม่ได้ (ATMS/NCAC ล่ม) → ใช้ยอดในตารางต่อ · ดู lib/ap-net-live
+  live?: { netAmount: number | null; vatRate?: string | null; vatAmount?: string | null
+    grandTotal?: string | null; source?: string; changed?: boolean } | null
   // แม่แบบเอกสารของผู้ขาย (ตัวช่วยบอกในหมวดชุดเอกสาร) · null = ผู้ขายนี้ยังไม่มีแม่แบบ
   docTemplate?: ApDocTemplate | null
   supplierCode?: string
@@ -236,6 +240,14 @@ export function ApTrackingDetail({
   // — เทียบผลรวมรายการกับยอดหัวใบซึ่งถูกรีเฟรชทุกรอบ sync
   const verify = useMemo(() => apItemVerification(depositItems, row.amount), [depositItems, row.amount])
 
+  // ── ยอดสุทธิที่ใช้ทั้งโมดัล = ของสดจาก ATMS ถ้าดึงได้ ไม่ใช่ของในตาราง ───────────
+  // ตารางมาจาก deposit_header ที่ไปป์ไลน์เติมเป็นรอบ ใบที่ถูกแก้ VAT ทีหลังจะค้างยอดเดิม
+  // (KKDD26090025 โชว์ 3,700 ทั้งที่ ATMS 3,959 — ผู้ใช้แจ้ง 19/10/2026)
+  const liveNet  = data?.live?.netAmount ?? null
+  const netShown = liveNet ?? row.netAmount
+  // ต่างจากยอดในตาราง = ใบนี้ถูกแก้ใน ATMS หลังรอบ sync ล่าสุด บอกให้คนเห็น ไม่ใช่เปลี่ยนเงียบ
+  const netStale = liveNet != null && Math.abs(liveNet - row.netAmount) >= 0.01
+
   // แก้ลิสต์เลขที่ทีละช่อง — ทุกตัวคืน object ใหม่ทั้งชุด ไม่แก้ของเดิมในที่ (React ต้องเห็นว่าเปลี่ยน)
   const setNoAt   = (key: ApNoKey, i: number, v: string) =>
     setNos((p) => ({ ...p, [key]: p[key].map((x, j) => (j === i ? v : x)) }))
@@ -264,6 +276,29 @@ export function ApTrackingDetail({
       setSavedFiles(fl);  setFiles(fl)
     } finally { if (alive()) setLoading(false) }
   }, [])
+
+  // ── ยิง PATCH ผ่านด่าน "ยอดสุทธิต้องสดตอนตัดสินใจเรื่องเงิน" ───────────────────
+  // เซิร์ฟเวอร์ดึงยอดจาก ATMS สดก่อนบันทึกทุกขั้นที่กระทบเงิน ถ้าไม่ตรงกับยอดที่หน้าจอโชว์
+  // (netSeen) จะตอบ 409 + needsNetConfirm แทนการบันทึก — ถามผู้ใช้แล้วยิงซ้ำด้วย netConfirmed
+  // เลือกถามแทนที่จะบันทึกให้เลย เพราะคนที่กดผ่าน/ส่งบัญชีตัดสินใจจากยอดที่เห็นบนจอ
+  const patchDeposit = useCallback(async (body: Record<string, unknown>) => {
+    const send = (b: Record<string, unknown>) =>
+      fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b),
+      })
+    let res = await send(body)
+    let d = await res.json().catch(() => ({}))
+    if (res.status === 409 && d?.needsNetConfirm) {
+      const ok = await swalConfirm("ยอดรวมสุทธิใน ATMS เปลี่ยนแล้ว", String(d?.error ?? ""))
+      if (!ok.isConfirmed) {
+        loadDetail(row.depositCode, () => true)      // ดึงยอดใหม่มาโชว์ ผู้ใช้ค่อยตัดสินใจ
+        return { res, d, aborted: true as const }
+      }
+      res = await send({ ...body, netConfirmed: true })
+      d = await res.json().catch(() => ({}))
+    }
+    return { res, d, aborted: false as const }
+  }, [row.depositCode, loadDetail])
 
   useEffect(() => {
     let ok = true
@@ -327,10 +362,9 @@ export function ApTrackingDetail({
       if (o.creditTerm && o.creditTerm !== (row.creditTerm ?? "")) body.payCreditTerm = o.creditTerm
       if (o.payType === "นอกรอบ" && o.payDate) body.payDate = o.payDate
       if (o.manualDate) body.payDateManual = o.manualDate
-      const res = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-      })
-      const d = await res.json()
+      body.netSeen = netShown                        // ด่านยอดสด — ดู patchDeposit
+      const { res, d, aborted } = await patchDeposit(body)
+      if (aborted) return
       if (!res.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
       const payOut = (d.pay ?? null) as ApPay | null
       setSavedPay(payOut); setPassConfirm(null)
@@ -388,11 +422,10 @@ export function ApTrackingDetail({
       if (noteChanged)         body.note   = note.trim()
       if (sentChanged)       { body.sentType = sent.type; body.sentDate = sent.date }
 
-      const res = await fetch(`/api/ap-tracking/${encodeURIComponent(row.depositCode)}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-      const d = await res.json()
+      // ขั้นที่กระทบเงินต้องบอกเซิร์ฟเวอร์ว่าหน้าจอเห็นยอดสุทธิเท่าไร (ด่าน netSeen)
+      if (sentChanged || passOpts || (reviewChanged && review.status === "ผ่าน")) body.netSeen = netShown
+      const { res, d, aborted } = await patchDeposit(body)
+      if (aborted) return
       if (!res.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
 
       // ยึดผลจากเซิร์ฟเวอร์เป็นความจริง (มี by/at ของคนติ๊กจริง + ช่องที่ถูกติ๊กอัตโนมัติจากไฟล์แนบ)
@@ -496,10 +529,19 @@ export function ApTrackingDetail({
             <div className="ml-auto text-right">
               {/* ยอดใหญ่ = "รวมสุทธิ" ที่ ATMS คิดไว้ในหน้าใบ DD (ไม่ได้คำนวณเอง) · ใบที่มีภาษี
                   กางให้เห็นว่าคิดมาจากอะไร เทียบกับหน้า DD ใน ATMS ได้ทุกบรรทัด */}
-              <div className={`text-xl font-bold ${NUM}`}>{baht(row.netAmount)}</div>
-              {row.vat && (
+              <div className={`text-xl font-bold ${NUM}`}>{baht(netShown)}</div>
+              {(liveNet != null ? Number(data?.live?.vatRate || 0) > 0 : row.vat) && (
                 <div className={`text-[11px] text-gray-400 ${NUM}`}>
-                  ก่อน VAT {baht(row.amount)} + VAT {row.vatRate || "?"}% {baht(row.netAmount - row.amount)}
+                  ก่อน VAT {baht(liveNet != null && data?.live?.grandTotal
+                    ? Number(String(data.live.grandTotal).replace(/,/g, "")) : row.amount)}
+                  {" + VAT "}{(liveNet != null ? data?.live?.vatRate : row.vatRate) || "?"}%{" "}
+                  {baht(netShown - (liveNet != null && data?.live?.grandTotal
+                    ? Number(String(data.live.grandTotal).replace(/,/g, "")) : row.amount))}
+                </div>
+              )}
+              {netStale && (
+                <div className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                  อัปเดตจาก ATMS แล้ว (ยอดเดิมในตาราง {baht(row.netAmount)})
                 </div>
               )}
               <div className="text-xs text-gray-400">{row.purchaseOrder || "ไม่มี PO"}</div>

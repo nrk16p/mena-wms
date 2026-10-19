@@ -15,6 +15,7 @@ import { normalizeImages } from "@/lib/media"
 import { isAccounting } from "@/lib/roles"
 import { findTemplateForSupplier } from "@/lib/ap-doc-template-db"
 import { findDepositHead } from "@/lib/ap-search-db"
+import { fetchLiveNet, liveNetNumber } from "@/lib/ap-net-live"
 import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
 
 export const dynamic = "force-dynamic"
@@ -60,6 +61,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
   // หัวใบจากภาพรวม deposit_header ที่แคชไว้ร่วมกับหน้าค้น (ไม่มี index ที่ deposit_code — findOne = collscan)
   // ไม่เจอในภาพรวมถอยไปอ่าน DB ตรงเอง · ส่วนที่ WMS เขียน (tracking/แม่แบบ/ผู้ขาย) ยังอ่านสดทุกครั้ง
   const head = await findDepositHead(atms, depositCode)
+  // ── เปิดใบ = ต้องเห็นยอดสุทธิของ ATMS ณ ตอนนี้ (19/10/2026) ──────────────────
+  // `deposit_header.amount_net` มาจากไปป์ไลน์เป็นรอบ ใบที่ถูกแก้ VAT ทีหลังจะค้างยอดเดิม
+  // (เคส KKDD26090025 โชว์ 3,700 ทั้งที่ ATMS 3,959 อยู่ 6 วัน) · ยิงดึงสดใบเดียวตอนเปิดโมดัล
+  // ฝั่ง api-ncac รวบคำขอที่ซ้ำกันภายใน 1 นาทีให้เอง หลายคนเปิดใบเดียวกันจึงไม่กลายเป็นหลายคำขอ
+  // ล้มเหลว = คืน null แล้วหน้าจอใช้ค่าในตารางต่อ (fail-open — ดู lib/ap-net-live)
+  const livePromise = fetchLiveNet([depositCode])
   const [tracking, items, po, tpl] = await Promise.all([
     md.collection(COLL).findOne({ depositCode }, { projection: { _id: 0 } }),
     head?.depositId != null
@@ -71,9 +78,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
     // แม่แบบเอกสารของผู้ขาย — ตัวช่วยบอกในหมวดชุดเอกสาร (ไม่ใช่กติกาครบชุด)
     findTemplateForSupplier(md, head?.supplier ?? ""),
   ])
+  const live = (await livePromise).get(depositCode)
   return NextResponse.json({
     tracking: tracking ?? null, items, po,
     docTemplate: tpl.template, supplierCode: tpl.code, supplierTerm: tpl.creditTerm,
+    // ยอดสุทธิสด — null เมื่อดึงไม่ได้ · หน้าจอโชว์ค่านี้ทับยอดในตารางเมื่อมีค่า
+    live: live ? {
+      netAmount: liveNetNumber(live), vatRate: live.vatRate, vatAmount: live.vatAmount,
+      grandTotal: live.grandTotal, source: live.source, changed: live.changed,
+    } : null,
   })
 }
 
@@ -205,6 +218,36 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     ].filter(Boolean)
     if (touched.length) {
       return NextResponse.json({ error: `${AP_LOCKED_MSG} (${touched.join(" · ")})` }, { status: 409 })
+    }
+  }
+
+  // ── ด่าน "ยอดสุทธิต้องสด ณ วินาทีที่ตัดสินใจเรื่องเงิน" (19/10/2026) ──────────
+  // ยอดในตารางมาจาก deposit_header ที่ไปป์ไลน์เติมเป็นรอบ ใบที่ถูกแก้ VAT ใน ATMS หลังรอบนั้น
+  // จะค้างยอดเดิม (KKDD26090025 โชว์ 3,700 ทั้งที่ ATMS 3,959 — ผู้ใช้แจ้ง 19/10/2026)
+  // ขั้นที่กระทบเงินจึงดึงยอดสดใบนั้นก่อนบันทึก **ทุกครั้ง** (force ข้ามการรวบคำขอ 1 นาที)
+  // ยอดต่างจากที่หน้าจอโชว์ = ไม่บันทึก ตอบ 409 ให้ผู้ใช้เห็นยอดใหม่แล้วกดยืนยันอีกครั้ง
+  // (netConfirmed: true) — pattern เดียวกับ sync อู่นอกที่ถามก่อนบันทึกเมื่อปลายทางเพิ่งเปลี่ยน
+  // ดึงไม่ได้ = ปล่อยผ่าน ไม่บล็อกงานบัญชีเพราะ ATMS ล่ม (fail-open — ดู lib/ap-net-live)
+  const moneyAction =
+    body?.review && typeof body.review === "object"
+      && s((body.review as { status?: unknown }).status) === "ผ่าน" ? "บัญชีกดผ่าน"
+    : body?.setPay === true                                        ? "กำหนดวันจ่าย"
+    : body?.sentType !== undefined || body?.sentDate !== undefined ? "ส่งเอกสารเข้าบัญชี"
+    : ""
+  if (moneyAction && body?.netConfirmed !== true) {
+    const live    = (await fetchLiveNet([depositCode], { force: true })).get(depositCode)
+    const liveNet = liveNetNumber(live)
+    const seen    = Number(body?.netSeen)
+    // เทียบเฉพาะเมื่อหน้าจอบอกมาว่าเห็นยอดเท่าไร — ผู้เรียกเก่า/สคริปต์ที่ไม่ส่ง netSeen
+    // ไม่ถูกบล็อก (ไม่มีอะไรให้เทียบ) แต่ยอดในฐานก็ถูกอัปเดตจากการดึงรอบนี้ไปแล้ว
+    if (liveNet != null && Number.isFinite(seen) && seen > 0 && Math.abs(liveNet - seen) >= 0.01) {
+      return NextResponse.json({
+        error: `ยอดรวมสุทธิของใบนี้ใน ATMS เปลี่ยนเป็น ${liveNet.toLocaleString("th-TH", { minimumFractionDigits: 2 })} บาท`
+          + ` (หน้าจอกำลังโชว์ ${seen.toLocaleString("th-TH", { minimumFractionDigits: 2 })} บาท)`
+          + ` — ตรวจสอบแล้วกด "${moneyAction}" อีกครั้งเพื่อยืนยัน`,
+        needsNetConfirm: true, netLive: liveNet, netSeen: seen,
+        vatRate: live?.vatRate ?? null, vatAmount: live?.vatAmount ?? null,
+      }, { status: 409 })
     }
   }
 

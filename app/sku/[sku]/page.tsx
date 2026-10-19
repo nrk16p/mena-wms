@@ -127,9 +127,10 @@ export default function EditSkuPage() {
 
     setSaving(false)
     if (!res.ok) {
-      const msg = "บันทึกไม่สำเร็จ"
-      setError(msg)
-      swalError(msg)
+      // ให้เห็นเหตุผลจริงจากเซิร์ฟเวอร์ เช่น แก้ใบที่คนอื่นส่ง หรือใบที่อนุมัติแล้ว
+      const msg = (await res.json().catch(() => null))?.error ?? "บันทึกไม่สำเร็จ"
+      setError(String(msg))
+      swalError(String(msg))
       return
     }
 
@@ -163,9 +164,12 @@ export default function EditSkuPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>คลังสินค้า</label>
-            <select name="คลังสินค้า" defaultValue={field("คลังสินค้า")} className={selectCls}>
-              {Object.entries(whOptions).map(([k, v]) => <option key={k} value={k}>{k} — {v.th}</option>)}
-            </select>
+            {/* คลังเป็นส่วนหนึ่งของรหัส SKU แก้ไม่ได้เหมือน L1/L2/L3 — ย้ายคลังต้องออกรหัสใหม่ */}
+            <input
+              value={(() => { const wh = field("คลังสินค้า"); const th = whOptions[wh]?.th; return th ? `${wh} — ${th}` : wh })()}
+              disabled
+              className={inputCls + " opacity-50 cursor-not-allowed"}
+            />
           </div>
           <div>
             <label className={labelCls}>ประเภทค่าใช้จ่าย</label>
@@ -246,6 +250,7 @@ export default function EditSkuPage() {
               options={brandOptions}
               value={brandValue}
               onChange={setBrandValue}
+              onCreated={(code, label) => setBrandOptions((p) => ({ ...p, [code]: label }))}
               className={inputCls}
             />
           </div>

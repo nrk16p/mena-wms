@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
 import clientPromise from "@/lib/mongo"
+import { authOptions } from "@/lib/auth"
+import { isAdmin } from "@/lib/roles"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "master_sku"
@@ -14,11 +17,30 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 }
 
 // PUT /api/sku/[id]
+// แอดมินแก้ได้ทุกใบ · คนทั่วไปแก้ได้แค่ใบที่ตัวเองส่งและยังรออนุมัติอยู่
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id }  = await params
+  const session = await getServerSession(authOptions)
+  const email   = session?.user?.email
+  if (!email) {
+    return NextResponse.json({ error: "ต้องเข้าสู่ระบบก่อน" }, { status: 401 })
+  }
+
   const body    = await req.json()
   const client  = await clientPromise
   const col     = client.db(DB).collection(COLL)
+
+  const current = await col.findOne({ SKU: id }, { projection: { createdBy: 1, status: 1 } })
+  if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  if (!isAdmin(email)) {
+    if (current.createdBy !== email) {
+      return NextResponse.json({ error: "แก้ได้เฉพาะ SKU ที่ตัวเองส่งเท่านั้น" }, { status: 403 })
+    }
+    if (current.status !== "pending") {
+      return NextResponse.json({ error: "SKU นี้อนุมัติแล้ว ต้องให้แอดมินแก้" }, { status: 403 })
+    }
+  }
 
   const noPrice = ["LAB", "SVC", "CLN", "TRP", "ACC"].includes(body.ประเภทค่าใช้จ่าย ?? "")
 
@@ -37,6 +59,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     รหัสATMS:          Array.isArray(body.รหัสATMS) ? body.รหัสATMS : (body.รหัสATMS ? [body.รหัสATMS] : []),
     ...(Array.isArray(body.images) ? { images: body.images } : {}),
     updatedAt:         new Date(),
+    updatedBy:         email,
   }
 
   const result = await col.updateOne({ SKU: id }, { $set: update })
@@ -44,9 +67,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json({ ok: true })
 }
 
-// DELETE /api/sku/[id]
+// DELETE /api/sku/[id] — ลบทิ้งจริง ให้เฉพาะแอดมิน (ปฏิเสธคำขอใช้ DELETE /api/sku/[id]/approve)
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id }  = await params
+  const session = await getServerSession(authOptions)
+  if (!isAdmin(session?.user?.email)) {
+    return NextResponse.json({ error: "ลบ SKU ได้เฉพาะแอดมิน" }, { status: 403 })
+  }
   const client  = await clientPromise
   const result  = await client.db(DB).collection(COLL).deleteOne({ SKU: id })
   if (result.deletedCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 })
