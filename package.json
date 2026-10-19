@@ -19,6 +19,7 @@
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
     "html-to-image": "^1.11.13",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.16.0",
     "mongodb": "^7.2.0",
     "motion": "^12.43.0",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.12",
     "@types/node": "^20",
     "@types/pdfmake": "^0.3.3",
     "@types/react": "^19",

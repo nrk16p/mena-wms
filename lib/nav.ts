@@ -231,6 +231,8 @@ export const NAV_GROUPS: NavGroup[] = [
     homeIcon: ShieldCheck, color: "#6D28D9", bg: "#EDE9FE", homeOrder: 65,
     collapsible: true,
     items: [
+      { href: "/vendors/map", label: "หาอู่ใกล้ที่สุด", icon: MapPin, exact: true,
+        desc: "รถเสียตรงไหน อู่ไหนอยู่ใกล้และรับงานนั้นได้" },
       { href: "/vendors/by-service", label: "เลือกอู่ตามประเภทงาน", icon: Wrench, exact: true,
         desc: "งานประเภทนี้ใช้อู่ไหนได้บ้าง" },
       { href: "/vendors", label: "ตารางความสามารถอู่", icon: Factory, exact: true,
