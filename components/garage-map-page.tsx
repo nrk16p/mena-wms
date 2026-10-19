@@ -10,7 +10,7 @@
 // ถ้าวันหลังต้องการระยะขับจริง ต่อ API เส้นทางเพิ่มที่ฝั่ง /api/vendors/map ได้โดยหน้านี้ไม่ต้องแก้
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Crosshair, History, Loader2, MapPin, Phone, Route, Search, TriangleAlert, Copy, Check } from "lucide-react"
+import { Check, Copy, Crosshair, Factory, History, Loader2, MapPin, Phone, Route, Search, TriangleAlert, X } from "lucide-react"
 import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline, LayerGroup as LeafletLayerGroup } from "leaflet"
 import { REPAIR_TYPES } from "@/lib/repair-type-master"
 import { canApproveVendor } from "@/lib/roles"
@@ -85,6 +85,8 @@ export function GarageMapPage() {
   const [route, setRoute] = useState<{ vendor: string; km: number; min: number } | null>(null)
   const [routing, setRouting] = useState("")
   const boxRef = useRef<HTMLDivElement>(null)
+  /** รายการที่ผ่านตัวกรองพื้นที่แล้ว — ให้ effect วาดหมุดอ่านค่าล่าสุดโดยไม่ต้องผูกเป็น dependency */
+  const shownRef = useRef<GarageHit[]>([])
 
   const codes = useMemo(
     () => OUTSIDE_WORKS.filter((w) => works.includes(w.work)).flatMap((w) => w.codes),
@@ -153,7 +155,7 @@ export function GarageMapPage() {
         iconSize: [24, 24], iconAnchor: [12, 24],
       })
 
-      const withGeo = res.items.filter((g) => g.geo)
+      const withGeo = shownRef.current
       withGeo.slice(0, 40).forEach((g, i) => {
         const m = L.marker([g.geo!.lat, g.geo!.lng], { icon: pin(String(i + 1), g.matchesAll ? "#047857" : "#6D28D9") })
           .addTo(map)
@@ -173,7 +175,7 @@ export function GarageMapPage() {
         map.fitBounds(L.latLngBounds([[res.origin.lat, res.origin.lng], ...near]).pad(0.3), { maxZoom: 14 })
       }
     })()
-  }, [res])
+  }, [res, prov, dist])
 
   /** วาดเส้นทางขับจริงจากจุดที่รถเสียไปอู่ที่กด — กดซ้ำที่เจ้าเดิมคือเอาเส้นออก */
   const showRoute = useCallback(async (g: GarageHit) => {
@@ -262,9 +264,17 @@ export function GarageMapPage() {
     setCopied(key); setTimeout(() => setCopied(""), 1500)
   }
 
-  const items = res?.items ?? []
+  // เลือกจังหวัด/อำเภอ = กรองอู่ด้วย ไม่ใช่แค่ย้ายจุดอ้างอิง (ผู้ใช้ขอ 19/10/2569)
+  // หมุดบนแผนที่วาดจาก shown จึงกรองตามไปเองโดยอัตโนมัติ
+  const items = useMemo(() => {
+    const all = res?.items ?? []
+    if (!prov) return all
+    return all.filter((g) => g.address?.province === prov && (!dist || g.address?.district === dist))
+  }, [res, prov, dist])
+  const hiddenByArea = (res?.items.length ?? 0) - items.length
   const shown = items.filter((g) => g.geo)
   const noGeo = items.filter((g) => !g.geo)
+  shownRef.current = shown
 
   return (
     <div style={{ ...mitr, display: "flex", height: "calc(100vh - 56px)", background: "#FAFAFA" }}>
@@ -292,30 +302,26 @@ export function GarageMapPage() {
           </form>
 
           {/* เลือกจากแพล้นท์ — ทางที่เร็วที่สุด เพราะรถมักเสียระหว่างวิ่งงานของแพล้นท์ใดแพล้นท์หนึ่ง
-              (ผู้ใช้ขอ 19/10/2569) · ชื่อแพล้นท์ซ้ำกัน 28 แห่ง จึงต่อเลขลำดับไว้ท้ายชื่อตอนเตรียมข้อมูล */}
-          <div style={{ marginTop: 8 }}>
-            <select value={plant}
-              onChange={(e) => {
-                const name = e.target.value
-                setPlant(name)
-                const p = PLANTS.find((x) => x.n === name)
-                if (p) { const v = `${p.lat}, ${p.lng}`; setAt(v); setProv(""); setDist(""); void search(v, codes) }
-              }}
-              style={{ width: "100%", padding: "7px 9px", border: "1px solid #D4D4D8", borderRadius: 8, fontSize: 13, background: "#fff", color: plant ? "#18181B" : "#71717A" }}>
-              <option value="">— หรือเลือกจากแพล้นท์ ({PLANTS.length} แห่ง) —</option>
-              {PLANTS.map((p) => <option key={p.n} value={p.n}>{p.n}</option>)}
-            </select>
-          </div>
+              พิมพ์ค้นได้เลย (ผู้ใช้ขอ 19/10/2569) · 286 แห่งใน dropdown ธรรมดาเลื่อนหาไม่ไหว
+              ชื่อแพล้นท์ซ้ำกัน 28 แห่ง จึงต่อเลขลำดับไว้ท้ายชื่อตอนเตรียมข้อมูล */}
+          <PlantPicker value={plant} onPick={(p) => {
+            setPlant(p.n)
+            const v = `${p.lat}, ${p.lng}`
+            setAt(v); setProv(""); setDist("")
+            void search(v, codes)
+          }} onClear={() => setPlant("")} />
 
           {/* เลือกพื้นที่แทน — สำหรับเคสที่รู้แค่ชื่ออำเภอ */}
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-            <select value={prov} onChange={(e) => { setProv(e.target.value); setDist("") }}
+            {/* เลือกจังหวัด = กรองรายการ · ย้ายจุดอ้างอิงไปกลางจังหวัดเฉพาะตอนที่ยังไม่ได้ระบุจุดรถเสีย
+                (ถ้าระบุไว้แล้วแล้วไปย้ายให้ ระยะที่คำนวณไว้จะเพี้ยนทั้งหน้า) */}
+            <select value={prov} onChange={(e) => { setProv(e.target.value); setDist(""); if (e.target.value && !res?.origin) void pickArea(e.target.value, "", "") }}
               style={{ flex: 1, padding: "6px 8px", border: "1px solid #E4E4E7", borderRadius: 8, fontSize: 12, background: "#fff" }}>
               <option value="">— จังหวัด —</option>
               {listProvinces(addr).map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
             <select value={dist} disabled={!prov}
-              onChange={(e) => { setDist(e.target.value); if (e.target.value) void pickArea(prov, e.target.value, "") }}
+              onChange={(e) => { setDist(e.target.value); if (e.target.value && !res?.origin) void pickArea(prov, e.target.value, "") }}
               style={{ flex: 1, padding: "6px 8px", border: "1px solid #E4E4E7", borderRadius: 8, fontSize: 12, background: prov ? "#fff" : "#FAFAFA" }}>
               <option value="">— อำเภอ/เขต —</option>
               {listDistricts(addr, prov).map((d) => <option key={d} value={d}>{d}</option>)}
@@ -357,6 +363,17 @@ export function GarageMapPage() {
         </div>
 
         {/* สรุปผล */}
+        {prov && (
+          <div style={{ padding: "6px 16px", background: "#F5F3FF", borderBottom: "1px solid #EDE9FE", display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "#6D28D9" }}>
+            <span style={{ fontWeight: 600 }}>กรองเฉพาะ {dist ? `อ.${dist} ` : ""}{prov}</span>
+            {hiddenByArea > 0 && <span style={{ color: "#8B5CF6" }}>ซ่อนอู่นอกพื้นที่ {num(hiddenByArea)} แห่ง</span>}
+            <span style={{ flex: 1 }} />
+            <button onClick={() => { setProv(""); setDist("") }}
+              style={{ border: 0, background: "none", color: "#6D28D9", fontSize: 11.5, cursor: "pointer", textDecoration: "underline" }}>
+              ล้างตัวกรองพื้นที่
+            </button>
+          </div>
+        )}
         <div style={{ padding: "7px 16px", fontSize: 11, color: "#71717A", background: "#FAFAFA", borderBottom: "1px solid #F1F1F3" }}>
           {err ? <span style={{ color: "#B91C1C" }}><TriangleAlert size={11} style={{ display: "inline", marginRight: 4 }} />{err}</span>
             : res ? <>{res.origin
@@ -558,5 +575,87 @@ function LayerToggle({ on, onClick, color, children }: {
       <span style={{ width: 8, height: 8, borderRadius: 999, background: on ? color : "#D4D4D8" }} />
       {children}
     </button>
+  )
+}
+
+/** ช่องเลือกแพล้นท์แบบพิมพ์ค้น — 286 แห่ง เลื่อนหาใน dropdown ธรรมดาไม่ไหว
+ *  พิมพ์แล้วกรองทันที, ↑↓ เลื่อน, Enter เลือกตัวที่ไฮไลต์, Esc ปิด */
+function PlantPicker({ value, onPick, onClear }: {
+  value: string
+  onPick: (p: { n: string; lat: number; lng: number }) => void
+  onClear: () => void
+}) {
+  const [q, setQ] = useState("")
+  const [open, setOpen] = useState(false)
+  const [cursor, setCursor] = useState(0)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  const hits = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return PLANTS.slice(0, 60)
+    return PLANTS.filter((p) => p.n.toLowerCase().includes(t)).slice(0, 60)
+  }, [q])
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) { setOpen(false); setQ("") }
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [])
+
+  // เลื่อนตัวที่ไฮไลต์ให้อยู่ในสายตาเสมอเวลากด ↑↓
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-i="${cursor}"]`)?.scrollIntoView({ block: "nearest" })
+  }, [cursor])
+
+  const choose = (i: number) => {
+    const p = hits[i]
+    if (!p) return
+    onPick(p); setOpen(false); setQ("")
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: "relative", marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #D4D4D8", borderRadius: 8, padding: "6px 9px", background: "#fff" }}>
+        <Factory size={14} color="#0E7490" />
+        <input
+          value={open ? q : value}
+          onChange={(e) => { setQ(e.target.value); setCursor(0); setOpen(true) }}
+          onFocus={() => { setOpen(true); setQ("") }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => Math.min(c + 1, hits.length - 1)) }
+            if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)) }
+            if (e.key === "Enter") { e.preventDefault(); choose(cursor) }
+            if (e.key === "Escape") { setOpen(false); setQ("") }
+          }}
+          placeholder={value || `พิมพ์ชื่อแพล้นท์ (${PLANTS.length} แห่ง) เช่น มหาชัย / ลาดกระบัง`}
+          style={{ flex: 1, minWidth: 0, border: 0, outline: "none", fontSize: 13, color: "#18181B", background: "transparent" }}
+        />
+        {value && !open && (
+          <button onClick={() => { onClear(); setQ("") }} title="ล้างแพล้นท์ที่เลือก" aria-label="ล้างแพล้นท์ที่เลือก"
+            style={{ border: 0, background: "none", cursor: "pointer", color: "#A1A1AA", display: "flex", padding: 0 }}>
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div ref={listRef}
+          style={{ position: "absolute", zIndex: 600, top: "calc(100% + 4px)", left: 0, right: 0, maxHeight: 240, overflowY: "auto", background: "#fff", border: "1px solid #E4E4E7", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.12)" }}>
+          {hits.length === 0
+            ? <div style={{ padding: "9px 11px", fontSize: 12, color: "#A1A1AA" }}>ไม่พบแพล้นท์ที่ค้น</div>
+            : hits.map((p, i) => (
+                <button key={p.n} data-i={i} onMouseEnter={() => setCursor(i)} onClick={() => choose(i)}
+                  style={{ display: "block", width: "100%", textAlign: "left", border: 0, cursor: "pointer",
+                           padding: "7px 11px", fontSize: 12.5, color: "#18181B",
+                           background: i === cursor ? "#F5F3FF" : "#fff" }}>
+                  {p.n}
+                </button>
+              ))}
+        </div>
+      )}
+    </div>
   )
 }
