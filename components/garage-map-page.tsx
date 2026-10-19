@@ -25,6 +25,7 @@ import { parseLatLng, isShortMapLink } from "@/lib/garage-geo"
 import { GarageHistoryModal } from "@/components/garage-history-modal"
 import layers from "@/data/map-layers.json"
 import { loadThaiAddress, type ProvinceNode } from "@/lib/thai-address"
+import { CUSTOMERS, customerOf, customerColor, badgeHtml, useCustomerLogos, type CustomerKey } from "@/lib/plant-customers"
 
 type ApiResult = {
   origin: { lat: number; lng: number } | null
@@ -60,12 +61,15 @@ const WORK_CHIPS: { label: string; codes: string[] }[] = [
 ]
 const ONSITE = "ออกนอกสถานที่"
 
-/** แพล้นท์ของเรา 286 จุด + ปั๊มน้ำมัน 884 จุด (Shell/Caltex/PTT จาก My Maps ยานยนต์ 19/10/2569) */
-const PLANTS = (layers as { plants: { n: string; lat: number; lng: number }[] }).plants
+/** แพล้นท์ลูกค้า 262 จุด (c = ลูกค้า) + ปั๊มน้ำมัน 884 จุด (Shell/Caltex/PTT จากแผนที่ยานยนต์ 19/10/2569) */
+const PLANTS = (layers as { plants: { n: string; c?: string; lat: number; lng: number }[] }).plants
+  .map((p) => ({ ...p, k: customerOf(p.c) }))
+const PLANT_COUNT = Object.fromEntries(CUSTOMERS.map(({ key }) => [key, PLANTS.filter((p) => p.k === key).length])) as Record<CustomerKey, number>
+const plantPlace = (p: (typeof PLANTS)[number]): Place => ({ kind: "plant", label: `แพล้นท์ ${p.n}`, lat: p.lat, lng: p.lng, cust: p.k, custName: p.c })
 const FUEL = (layers as unknown as { fuel: { n: string; b: string; lat: number; lng: number }[] }).fuel
 
 type Place =
-  | { kind: "plant"; label: string; lat: number; lng: number }
+  | { kind: "plant"; label: string; lat: number; lng: number; cust: CustomerKey; custName?: string }
   | { kind: "area"; label: string; province: string; district: string }
   | { kind: "point"; label: string; raw: string }
 
@@ -86,7 +90,8 @@ export function GarageMapPage() {
   const [err, setErr] = useState("")
   const [active, setActive] = useState<string | null>(null)
   const [historyFor, setHistoryFor] = useState<string | null>(null)
-  const [showPlants, setShowPlants] = useState(false)
+  const [plantCusts, setPlantCusts] = useState<CustomerKey[]>([])
+  const logos = useCustomerLogos()
   const [showFuel, setShowFuel] = useState(false)
   const [legendOpen, setLegendOpen] = useState(true)
   const [noGeoOpen, setNoGeoOpen] = useState(false)
@@ -292,17 +297,19 @@ export function GarageMapPage() {
     }
   }, [res, route])
 
-  // ── เลเยอร์อ้างอิง: แพล้นท์ (สี่เหลี่ยมกรมท่า) · ปั๊มน้ำมัน (จุดเทาเล็ก)
+  // ── เลเยอร์อ้างอิง: แพล้นท์ (ป้ายลูกค้า เปิดทีละเจ้าได้) · ปั๊มน้ำมัน (จุดเทาเล็ก)
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
     void (async () => {
       const L = (await import("leaflet")).default
       layerRef.current.plants?.remove(); layerRef.current.plants = null
-      if (showPlants) {
-        const icon = L.divIcon({ className: "", html: `<div style="width:12px;height:12px;border-radius:3px;background:${C.navy};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35)"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] })
-        layerRef.current.plants = L.layerGroup(PLANTS.map((p) =>
-          L.marker([p.lat, p.lng], { icon }).bindTooltip(`แพล้นท์ ${p.n}`, { direction: "top" }))).addTo(map)
+      if (plantCusts.length) {
+        layerRef.current.plants = L.layerGroup(PLANTS.filter((p) => plantCusts.includes(p.k)).map((p) => {
+          // ป้ายกว้างไม่เท่ากัน ใช้ translate ให้กึ่งกลางป้ายตรงพิกัด
+          const icon = L.divIcon({ className: "", html: `<div style="transform:translate(-50%,-50%);display:inline-block">${badgeHtml(p.k, p.c, !!logos[p.k])}</div>`, iconSize: [0, 0], iconAnchor: [0, 0] })
+          return L.marker([p.lat, p.lng], { icon }).bindTooltip(`แพล้นท์ ${p.n} · ${p.c || "ไม่ระบุลูกค้า"}`, { direction: "top" })
+        })).addTo(map)
       }
       layerRef.current.fuel?.remove(); layerRef.current.fuel = null
       if (showFuel) {
@@ -311,7 +318,7 @@ export function GarageMapPage() {
             .bindTooltip(`${f.b} · ${f.n}`, { direction: "top" }))).addTo(map)
       }
     })()
-  }, [showPlants, showFuel])
+  }, [plantCusts, showFuel, logos])
 
   const saveLocation = async (vendor: string) => {
     const input = window.prompt(`วางลิงก์ Google Maps หรือพิกัดของ "${vendor}"\n(เช่น 13.72451, 100.78032)`)
@@ -456,7 +463,8 @@ export function GarageMapPage() {
       <div style={{ flex: 1, position: "relative" }}>
         <div ref={boxRef} style={{ position: "absolute", inset: 0 }} />
         <Legend open={legendOpen} onToggle={() => setLegendOpen((v) => !v)}
-          showPlants={showPlants} onPlants={() => setShowPlants((v) => !v)}
+          plantCusts={plantCusts} onPlantCust={(k) => setPlantCusts((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]))}
+          onAllPlants={() => setPlantCusts((cur) => (cur.length === CUSTOMERS.length ? [] : CUSTOMERS.map((c) => c.key)))}
           showFuel={showFuel} onFuel={() => setShowFuel((v) => !v)} />
         {route && (
           <div style={{ position: "absolute", top: 12, left: 12, zIndex: 500, background: "#fff", borderRadius: 14, padding: "8px 14px", boxShadow: "0 8px 24px -10px rgba(21,86,201,.45)", fontSize: 13 }}>
@@ -658,9 +666,10 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
 }
 
 /** คำอธิบายสัญลักษณ์ + สวิตช์เลเยอร์ อยู่กล่องเดียวกัน (ไม่เกิน 5 แถว) */
-function Legend({ open, onToggle, showPlants, onPlants, showFuel, onFuel }: {
+function Legend({ open, onToggle, plantCusts, onPlantCust, onAllPlants, showFuel, onFuel }: {
   open: boolean; onToggle: () => void
-  showPlants: boolean; onPlants: () => void; showFuel: boolean; onFuel: () => void
+  plantCusts: CustomerKey[]; onPlantCust: (k: CustomerKey) => void; onAllPlants: () => void
+  showFuel: boolean; onFuel: () => void
 }) {
   const dot = (s: React.CSSProperties) => <span style={{ width: 14, height: 14, flexShrink: 0, ...s }} />
   return (
@@ -673,9 +682,21 @@ function Legend({ open, onToggle, showPlants, onPlants, showFuel, onFuel }: {
           <Row icon={dot({ borderRadius: 999, background: C.mint, border: "2px solid #fff", boxShadow: "0 0 0 1px #cfe3fb" })}>อู่ประจำ (ทะเบียน AVL)</Row>
           <Row icon={dot({ borderRadius: 999, background: C.brand, border: "2px solid #fff", boxShadow: "0 0 0 1px #cfe3fb" })}>ยานยนต์แนะนำ</Row>
           <Row icon={dot({ borderRadius: 4, background: "#fff", border: `2px dashed ${C.sun}` })}>ยังไม่อนุมัติ / ที่ตั้งประมาณ</Row>
-          <Row icon={dot({ borderRadius: 3, background: C.navy })}>
-            <LayerSwitch on={showPlants} onClick={onPlants} icon={<Factory size={12} />}>แพล้นท์</LayerSwitch>
+          <Row icon={dot({ borderRadius: 3, background: `conic-gradient(${CUSTOMERS.map((c, i) => `${c.color} ${i * 72}deg ${(i + 1) * 72}deg`).join(",")})` })}>
+            <LayerSwitch on={plantCusts.length === CUSTOMERS.length} onClick={onAllPlants} icon={<Factory size={12} />}>แพล้นท์ทุกลูกค้า</LayerSwitch>
           </Row>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, maxWidth: 230, marginLeft: 22 }}>
+            {CUSTOMERS.map(({ key, label, color }) => {
+              const on = plantCusts.includes(key)
+              return (
+                <button key={key} onClick={() => onPlantCust(key)} aria-pressed={on} title={on ? `ซ่อนแพล้นท์ ${label}` : `แสดงแพล้นท์ ${label}`}
+                  style={{ display: "flex", alignItems: "center", gap: 4, border: `1.5px solid ${on ? color : C.line}`, background: on ? color : "#fff", color: on ? "#fff" : C.ink2, borderRadius: 999, padding: "2px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  {!on && <span style={{ width: 7, height: 7, borderRadius: 2, background: color }} />}
+                  {label} <span style={{ fontWeight: 400, opacity: .85 }}>{PLANT_COUNT[key]}</span>
+                </button>
+              )
+            })}
+          </div>
           <Row icon={dot({ borderRadius: 999, background: C.fuel, width: 9, height: 9, margin: "0 2.5px" })}>
             <LayerSwitch on={showFuel} onClick={onFuel} icon={<Fuel size={12} />}>ปั๊มน้ำมัน</LayerSwitch>
           </Row>
@@ -684,6 +705,12 @@ function Legend({ open, onToggle, showPlants, onPlants, showFuel, onFuel }: {
       )}
     </div>
   )
+}
+/** ป้ายลูกค้าในรายการค้นหา: โลโก้ถ้ามีไฟล์ ไม่มีก็ตัวอักษรสีประจำเจ้า */
+function CustBadge({ k, name, logo }: { k: CustomerKey; name?: string; logo: boolean }) {
+  const color = customerColor(k)
+  if (logo) return <img src={`/logos/${k.toLowerCase()}.png`} alt={k} style={{ height: 18, maxWidth: 48, objectFit: "contain", flexShrink: 0 }} />
+  return <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color, border: `1.5px solid ${color}`, borderRadius: 6, padding: "1px 6px", letterSpacing: .3 }}>{k === "OTHER" ? (name || "อื่น ๆ") : k}</span>
 }
 function Row({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return <div style={{ display: "flex", alignItems: "center", gap: 8 }}>{icon}{children}</div>
@@ -708,6 +735,7 @@ function SmartSearch({ addr, place, onPick, onClear }: {
 }) {
   const [q, setQ] = useState("")
   const [open, setOpen] = useState(false)
+  const logos = useCustomerLogos()
   const [cursor, setCursor] = useState(0)
   const boxRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -716,7 +744,7 @@ function SmartSearch({ addr, place, onPick, onClear }: {
 
   const hits = useMemo((): Place[] => {
     const t = q.trim()
-    if (!t) return PLANTS.slice(0, 8).map((p) => ({ kind: "plant", label: `แพล้นท์ ${p.n}`, lat: p.lat, lng: p.lng }))
+    if (!t) return PLANTS.slice(0, 8).map(plantPlace)
     if (looksLikePoint(t)) return [{ kind: "point", label: "จุดที่วางไว้", raw: t }]
     const low = t.toLowerCase()
     const out: Place[] = []
@@ -724,7 +752,9 @@ function SmartSearch({ addr, place, onPick, onClear }: {
       if (p.p.includes(t)) out.push({ kind: "area", label: `จ.${p.p}`, province: p.p, district: "" })
       for (const a of p.a) if (a.n.includes(t)) out.push({ kind: "area", label: `อ.${a.n} จ.${p.p}`, province: p.p, district: a.n })
     }
-    const plants: Place[] = PLANTS.filter((p) => p.n.toLowerCase().includes(low)).map((p) => ({ kind: "plant", label: `แพล้นท์ ${p.n}`, lat: p.lat, lng: p.lng }))
+    // พิมพ์ชื่อลูกค้าร่วมได้ เช่น "cpac ลาดกระบัง" — ทุกคำต้องเจอในชื่อแพล้นท์หรือชื่อลูกค้า
+    const words = low.split(/\s+/).filter(Boolean)
+    const plants: Place[] = PLANTS.filter((p) => { const hay = `${p.n} ${p.c ?? ""}`.toLowerCase(); return words.every((w) => hay.includes(w)) }).map(plantPlace)
     return [...plants.slice(0, 8), ...out.slice(0, 8)]
   }, [q, addr])
 
@@ -749,6 +779,7 @@ function SmartSearch({ addr, place, onPick, onClear }: {
       <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 14, background: C.brandSoft, border: `1.5px solid ${C.brandLine}` }}>
         <Icon size={16} color={C.brand} />
         <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{place.label}</span>
+        {place.kind === "plant" && <CustBadge k={place.cust} name={place.custName} logo={!!logos[place.cust]} />}
         <button onClick={() => { setOpen(true); setQ("") }} style={{ border: 0, background: "none", color: C.brand, cursor: "pointer", fontSize: 12.5 }}>เปลี่ยน</button>
         <button onClick={onClear} aria-label="ล้างจุดที่เลือก" style={{ border: 0, background: "none", color: C.muted, cursor: "pointer", display: "flex", padding: 0 }}><X size={15} /></button>
       </div>
@@ -788,7 +819,8 @@ function SmartSearch({ addr, place, onPick, onClear }: {
                 return (
                   <button key={`${p.kind}-${p.label}-${i}`} data-i={i} onMouseEnter={() => setCursor(i)} onClick={() => choose(i)}
                     style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: 0, cursor: "pointer", padding: "8px 10px", borderRadius: 10, fontSize: 13.5, color: C.ink, background: i === cursor ? C.brandSoft : "#fff", fontFamily: BODY }}>
-                    <Icon size={14} color={p.kind === "plant" ? C.navy : C.brand} /> {p.label}
+                    <Icon size={14} color={p.kind === "plant" ? C.navy : C.brand} /> <span style={{ flex: 1 }}>{p.label}</span>
+                    {p.kind === "plant" && <CustBadge k={p.cust} name={p.custName} logo={!!logos[p.cust]} />}
                   </button>
                 )
               })}
