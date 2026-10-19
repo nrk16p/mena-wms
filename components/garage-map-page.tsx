@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { Crosshair, History, Loader2, MapPin, Phone, Route, Search, TriangleAlert, Copy, Check } from "lucide-react"
-import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline } from "leaflet"
+import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline, LayerGroup as LeafletLayerGroup } from "leaflet"
 import { REPAIR_TYPES } from "@/lib/repair-type-master"
 import { canApproveVendor } from "@/lib/roles"
 import { swalError, swalToast } from "@/lib/swal"
@@ -19,6 +19,7 @@ import type { GarageHit } from "@/lib/garage-geo"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { GarageHistoryModal } from "@/components/garage-history-modal"
 import { mitr, num } from "@/components/vendor-shared"
+import layers from "@/data/map-layers.json"
 import { loadThaiAddress, listProvinces, listDistricts, listSubdistricts, type ProvinceNode } from "@/lib/thai-address"
 
 type ApiResult = {
@@ -43,6 +44,11 @@ const OUTSIDE_WORKS: { work: string; codes: string[] }[] = (() => {
 const WORK_OPTIONS: Record<string, { th: string; en: string }> =
   Object.fromEntries(OUTSIDE_WORKS.map(({ work }) => [work, { th: work, en: "" }]))
 
+/** แพล้นท์ของเรา 286 จุด และร้านซ่อมที่ฝ่ายยานยนต์ปักหมุดไว้เอง 230 จุด (จาก My Maps 19/10/2569)
+ *  แพล้นท์ใช้ 2 อย่าง: เป็นตัวเลือกจุดที่รถเสีย และเป็นเลเยอร์อ้างอิงบนแผนที่ */
+const PLANTS = (layers as { plants: { n: string; lat: number; lng: number }[] }).plants
+const SHOPS  = (layers as { shops: { n: string; t: string; lat: number; lng: number }[] }).shops
+
 const PRECISION_NOTE: Record<string, string> = {
   "หน้าอู่": "พิกัดที่ยืนยันแล้ว",
   "ตำบล":   "พิกัดระดับตำบล — มาจากที่อยู่จดทะเบียน คลาดได้ 1-3 กม.",
@@ -62,6 +68,9 @@ export function GarageMapPage() {
   const [copied, setCopied] = useState("")
   // ป๊อปอัปประวัติซ่อมของอู่ที่กด (ชื่ออู่ = คีย์เดียวที่ต้องใช้)
   const [historyFor, setHistoryFor] = useState<string | null>(null)
+  const [plant, setPlant] = useState("")
+  const [showPlants, setShowPlants] = useState(false)
+  const [showShops, setShowShops] = useState(false)
 
   // เลือกพื้นที่แทนการวางพิกัด — คนแจ้งรถเสียบางทีบอกได้แค่ชื่อย่าน
   const [addr, setAddr] = useState<ProvinceNode[]>([])
@@ -69,6 +78,7 @@ export function GarageMapPage() {
   const [dist, setDist] = useState("")
 
   const mapRef = useRef<LeafletMap | null>(null)
+  const layerRef = useRef<{ plants: LeafletLayerGroup | null; shops: LeafletLayerGroup | null }>({ plants: null, shops: null })
   const markersRef = useRef<LeafletMarker[]>([])
   const originMarkerRef = useRef<LeafletMarker | null>(null)
   const routeRef = useRef<LeafletPolyline | null>(null)
@@ -194,6 +204,28 @@ export function GarageMapPage() {
     }
   }, [res, route])
 
+  // เลเยอร์อ้างอิง (แพล้นท์ / ร้านซ่อมที่ปักหมุดไว้) — วาดเป็นวงกลมเล็ก ไม่ใช่หมุด
+  // จะได้ไม่แย่งสายตากับหมุดอันดับอู่ที่เป็นผลลัพธ์จริง
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    void (async () => {
+      const L = (await import("leaflet")).default
+      const draw = (key: "plants" | "shops", on: boolean, rows: { n: string; lat: number; lng: number; t?: string }[], color: string) => {
+        layerRef.current[key]?.remove()
+        layerRef.current[key] = null
+        if (!on) return
+        const g = L.layerGroup(rows.map((r) =>
+          L.circleMarker([r.lat, r.lng], { radius: 4, color, weight: 1.5, fillColor: color, fillOpacity: .55 })
+            .bindTooltip(r.t ? `${r.n} · ${r.t}` : r.n, { direction: "top" })))
+        g.addTo(map)
+        layerRef.current[key] = g
+      }
+      draw("plants", showPlants, PLANTS, "#0E7490")
+      draw("shops", showShops, SHOPS, "#B45309")
+    })()
+  }, [showPlants, showShops])
+
   const onSubmit = (e: React.FormEvent) => { e.preventDefault(); void search(at, codes) }
 
   /** เลือก จังหวัด→อำเภอ→ตำบล แล้วค้นจากจุดกึ่งกลางของพื้นที่นั้น */
@@ -259,6 +291,22 @@ export function GarageMapPage() {
             </button>
           </form>
 
+          {/* เลือกจากแพล้นท์ — ทางที่เร็วที่สุด เพราะรถมักเสียระหว่างวิ่งงานของแพล้นท์ใดแพล้นท์หนึ่ง
+              (ผู้ใช้ขอ 19/10/2569) · ชื่อแพล้นท์ซ้ำกัน 28 แห่ง จึงต่อเลขลำดับไว้ท้ายชื่อตอนเตรียมข้อมูล */}
+          <div style={{ marginTop: 8 }}>
+            <select value={plant}
+              onChange={(e) => {
+                const name = e.target.value
+                setPlant(name)
+                const p = PLANTS.find((x) => x.n === name)
+                if (p) { const v = `${p.lat}, ${p.lng}`; setAt(v); setProv(""); setDist(""); void search(v, codes) }
+              }}
+              style={{ width: "100%", padding: "7px 9px", border: "1px solid #D4D4D8", borderRadius: 8, fontSize: 13, background: "#fff", color: plant ? "#18181B" : "#71717A" }}>
+              <option value="">— หรือเลือกจากแพล้นท์ ({PLANTS.length} แห่ง) —</option>
+              {PLANTS.map((p) => <option key={p.n} value={p.n}>{p.n}</option>)}
+            </select>
+          </div>
+
           {/* เลือกพื้นที่แทน — สำหรับเคสที่รู้แค่ชื่ออำเภอ */}
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <select value={prov} onChange={(e) => { setProv(e.target.value); setDist("") }}
@@ -296,6 +344,15 @@ export function GarageMapPage() {
                 showCode={false} emptyText="ไม่พบประเภทงานที่ค้นหา"
               />
             </div>
+          </div>
+          {/* เลเยอร์อ้างอิงบนแผนที่ — ปิดไว้ก่อน เพราะ 516 หมุดพร้อมกันจะกลบหมุดอู่ซึ่งเป็นพระเอก */}
+          <div style={{ display: "flex", gap: 6, marginTop: 9, fontSize: 11 }}>
+            <LayerToggle on={showPlants} onClick={() => setShowPlants((v) => !v)} color="#0E7490">
+              แพล้นท์ {PLANTS.length}
+            </LayerToggle>
+            <LayerToggle on={showShops} onClick={() => setShowShops((v) => !v)} color="#B45309">
+              ร้านซ่อมที่ปักหมุดไว้ {SHOPS.length}
+            </LayerToggle>
           </div>
         </div>
 
@@ -482,6 +539,23 @@ function IconBtn({ children, label, onClick, active, disabled }: {
         border: `1px solid ${active ? "#6D28D9" : "#E4E4E7"}`, background: active ? "#F5F3FF" : "#fff",
         color: active ? "#6D28D9" : "#52525B", borderRadius: 7, cursor: disabled ? "default" : "pointer", flexShrink: 0,
       }}>
+      {children}
+    </button>
+  )
+}
+
+/** ปุ่มเปิด/ปิดเลเยอร์อ้างอิงบนแผนที่ */
+function LayerToggle({ on, onClick, color, children }: {
+  on: boolean; onClick: () => void; color: string; children: React.ReactNode
+}) {
+  return (
+    <button onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 999, cursor: "pointer",
+        border: `1px solid ${on ? color : "#E4E4E7"}`, background: on ? `${color}14` : "#fff",
+        color: on ? color : "#71717A", fontWeight: on ? 600 : 400, fontSize: 11,
+      }}>
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: on ? color : "#D4D4D8" }} />
       {children}
     </button>
   )

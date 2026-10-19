@@ -2,6 +2,7 @@
 // ชั้นคุย MongoDB ของหน้า "หาอู่ใกล้ที่สุด" — ตรรกะล้วนอยู่ใน garage-geo.ts
 import clientPromise from "@/lib/mongo"
 import geoSeed from "@/data/garage-geo.json"
+import pinSeed from "@/data/garage-pins.json"
 import { byCode } from "@/lib/repair-type-master"
 import { garageKey } from "@/lib/atms-garage"
 import type { GarageHit, GarageGeo, GarageAddress, GeoPrecision } from "@/lib/garage-geo"
@@ -17,6 +18,13 @@ type SeedRow = {
   jpNo: string; jpName: string
 }
 const SEED = geoSeed as unknown as Record<string, SeedRow>
+
+/** พิกัดหน้าอู่จริงจากแผนที่ My Maps "ร้านซ่อม" ของฝ่ายยานยนต์ (ดึง 19/10/2569)
+ *  จับคู่กับชื่อใน AVL แบบยืนยันแล้วเท่านั้น — กฎจับคู่ด้วย "คำแก่น" ให้ผลมั่ว
+ *  (เคยได้ "ช่างกี้ พระราม 2" ไปชนกับ "แพล้น พระรามเก้า") จึงเอาเฉพาะชื่อที่ตรงกันจริง */
+type PinRow = { lat: number; lng: number; pinName: string; note: string; source: string }
+const PINS = pinSeed as unknown as Record<string, PinRow>
+const PIN_BY_KEY = new Map(Object.entries(PINS).map(([name, v]) => [garageKey(name), v]))
 /** ชื่อในไฟล์ seed สะกดตาม ATMS — เทียบด้วย garageKey เหมือนที่อื่นทั้งระบบ */
 const SEED_BY_KEY = new Map(Object.entries(SEED).map(([name, v]) => [garageKey(name), v]))
 
@@ -32,9 +40,11 @@ type ApprovalDoc = {
 }
 
 /** พิกัดที่คนยืนยันแล้วชนะพิกัดจากทะเบียนนิติบุคคลเสมอ */
-function pickGeo(doc: ApprovalDoc | null, seed: SeedRow | undefined): GarageGeo | null {
+function pickGeo(doc: ApprovalDoc | null, seed: SeedRow | undefined, pin: PinRow | undefined): GarageGeo | null {
   const lat = Number(doc?.location?.lat), lng = Number(doc?.location?.lng)
   if (lat && lng) return { lat, lng, precision: "หน้าอู่", source: "ยืนยันในระบบแล้ว" }
+  // หมุดจาก My Maps คนปักเองหน้างาน แม่นกว่าที่อยู่จดทะเบียนที่แปลงเป็นพิกัดระดับตำบล
+  if (pin) return { lat: pin.lat, lng: pin.lng, precision: "หน้าอู่", source: pin.source }
   if (seed?.lat && seed?.lng) {
     return { lat: seed.lat, lng: seed.lng, precision: (seed.precision as GeoPrecision) ?? "ตำบล", source: seed.source }
   }
@@ -71,6 +81,7 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
   const items: GarageHit[] = approvals.map((doc) => {
     const k    = garageKey(doc.vendor)
     const seed = SEED_BY_KEY.get(k)
+    const pin  = PIN_BY_KEY.get(k)
     const sup  = supByKey.get(k)
     const job  = jobsByKey.get(k)
     const codes = Array.isArray(doc.codes) ? doc.codes : []
@@ -82,7 +93,7 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
       codes,
       works: [...new Set(codes.map((c) => byCode(c)?.work).filter((w): w is string => !!w))],
       status: String(doc.status ?? ""),
-      geo: pickGeo(doc, seed),
+      geo: pickGeo(doc, seed, pin),
       address: pickAddress(doc, seed),
       distanceKm: null,
       roadKm: null,
