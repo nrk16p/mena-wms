@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       .collection("safety_stock_build_runs")
       .find({ startedAt: { $gte: dayStart } })
       .sort({ startedAt: 1 })
-      .limit(80) // เพดานกันกรณีมีคนยิง build รัวๆ เอง — ตารางปกติ ~20 รอบ/วัน (PR รายชั่วโมง 14 + ความเคลื่อนไหว 5 + daily-cron 1)
+      .limit(80) // เพดานกันกรณีมีคนยิง build รัวๆ เอง — ตารางปกติ ~20 รอบ/วัน (PR รายชั่วโมง 14 + ความเคลื่อนไหว 5 + daily-cron 1 + รอบเช้า 1)
       .maxTimeMS(10_000)
       .toArray()) as unknown as RunDoc[]
 

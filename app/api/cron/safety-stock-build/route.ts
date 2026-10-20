@@ -24,7 +24,8 @@ export async function GET(req: NextRequest) {
   // api-ncac ยิงมาเป็น ?source=pipeline หลัง atms_stockmovement* เขียน stockmovement_v5 เสร็จ
   const sourceParam = req.nextUrl.searchParams.get("source")
   const source: BuildSource =
-    sourceParam === "pipeline" || sourceParam === "daily-cron" || sourceParam === "pr-hourly" ? sourceParam : "manual"
+    sourceParam === "pipeline" || sourceParam === "daily-cron" || sourceParam === "pr-hourly" || sourceParam === "morning-sync"
+      ? sourceParam : "manual"
 
   const result = await runSafetyStockBuild(inventoryParam, undefined, source)
 

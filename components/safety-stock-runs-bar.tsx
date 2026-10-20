@@ -72,6 +72,7 @@ const SOURCE_TEXT: Record<BuildSource, string> = {
   pipeline: "api-ncac ยิงมาหลังข้อมูลลง Mongo",
   "daily-cron": "cron รายวันของ Vercel",
   "pr-hourly": "api-ncac ดึงรายการ PR รายชั่วโมง",
+  "morning-sync": "api-ncac รอบเช้า",
   manual: "เรียกเอง",
 }
 
@@ -79,6 +80,7 @@ const SOURCE_SHORT: Record<BuildSource, string> = {
   pipeline: "ความเคลื่อนไหว",
   "daily-cron": "คงเหลือ/min/max",
   "pr-hourly": "รายการ PR",
+  "morning-sync": "คงเหลือ/min/max",
   manual: "เรียกเอง",
 }
 
@@ -231,11 +233,11 @@ export function SafetyStockRunsBar({ inventoryId }: { inventoryId: string }) {
               <div title={tooltipOf(s)} style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "help" }}>
                 <Dot status={s.status} />
                 <div style={{ fontSize: 10.5, marginTop: 6, whiteSpace: "nowrap", fontWeight: s.status === "pending" ? 400 : 700, color: s.status === "pending" ? "#9CA3AF" : "#374151" }}>
-                  {/* 15 ช่องบนจอมือถือ "07:15" ชนกัน — จอแคบโชว์แค่ชั่วโมง */}
+                  {/* 16 ช่องบนจอมือถือ "07:15" ชนกัน — จอแคบโชว์แค่ชั่วโมง */}
                   <span className="ssFull">{s.hhmm}</span>
                   <span className="ssShort">{s.hhmm.slice(0, 2)}</span>
                 </div>
-                {s.source === "daily-cron" && (
+                {(s.source === "daily-cron" || s.source === "morning-sync") && (
                   <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 1, whiteSpace: "nowrap" }}>+ คงเหลือ</div>
                 )}
               </div>

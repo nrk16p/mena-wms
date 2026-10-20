@@ -17,8 +17,9 @@ export const WAREHOUSES: { id: string; name: string }[] = [
  *  "pipeline"   = api-ncac ยิง webhook มาหลัง atms_stockmovement* เขียน stockmovement_v5 เสร็จ (ตัวหลัก)
  *  "daily-cron" = cron ของ Vercel ที่ chain ต่อท้าย atms-sku-report — รอบเดียวที่ sync คงเหลือ/min/max จาก ATMS ด้วย
  *  "pr-hourly"  = api-ncac ยิงมาหลัง atms_pr_quick (ดึงรายการ PR ทุกชั่วโมง 07:15–20:15 ไทย)
+ *  "morning-sync" = api-ncac 05:55 ไทย สั่ง sync คงเหลือ/min/max จาก ATMS แล้วตามด้วย build — ให้เช้ามาเห็นของที่รับเข้าหลัง 10:00 เมื่อวาน
  *  "manual"     = คนเรียก route เอง */
-export type BuildSource = "pipeline" | "daily-cron" | "pr-hourly" | "manual"
+export type BuildSource = "pipeline" | "daily-cron" | "pr-hourly" | "morning-sync" | "manual"
 
 /** ช่องรายชั่วโมงของแถบ "รอบอัปเดตวันนี้" บนหน้า /safety-stock (เวลาไทย) — ช่องละ 1 ชั่วโมง
  *  hhmm = รอบแรกที่คาดไว้ในชั่วโมงนั้น (ใช้บอก "รอบถัดไป") · รอบจริงทุกรอบที่เริ่มในชั่วโมงนั้นตกช่องนี้
@@ -27,17 +28,20 @@ export type BuildSource = "pipeline" | "daily-cron" | "pr-hourly" | "manual"
  *  ไม่งั้นแถบจะโชว์ช่องที่ไม่มีรอบจริง (ขึ้น "ไม่ได้รัน") หรือรอบจริงหาช่องลงไม่ได้:
  *    • api-ncac `main.py` — atms_stockmovement (22:00 UTC = 05:00 ไทย),
  *      atms_stockmovement_light (1:30/5:30/9:30/13:30 UTC = 08:30/12:30/16:30/20:30 ไทย)
- *      และ atms_pr_quick (00–13 UTC นาที 15 = 07:15–20:15 ไทย)
+ *      atms_pr_quick (00–13 UTC นาที 15 = 07:15–20:15 ไทย)
+ *      และ wms_sku_sync_morning (22:55 UTC = 05:55 ไทย — ช่วงหน้าต่างของช่อง 06:00 คือ 05:55–06:55)
  *    • mena-wms `vercel.json` — atms-sku-report (03:00 UTC = 10:00 ไทย)
  *
- *  ช่อง 10:00 เป็นรอบเดียวที่ sync คงเหลือ/min/max จาก ATMS ด้วย — รอบอื่นคำนวณจาก Mongo ล้วน
- *  (เจตนา: ยิง ATMS หนักๆ วันละครั้งพอ การยิงถี่คือสาเหตุที่ ATMS เคยล่ม) */
+ *  ช่อง 06:00 และ 10:00 เป็นสองรอบที่ sync คงเหลือ/min/max จาก ATMS ด้วย — รอบอื่นคำนวณจาก Mongo ล้วน
+ *  (เจตนา: ยิง ATMS หนักๆ ให้น้อยรอบ การยิงถี่คือสาเหตุที่ ATMS เคยล่ม · รอบ 06:00 เพิ่ม 2026-10-20 เพราะของที่รับเข้า
+ *  หลัง 10:00 ขึ้นว่า "ของหมด" ไปจนถึง 10:00 ของอีกวัน — เคส LB05AE00133) */
 export type ScheduleSlot = { hhmm: string; source: BuildSource; label: string }
 
 const MOVEMENT_LIGHT_HOURS = [8, 12, 16, 20]
 
 export const BUILD_SCHEDULE: ScheduleSlot[] = [
   { hhmm: "05:00", source: "pipeline", label: "ความเคลื่อนไหวย้อนหลัง 2 เดือน" },
+  { hhmm: "06:00", source: "morning-sync", label: "sync คงเหลือ/min/max จาก ATMS (เริ่ม 05:55)" },
   ...Array.from({ length: 14 }, (_, i): ScheduleSlot => {
     const h = 7 + i
     const hh = String(h).padStart(2, "0")
