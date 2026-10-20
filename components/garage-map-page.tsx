@@ -25,6 +25,7 @@ import { parseLatLng, isShortMapLink } from "@/lib/garage-geo"
 import { GarageHistoryModal } from "@/components/garage-history-modal"
 import layers from "@/data/map-layers.json"
 import { loadThaiAddress, type ProvinceNode } from "@/lib/thai-address"
+import type { InRepairCar } from "@/lib/garage-in-repair"
 import { CUSTOMERS, customerOf, customerColor, badgeHtml, useCustomerLogos, type CustomerKey } from "@/lib/plant-customers"
 
 type ApiResult = {
@@ -41,7 +42,7 @@ const C = {
   ink: "#0f2748", ink2: "#33476b", muted: "#6b7f9e", line: "#e3effd", canvas: "#f0faff",
   mint: "#10b981", mintText: "#0b8a5e", mintSoft: "#e7f9f1",
   sun: "#ff8a3d", sunText: "#c2570c", sunSoft: "#fff4e8",
-  red: "#e5484d", navy: "#0f2748", fuel: "#8aa0bd",
+  red: "#e5484d", redSoft: "#fdecec", navy: "#0f2748", fuel: "#8aa0bd",
 }
 const BODY = "'Noto Sans Thai', 'Prompt', Tahoma, sans-serif"
 const DISPLAY = "'Prompt', 'Noto Sans Thai', sans-serif"
@@ -95,6 +96,9 @@ export function GarageMapPage() {
   const [showFuel, setShowFuel] = useState(false)
   const [legendOpen, setLegendOpen] = useState(true)
   const [noGeoOpen, setNoGeoOpen] = useState(false)
+  // รถที่ยังซ่อมไม่เสร็จในใบซ่อมนอก WMS — ผู้ใช้ขอ 20/10/2569 "ตอนนี้รถอยู่อู่ไหนบ้าง"
+  const [cars, setCars] = useState<InRepairCar[]>([])
+  const [repairOnly, setRepairOnly] = useState(false)
   const [addr, setAddr] = useState<ProvinceNode[]>([])
 
   const mapRef = useRef<LeafletMap | null>(null)
@@ -131,6 +135,15 @@ export function GarageMapPage() {
   }, [])
 
   useEffect(() => { void loadThaiAddress().then(setAddr) }, [])
+  useEffect(() => {
+    fetch("/api/vendors/map/in-repair").then((r) => (r.ok ? r.json() : { cars: [] })).then((j) => setCars(j.cars ?? [])).catch(() => {})
+  }, [])
+  const carsBy = useMemo(() => {
+    const m = new Map<string, InRepairCar[]>()
+    for (const c of cars) if (c.matched) m.set(c.matched, [...(m.get(c.matched) ?? []), c])
+    return m
+  }, [cars])
+  const carsLost = useMemo(() => cars.filter((c) => !c.matched), [cars])
   // เปลี่ยนชิปงานแล้วค้นใหม่ทันที ไม่ต้องกดปุ่ม
   useEffect(() => { void search(at, codes) /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [codes])
 
@@ -212,12 +225,19 @@ export function GarageMapPage() {
     if (onlyPhone) all = all.filter((g) => telOf(g.phone))
     if (onlyAvl) all = all.filter((g) => g.source === "avl")
     if (chips.includes(ONSITE)) all = all.filter((g) => g.onsite)
+    // โหมดรถซ่อมอยู่: เหลือแค่อู่ที่มีรถเรา · ยังไม่เลือกจุดก็เรียงอู่ที่มีรถมากสุดก่อน
+    if (repairOnly) {
+      all = all.filter((g) => carsBy.has(g.name))
+      if (!res?.origin) all = [...all].sort((a, b) => (carsBy.get(b.name)?.length ?? 0) - (carsBy.get(a.name)?.length ?? 0))
+    }
     if (place?.kind !== "area") return { items: all, areaEmpty: false }
     const inArea = all.filter((g) => g.address?.province === place.province && (!place.district || g.address?.district === place.district))
     return inArea.length ? { items: inArea, areaEmpty: false } : { items: all, areaEmpty: true }
-  }, [res, place, onlyPhone, onlyAvl, chips])
+  }, [res, place, onlyPhone, onlyAvl, chips, repairOnly, carsBy])
   const shown = items.filter((g) => g.geo)
   const noGeo = items.filter((g) => !g.geo)
+  // โหมดรถซ่อมอยู่ต้องเห็นครบทุกอู่ที่มีรถ แม้อู่จะยังไม่มีพิกัด — ต่อท้ายรายการ (เลขลำดับหมุดยังตรงกัน)
+  const cards = repairOnly ? [...shown, ...noGeo] : shown
   shownRef.current = shown
 
   // ── วาดหมุดอู่ทุกครั้งที่รายการเปลี่ยน
@@ -231,8 +251,10 @@ export function GarageMapPage() {
       originMarkerRef.current?.remove()
       routeRef.current?.remove(); routeRef.current = null; setRoute(null)
 
-      shownRef.current.slice(0, 60).forEach((g, i) => {
-        const m = L.marker([g.geo!.lat, g.geo!.lng], { icon: garageIcon(L, g, i + 1, false), zIndexOffset: 1000 - i })
+      // วาด 60 อู่แรก + อู่ที่มีรถเราซ่อมอยู่เสมอ (ต้องเห็นบนแผนที่แม้จะอยู่ไกล)
+      shownRef.current.forEach((g, i) => {
+        if (i >= 60 && !carsBy.has(g.name)) return
+        const m = L.marker([g.geo!.lat, g.geo!.lng], { icon: garageIcon(L, g, i + 1, false, carsBy.get(g.name)?.length ?? 0), zIndexOffset: 1000 - i })
           .addTo(map)
           .bindTooltip(`${i + 1}. ${g.name}`, { direction: "top", offset: [0, -14] })
         m.on("click", () => {
@@ -254,19 +276,22 @@ export function GarageMapPage() {
         // โฟกัส 3 อันดับแรก — รวมมากกว่านี้แผนที่จะซูมออกจนอู่ที่ใกล้สุดจมหาย
         const near = shownRef.current.slice(0, 3).map((g) => [g.geo!.lat, g.geo!.lng] as [number, number])
         map.fitBounds(L.latLngBounds([[res.origin.lat, res.origin.lng], ...near]).pad(0.3), { maxZoom: 14 })
+      } else if (repairOnly && shownRef.current.length) {
+        // โหมดรถซ่อมอยู่: ซูมให้เห็นทุกอู่ที่มีรถ (บางอู่อยู่ต่างจังหวัด)
+        map.fitBounds(L.latLngBounds(shownRef.current.map((g) => [g.geo!.lat, g.geo!.lng] as [number, number])).pad(0.15), { maxZoom: 12 })
       }
     })()
-  }, [res, items])
+  }, [res, items, carsBy, repairOnly])
 
   // อู่ที่เลือกอยู่: ขยายหมุดให้เด่น
   useEffect(() => {
     void (async () => {
       const L = (await import("leaflet")).default
-      shownRef.current.slice(0, 60).forEach((g, i) => {
-        markersRef.current.get(g.name)?.setIcon(garageIcon(L, g, i + 1, g.name === active))
+      shownRef.current.forEach((g, i) => {
+        markersRef.current.get(g.name)?.setIcon(garageIcon(L, g, i + 1, g.name === active, carsBy.get(g.name)?.length ?? 0))
       })
     })()
-  }, [active])
+  }, [active, carsBy])
 
   /** วาดเส้นทางขับจริงจากจุดรถเสียไปอู่ที่กด — กดเจ้าเดิมซ้ำคือเอาเส้นออก */
   const showRoute = useCallback(async (g: GarageHit) => {
@@ -366,6 +391,14 @@ export function GarageMapPage() {
           <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 12.5, color: C.ink2 }}>
             <Toggle on={onlyPhone} onClick={() => setOnlyPhone((v) => !v)}>เฉพาะที่มีเบอร์</Toggle>
             <Toggle on={onlyAvl} onClick={() => setOnlyAvl((v) => !v)}>เฉพาะอู่ AVL</Toggle>
+            <span style={{ flex: 1 }} />
+            {cars.length > 0 && (
+              <button onClick={() => setRepairOnly((v) => !v)} aria-pressed={repairOnly}
+                title="รถที่ยังซ่อมไม่เสร็จในใบซ่อมนอก WMS — กดเพื่อดูเฉพาะอู่ที่มีรถเราอยู่"
+                style={{ display: "flex", alignItems: "center", gap: 5, border: `1.5px solid ${C.red}`, background: repairOnly ? C.red : "#fff", color: repairOnly ? "#fff" : C.red, borderRadius: 999, padding: "3px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                <Wrench size={12} /> รถที่ซ่อมอยู่ {cars.length} คัน
+              </button>
+            )}
           </div>
         </div>
 
@@ -385,8 +418,11 @@ export function GarageMapPage() {
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Loader2 size={13} className="animate-spin" /> กำลังหาอู่ใกล้ ๆ…</span>
           ) : res ? (
             <span>
+              {repairOnly ? (
+                <>รถซ่อมอยู่ <b style={{ color: C.red }}>{cars.length}</b> คัน ใน <b style={{ color: C.ink }}>{cards.length}</b> อู่{place ? <> · เรียงจากใกล้ <b style={{ color: C.ink }}>{place.label}</b></> : " · เรียงอู่ที่มีรถมากสุดก่อน"}</>
+              ) : (<>
               {place ? <>ใกล้ <b style={{ color: C.ink }}>{place.label}</b> · </> : <>ยังไม่ได้เลือกจุด เรียงตามอู่ที่ใช้บ่อย · </>}
-              เจอ <b style={{ color: C.ink }}>{shown.length.toLocaleString()}</b> อู่
+              เจอ <b style={{ color: C.ink }}>{shown.length.toLocaleString()}</b> อู่</>)}
             </span>
           ) : null}
           <span style={{ flex: 1 }} />
@@ -403,19 +439,20 @@ export function GarageMapPage() {
                 : "ยังไม่มีอู่ที่รู้ตำแหน่ง"}
             </div>
           )}
-          {!place && res && shown.length > 0 && (
+          {!place && !repairOnly && res && shown.length > 0 && (
             <div style={{ margin: "2px 4px 10px", padding: "10px 12px", borderRadius: 12, background: C.brandSoft, color: C.brandDark, fontSize: 12.5, lineHeight: 1.5 }}>
               เลือกแพล้นท์ พิมพ์จังหวัด หรือแตะบนแผนที่ แล้วอู่จะเรียงจากใกล้ไปไกลให้เอง
             </div>
           )}
-          {shown.map((g, i) => (<div key={g.name}>
-            {g.workUnknown && !shown[i - 1]?.workUnknown && (
+          {cards.map((g, i) => (<div key={g.name}>
+            {g.workUnknown && !cards[i - 1]?.workUnknown && (
               <div style={{ margin: "14px 4px 8px", fontSize: 12.5, color: C.sunText, lineHeight: 1.5 }}>
                 <b>อาจรับงานนี้ได้ · ยังไม่มีข้อมูลประเภทงาน</b><br />
                 <span style={{ color: C.muted }}>อู่กลุ่มนี้ไม่ได้บอกว่าทำงานอะไรบ้าง โทรถามก่อนส่งรถ</span>
               </div>
             )}
             <GarageCard g={g} rank={i + 1} active={active === g.name} chips={chips}
+              cars={carsBy.get(g.name) ?? []} carsOpen={repairOnly}
               hasOrigin={!!res?.origin} routing={routing === g.name}
               routeOn={route?.vendor === g.name}
               onSelect={() => {
@@ -426,7 +463,15 @@ export function GarageMapPage() {
               onHistory={() => setHistoryFor(g.name)} />
           </div>))}
 
-          {noGeo.length > 0 && (
+          {repairOnly && carsLost.length > 0 && (
+            <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 14, background: C.redSoft, border: `1px dashed ${C.red}` }}>
+              <div style={{ fontFamily: DISPLAY, fontSize: 13.5, fontWeight: 600, color: C.red }}>หาอู่บนแผนที่ไม่เจอ {carsLost.length} คัน</div>
+              <div style={{ fontSize: 11.5, color: C.ink2, margin: "2px 0 6px" }}>ชื่ออู่ในใบซ่อมไม่ตรงกับอู่ในระบบ หรือยังไม่ได้ระบุอู่</div>
+              {carsLost.map((c, i) => <CarRow key={i} c={c} showGarage />)}
+            </div>
+          )}
+
+          {!repairOnly && noGeo.length > 0 && (
             <div style={{ marginTop: 10 }}>
               <button onClick={() => setNoGeoOpen((v) => !v)}
                 style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, border: 0, background: "none", padding: "8px 6px", cursor: "pointer", color: C.muted, fontSize: 12.5 }}>
@@ -478,7 +523,7 @@ export function GarageMapPage() {
 
 /** หมุดอู่บนแผนที่ — สีตามความน่าเชื่อถือ ตรงกับป้ายในใบรายการ
  *  มินต์ = อู่ AVL · ฟ้า = อู่ที่ยังไม่ได้ยืนยัน · ส้มขอบประ = ยังไม่ผ่านอนุมัติ / ที่ตั้งโดยประมาณ */
-function garageIcon(L: typeof import("leaflet"), g: GarageHit, rank: number, on: boolean) {
+function garageIcon(L: typeof import("leaflet"), g: GarageHit, rank: number, on: boolean, carCount = 0) {
   const approx = g.geo?.precision !== "หน้าอู่"
   const t = trustOf(g)
   const size = on ? 34 : 26
@@ -487,13 +532,34 @@ function garageIcon(L: typeof import("leaflet"), g: GarageHit, rank: number, on:
     : `background:${t === "avl" ? C.mint : C.brand};color:#fff;border:2px solid #fff`
   return L.divIcon({
     className: "",
-    html: `<div style="width:${size}px;height:${size}px;border-radius:${t === "pin" ? 8 : 999}px;${style};font:600 ${on ? 13 : 11}px/${size - 4}px 'Prompt',sans-serif;text-align:center;box-shadow:0 3px 10px rgba(15,39,72,.3)${on ? `,0 0 0 4px rgba(28,110,242,.35)` : ""}">${rank}</div>`,
+    // วงแดงมุมขวาบน = จำนวนรถเราที่ยังซ่อมอยู่ในอู่นี้
+    html: `<div style="position:relative;width:${size}px;height:${size}px;border-radius:${t === "pin" ? 8 : 999}px;${style};font:600 ${on ? 13 : 11}px/${size - 4}px 'Prompt',sans-serif;text-align:center;box-shadow:0 3px 10px rgba(15,39,72,.3)${on ? `,0 0 0 4px rgba(28,110,242,.35)` : ""}">${rank}${carCount ? `<span title="รถซ่อมอยู่ ${carCount} คัน" style="position:absolute;top:-9px;right:-11px;min-width:19px;height:19px;padding:0 4px;border-radius:999px;background:${C.red};color:#fff;border:2px solid #fff;font:700 10.5px/15px 'Prompt',sans-serif;box-shadow:0 2px 6px rgba(0,0,0,.3)">🔧${carCount}</span>` : ""}</div>`,
     iconSize: [size, size], iconAnchor: [size / 2, size / 2],
   })
 }
 
 type Trust = "avl" | "fleet" | "pin"
 const trustOf = (g: GarageHit): Trust => g.source
+
+/** รถ 1 คันที่ยังซ่อมไม่เสร็จ — กดแล้วเปิดใบซ่อมของคันนั้นในหน้าอู่นอก (แท็บใหม่ แผนที่ไม่หาย) */
+function CarRow({ c, showGarage }: { c: InRepairCar; showGarage?: boolean }) {
+  const notIn = c.status === "แจ้งซ่อมอู่นอก"
+  return (
+    <a href={`/repair-external?q=${encodeURIComponent(c.plate || c.fleetNo)}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+      title={c.symptom || undefined}
+      style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 2px", borderTop: "1px solid rgba(229,72,77,.15)", textDecoration: "none", color: C.ink, fontSize: 12 }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontWeight: 600 }}>{[c.fleetNo, c.plate].filter(Boolean).join(" · ") || "ไม่มีทะเบียน"}{c.plant && <span style={{ fontWeight: 400, color: C.muted }}> · {c.plant}</span>}</div>
+        <div style={{ fontSize: 11, color: notIn ? C.sunText : C.ink2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {c.status}{notIn ? " (รถยังไม่เข้าอู่)" : ""}{showGarage ? ` · ${c.garage || "ยังไม่ระบุอู่"}` : ""}
+        </div>
+      </div>
+      {c.days !== null && (
+        <span style={{ flexShrink: 0, fontFamily: DISPLAY, fontWeight: 600, fontSize: 12.5, color: c.days > 14 ? C.red : C.ink2 }} title={`นับจาก ${c.since}`}>{c.days} วัน</span>
+      )}
+    </a>
+  )
+}
 
 /** ป้ายความน่าเชื่อถือ — 3 แบบเท่านั้น มีไอคอน+คำ ไม่พึ่งสีอย่างเดียว */
 function TrustBadge({ g }: { g: GarageHit }) {
@@ -516,13 +582,15 @@ function TrustBadge({ g }: { g: GarageHit }) {
   )
 }
 
-function GarageCard({ g, rank, active, chips, hasOrigin, routing, routeOn, onSelect, onRoute, onHistory }: {
-  g: GarageHit; rank: number; active: boolean; chips: string[]
+function GarageCard({ g, rank, active, chips, cars, carsOpen, hasOrigin, routing, routeOn, onSelect, onRoute, onHistory }: {
+  g: GarageHit; rank: number; active: boolean; chips: string[]; cars: InRepairCar[]; carsOpen: boolean
   hasOrigin: boolean; routing: boolean; routeOn: boolean
   onSelect: () => void; onRoute: () => void; onHistory: () => void
 }) {
   const [menu, setMenu] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [showCars, setShowCars] = useState<boolean | null>(null)
+  const carsShown = showCars ?? carsOpen
   const tel = telOf(g.phone)
   const approx = !!g.geo && g.geo.precision !== "หน้าอู่"
   const km = g.roadKm ?? g.distanceKm
@@ -571,6 +639,17 @@ function GarageCard({ g, rank, active, chips, hasOrigin, routing, routeOn, onSel
           <TrustBadge g={g} />
           {area && <span style={{ fontSize: 11.5, color: C.muted }}>{area}</span>}
         </div>
+        {cars.length > 0 && (
+          <div onClick={(e) => e.stopPropagation()} style={{ borderRadius: 12, background: C.redSoft, padding: carsShown ? "6px 8px" : 0 }}>
+            <button onClick={() => setShowCars(!carsShown)}
+              style={{ display: "flex", alignItems: "center", gap: 5, width: "100%", border: 0, background: carsShown ? "none" : C.redSoft, borderRadius: 10, padding: carsShown ? 0 : "5px 8px", cursor: "pointer", color: C.red, fontSize: 12, fontWeight: 600, fontFamily: BODY }}>
+              <Wrench size={12} /> มีรถเราซ่อมอยู่ {cars.length} คัน
+              <span style={{ flex: 1 }} />
+              <ChevronDown size={13} style={{ transform: carsShown ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+            </button>
+            {carsShown && <div style={{ marginTop: 4 }}>{cars.map((c, i) => <CarRow key={i} c={c} />)}</div>}
+          </div>
+        )}
         {(sorted.length > 0 || g.onsite) && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
             {g.onsite && <WorkChip hit={chips.includes(ONSITE)}>ออกนอกสถานที่ได้</WorkChip>}

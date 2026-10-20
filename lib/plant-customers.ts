@@ -1,6 +1,6 @@
 // ลูกค้าเจ้าของแพล้นท์ (ช่อง "บริการ" ในแผนที่ยานยนต์ — scripts/tag-plant-customers.mjs)
 // สีใช้ชุดเดียวกับหมุดในแผนที่เดิม คนคุ้นตาอยู่แล้ว
-// โลโก้: วางไฟล์ที่ public/logos/<key>.png แล้วหน้าแผนที่จะใช้รูปแทนป้ายตัวอักษรเอง
+// โลโก้: วางไฟล์ที่ public/logos/<key>.png แล้วเพิ่มชื่อใน public/logos/index.json เช่น ["cpac"] หน้าแผนที่จะใช้รูปแทนป้ายตัวอักษร
 "use client"
 import { useEffect, useState } from "react"
 
@@ -17,16 +17,14 @@ export const customerOf = (c?: string): CustomerKey =>
 export const customerColor = (k: CustomerKey) => CUSTOMERS.find((x) => x.key === k)!.color
 export const logoUrl = (k: CustomerKey) => `/logos/${k.toLowerCase()}.png`
 
-/** เช็กครั้งเดียวว่ามีไฟล์โลโก้ของเจ้าไหนบ้าง (ไม่มีก็ใช้ป้ายตัวอักษร) */
+/** เจ้าไหนมีไฟล์โลโก้ — อ่านจาก public/logos/index.json (เช่น ["cpac","asia"]) ครั้งเดียว
+ *  ใช้ไฟล์รายชื่อแทนการลองโหลดรูปทีละเจ้า เพราะเจ้าที่ยังไม่มีรูปจะขึ้น 404 รกคอนโซล */
 export function useCustomerLogos() {
   const [ok, setOk] = useState<Partial<Record<CustomerKey, boolean>>>({})
   useEffect(() => {
-    for (const { key } of CUSTOMERS) {
-      if (key === "OTHER") continue
-      const img = new Image()
-      img.onload = () => setOk((s) => ({ ...s, [key]: true }))
-      img.src = logoUrl(key)
-    }
+    fetch("/logos/index.json").then((r) => (r.ok ? r.json() : [])).then((list: string[]) => {
+      setOk(Object.fromEntries(list.map((k) => [k.toUpperCase(), true])) as Partial<Record<CustomerKey, boolean>>)
+    }).catch(() => {})
   }, [])
   return ok
 }
