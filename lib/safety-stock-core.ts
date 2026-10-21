@@ -248,15 +248,25 @@ export type ReceiptEntry = {
  *  ไม่ได้ส่งไปกับ payload รายการอยู่แล้ว (getSafetyStock project ทิ้ง) แต่ doc ใหญ่ขึ้นทำให้ bulkWrite ช้าลง */
 export const RECEIPT_HISTORY_MAX = 20
 
-/** สรุป "กำลังสั่งซื้อ" ของรหัสสินค้าหนึ่งในคลังหนึ่ง — ดู openPrQtyBySku สำหรับนิยามเต็ม */
+/** สรุป "กำลังสั่งซื้อ" ของรหัสสินค้าหนึ่งในคลังหนึ่ง — ดู openPoQtyBySku สำหรับนิยามเต็ม */
 export type OnOrder = {
-  /** จำนวนที่ยังไม่เข้าคลัง = ยอดในใบ PR หักส่วนที่รับไปแล้ว */
+  /** จำนวนที่ยังไม่เข้าคลัง = ยอดค้างรับในบรรทัด PO (ออก PO แล้ว รอของ) */
   qty: number
-  prCount: number
-  /** เลข PR (ใหม่→เก่า) ตัดที่ ON_ORDER_PR_CODES_MAX ใบ — ไว้โชว์ในหน้าต่างรายละเอียด ไม่ใช่เก็บให้ครบ */
-  prCodes: string[]
-  /** อายุใบ PR ที่เก่าสุดในกอง (วัน) — สั่งไปนานแล้วยังไม่มาคือสัญญาณว่าต้องตามของ ไม่ใช่สั่งเพิ่ม */
+  poCount: number
+  /** เลข PO (ใหม่→เก่า) ตัดที่ ON_ORDER_CODES_MAX ใบ — ไว้โชว์ในหน้าต่างรายละเอียด ไม่ใช่เก็บให้ครบ */
+  poCodes: string[]
+  /** อายุใบ PO ที่เก่าสุดในกอง (วัน) — สั่งไปนานแล้วยังไม่มาคือสัญญาณว่าต้องตามของ ไม่ใช่สั่งเพิ่ม */
   oldestDays: number
+  /** snapshot รุ่นก่อน (นับจาก PR) — อ่านได้จนกว่า build รอบถัดไปจะเขียนทับ ดู onOrderCodes */
+  prCount?: number
+  prCodes?: string[]
+}
+
+/** เลขเอกสารที่ค้างของ onOrder — รองรับ snapshot รุ่นเก่าที่ยังเก็บเป็น PR (ก่อน build รอบใหม่) */
+export function onOrderCodes(o: OnOrder): { kind: "PO" | "PR"; codes: string[]; count: number } {
+  if (Array.isArray(o.poCodes)) return { kind: "PO", codes: o.poCodes, count: o.poCount ?? o.poCodes.length }
+  const codes = o.prCodes ?? []
+  return { kind: "PR", codes, count: o.prCount ?? codes.length }
 }
 
 /** เกณฑ์ "นโยบายอะไหล่" ที่หน้า /safety-stock ใช้ — กรองที่ layer อ่าน (lib/safety-stock.ts getSafetyStock)
@@ -449,13 +459,13 @@ export function mergeWarehouseResults<T extends { inventoryId: string; error: st
   return merged
 }
 
-// ── "กำลังสั่งซื้อ" — PR ที่ยังไม่มี DD ─────────────────────────────────────
+// ── "กำลังสั่งซื้อ" — บรรทัด PO ที่ยังค้างรับ ─────────────────────────────────
 
-/** PR เก่ากว่านี้ไม่นับว่าของกำลังมา — เวลารอของตามนโยบายคือ 7 วัน เกิน 90 วันคือ 13 เท่า
+/** PO เก่ากว่านี้ไม่นับว่าของกำลังมา — เวลารอของตามนโยบายคือ 7 วัน เกิน 90 วันคือ 13 เท่า
  *  ของกองนี้ในทางปฏิบัติคือใบที่ค้างจนลืม ถ้านับต่อไปหน้าจอจะบอกว่ามีของกำลังมาตลอดกาลแล้วไม่มีใครสั่งเพิ่ม */
 export const ON_ORDER_MAX_AGE_DAYS = 90
-/** เก็บเลข PR ไว้โชว์ในหน้าต่างรายละเอียดเท่าที่พอให้ตามของถูก ไม่ใช่เก็บครบทุกใบ (payload ส่งออกทุกแถว) */
-export const ON_ORDER_PR_CODES_MAX = 5
+/** เก็บเลข PO ไว้โชว์ในหน้าต่างรายละเอียดเท่าที่พอให้ตามของถูก ไม่ใช่เก็บครบทุกใบ (payload ส่งออกทุกแถว) */
+export const ON_ORDER_CODES_MAX = 5
 /** บรรทัด PR กลุ่มค่าแรงไม่ใช่ของเข้าสต๊อก (ค่าปะยาง ค่าเชื่อม ฯลฯ) — นับรวมจะทำให้ตัวเลขเพี้ยน */
 const LABOUR_GROUP_RE = /^ค่าแรง/
 /** ใบ PR ที่ฝ่ายสโตร์ยกเลิกแล้ว — ATMS ไม่มีฟิลด์สถานะยกเลิกของ PR จึงดูได้จากหมายเหตุเท่านั้น
@@ -470,6 +480,11 @@ export function isCrossBranchPr(prCode: string, inventoryId: string): boolean {
   const own = PR_PREFIX_BY_INVENTORY[inventoryId]
   return !!own && !prCode.startsWith(own)
 }
+/** เหมือน isCrossBranchPr แต่ใช้ได้กับเลข PO ด้วย (LBPO/SBPO/KKPO) — ดูแค่สองตัวแรกที่เป็นรหัสสาขา */
+export function isCrossBranchDoc(code: string, inventoryId: string): boolean {
+  const own = PR_PREFIX_BY_INVENTORY[inventoryId]?.slice(0, 2)
+  return !!own && /^[A-Z]{2}P[RO]/.test(code) && !code.startsWith(own)
+}
 
 export type PrHeadRef = {
   code: string; date: string; warehouse: string; plate: string
@@ -479,7 +494,11 @@ export type PrHeadRef = {
   /** `หมายเหตุ` ของใบ — ATMS ไม่มีสถานะ "ยกเลิก" ของ PR ฝ่ายสโตร์เขียนคำนี้ไว้ในหมายเหตุแทน */
   note?: string
 }
-export type PoHeadRef = { code: string; prCode: string; receiveStatus: string }
+export type PoHeadRef = {
+  code: string; prCode: string; receiveStatus: string
+  /** วันที่ของใบ PO รูป "DD/MM/YYYY" — ใช้ตัดอายุ (ON_ORDER_MAX_AGE_DAYS) */
+  date?: string
+}
 
 /** PO ที่ ATMS บอกว่ายังรับของไม่ครบ — "มีใบรับของ (DD) แล้ว" อย่างเดียวไม่พอที่จะถือว่าจบ
  *  ใบเดียวรับได้หลายรอบ: พอรับรายการแรก DD ก็เกิดแล้ว แต่รายการที่เหลือยังค้างอยู่ที่ร้าน
@@ -499,7 +518,16 @@ export function isPrClosed(activePos: { code: string; receiveStatus: string }[],
   return activePos.length > 0 && activePos.every((po) => hasDd(po.code) && !isPoOutstanding(po.receiveStatus))
 }
 export type PrItemRef = { prCode: string; sku: string; amount: number; warehouse: string; group: string }
-export type PoItemRef = { poCode: string; sku: string; received: number }
+export type PoItemRef = {
+  poCode: string; sku: string; received: number
+  /** ยอดสั่งในบรรทัด PO */
+  amount?: number
+  /** คอลัมน์ "ค้างรับ" ของ ATMS — มีเมื่อ scraper เจอคอลัมน์นี้ ไม่มีให้คิดเอง amount − received */
+  outstanding?: number | null
+  /** คลังของบรรทัด (ถ้า ATMS แสดง) — ไม่มีให้ใช้คลังของใบ PR ที่ผูกอยู่ */
+  warehouse?: string
+  group?: string
+}
 
 /** ใบ PR ที่ระบุทะเบียนรถจริง = ซื้ออะไหล่ไปลงรถคันนั้นโดยเฉพาะ ไม่ใช่ซื้อเข้าสต๊อก
  *  ของกองนี้รับเข้าคลังแล้วเบิกออกให้รถทันที สุทธิแล้วสต๊อกไม่ได้เพิ่ม — และยอดเบิกของรถพวกนั้นถูกนับ
@@ -525,31 +553,22 @@ export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
 
 /** "กำลังสั่งซื้อ" รายรหัสสินค้าของคลังหนึ่ง — ตรรกะล้วน ไม่แตะ DB (ผู้เรียกดึงข้อมูลมาให้ครบ)
  *
- *  นิยาม: รวมทุกใบ PR ของคลังนี้ที่ "ยังไม่มี DD ครบ" และอายุ ≤ maxAgeDays
- *           qty ของรหัส X = max(0, ยอด X ในบรรทัด PR − ยอด X ที่รับไปแล้วใน PO ของ PR ใบนั้น)
+ *  นิยาม (ตกลงกับผู้ใช้ 21/10/2026 — เลิกนับจาก PR): ของกำลังมา = ออก PO แล้วแต่ยังรับเข้าไม่ครบ
+ *           qty ของรหัส X = Σ ยอดค้างรับของ X ในบรรทัด PO ที่ยังเปิดอยู่
+ *           ยอดค้างรับ = คอลัมน์ "ค้างรับ" ของ ATMS ถ้ามี ไม่งั้น max(0, ยอดสั่ง − รับแล้ว)
+ *  PR ที่อนุมัติแล้วแต่ยังไม่ออก PO ไม่นับ (ยังไม่ได้สั่งกับร้าน)
  *
- *  "ยังไม่มี DD ครบ" ใช้เกณฑ์เดียวกับหน้า /pr — ฟังก์ชัน isPrClosed ตัวเดียวกัน: PO ที่ยกเลิกไม่นับ ·
- *  ปิดงานเมื่อ PO ที่เหลือมีใบรับของ (DD) ครบทุกใบ **และไม่มีใบไหนค้างรับ** · PR ที่ยังไม่ออก PO เลย
- *  ถือว่ายังไม่จบ (ของยังอยู่ในสายพานจัดซื้อ)
+ *  ใบ PO ที่นับ: สถานะการรับสินค้า "บางส่วน"/"ยังไม่ได้รับ" (isPoOutstanding) · ไม่ใช่ "ยกเลิก" · อายุ ≤ maxAgeDays
+ *  ใบ PR ที่ผูกกับ PO ใช้เป็นตัวกรองอย่างเดียว ไม่ใช้ยอด: ตัดทิ้งเมื่อระบุทะเบียนรถจริง (อะไหล่ลงคัน ดู isVehiclePlate)
+ *  · ยังไม่ผ่านอนุมัติ · หมายเหตุว่า "ยกเลิก" · PO ที่หา PR ไม่เจอยังนับ (ถือเป็นของเข้าสต๊อก)
  *
- *  ที่ต้องหักส่วนที่รับไปแล้ว: PR ใบเดียวแตกเป็นหลาย PO แล้วทยอยรับ ถ้าเอายอดในใบ PR มาตรงๆ จะนับเกิน
- *  (วัดจริง 25/08/2026: ลาดกระบังยอดดิบ 6,210 ชิ้น แต่รับไปแล้ว 2,622 = เกินจริง 42%)
- *
- *  ใบที่ระบุทะเบียนรถจริงถูกตัดทิ้งทั้งใบ — เป็นอะไหล่ลงคัน ไม่ใช่ของเข้าสต๊อก (ดู isVehiclePlate)
- *  วัดจริง 25/08/2026: ใบที่ยังไม่มี DD 644 ใบ เป็นอะไหล่ลงคัน 564 ใบ เหลือของเข้าสต๊อกจริง 80 ใบ
- *
- *  ใบที่ยังไม่ผ่านอนุมัติ (approved === false) และใบที่หมายเหตุว่า "ยกเลิก" ไม่นับ — ของยังไม่เข้าสายพานจัดซื้อจริง
- *  ถ้านับจะไปกด "แนะนำสั่ง" ให้ต่ำผิด (เคสจริง 04/09/2026: KKPR26070020 รอการอนุมัติ 46 วัน ทำให้ LB10PM00085
- *  คงเหลือ 6/min 10 ถูกป้าย "มีของกำลังมา" แนะนำสั่งจาก 14 เหลือ 4) · approved null/ไม่ใส่ = ไม่รู้ นับต่อเหมือนเดิม
- *
- *  ใบข้ามสาขา (KKPR/SBPR ที่ช่องคลังสินค้าระบุคลังนี้) ยังนับตามช่องคลังสินค้าของ ATMS — ดู isCrossBranchPr
+ *  คลัง: ใช้ช่องคลังของบรรทัด PO ก่อน ไม่มีค่อยใช้คลังของใบ PR · ไม่รู้คลังเลย = ไม่นับ (ไม่เดาลงคลังไหน)
+ *  PO ที่ถูกลบใน ATMS ยังค้างอยู่ใน mirror (pipeline ยัง prune แค่ PR) — แก้ที่ api-ncac ไม่ใช่ที่นี่
  */
-export function openPrQtyBySku(input: {
-  prHeads: PrHeadRef[]
+export function openPoQtyBySku(input: {
   poHeads: PoHeadRef[]
-  /** เลข PO ที่มีใบรับของแล้ว (จาก deposit_header.purchase_order) */
-  ddPoCodes: Iterable<string>
-  prItems: PrItemRef[]
+  /** ใบ PR ที่ PO อ้างถึง — ใช้กรองอะไหล่ลงคัน/ยังไม่อนุมัติ/ยกเลิก และเป็นคลังสำรอง */
+  prHeads: PrHeadRef[]
   poItems: PoItemRef[]
   /** ชื่อคลังอย่างที่ ATMS เขียน เช่น "คลังลาดกระบัง" */
   warehouse: string
@@ -557,68 +576,51 @@ export function openPrQtyBySku(input: {
   maxAgeDays?: number
 }): Map<string, OnOrder> {
   const maxAge = input.maxAgeDays ?? ON_ORDER_MAX_AGE_DAYS
-  const dd = new Set(input.ddPoCodes)
+  const prByCode = new Map(input.prHeads.map((p) => [p.code, p]))
 
-  // PO ที่ยกเลิกไม่นับทั้งการตัดสินว่าปิดงานแล้วและการหักยอดที่รับ (เหมือนที่หน้า /pr ทำ)
-  const posByPr = new Map<string, PoHeadRef[]>()
-  const prOfPo = new Map<string, string>()
+  // ใบ PO ที่ยังเปิด → อายุ + คลังสำรองจาก PR
+  const openPo = new Map<string, { age: number; prWarehouse: string }>()
   for (const po of input.poHeads) {
-    if (po.receiveStatus.includes("ยกเลิก")) continue
-    if (!po.prCode || !po.code) continue
-    if (!posByPr.has(po.prCode)) posByPr.set(po.prCode, [])
-    posByPr.get(po.prCode)!.push(po)
-    prOfPo.set(po.code, po.prCode)
-  }
-
-  // ใบ PR ที่ยังไม่มี DD ครบ + อายุยังไม่เกิน + ไม่ใช่อะไหล่ลงคัน — เก็บอายุไว้ด้วยเพื่อรายงาน oldestDays
-  const openPrAge = new Map<string, number>()
-  for (const pr of input.prHeads) {
-    if (pr.warehouse !== input.warehouse) continue
-    if (isVehiclePlate(pr.plate)) continue      // ซื้อไปลงรถคันนั้น ไม่ใช่ของเข้าสต๊อก
-    if (pr.approved === false) continue         // ยังไม่ผ่านอนุมัติ = ยังไม่ได้เริ่มซื้อ (null = ไม่รู้ นับต่อ)
-    if (CANCELLED_NOTE_RE.test(pr.note ?? "")) continue   // ฝ่ายสโตร์ยกเลิกใบไว้ในหมายเหตุ
-    const age = ageDaysFromDmy(pr.date, input.asOf)
+    if (!po.code) continue
+    if (po.receiveStatus.includes("ยกเลิก") || !isPoOutstanding(po.receiveStatus)) continue
+    const age = ageDaysFromDmy(po.date ?? "", input.asOf)
     if (age === null || age < 0 || age > maxAge) continue
-    const myPos = posByPr.get(pr.code) ?? []
-    if (isPrClosed(myPos, (po) => dd.has(po))) continue                 // รับของครบแล้ว
-    openPrAge.set(pr.code, age)
+    const pr = po.prCode ? prByCode.get(po.prCode) : undefined
+    if (pr) {
+      if (isVehiclePlate(pr.plate)) continue                 // อะไหล่ลงคัน ไม่ใช่ของเข้าสต๊อก
+      if (pr.approved === false) continue
+      if (CANCELLED_NOTE_RE.test(pr.note ?? "")) continue
+    }
+    openPo.set(po.code, { age, prWarehouse: pr?.warehouse ?? "" })
   }
 
-  // ยอดที่รับไปแล้ว รายคู่ (PR, รหัสสินค้า)
-  const received = new Map<string, number>()
-  for (const it of input.poItems) {
-    const pr = prOfPo.get(it.poCode)
-    if (!pr || !openPrAge.has(pr)) continue
-    const k = `${pr}|${it.sku}`
-    received.set(k, (received.get(k) ?? 0) + (Number(it.received) || 0))
-  }
-
-  // รวมรายรหัสสินค้า — หักยอดที่รับแล้วทีละ (PR, รหัส) ไม่ใช่หักทีเดียวตอนท้าย
-  // (หักตอนท้ายจะทำให้ใบที่รับเกินยอดของตัวเองไปกินโควตาของใบอื่นในกองเดียวกัน)
   const out = new Map<string, OnOrder>()
-  const seenPr = new Map<string, Set<string>>()
-  for (const it of input.prItems) {
-    const age = openPrAge.get(it.prCode)
-    if (age === undefined) continue
-    if (it.warehouse !== input.warehouse) continue
-    if (LABOUR_GROUP_RE.test(it.group)) continue
+  const seenPo = new Map<string, Set<string>>()
+  for (const it of input.poItems) {
+    const po = openPo.get(it.poCode)
+    if (!po) continue
+    const wh = (it.warehouse ?? "").trim() || po.prWarehouse
+    if (wh !== input.warehouse) continue
+    if (LABOUR_GROUP_RE.test(it.group ?? "")) continue
     const sku = (it.sku ?? "").trim()
     if (!sku) continue
-    const qty = Math.max(0, (Number(it.amount) || 0) - (received.get(`${it.prCode}|${sku}`) ?? 0))
+    const outstanding = typeof it.outstanding === "number" && Number.isFinite(it.outstanding)
+      ? it.outstanding
+      : (Number(it.amount) || 0) - (Number(it.received) || 0)
+    const qty = Math.max(0, outstanding)
     if (qty <= 0) continue
 
-    const cur = out.get(sku) ?? { qty: 0, prCount: 0, prCodes: [], oldestDays: 0 }
+    const cur = out.get(sku) ?? { qty: 0, poCount: 0, poCodes: [], oldestDays: 0 }
     cur.qty = r2(cur.qty + qty)
-    cur.oldestDays = Math.max(cur.oldestDays, age)
-    if (!seenPr.has(sku)) seenPr.set(sku, new Set())
-    const prs = seenPr.get(sku)!
-    if (!prs.has(it.prCode)) {
-      prs.add(it.prCode)
-      cur.prCount = prs.size
-      // ใบใหม่กว่ามาก่อน แล้วตัดที่เพดาน — คนตามของสนใจใบล่าสุดมากกว่าใบที่ค้างมานาน
-      cur.prCodes = [...prs]
-        .sort((a, b) => (openPrAge.get(a) ?? 0) - (openPrAge.get(b) ?? 0))
-        .slice(0, ON_ORDER_PR_CODES_MAX)
+    cur.oldestDays = Math.max(cur.oldestDays, po.age)
+    if (!seenPo.has(sku)) seenPo.set(sku, new Set())
+    const pos = seenPo.get(sku)!
+    if (!pos.has(it.poCode)) {
+      pos.add(it.poCode)
+      cur.poCount = pos.size
+      cur.poCodes = [...pos]
+        .sort((a, b) => (openPo.get(a)?.age ?? 0) - (openPo.get(b)?.age ?? 0))
+        .slice(0, ON_ORDER_CODES_MAX)
     }
     out.set(sku, cur)
   }

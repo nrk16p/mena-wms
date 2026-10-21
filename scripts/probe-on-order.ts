@@ -1,7 +1,7 @@
 // scripts/probe-on-order.ts
 // รัน: node -r dotenv/config node_modules/.bin/tsx scripts/probe-on-order.ts [inventoryId ...]
 // อ่านอย่างเดียว ไม่เขียนอะไรลง DB และไม่แตะ aggregation บน stockmovement_v5
-// ตรวจว่า "กำลังสั่งซื้อ" (PR ที่ยังไม่มี DD) ที่ build จะเขียนลง snapshot ออกมาเป็นตัวเลขเท่าไร
+// ตรวจว่า "กำลังสั่งซื้อ" (บรรทัด PO ที่ยังค้างรับ) ที่ build จะเขียนลง snapshot ออกมาเป็นตัวเลขเท่าไร
 // ใช้ฟังก์ชันตัวเดียวกับที่ build เรียกจริง (fetchOnOrderBySku) จะได้รู้ตัวถ้า ATMS เปลี่ยนรูปข้อมูล
 import clientPromise from "../lib/mongo"
 import { fetchOnOrderBySku } from "../lib/on-order"
@@ -38,10 +38,10 @@ async function main() {
     console.log(`  แถวบนหน้า /safety-stock ${parts.length} · มีของกำลังมา ${hit.length}`)
     console.log(`  ตอนนี้ต้องสั่ง ${needNow} แถว → ขึ้นป้าย "สั่งแล้ว รอของ" ${covered} แถว ≈ ${thb(savedBaht)} บาทที่จะไม่สั่งซ้ำ`)
     const old = hit.filter((r) => (onOrder.get(r.code)?.oldestDays ?? 0) > 30)
-    if (old.length) console.log(`  ⚠️ ${old.length} รหัสมีใบ PR ค้างเกิน 30 วัน — ควรตามของ ไม่ใช่สั่งเพิ่ม`)
+    if (old.length) console.log(`  ⚠️ ${old.length} รหัสมีใบ PO ค้างรับเกิน 30 วัน — ควรตามของ ไม่ใช่สั่งเพิ่ม`)
     hit.slice(0, 6).forEach((r) => {
       const o = onOrder.get(r.code)!
-      console.log(`    ${r.code.padEnd(16)} คงเหลือ ${String(r.stockQty).padStart(8)} + กำลังมา ${String(o.qty).padStart(6)} · PR ${o.prCount} ใบ (เก่าสุด ${o.oldestDays} วัน) ${o.prCodes[0] ?? ""}`)
+      console.log(`    ${r.code.padEnd(16)} คงเหลือ ${String(r.stockQty).padStart(8)} + กำลังมา ${String(o.qty).padStart(6)} · PO ${o.poCount} ใบ (เก่าสุด ${o.oldestDays} วัน) ${o.poCodes[0] ?? ""}`)
     })
   }
   await client.close()

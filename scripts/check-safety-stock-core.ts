@@ -6,10 +6,10 @@ import {
   median, stdev, aduFrom, sdDailyFrom, safetyStockOf, reorderPointOf,
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
-  openPrQtyBySku, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, ON_ORDER_MAX_AGE_DAYS,
+  openPoQtyBySku, onOrderCodes, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, isCrossBranchDoc, ON_ORDER_MAX_AGE_DAYS,
   isPoOutstanding, isPrClosed, runSlotStatus, fmtMovementDate,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
-  type SnapshotRow,
+  type SnapshotRow, type OnOrder,
 } from "../lib/safety-stock-core"
 import { parseStockLocationRows, stockHistoryUrl, ictDdmmyyyy } from "../lib/atms-parse"
 
@@ -322,57 +322,64 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
     "ข้อมูลสถานะขาด ต้องถอยไปใช้เกณฑ์ DD เดิม ไม่ใช่ค้างใบไว้ตลอดกาล")
 }
 
-// --- กำลังสั่งซื้อ: PR ที่ยังไม่มี DD (openPrQtyBySku) ---
+// --- กำลังสั่งซื้อ: บรรทัด PO ที่ยังค้างรับ (openPoQtyBySku) ---
 // ทุกเคสในนี้เคยทำให้ตัวเลข "กำลังมา" ผิดได้จริง และผิดแบบเงียบ — หน้าจอจะบอกว่าไม่ต้องสั่งทั้งที่ต้องสั่ง
 {
   const asOf = new Date(Date.UTC(2026, 7, 25))    // 25/08/2026
   const WH = "คลังลาดกระบัง"
   const base = {
     prHeads: [
-      { code: "LBPR001", date: "20/08/2026", warehouse: WH, plate: "" },        // เปิดอยู่ ยังไม่มี PO
-      { code: "LBPR002", date: "10/08/2026", warehouse: WH, plate: "" },        // มี PO + DD ครบ → ปิดแล้ว
-      { code: "LBPR003", date: "01/08/2026", warehouse: WH, plate: "สบ.00000" },// ทะเบียนหลอกของฝ่ายสโตร์ = ยังนับ
-      { code: "LBPR004", date: "01/01/2026", warehouse: WH, plate: "" },        // เก่าเกิน 90 วัน
-      { code: "SBPR005", date: "20/08/2026", warehouse: "คลังสระบุรี", plate: "" }, // คนละคลัง
-      { code: "LBPR006", date: "18/08/2026", warehouse: WH, plate: "" },        // มีแต่ PO ที่ยกเลิก → ยังเปิด
+      { code: "LBPR001", date: "20/08/2026", warehouse: WH, plate: "" },
+      { code: "LBPR003", date: "01/08/2026", warehouse: WH, plate: "สบ.00000" },   // ทะเบียนหลอกของฝ่ายสโตร์ = ยังนับ
       { code: "LBPR007", date: "19/08/2026", warehouse: WH, plate: "สบ.71-0048" }, // อะไหล่ลงคัน → ไม่นับ
+      { code: "LBPR009", date: "21/08/2026", warehouse: WH, plate: "", approved: false },
+      { code: "LBPR010", date: "21/08/2026", warehouse: WH, plate: "", approved: true, note: "ยกเลิก" },
+      { code: "SBPR005", date: "20/08/2026", warehouse: "คลังสระบุรี", plate: "" },
+      { code: "LBPR020", date: "20/08/2026", warehouse: WH, plate: "" },             // มี PR แต่ยังไม่ออก PO → ไม่นับ
     ],
     poHeads: [
-      { code: "LBPO002", prCode: "LBPR002", receiveStatus: "รับสินค้าแล้วทั้งหมด" },
-      { code: "LBPO003a", prCode: "LBPR003", receiveStatus: "รับสินค้าแล้วทั้งหมด" },
-      { code: "LBPO003b", prCode: "LBPR003", receiveStatus: "ยังไม่ได้รับสินค้า" },
-      { code: "LBPO006", prCode: "LBPR006", receiveStatus: "ยกเลิก" },
-    ],
-    ddPoCodes: ["LBPO002", "LBPO003a"],
-    prItems: [
-      { prCode: "LBPR001", sku: "A1", amount: 10, warehouse: WH, group: "ระบบเบรก" },
-      { prCode: "LBPR001", sku: "LAB", amount: 3, warehouse: WH, group: "ค่าแรง-ระบบยาง" },  // ค่าแรงไม่นับ
-      { prCode: "LBPR002", sku: "A1", amount: 99, warehouse: WH, group: "ระบบเบรก" },        // ปิดแล้วไม่นับ
-      { prCode: "LBPR003", sku: "A1", amount: 8, warehouse: WH, group: "ระบบเบรก" },         // รับไปแล้ว 5 → เหลือ 3
-      { prCode: "LBPR004", sku: "A1", amount: 50, warehouse: WH, group: "ระบบเบรก" },        // เก่าเกินไม่นับ
-      { prCode: "SBPR005", sku: "A1", amount: 70, warehouse: "คลังสระบุรี", group: "ระบบเบรก" },
-      { prCode: "LBPR006", sku: "B2", amount: 4, warehouse: WH, group: "ระบบไฟฟ้า" },
-      { prCode: "LBPR007", sku: "A1", amount: 500, warehouse: WH, group: "ระบบเบรก" },   // ลงคัน ห้ามนับ
+      { code: "LBPO001", prCode: "LBPR001", receiveStatus: "ยังไม่ได้รับสินค้า", date: "21/08/2026" },
+      { code: "LBPO003", prCode: "LBPR003", receiveStatus: "รับสินค้าแล้วบางส่วน", date: "02/08/2026" },
+      { code: "LBPO002", prCode: "LBPR001", receiveStatus: "รับสินค้าแล้วทั้งหมด", date: "21/08/2026" },
+      { code: "LBPO006", prCode: "LBPR001", receiveStatus: "ยกเลิก", date: "21/08/2026" },
+      { code: "LBPO004", prCode: "LBPR001", receiveStatus: "ยังไม่ได้รับสินค้า", date: "01/01/2026" },  // เก่าเกิน 90 วัน
+      { code: "LBPO007", prCode: "LBPR007", receiveStatus: "ยังไม่ได้รับสินค้า", date: "20/08/2026" },
+      { code: "LBPO009", prCode: "LBPR009", receiveStatus: "ยังไม่ได้รับสินค้า", date: "22/08/2026" },
+      { code: "LBPO010", prCode: "LBPR010", receiveStatus: "ยังไม่ได้รับสินค้า", date: "22/08/2026" },
+      { code: "SBPO005", prCode: "SBPR005", receiveStatus: "ยังไม่ได้รับสินค้า", date: "21/08/2026" },
+      { code: "LBPO030", prCode: "", receiveStatus: "ยังไม่ได้รับสินค้า", date: "23/08/2026" },          // ไม่มี PR
     ],
     poItems: [
-      { poCode: "LBPO003a", sku: "A1", received: 5 },
-      { poCode: "LBPO006", sku: "B2", received: 4 },   // PO ยกเลิก — ห้ามเอามาหักยอด
+      { poCode: "LBPO001", sku: "A1", amount: 10, received: 0, outstanding: 10 },
+      { poCode: "LBPO001", sku: "LAB", amount: 3, received: 0, group: "ค่าแรง-ระบบยาง" },   // ค่าแรงไม่นับ
+      { poCode: "LBPO003", sku: "A1", amount: 8, received: 5 },                            // ไม่มีคอลัมน์ค้างรับ → 8−5 = 3
+      { poCode: "LBPO002", sku: "A1", amount: 99, received: 99, outstanding: 0 },          // รับครบแล้ว
+      { poCode: "LBPO006", sku: "B2", amount: 4, received: 0 },                            // PO ยกเลิก
+      { poCode: "LBPO004", sku: "A1", amount: 50, received: 0 },                           // เก่าเกิน
+      { poCode: "LBPO007", sku: "A1", amount: 500, received: 0 },                          // ลงคัน
+      { poCode: "LBPO009", sku: "D4", amount: 5, received: 0 },                            // PR ยังไม่อนุมัติ
+      { poCode: "LBPO010", sku: "D4", amount: 7, received: 0 },                            // PR หมายเหตุยกเลิก
+      { poCode: "SBPO005", sku: "A1", amount: 70, received: 0 },                           // คลังสระบุรี (ตาม PR)
+      { poCode: "LBPO030", sku: "C3", amount: 6, received: 1, warehouse: WH },             // ไม่มี PR แต่บรรทัดบอกคลัง
+      { poCode: "LBPO030", sku: "C9", amount: 2, received: 0 },                            // ไม่มี PR ไม่รู้คลัง → ไม่นับ
     ],
     warehouse: WH,
     asOf,
   }
-  const m = openPrQtyBySku(base)
+  const m = openPoQtyBySku(base)
 
-  assert.equal(m.get("A1")?.qty, 13, "10 (PR ไม่มี PO) + max(0, 8−5) = 13")
-  assert.equal(m.get("A1")?.prCount, 2, "นับเฉพาะใบที่ยังเปิดและมีของเหลือจริง")
-  assert.deepEqual(m.get("A1")?.prCodes, ["LBPR001", "LBPR003"], "ใบใหม่กว่ามาก่อน")
-  assert.equal(m.get("A1")?.oldestDays, 24, "LBPR003 ลงวันที่ 01/08/2026 = 24 วันก่อน 25/08/2026")
+  assert.equal(m.get("A1")?.qty, 13, "ค้างรับ 10 (LBPO001) + 8−5 (LBPO003) = 13")
+  assert.equal(m.get("A1")?.poCount, 2)
+  assert.deepEqual(m.get("A1")?.poCodes, ["LBPO001", "LBPO003"], "ใบใหม่กว่ามาก่อน")
+  assert.equal(m.get("A1")?.oldestDays, 23, "LBPO003 ลงวันที่ 02/08/2026 = 23 วันก่อน 25/08/2026 (อายุนับจากวันที่ PO)")
   assert.equal(m.get("LAB"), undefined, "บรรทัดกลุ่มค่าแรงไม่ใช่ของเข้าสต๊อก ห้ามนับ")
-  assert.equal(m.get("B2")?.qty, 4, "PO ที่ยกเลิกไม่ปิดใบ PR และยอดที่ 'รับ' บน PO ยกเลิกห้ามเอามาหัก")
+  assert.equal(m.get("B2"), undefined, "PO ยกเลิกไม่นับ")
+  assert.equal(m.get("D4"), undefined, "PR ต้นทางยังไม่อนุมัติ/หมายเหตุยกเลิก ไม่นับ")
+  assert.equal(m.get("C3")?.qty, 5, "PO ที่ไม่มี PR ยังนับเป็นของเข้าสต๊อก ใช้คลังจากบรรทัด PO")
+  assert.equal(m.get("C9"), undefined, "ไม่รู้คลังเลย ห้ามเดาลงคลังนี้")
+  assert.ok(!m.get("A1")!.poCodes.includes("LBPO007"), "PR ระบุทะเบียนรถจริง = อะไหล่ลงคัน ห้ามนับ")
+  assert.ok([...m.values()].every((o) => !o.poCodes.some((c) => c === "LBPR020")), "PR ที่ยังไม่ออก PO ไม่นับ")
 
-  // อะไหล่ลงคัน — ตัดทั้งใบ · และห้ามเผลอไปตัดใบที่ฝ่ายสโตร์กรอกทะเบียนหลอกไว้ด้วย
-  assert.ok(!m.get("A1")!.prCodes.includes("LBPR007"), "ใบที่ระบุทะเบียนรถจริงคืออะไหล่ลงคัน ห้ามนับ")
-  assert.ok(m.get("A1")!.prCodes.includes("LBPR003"), 'ทะเบียนหลอก "สบ.00000" ของฝ่ายสโตร์ยังต้องนับเป็นของเข้าสต๊อก')
   assert.equal(isVehiclePlate("สบ.71-0048"), true)
   assert.equal(isVehiclePlate("สบ.00000"), false, "ศูนย์ล้วน = ค่าหลอกที่ฝ่ายสโตร์กรอก ไม่ใช่รถจริง")
   assert.equal(isVehiclePlate("สบ.000"), false)
@@ -381,68 +388,30 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   assert.equal(isVehiclePlate(null), false, "ช่องว่างใน DB ต้องไม่พัง")
   assert.equal(isVehiclePlate("สบ."), false, "ไม่มีตัวเลขเลย = ไม่ใช่ทะเบียนรถ")
 
-  // ใบข้ามสาขา — prefix เลข PR (KKPR/SBPR) บอก "สาขาที่เปิดใบ" ไม่ใช่คลังปลายทาง ต้องนับตามช่อง คลังสินค้า ของ ATMS
-  // (วัดจริง 04/09/2026: ปี 2026 มี KKPR→คลังลาดกระบัง 6 ใบ, SBPR→คลังลาดกระบัง 17 ใบ ของเข้าลาดกระบังจริง)
-  const cross = openPrQtyBySku({ ...base,
-    prHeads: [...base.prHeads, { code: "KKPR008", date: "21/08/2026", warehouse: WH, plate: "สบ.00000" }],
-    prItems: [...base.prItems, { prCode: "KKPR008", sku: "C3", amount: 6, warehouse: WH, group: "ระบบบำรุงรักษา" }],
-  })
-  assert.equal(cross.get("C3")?.qty, 6, "ใบที่สาขาอื่นเปิดแต่ช่องคลังสินค้าระบุคลังนี้ = ของเข้าคลังนี้จริง ต้องนับ")
+  // ค้างรับจาก ATMS ชนะการคิดเอง — ATMS อาจหักของที่คืนร้าน/ปรับยอดไปแล้ว
+  const atmsCol = openPoQtyBySku({ ...base, poItems: [{ poCode: "LBPO001", sku: "A1", amount: 10, received: 0, outstanding: 4 }] })
+  assert.equal(atmsCol.get("A1")?.qty, 4, "มีคอลัมน์ค้างรับ ใช้ค่านั้น")
+  const over = openPoQtyBySku({ ...base, poItems: [{ poCode: "LBPO003", sku: "A1", amount: 8, received: 999 }] })
+  assert.equal(over.get("A1"), undefined, "รับเกินยอด = ไม่ติดลบ และไม่เหลือแถว")
+
+  // ใบข้ามสาขา — ป้ายดูจากรหัสสาขาสองตัวแรก ใช้ได้ทั้ง PR และ PO
   assert.equal(isCrossBranchPr("KKPR008", "4"), true, "KKPR ในแท็บลาดกระบัง = ใบข้ามสาขา")
   assert.equal(isCrossBranchPr("LBPR001", "4"), false)
-  assert.equal(isCrossBranchPr("SBPR005", "3"), false)
-  assert.equal(isCrossBranchPr("LBPR001", "99"), false, "คลังที่ไม่รู้ prefix ต้องไม่ฟ้องมั่ว")
+  assert.equal(isCrossBranchDoc("KKPO008", "4"), true, "KKPO ในแท็บลาดกระบัง = ใบข้ามสาขา")
+  assert.equal(isCrossBranchDoc("LBPO001", "4"), false)
+  assert.equal(isCrossBranchDoc("SBPR005", "3"), false)
+  assert.equal(isCrossBranchDoc("LBPO001", "99"), false, "คลังที่ไม่รู้ prefix ต้องไม่ฟ้องมั่ว")
 
-  // ใบที่ยังไม่อนุมัติ / ใบที่หมายเหตุว่ายกเลิก — ของยังไม่เข้าสายพานจัดซื้อจริง ห้ามนับเป็นของกำลังมา
-  // (เคสจริง 04/09/2026: KKPR26070020 รอการอนุมัติ 46 วัน กด "แนะนำสั่ง" ของ LB10PM00085 จาก 14 เหลือ 4
-  //  และ SBPR26060316 หมายเหตุ "ยกเลิก" ยังนับ 8 ชิ้นให้ LB03SS00540) · null = ข้อมูลก่อน ก.ค. 2026 ที่ scraper
-  //  ยังไม่ได้แกะสถานะอนุมัติ ต้องนับต่อเหมือนเดิม ไม่ใช่ตัดทิ้งทั้งกอง
-  const gated = openPrQtyBySku({ ...base,
-    prHeads: [...base.prHeads,
-      { code: "LBPR009", date: "21/08/2026", warehouse: WH, plate: "", approved: false },
-      { code: "LBPR010", date: "21/08/2026", warehouse: WH, plate: "", approved: true, note: "ยกเลิก" },
-      { code: "LBPR011", date: "21/08/2026", warehouse: WH, plate: "", approved: null },
-    ],
-    prItems: [...base.prItems,
-      { prCode: "LBPR009", sku: "D4", amount: 5, warehouse: WH, group: "ระบบเบรก" },
-      { prCode: "LBPR010", sku: "D4", amount: 7, warehouse: WH, group: "ระบบเบรก" },
-      { prCode: "LBPR011", sku: "D4", amount: 2, warehouse: WH, group: "ระบบเบรก" },
-    ],
-  })
-  assert.equal(gated.get("D4")?.qty, 2, "ยังไม่อนุมัติ (5) และหมายเหตุยกเลิก (7) ไม่นับ เหลือใบที่ไม่รู้สถานะ (2)")
-  assert.deepEqual(gated.get("D4")?.prCodes, ["LBPR011"])
-  assert.equal(gated.get("A1")?.qty, 13, "ใบเดิมที่ไม่มีฟิลด์ approved/note ต้องนับเหมือนเดิมทุกประการ")
-
-  // คลังอื่นต้องไม่ปนกัน — เรียกด้วยชื่อคลังไหนได้ของคลังนั้น
-  const sb = openPrQtyBySku({ ...base, warehouse: "คลังสระบุรี" })
+  // คลังอื่นต้องไม่ปนกัน
+  const sb = openPoQtyBySku({ ...base, warehouse: "คลังสระบุรี" })
   assert.equal(sb.get("A1")?.qty, 70, "เรียกคลังสระบุรีต้องได้ยอดของสระบุรี")
-  assert.equal(m.get("A1")?.qty, 13, "และต้องไม่ไปปนกับยอดลาดกระบัง")
 
-  // รับครบพอดี = ไม่เหลืออะไรกำลังมา (ไม่ใช่ 0 ที่ยังโผล่เป็นแถว)
-  const exact = openPrQtyBySku({ ...base, poItems: [{ poCode: "LBPO003a", sku: "A1", received: 8 }],
-    prItems: base.prItems.filter((i) => i.prCode === "LBPR003") })
-  assert.equal(exact.get("A1"), undefined, "รับครบยอดแล้วต้องไม่เหลือรายการค้าง")
+  // snapshot รุ่นเก่า (นับจาก PR) ยังแสดงได้จนกว่า build รอบใหม่จะเขียนทับ
+  assert.deepEqual(onOrderCodes({ qty: 1, prCount: 1, prCodes: ["LBPR001"], oldestDays: 1 } as OnOrder),
+    { kind: "PR", codes: ["LBPR001"], count: 1 })
+  assert.deepEqual(onOrderCodes(m.get("A1")!), { kind: "PO", codes: ["LBPO001", "LBPO003"], count: 2 })
 
-  // รับเกินยอดของใบตัวเอง ห้ามไปกินโควตาของใบอื่นในกองเดียวกัน
-  const over = openPrQtyBySku({ ...base, poItems: [{ poCode: "LBPO003a", sku: "A1", received: 999 }] })
-  assert.equal(over.get("A1")?.qty, 10, "หักได้มากสุดแค่ยอดของใบนั้น เหลือ 10 จาก LBPR001 ครบ")
-
-  // PO มีใบรับของ (DD) แล้วแต่ยังรับของไม่ครบ — ใบ PR ยังไม่จบ ห้ามตัดทิ้งทั้งใบ
-  // (เคสจริง 16/09/2026: LBPR26090255 แตกเป็น 4 PO ทุกใบมี DD แต่ LBPO26090286 "รับสินค้าแล้วบางส่วน"
-  //  บรรทัดบอลวาล์ว LB08GP00205 รับแล้ว 0 จาก 30 — เกณฑ์ "ทุก PO มี DD = จบ" ตัดทั้งใบ ของ 30 ชิ้นเลยหาย)
-  const partial = openPrQtyBySku({ ...base,
-    prHeads: [{ code: "LBPR012", date: "10/08/2026", warehouse: WH, plate: "สบ.00000" }],
-    poHeads: [
-      { code: "LBPO012a", prCode: "LBPR012", receiveStatus: "รับสินค้าแล้วทั้งหมด" },
-      { code: "LBPO012b", prCode: "LBPR012", receiveStatus: "รับสินค้าแล้วบางส่วน" },
-    ],
-    ddPoCodes: ["LBPO012a", "LBPO012b"],
-    prItems: [{ prCode: "LBPR012", sku: "E5", amount: 30, warehouse: WH, group: "วัสดุสิ้นเปลือง" }],
-    poItems: [{ poCode: "LBPO012b", sku: "E5", received: 0 }],
-  })
-  assert.equal(partial.get("E5")?.qty, 30, "PO มี DD แต่สถานะยังรับไม่ครบ = ของยังไม่เข้าคลัง ต้องนับเป็นกำลังมาต่อ")
-
-  assert.equal(openPrQtyBySku({ ...base, prHeads: [], prItems: [] }).size, 0, "ไม่มีข้อมูลต้องไม่พัง")
+  assert.equal(openPoQtyBySku({ ...base, poHeads: [], poItems: [] }).size, 0, "ไม่มีข้อมูลต้องไม่พัง")
   assert.equal(ageDaysFromDmy("25/08/2026", asOf), 0)
   assert.equal(ageDaysFromDmy("20/08/2026", asOf), 5)
   assert.equal(ageDaysFromDmy("ไม่ใช่วันที่", asOf), null, "อ่านไม่ออกต้องคืน null ไม่ใช่ 0")
@@ -453,7 +422,7 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
 // พารามิเตอร์ที่ 5 ต้อง default 0 เสมอ — /tire/{branch}/stock-tire เรียก derive(r, win, z) แบบไม่ส่งเข้ามา
 // ถ้าเผลอไปอ่าน row.onOrder ตรงๆ ใน derive ตัวเลขของหน้ายางจะเปลี่ยนตามไปด้วยโดยไม่มีใครสั่ง
 {
-  const low: SnapshotRow = { ...ROW, stockQty: 1, onOrder: { qty: 20, prCount: 1, prCodes: ["LBPR001"], oldestDays: 3 } }
+  const low: SnapshotRow = { ...ROW, stockQty: 1, onOrder: { qty: 20, poCount: 1, poCodes: ["LBPO001"], oldestDays: 3 } }
   const plain = derive(low, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS)
   const withOrder = derive(low, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, low.onOrder!.qty)
 

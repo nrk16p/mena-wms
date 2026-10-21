@@ -9,7 +9,7 @@ import { SafetyStockRunsBar } from "@/components/safety-stock-runs-bar"
 import { swalError, swalToast } from "@/lib/swal"
 import { bkkToday } from "@/lib/bkk-time"
 import {
-  derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID, isCrossBranchPr,
+  derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID, isCrossBranchDoc, onOrderCodes,
   DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, RECEIPT_HISTORY_MAX,
   type SafetyStockPayload, type SnapshotRow, type WindowKey, type Status,
   type Derived, type MinVerdict, type LeadTimeSource, type ReceiptEntry,
@@ -411,23 +411,23 @@ function RowDialog({
           )}
         </div>
 
-        {/* ของที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — โชว์เลข PR ให้ตามของต่อได้ทันที ไม่ต้องไปค้นเองในหน้า /pr */}
+        {/* ของที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — โชว์เลข PO ให้ตามของกับร้านต่อได้ทันที */}
         {row.onOrder && row.onOrder.qty > 0 && (
           <div style={{ marginTop: 10, borderRadius: 10, border: "1px solid #BFDBFE", background: "#EFF6FF", padding: "10px 12px" }}>
             <div style={{ fontSize: 13, color: "#1E3A8A" }}>
-              กำลังสั่งซื้ออยู่ <b>{num(row.onOrder.qty)} {row.unit}</b> จากใบ PR {row.onOrder.prCount} ใบ ·
+              กำลังสั่งซื้ออยู่ <b>{num(row.onOrder.qty)} {row.unit}</b> จากใบ {onOrderCodes(row.onOrder).kind} {onOrderCodes(row.onOrder).count} ใบ ·
               {" "}รวมกับคงเหลือแล้วเป็น <b>{num(row.stockQty + row.onOrder.qty)} {row.unit}</b>
             </div>
             <div style={{ fontSize: 11.5, color: "#3B82F6", marginTop: 3, fontFamily: "monospace" }}>
-              {/* เลข PR ขึ้นต้นด้วยรหัสสาขาที่เปิดใบ (KKPR/SBPR) ไม่ใช่คลังปลายทาง — ใบข้ามสาขาที่ส่งเข้าคลังนี้ต้องติดป้าย
+              {/* เลขเอกสารขึ้นต้นด้วยรหัสสาขาที่เปิดใบ (KK/SB) ไม่ใช่คลังปลายทาง — ใบข้ามสาขาที่ส่งเข้าคลังนี้ต้องติดป้าย
                   ไม่งั้นคนดูจะคิดว่าแท็บคลังกรองไม่จริง (คำถามจริง 04/09/2026 "เหมือนมีคลังขอนแก่นด้วย") */}
-              {row.onOrder.prCodes.map((p, i) => (
+              {onOrderCodes(row.onOrder).codes.map((p, i) => (
                 <span key={p}>
                   {i > 0 && " · "}
                   {p}
-                  {isCrossBranchPr(p, row.inventoryId) && (
+                  {isCrossBranchDoc(p, row.inventoryId) && (
                     <span
-                      title="เลข PR ขึ้นต้นด้วยรหัสสาขาที่เปิดใบ แต่ช่องคลังสินค้าใน ATMS ระบุคลังนี้ — ของเข้าคลังนี้จริง"
+                      title="เลขใบขึ้นต้นด้วยรหัสสาขาที่เปิดใบ แต่ช่องคลังสินค้าใน ATMS ระบุคลังนี้ — ของเข้าคลังนี้จริง"
                       style={{ marginLeft: 4, fontFamily: "inherit", fontSize: 10, fontWeight: 700, color: "#92400E", background: "#FEF3C7", borderRadius: 4, padding: "1px 5px" }}
                     >
                       สาขาอื่นเปิดใบ
@@ -435,15 +435,15 @@ function RowDialog({
                   )}
                 </span>
               ))}
-              {row.onOrder.prCount > row.onOrder.prCodes.length ? " · …" : ""}
+              {onOrderCodes(row.onOrder).count > onOrderCodes(row.onOrder).codes.length ? " · …" : ""}
             </div>
             <div style={{ fontSize: 11.5, color: row.onOrder.oldestDays > 30 ? "#B45309" : "#6B7280", marginTop: 3 }}>
               ใบเก่าสุดค้างมา {row.onOrder.oldestDays} วัน
               {row.onOrder.oldestDays > 30 && " — นานกว่าเวลารอของตามนโยบายมาก ควรตามของก่อนสั่งเพิ่ม"}
             </div>
             <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4 }}>
-              นับจากใบ PR ที่ซื้อเข้าสต๊อกและยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน หักส่วนที่รับไปแล้ว ·
-              {" "}ใบที่ยังไม่ผ่านอนุมัติหรือหมายเหตุว่ายกเลิกไม่นับ ·
+              นับจากใบ PO ที่ยังรับของไม่ครบ อายุไม่เกิน 90 วัน ใช้ยอดค้างรับของแต่ละบรรทัด ·
+              {" "}PR ที่ยังไม่ออก PO ไม่นับ · PO ยกเลิก หรือ PR ต้นทางยังไม่ผ่านอนุมัติ/หมายเหตุว่ายกเลิก ไม่นับ ·
               {" "}ใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) ไม่นับ เพราะรับเข้าแล้วเบิกออกให้รถทันที สต๊อกไม่ได้เพิ่มจริง ·
               {" "}ยอดนี้หักออกจาก &quot;แนะนำสั่ง&quot; ให้แล้ว แต่ไม่นับใน &quot;คงเหลือ&quot; เพราะของยังเบิกไม่ได้
             </div>
@@ -758,7 +758,7 @@ export default function SafetyStockPage() {
         คงเหลือ: r.stockQty,
         กำลังสั่งซื้อ: onOrderQtyOf(r),
         "คงเหลือ+กำลังสั่งซื้อ": Math.round((r.stockQty + onOrderQtyOf(r)) * 100) / 100,
-        "ใบ PR ที่ค้าง (เข้าสต๊อก)": r.onOrder?.prCodes.join(", ") ?? "",
+        "ใบ PO ที่ค้างรับ (เข้าสต๊อก)": r.onOrder ? onOrderCodes(r.onOrder).codes.join(", ") : "",
         "PR เก่าสุด (วัน)": r.onOrder ? r.onOrder.oldestDays : "",
         min: r.minQty,
         max: r.maxQty,
@@ -995,7 +995,7 @@ export default function SafetyStockPage() {
               {coveredCount > 0 && (
                 <button
                   onClick={() => setOnlyCovered((v) => !v)}
-                  title="เห็นเฉพาะรหัสที่คงเหลือต่ำจริง แต่มีใบ PR ค้างรับของอยู่แล้วพอจนไม่ต้องสั่งเพิ่ม — กองที่เสี่ยงสั่งซ้ำที่สุด"
+                  title="เห็นเฉพาะรหัสที่คงเหลือต่ำจริง แต่มีใบ PO ค้างรับของอยู่แล้วพอจนไม่ต้องสั่งเพิ่ม — กองที่เสี่ยงสั่งซ้ำที่สุด"
                   aria-pressed={onlyCovered}
                   style={{
                     padding: "6px 12px", borderRadius: 999, fontSize: 12.5, cursor: "pointer",
@@ -1144,8 +1144,8 @@ export default function SafetyStockPage() {
                       <td
                         style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }}
                         title={r.onOrder
-                          ? `PR ที่ยังไม่มีใบรับของครบ ${r.onOrder.prCount} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${r.onOrder.prCodes.map((p) => isCrossBranchPr(p, r.inventoryId) ? `${p} (สาขาอื่นเปิดใบ ส่งเข้าคลังนี้)` : p).join(", ")}${r.onOrder.prCount > r.onOrder.prCodes.length ? " …" : ""}`
-                          : "ไม่มีใบ PR ที่ค้างรับของสำหรับรหัสนี้"}
+                          ? `${onOrderCodes(r.onOrder).kind} ที่ยังรับของไม่ครบ ${onOrderCodes(r.onOrder).count} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${onOrderCodes(r.onOrder).codes.map((p) => isCrossBranchDoc(p, r.inventoryId) ? `${p} (สาขาอื่นเปิดใบ ส่งเข้าคลังนี้)` : p).join(", ")}${onOrderCodes(r.onOrder).count > onOrderCodes(r.onOrder).codes.length ? " …" : ""}`
+                          : "ไม่มีใบ PO ที่ค้างรับของสำหรับรหัสนี้"}
                       >
                         {onOrderQtyOf(r) > 0 ? (
                           <>
