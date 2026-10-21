@@ -15,7 +15,7 @@ import Link from "next/link"
 import { useSession } from "next-auth/react"
 import {
   AlertTriangle, BellOff, BellRing, CheckCircle2, ChevronDown, ChevronRight, FileSpreadsheet,
-  RefreshCw, Search, Settings2, Truck, Undo2,
+  LayoutDashboard, RefreshCw, Search, Settings2, Truck, Undo2,
 } from "lucide-react"
 import { bkkToday } from "@/lib/bkk-time"
 import {
@@ -31,6 +31,10 @@ import {
   StatCard, branchChipCls, branchLabel, btnSmall, card,
   fmtDateOnly, fmtNum, fontThai, inp, tdCls, thCls, theadCls,
 } from "@/components/tire/shared"
+import {
+  ColHead, useColFilter, type ColHeadCtx, type FacetDef, type SortDef,
+} from "@/components/tire/col-filter"
+import { TireDueDashboard } from "@/components/tire/due-dashboard"
 
 type DueRow = {
   _id:          string
@@ -123,6 +127,50 @@ const OTHER_GROUPS = [
   { key: "snoozed",    label: "พักการแจ้งเตือน",     hint: `เส้นที่กด "พักการแจ้งเตือน" ไว้` },
 ]
 
+// ── เรียง/กรองจากหัวคอลัมน์ (แบบเดียวกับแท็บคำขอ V.2) ─────────────────────────
+// ค่าที่ให้ติ๊กต้องเป็นข้อความเดียวกับที่เห็นในเซลล์ — ค่าว่างจึงตั้งชื่อให้ติ๊กได้
+const vehicleLevel = (g: VehicleGroup): DueLevel =>
+  g.over > 0 ? "over" : g.due > 0 ? "due" : g.warn > 0 ? "warn" : "ok"
+
+const VEHICLE_FACETS: Record<string, FacetDef<VehicleGroup>> = {
+  plate:   { label: "ทะเบียน",  value: (g) => g.plate || "—" },
+  fleetNo: { label: "เบอร์รถ",  value: (g) => g.fleetNo || "ไม่ระบุเบอร์รถ" },
+  fleet:   { label: "ฟลีท",     value: (g) => g.fleet || "ไม่ระบุฟลีท" },
+  plant:   { label: "แพล้นท์",   value: (g) => g.plant || "ไม่ระบุแพล้นท์" },
+  type:    { label: "ประเภทรถ", value: (g) => g.vehicleType || "ไม่ระบุประเภท" },
+  level:   { label: "ระดับ",     value: (g) => DUE_LABEL[vehicleLevel(g)] },
+  accept:  { label: "รับเรื่อง",  value: (g) => g.acceptedAt ? (g.acceptedBy || "รับเรื่องแล้ว") : "ยังไม่รับเรื่อง" },
+}
+
+const VEHICLE_SORTS: Record<string, SortDef<VehicleGroup>> = {
+  plate:   (g) => g.plate,
+  fleetNo: (g) => g.fleetNo,
+  fleet:   (g) => g.fleet,
+  plant:   (g) => g.plant,
+  type:    (g) => g.vehicleType,
+  tires:   (g) => g.rows.length,
+  maxPct:  (g) => g.maxPct,
+  accept:  (g) => g.acceptedAt ? new Date(g.acceptedAt).getTime() : 0,
+}
+
+const TIRE_FACETS: Record<string, FacetDef<DueRow>> = {
+  plate:    { label: "ทะเบียน",   value: (r) => r.plate || "—" },
+  position: { label: "ตำแหน่ง",   value: (r) => r.tirePosition || "ไม่ระบุตำแหน่ง" },
+  product:  { label: "รุ่นยาง",    value: (r) => r.product || "ไม่ระบุรุ่น" },
+  level:    { label: "ระดับ",      value: (r) => DUE_LABEL[r.level] },
+  source:   { label: "แหล่ง",      value: (r) => SOURCE_LABEL[r.source] + (r.partial ? " (ไม่ครบ)" : "") },
+}
+
+const TIRE_SORTS: Record<string, SortDef<DueRow>> = {
+  plate:    (r) => r.plate,
+  position: (r) => positionOrder(r.tirePosition),
+  product:  (r) => r.product,
+  changeIn: (r) => r.changeIn ? new Date(r.changeIn).getTime() : 0,
+  kmUsed:   (r) => r.kmUsed || 0,
+  spec:     (r) => r.specDistance || 0,
+  pct:      (r) => r.usedPct ?? -1,
+}
+
 export function TireDuePage({ branchFilter, onOpenVehicle }: {
   branchFilter: string
   onOpenVehicle: (v: { branch: string; plate: string }) => void
@@ -136,7 +184,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   const [group, setGroup]     = useState("alert")
   const [unit, setUnit]       = useState<"head" | "trailer" | "all">("all")
   const [q, setQ]             = useState("")
-  const [view, setView]       = useState<"vehicle" | "tire">("vehicle")
+  const [view, setView]       = useState<"vehicle" | "tire" | "dashboard">("vehicle")
   // บันทึกไว้ว่าใครกดเลื่อน — ยางที่ถูกเลื่อนซ้ำ ๆ ต้องตามตัวคนตัดสินใจได้
   const { data: session } = useSession()
   const me = [session?.user?.employee?.firstname, session?.user?.employee?.lastname]
@@ -218,7 +266,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   async function exportExcel() {
     // ส่งออกตามที่กรองอยู่บนหน้าจอเสมอ — ไฟล์ที่ได้จะตรงกับสิ่งที่เห็น ไม่ใช่ทั้งฟลีต
     // เรียงแบบเดียวกับมุมมองรายคัน (คันที่หนักสุดก่อน แล้วไล่ตามตำแหน่งล้อ) เพราะเอาไปสั่งงานช่างต่อ
-    const ordered = view === "vehicle" ? groups.flatMap((g) => g.rows) : rows
+    const ordered = view === "vehicle" ? vehicleFilter.rows.flatMap((g) => g.rows) : tireFilter.rows
     if (ordered.length === 0) { swalError("ไม่มีรายการให้ส่งออก"); return }
 
     const scope  = branchFilter ? branchLabel(branchFilter) : "ทุกสาขา"
@@ -228,6 +276,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       scope,
       unit === "head" ? "เฉพาะหัว" : unit === "trailer" ? "เฉพาะหาง" : null,
       q ? `ค้นหา "${q}"` : null,
+      ...colFilter.describe(),
     ].filter(Boolean).join(" · ")
 
     const n = await downloadExcelTable({
@@ -341,6 +390,11 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
     )
   }, [rows])
 
+  // แต่ละมุมมองจำตัวกรองของตัวเองไว้ — สลับรายคัน/รายเส้นไปมาแล้วไม่หาย
+  const vehicleFilter = useColFilter(groups, VEHICLE_FACETS, VEHICLE_SORTS)
+  const tireFilter    = useColFilter(rows, TIRE_FACETS, TIRE_SORTS)
+  const colFilter     = view === "vehicle" ? vehicleFilter : tireFilter
+
   const toggleOpen = (key: string) =>
     setOpened((prev) => {
       const next = new Set(prev)
@@ -429,25 +483,35 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
           {([
             { key: "vehicle", label: "รายคัน" },
             { key: "tire",    label: "รายเส้น" },
+            { key: "dashboard", label: "แดชบอร์ด" },
           ] as const).map((o) => (
             <button
               key={o.key} type="button" onClick={() => setView(o.key)}
               className={[
-                "rounded-[9px] px-3 py-1 text-[12px] font-medium transition-colors",
+                "inline-flex items-center gap-1 rounded-[9px] px-3 py-1 text-[12px] font-medium transition-colors",
                 view === o.key ? "bg-[#14271C] dark:bg-white text-white dark:text-gray-900" : "text-[#6B7C72] dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5",
               ].join(" ")}
               style={fontThai}
             >
+              {o.key === "dashboard" && <LayoutDashboard size={12} />}
               {o.label}
             </button>
           ))}
         </div>
 
-        <button type="button" onClick={exportExcel}
+        {view !== "dashboard" && <button type="button" onClick={exportExcel}
           className={btnSmall + " inline-flex items-center gap-1.5 border border-[#EEF2F0] dark:border-white/10 px-3 py-1.5 text-[12px] text-[#14271C] dark:text-white"}
           style={fontThai}>
           <FileSpreadsheet size={12} className="text-[#1B8C4B]" /> Excel
-        </button>
+        </button>}
+
+        {view !== "dashboard" && colFilter.active && (
+          <button type="button" onClick={colFilter.clear}
+            className="text-[12px] text-[#9AA8A0] underline-offset-4 transition-colors hover:text-[#14271C] hover:underline dark:hover:text-white"
+            style={fontThai}>
+            ล้างตัวกรองคอลัมน์
+          </button>
+        )}
 
         <div className="relative ml-auto min-w-[220px]">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -455,15 +519,24 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
         </div>
       </div>
 
-      {view === "vehicle" ? (
+      {view === "dashboard" ? (
+        <TireDueDashboard
+          rows={rows} loading={loading}
+          scopeLabel={branchFilter ? branchLabel(branchFilter) : "ทุกสาขา"}
+          groupLabel={[...GROUPS, ...OTHER_GROUPS].find((g) => g.key === group)?.label ?? "ต้องจัดการ"}
+          onOpenVehicle={onOpenVehicle}
+        />
+      ) : view === "vehicle" ? (
         <VehicleTable
-          groups={groups} opened={opened} onToggle={toggleOpen} loading={loading}
+          groups={vehicleFilter.rows} ctx={vehicleFilter.ctx} filtered={vehicleFilter.active}
+          opened={opened} onToggle={toggleOpen} loading={loading}
           onOpenVehicle={onOpenVehicle} onSnooze={snooze} onSnoozeVehicle={snoozeVehicle}
           onAcceptVehicle={acceptVehicle} snoozedView={group === "snoozed"}
         />
       ) : (
         <TireTable
-          rows={rows} showPct={showPct} loading={loading}
+          rows={tireFilter.rows} ctx={tireFilter.ctx} filtered={tireFilter.active}
+          showPct={showPct} loading={loading}
           onOpenVehicle={onOpenVehicle} onSnooze={snooze}
         />
       )}
@@ -479,8 +552,10 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
 
 
 // ── ตาราง "รายเส้น" — 1 แถว = ยาง 1 เส้น ────────────────────────────────────
-function TireTable({ rows, showPct, loading, onOpenVehicle, onSnooze }: {
+function TireTable({ rows, ctx, filtered, showPct, loading, onOpenVehicle, onSnooze }: {
   rows:          DueRow[]
+  ctx:           ColHeadCtx
+  filtered:      boolean
   showPct:       boolean
   loading:       boolean
   onOpenVehicle: (v: { branch: string; plate: string }) => void
@@ -492,14 +567,23 @@ function TireTable({ rows, showPct, loading, onOpenVehicle, onSnooze }: {
               <table className="w-full">
                 <thead className={theadCls}>
                   <tr>
-                    <th className={thCls} style={fontThai}>ทะเบียน</th>
-                    <th className={thCls} style={fontThai}>ตำแหน่ง</th>
-                    <th className={thCls} style={fontThai}>รุ่นยาง</th>
-                    <th className={thCls} style={fontThai}>เปลี่ยนเข้า</th>
-                    <th className={thCls + " text-right"} style={fontThai}>วิ่งไปแล้ว</th>
-                    <th className={thCls + " text-right"} style={fontThai}>ระยะกำหนด</th>
-                    {showPct && <th className={thCls} style={fontThai}>ใช้ไป</th>}
-                    <th className={thCls} style={fontThai}>แหล่ง</th>
+                    <ColHead ctx={ctx} className={thCls} label="ทะเบียน"
+                      sortKey="plate" sortLabels={["ทะเบียน ก → ฮ", "ทะเบียน ฮ → ก"]} facetKey="plate" />
+                    <ColHead ctx={ctx} className={thCls} label="ตำแหน่ง"
+                      sortKey="position" sortLabels={["หน้า → หลัง", "หลัง → หน้า"]} facetKey="position" />
+                    <ColHead ctx={ctx} className={thCls} label="รุ่นยาง"
+                      sortKey="product" sortLabels={["รุ่น ก → ฮ", "รุ่น ฮ → ก"]} facetKey="product" />
+                    <ColHead ctx={ctx} className={thCls} label="เปลี่ยนเข้า"
+                      sortKey="changeIn" sortLabels={["นานแล้วก่อน", "ล่าสุดก่อน"]} />
+                    <ColHead ctx={ctx} className={thCls} label="วิ่งไปแล้ว"
+                      sortKey="kmUsed" sortLabels={["น้อย → มาก", "มาก → น้อย"]} />
+                    <ColHead ctx={ctx} className={thCls} label="ระยะกำหนด"
+                      sortKey="spec" sortLabels={["น้อย → มาก", "มาก → น้อย"]} />
+                    {showPct && (
+                      <ColHead ctx={ctx} className={thCls} label="ใช้ไป"
+                        sortKey="pct" sortLabels={["น้อย → มาก", "มาก → น้อย"]} facetKey="level" />
+                    )}
+                    <ColHead ctx={ctx} className={thCls} label="แหล่ง" facetKey="source" />
                     <th className={thCls}></th>
                   </tr>
                 </thead>
@@ -507,7 +591,9 @@ function TireTable({ rows, showPct, loading, onOpenVehicle, onSnooze }: {
                   {loading ? (
                     <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>กำลังโหลด...</td></tr>
                   ) : rows.length === 0 ? (
-                    <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>ไม่มีรายการในกลุ่มนี้</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>
+                      {filtered ? "ไม่มีรายการตรงกับตัวกรองคอลัมน์" : "ไม่มีรายการในกลุ่มนี้"}
+                    </td></tr>
                   ) : rows.map((r) => {
                     const snoozedOn = !!r.snoozedUntil && new Date(r.snoozedUntil) > new Date()
                     return (
@@ -575,8 +661,10 @@ function TireTable({ rows, showPct, loading, onOpenVehicle, onSnooze }: {
 
 // ── ตาราง "รายคัน" — 1 แถว = รถ 1 คัน กางดูยางรายเส้นได้ ───────────────────
 // คนวางแผนสั่งซื้อ/จัดคิวเข้าอู่คิดเป็นคัน: คันนี้ต้องเปลี่ยนกี่เส้น ไม่ใช่ไล่อ่านทีละเส้น
-function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnooze, onSnoozeVehicle, onAcceptVehicle, snoozedView }: {
+function VehicleTable({ groups, ctx, filtered, opened, onToggle, loading, onOpenVehicle, onSnooze, onSnoozeVehicle, onAcceptVehicle, snoozedView }: {
   groups:          VehicleGroup[]
+  ctx:             ColHeadCtx
+  filtered:        boolean
   opened:          Set<string>
   onToggle:        (key: string) => void
   loading:         boolean
@@ -592,14 +680,22 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
         <table className="w-full">
           <thead className={theadCls}>
             <tr>
-              <th className={thCls} style={fontThai}>ทะเบียน</th>
-              <th className={thCls} style={fontThai}>เบอร์รถ</th>
-              <th className={thCls} style={fontThai}>ฟลีท</th>
-              <th className={thCls} style={fontThai}>แพล้นท์</th>
-              <th className={thCls} style={fontThai}>ประเภทรถ</th>
-              <th className={thCls} style={fontThai}>ยางที่ต้องเปลี่ยน</th>
-              <th className={thCls} style={fontThai}>ใช้ไปมากสุด</th>
-              <th className={thCls} style={fontThai}>รับเรื่อง</th>
+              <ColHead ctx={ctx} className={thCls} label="ทะเบียน"
+                sortKey="plate" sortLabels={["ทะเบียน ก → ฮ", "ทะเบียน ฮ → ก"]} facetKey="plate" />
+              <ColHead ctx={ctx} className={thCls} label="เบอร์รถ"
+                sortKey="fleetNo" sortLabels={["เบอร์รถ น้อย → มาก", "เบอร์รถ มาก → น้อย"]} facetKey="fleetNo" />
+              <ColHead ctx={ctx} className={thCls} label="ฟลีท"
+                sortKey="fleet" sortLabels={["ฟลีท ก → ฮ", "ฟลีท ฮ → ก"]} facetKey="fleet" />
+              <ColHead ctx={ctx} className={thCls} label="แพล้นท์"
+                sortKey="plant" sortLabels={["แพล้นท์ ก → ฮ", "แพล้นท์ ฮ → ก"]} facetKey="plant" />
+              <ColHead ctx={ctx} className={thCls} label="ประเภทรถ"
+                sortKey="type" sortLabels={["ประเภท ก → ฮ", "ประเภท ฮ → ก"]} facetKey="type" />
+              <ColHead ctx={ctx} className={thCls} label="ยางที่ต้องเปลี่ยน"
+                sortKey="tires" sortLabels={["น้อยเส้นก่อน", "หลายเส้นก่อน"]} facetKey="level" />
+              <ColHead ctx={ctx} className={thCls} label="ใช้ไปมากสุด"
+                sortKey="maxPct" sortLabels={["น้อย → มาก", "มาก → น้อย"]} />
+              <ColHead ctx={ctx} className={thCls} label="รับเรื่อง"
+                sortKey="accept" sortLabels={["ยังไม่รับก่อน", "รับล่าสุดก่อน"]} facetKey="accept" />
               <th className={thCls}></th>
             </tr>
           </thead>
@@ -607,11 +703,13 @@ function VehicleTable({ groups, opened, onToggle, loading, onOpenVehicle, onSnoo
             {loading ? (
               <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>กำลังโหลด...</td></tr>
             ) : groups.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>ไม่มีรายการในกลุ่มนี้</td></tr>
+              <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400" style={fontThai}>
+                {filtered ? "ไม่มีรายการตรงกับตัวกรองคอลัมน์" : "ไม่มีรายการในกลุ่มนี้"}
+              </td></tr>
             ) : groups.map((g) => {
               const key    = `${g.branch}|${g.plate}`
               const isOpen = opened.has(key)
-              const level  = g.over > 0 ? "over" : g.due > 0 ? "due" : g.warn > 0 ? "warn" : "ok"
+              const level  = vehicleLevel(g)
               return (
                 <React.Fragment key={key}>
                   <tr className="cursor-pointer hover:bg-[#F6FAF7] dark:hover:bg-white/5" onClick={() => onToggle(key)}>

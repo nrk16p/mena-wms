@@ -212,9 +212,9 @@ async function loadSpecs(db: Db, serials: string[]): Promise<SpecLookup> {
 // คนวางแผนเรียกรถด้วย "เบอร์รถ" ไม่ใช่ทะเบียน — ต้องมีติดไปกับทุกแถว
 // vehicle_master.fleetNo ครอบคลุมมากสุด (T-0080 / M-0003) ที่ขาดเติมจาก
 // atms.truck_master_monthly.truck_no (TH1299) ของเดือนล่าสุด — คนละระบบเลขแต่เรียก "เบอร์รถ" เหมือนกัน
-type VehicleInfo = { fleetNo: string; vehicleType: string; fleet: string; plant: string }
+export type VehicleInfo = { fleetNo: string; vehicleType: string; fleet: string; plant: string }
 
-async function loadVehicleInfo(db: Db, plates: string[]): Promise<Map<string, VehicleInfo>> {
+export async function loadVehicleInfo(db: Db, plates: string[]): Promise<Map<string, VehicleInfo>> {
   const out = new Map<string, VehicleInfo>()
   if (plates.length === 0) return out
 

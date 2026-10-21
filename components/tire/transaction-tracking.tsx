@@ -275,14 +275,14 @@ const matchesQuery = (row: TxRow, q: string) => {
   const hay = [
     row.plate, row.request.truckNumber, row.request.driverName, row.request.requestedBy,
     row.item.positionCode, row.item.positionName, row.item.serialNo, row.item.product,
-    row.item.reason, row.item.jobNo, row.item.note,
+    row.item.reason, row.item.jobNo, row.item.note, row.request.fleet, row.request.plant,
   ].join(" ").toLowerCase()
   return hay.includes(q.trim().toLowerCase())
 }
 
 // ── เรียง / กรอง รายคอลัมน์ (แบบ Excel) ─────────────────────────────────────
 
-type SortKey = "age" | "plate" | "truck" | "position" | "reason" | "tread" | "stage" | "last"
+type SortKey = "age" | "plate" | "truck" | "position" | "customer" | "plant" | "reason" | "tread" | "stage" | "last"
 type SortDir = "asc" | "desc"
 type SortState = { key: SortKey; dir: SortDir } | null
 
@@ -303,15 +303,17 @@ const SORT_VALUE: Record<SortKey, (r: TxRow) => number | string> = {
   // เติมศูนย์หน้าให้ยาวเท่ากันก่อนเทียบ ส่วนเบอร์ที่มีตัวอักษรปนก็ยังเรียงตามพจนานุกรมได้
   truck:    (r) => truckSortValue(r.request.truckNumber),
   position: (r) => r.item.positionCode || r.item.positionName || "",
+  customer: (r) => r.request.fleet || "",
+  plant:    (r) => r.request.plant || "",
   reason:   (r) => r.item.reason || "",
   tread:    (r) => r.item.currentTreadMm || 0,
   stage:    (r) => STAGE_STEP[r.stage],
   last:     (r) => timeOf(r.last.at) || 0,
 }
 
-type FacetKey = "plate" | "truck" | "position" | "reason" | "stage"
+type FacetKey = "plate" | "truck" | "position" | "customer" | "plant" | "reason" | "stage"
 
-const FACET_KEYS = ["plate", "truck", "position", "reason", "stage"] as const
+const FACET_KEYS = ["plate", "truck", "position", "customer", "plant", "reason", "stage"] as const
 
 /**
  * ค่าที่โผล่ในรายการติ๊กของแต่ละคอลัมน์ — ต้องเป็น "ข้อความเดียวกับที่เห็นในเซลล์"
@@ -321,6 +323,8 @@ const FACET_VALUE: Record<FacetKey, (r: TxRow) => string> = {
   plate:    (r) => r.plate || "—",
   truck:    (r) => (r.request.truckNumber || "").trim() || "ไม่ระบุเบอร์รถ",
   position: (r) => r.item.positionName || r.item.positionCode || "ไม่ระบุตำแหน่ง",
+  customer: (r) => r.request.fleet || "ไม่ระบุฟลีท",
+  plant:    (r) => r.request.plant || "ไม่ระบุแพล้นท์",
   reason:   (r) => r.item.reason || "ไม่ระบุสาเหตุ",
   stage:    (r) => STATUS_LABEL[r.stage] ?? r.stage,
 }
@@ -329,7 +333,7 @@ type FacetState = Record<FacetKey, string[]>
 type FacetOption = { value: string; count: number }
 
 /** ค่าเริ่มต้น: ไม่ติ๊กอะไรเลย = ไม่กรอง (ไม่ใช่ติ๊กครบแบบ Excel — ไม่ต้องมาไล่เอาติ๊กออก) */
-const NO_FACETS: FacetState = { plate: [], truck: [], position: [], reason: [], stage: [] }
+const NO_FACETS: FacetState = { plate: [], truck: [], position: [], customer: [], plant: [], reason: [], stage: [] }
 
 const hasFacet = (f: FacetState) => FACET_KEYS.some((k) => f[k].length > 0)
 
@@ -369,6 +373,8 @@ const TX_EXPORT_COLS: ExcelCol[] = [
   { key: "truck",       header: "เบอร์รถ",               width: 10, group: "รถ / ผู้แจ้ง", align: "center" },
   { key: "driver",      header: "คนขับ",                 width: 19, group: "รถ / ผู้แจ้ง" },
   { key: "requestedBy", header: "ผู้แจ้ง",                width: 19, group: "รถ / ผู้แจ้ง" },
+  { key: "customer",    header: "ฟลีท",                   width: 14, group: "รถ / ผู้แจ้ง" },
+  { key: "plant",       header: "แพล้นท์",                width: 18, group: "รถ / ผู้แจ้ง" },
 
   { key: "pos",         header: "ตำแหน่ง",               width: 10, group: "ยางที่ขอเปลี่ยน", align: "center" },
   { key: "posName",     header: "ชื่อตำแหน่ง",            width: 16, group: "ยางที่ขอเปลี่ยน" },
@@ -405,7 +411,7 @@ const STAGE_INK: Record<TxStage, string> = {
 
 /** ชื่อคอลัมน์ที่เอาไปเขียนสรุปตัวกรองในไฟล์ */
 const FACET_LABEL: Record<FacetKey, string> = {
-  plate: "ทะเบียน", truck: "เบอร์รถ", position: "ตำแหน่ง", reason: "สาเหตุ", stage: "สถานะ",
+  plate: "ทะเบียน", truck: "เบอร์รถ", position: "ตำแหน่ง", customer: "ฟลีท", plant: "แพล้นท์", reason: "สาเหตุ", stage: "สถานะ",
 }
 
 /** คีย์ของ MR ในหน่วยความจำ — ทะเบียนเดียวกันอยู่คนละสาขาได้ ต้องแยกใบกัน */
@@ -422,7 +428,6 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
 
   const [q, setQ] = useState("")
   const [stage, setStage] = useState<TxStage | "all">("all")
-  const [stuckOnly, setStuckOnly] = useState(false)
   const [blockedOnly, setBlockedOnly] = useState(false)
   const [perPage, setPerPage] = useState<number>(PAGE_SIZES[0])
   const [page, setPage] = useState(1)
@@ -479,17 +484,15 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
     return by
   }, [searched])
 
-  const stuckCount = useMemo(() => searched.filter((r) => r.stuck).length, [searched])
   // ทางตันเป็นบั๊กที่ควรหายไป ไม่ใช่หมวดงานประจำ — ชิปจึงโผล่เฉพาะตอนมีของจริงค้างอยู่
   const blockedCount = useMemo(() => searched.filter((r) => r.blocked).length, [searched])
 
   /** ผ่านชิปด้านบนแล้ว — ฐานร่วมของทั้งตัวกรองรายคอลัมน์และรายการค่าที่ให้ติ๊ก */
   const chipped = useMemo(() => searched.filter((r) => {
     if (stage !== "all" && r.stage !== stage) return false
-    if (stuckOnly && !r.stuck) return false
     if (blockedOnly && !r.blocked) return false
     return true
-  }), [searched, stage, stuckOnly, blockedOnly])
+  }), [searched, stage, blockedOnly])
 
   /**
    * ค่าที่ให้ติ๊กในแต่ละคอลัมน์ + จำนวนแถวของค่านั้น
@@ -615,7 +618,7 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   // เปลี่ยนตัวกรองแล้วกลับหน้า 1 — ปรับ state ตอน render (กฎ react-hooks ห้ามย้ายไปไว้ใน effect)
   // การเรียงไม่นับ: จำนวนแถวเท่าเดิม อยู่หน้าไหนก็ยังมีของ ไม่ต้องเด้งกลับหน้าแรก
   const facetKey = FACET_KEYS.map((k) => k + ":" + facets[k].join(",")).join(";")
-  const filterKey = `${q}|${stage}|${stuckOnly}|${blockedOnly}|${perPage}|${facetKey}`
+  const filterKey = `${q}|${stage}|${blockedOnly}|${perPage}|${facetKey}`
   const [lastKey, setLastKey] = useState(filterKey)
   if (lastKey !== filterKey) {
     setLastKey(filterKey)
@@ -629,7 +632,6 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
     const parts: string[] = []
     if (q) parts.push(`ค้นหา “${q}”`)
     if (stage !== "all") parts.push(`สถานะ ${STAGE_CHIPS.find((c) => c.value === stage)?.label ?? stage}`)
-    if (stuckOnly) parts.push(`เฉพาะค้างเกิน ${STUCK_DAYS} วัน`)
     if (blockedOnly) parts.push("เฉพาะที่ทำต่อไม่ได้")
     for (const k of FACET_KEYS) {
       const picked = facets[k]
@@ -670,6 +672,8 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
             truck:      r.request.truckNumber || "",
             driver:     r.request.driverName || "",
             requestedBy: r.request.requestedBy || "",
+            customer:   r.request.fleet || "",
+            plant:      r.request.plant || "",
             pos:        r.item.positionCode || "",
             posName:    r.item.positionName || "",
             reason:     r.item.reason || "",
@@ -704,10 +708,10 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
     }
   }
 
-  const filtered = Boolean(q) || stage !== "all" || stuckOnly || blockedOnly || hasFacet(facets)
+  const filtered = Boolean(q) || stage !== "all" || blockedOnly || hasFacet(facets)
   /** ล้างทีเดียวจบ — รวมตัวกรองหัวคอลัมน์กับการเรียงด้วย ไม่ให้เหลืออะไรซ่อนอยู่ */
   function clearFilters() {
-    setQ(""); setStage("all"); setStuckOnly(false); setBlockedOnly(false)
+    setQ(""); setStage("all"); setBlockedOnly(false)
     setFacets(NO_FACETS); setSort(null)
   }
 
@@ -1140,10 +1144,6 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
           />
         </div>
 
-        <Chip on={stuckOnly} tone="red" count={stuckCount} onClick={() => setStuckOnly((v) => !v)}>
-          ค้างเกิน {STUCK_DAYS} วัน
-        </Chip>
-
         {/* ทางตันควรเป็นของที่ไม่มีเหลือ — ไม่โชว์ชิป "0" ค้างไว้บน toolbar ให้รก */}
         {blockedCount > 0 && (
           <Chip on={blockedOnly} tone="orange" count={blockedCount} onClick={() => setBlockedOnly((v) => !v)}>
@@ -1286,6 +1286,10 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                 sortKey="truck" sortLabels={["เบอร์รถ น้อย → มาก", "เบอร์รถ มาก → น้อย"]} facetKey="truck" />
               <ColHead ctx={headCtx} label="ตำแหน่งยาง" width="w-44"
                 sortKey="position" sortLabels={["ตำแหน่ง ก → ฮ", "ตำแหน่ง ฮ → ก"]} facetKey="position" />
+              <ColHead ctx={headCtx} label="ฟลีท" width="w-28"
+                sortKey="customer" sortLabels={["ฟลีท ก → ฮ", "ฟลีท ฮ → ก"]} facetKey="customer" />
+              <ColHead ctx={headCtx} label="แพล้นท์" width="w-36"
+                sortKey="plant" sortLabels={["แพล้นท์ ก → ฮ", "แพล้นท์ ฮ → ก"]} facetKey="plant" />
               <ColHead ctx={headCtx} label="สาเหตุ" width="w-34"
                 sortKey="reason" sortLabels={["สาเหตุ ก → ฮ", "สาเหตุ ฮ → ก"]} facetKey="reason" />
               <ColHead ctx={headCtx} label="มิลยาง / ระยะทาง" width="w-36"
@@ -1300,12 +1304,12 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={11} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
+              <tr><td colSpan={13} className="px-4 py-14 text-center text-sm text-gray-400" style={fontThai}>
                 <RefreshCw size={18} className="mx-auto mb-2 animate-spin text-gray-300 dark:text-gray-600" />
                 กำลังโหลด...
               </td></tr>
             ) : pageRows.length === 0 ? (
-              <tr><td colSpan={11}>
+              <tr><td colSpan={13}>
                 <Empty
                   hint={filtered ? "ลองปรับคำค้นหรือล้างตัวกรอง" : "ยังไม่มีคำขอเปลี่ยนยางในระบบ"}
                   onClear={filtered ? clearFilters : undefined}
@@ -1424,6 +1428,14 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                       )}
                     </span>
                   )}
+                </td>
+
+                {/* ── ฟลีท / แพล้นท์: ช่วยเช็คว่ารถคันนี้วิ่งงานใคร (เติมจาก vehicle_master ถ้าคำขอไม่ได้บันทึกไว้) ── */}
+                <td className={txTdCls + " whitespace-nowrap text-[12.5px] text-[#14271C] dark:text-gray-200"} style={fontThai}>
+                  {row.request.fleet || <span className="text-[11.5px] text-gray-300 dark:text-gray-600">—</span>}
+                </td>
+                <td className={txTdCls + " max-w-[160px] truncate text-[12.5px] text-[#14271C] dark:text-gray-200"} style={fontThai} title={row.request.plant}>
+                  {row.request.plant || <span className="text-[11.5px] text-gray-300 dark:text-gray-600">—</span>}
                 </td>
 
                 {/* ── สาเหตุ: คอลัมน์ของตัวเอง เพราะเป็นตัวที่คนคลังกรองบ่อยที่สุด ── */}
@@ -1577,6 +1589,9 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
                 {row.item.reason || "ไม่ระบุสาเหตุ"}
               </span>
               <span>{row.request.driverName || "ไม่ระบุคนขับ"}</span>
+              {(row.request.fleet || row.request.plant) && (
+                <span>{[row.request.fleet, row.request.plant].filter(Boolean).join(" · ")}</span>
+              )}
               {row.item.currentTreadMm > 0 && (
                 <span>มิลยาง <span className="font-mono font-semibold text-[#14271C] dark:text-white">{row.item.currentTreadMm}</span> มม.</span>
               )}

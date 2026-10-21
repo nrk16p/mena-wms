@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
+import { loadVehicleInfo } from "@/lib/tire-distance"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 const COLL = "tire_change_request"
@@ -100,8 +101,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ลูกค้า (ฟลีท) / แพล้นท์ — คำขอเก่าหรือจากมือถือมักไม่ได้บันทึกไว้ เติมจาก vehicle_master (+ATMS) ชุดเดียวกับหน้ายางถึงกำหนด
+  const noVehicleInfo = [...new Set(
+    items.filter((r) => !r.fleet || !r.plant).map((r) => String(r.plate ?? "").trim())
+  )].filter(Boolean)
+  const vehicleInfo = await loadVehicleInfo(client.db(DB), noVehicleInfo).catch(() => new Map())
+
   const enriched = items.map((r) => ({
     ...r,
+    fleet: r.fleet || vehicleInfo.get(String(r.plate ?? "").trim())?.fleet || "",
+    plant: r.plant || vehicleInfo.get(String(r.plate ?? "").trim())?.plant || "",
     items: (r.items ?? []).map((it: Record<string, unknown>) => {
       const sn = String(it.serialNo ?? "").trim()
       const stock = stockMap.get(sn)
