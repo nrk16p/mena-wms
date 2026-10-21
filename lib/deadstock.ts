@@ -5,7 +5,7 @@ import {
   DB_NAME, COLL_NAME, INVENTORY_ID, LAYER_PIPELINE, ISSUE_PIPELINE, buildPayload,
   type LayerDoc, type IssueDoc, type DeadstockPayload,
 } from "@/lib/deadstock-core"
-import { fetchOnOrderBySku } from "@/lib/on-order"
+import { fetchOpenPrBySku } from "@/lib/on-order"
 import { fetchPrDetailIdByPr, fetchRequesterByPr } from "@/lib/pr-snapshot"
 import { sharedCache } from "@/lib/shared-cache"
 
@@ -44,8 +44,8 @@ async function loadDeadstock(): Promise<DeadstockPayload> {
   const client = await clientPromise
   const { layers, issues } = await fetchRaw()
   // "กำลังจะซื้อซ้ำ" — ของที่สั่งไปแล้วยังไม่รับเข้า ทั้งที่ของเก่ายังค้างในคลัง · พังก็ไม่ล้มทั้งหน้า
-  // (fetchOnOrderBySku คืน Map ว่างเองเมื่อ query พัง) แค่คอลัมน์นั้นว่างไป ตัวเลข deadstock หลักไม่กระทบ
-  const onOrder = await fetchOnOrderBySku(client.db("atms"), INVENTORY_ID, asOf)
+  // (fetchOpenPrBySku คืน Map ว่างเองเมื่อ query พัง) แค่คอลัมน์นั้นว่างไป ตัวเลข deadstock หลักไม่กระทบ
+  const onOrder = await fetchOpenPrBySku(client.db("atms"), INVENTORY_ID, asOf)
   const data = buildPayload(layers, issues, asOf, onOrder)
   // ผู้ขอซื้ออยู่ที่หัวใบ PR คนละ collection กับ stockmovement — เติมหลัง build เพราะเพิ่งรู้ตอนนี้
   // ว่าใบไหน "ค้างจริง" (~364 ใบ วัดจริง 25/08/2026) $in จึงเล็กกว่าการยิงทุกใบรับที่เคยมี (~2,500)

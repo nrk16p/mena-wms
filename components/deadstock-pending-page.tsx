@@ -7,7 +7,6 @@ import { swalError, swalToast } from "@/lib/swal"
 import { BucketBadge, DeadstockShell, RepurchaseBadge, StatusBadge, SummaryCards, baht, mitr, thaiDate, useDeadstock } from "@/components/deadstock-shared"
 import { AGE_BUCKETS, ACTION_LABEL, DEADSTOCK_ACTIONS, layerKey, type ActionKey } from "@/lib/deadstock-core"
 import { atmsPrUrl } from "@/lib/atms-links"
-import { onOrderCodes } from "@/lib/safety-stock-core"
 
 const BUCKET_LABEL = Object.fromEntries(AGE_BUCKETS.map((b) => [b.key, b])) as Record<string, (typeof AGE_BUCKETS)[number]>
 
@@ -317,8 +316,8 @@ export function DeadstockPendingPage() {
         "สถานะ (ไทย)": BUCKET_LABEL[r.bucket]?.th ?? "",
         "ซื้อซ้ำหลังใบนี้ (ใบ)": r.newerCount,
         "กำลังสั่งอีก (เข้าสต๊อก)": r.onOrder?.qty ?? "",
-        "ใบ PO ที่ค้างรับ": r.onOrder ? onOrderCodes(r.onOrder).codes.join(", ") : "",
-        "PO เก่าสุด (วัน)": r.onOrder?.oldestDays ?? "",
+        "ใบ PR ที่ค้าง": r.onOrder?.prCodes.join(", ") ?? "",
+        "PR เก่าสุด (วัน)": r.onOrder?.oldestDays ?? "",
         การจัดการ: ACTION_LABEL[actions[layerKey(r)]?.action ?? ""] ?? "",
         "ผู้บันทึกการจัดการ": actions[layerKey(r)]?.by ?? "",
       }))
@@ -507,12 +506,12 @@ export function DeadstockPendingPage() {
                       <div style={{ marginTop: 3 }}><StatusBadge bucket={r.bucket} /></div>
                     </td>
 
-                    {/* ซื้อซ้ำ — DD (ซื้อไปแล้ว) + PO (สั่งแล้ว รอของ) อยู่คู่กันเพราะอ่านคู่กันเสมอ */}
+                    {/* ซื้อซ้ำ — DD (ซื้อไปแล้ว) + PR (กำลังจะซื้อ ยังยกเลิกทัน) อยู่คู่กันเพราะอ่านคู่กันเสมอ */}
                     <td
                       style={{ padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}
                       title={r.onOrder
-                        ? `PO ที่ยังรับของไม่ครบ ${onOrderCodes(r.onOrder).count} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${onOrderCodes(r.onOrder).codes.join(", ")}${onOrderCodes(r.onOrder).count > onOrderCodes(r.onOrder).codes.length ? " …" : ""}`
-                        : "ไม่มีใบ PO ซื้อเข้าสต๊อกค้างรับสำหรับรหัสนี้"}
+                        ? `PR ที่ยังไม่รับของ ${r.onOrder.prCount} ใบ · เก่าสุด ${r.onOrder.oldestDays} วัน\n${r.onOrder.prCodes.join(", ")}${r.onOrder.prCount > r.onOrder.prCodes.length ? " …" : ""}`
+                        : "ไม่มีใบ PR ซื้อเข้าสต๊อกค้างอยู่สำหรับรหัสนี้"}
                     >
                       {r.newerCount > 0 || r.onOrder ? (
                         <>
@@ -522,7 +521,7 @@ export function DeadstockPendingPage() {
                           </div>
                           {r.onOrder && (
                             <div style={{ marginTop: 2, fontWeight: 700, color: "#B45309" }}>
-                              <span style={{ ...sub, marginRight: 4 }}>PO</span>+{r.onOrder.qty.toLocaleString()}
+                              <span style={{ ...sub, marginRight: 4 }}>PR</span>+{r.onOrder.qty.toLocaleString()}
                             </div>
                           )}
                         </>
