@@ -164,8 +164,11 @@ export function ApTrackingPage() {
   // (ใส่ tab เป็น dep = สลับแท็บทีไรยิงคิวรีใหม่ทุกครั้ง ทั้งที่การกรองตามแท็บทำฝั่ง client อยู่แล้ว)
   const apiSentFrom = SENT_STAGES.includes(tab as ApStage) ? sentFrom : ""
   const apiSentTo   = SENT_STAGES.includes(tab as ApStage) ? sentTo   : ""
-  // โหมดข้ามเดือน: เซิร์ฟเวอร์ค้นจากวันที่กดส่งทั้งฐาน ไม่สนเดือนที่เลือก
-  const crossMonth  = Boolean(apiSentFrom || apiSentTo)
+  // ช่วงวันที่ผ่าน มีผลเฉพาะแท็บ "ผ่าน" — ส่งไปให้เซิร์ฟเวอร์ค้นข้ามเดือนเหมือนวันที่กดส่ง (ผู้ใช้สั่ง 22/10/2026)
+  const apiPassedFrom = tab === "passed" ? passedFrom : ""
+  const apiPassedTo   = tab === "passed" ? passedTo   : ""
+  // โหมดข้ามเดือน: เซิร์ฟเวอร์ค้นจากวันที่กดส่ง/วันที่ผ่านทั้งฐาน ไม่สนเดือนที่เลือก
+  const crossMonth  = Boolean(apiSentFrom || apiSentTo || apiPassedFrom || apiPassedTo)
 
   // ทุกตัวกรองต้องพากลับหน้า 1 และล้างการเลือกค้าง (ใบที่เลือกไว้อาจหลุดจากผลลัพธ์ใหม่ไปแล้ว)
   // ทำที่ตัวจัดการเหตุการณ์ ไม่ใช่ใน useEffect — setState ใน effect ทำให้ render ซ้อนโดยไม่จำเป็น
@@ -201,6 +204,8 @@ export function ApTrackingPage() {
       // เดิมกรองในหน่วยความจำจากแถวของเดือนที่โหลดมาเท่านั้น ใบที่รับของคนละเดือนกับวันกดส่งจึงหาไม่เจอ
       if (apiSentFrom) params.set("sentFrom", apiSentFrom)
       if (apiSentTo)   params.set("sentTo", apiSentTo)
+      if (apiPassedFrom) params.set("passedFrom", apiPassedFrom)
+      if (apiPassedTo)   params.set("passedTo", apiPassedTo)
       const res  = await fetch(`/api/ap-tracking?${params.toString()}`, { signal: ac.signal })
       const data = await res.json()
       if (seq !== loadSeq.current) return
@@ -220,7 +225,7 @@ export function ApTrackingPage() {
     } finally {
       if (seq === loadSeq.current) { setLoading(false); setPending(false) }
     }
-  }, [month, warehouse, q, apiSentFrom, apiSentTo])
+  }, [month, warehouse, q, apiSentFrom, apiSentTo, apiPassedFrom, apiPassedTo])
 
   // โหลดครั้งแรกทันที · เปลี่ยนเดือน/คลัง/คำค้นหลังจากนั้นหน่วง 400ms (กดรัว ๆ = ยิงคิวรีหนักทุกครั้ง)
   const firstLoad = useRef(true)
@@ -604,7 +609,10 @@ export function ApTrackingPage() {
         crossHits={crossHits} onGotoHit={gotoHit}
         payTypeFilter={payTypeFilter} onPayTypeFilter={(v) => applyFilter(() => setPayTypeFilter(v))}
         passedFrom={passedFrom} passedTo={passedTo}
-        onPassedRange={(f, t) => applyFilter(() => { setPassedFrom(f); setPassedTo(t) })}
+        onPassedRange={(f, t) => applyFilter(() => {
+          // ช่วงวันที่ผ่านยิงคิวรีใหม่ข้ามเดือนแล้ว — ตั้ง pending แบบเดียวกับช่วงวันที่กดส่ง
+          setPassedFrom(f); setPassedTo(t); setPending(true)
+        })}
         terms={terms} onTerms={(v) => applyFilter(() => setTerms(v))}
         onExport={exportExcel} exportSelected={tab === "passed" ? selectedRows.length : 0}
         onExportMonthly={() => void exportMonthly()}

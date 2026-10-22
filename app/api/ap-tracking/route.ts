@@ -83,11 +83,17 @@ export async function GET(req: NextRequest) {
     const sentFrom  = ymd(sp.get("sentFrom"))
     const sentTo    = ymd(sp.get("sentTo"))
     const sentRange = Boolean(sentFrom || sentTo)
+    // ช่วง "วันที่บัญชีกดผ่าน" (แท็บผ่าน) — ค้นข้ามทุกเดือนแบบเดียวกับวันที่กดส่ง (ผู้ใช้สั่ง 22/10/2026)
+    // เดิมกรองแค่ในหน้าเว็บจากแถวของเดือนที่เลือก ใบที่รับของ ก.ย. แต่บัญชีกดผ่าน ต.ค. จึงไม่ติดใบปะหน้า
+    const passedFrom  = ymd(sp.get("passedFrom"))
+    const passedTo    = ymd(sp.get("passedTo"))
+    const passedRange = Boolean(passedFrom || passedTo)
+    const dateRange   = sentRange || passedRange
     // โหมด "ทั้งปี" (แท็บรายเจ้าหนี้ (รายปี) → export ใบทั้งหมดของเจ้าเดียว) — รับ ?year=YYYY แต่ **มีผลเฉพาะ
     // เมื่อส่ง supplier มาด้วย** เพราะทั้งปีทั้งฐานคือ ~13k แถว ≈ 7MB ชนเพดาน 4.5MB ของ Vercel
     // ส่วนเจ้าเดียวใหญ่สุดหลักร้อยแถว ยังห่างเพดานมาก · year ที่ไม่ใช่ 4 หลักถือว่าไม่ได้ส่งมา
     const rawYear   = sp.get("year")?.trim() ?? ""
-    const yearMode  = Boolean(supplier) && !sentRange && /^\d{4}$/.test(rawYear)
+    const yearMode  = Boolean(supplier) && !dateRange && /^\d{4}$/.test(rawYear)
     const year      = yearMode ? rawYear : ""
     // โหมด "สรุป DD" (แท็บสรุป DD · เพิ่ม 11/09/2026) — ?codes= คือเลขใบที่ผู้ใช้วางมา ค้นตรงตัวข้ามทุกเดือน
     // มาก่อนทุกโหมด (เดือน/ปี/ช่วงวันที่กดส่งไม่มีผล) · ส่ง codes มาแต่ไม่มีเลข DD เลย = ผลว่าง
@@ -132,19 +138,30 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ rows: [], summary: emptySummary(limit, since, todayICT()) })
       }
       match.deposit_code = { $in: codeList }
-    } else if (sentRange) {
-      // sentMarkedAt เก็บเป็น ISO UTC เต็ม (new Date().toISOString()) เทียบ string ได้ตรง ๆ
+    } else if (dateRange) {
+      // sentMarkedAt / review.at เก็บเป็น ISO UTC เต็ม (new Date().toISOString()) เทียบ string ได้ตรง ๆ
       // แต่ขอบวันที่ผู้ใช้ใส่เป็นเวลาไทย (UTC+7) — ขยายกรอบ ±1 วันที่ชั้นฐาน แล้วกรองแม่นด้วย
       // ictDate อีกที ปลอดภัยกว่าคำนวณ offset ในคิวรีแล้วพลาดขอบวัน
-      const cond: Record<string, unknown> = { $gt: "" }   // ตัดใบที่ยกเลิกส่ง (เขียนทับเป็น "") ทิ้ง
-      if (sentFrom) cond.$gte = `${addDays(sentFrom, -1)}T00:00:00.000Z`
-      if (sentTo)   cond.$lte = `${addDays(sentTo, 1)}T23:59:59.999Z`
+      // ใส่ทั้งสองช่วงพร้อมกัน = ต้องเข้าทั้งคู่
+      const isoRange = (from: string, to: string) => {
+        const cond: Record<string, unknown> = { $gt: "" }   // ตัดค่าที่ถูกล้างเป็น "" ทิ้ง (ยกเลิกส่ง/ล้างผลตรวจ)
+        if (from) cond.$gte = `${addDays(from, -1)}T00:00:00.000Z`
+        if (to)   cond.$lte = `${addDays(to, 1)}T23:59:59.999Z`
+        return cond
+      }
+      const filter: Record<string, unknown> = {}
+      if (sentRange) filter.sentMarkedAt = isoRange(sentFrom, sentTo)
+      if (passedRange) { filter["review.status"] = "ผ่าน"; filter["review.at"] = isoRange(passedFrom, passedTo) }
       const marked = await md.collection("ap_tracking")
-        .find({ sentMarkedAt: cond }, { projection: { _id: 0, depositCode: 1, sentMarkedAt: 1 } })
+        .find(filter, { projection: { _id: 0, depositCode: 1, sentMarkedAt: 1, "review.at": 1 } })
+        .maxTimeMS(30_000)
         .toArray() as Doc[]
+      const passedAt = (m: Doc) => s((m.review as Doc | undefined)?.at)
+      const sortKey  = (m: Doc) => (passedRange ? passedAt(m) : s(m.sentMarkedAt))
       const hit = marked
-        .filter((m) => inDateRange(ictDate(s(m.sentMarkedAt)), sentFrom, sentTo))
-        .sort((a, b) => s(b.sentMarkedAt).localeCompare(s(a.sentMarkedAt)))   // ใหม่ก่อน — ที่ถูกตัดคือของเก่าเสมอ
+        .filter((m) => !sentRange || inDateRange(ictDate(s(m.sentMarkedAt)), sentFrom, sentTo))
+        .filter((m) => !passedRange || inDateRange(ictDate(passedAt(m)), passedFrom, passedTo))
+        .sort((a, b) => sortKey(b).localeCompare(sortKey(a)))   // ใหม่ก่อน — ที่ถูกตัดคือของเก่าเสมอ
       // เพดานของโหมดนี้: วัดจริง ~628 bytes/แถว · 6,000 แถว ≈ 3.8MB ยังไม่ชนเพดาน 4.5MB ของ Vercel
       // (ลากทั้งชุด 8,523 ใบ ≈ 5.4MB = หน้าพังทั้งหน้าแบบเดียวกับที่เคยเจอตอนลาก carryover หลายเดือน)
       rangeTruncated = hit.length > SENT_RANGE_MAX
@@ -289,7 +306,7 @@ export async function GET(req: NextRequest) {
         // (ใบในโหมดนี้แทบทุกใบสถานะ "ส่งบัญชีแล้ว" อยู่แล้ว) = ตารางว่างทั้งที่คิวรีเจอของ
         // โหมดทั้งปีก็ไม่ยึดเดือนใดเป็นหลักเช่นกัน — ทุกใบของปีนั้นคือ "ในช่วง" ไม่ใช่ค้างยกมา
         // โหมดสรุป DD ก็เช่นกัน — ทุกใบที่วางมาคือ "ใบที่ขอ" ถ้าติดป้ายค้างยกมา ใบที่ส่งบัญชีแล้วจะหายจากผล
-        carryover:   codesMode || sentRange || yearMode ? false : receivedAt.slice(0, 7) !== monthPrefix,
+        carryover:   codesMode || dateRange || yearMode ? false : receivedAt.slice(0, 7) !== monthPrefix,
         poTotal:     parseAmount(po?.["รวม"]),
         poDue:       parseDmy(po?.["กำหนดส่งสินค้า"]),
         poStatus:    s(po?.["สถานะการรับสินค้า"]),

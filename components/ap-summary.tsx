@@ -63,7 +63,7 @@ export function ApHeader({
   sentView: boolean
   sentFrom: string
   sentTo: string
-  // true = ตั้งช่วงวันที่กดส่งอยู่ → เซิร์ฟเวอร์ค้นข้ามทุกเดือน ตัวเลือกเดือนไม่มีผล
+  // true = ตั้งช่วงวันที่กดส่ง/วันที่ผ่านอยู่ → เซิร์ฟเวอร์ค้นข้ามทุกเดือน ตัวเลือกเดือนไม่มีผล
   crossMonth: boolean
   onSentRange: (from: string, to: string) => void
   groupSent: boolean
@@ -128,7 +128,7 @@ export function ApHeader({
               ไม่งั้นคนกดลูกศรเปลี่ยนเดือนแล้วตัวเลขไม่ขยับ จะนึกว่าหน้าค้างหรือข้อมูลผิด */}
           {yearView || ddView ? null : crossMonth ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-sm text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-900/20 dark:text-emerald-300"
-              title="กำลังกรองด้วยช่วงวันที่กดส่งบัญชี — ดึงจากทุกเดือน ไม่จำกัดเดือนที่เลือก">
+              title="กำลังกรองด้วยช่วงวันที่ — ดึงจากทุกเดือน ไม่จำกัดเดือนที่เลือก">
               <CalendarRange className="h-4 w-4" />ทุกเดือน
             </span>
           ) : (
