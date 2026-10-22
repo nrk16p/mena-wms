@@ -562,7 +562,7 @@ export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
 
 // ── PO ที่ถูกลบใน ATMS แล้ว แต่ยังค้างในสำเนา atms.purchase_orders ─────────────
 
-/** รอบดึงข้อมูลจัดซื้อที่จบสำเร็จ (atms.procurement_runs ของ api-ncac)
+/** รอบดึงข้อมูลจัดซื้อที่จบสำเร็จ (atms.procurement_runs ของ api-ncac) ที่ดึง PO ด้วย
  *  fromDate = หน้าต่างของรอบนั้น "DD/MM/YYYY" · poSeen = จำนวน PO ที่รอบนั้นเห็นในหน้ารายการ ATMS */
 export type ProcurementRunRef = { startedAt: Date; fromDate: string; poSeen: number }
 /** ต้องหายไปติดกันกี่รอบถึงถือว่าถูกลบ — รอบเดียวอาจแค่ดึงไม่ครบ (session หลุดกลางทาง) */
@@ -579,29 +579,33 @@ function dmyKey(dmy: string | undefined): number | null {
  *
  *  ทำไมต้องมี: pipeline ของ api-ncac upsert อย่างเดียว ใบที่ถูกลบใน ATMS จึงค้างในสำเนาตลอดไป
  *  แล้วถูกนับเป็น "กำลังสั่งซื้อ" (เคสจริง 22/10/2026: LBPO26080510 ถูกลบใน ATMS แต่ยังโผล่ 10 ชิ้นให้ LB05AE00528)
- *  วิธีดู: ทุกรอบ pipeline เขียน scraped_at ใหม่ให้ทุกใบที่ยังเห็นในหน้าต่างของมัน (วันที่ใบ >= fromDate)
- *  ใบในหน้าต่างที่ scraped_at เก่ากว่าทั้ง PO_GONE_AFTER_RUNS รอบล่าสุด = รอบเหล่านั้นไม่เห็นใบนี้ = ถูกลบ
+ *  วิธีดู: ทุกรอบ pipeline เขียน scraped_at ใหม่ให้ทุกใบที่ยังเห็นในหน้าต่างของรอบนั้น (วันที่ใบ >= fromDate)
+ *  ใบที่ scraped_at เก่ากว่า PO_GONE_AFTER_RUNS รอบล่าสุด "ที่ครอบวันที่ของใบนั้น" = รอบเหล่านั้นไม่เห็นใบนี้ = ถูกลบ
+ *  ต้องดูรายใบเพราะรอบมีหลายขนาด (วัดจริง 22/10/2026): light ทุก 4 ชม. ดึงแค่ 30 วันล่าสุด ·
+ *  full วันละรอบดึงตั้งแต่วันที่ 1 ของ 2 เดือนก่อน · pr_quick รายชั่วโมงไม่ดึง PO เลย (poSeen = 0 ไม่นับ)
  *  เทียบกับรอบ ไม่ใช่กับนาฬิกา — pipeline หยุดไปหลายวันก็ไม่ทำให้ตัดใบดีทิ้งทั้งกอง
- *  ใบเก่ากว่าหน้าต่างตรวจไม่ได้ (ไม่มีรอบไหนดึงซ้ำ) จึงปล่อยไว้ตามเดิม */
+ *  ใบเก่ากว่าหน้าต่างทุกรอบตรวจไม่ได้ จึงปล่อยไว้ตามเดิม */
 export function poCodesGoneFromAtms(input: {
   poHeads: { code: string; date?: string; scrapedAt?: Date | null }[]
-  /** รอบที่ ok เรียงใหม่→เก่า */
+  /** รอบที่ ok (ลำดับไม่สำคัญ) */
   runs: ProcurementRunRef[]
-}): { gone: Set<string>; inWindow: number; skipped: null | "few-runs" | "no-window" | "too-many" } {
+}): { gone: Set<string>; inWindow: number; skipped: null | "few-runs" | "too-many" } {
   const empty = new Set<string>()
-  const runs = input.runs.filter((r) => r.poSeen > 0).slice(0, PO_GONE_AFTER_RUNS)
+  const runs = input.runs
+    .filter((r) => r.poSeen > 0)
+    .map((r) => ({ t: r.startedAt.getTime(), from: dmyKey(r.fromDate) }))
+    .filter((r): r is { t: number; from: number } => r.from !== null && Number.isFinite(r.t))
+    .sort((a, b) => b.t - a.t)
   if (runs.length < PO_GONE_AFTER_RUNS) return { gone: empty, inWindow: 0, skipped: "few-runs" }
-  const starts = runs.map((r) => dmyKey(r.fromDate))
-  if (starts.some((k) => k === null)) return { gone: empty, inWindow: 0, skipped: "no-window" }
-  // ใบต้องอยู่ในหน้าต่างของ "ทุก" รอบที่ใช้ตัดสิน → ใช้วันเริ่มที่ช้าที่สุด
-  const windowStart = Math.max(...(starts as number[]))
-  const cutoff = Math.min(...runs.map((r) => r.startedAt.getTime()))
   const gone = new Set<string>()
   let inWindow = 0
   for (const p of input.poHeads) {
     const k = dmyKey(p.date)
-    if (k === null || k < windowStart) continue
+    if (k === null) continue
+    const covering = runs.filter((r) => r.from <= k).slice(0, PO_GONE_AFTER_RUNS)
+    if (covering.length < PO_GONE_AFTER_RUNS) continue
     inWindow++
+    const cutoff = covering[PO_GONE_AFTER_RUNS - 1].t
     const t = p.scrapedAt instanceof Date ? p.scrapedAt.getTime() : NaN
     if (!(t >= cutoff)) gone.add(p.code)
   }

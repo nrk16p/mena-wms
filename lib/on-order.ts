@@ -31,13 +31,14 @@ const n = (v: unknown) => (v === null || v === undefined || v === "" ? undefined
 /** ผลตรวจ PO ที่ถูกลบใน ATMS — ส่ง object เข้ามาถ้าอยากรู้ (probe ใช้) */
 export type OnOrderDiag = { goneCodes: string[]; goneSkipped: string | null; inWindow: number }
 
-/** รอบดึงข้อมูลจัดซื้อล่าสุดที่จบสำเร็จ — collection เล็ก (ไม่กี่รอบต่อวัน) ดึงแค่ 10 รอบ
+/** รอบดึงข้อมูลจัดซื้อล่าสุดที่จบสำเร็จและดึง PO — 30 รอบ ≈ 5 วัน (light ~5 รอบ + full 1 รอบ ต่อวัน)
+ *  พอให้ใบเก่าที่มีแต่รอบ full ครอบ มีรอบตัดสินครบ 3 · collection เล็ก (~30 แถว/วัน) collscan ได้
  *  อ่านไม่ได้ = คืน [] → poCodesGoneFromAtms ข้ามการตรวจ (นับทุกใบเหมือนเดิม ดีกว่าตัดผิด) */
 async function recentProcurementRuns(atms: Db): Promise<ProcurementRunRef[]> {
   try {
     const docs = (await atms.collection("procurement_runs")
-      .find({ ok: true }, { maxTimeMS: MAX_TIME_MS })
-      .sort({ created_at: -1 }).limit(10)
+      .find({ ok: true, "counts.purchase_orders": { $exists: true } }, { maxTimeMS: MAX_TIME_MS })
+      .sort({ created_at: -1 }).limit(30)
       .project({ _id: 0, started_at: 1, from_date: 1, "counts.purchase_orders": 1 })
       .toArray()) as Record<string, unknown>[]
     return docs.flatMap((d) => {

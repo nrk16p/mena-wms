@@ -640,7 +640,28 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   assert.equal(rm.skipped, "too-many"); assert.equal(rm.gone.size, 0)
   // ไม่มีรอบ/รอบไม่พอ/วันที่อ่านไม่ออก → ไม่ตัด
   assert.equal(poCodesGoneFromAtms({ poHeads: heads, runs: [] }).skipped, "few-runs")
-  assert.equal(poCodesGoneFromAtms({ poHeads: heads, runs: [run(0, "?"), run(4), run(8)] }).skipped, "no-window")
+  assert.equal(poCodesGoneFromAtms({ poHeads: heads, runs: [run(0, "?"), run(4), run(8)] }).skipped, "few-runs", "รอบที่วันเริ่มอ่านไม่ออกไม่นับ")
+
+  // รอบปนกันแบบของจริง: light ทุก 4 ชม. ดึงแค่ 30 วัน · full วันละรอบดึงตั้งแต่ 01/08
+  // ใบ ส.ค. ต้องตัดสินด้วยรอบ full เท่านั้น — light ไม่เคยเห็นใบนี้ไม่ได้แปลว่าถูกลบ
+  const d = 24 // ชั่วโมง — run() รับเป็นชั่วโมง
+  const mixed = [
+    run(0, "22/09/2026"), run(4, "22/09/2026"), run(8, "22/09/2026"),
+    run(16), run(16 + d), run(16 + 2 * d), run(16 + 3 * d),
+  ]
+  const lastFull = new Date(t0 - 16 * h + 60_000)
+  const keep = { code: "LBPO26080001", date: "20/08/2026", scrapedAt: lastFull }
+  const fresh = { code: "LBPO26100001", date: "20/10/2026", scrapedAt: seen }
+  const del = { code: "LBPO26080510", date: "15/08/2026", scrapedAt: lastMonth }
+  const delNew = { code: "LBPO26100002", date: "10/10/2026", scrapedAt: new Date(t0 - 9 * h) }
+  const fill = Array.from({ length: 6 }, (_, i) => ({ ...keep, code: `LBPO2608F${i}` }))
+  const rmx = poCodesGoneFromAtms({ poHeads: [keep, fresh, del, delNew, ...fill], runs: mixed })
+  assert.deepEqual([...rmx.gone].sort(), ["LBPO26080510", "LBPO26100002"],
+    "ใบเก่าตัดสินด้วยรอบ full ใบใหม่ตัดสินด้วยรอบ light")
+  // ใบ ส.ค. ที่ full เห็นล่าสุด แต่ light 3 รอบหลังไม่เห็น (เพราะอยู่นอกหน้าต่าง light) ต้องไม่ถูกตัด
+  assert.ok(!rmx.gone.has("LBPO26080001"))
+  // มีรอบ full แค่ 2 รอบ → ใบ ส.ค. ยังตัดสินไม่ได้
+  assert.equal(poCodesGoneFromAtms({ poHeads: [del, ...fill], runs: mixed.slice(0, 5) }).gone.size, 0)
   // ไม่มี scraped_at ในหน้าต่าง = ไม่เคยถูกยืนยันว่ายังอยู่ → ถือว่าหาย
   assert.ok(poCodesGoneFromAtms({ poHeads: [...heads.slice(0, 9), { ...heads[9], scrapedAt: null }], runs }).gone.has("LBPO26080510"))
 }
