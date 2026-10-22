@@ -8,12 +8,15 @@
 //   - ใบ "ส่งบัญชีแล้ว" ที่พบในไฟล์ → ผ่าน + เติมเลขที่ Voucher/ตั้งหนี้ · ไม่คิดกำหนดจ่าย (บัญชีกำหนดทีหลังทีละใบ)
 //   - ใบที่ผ่าน/จ่ายแล้ว ไม่ต้องโชว์และไม่แตะ
 //   - ใบที่ส่งบัญชีแล้วแต่ไม่พบในไฟล์ → บัญชีตอบในเว็บ: ไม่ผ่าน (PATCH review) / รอรอบเครดิตถัดไป (PATCH nextRound)
+// เพิ่ม 22/10/2026 (ผู้ใช้สั่ง): ใบที่ "ผ่าน" แล้ว (ยังไม่จ่าย) แต่เลข Voucher ในไฟล์ไม่ตรงกับในระบบ → กลุ่ม "update"
+//   บันทึกทับด้วยเลขในไฟล์ล่าสุด (แทนที่ ไม่ต่อท้าย) · ยืนยันแยกจากการผ่าน (apply:"update")
+//   ใบจ่ายแล้วไม่แตะ — กันเลขไม่ตรงกับไฟล์รอบโอนที่การเงินนำเข้าไปแล้ว
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import { apNetOf, AP_NOS_MAX, apStage, cleanDocNos, ictDate, inApScope, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
-import { AP_VOUCHER_MAX } from "@/lib/ap-voucher-import"
+import { AP_VOUCHER_MAX, sameDocNoSet, voucherNeedsUpdate } from "@/lib/ap-voucher-import"
 import { isAccounting } from "@/lib/roles"
 import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
 
@@ -32,7 +35,8 @@ function writeDb(client: Awaited<typeof clientPromise>) {
 }
 
 // "passed"/"paid" = ผ่านแล้ว/จ่ายแล้ว — ไม่โชว์ ไม่แตะ ส่งกลับแค่จำนวน
-export type VoucherAction = "pass" | "notSent" | "rejected" | "notFound" | "passed" | "paid"
+// "update" = ผ่านแล้ว ยังไม่จ่าย แต่เลข Voucher ในไฟล์ไม่ตรงกับในระบบ
+export type VoucherAction = "pass" | "update" | "notSent" | "rejected" | "notFound" | "passed" | "paid"
 export type VoucherResult = {
   depositCode: string
   action: VoucherAction
@@ -43,6 +47,7 @@ export type VoucherResult = {
   receivedAt: string
   vouchers: string[]        // จากไฟล์
   newVouchers: string[]     // ที่ยังไม่มีในระบบ — ตัวที่จะถูกเติม
+  oldVouchers?: string[]    // กลุ่ม update: เลขที่อยู่ในระบบตอนนี้ (จะถูกแทนที่ด้วย vouchers)
   docDate: string
   reason?: string
 }
@@ -68,6 +73,16 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}))
   const dryRun = body?.dryRun !== false          // ค่าตั้งต้น = พรีวิว ต้องส่ง dryRun:false ถึงจะเขียน
+  // เขียนจริงทีละเรื่อง: "pass" (ค่าตั้งต้น เดิม) หรือ "update" (แทนที่เลข Voucher ของใบที่ผ่านแล้ว)
+  const apply = body?.apply === "update" ? "update" : "pass"
+  // apply:"update" ต้องส่งเลขเดิมที่เห็นตอนพรีวิวมาด้วย — ถ้าในระบบเปลี่ยนไปแล้ว (มีคนแก้ในหน้าเว็บ) ข้ามใบนั้น
+  const seen = new Map<string, string[]>()
+  if (Array.isArray(body?.updates)) {
+    for (const u of (body.updates as { depositCode?: unknown; oldVouchers?: unknown }[]).slice(0, AP_VOUCHER_MAX)) {
+      const code = s(u?.depositCode).toUpperCase()
+      if (DD_RE.test(code)) seen.set(code, cleanDocNos(u?.oldVouchers))
+    }
+  }
   const fileTo = s(body?.fileTo)
   const fileName = s(body?.fileName).slice(0, 200)
   if (!Array.isArray(body?.items) || !body.items.length) return NextResponse.json({ error: "ไม่มีรายการ" }, { status: 400 })
@@ -84,7 +99,7 @@ export async function POST(req: NextRequest) {
   const client = await clientPromise
   const md = writeDb(client)
   const atms = client.db("atms")
-  const trackProj = { _id: 0, depositCode: 1, docs: 1, sentDate: 1, sentType: 1, sentMarkedAt: 1, review: 1, paid: 1, voucherNos: 1, nextRound: 1 }
+  const trackProj = { _id: 0, depositCode: 1, docs: 1, sentDate: 1, sentType: 1, sentMarkedAt: 1, review: 1, paid: 1, voucherNos: 1, nextRound: 1, updatedAt: 1 }
   // ใบค้าง "ส่งบัญชีแล้ว" ทั้งระบบ (หลักร้อย) — ตัวตั้งของรายการ "ไม่พบในไฟล์"
   const [tracks, pending] = await Promise.all([
     md.collection(COLL).find({ depositCode: { $in: codes } }, { projection: trackProj }).maxTimeMS(20_000).toArray() as Promise<Doc[]>,
@@ -120,16 +135,66 @@ export async function POST(req: NextRequest) {
     const stage = stageOf(track)
     if (stage === "sent") return { ...base, action: "pass" as const, stage }
     if (stage === "paid") return { ...base, action: "paid" as const, stage }
-    if (stage === "passed") return { ...base, action: "passed" as const, stage }
+    if (stage === "passed") {
+      const old = cleanDocNos(track?.voucherNos)
+      return voucherNeedsUpdate(old, file.vouchers)
+        ? { ...base, action: "update" as const, stage, oldVouchers: old }
+        : { ...base, action: "passed" as const, stage }
+    }
     if (stage === "rejected") return { ...base, action: "rejected" as const, stage, reason: "บัญชีตีกลับอยู่ — ต้องแก้แล้วส่งใหม่ก่อน" }
     return { ...base, action: "notSent" as const, stage, reason: "บัญชีตั้งหนี้แล้ว แต่จัดซื้อยังไม่กดส่งบัญชี" }
   })
 
-  // ── เขียนจริง: ส่งบัญชีแล้ว → ผ่าน + เติมเลข Voucher ──
-  // filter ซ้ำเงื่อนไข "ส่งบัญชีแล้ว ยังไม่ตรวจ" ตอนเขียน — กันทับผลตรวจที่บัญชีเพิ่งกดในหน้าเว็บระหว่างพรีวิว
+  // ── เขียนจริง (ทีละเรื่องตาม apply) ──
+  //   update = แทนที่เลข Voucher ของใบที่ผ่านแล้ว · pass = ส่งบัญชีแล้ว → ผ่าน + เติมเลข Voucher
+  // pass: filter ซ้ำเงื่อนไข "ส่งบัญชีแล้ว ยังไม่ตรวจ" ตอนเขียน — กันทับผลตรวจที่บัญชีเพิ่งกดในหน้าเว็บระหว่างพรีวิว
   let written = 0
+  let updateSkipped = 0
   const passedNow = new Set<string>()
-  if (!dryRun) {
+  if (!dryRun && apply === "update") {
+    // แทนที่เลข Voucher ด้วยเลขในไฟล์ — เฉพาะใบที่พรีวิวเห็นเลขเดิมเดียวกับที่ระบบมีตอนนี้
+    // filter ซ้ำ "ผ่าน + ยังไม่จ่าย + updatedAt เดิม" กันทับงานที่เพิ่งเกิดระหว่างคำขอนี้
+    const at = new Date().toISOString()
+    const toUpdate = results.filter((r) => r.action === "update")
+    const ops = toUpdate.flatMap((r) => {
+      const expect = seen.get(r.depositCode)
+      if (!expect || !sameDocNoSet(r.oldVouchers ?? [], expect)) {
+        updateSkipped++
+        return []
+      }
+      const voucherNos = r.vouchers.slice(0, AP_NOS_MAX)
+      const t = trackBy.get(r.depositCode)
+      const detail = `${(r.oldVouchers ?? []).join(", ") || "(ว่าง)"} → ${voucherNos.join(", ")} · นำเข้าการตั้งเบิก${fileName ? ` (${fileName})` : ""}${r.docDate ? ` · ตั้งหนี้ ${r.docDate}` : ""}`
+      return [{
+        updateOne: {
+          filter: {
+            depositCode: r.depositCode, "review.status": "ผ่าน",
+            updatedAt: t?.updatedAt ?? { $exists: false },
+            $nor: [{ "paid.paymentNos.0": { $exists: true } }, { "paid.date": { $nin: [null, ""] } }],
+          },
+          update: {
+            $set: { voucherNos, updatedAt: at, updatedBy: by },
+            $push: { log: { $each: [{ action: "แก้เลขที่ Voucher/ตั้งหนี้", field: "voucherNos", detail, by, byEmail, at }], $slice: -LOG_KEEP } },
+          },
+        },
+      }]
+    })
+    if (ops.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const res = await md.collection(COLL).bulkWrite(ops as any, { ordered: false })
+        .finally(() => invalidateCache([CACHE_TAGS.ap]))
+      written = res.modifiedCount
+      updateSkipped += ops.length - res.modifiedCount
+      // อ่านกลับ: ใบที่เลขในระบบตรงกับไฟล์แล้ว ย้ายไปกลุ่ม "ผ่านแล้ว" (ซ่อน)
+      const after = await md.collection(COLL).find({ depositCode: { $in: toUpdate.map((r) => r.depositCode) } },
+        { projection: { _id: 0, depositCode: 1, voucherNos: 1 } }).toArray()
+      const fileBy = new Map(toUpdate.map((r) => [r.depositCode, r.vouchers]))
+      for (const d of after) {
+        const code = s(d.depositCode)
+        if (sameDocNoSet(cleanDocNos(d.voucherNos), fileBy.get(code) ?? [])) passedNow.add(code)
+      }
+    }
+  } else if (!dryRun) {
     const at = new Date().toISOString()
     const toPass = results.filter((r) => r.action === "pass")
     const ops = toPass.map((r) => {
@@ -186,7 +251,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     dryRun, written,
     summary: {
-      total: results.length, pass: count("pass"),
+      total: results.length, pass: count("pass"), update: count("update"), updateSkipped,
       notSent: count("notSent"), rejected: count("rejected"), notFound: count("notFound"), passed: count("passed"), paid: count("paid"),
       unmatched: unmatched.length, unmatchedAfterFile: unmatched.filter((u) => u.afterFile).length,
       passAmount: results.filter((r) => r.action === "pass").reduce((t, r) => t + r.amount, 0),

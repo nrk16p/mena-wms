@@ -4,6 +4,7 @@
 // ไฟล์ = "รายงานตั้งเจ้าหนี้อื่นๆ" จากระบบบัญชี · อ่านในเบราว์เซอร์ ไม่อัปโหลดขึ้นเซิร์ฟเวอร์
 // พรีวิว (dryRun) ก่อนเสมอ → ยืนยัน = ส่งบัญชีแล้ว → ผ่าน + เลข Voucher · ใบที่ไม่พบในไฟล์ให้บัญชีตอบทีละใบ
 // (ไม่ผ่าน = PATCH review · รอรอบเครดิตถัดไป = PATCH nextRound) — API เดียวกับโมดัลรายใบ
+// ใบที่ผ่านแล้วแต่เลข Voucher ในไฟล์ไม่ตรงกับในระบบ → กลุ่ม "อัปเดต Voucher" ยืนยันแยก = บันทึกทับด้วยเลขในไฟล์ (22/10/2026)
 import { useMemo, useState } from "react"
 import { FileDown, FileSpreadsheet, Search, Upload, X } from "lucide-react"
 import { parseApVoucherSheet, type ApVoucherSheet } from "@/lib/ap-voucher-import"
@@ -12,10 +13,11 @@ import { NUM, baht, mitr } from "@/components/ap-style"
 import { swalConfirm, swalError, swalTextInput, swalToast } from "@/lib/swal"
 import { ddMonth, ddMonthLabel, sortDdMonths } from "@/lib/ap-dd-month"
 
-type Action = "pass" | "notSent" | "rejected" | "notFound"
+type Action = "pass" | "update" | "notSent" | "rejected" | "notFound"
 type Result = {
   depositCode: string; action: Action; stage: string; supplier: string; warehouse: string; amount: number
   receivedAt: string; vouchers: string[]; newVouchers: string[]; docDate: string; reason?: string
+  oldVouchers?: string[]     // กลุ่ม update: เลขที่อยู่ในระบบตอนนี้
 }
 type Unmatched = {
   depositCode: string; supplier: string; warehouse: string; amount: number; receivedAt: string
@@ -24,7 +26,7 @@ type Unmatched = {
 }
 type Reply = {
   written?: number
-  summary: { total: number; pass: number; notSent: number; rejected: number; notFound: number; passed: number; paid: number; unmatched: number; unmatchedAfterFile: number; passAmount: number }
+  summary: { total: number; pass: number; update: number; updateSkipped?: number; notSent: number; rejected: number; notFound: number; passed: number; paid: number; unmatched: number; unmatchedAfterFile: number; passAmount: number }
   results: Result[]
   unmatched: Unmatched[]
 }
@@ -32,6 +34,7 @@ type Tab = Action | "unmatched" | "unreadable"
 
 const TABS: { key: Tab; label: string; hint: string; cls: string }[] = [
   { key: "pass",       label: "จะผ่าน",               hint: "ส่งบัญชีแล้ว → ผ่าน + เติมเลข Voucher",                       cls: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-300" },
+  { key: "update",     label: "อัปเดต Voucher",        hint: "ผ่านแล้ว แต่เลข Voucher ในไฟล์ไม่ตรงกับในระบบ → บันทึกทับด้วยเลขในไฟล์", cls: "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-700/60 dark:bg-sky-900/20 dark:text-sky-300" },
   { key: "unmatched",  label: "ไม่พบในไฟล์",           hint: "ค้าง ส่งบัญชีแล้ว แต่ไม่มีในไฟล์ตั้งเบิก — รอบัญชีตอบ",         cls: "border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-300" },
   { key: "notSent",    label: "ยังไม่ส่งบัญชี",        hint: "บัญชีตั้งหนี้แล้ว แต่จัดซื้อยังไม่กดส่ง — ข้าม",               cls: "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300" },
   { key: "rejected",   label: "ไม่ผ่านอยู่",           hint: "บัญชีตีกลับอยู่ — ข้าม",                                       cls: "border-rose-300 bg-white text-rose-700 dark:border-rose-700/60 dark:bg-transparent dark:text-rose-300" },
@@ -82,7 +85,7 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
       setReply(data as Reply)
       // เปิดแท็บแรกที่มีของ — ไม่ให้คนเจอตารางว่างตั้งแต่แรก
       const d = data as Reply
-      const first = (["pass", "unmatched"] as Tab[]).find((k) => (k === "unmatched" ? d.unmatched.length : d.summary[k as Action]) > 0)
+      const first = (["pass", "update", "unmatched"] as Tab[]).find((k) => (k === "unmatched" ? d.unmatched.length : d.summary[k as Action]) > 0)
       if (first) setTab(first)
     } catch (e) {
       setError(e instanceof Error ? e.message : "อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ Excel รายงานตั้งเจ้าหนี้")
@@ -112,6 +115,35 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
       onDone()
       swalToast("success", `ผ่านแล้ว ${(data as Reply).written ?? 0} ใบ`)
       if ((data as Reply).unmatched.length) setTab("unmatched")
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // อัปเดตเลข Voucher ของใบที่ผ่านแล้ว — ส่งเลขเดิมที่เห็นในพรีวิวไปด้วย ใบที่มีคนแก้ไปก่อนในหน้าเว็บจะถูกข้าม
+  const confirmUpdate = async () => {
+    if (!sheet || !reply || saving || !reply.summary.update) return
+    const ok = await swalConfirm(`ยืนยันอัปเดตเลข Voucher ${reply.summary.update.toLocaleString()} ใบ?`,
+      "ใบที่ผ่านแล้วจะถูกบันทึกทับด้วยเลขที่ Voucher/ตั้งหนี้ในไฟล์นี้ (เลขเดิมยังดูได้ในประวัติของใบ)")
+    if (!ok.isConfirmed) return
+    setSaving(true)
+    try {
+      const updates = reply.results.filter((r) => r.action === "update").map((r) => ({ depositCode: r.depositCode, oldVouchers: r.oldVouchers ?? [] }))
+      const res = await fetch("/api/ap-tracking/voucher-import", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: false, apply: "update", updates, fileName, fileTo: sheet.stats.dateTo, items: itemsOf(sheet) }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ")
+      const d = data as Reply
+      setReply(d)
+      setChanged(true)
+      onDone()
+      const skipped = d.summary.updateSkipped ?? 0
+      swalToast(skipped ? "warning" : "success",
+        `อัปเดตแล้ว ${d.written ?? 0} ใบ${skipped ? ` · ข้าม ${skipped} ใบ (มีคนแก้ในหน้าเว็บก่อน — เปิดไฟล์ใหม่เพื่อดูเลขล่าสุด)` : ""}`)
     } catch (e) {
       swalError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ")
     } finally {
@@ -221,9 +253,13 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
         add(t.label, reply.results.filter((r) => r.action === t.key).map((r) => ({
           "เดือน (จาก DD)": monthLabel(ddMonth(r.depositCode)), "เลขใบรับของ": r.depositCode, "ซัพพลายเออร์": r.supplier,
           "คลัง": r.warehouse, "ยอดเงิน": r.supplier ? r.amount : "", "วันที่รับของ": r.receivedAt,
-          "เลขที่ Voucher/ตั้งหนี้": r.vouchers.join(", "), "วันตั้งหนี้": r.docDate,
-          "ขั้นตอนปัจจุบัน": stageLabel(r.stage), "หลังนำเข้า": r.action === "pass" ? "ผ่าน" : "ไม่เปลี่ยน", "หมายเหตุ": r.reason ?? "",
-        })), [12, 15, 32, 16, 12, 12, 26, 12, 14, 11, 36])
+          "เลขที่ Voucher/ตั้งหนี้": r.vouchers.join(", "),
+          ...(t.key === "update" ? { "เลข Voucher เดิมในระบบ": (r.oldVouchers ?? []).join(", ") } : {}),
+          "วันตั้งหนี้": r.docDate,
+          "ขั้นตอนปัจจุบัน": stageLabel(r.stage),
+          "หลังนำเข้า": r.action === "pass" ? "ผ่าน" : r.action === "update" ? "แทนที่เลข Voucher" : "ไม่เปลี่ยน",
+          "หมายเหตุ": r.reason ?? "",
+        })), t.key === "update" ? [12, 15, 32, 16, 12, 12, 26, 26, 12, 14, 16, 36] : [12, 15, 32, 16, 12, 12, 26, 12, 14, 11, 36])
       }
     }
     const today = new Date().toLocaleDateString("sv-SE")
@@ -245,7 +281,8 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
         <p className="text-xs text-gray-500 dark:text-gray-400">
           ไฟล์ <b>รายงานตั้งเจ้าหนี้อื่นๆ</b> จากระบบบัญชี · ใช้เฉพาะแถวของ <b>อาทิติยา</b> และ <b>วราพร</b> ·
           ดึงเลข DD (KKDD/LBDD/SBDD + 8 หลัก) จากคอลัมน์ GoodRemark แล้วจับคู่ข้ามทุกเดือน ·
-          ใบที่ค้าง <b>ส่งบัญชีแล้ว</b> และพบในไฟล์ → <b>ผ่าน</b> + เติมเลขที่ Voucher/ตั้งหนี้ (ยังไม่กำหนดวันจ่าย)
+          ใบที่ค้าง <b>ส่งบัญชีแล้ว</b> และพบในไฟล์ → <b>ผ่าน</b> + เติมเลขที่ Voucher/ตั้งหนี้ (ยังไม่กำหนดวันจ่าย) ·
+          ใบที่ <b>ผ่านแล้ว</b> แต่เลขในไฟล์ไม่ตรงกับในระบบ → <b>อัปเดต Voucher</b> (กดยืนยันแยก บันทึกทับด้วยเลขในไฟล์)
         </p>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -311,7 +348,7 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
                             <td key={t.key} className="px-1 py-0.5 text-right">
                               {n ? (
                                 <button onClick={() => openCell(t.key, mon)} title={`เปิดรายการ ${t.label} · ${monthLabel(mon)}`}
-                                  className={`rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-white/10 ${t.key === "pass" ? "font-bold text-emerald-700 dark:text-emerald-300" : t.key === "unmatched" ? "font-bold text-rose-700 dark:text-rose-300" : ""}`}>
+                                  className={`rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-white/10 ${t.key === "pass" ? "font-bold text-emerald-700 dark:text-emerald-300" : t.key === "update" ? "font-bold text-sky-700 dark:text-sky-300" : t.key === "unmatched" ? "font-bold text-rose-700 dark:text-rose-300" : ""}`}>
                                   {n.toLocaleString()}
                                 </button>
                               ) : <span className="px-2 text-gray-300 dark:text-gray-600">·</span>}
@@ -467,6 +504,11 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
                       <td className="max-w-[8rem] truncate px-3 py-1.5 text-xs text-gray-500">{r.warehouse}</td>
                       <td className={`whitespace-nowrap px-3 py-1.5 text-right ${NUM}`}>{r.supplier ? baht(r.amount) : "—"}</td>
                       <td className={`px-3 py-1.5 text-xs ${NUM}`}>
+                        {r.action === "update" && (
+                          <div className="mb-0.5 text-gray-400">
+                            เดิม {(r.oldVouchers ?? []).length ? (r.oldVouchers ?? []).map((v) => <s key={v} className="mr-1">{v}</s>) : "(ว่าง)"}
+                          </div>
+                        )}
                         {r.vouchers.map((v) => (
                           <span key={v} className={`mr-1 inline-block rounded px-1.5 py-0.5 ${r.newVouchers.includes(v) ? "bg-emerald-100 font-semibold text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300"}`}>
                             {r.newVouchers.includes(v) ? "+ " : ""}{v}
@@ -477,7 +519,9 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
                       <td className="whitespace-nowrap px-3 py-1.5 text-xs">
                         {r.action === "pass"
                           ? <span><span className="text-sky-700 dark:text-sky-300">ส่งบัญชีแล้ว</span> → <b className="text-emerald-700 dark:text-emerald-300">ผ่าน</b></span>
-                          : <span className="text-gray-600 dark:text-gray-300">{stageLabel(r.stage)}</span>}
+                          : r.action === "update"
+                            ? <span><span className="text-gray-600 dark:text-gray-300">{stageLabel(r.stage)}</span> · <b className="text-sky-700 dark:text-sky-300">อัปเดตเลข</b></span>
+                            : <span className="text-gray-600 dark:text-gray-300">{stageLabel(r.stage)}</span>}
                         {r.reason && <div className="text-[11px] text-gray-500">{r.reason}</div>}
                       </td>
                     </tr>
@@ -501,6 +545,7 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
           {reply && (
             <span className={`text-xs text-gray-500 ${NUM}`}>
               จะผ่าน <b className="text-emerald-700 dark:text-emerald-300">{reply.summary.pass}</b> ใบ · {baht(reply.summary.passAmount)} บาท
+              {reply.summary.update > 0 && <>{" · "}อัปเดต Voucher <b className="text-sky-700 dark:text-sky-300">{reply.summary.update}</b> ใบ</>}
               {" · "}ไม่พบในไฟล์ <b className="text-rose-700 dark:text-rose-300">{reply.summary.unmatched}</b> ใบ
             </span>
           )}
@@ -511,6 +556,12 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
             </button>
           )}
           <button onClick={close} className={`${reply ? "" : "ml-auto "}rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5`}>ปิด</button>
+          {(reply?.summary.update ?? 0) > 0 && (
+            <button onClick={() => void confirmUpdate()} disabled={saving || busy}
+              className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">
+              {saving ? "กำลังบันทึก…" : `ยืนยันอัปเดต ${(reply?.summary.update ?? 0).toLocaleString()} ใบ`}
+            </button>
+          )}
           <button onClick={() => void confirmPass()} disabled={!reply?.summary.pass || saving || busy}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
             {saving ? "กำลังบันทึก…" : `ยืนยันผ่าน ${(reply?.summary.pass ?? 0).toLocaleString()} ใบ`}

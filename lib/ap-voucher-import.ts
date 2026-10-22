@@ -44,6 +44,19 @@ export type ApVoucherSheet = {
 
 const s = (v: unknown) => (v == null ? "" : String(v)).replace(/\s+/g, " ").trim()
 
+/** ใบที่ผ่านแล้ว: เลข Voucher ในไฟล์ต่างจากในระบบไหม — ต่าง = เข้ากลุ่ม "อัปเดต Voucher" (ผู้ใช้สั่ง 22/10/2026)
+ *  เทียบเป็นชุด ไม่สนลำดับ/ตัวพิมพ์/ช่องว่าง · ไฟล์ไม่มีเลขเลย = ไม่อัปเดต (ห้ามล้างเลขในระบบเพราะแถวในไฟล์ว่าง) */
+export function voucherNeedsUpdate(current: string[], file: string[]): boolean {
+  return normDocNos(file).length > 0 && !sameDocNoSet(current, file)
+}
+
+/** เลขชุดเดียวกันไหม (ไม่สนลำดับ/ตัวพิมพ์/ช่องว่าง/ตัวซ้ำ) */
+export function sameDocNoSet(a: string[], b: string[]): boolean {
+  const x = normDocNos(a), y = normDocNos(b)
+  return x.length === y.length && x.every((v, i) => v === y[i])
+}
+const normDocNos = (xs: string[]) => [...new Set((xs ?? []).map((x) => s(x).toUpperCase()).filter(Boolean))].sort()
+
 const REQUIRED = ["DocuNo", "DocuDate", "GoodRemark", "empname"] as const
 
 export function parseApVoucherSheet(rows: unknown[][]): ApVoucherSheet {
