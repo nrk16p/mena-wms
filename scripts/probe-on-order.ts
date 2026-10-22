@@ -4,7 +4,7 @@
 // ตรวจว่า "กำลังสั่งซื้อ" (บรรทัด PO ที่ยังค้างรับ) ที่ build จะเขียนลง snapshot ออกมาเป็นตัวเลขเท่าไร
 // ใช้ฟังก์ชันตัวเดียวกับที่ build เรียกจริง (fetchOnOrderBySku) จะได้รู้ตัวถ้า ATMS เปลี่ยนรูปข้อมูล
 import clientPromise from "../lib/mongo"
-import { fetchOnOrderBySku } from "../lib/on-order"
+import { fetchOnOrderBySku, type OnOrderDiag } from "../lib/on-order"
 import { derive, isPartsPolicyRow, DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, WAREHOUSES, type SnapshotRow } from "../lib/safety-stock-core"
 
 const MASTER_DB = process.env.MONGO_DB ?? "master_data"
@@ -19,11 +19,14 @@ async function main() {
   for (const inventoryId of targets) {
     const name = WAREHOUSES.find((w) => w.id === inventoryId)?.name ?? inventoryId
     const t0 = Date.now()
-    const onOrder = await fetchOnOrderBySku(client.db("atms"), inventoryId, asOf)
+    const diag: OnOrderDiag = { goneCodes: [], goneSkipped: null, inWindow: 0 }
+    const onOrder = await fetchOnOrderBySku(client.db("atms"), inventoryId, asOf, diag)
     const ms = Date.now() - t0
     const totalQty = [...onOrder.values()].reduce((a, o) => a + o.qty, 0)
     console.log(`\n=== ${name} (inventory_id=${inventoryId}) · query ${ms} ms ===`)
     console.log(`  รหัสที่มีของกำลังมา ${onOrder.size} รหัส · รวม ${totalQty.toLocaleString()} หน่วย`)
+    console.log(`  PO ค้างรับในหน้าต่าง pipeline ${diag.inWindow} ใบ · ถูกลบใน ATMS (ตัดออก) ${diag.goneCodes.length} ใบ${diag.goneSkipped ? ` · ข้ามการตรวจ: ${diag.goneSkipped}` : ""}`)
+    if (diag.goneCodes.length) console.log(`    ${diag.goneCodes.sort().join(" ")}`)
 
     const rows = (await snapCol.find({ inventoryId }).project({ _id: 0 }).toArray()) as unknown as SnapshotRow[]
     const parts = rows.filter(isPartsPolicyRow)

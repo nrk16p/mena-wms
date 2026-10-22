@@ -560,6 +560,55 @@ export function ageDaysFromDmy(dmy: string, asOf: Date): number | null {
   return Math.round((to - from) / 86_400_000)
 }
 
+// ── PO ที่ถูกลบใน ATMS แล้ว แต่ยังค้างในสำเนา atms.purchase_orders ─────────────
+
+/** รอบดึงข้อมูลจัดซื้อที่จบสำเร็จ (atms.procurement_runs ของ api-ncac)
+ *  fromDate = หน้าต่างของรอบนั้น "DD/MM/YYYY" · poSeen = จำนวน PO ที่รอบนั้นเห็นในหน้ารายการ ATMS */
+export type ProcurementRunRef = { startedAt: Date; fromDate: string; poSeen: number }
+/** ต้องหายไปติดกันกี่รอบถึงถือว่าถูกลบ — รอบเดียวอาจแค่ดึงไม่ครบ (session หลุดกลางทาง) */
+export const PO_GONE_AFTER_RUNS = 3
+/** หายเกินสัดส่วนนี้ของใบในหน้าต่าง = รอบดึงข้อมูลผิดปกติ ไม่ใช่มีคนลบจริง → ไม่ตัดอะไรเลย */
+export const PO_GONE_MAX_SHARE = 0.25
+
+function dmyKey(dmy: string | undefined): number | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((dmy ?? "").trim())
+  return m ? +m[3] * 10_000 + +m[2] * 100 + +m[1] : null
+}
+
+/** เลข PO ที่ ATMS ไม่มีแล้ว (ถูกลบ) แต่สำเนายังเก็บไว้
+ *
+ *  ทำไมต้องมี: pipeline ของ api-ncac upsert อย่างเดียว ใบที่ถูกลบใน ATMS จึงค้างในสำเนาตลอดไป
+ *  แล้วถูกนับเป็น "กำลังสั่งซื้อ" (เคสจริง 22/10/2026: LBPO26080510 ถูกลบใน ATMS แต่ยังโผล่ 10 ชิ้นให้ LB05AE00528)
+ *  วิธีดู: ทุกรอบ pipeline เขียน scraped_at ใหม่ให้ทุกใบที่ยังเห็นในหน้าต่างของมัน (วันที่ใบ >= fromDate)
+ *  ใบในหน้าต่างที่ scraped_at เก่ากว่าทั้ง PO_GONE_AFTER_RUNS รอบล่าสุด = รอบเหล่านั้นไม่เห็นใบนี้ = ถูกลบ
+ *  เทียบกับรอบ ไม่ใช่กับนาฬิกา — pipeline หยุดไปหลายวันก็ไม่ทำให้ตัดใบดีทิ้งทั้งกอง
+ *  ใบเก่ากว่าหน้าต่างตรวจไม่ได้ (ไม่มีรอบไหนดึงซ้ำ) จึงปล่อยไว้ตามเดิม */
+export function poCodesGoneFromAtms(input: {
+  poHeads: { code: string; date?: string; scrapedAt?: Date | null }[]
+  /** รอบที่ ok เรียงใหม่→เก่า */
+  runs: ProcurementRunRef[]
+}): { gone: Set<string>; inWindow: number; skipped: null | "few-runs" | "no-window" | "too-many" } {
+  const empty = new Set<string>()
+  const runs = input.runs.filter((r) => r.poSeen > 0).slice(0, PO_GONE_AFTER_RUNS)
+  if (runs.length < PO_GONE_AFTER_RUNS) return { gone: empty, inWindow: 0, skipped: "few-runs" }
+  const starts = runs.map((r) => dmyKey(r.fromDate))
+  if (starts.some((k) => k === null)) return { gone: empty, inWindow: 0, skipped: "no-window" }
+  // ใบต้องอยู่ในหน้าต่างของ "ทุก" รอบที่ใช้ตัดสิน → ใช้วันเริ่มที่ช้าที่สุด
+  const windowStart = Math.max(...(starts as number[]))
+  const cutoff = Math.min(...runs.map((r) => r.startedAt.getTime()))
+  const gone = new Set<string>()
+  let inWindow = 0
+  for (const p of input.poHeads) {
+    const k = dmyKey(p.date)
+    if (k === null || k < windowStart) continue
+    inWindow++
+    const t = p.scrapedAt instanceof Date ? p.scrapedAt.getTime() : NaN
+    if (!(t >= cutoff)) gone.add(p.code)
+  }
+  if (gone.size > PO_GONE_MAX_SHARE * inWindow) return { gone: empty, inWindow, skipped: "too-many" }
+  return { gone, inWindow, skipped: null }
+}
+
 /** "กำลังสั่งซื้อ" รายรหัสสินค้าของคลังหนึ่ง — ตรรกะล้วน ไม่แตะ DB (ผู้เรียกดึงข้อมูลมาให้ครบ)
  *
  *  นิยาม (ตกลงกับผู้ใช้ 21/10/2026 — เลิกนับจาก PR): ของกำลังมา = ออก PO แล้วแต่ยังรับเข้าไม่ครบ

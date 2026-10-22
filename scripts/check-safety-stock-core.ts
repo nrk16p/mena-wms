@@ -6,7 +6,7 @@ import {
   median, stdev, aduFrom, sdDailyFrom, safetyStockOf, reorderPointOf,
   daysOfSupplyOf, statusOf, minVerdictOf, suggestQtyOf, derive, mergeWarehouseResults,
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
-  openPoQtyBySku, openPrQtyBySku, onOrderCodes, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, isCrossBranchDoc, ON_ORDER_MAX_AGE_DAYS,
+  openPoQtyBySku, openPrQtyBySku, poCodesGoneFromAtms, onOrderCodes, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, isCrossBranchDoc, ON_ORDER_MAX_AGE_DAYS,
   isPoOutstanding, isPrClosed, runSlotStatus, fmtMovementDate,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow, type OnOrder,
@@ -599,6 +599,50 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   assert.equal(fmtMovementDate("2026-09-15"), "15/09/69")
   assert.equal(fmtMovementDate(null), "")
   assert.equal(fmtMovementDate("ไม่ใช่วันที่"), "ไม่ใช่วันที่")
+}
+
+// --- PO ที่ถูกลบใน ATMS: หายจาก 3 รอบดึงข้อมูลล่าสุด (poCodesGoneFromAtms) ---
+{
+  const h = 3_600_000
+  const t0 = Date.UTC(2026, 9, 22, 6, 0)
+  const run = (hoursAgo: number, fromDate = "01/08/2026", poSeen = 1200) => ({ startedAt: new Date(t0 - hoursAgo * h), fromDate, poSeen })
+  const runs = [run(0), run(4), run(8), run(12)]
+  const seen = new Date(t0 + 5 * 60_000)              // รอบล่าสุดเพิ่งเขียน
+  const lastMonth = new Date(Date.UTC(2026, 8, 21))   // เห็นครั้งสุดท้าย 21/09 = เคส LBPO26080510
+  const ok = (i: number) => ({ code: `LBPO2608${String(i).padStart(4, "0")}`, date: "20/08/2026", scrapedAt: seen })
+  const heads = [...Array.from({ length: 9 }, (_, i) => ok(i)),
+    { code: "LBPO26080510", date: "15/08/2026", scrapedAt: lastMonth }]
+  const r = poCodesGoneFromAtms({ poHeads: heads, runs })
+  assert.deepEqual([...r.gone], ["LBPO26080510"], "ใบที่ 3 รอบล่าสุดไม่เห็น = ถูกลบใน ATMS")
+  assert.equal(r.skipped, null)
+  assert.equal(r.inWindow, 10)
+
+  // เห็นแค่รอบที่ 3 (เก่าสุดในชุดตัดสิน) ยังนับว่ายังอยู่ — ต้องหายติดกันครบ 3 รอบ
+  const inRun3 = new Date(t0 - 8 * h + 60_000)
+  assert.equal(poCodesGoneFromAtms({ poHeads: [...heads.slice(0, 9), { ...heads[9], scrapedAt: inRun3 }], runs }).gone.size, 0)
+
+  // ใบเก่ากว่าหน้าต่าง (ไม่มีรอบไหนดึงซ้ำ) ตรวจไม่ได้ → ห้ามตัด
+  assert.equal(poCodesGoneFromAtms({ poHeads: [...heads.slice(0, 9), { ...heads[9], date: "25/07/2026" }], runs }).gone.size, 0)
+  // หน้าต่างเลื่อนเดือน: ใช้วันเริ่มที่ช้าที่สุดในชุด → ใบ ส.ค. ไม่ถูกตัดตอนที่รอบใหม่ดึงจาก 01/09
+  const rolled = [run(0, "01/09/2026"), run(4), run(8)]
+  assert.equal(poCodesGoneFromAtms({ poHeads: heads, runs: rolled }).gone.size, 0)
+
+  // รอบที่ไม่เห็น PO เลย (session หลุด) ไม่นับเป็นรอบตัดสิน
+  const broken = [run(0, "01/08/2026", 0), run(4), run(8)]
+  assert.equal(poCodesGoneFromAtms({ poHeads: heads, runs: broken }).skipped, "few-runs")
+  // pipeline หยุดไปนาน ทุกใบ scraped_at เก่าเท่ากันหมด → ไม่ตัดใบดีทิ้งทั้งกอง
+  const stalled = runs.map((x) => ({ ...x, startedAt: new Date(x.startedAt.getTime() - 72 * h) }))
+  const stalledHeads = heads.map((p) => ({ ...p, scrapedAt: new Date(t0 - 72 * h + 60_000) }))
+  assert.equal(poCodesGoneFromAtms({ poHeads: stalledHeads, runs: stalled }).gone.size, 0)
+  // หายเกิน 25% = รอบดึงผิดปกติ ไม่ตัดอะไร
+  const many = heads.map((p, i) => (i < 4 ? { ...p, scrapedAt: lastMonth } : p))
+  const rm = poCodesGoneFromAtms({ poHeads: many, runs })
+  assert.equal(rm.skipped, "too-many"); assert.equal(rm.gone.size, 0)
+  // ไม่มีรอบ/รอบไม่พอ/วันที่อ่านไม่ออก → ไม่ตัด
+  assert.equal(poCodesGoneFromAtms({ poHeads: heads, runs: [] }).skipped, "few-runs")
+  assert.equal(poCodesGoneFromAtms({ poHeads: heads, runs: [run(0, "?"), run(4), run(8)] }).skipped, "no-window")
+  // ไม่มี scraped_at ในหน้าต่าง = ไม่เคยถูกยืนยันว่ายังอยู่ → ถือว่าหาย
+  assert.ok(poCodesGoneFromAtms({ poHeads: [...heads.slice(0, 9), { ...heads[9], scrapedAt: null }], runs }).gone.has("LBPO26080510"))
 }
 
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")

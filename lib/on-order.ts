@@ -9,7 +9,8 @@
 // ถ้าปล่อยไว้ใน safety-stock-build แล้วให้ deadstock เรียก จะกลายเป็น import วน deadstock → build → deadstock
 import type { Db } from "mongodb"
 import {
-  openPoQtyBySku, openPrQtyBySku, ageDaysFromDmy, ON_ORDER_MAX_AGE_DAYS, WAREHOUSES, type OnOrder, type OpenPrOrder,
+  openPoQtyBySku, openPrQtyBySku, poCodesGoneFromAtms, ageDaysFromDmy, ON_ORDER_MAX_AGE_DAYS, WAREHOUSES,
+  type OnOrder, type OpenPrOrder, type ProcurementRunRef,
 } from "@/lib/safety-stock-core"
 
 const PR_KEY = "ใบขอสั่งซื้อ (PR)"
@@ -27,15 +28,42 @@ const MAX_TIME_MS = 20_000
 const s = (v: unknown) => String(v ?? "")
 const n = (v: unknown) => (v === null || v === undefined || v === "" ? undefined : Number(v))
 
+/** ผลตรวจ PO ที่ถูกลบใน ATMS — ส่ง object เข้ามาถ้าอยากรู้ (probe ใช้) */
+export type OnOrderDiag = { goneCodes: string[]; goneSkipped: string | null; inWindow: number }
+
+/** รอบดึงข้อมูลจัดซื้อล่าสุดที่จบสำเร็จ — collection เล็ก (ไม่กี่รอบต่อวัน) ดึงแค่ 10 รอบ
+ *  อ่านไม่ได้ = คืน [] → poCodesGoneFromAtms ข้ามการตรวจ (นับทุกใบเหมือนเดิม ดีกว่าตัดผิด) */
+async function recentProcurementRuns(atms: Db): Promise<ProcurementRunRef[]> {
+  try {
+    const docs = (await atms.collection("procurement_runs")
+      .find({ ok: true }, { maxTimeMS: MAX_TIME_MS })
+      .sort({ created_at: -1 }).limit(10)
+      .project({ _id: 0, started_at: 1, from_date: 1, "counts.purchase_orders": 1 })
+      .toArray()) as Record<string, unknown>[]
+    return docs.flatMap((d) => {
+      const po = ((d.counts as Record<string, unknown> | undefined)?.purchase_orders ?? {}) as Record<string, unknown>
+      const startedAt = d.started_at instanceof Date ? d.started_at : null
+      return startedAt
+        ? [{ startedAt, fromDate: s(d.from_date), poSeen: Number(po.inserted ?? 0) + Number(po.updated ?? 0) }]
+        : []
+    })
+  } catch {
+    return []
+  }
+}
+
 /** "กำลังสั่งซื้อ" รายรหัสสินค้าของคลังหนึ่ง = บรรทัด PO ที่ยังค้างรับ (ดู openPoQtyBySku)
+ *  ใบที่ถูกลบใน ATMS แล้วแต่ยังค้างในสำเนาถูกตัดออกก่อน (ดู poCodesGoneFromAtms)
  *
- *  3 query ที่ bounded ทั้งหมด:
+ *  3 query ที่ bounded ทั้งหมด (+ procurement_runs 10 แถว):
  *   1) purchase_orders ที่สถานะยังค้างรับ + ปีไม่เก่ากว่ากรอบอายุ — สถานะไม่มี index (collscan ~13k doc)
  *      ยอมรับได้ที่ขนาดนี้เหมือนรุ่นก่อน · กรองอายุละเอียดฝั่ง JS เพราะวันที่เป็นสตริง "DD/MM/YYYY"
  *   2) purchase_requests ของ PR ที่ PO อ้างถึง (มี index ที่ PR_KEY) — ใช้แค่กรองอะไหล่ลงคัน/อนุมัติ/ยกเลิก + คลังสำรอง
  *   3) purchase_order_items ของ PO ที่เหลือ
  *  พังตรงไหนก็คืน Map ว่าง ไม่ล้มทั้ง build — ของที่กำลังมาเป็นข้อมูลเสริม */
-export async function fetchOnOrderBySku(atms: Db, inventoryId: string, asOf: Date): Promise<Map<string, OnOrder>> {
+export async function fetchOnOrderBySku(
+  atms: Db, inventoryId: string, asOf: Date, diag?: OnOrderDiag,
+): Promise<Map<string, OnOrder>> {
   const warehouseName = WAREHOUSES.find((w) => w.id === inventoryId)?.name ?? ""
   if (!warehouseName) return new Map()
   try {
@@ -45,15 +73,22 @@ export async function fetchOnOrderBySku(atms: Db, inventoryId: string, asOf: Dat
         [PO_RECEIVE_STATUS_KEY]: { $regex: "บางส่วน|ยังไม่ได้รับ" },
         $expr: { $gte: [{ $substrCP: [`$${DATE_KEY}`, 6, 4] }, minYear] },
       }, { maxTimeMS: MAX_TIME_MS })
-      .project({ _id: 0, [PO_KEY]: 1, [PR_KEY]: 1, [PO_RECEIVE_STATUS_KEY]: 1, [DATE_KEY]: 1 })
+      .project({ _id: 0, [PO_KEY]: 1, [PR_KEY]: 1, [PO_RECEIVE_STATUS_KEY]: 1, [DATE_KEY]: 1, scraped_at: 1 })
       .toArray()) as Record<string, unknown>[]
-    const poHeads = poHeadDocs
-      .map((d) => ({ code: s(d[PO_KEY]), prCode: s(d[PR_KEY]), receiveStatus: s(d[PO_RECEIVE_STATUS_KEY]), date: s(d[DATE_KEY]) }))
+    const fresh = poHeadDocs
+      .map((d) => ({
+        code: s(d[PO_KEY]), prCode: s(d[PR_KEY]), receiveStatus: s(d[PO_RECEIVE_STATUS_KEY]), date: s(d[DATE_KEY]),
+        scrapedAt: d.scraped_at instanceof Date ? d.scraped_at : null,
+      }))
       .filter((p) => {
         if (!p.code) return false
         const age = ageDaysFromDmy(p.date, asOf)
         return age !== null && age >= 0 && age <= ON_ORDER_MAX_AGE_DAYS
       })
+    const check = poCodesGoneFromAtms({ poHeads: fresh, runs: await recentProcurementRuns(atms) })
+    if (diag) Object.assign(diag, { goneCodes: [...check.gone], goneSkipped: check.skipped, inWindow: check.inWindow })
+    if (check.skipped === "too-many") console.warn("[on-order] PO หายจาก ATMS เกินเกณฑ์ ไม่ตัด — รอบดึงข้อมูลน่าจะผิดปกติ", inventoryId)
+    const poHeads = fresh.filter((p) => !check.gone.has(p.code))
     if (!poHeads.length) return new Map()
 
     const prCodes = [...new Set(poHeads.map((p) => p.prCode).filter(Boolean))]
