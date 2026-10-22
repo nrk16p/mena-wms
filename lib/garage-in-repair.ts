@@ -35,6 +35,24 @@ const daysSince = (ymd: string) => {
   return Math.max(0, Math.round((Date.parse(today) - Date.parse(ymd.slice(0, 10))) / 86400_000))
 }
 
+/** จับคู่ชื่ออู่ในใบซ่อม → อู่ในหน้าหาอู่ (/vendors/map) · ใช้ทั้งรายการรถที่อยู่อู่ และเบอร์โทรอู่ในหน้า repair-external
+ *  ชื่อตรงกันก่อน · ไม่ตรงค่อยเทียบชื่อย่อ (สะกดต่าง/ชื่อนิติบุคคล) และเอาเฉพาะที่เจอแค่อู่เดียว กันจับมั่ว */
+export function garageMatcher<T extends { name: string }>(garages: T[]): (name: string) => T | null {
+  const byKey = new Map(garages.map((g) => [garageKey(g.name), g]))
+  return (name: string) => {
+    if (!name.trim()) return null
+    const exact = byKey.get(garageKey(name))
+    if (exact) return exact
+    const near = garages.filter((g) => sameGarage(g.name, name))
+    if (near.length === 1) return near[0]
+    // ชื่อสั้นที่ sameGarage ไม่จับ (ตัดคำแล้วเหลือไม่ถึง 3 ตัว) เช่น "นายณรงค์ (อู่ จ.การช่าง)" ↔ "จ.การช่าง"
+    // ต้องเหมือนกันทั้งชื่อหลังตัดช่องว่าง/จุด/คำว่าอู่ และเจอแค่อู่เดียว
+    const keys = compactKeys(name)
+    const same = garages.filter((g) => compactKeys(g.name).some((k) => keys.includes(k)))
+    return same.length === 1 ? same[0] : null
+  }
+}
+
 export async function getCarsInRepair(): Promise<InRepairCar[]> {
   const [garages, docs] = await Promise.all([
     getGarages(),
@@ -44,20 +62,8 @@ export async function getCarsInRepair(): Promise<InRepairCar[]> {
         { projection: { _id: 0, plate: 1, fleetNo: 1, plant: 1, status: 1, symptom: 1, receivedDate: 1, garageInDate: 1, garage: 1 } })
       .toArray(),
   ])
-  const byKey = new Map(garages.map((g) => [garageKey(g.name), g.name]))
-  const matchName = (name: string) => {
-    if (!name.trim()) return null
-    // ชื่อตรงกันก่อน · ไม่ตรงค่อยเทียบชื่อย่อ (สะกดต่าง/ชื่อนิติบุคคล) และเอาเฉพาะที่เจอแค่อู่เดียว กันจับมั่ว
-    const exact = byKey.get(garageKey(name))
-    if (exact) return exact
-    const near = garages.filter((g) => sameGarage(g.name, name))
-    if (near.length === 1) return near[0].name
-    // ชื่อสั้นที่ sameGarage ไม่จับ (ตัดคำแล้วเหลือไม่ถึง 3 ตัว) เช่น "นายณรงค์ (อู่ จ.การช่าง)" ↔ "จ.การช่าง"
-    // ต้องเหมือนกันทั้งชื่อหลังตัดช่องว่าง/จุด/คำว่าอู่ และเจอแค่อู่เดียว
-    const keys = compactKeys(name)
-    const same = garages.filter((g) => compactKeys(g.name).some((k) => keys.includes(k)))
-    return same.length === 1 ? same[0].name : null
-  }
+  const match = garageMatcher(garages)
+  const matchName = (name: string) => match(name)?.name ?? null
   return docs.map((d) => {
     const since = jobStartDate(d as { receivedDate?: string; garageInDate?: string })
     const garage = String(d.garage ?? "").trim()

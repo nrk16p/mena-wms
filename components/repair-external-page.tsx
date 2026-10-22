@@ -465,6 +465,24 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
   // ข้อความ "เกิดอะไรขึ้น" ของอัพเดทงานในหน้ารายละเอียด
   const [updNote, setUpdNote] = useState("")
   const [form, setForm]     = useState<Omit<RepairExternal, "_id">>(EMPTY)
+  // เบอร์โทรอู่ของใบที่เปิดอยู่ — ชุดเดียวกับหน้าหาอู่ /vendors/map (ผู้ใช้สั่ง 22/10/2569)
+  // คีย์ = ชื่ออู่ · "" = ไม่มีเบอร์/จับคู่ไม่ได้ · ไม่มีคีย์ = ยังไม่ได้ถาม
+  const [garagePhones, setGaragePhones] = useState<Record<string, string>>({})
+  const phoneGarage = editId ? (form.garage ?? "").trim() : ""
+  useEffect(() => {
+    if (!phoneGarage || phoneGarage in garagePhones) return
+    const ac = new AbortController()
+    // หน่วงนิด กันยิงถี่ตอนเปลี่ยนอู่ในฟอร์ม · setState อยู่ใน callback ไม่ใช่ตัว effect (กติกา lint ของรีโป)
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/garages/phone?name=${encodeURIComponent(phoneGarage)}`, { signal: ac.signal })
+        if (!res.ok) return   // โหลดไม่ได้ ≠ ไม่มีเบอร์ — ไม่จำผลไว้ เปิดใบใหม่จะถามอีกรอบ
+        const d = await res.json()
+        setGaragePhones((m) => ({ ...m, [phoneGarage]: String(d?.phone ?? "").trim() }))
+      } catch { /* ถูกยกเลิก/เน็ตพัง — ไม่โชว์เบอร์ ไม่กวนงานหลัก */ }
+    }, 250)
+    return () => { clearTimeout(t); ac.abort() }
+  }, [phoneGarage, garagePhones])
   const [saving, setSaving] = useState(false)
   const [origStatus, setOrigStatus] = useState("")  // สถานะเดิมของรายการ (ล็อกถ้ารถเสร็จ)
   const [editRow, setEditRow] = useState<RepairExternal | null>(null)  // record ที่กำลังแก้ (ใช้กับปุ่มประวัติ/ลบในฟอร์ม)
@@ -2697,6 +2715,16 @@ export function RepairExternalPage({ mode = "active" }: { mode?: Mode }) {
                   <div className={cell}>
                     <p className={cap}>{isParts ? "อู่ / ร้าน" : "อู่ซ่อม"}</p>
                     <p className="truncate text-[13px] font-semibold leading-tight text-[#14271C] dark:text-white" title={form.garage}>{form.garage || "—"}</p>
+                    {/* เบอร์โทรอู่ใต้ชื่อ (ผู้ใช้สั่ง 22/10/2569) — แหล่งเดียวกับหน้าหาอู่ กดแล้วโทรได้เลยบนมือถือ */}
+                    {!!form.garage?.trim() && (() => {
+                      const ph = garagePhones[form.garage.trim()]
+                      if (ph === undefined) return <p className="text-[11px] text-[#C6CFC9]">…</p>
+                      if (!ph) return <p className="truncate text-[11px] text-[#9AA8A0]">ยังไม่มีเบอร์</p>
+                      const tel = ((ph.match(/0\d[\d\- ]{7,12}/) ?? [""])[0]).replace(/\D/g, "")
+                      return tel.length >= 9
+                        ? <a href={`tel:${tel}`} title={`โทร ${ph}`} className="block truncate text-[12px] font-semibold text-[#1B8C4B] hover:underline dark:text-emerald-300">📞 {ph}</a>
+                        : <p className="truncate text-[12px] text-[#5B7568] dark:text-gray-400" title={ph}>📞 {ph}</p>
+                    })()}
                     <p className="truncate font-mono text-[11px] text-[#5B7568] dark:text-gray-400" title={form.mrNo}>{form.mrNo || "ไม่มี MR"}</p>
                   </div>
                 </div>
