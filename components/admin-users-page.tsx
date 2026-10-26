@@ -358,7 +358,7 @@ function AccessDrawer({
   }, [onClose])
 
   // ตัวอย่างสิทธิ์ที่จะได้จริงหลังบันทึก
-  const preview = accessFor({ department: user.department, email: user.email, overrides: draft })
+  const preview = accessFor({ department: user.department, departmentId: user.departmentId, email: user.email, overrides: draft })
   const dirty = diffOverrides(user.overrides, draft).length > 0
 
   const setLevel = (s: Section, v: "" | Level) => {

@@ -138,7 +138,7 @@ export const authOptions: NextAuthOptions = {
         if (token.sub) (session.user as { id?: string }).id = token.sub
         session.user.employee = token.employee
         session.apiAuthError = token.apiAuthError
-        session.user.access = accessFor({ department: token.employee?.department, email: token.email, overrides: token.accessOverrides as Overrides })
+        session.user.access = accessFor({ department: token.employee?.department, departmentId: token.employee?.department_id, email: token.email, overrides: token.accessOverrides as Overrides })
         session.user.isSuperAdmin = isSuperAdmin(token.email)
       }
       return session

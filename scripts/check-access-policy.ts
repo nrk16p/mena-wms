@@ -39,6 +39,21 @@ for (const d of ["Chief-Level", "Compliance", "Company Secretary & Compliance"])
 // ชื่อแผนกเทียบแบบไม่สนตัวพิมพ์/ช่องว่างหัวท้าย
 assert.equal(u("  procurement ")["safety-stock"], "edit")
 
+// 1b. department_id มาก่อนชื่อ — HR เปลี่ยนชื่อแผนก 2026-10-25 แต่สิทธิ์ต้องไม่หลุด
+const byId = (departmentId: number, department: string | null = "ชื่อที่ไม่อยู่ในตาราง") =>
+  accessFor({ department, departmentId, email: "someone@menatransport.co.th" })
+for (const id of [3, 25, 26, 27]) assert.deepEqual(byId(id), u("ยานยนต์"), `dept ${id}`)
+for (const id of [5, 31]) assert.deepEqual(byId(id), u("Procurement"), `dept ${id}`)
+for (const id of [8, 11, 15, 19, 20, 28, 29, 30, 32]) assert.deepEqual(byId(id), u("Operation Support"), `dept ${id}`)
+assert.deepEqual(byId(17), u("Compliance"))
+assert.deepEqual(byId(21), u("Information Technology"))
+// id ไม่อยู่ในตาราง → ใช้ชื่อสำรอง · ชื่อเดิมและชื่อใหม่ได้สิทธิ์เท่ากัน
+assert.deepEqual(byId(999, "Procurement"), u("Procurement"))
+assert.deepEqual(byId(7, "Compensation & Benefits"), u(null))
+assert.deepEqual(u("Engineering and Maintenance"), u("ยานยนต์"))
+assert.deepEqual(u("Delivery Service"), u("จัดส่งลาดกระบัง"))
+assert.deepEqual(u("Store"), u("Procurement"))
+
 // 2. แผนกที่ไม่อยู่ในตาราง / ไม่มีข้อมูล HR → ทั่วไป
 const general = u("Compensation & Benefits")
 assert.deepEqual(u(null), general)

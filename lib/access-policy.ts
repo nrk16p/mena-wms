@@ -2,7 +2,9 @@
 //
 // ตรรกะล้วน ไม่แตะ DB/React — ใช้ร่วมกันทั้ง middleware (edge), server และ browser
 //   • สิทธิ์ต่อส่วนงานมี 3 ระดับ: none (ไม่เห็น) · view (ดูอย่างเดียว) · edit (แก้ได้)
-//   • ที่มา: แผนกจาก HR → ตาราง DEPT_POLICY · ไม่อยู่ในตาราง/ไม่มีข้อมูล → ทั่วไป
+//   • ที่มา: แผนกจาก HR → department_id (DEPT_POLICY_BY_ID) ก่อน · ไม่มี id ค่อยเทียบชื่อ (DEPT_POLICY)
+//     · ไม่อยู่ในตาราง/ไม่มีข้อมูล → ทั่วไป
+//     (ชื่อแผนกเปลี่ยนได้ตลอด — HR เปลี่ยนชื่อชุดใหญ่ 2026-10-25 จนสิทธิ์หลุด จึงยึด id เป็นหลัก)
 //   • IT / admin / superadmin → edit ทุกส่วน · superadmin ตั้งทับรายคนได้ (overrides)
 //   • ผู้ตรวจสอบภายนอก (lib/external-auditors.ts) → เท่าจัดซื้อแต่ดูอย่างเดียว · หมดอายุ = ไม่เห็นอะไรเลย
 import { isAdmin, isSuperAdmin } from "./roles"
@@ -41,48 +43,97 @@ const ACCOUNTING_FINANCE = row({
   deadstock: "view", repair: "view",
 })
 
+const VEHICLE = row({
+  // ของค้างคลัง: ยานยนต์แก้ได้ (ผู้ใช้สั่ง 2026-10-07) · Safety Stock ยังดูอย่างเดียว
+  sku: "edit", pr: "edit", "price-compare": "view", vendor: "edit", "safety-stock": "view", deadstock: "edit",
+  tire: "edit", repair: "edit", "driver-handover": "view",
+})
+const PROCUREMENT = row({
+  // เจ้าหนี้: จัดซื้อแก้ได้ (ผู้ใช้สั่ง 2026-10-07) — ปุ่มตรวจผ่าน/ยืนยันจ่ายยังจำกัดบัญชี/การเงินตามเดิม (lib/roles.ts)
+  sku: "edit", pr: "edit", ap: "edit", "price-compare": "edit", vendor: "edit", "safety-stock": "edit",
+  deadstock: "edit", tire: "view", repair: "edit",
+})
+const RECRUITMENT_MASS = row({ "driver-handover": "edit" })
+const IT = all("edit")
+
+// department_id ฝั่ง HR (ncacdb /departments = แผนก ใต้ฝ่าย ตั้งแต่ 2026-10-25)
+// แผนกที่แยกออกมาเมื่อ 2026-10-25 ได้สิทธิ์เท่าแผนกเดิมที่คนย้ายมา (ไม่ให้ใครเสียสิทธิ์จากการปรับโครงสร้าง)
+const DEPT_POLICY_BY_ID: Record<number, Access> = {
+  1: OVERSIGHT,          // ผู้บริหาร
+  3: VEHICLE,            // วิศวกรรมและซ่อมบำรุง (เดิม "ยานยนต์")
+  25: VEHICLE,           // ควบคุมสภาพยานยนต์ ← แยกจาก 3
+  26: VEHICLE,           // บริการยานยนต์ ← แยกจาก 3
+  27: VEHICLE,           // บริการและควบคุมสภาพยานยนต์ (สระบุรี) ← แยกจาก 3
+  4: ACCOUNTING_FINANCE, // การเงิน
+  6: ACCOUNTING_FINANCE, // บัญชี
+  5: PROCUREMENT,        // จัดซื้อจัดจ้าง
+  31: PROCUREMENT,       // สโตร์ ← แยกจาก 5
+  15: DISPATCH,          // บริการจัดส่ง (เดิม "จัดส่งลาดกระบัง")
+  19: DISPATCH,          // พัฒนาประสบการณ์ลูกค้า สระบุรี (เดิม "จัดส่งสระบุรี")
+  20: DISPATCH,          // พัฒนาประสบการณ์ลูกค้า บางปะกง (เดิม "จัดส่งบางปะกง")
+  28: DISPATCH,          // ประสิทธิภาพต้นทุน ← แยกจาก 19
+  11: DISPATCH,          // Operation Support
+  29: DISPATCH,          // Process Excellence ← แยกจาก 11
+  30: DISPATCH,          // อัตราค่าขนส่ง ← แยกจาก 11
+  32: DISPATCH,          // เชื้อเพลิง ← แยกจาก 11
+  8: DISPATCH,           // บริหารจัดการความปลอดภัย (Safety Management)
+  22: RECRUITMENT_MASS,  // สรรหา Mass
+  10: OVERSIGHT,         // สำนักเลขาและงานกำกับดูแลการปฎิบัติงาน
+  17: OVERSIGHT,         // กํากับการปฏิบัติตามข้อกําหนด (Compliance)
+  21: IT,                // เทคโนโลยีสารสนเทศ
+}
+
+// สำรองเมื่อโปรไฟล์ไม่มี department_id (เช่นแถว wms_users เก่า) — เก็บทั้งชื่อเดิมและชื่อหลัง 2026-10-25
 const DEPT_POLICY: Record<string, Access> = {
-  "ยานยนต์": row({
-    // ของค้างคลัง: ยานยนต์แก้ได้ (ผู้ใช้สั่ง 2026-10-07) · Safety Stock ยังดูอย่างเดียว
-    sku: "edit", pr: "edit", "price-compare": "view", vendor: "edit", "safety-stock": "view", deadstock: "edit",
-    tire: "edit", repair: "edit", "driver-handover": "view",
-  }),
-  "procurement": row({
-    // เจ้าหนี้: จัดซื้อแก้ได้ (ผู้ใช้สั่ง 2026-10-07) — ปุ่มตรวจผ่าน/ยืนยันจ่ายยังจำกัดบัญชี/การเงินตามเดิม (lib/roles.ts)
-    sku: "edit", pr: "edit", ap: "edit", "price-compare": "edit", vendor: "edit", "safety-stock": "edit",
-    deadstock: "edit", tire: "view", repair: "edit",
-  }),
+  "ยานยนต์": VEHICLE,
+  "engineering and maintenance": VEHICLE,
+  "condition control": VEHICLE,
+  "vehicle services": VEHICLE,
+  "vehicle services and condition control": VEHICLE,
+  "procurement": PROCUREMENT,
+  "store": PROCUREMENT,
   "accounting": ACCOUNTING_FINANCE,
   "finance": ACCOUNTING_FINANCE,
   "จัดส่งลาดกระบัง": DISPATCH,
   "จัดส่งสระบุรี": DISPATCH,
   "จัดส่งบางปะกง": DISPATCH,
+  "delivery service": DISPATCH,
+  "customer experience (srb)": DISPATCH,
+  "customer experience (bpk)": DISPATCH,
+  "fleet cost optimization": DISPATCH,
   "operation support": DISPATCH,
+  "process excellence": DISPATCH,
+  "freight rate": DISPATCH,
+  "fuel control": DISPATCH,
   "safety management": DISPATCH,
-  "recruitment - mass": row({ "driver-handover": "edit" }),
+  "recruitment - mass": RECRUITMENT_MASS,
+  "human resources [mass]": RECRUITMENT_MASS,
   "chief-level": OVERSIGHT,
   "compliance": OVERSIGHT,
+  "safety standards [compliance]": OVERSIGHT,
   "company secretary & compliance": OVERSIGHT,
-  "information technology": all("edit"),
+  "information technology": IT,
+  "it": IT,
 }
 
 const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase()
 
 /** สิทธิ์ตามแผนกอย่างเดียว (ยังไม่รวม admin / override) — ใช้แสดงบนหน้า superadmin */
-export function departmentAccess(department: string | null | undefined): Access {
-  return { ...(DEPT_POLICY[norm(department)] ?? GENERAL) }
+export function departmentAccess(department: string | null | undefined, departmentId?: number | null): Access {
+  const byId = departmentId != null ? DEPT_POLICY_BY_ID[Number(departmentId)] : undefined
+  return { ...(byId ?? DEPT_POLICY[norm(department)] ?? GENERAL) }
 }
 
 export type Overrides = Partial<Record<Section, Level>>
 
-export function accessFor(p: { department?: string | null; email?: string | null; overrides?: Overrides | null; now?: number }): Access {
+export function accessFor(p: { department?: string | null; departmentId?: number | null; email?: string | null; overrides?: Overrides | null; now?: number }): Access {
   if (isSuperAdmin(p.email) || isAdmin(p.email)) return all("edit")
   if (isExternalAuditor(p.email)) {
     if (!auditorActive(p.email, p.now)) return all("none")
     const proc = departmentAccess("procurement")
     return Object.fromEntries(SECTIONS.map((s) => [s, proc[s] === "none" ? "none" : "view"])) as Access
   }
-  const a = departmentAccess(p.department)
+  const a = departmentAccess(p.department, p.departmentId)
   for (const [s, lv] of Object.entries(p.overrides ?? {})) {
     if ((SECTIONS as readonly string[]).includes(s) && isLevel(lv)) a[s as Section] = lv
   }

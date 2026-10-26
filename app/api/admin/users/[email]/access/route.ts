@@ -35,7 +35,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const user = await db.collection(WMS_USERS_COLL).findOne({ email }, { projection: { _id: 0 } })
     if (!user) return NextResponse.json({ error: "ไม่พบผู้ใช้นี้ (ต้องเข้า WMS อย่างน้อย 1 ครั้งก่อน)" }, { status: 404 })
 
-    const norm = normalizeOverrides(input, user.department as string | null)
+    const norm = normalizeOverrides(input, user.department as string | null, user.departmentId as number | null | undefined)
     if (!norm.ok) return NextResponse.json({ error: norm.error }, { status: 400 })
     const after = norm.overrides
 

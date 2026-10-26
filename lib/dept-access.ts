@@ -6,7 +6,7 @@
 // หนึ่งแผนก HR จึงกินหลายรายการของ ATMS (กระจายตามสาขา) → ตัดให้เหลือเฉพาะสาขาตัวเองอีกชั้น
 //
 // กติกา: เห็นเฉพาะ "แผนกตัวเอง + สาขาตัวเอง"
-//        ยกเว้น department_id 1 (ผู้บริหาร), 5 (จัดซื้อจัดจ้าง) และ role = admin → ทุกแผนก ทุกสาขา
+//        ยกเว้น department_id 1 (ผู้บริหาร), 5 (จัดซื้อจัดจ้าง), 31 (สโตร์ แยกจาก 5) และ role = admin → ทุกแผนก ทุกสาขา
 //
 // ใช้ที่: /order-tracking — ทั้งฝั่ง server (API) และ client (dropdown)
 
@@ -20,8 +20,8 @@ export type HrDepartment = {
   atms: string[]
 }
 
-/** department_id ที่เห็นได้ทุกแผนก — ผู้บริหาร (1) และจัดซื้อจัดจ้าง (5) */
-export const FULL_ACCESS_DEPT_IDS = new Set([1, 5])
+/** department_id ที่เห็นได้ทุกแผนก — ผู้บริหาร (1), จัดซื้อจัดจ้าง (5) และสโตร์ (31 แยกจาก 5 เมื่อ 2026-10-25) */
+export const FULL_ACCESS_DEPT_IDS = new Set([1, 5, 31])
 
 export const HR_DEPARTMENTS: HrDepartment[] = [
   {
@@ -37,13 +37,7 @@ export const HR_DEPARTMENTS: HrDepartment[] = [
       "ลาดกระบัง : วิเคราะห์เชื้อเพลิง(ศลบ)",
     ]
   },
-  {
-    id: 3, name: "ยานยนต์", atms: [
-      "ขอนแก่น : ยานยนต์ (ศขก)",
-      "ลาดกระบัง : ยานยนต์ (ศลบ)",
-      "สระบุรี : ยานยนต์ (สสบ)",
-    ]
-  },
+  { id: 3, name: "ยานยนต์", atms: VEHICLE_SITE_DEPTS() },
   {
     id: 4, name: "การเงิน", atms: [
       "กรุงเทพฯ : บัญชีการเงิน (สกท)",
@@ -94,7 +88,26 @@ export const HR_DEPARTMENTS: HrDepartment[] = [
   { id: 19, name: "จัดส่งสระบุรี", atms: ["สระบุรี : บริการจัดส่ง (สระบุรี)"] },
   { id: 20, name: "จัดส่งบางปะกง", atms: ["บางปะกง : จัดส่ง (บางปะกง)"] },
   { id: 21, name: "เทคโนโลยีสารสนเทศ", atms: ["กรุงเทพฯ : เทคโนโลยีสารสนเทศ"] },
+  // แผนกที่แยกออกมาเมื่อ 2026-10-25 (HR ปรับ departments เป็นระดับแผนก) → เห็นชุด ATMS ของแผนกเดิม
+  { id: 25, name: "แผนกควบคุมสภาพยานยนต์", atms: VEHICLE_SITE_DEPTS() },
+  { id: 26, name: "แผนกบริการยานยนต์", atms: VEHICLE_SITE_DEPTS() },
+  { id: 27, name: "แผนกบริการและควบคุมสภาพยานยนต์", atms: VEHICLE_SITE_DEPTS() },
+  { id: 28, name: "แผนกประสิทธิภาพต้นทุน", atms: ["สระบุรี : บริการจัดส่ง (สระบุรี)"] },
+  { id: 29, name: "แผนก Process Excellence", atms: ["กรุงเทพฯ : Operation Support"] },
+  { id: 30, name: "แผนกอัตราค่าขนส่ง", atms: ["กรุงเทพฯ : Operation Support"] },
+  { id: 31, name: "แผนกสโตร์", atms: [] }, // เห็นทุกแผนกผ่าน FULL_ACCESS_DEPT_IDS
+  { id: 32, name: "แผนกเชื้อเพลิง", atms: ["กรุงเทพฯ : Operation Support"] },
+  { id: 33, name: "แผนกแรงงานสัมพันธ์", atms: HR_SITE_DEPTS() },
+  { id: 34, name: "แผนกพัฒนาองค์กร", atms: HR_SITE_DEPTS() },
 ]
+
+function VEHICLE_SITE_DEPTS() {
+  return [
+    "ขอนแก่น : ยานยนต์ (ศขก)",
+    "ลาดกระบัง : ยานยนต์ (ศลบ)",
+    "สระบุรี : ยานยนต์ (สสบ)",
+  ]
+}
 
 function HR_SITE_DEPTS() {
   return [

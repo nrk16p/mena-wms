@@ -177,7 +177,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // สิทธิ์ตามแผนก (lib/access-policy.ts): ไม่เห็น → บล็อกหน้า + API · ดูอย่างเดียว → บล็อก API ที่เขียนข้อมูล
-  const access = accessFor({ department: token.employee?.department, email: token.email, overrides: token.accessOverrides as Overrides })
+  const access = accessFor({ department: token.employee?.department, departmentId: token.employee?.department_id, email: token.email, overrides: token.accessOverrides as Overrides })
   const decision = checkRequest({ pathname, method: request.method, access, isSuperAdmin: isSuperAdmin(token.email) })
   if (!decision.ok) {
     const label = decision.section === "admin" ? "ผู้ดูแลระบบ" : SECTION_LABELS[decision.section as Section]

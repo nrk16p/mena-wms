@@ -33,7 +33,7 @@ export type NormalizeResult = { ok: true; overrides: Overrides } | { ok: false; 
  * ตรวจ body จากหน้าเว็บ → override ที่จะเก็บจริง
  * null / "" / undefined = "ตามแผนก" (ไม่เก็บ) · ค่าที่เท่ากับสิทธิ์ตามแผนกก็ไม่เก็บ
  */
-export function normalizeOverrides(input: unknown, department: string | null | undefined): NormalizeResult {
+export function normalizeOverrides(input: unknown, department: string | null | undefined, departmentId?: number | null): NormalizeResult {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, error: "overrides ต้องเป็น object {ส่วนงาน: ระดับ}" }
   }
@@ -44,7 +44,7 @@ export function normalizeOverrides(input: unknown, department: string | null | u
     if (v === null || v === undefined || v === "") continue
     if (!isLevel(v)) return { ok: false, error: `ระดับสิทธิ์ของ "${k}" ไม่ถูกต้อง (ต้องเป็น none / view / edit)` }
   }
-  const dept = departmentAccess(department)
+  const dept = departmentAccess(department, departmentId)
   const out: Overrides = {}
   for (const s of SECTIONS) {
     const v = r[s]
@@ -82,6 +82,7 @@ export type WmsUser = {
   name?: string | null
   image?: string | null
   department?: string | null
+  departmentId?: number | null
   siteId?: number | null
   position?: string | null
   employeeId?: string | null
@@ -107,8 +108,8 @@ export function buildUserRow(u: WmsUser, rawOverrides: unknown): AdminUserRow {
   return {
     ...u,
     overrides,
-    departmentAccess: departmentAccess(u.department),
-    effective: accessFor({ department: u.department, email: u.email, overrides }),
+    departmentAccess: departmentAccess(u.department, u.departmentId),
+    effective: accessFor({ department: u.department, departmentId: u.departmentId, email: u.email, overrides }),
     isAdmin: isAdmin(u.email) || isSuperAdmin(u.email),
     isSuperAdmin: isSuperAdmin(u.email),
     lockedReason: overrideBlockedReason(u.email),

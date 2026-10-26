@@ -18,7 +18,7 @@ type TokenLike = {
   email?: string | null
   name?: string | null
   picture?: string | null
-  employee?: { department?: string | null; site_id?: number | null; position?: string | null; employee_id?: string | null } | null
+  employee?: { department?: string | null; department_id?: number | null; site_id?: number | null; position?: string | null; employee_id?: string | null } | null
   accessOverrides?: Record<string, unknown>
   accessAt?: number
 }
@@ -26,7 +26,7 @@ type TokenLike = {
 export type RefreshDeps = {
   now: () => number
   loadOverrides: (email: string) => Promise<Record<string, unknown> | null>
-  touchUser: (u: { email: string; name: string; image: string; department: string | null; siteId: number | null; position: string | null; employeeId: string | null }) => Promise<void>
+  touchUser: (u: { email: string; name: string; image: string; department: string | null; departmentId: number | null; siteId: number | null; position: string | null; employeeId: string | null }) => Promise<void>
 }
 
 const realDeps: RefreshDeps = {
@@ -42,7 +42,7 @@ const realDeps: RefreshDeps = {
     await db.collection(WMS_USERS_COLL).updateOne(
       { email: u.email },
       {
-        $set: { name: u.name, image: u.image, department: u.department, siteId: u.siteId, position: u.position, employeeId: u.employeeId, lastSeenAt: now },
+        $set: { name: u.name, image: u.image, department: u.department, departmentId: u.departmentId, siteId: u.siteId, position: u.position, employeeId: u.employeeId, lastSeenAt: now },
         $setOnInsert: { email: u.email, firstSeenAt: now },
       },
       { upsert: true },
@@ -61,7 +61,7 @@ export async function refreshAccess(token: TokenLike, deps: RefreshDeps = realDe
       deps.loadOverrides(email),
       deps.touchUser({
         email, name: token.name ?? "", image: token.picture ?? "",
-        department: e.department ?? null, siteId: e.site_id ?? null, position: e.position ?? null, employeeId: e.employee_id ?? null,
+        department: e.department ?? null, departmentId: e.department_id ?? null, siteId: e.site_id ?? null, position: e.position ?? null, employeeId: e.employee_id ?? null,
       }),
     ])
     token.accessOverrides = overrides ?? {}
