@@ -18,7 +18,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isPresentationPage = pathname === "/presentation"
   const isPrdPage          = pathname === "/prd"
   // ฟอร์มขอราคาอู่ + ฟอร์มลงทะเบียน Vendor: ไม่มี sidebar/navbar/session guard
+  // + พอร์ทัลเจ้าหนี้ (/vendor-portal) — คนนอกไม่มี session พนักงาน SessionGuard จะเตะออก
   const isVendorPage       = pathname.startsWith("/q/") || pathname === "/form-vendor"
+    || pathname === "/vendor-portal" || pathname.startsWith("/vendor-portal/")
 
   if (isLoginPage || isPresentationPage || isVendorPage) {
     return <div className="w-full h-full">{children}</div>

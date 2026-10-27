@@ -26,7 +26,7 @@ export type VpAccount = {
   tokenVersion: number
   disabled: boolean
   failedCount: number
-  lockedUntil?: string
+  lockedUntil?: string | null
   lastLoginAt?: string
   loginCount: number
   createdAt: string

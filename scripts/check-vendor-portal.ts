@@ -142,6 +142,16 @@ async function checkAuth() {
   assert.equal(auth.VP_MAX_FAILS, 5)
   assert.equal(auth.VP_LOCK_MINUTES, 15)
 
+  // ── ผิด 5 ครั้งล็อก 15 นาที · พ้นเวลาล็อกแล้วนับใหม่
+  const now = "2026-10-27T10:00:00.000Z"
+  assert.equal(auth.vpIsLocked({ lockedUntil: "2026-10-27T10:05:00.000Z" }, now), true)
+  assert.equal(auth.vpIsLocked({ lockedUntil: "2026-10-27T09:59:59.000Z" }, now), false)
+  assert.equal(auth.vpIsLocked({}, now), false)
+  assert.deepEqual(auth.vpFailUpdate({ failedCount: 1 }, now), { failedCount: 2, lockedUntil: null })
+  assert.deepEqual(auth.vpFailUpdate({ failedCount: 4 }, now), { failedCount: 5, lockedUntil: "2026-10-27T10:15:00.000Z" })
+  assert.deepEqual(auth.vpFailUpdate({ failedCount: 5, lockedUntil: "2026-10-27T09:00:00.000Z" }, now), { failedCount: 1, lockedUntil: null })
+  assert.deepEqual(auth.vpFailUpdate({}, now), { failedCount: 1, lockedUntil: null })
+
   console.log("check-vendor-portal: auth ok")
 }
 

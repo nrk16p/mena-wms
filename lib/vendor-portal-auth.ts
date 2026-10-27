@@ -90,3 +90,19 @@ export function vpCookieOptions(maxAgeSec = VP_SESSION_DAYS * 86400) {
     maxAge: maxAgeSec,
   }
 }
+
+// ── กันเดารหัส: ผิด VP_MAX_FAILS ครั้งติด ล็อก VP_LOCK_MINUTES นาที (เวลาเป็น ISO UTC) ────────
+export function vpIsLocked(acc: { lockedUntil?: string | null }, nowISO: string): boolean {
+  return Boolean(acc.lockedUntil) && String(acc.lockedUntil) > nowISO
+}
+
+/** ค่าใหม่หลังใส่รหัสผิด 1 ครั้ง — ล็อกที่หมดเวลาแล้วถือว่าเริ่มนับใหม่ */
+export function vpFailUpdate(
+  acc: { failedCount?: number; lockedUntil?: string | null },
+  nowISO: string,
+): { failedCount: number; lockedUntil: string | null } {
+  const expired = Boolean(acc.lockedUntil) && String(acc.lockedUntil) <= nowISO
+  const n = (expired ? 0 : acc.failedCount ?? 0) + 1
+  if (n < VP_MAX_FAILS) return { failedCount: n, lockedUntil: null }
+  return { failedCount: n, lockedUntil: new Date(Date.parse(nowISO) + VP_LOCK_MINUTES * 60_000).toISOString() }
+}

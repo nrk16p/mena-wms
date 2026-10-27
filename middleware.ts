@@ -50,6 +50,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // พอร์ทัลเจ้าหนี้: คนนอกล็อกอินด้วยบัญชีของตัวเอง (cookie vp_session) — ทุก route ตรวจ session เอง
+  // เทียบเต็มคำเท่านั้น: ห้ามใช้ startsWith("/vendor") เพราะจะเปิด /vendors (ทะเบียนอู่ภายใน) ให้คนนอก
+  if (pathname === "/vendor-portal" || pathname.startsWith("/vendor-portal/") || pathname.startsWith("/api/vendor-portal/")) {
+    return NextResponse.next()
+  }
+
   // ฟอร์มขอราคาอู่ (Vendor RFQ): อู่เปิดจากลิงก์ ไม่มี session — token ในเส้นทางคือสิทธิ์ (ตรวจใน route เอง)
   if (pathname.startsWith("/q/") || pathname.startsWith("/api/q/")) {
     return NextResponse.next()
