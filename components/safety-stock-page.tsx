@@ -9,10 +9,10 @@ import { SafetyStockRunsBar } from "@/components/safety-stock-runs-bar"
 import { swalError, swalToast } from "@/lib/swal"
 import { bkkToday } from "@/lib/bkk-time"
 import {
-  derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID, isCrossBranchDoc, onOrderCodes,
+  derive, STATUS_META, MIN_VERDICT_META, GLOSSARY, Z_BY_SERVICE, WINDOW_MONTHS, WAREHOUSES, INVENTORY_ID, isCrossBranchDoc, onOrderCodes, onOrderCodesText,
   DEFAULT_WINDOW, DEFAULT_Z, LEAD_TIME_DAYS, RECEIPT_HISTORY_MAX,
   type SafetyStockPayload, type SnapshotRow, type WindowKey, type Status,
-  type Derived, type MinVerdict, type LeadTimeSource, type ReceiptEntry,
+  type Derived, type MinVerdict, type LeadTimeSource, type ReceiptEntry, type ReceiptsHidden,
 } from "@/lib/safety-stock-core"
 
 // ── โทนสี/ฟอนต์ — ธีมเดียวกับ components/deadstock-pending-page.tsx (ไม่รองรับ dark mode ตามแบบเดิม) ──
@@ -287,10 +287,13 @@ function UsageMiniChart({ r, months }: { r: SnapshotRow; months: string[] }) {
 /** ประวัติรับเข้ารายครั้ง — หลักฐานเบื้องหลังบรรทัด "เวลารอของจริงที่วัดได้ N วัน (M ครั้ง)" ที่อยู่เหนือมัน
  *  ค่ากลางตัวเดียวบอกไม่ได้ว่า M ครั้งนั้นเกาะกลุ่มที่ N วันจริง หรือมี 3 วันกับ 20 วันปนกันจนค่ากลางไม่มีความหมาย
  *
+ *  ตั้งแต่ 27/10/2026 โชว์เฉพาะของซื้อเข้าสต๊อก (มีเลข PO ไม่ใช่ลงคัน) ที่ซ่อนไปบอกจำนวนไว้ท้ายตาราง
+ *
  *  ดึงตอนเปิดหน้าต่างเท่านั้น ไม่ได้มากับ payload รายการ (ดู /api/safety-stock/sku ว่าทำไม) — อ่าน 1 doc
  *  ด้วย index ที่มีอยู่แล้ว ไม่แตะ stockmovement_v5 */
 function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId: string; unit: string }) {
   const [rows, setRows] = useState<ReceiptEntry[] | null>(null)
+  const [hidden, setHidden] = useState<ReceiptsHidden | null>(null)
   const [failed, setFailed] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
@@ -298,17 +301,37 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
     let cancelled = false
     fetch(`/api/safety-stock/sku?inventory=${inventoryId}&code=${encodeURIComponent(code)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { receipts: ReceiptEntry[] }) => { if (!cancelled) setRows(d.receipts ?? []) })
+      .then((d: { receipts: ReceiptEntry[]; hidden?: ReceiptsHidden | null }) => {
+        if (!cancelled) { setRows(d.receipts ?? []); setHidden(d.hidden ?? null) }
+      })
       .catch(() => { if (!cancelled) setFailed(true) })
     return () => { cancelled = true }
   }, [code, inventoryId])
 
   if (failed) return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>ดึงประวัติรับเข้าไม่สำเร็จ</p>
   if (rows === null) return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>กำลังโหลดประวัติ...</p>
+
+  // ที่ซ่อนไปต้องบอกจำนวน ไม่งั้นคนที่จำได้ว่าของเข้ามาหลายรอบจะคิดว่าข้อมูลหาย
+  const hiddenParts = [
+    hidden?.vehicle ? `อะไหล่ลงคัน ${hidden.vehicle} ครั้ง` : "",
+    hidden?.noPo ? `รับเข้าที่ไม่มีเลข PO ${hidden.noPo} ครั้ง` : "",
+  ].filter(Boolean)
+  const hiddenNote = hiddenParts.length ? `ไม่รวม${hiddenParts.join(" กับ")}` : ""
+  const hiddenTitle = "อะไหล่ลงคัน = PR ต้นทางระบุทะเบียนรถ ซื้อมาเบิกให้คันนั้นเลย ไม่ได้เข้าสต๊อก\n" +
+    "ไม่มีเลข PO = ส่วนใหญ่รับคืนจากใบเบิกหรือโอนคลัง ราคาทุนไม่ใช่ราคาที่ซื้อมา"
+
   if (rows.length === 0) {
-    return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>ไม่มีของเข้าคลังในช่วง 24 เดือนที่ผ่านมา</p>
+    return (
+      <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }} title={hiddenNote ? hiddenTitle : undefined}>
+        {hiddenNote
+          ? `ไม่มีรอบซื้อเข้าสต๊อกในช่วง 24 เดือนที่ผ่านมา (${hiddenNote})`
+          : "ไม่มีของเข้าคลังในช่วง 24 เดือนที่ผ่านมา"}
+      </p>
+    )
   }
 
+  // snapshot รุ่นก่อน 27/10/2026 ยังไม่มีเลข PO และยังไม่ได้กรองลงคัน — โชว์ PR แบบเดิมไปจนกว่า build รอบถัดไป (ทุกชั่วโมง)
+  const legacy = rows.some((r) => r.poCode === undefined)
   const COLLAPSED = 6
   const shown = expanded ? rows : rows.slice(0, COLLAPSED)
   const withLead = rows.filter((r) => r.leadDays !== null).length
@@ -322,7 +345,7 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
           <thead>
             <tr style={{ borderBottom: "1px solid #E5E7EB" }}>
               <th style={{ ...th, textAlign: "left" }}>วันที่รับ</th>
-              <th style={{ ...th, textAlign: "left" }}>ใบ PR</th>
+              <th style={{ ...th, textAlign: "left" }}>{legacy ? "ใบ PR" : "ใบ PO"}</th>
               <th style={th}>จำนวน</th>
               <th style={th}>ราคาทุน/{unit}</th>
               <th style={th}>รอของ</th>
@@ -330,11 +353,15 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
           </thead>
           <tbody>
             {shown.map((r, i) => (
-              <tr key={`${r.date}-${r.prCode ?? ""}-${i}`} style={{ borderBottom: "1px solid #F3F4F6" }}>
+              <tr key={`${r.date}-${r.poCode ?? r.prCode ?? ""}-${i}`} style={{ borderBottom: "1px solid #F3F4F6" }}>
                 <td style={{ ...td, textAlign: "left" }}>{thaiDate(r.date)}</td>
-                <td style={{ ...td, textAlign: "left", color: r.prCode ? "#374151" : "#D1D5DB" }}>
-                  {r.prCode ?? "— ไม่มีเลข PR"}
-                </td>
+                {legacy ? (
+                  <td style={{ ...td, textAlign: "left", color: r.prCode ? "#374151" : "#D1D5DB" }}>
+                    {r.prCode ?? "— ไม่มีเลข PR"}
+                  </td>
+                ) : (
+                  <td style={{ ...td, textAlign: "left", color: "#374151" }}>{r.poCode}</td>
+                )}
                 <td style={td}>{num(r.qty)}</td>
                 <td style={td}>{r.cost == null ? "—" : baht(r.cost)}</td>
                 {/* แถวที่จับคู่ PR ไม่ได้ ไม่มีวันเปิดใบให้นับ — ต้องเว้นไว้ ไม่ใช่เติม 0 ซึ่งจะอ่านว่า "ได้ของวันเดียวกัน" */}
@@ -355,9 +382,17 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
             {expanded ? "ย่อลง" : `ดูทั้งหมด (${rows.length} ครั้ง)`}
           </button>
         )}
-        <span style={{ fontSize: 11, color: "#9CA3AF" }}>
-          เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุด · {withLead} ครั้งจับคู่ใบ PR ได้ (เฉพาะกลุ่มนี้ที่เข้าสูตรเวลารอของ)
-        </span>
+        {legacy ? (
+          <span style={{ fontSize: 11, color: "#9CA3AF" }}>
+            เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุด · {withLead} ครั้งจับคู่ใบ PR ได้ (เฉพาะกลุ่มนี้ที่เข้าสูตรเวลารอของ)
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, color: "#9CA3AF" }} title={hiddenNote ? hiddenTitle : undefined}>
+            เฉพาะของซื้อเข้าสต๊อก{hiddenNote && ` — ${hiddenNote}`} · เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุด ·
+            {" "}{withLead} ครั้งรู้วันรอของ (นับจากวันเปิด PR ถึงวันรับ)
+            {hidden?.vehicle ? " · เวลารอของด้านบนยังนับรอบลงคันรวมอยู่" : ""}
+          </span>
+        )}
       </div>
     </>
   )
@@ -758,8 +793,8 @@ export default function SafetyStockPage() {
         คงเหลือ: r.stockQty,
         กำลังสั่งซื้อ: onOrderQtyOf(r),
         "คงเหลือ+กำลังสั่งซื้อ": Math.round((r.stockQty + onOrderQtyOf(r)) * 100) / 100,
-        "ใบ PO ที่ค้างรับ (เข้าสต๊อก)": r.onOrder ? onOrderCodes(r.onOrder).codes.join(", ") : "",
-        "PR เก่าสุด (วัน)": r.onOrder ? r.onOrder.oldestDays : "",
+        "ใบ PO ที่ค้างรับ (เข้าสต๊อก)": r.onOrder ? onOrderCodesText(r.onOrder) : "",
+        "PO เก่าสุด (วัน)": r.onOrder ? r.onOrder.oldestDays : "",
         min: r.minQty,
         max: r.maxQty,
         "เฉลี่ย/วัน": d.adu,
@@ -1040,7 +1075,8 @@ export default function SafetyStockPage() {
               <table style={{ width: "100%", minWidth: TABLE_W, tableLayout: "fixed", borderCollapse: "collapse", fontSize: 13 }}>
                 <colgroup>
                   <col style={{ width: COL_STATUS }} />
-                  <col /> {/* รหัส/ชื่อ — ไม่ตั้ง width โดยตั้งใจ ให้ได้พื้นที่ว่างที่เหลือทั้งหมด (ดูคอมเมนต์ COL_ID ด้านบน) */}
+                  {/* ห้ามมีช่องว่างระหว่าง <col /> กับคอมเมนต์ — เป็น text node ใน colgroup แล้ว React เตือน hydration */}
+                  <col />{/* รหัส/ชื่อ — ไม่ตั้ง width โดยตั้งใจ ให้ได้พื้นที่ว่างที่เหลือทั้งหมด (ดูคอมเมนต์ COL_ID ด้านบน) */}
                   <col style={{ width: COL_LOC }} />
                   <col style={{ width: COL_STOCK }} />
                   <col style={{ width: COL_ONORDER }} />
@@ -1066,7 +1102,7 @@ export default function SafetyStockPage() {
                     />
                     <SortableTh
                       label="กำลังสั่งซื้อ" colKey="onOrder" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
-                      title={"จำนวนที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — รวมจากใบ PR ของคลังนี้ที่ยังไม่มีใบรับของ (DD) ครบ อายุไม่เกิน 90 วัน\nนับเฉพาะของที่ซื้อเข้าสต๊อก — ใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) กับบรรทัดกลุ่มค่าแรง ไม่นับ\nหักส่วนที่รับของไปแล้วออกแล้ว (PR ใบเดียวแตกเป็นหลาย PO แล้วทยอยรับได้)\nตัวเลขนี้ถูกหักออกจาก \"แนะนำสั่ง\" ให้แล้ว แต่ไม่ถูกนับใน \"คงเหลือ\"/\"พอใช้\" เพราะของยังเบิกไม่ได้"}
+                      title={"จำนวนที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — รวมยอดค้างรับจากใบ PO ของคลังนี้ที่ยังรับของไม่ครบ อายุไม่เกิน 90 วัน\nPR ที่ยังไม่ออก PO ไม่นับ · PO ยกเลิกหรือถูกลบใน ATMS แล้วไม่นับ\nนับเฉพาะของที่ซื้อเข้าสต๊อก — ใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) กับบรรทัดกลุ่มค่าแรง ไม่นับ\nตัวเลขนี้ถูกหักออกจาก \"แนะนำสั่ง\" ให้แล้ว แต่ไม่ถูกนับใน \"คงเหลือ\"/\"พอใช้\" เพราะของยังเบิกไม่ได้"}
                     />
                     <SortableTh
                       label="ROP" colKey="rop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"

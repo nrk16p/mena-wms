@@ -69,7 +69,7 @@ export async function getSafetyStock(
         safetyStock: 0, reorderPoint: 0, daysOfSupply: 0, status: 0, minVerdict: 0, suggestQty: 0, coveredByOrder: 0,
         // ประวัติรับเข้า (สูงสุด 20 ครั้ง/รหัส) — ใหญ่เกินกว่าจะส่งมากับรายการทุกแถว ลาดกระบัง ~4,100 แถว
         // ใกล้เพดาน response 4.5 MB ของ Vercel อยู่แล้ว · หน้าต่างรายละเอียดดึงทีละรหัสเองที่ /api/safety-stock/sku
-        receipts: 0,
+        receipts: 0, receiptsHidden: 0,
       })
       .toArray() as unknown as Promise<SnapshotRow[]>,
     db.collection("safety_stock_sync_log").findOne({ trigger: "build" }),

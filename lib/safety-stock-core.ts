@@ -227,6 +227,8 @@ export type SnapshotRow = {
    *  ไม่ถูกส่งไปกับ payload รายการ (getSafetyStock project ทิ้ง) หน้าต่างรายละเอียดดึงเองผ่าน /api/safety-stock/sku
    *  แถวที่ build ไว้ก่อนมีฟีเจอร์นี้ก็ไม่มีฟิลด์นี้ ฝั่งอ่านต้องทนค่า undefined ได้ */
   receipts?: ReceiptEntry[]
+  /** จำนวนแถวรับ 24 เดือนที่ไม่เข้าประวัติ (ลงคัน / ไม่มีเลข PO) — ไม่ใส่เมื่อไม่มีเลย · ไม่ส่งไปกับ payload รายการเช่นกัน */
+  receiptsHidden?: ReceiptsHidden
 }
 
 /** ของเข้าคลังหนึ่งครั้ง — หลักฐานเบื้องหลังบรรทัด "เวลารอของจริงที่วัดได้ N วัน (M ครั้ง)"
@@ -236,8 +238,11 @@ export type ReceiptEntry = {
   /** วันที่รับของ "YYYY-MM-DD" */
   date: string
   qty: number
-  /** เลข PR ที่แกะจากหมายเหตุ — null เมื่อแกะไม่ได้ (ยังเป็นของเข้าคลังจริง แค่ไม่รู้ว่ามาจากใบไหน) */
+  /** เลข PR ที่แกะจากหมายเหตุ — null เมื่อแกะไม่ได้ · ใช้นับวันรอของ (leadDays) ไม่ได้โชว์แล้วตั้งแต่ 27/10/2026 */
   prCode: string | null
+  /** เลข PO ของแถวรับ (ช่อง PO ใน stockmovement_v5) — หน้าต่างโชว์ตัวนี้แทน PR
+   *  undefined = snapshot รุ่นก่อน 27/10/2026 (ยังไม่กรองลงคัน) ฝั่งอ่านต้องกลับไปโชว์ prCode แบบเดิม */
+  poCode?: string
   /** ราคาทุนต่อหน่วยของครั้งนั้น — ใช้ดูว่าราคาขยับขึ้นหรือเปล่า */
   cost: number | null
   /** จำนวนวันจากวันที่เปิด PR ถึงวันที่รับ — null เมื่อจับคู่ PR ไม่ได้ (ครั้งนั้นไม่ได้เข้าสูตร lead time) */
@@ -247,6 +252,51 @@ export type ReceiptEntry = {
 /** เก็บประวัติรับเข้ากี่ครั้งล่าสุดต่อรหัส — พอเห็นแนวโน้มโดยไม่ทำให้ snapshot doc บวม
  *  ไม่ได้ส่งไปกับ payload รายการอยู่แล้ว (getSafetyStock project ทิ้ง) แต่ doc ใหญ่ขึ้นทำให้ bulkWrite ช้าลง */
 export const RECEIPT_HISTORY_MAX = 20
+
+/** แถวรับที่ไม่ได้อยู่ในประวัติรับเข้า (นับทั้ง 24 เดือน ไม่ตัดเพดาน) — ให้ท้ายตารางบอกได้ว่าซ่อนไปกี่ครั้ง
+ *  คนเห็นประวัติน้อยกว่าที่จำได้จะได้ไม่เข้าใจว่าข้อมูลหาย */
+export type ReceiptsHidden = {
+  /** อะไหล่ลงคัน — PR ต้นทางระบุทะเบียนรถจริง ซื้อมาเบิกให้คันนั้นทันที ไม่ได้ซื้อเข้าสต๊อก */
+  vehicle: number
+  /** แถวรับที่ไม่มีเลข PO — ส่วนใหญ่รับคืนจากใบเบิก (WD) หรือโอนคลัง ราคาทุนไม่ใช่ราคาที่ซื้อมา */
+  noPo: number
+}
+
+/** ชนิดของแถวรับ — ประวัติรับเข้ากับราคาทุนใช้เฉพาะ "stock" (ผู้ใช้สั่ง 26/10/2026 "ใช้เฉพาะอะไหล่ stock ที่ไม่ใช่ลงคัน")
+ *  ลงคันดูจากแถวรับไม่ได้ (ช่องทะเบียน/เลขรถในแถวรับว่างทุกแถว) ต้องดูทะเบียนใน PR ต้นทาง กติกาเดียวกับ "กำลังสั่งซื้อ"
+ *  prPlate = undefined คือหา PR ต้นทางไม่เจอ (หมายเหตุไม่มีเลข PR หรือ PR เก่ากว่าสำเนาที่มี ม.ค.68) → นับเป็นสต๊อก */
+export type ReceiptKind = "stock" | "vehicle" | "noPo"
+export function receiptKindOf(poCode: string | null, prPlate: string | null | undefined): ReceiptKind {
+  if (!poCode) return "noPo"
+  return isVehiclePlate(prPlate) ? "vehicle" : "stock"
+}
+
+/** ช่อง PO ของแถวรับ → เลข PO หรือ null · ATMS ใส่ "" หรือ "-" มาเมื่อไม่มีใบ */
+export function poCodeFromCell(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : ""
+  return s && s !== "-" ? s : null
+}
+
+/** ราคาทุนล่าสุดต่อรหัส ยึดตามวันที่รับจริง ไม่ใช่ลำดับที่ Mongo คืนมา (stockmovement back-date/backfill บ่อย
+ *  และ build ไม่ $sort ฝั่ง Mongo เพื่อไม่เพิ่มภาระ) · ราคา ≤ 0 หรือว่างไม่นับ
+ *  แถวไม่มีวันที่ใช้ได้ seed ไว้ก่อนเฉพาะตอนยังไม่เคยเจอแถวที่มีวันที่ ห้ามทับค่าที่มีวันที่แล้ว */
+export function latestCostTracker() {
+  const cost = new Map<string, number>()
+  const at = new Map<string, number>()
+  return {
+    add(code: string, c: number | null | undefined, date: Date | string | null | undefined) {
+      if (c == null || !(c > 0)) return
+      const t = date ? new Date(date).getTime() : NaN
+      if (Number.isFinite(t)) {
+        const prev = at.get(code)
+        if (prev === undefined || t >= prev) { cost.set(code, c); at.set(code, t) }
+      } else if (!at.has(code)) {
+        cost.set(code, c)
+      }
+    },
+    get: (code: string) => cost.get(code),
+  }
+}
 
 /** สรุป "กำลังสั่งซื้อ" ของรหัสสินค้าหนึ่งในคลังหนึ่ง — ดู openPoQtyBySku สำหรับนิยามเต็ม */
 export type OnOrder = {
@@ -276,6 +326,14 @@ export function onOrderCodes(o: OnOrder): { kind: "PO" | "PR"; codes: string[]; 
   if (Array.isArray(o.poCodes)) return { kind: "PO", codes: o.poCodes, count: o.poCount ?? o.poCodes.length }
   const codes = o.prCodes ?? []
   return { kind: "PR", codes, count: o.prCount ?? codes.length }
+}
+
+/** เลขใบค้างเป็นข้อความเดียวสำหรับ Excel — build เก็บเลขไว้ไม่ครบทุกใบ (ON_ORDER_CODES_MAX) ต้องบอกว่ามีอีกกี่ใบ
+ *  ไม่งั้นคนเปิดไฟล์จะคิดว่ามีแค่ที่เห็น (หน้าจอมี "…" บอก แต่ Excel เดิมไม่มี — เจอตอน QA 26/10/2026) */
+export function onOrderCodesText(o: OnOrder): string {
+  const { codes, count } = onOrderCodes(o)
+  const more = count - codes.length
+  return codes.join(", ") + (more > 0 ? ` และอีก ${more} ใบ` : "")
 }
 
 /** เกณฑ์ "นโยบายอะไหล่" ที่หน้า /safety-stock ใช้ — กรองที่ layer อ่าน (lib/safety-stock.ts getSafetyStock)

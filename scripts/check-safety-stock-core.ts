@@ -8,6 +8,7 @@ import {
   prCodeFromNote, leadTimeDaysBetween, isPartsPolicyRow,
   openPoQtyBySku, openPrQtyBySku, poCodesGoneFromAtms, onOrderCodes, ageDaysFromDmy, isVehiclePlate, isCrossBranchPr, isCrossBranchDoc, ON_ORDER_MAX_AGE_DAYS,
   isPoOutstanding, isPrClosed, runSlotStatus, fmtMovementDate,
+  receiptKindOf, poCodeFromCell, latestCostTracker, onOrderCodesText,
   DAYS_PER_MONTH, DEFAULT_Z, DEFAULT_WINDOW, LEAD_TIME_DAYS, EXCLUDED_PRODUCT_GROUP, WAREHOUSES,
   type SnapshotRow, type OnOrder,
 } from "../lib/safety-stock-core"
@@ -665,5 +666,66 @@ assert.equal(isPartsPolicyRow({ group: "เครื่องมือยาง"
   // ไม่มี scraped_at ในหน้าต่าง = ไม่เคยถูกยืนยันว่ายังอยู่ → ถือว่าหาย
   assert.ok(poCodesGoneFromAtms({ poHeads: [...heads.slice(0, 9), { ...heads[9], scrapedAt: null }], runs }).gone.has("LBPO26080510"))
 }
+
+// --- ประวัติรับเข้า/ราคาทุน: ใช้เฉพาะของซื้อเข้าสต๊อก (ผู้ใช้สั่ง 26/10/2026) ---
+assert.equal(poCodeFromCell("LBPO26100123"), "LBPO26100123")
+assert.equal(poCodeFromCell("  SBPO26100045 "), "SBPO26100045", "ต้องตัดช่องว่าง")
+assert.equal(poCodeFromCell(""), null)
+assert.equal(poCodeFromCell("-"), null, "ATMS ใส่ - เมื่อไม่มีใบ")
+assert.equal(poCodeFromCell(null), null)
+assert.equal(poCodeFromCell(undefined), null)
+assert.equal(poCodeFromCell(123), null, "ไม่ใช่ข้อความ = ไม่มีเลข PO")
+
+assert.equal(receiptKindOf("LBPO1", "71-5742"), "vehicle", "PR ระบุทะเบียนจริง = ลงคัน")
+assert.equal(receiptKindOf("LBPO1", "สบ.00000"), "stock", "ทะเบียนหลอก (เลขศูนย์ล้วน) = ของเข้าสต๊อก")
+assert.equal(receiptKindOf("LBPO1", ""), "stock")
+assert.equal(receiptKindOf("LBPO1", undefined), "stock", "หา PR ต้นทางไม่เจอ = นับเป็นสต๊อก")
+assert.equal(receiptKindOf(null, "71-5742"), "noPo", "ไม่มีเลข PO มาก่อนลงคัน (รับคืน/โอนคลัง)")
+assert.equal(receiptKindOf(null, undefined), "noPo")
+
+{
+  const t = latestCostTracker()
+  t.add("A", 100, new Date("2026-05-01"))
+  t.add("A", 120, new Date("2026-09-01"))
+  t.add("A", 90, new Date("2026-03-01")) // แถว back-date มาทีหลัง ต้องไม่ทับราคาที่ใหม่กว่า
+  assert.equal(t.get("A"), 120, "ยึดวันที่รับจริง ไม่ใช่ลำดับที่ส่งเข้ามา")
+  t.add("A", 0, new Date("2026-10-01"))
+  t.add("A", null, new Date("2026-10-01"))
+  assert.equal(t.get("A"), 120, "ราคา 0/ว่างไม่นับ")
+  t.add("A", 55, null)
+  assert.equal(t.get("A"), 120, "แถวไม่มีวันที่ห้ามทับค่าที่มีวันที่แล้ว")
+  t.add("B", 70, null)
+  assert.equal(t.get("B"), 70, "ยังไม่มีค่าเลย แถวไม่มีวันที่ seed ได้")
+  t.add("B", 80, "2026-01-01T00:00:00.000Z")
+  assert.equal(t.get("B"), 80, "แถวมีวันที่ทับค่า seed ได้")
+  assert.equal(t.get("C"), undefined)
+
+  // ลำดับที่ build ใช้: ราคาซื้อเข้าสต๊อกล่าสุดก่อน ไม่มีค่อย fallback ไปแถวไหนก็ได้
+  const stock = latestCostTracker()
+  const any = latestCostTracker()
+  const rows = [
+    { code: "X", c: 500, d: "2026-09-10", po: "LBPO1", plate: "71-5742" }, // ลงคัน ราคาแพงกว่า ใหม่กว่า
+    { code: "X", c: 420, d: "2026-08-01", po: "LBPO2", plate: "" },
+    { code: "X", c: 300, d: "2026-10-01", po: null, plate: undefined },   // รับคืน
+    { code: "Y", c: 900, d: "2026-07-01", po: "LBPO3", plate: "70-1234" }, // มีแต่ลงคัน
+  ]
+  for (const r of rows) {
+    any.add(r.code, r.c, r.d)
+    if (receiptKindOf(r.po, r.plate) === "stock") stock.add(r.code, r.c, r.d)
+  }
+  const costOf = (code: string) => stock.get(code) ?? any.get(code) ?? 0
+  assert.equal(costOf("X"), 420, "ข้ามลงคันกับรับคืน ใช้ราคาซื้อเข้าสต๊อกล่าสุด")
+  assert.equal(costOf("Y"), 900, "มีแต่ลงคัน ใช้ราคาเดิม ไม่ปล่อยเป็น 0")
+  assert.equal(costOf("Z"), 0)
+}
+
+// --- onOrderCodesText: Excel ต้องบอกว่ามีใบอีกกี่ใบที่ไม่ได้เก็บเลขไว้ ---
+assert.equal(onOrderCodesText({ qty: 40, poCount: 2, poCodes: ["LBPO1", "SBPO2"], oldestDays: 5 }), "LBPO1, SBPO2")
+assert.equal(
+  onOrderCodesText({ qty: 12, poCount: 7, poCodes: ["P1", "P2", "P3", "P4", "P5"], oldestDays: 45 }),
+  "P1, P2, P3, P4, P5 และอีก 2 ใบ"
+)
+assert.equal(onOrderCodesText({ qty: 8, prCount: 3, prCodes: ["LBPR1"], oldestDays: 12 } as unknown as OnOrder), "LBPR1 และอีก 2 ใบ",
+  "snapshot รุ่นเก่า (PR) ใช้กติกาเดียวกัน")
 
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")

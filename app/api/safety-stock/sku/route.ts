@@ -8,7 +8,7 @@
 // สร้างไว้อยู่แล้ว = อ่าน 1 doc · ไม่แตะ stockmovement_v5 เลย (ประวัติถูก build เก็บไว้ในแถวแล้ว)
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { INVENTORY_ID, type ReceiptEntry } from "@/lib/safety-stock-core"
+import { INVENTORY_ID, type ReceiptEntry, type ReceiptsHidden } from "@/lib/safety-stock-core"
 
 export const dynamic = "force-dynamic"
 
@@ -24,12 +24,14 @@ export async function GET(req: NextRequest) {
     const doc = await client
       .db(DB)
       .collection("safety_stock_snapshot")
-      .findOne({ inventoryId, code }, { projection: { _id: 0, code: 1, receipts: 1 }, maxTimeMS: 10_000 })
+      .findOne({ inventoryId, code }, { projection: { _id: 0, code: 1, receipts: 1, receiptsHidden: 1 }, maxTimeMS: 10_000 })
 
     // ไม่เจอแถว หรือเจอแต่ไม่มีประวัติ — ตอบเหมือนกันคือรายการว่าง ไม่ใช่ 404
     // (แถวที่ build ไว้ก่อนมีฟีเจอร์นี้ก็ไม่มีฟิลด์ receipts ฝั่งหน้าเว็บต้องแสดงผลได้ตามปกติ)
     const receipts = (doc?.receipts as ReceiptEntry[] | undefined) ?? []
-    return NextResponse.json({ code, inventoryId, receipts })
+    // แถวรับที่ไม่เข้าประวัติ (ลงคัน / ไม่มีเลข PO) — snapshot รุ่นก่อน 27/10/2026 ไม่มีฟิลด์นี้ ตอบ null
+    const hidden = (doc?.receiptsHidden as ReceiptsHidden | undefined) ?? null
+    return NextResponse.json({ code, inventoryId, receipts, hidden })
   } catch (e) {
     console.error("[safety-stock/sku] ", e)
     return NextResponse.json({ error: "ดึงประวัติรับเข้าไม่สำเร็จ", detail: String(e) }, { status: 500 })

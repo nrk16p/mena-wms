@@ -7,8 +7,8 @@ import { getDeadstock } from "@/lib/deadstock"
 import {
   aduFrom, sdDailyFrom, median, prCodeFromNote, leadTimeDaysBetween, derive, mergeWarehouseResults,
   LT_MIN_SAMPLES, LT_LOOKBACK_MONTHS, USAGE_LOOKBACK_MONTHS, DEFAULT_WINDOW, DEFAULT_Z, WAREHOUSES,
-  RECEIPT_HISTORY_MAX,
-  type SnapshotRow, type LeadTimeSource, type BuildSource, type ReceiptEntry,
+  RECEIPT_HISTORY_MAX, receiptKindOf, poCodeFromCell, latestCostTracker,
+  type SnapshotRow, type LeadTimeSource, type BuildSource, type ReceiptEntry, type ReceiptsHidden,
 } from "@/lib/safety-stock-core"
 import { fetchOnOrderBySku } from "@/lib/on-order"
 
@@ -16,6 +16,7 @@ const MASTER_DB = process.env.MONGO_DB ?? "master_data"
 const ATMS_DB = "atms"
 const MOVE_COLL = "stockmovement_v5"
 const PR_KEY = "ใบขอสั่งซื้อ (PR)"
+const PR_PLATE_KEY = "ทะเบียน"
 
 /** ประวัติการ build รายรอบ — safety_stock_sync_log เป็น singleton (upsert ทับทุกครั้ง) เก็บได้แค่รอบล่าสุด
  *  แถบ "รอบอัปเดตวันนี้" บนหน้า /safety-stock ต้องเห็นทุกรอบของทั้งวัน จึงต้องมี collection แยกที่เก็บรายรอบ
@@ -53,7 +54,7 @@ function ymList(asOf: Date, n: number): string[] {
 }
 
 type IssueDoc = { _id: { i: string | null; m: string | null }; q: number | null; n: number | null }
-type RecvDoc = { i: string | null; d: Date | null; note: string | null; c: number | null; g: string | null; q: number | null }
+type RecvDoc = { i: string | null; d: Date | null; note: string | null; c: number | null; g: string | null; q: number | null; po: unknown }
 
 export async function buildSnapshotRows(
   inventoryId: string,
@@ -91,74 +92,77 @@ export async function buildSnapshotRows(
     )
     .toArray()
 
-  // 3) แถวรับ 24 เดือน — ต้องได้ `หมายเหตุ` รายแถวเพื่อแกะเลข PR จึงยุบไม่ได้
+  // 3) แถวรับ 24 เดือน — ต้องได้ `หมายเหตุ` (แกะเลข PR) กับ `PO` รายแถว จึงยุบไม่ได้
   const receipts = await move
     .aggregate<RecvDoc>(
       [
         { $match: { inventory_id: inventoryId, year_month: { $gte: ltStartYm }, รับ: { $gt: 0 }, ...notLabour } },
         // q (จำนวนที่รับ) ดึงมาเพื่อประวัติรับเข้ารายครั้งเท่านั้น สูตร lead time ไม่ได้ใช้ — เป็นฟิลด์ของแถว
         // ที่อ่านอยู่แล้ว ไม่ได้เพิ่ม query ไม่ได้เปลี่ยนจำนวนแถวที่อ่าน
-        { $project: { _id: 0, i: "$รหัสสินค้า", d: "$วันที่", note: "$หมายเหตุ", c: "$ราคาทุน", g: "$กลุ่มสินค้า", q: "$รับ" } },
+        // po = เลข PO ของแถวรับ ไว้โชว์ในประวัติ + แยกแถวรับคืน/โอนคลัง (ไม่มี PO) ออกจากของที่ซื้อมา — ฟิลด์ของแถวเดิม
+        { $project: { _id: 0, i: "$รหัสสินค้า", d: "$วันที่", note: "$หมายเหตุ", c: "$ราคาทุน", g: "$กลุ่มสินค้า", q: "$รับ", po: "$PO" } },
       ],
       { maxTimeMS: 60_000 }
     )
     .toArray()
 
-  // 4) วันที่ของ PR ที่ถูกอ้างถึงจริงเท่านั้น — bounded ตามจำนวน PR ที่พบในข้อ 3
+  // 4) วันที่ + ทะเบียนของ PR ที่ถูกอ้างถึงจริงเท่านั้น — bounded ตามจำนวน PR ที่พบในข้อ 3
+  //    ทะเบียนใช้แยกอะไหล่ลงคันออกจากประวัติรับเข้า/ราคาทุน (แถวรับเองไม่มีทะเบียน) — query เดิม แค่เพิ่มฟิลด์
   const prCodes = [...new Set(receipts.map((r) => prCodeFromNote(r.note)).filter((x): x is string => !!x))]
   const prDocs = prCodes.length
     ? ((await atms
         .collection("purchase_requests")
         .find({ [PR_KEY]: { $in: prCodes } })
-        .project({ _id: 0, [PR_KEY]: 1, "วันที่": 1 })
+        .project({ _id: 0, [PR_KEY]: 1, "วันที่": 1, [PR_PLATE_KEY]: 1 })
         .toArray()) as Record<string, unknown>[])
     : []
   const prDate = new Map<string, string>()
-  for (const d of prDocs) prDate.set(String(d[PR_KEY] ?? ""), String(d["วันที่"] ?? ""))
+  const prPlate = new Map<string, string>()
+  for (const d of prDocs) {
+    const k = String(d[PR_KEY] ?? "")
+    prDate.set(k, String(d["วันที่"] ?? ""))
+    prPlate.set(k, String(d[PR_PLATE_KEY] ?? ""))
+  }
 
-  // 4.5) "กำลังสั่งซื้อ" — PR ของคลังนี้ที่ยังไม่มี DD ครบ (ดู fetchOnOrderBySku)
+  // 4.5) "กำลังสั่งซื้อ" — ยอดค้างรับของ PO คลังนี้ที่ยังรับของไม่ครบ (ดู fetchOnOrderBySku)
   const onOrderBySku = await fetchOnOrderBySku(atms, inventoryId, asOf)
 
   // 5) lead time รายรหัส + รายกลุ่ม + ทั้งคลัง
   const ltBySku = new Map<string, number[]>()
   const ltByGroup = new Map<string, number[]>()
   const allLt: number[] = []
-  const costBySku = new Map<string, number>()
-  // วันที่ (epoch ms) ของแถวที่ใช้ตั้งค่า costBySku ล่าสุด — ข้อมูลนี้ back-date/backfill บ่อย
-  // ลำดับที่ Mongo คืนมาจึงไม่ตรงกับ วันที่ จริง ต้องเทียบวันที่ฝั่ง client เอง
-  // (ไม่เพิ่ม $sort ในฝั่ง aggregation เพื่อไม่เพิ่มภาระ Mongo)
-  const costDateBySku = new Map<string, number>()
-  /** ประวัติรับเข้ารายรหัส — เติมระหว่างลูปด้านล่าง แล้วเรียงใหม่→เก่า/ตัดเพดานหลังลูปจบ
+  // ราคาทุน = ราคาซื้อเข้าสต๊อกล่าสุด (ไม่นับลงคัน/รับคืน — ผู้ใช้สั่ง 26/10/2026)
+  // รหัสที่ 24 เดือนมีแต่รอบลงคันหรือรับคืน ใช้ราคาล่าสุดของแถวรับไหนก็ได้แบบเดิม ไม่ปล่อยเป็น 0
+  // (มูลค่าคงเหลือ/มูลค่าที่ต้องสั่งจะหายไปเฉยๆ) · หน้า /tire stock-safety ใช้ cost ตัวเดียวกันนี้
+  const stockCost = latestCostTracker()
+  const anyCost = latestCostTracker()
+  /** ประวัติรับเข้ารายรหัส (เฉพาะของซื้อเข้าสต๊อก) — เติมระหว่างลูปด้านล่าง แล้วเรียงใหม่→เก่า/ตัดเพดานหลังลูปจบ
    *  (เรียงทีเดียวตอนท้ายถูกกว่าการแทรกแบบรักษาลำดับทุกแถว) */
   const recvBySku = new Map<string, ReceiptEntry[]>()
+  const hiddenBySku = new Map<string, ReceiptsHidden>()
   let prMatched = 0
   let prMissed = 0
 
   for (const r of receipts) {
     const code = r.i ?? ""
     if (!code) continue
-    if (r.c != null && r.c > 0) {
-      // ราคาทุนล่าสุดที่เจอ — ยึดตาม วันที่ จริง ไม่ใช่ลำดับที่ Mongo คืนมา
-      const t = r.d ? new Date(r.d).getTime() : NaN
-      if (Number.isFinite(t)) {
-        const prevT = costDateBySku.get(code)
-        if (prevT === undefined || t >= prevT) {
-          costBySku.set(code, r.c)
-          costDateBySku.set(code, t)
-        }
-      } else if (!costDateBySku.has(code)) {
-        // ไม่มีวันที่ใช้ได้ — seed ไว้ก่อนเฉพาะตอนยังไม่เคยเจอแถวที่มีวันที่ ห้ามทับค่าที่มีวันที่แล้ว
-        costBySku.set(code, r.c)
-      }
-    }
     const pr = prCodeFromNote(r.note)
     const pd = pr ? prDate.get(pr) : undefined
     const days = pr && pd && r.d ? leadTimeDaysBetween(pd, r.d) : null
+    const po = poCodeFromCell(r.po)
+    const kind = receiptKindOf(po, pr ? prPlate.get(pr) : undefined)
 
-    // ประวัติรับเข้ารายครั้ง — เก็บทุกแถวที่ของเข้าจริง ไม่ใช่เฉพาะแถวที่จับคู่ PR ได้
-    // แถวที่จับคู่ไม่ได้ก็เป็นของเข้าคลังจริงที่คนตามของอยากเห็น แค่ไม่มีเลข PR/ไม่รู้ว่ารอกี่วัน
-    // (ถ้าเก็บเฉพาะแถวที่จับคู่ได้ จำนวนครั้งในประวัติจะน้อยกว่าของที่เข้าจริงโดยไม่มีคำอธิบาย)
-    if (r.d && (r.q ?? 0) > 0) {
+    anyCost.add(code, r.c, r.d)
+    if (kind === "stock") stockCost.add(code, r.c, r.d)
+
+    // ประวัติรับเข้ารายครั้ง — เฉพาะของซื้อเข้าสต๊อก (มีเลข PO และไม่ใช่ลงคัน) ที่เหลือนับไว้ให้ท้ายตารางบอกว่าซ่อนกี่ครั้ง
+    // แถวที่จับคู่ PR ไม่ได้ยังเก็บ (เป็นของซื้อเข้าคลังจริง แค่ไม่รู้ว่ารอกี่วัน)
+    if (kind !== "stock") {
+      const h = hiddenBySku.get(code) ?? { vehicle: 0, noPo: 0 }
+      if (kind === "vehicle") h.vehicle++
+      else h.noPo++
+      hiddenBySku.set(code, h)
+    } else if (r.d && (r.q ?? 0) > 0) {
       const t = new Date(r.d)
       if (!isNaN(t.getTime())) {
         if (!recvBySku.has(code)) recvBySku.set(code, [])
@@ -167,12 +171,14 @@ export async function buildSnapshotRows(
           date: t.toISOString().slice(0, 10),
           qty: r.q as number,
           prCode: pr ?? null,
+          poCode: po as string,
           cost: r.c ?? null,
           leadDays: days,
         })
       }
     }
 
+    // เวลารอของยังนับทุกแถวที่จับคู่ PR ได้รวมลงคัน (ผู้ใช้เลือกคงเดิม 27/10/2026 — /tire ใช้ค่านี้คิดจุดสั่ง)
     if (!pr) continue
     if (!pd) { prMissed++; continue }
     if (days === null) { prMissed++; continue }
@@ -260,7 +266,7 @@ export async function buildSnapshotRows(
     }
 
     const fifo = fifoByCode.get(code)
-    const cost = costBySku.get(code) ?? 0
+    const cost = stockCost.get(code) ?? anyCost.get(code) ?? 0
     const stockQty = Number(m.stockQty ?? 0)
 
     // ยอดเบิกรายเดือน 12 เดือน เก่า→ใหม่ ตรงตำแหน่งกับ months12 ที่คืนออกไปเป็น SafetyStockPayload.months
@@ -292,6 +298,7 @@ export async function buildSnapshotRows(
       ...(onOrderBySku.get(code) ? { onOrder: onOrderBySku.get(code) } : {}),
       // เช่นเดียวกัน — ไม่ใส่คีย์เลยเมื่อ 24 เดือนที่ผ่านมาไม่มีของเข้า (ดู $unset ใน runSafetyStockBuild)
       ...(recvBySku.get(code)?.length ? { receipts: recvBySku.get(code) } : {}),
+      ...(hiddenBySku.get(code) ? { receiptsHidden: hiddenBySku.get(code) } : {}),
     }
   })
 
@@ -389,6 +396,7 @@ export async function runSafetyStockBuild(
                 const gone: Record<string, ""> = {}
                 if (!r.onOrder) gone.onOrder = ""
                 if (!r.receipts) gone.receipts = ""
+                if (!r.receiptsHidden) gone.receiptsHidden = ""
                 return Object.keys(gone).length ? { $set, $unset: gone } : { $set }
               })(),
               upsert: true,
