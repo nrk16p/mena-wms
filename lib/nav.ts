@@ -243,6 +243,9 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ลิงก์ขอราคา · ตรวจและยืนยันใบเสนอราคา" },
       { href: "/vendors/labour-codes", label: "ตั้งค่ารหัสค่าแรง", icon: TableProperties, exact: true,
         adminOnly: true, desc: "จับคู่รหัสค่าแรงกับประเภทงาน" },
+      { href: "#vendor-data-status", label: "สถานะข้อมูล", icon: Inbox, subheader: true, hideOnHome: true },
+      { href: "/vendors/data-status", label: "ตารางสถานะข้อมูล", icon: ClipboardList, exact: true, indent: true,
+        homeLabel: "สถานะข้อมูล", desc: "บิล/ใบเสนอราคาที่อัปโหลด · รูป + รายการ · AI อ่านบิล" },
     ],
   },
   {
