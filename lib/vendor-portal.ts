@@ -325,3 +325,61 @@ export function vpDueText(b: VpBill, todayISO: string): string {
   }
   return ""
 }
+
+// ── ดาวน์โหลด Excel (หน้าเจ้าหนี้) — ชีต "บิล" + ชีต "รายการสินค้า" ───────────────────
+/** เพดานจำนวนใบต่อการดาวน์โหลดหนึ่งครั้ง (เจ้าใหญ่สุดมีหลักร้อยใบใน 6 เดือน) */
+export const VP_EXPORT_MAX = 1000
+
+/** วันที่ส่งเป็น YYYY-MM-DD — ฝั่งหน้าเว็บแปลงเป็นเซลล์วันที่ของ Excel เอง */
+export function vpBillSheetRows(bills: VpBill[]): Record<string, string | number>[] {
+  return bills.map((b) => ({
+    "เลข DD":             b.depositCode,
+    "วันที่รับของ":        b.receivedAt,
+    "เลขใบแจ้งหนี้ร้าน":   b.supplierRefNo ?? "",
+    "เบอร์รถ":            b.fleetNo ?? "",
+    "ทะเบียน":            b.vehicle ?? "",
+    "ยอดเงิน":            b.amount,
+    "สถานะ":             VP_STATUS_LABEL[b.status],
+    "กำหนดโอน":          b.status === "scheduled" ? b.payDate ?? "" : "",
+    "วันที่โอน":          b.status === "paid" ? b.paidDate ?? "" : "",
+  }))
+}
+
+const PENDING_ITEMS = "รายการสินค้ากำลังอัปเดต ลองดาวน์โหลดใหม่ภายหลัง"
+
+/** items = null คือใบที่รายการสินค้าในระบบยังไม่ตรงยอดหัวใบ → แถวเดียวบอกว่ากำลังอัปเดต */
+export function vpItemSheetRows(
+  rows: { depositCode: string; receivedAt: string; items: VpItem[] | null }[],
+): Record<string, string | number>[] {
+  const qtyOf = (q: string) => {
+    const t = q.replace(/,/g, "").trim()
+    return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : q
+  }
+  const out: Record<string, string | number>[] = []
+  for (const r of rows) {
+    if (!r.items) {
+      out.push({ "เลข DD": r.depositCode, "วันที่รับของ": r.receivedAt, "รหัสสินค้า": "", "ชื่อสินค้า": PENDING_ITEMS, "จำนวน": "", "ราคาต่อหน่วย": "", "ยอดรวม": "" })
+      continue
+    }
+    for (const it of r.items) {
+      out.push({
+        "เลข DD": r.depositCode, "วันที่รับของ": r.receivedAt, "รหัสสินค้า": it.code, "ชื่อสินค้า": it.name,
+        "จำนวน": qtyOf(it.qty), "ราคาต่อหน่วย": it.unitPrice, "ยอดรวม": it.total,
+      })
+    }
+  }
+  return out
+}
+
+export function vpExportFileName(username: string, todayISO: string): string {
+  const u = String(username ?? "").replace(/[\\/:*?"<>|]+/g, "-").trim() || "vendor"
+  return `บิล-${u}-${todayISO}.xlsx`
+}
+
+/** body ของ POST export-items → เลข DD ตัวใหญ่ไม่ซ้ำ · รับเฉพาะ string · เกินเพดาน = null */
+export function vpParseCodes(body: unknown): string[] | null {
+  const raw = (body as { codes?: unknown } | null)?.codes
+  if (!Array.isArray(raw)) return []
+  const codes = [...new Set(raw.filter((x): x is string => typeof x === "string").map((x) => x.trim().toUpperCase()).filter(Boolean))]
+  return codes.length > VP_EXPORT_MAX ? null : codes
+}

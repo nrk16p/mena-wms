@@ -170,3 +170,45 @@ export async function requireVpAccount(req: NextRequest): Promise<{ acc: VpAccou
   const acc = await db.md.collection(VP_ACCOUNTS).findOne({ username: sess.sub }, { projection: { _id: 0 }, maxTimeMS: 10000 }) as VpAccount | null
   return vpSessionValid(acc, sess) && acc ? { acc, db } : null
 }
+
+/** รายการสินค้าของหลายใบในครั้งเดียว (ดาวน์โหลด Excel) — ใบที่ไม่ใช่ของเจ้านี้/นอกช่วง ถูกตัดทิ้งเงียบ ๆ
+ *  items = null คือใบที่รายการในระบบยังไม่ตรงยอดหัวใบ (หน้าเว็บเขียนว่ากำลังอัปเดต) */
+export async function loadVpItemsBulk(
+  db: VpDbs, codes: string[], names: string[], todayISO: string,
+): Promise<{ depositCode: string; receivedAt: string; items: VpItem[] | null }[]> {
+  if (!codes.length || !names.length) return []
+  const heads = await db.atms.collection("deposit_header").find(
+    { deposit_code: { $in: codes }, supplier: { $in: names } },
+    { projection: { _id: 0, deposit_id: 1, deposit_code: 1, warehouse: 1, supplier: 1, amount: 1, received_at: 1 }, maxTimeMS: 20000 },
+  ).limit(codes.length).toArray() as Doc[]
+  const tracks = heads.length
+    ? await db.md.collection("ap_tracking").find({ depositCode: { $in: heads.map((h) => s(h.deposit_code)) } }, { projection: TRACK_PROJ, maxTimeMS: 15000 }).toArray() as Doc[]
+    : []
+  const trackBy = new Map(tracks.map((t) => [s(t.depositCode), t]))
+  const visible = heads.filter((h) => vpCanSeeHead(
+    { supplier: s(h.supplier), warehouse: s(h.warehouse), receivedAt: parseDmy(h.received_at) },
+    names, vpStatusOf(trackBy.get(s(h.deposit_code)) as Parameters<typeof vpStatusOf>[0]), todayISO,
+  ))
+  const ids = visible.map((h) => h.deposit_id).filter((x): x is number => typeof x === "number")
+  const raw = ids.length
+    ? await db.atms.collection("deposit_items").find({ deposit_id: { $in: ids } }, { projection: { _id: 0, deposit_id: 1, item: 1, qty: 1, unit_price: 1, total: 1, scraped_at: 1 }, maxTimeMS: 20000 }).limit(30000).toArray() as Doc[]
+    : []
+  const byId = new Map<number, Doc[]>()
+  for (const it of raw) {
+    const id = it.deposit_id as number
+    if (!byId.has(id)) byId.set(id, [])
+    byId.get(id)!.push(it)
+  }
+  const order = new Map(codes.map((c, i) => [c, i]))
+  return visible
+    .map((h) => {
+      const list = typeof h.deposit_id === "number" ? byId.get(h.deposit_id) ?? [] : []
+      const ok = list.length > 0 && apItemVerification(list as { total?: string; scraped_at?: string }[], h.amount).amountOk
+      return {
+        depositCode: s(h.deposit_code),
+        receivedAt: parseDmy(h.received_at),
+        items: ok ? vpItemsOf(list as { item?: string; qty?: string; unit_price?: string; total?: string }[]) : null,
+      }
+    })
+    .sort((a, b) => (order.get(a.depositCode) ?? 0) - (order.get(b.depositCode) ?? 0))
+}

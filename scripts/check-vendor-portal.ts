@@ -6,6 +6,7 @@ import {
   isSaraburiWarehouse, isCashVendor, normVpUsername, vpBillOf, vpNextTransfer, vpItemsOf,
   VP_BILL_KEYS, VP_STATUS_LABEL, vpCanSeeHead, vpAmbiguousNames, vpAccountRows, vpLineMessage,
   vpFilterBills, vpThaiDate, vpMonthLabel, vpDueText, vpBillMonths, vpPortalNames,
+  vpBillSheetRows, vpItemSheetRows, vpExportFileName, vpParseCodes, VP_EXPORT_MAX,
 } from "../lib/vendor-portal"
 
 // ── สถานะ: จ่ายแล้วชนะทุกอย่าง (ฝั่งภายใน "ไม่ผ่าน" ชนะ — ฝั่งเจ้าหนี้กลับกัน)
@@ -182,6 +183,40 @@ assert.equal(vpDueText(vpBillOf({ depositCode: "Z", receivedAt: "2026-10-01", am
 // ── ชื่อที่ใช้ดึงใบจริงทุก request: ตัดถังเงินสด + ชื่อซ้ำใน ATMS (รีวิว: รหัสเดียวมีชื่อเงินสดปน = เห็นบิลร้านอื่น)
 assert.deepEqual(vpPortalNames(["หจก. สมชัยการช่าง", "เงินสด (ไม่มีVAT)", "ร้านซ้ำ"], new Set(["ร้านซ้ำ"])), ["หจก. สมชัยการช่าง"])
 assert.deepEqual(vpPortalNames(["เงินสด"], new Set()), [])
+
+// ── Excel: ชีตบิล + ชีตรายการสินค้า ───────────────────────────────────────────
+const sheet1 = vpBillSheetRows([L[2], L[3], L[0]])
+assert.deepEqual(Object.keys(sheet1[0]), ["เลข DD", "วันที่รับของ", "เลขใบแจ้งหนี้ร้าน", "เบอร์รถ", "ทะเบียน", "ยอดเงิน", "สถานะ", "กำหนดโอน", "วันที่โอน"])
+assert.deepEqual(sheet1[0], { "เลข DD": "LBDD26100131", "วันที่รับของ": "2026-10-08", "เลขใบแจ้งหนี้ร้าน": "", "เบอร์รถ": "ME042", "ทะเบียน": "71-5742", "ยอดเงิน": 13096.8, "สถานะ": "รอโอน", "กำหนดโอน": "2026-10-29", "วันที่โอน": "" })
+assert.equal(sheet1[1]["วันที่โอน"], "2026-10-22")
+assert.equal(sheet1[1]["เลขใบแจ้งหนี้ร้าน"], "INV-6609-212")
+assert.equal(sheet1[2]["สถานะ"], "กำลังดำเนินการ")
+assert.equal(sheet1[2]["กำหนดโอน"], "")
+
+const sheet2 = vpItemSheetRows([
+  { depositCode: "LBDD26100131", receivedAt: "2026-10-08", items: [
+    { code: "BR-1", name: "ผ้าเบรก", qty: "2", unitPrice: 3800, total: 7600 },
+    { code: "LB-1", name: "ค่าแรง", qty: "1 งาน", unitPrice: 3500, total: 3500 },
+  ] },
+  { depositCode: "LBDD26100288", receivedAt: "2026-10-15", items: null },
+])
+assert.deepEqual(Object.keys(sheet2[0]), ["เลข DD", "วันที่รับของ", "รหัสสินค้า", "ชื่อสินค้า", "จำนวน", "ราคาต่อหน่วย", "ยอดรวม"])
+assert.equal(sheet2.length, 3)
+assert.equal(sheet2[0]["จำนวน"], 2)                 // ตัวเลขล้วน → number (Excel บวกได้)
+assert.equal(sheet2[1]["จำนวน"], "1 งาน")           // มีหน่วยปน → คงเป็นข้อความ
+assert.equal(sheet2[2]["เลข DD"], "LBDD26100288")
+assert.equal(sheet2[2]["ชื่อสินค้า"], "รายการสินค้ากำลังอัปเดต ลองดาวน์โหลดใหม่ภายหลัง")
+assert.equal(sheet2[2]["ยอดรวม"], "")
+
+assert.equal(vpExportFileName("VEN-00008", "2026-10-27"), "บิล-VEN-00008-2026-10-27.xlsx")
+assert.equal(vpExportFileName("A/B\\C", "2026-10-27"), "บิล-A-B-C-2026-10-27.xlsx")
+
+// ── รับเลข DD จาก body: ตัวใหญ่ · ตัดซ้ำ/ค่าว่าง/ไม่ใช่ string · เกินเพดาน = null
+assert.deepEqual(vpParseCodes({ codes: [" lbdd1 ", "LBDD1", "", 5, null, "LBDD2"] }), ["LBDD1", "LBDD2"])
+assert.deepEqual(vpParseCodes({ codes: "LBDD1" }), [])
+assert.deepEqual(vpParseCodes({ codes: [{ $gt: "" }] }), [])
+assert.deepEqual(vpParseCodes(null), [])
+assert.equal(vpParseCodes({ codes: Array.from({ length: VP_EXPORT_MAX + 1 }, (_, i) => `D${i}`) }), null)
 
 console.log("check-vendor-portal: rules ok")
 

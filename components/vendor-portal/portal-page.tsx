@@ -2,7 +2,7 @@
 // หน้าหลักของเจ้าหนี้ — รอบโอนถัดไป · ค้น DD/เบอร์รถ/ทะเบียน · กรอง · คัดลอกเลข DD
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check, Copy, Search, SlidersHorizontal, X } from "lucide-react"
+import { Check, Copy, Download, Search, SlidersHorizontal, X } from "lucide-react"
 import {
   VP_STATUS_LABEL, vpBillMonths, vpFilterBills, vpMonthLabel, vpThaiDate,
   type VpBill, type VpFilter, type VpStatus,
@@ -10,6 +10,7 @@ import {
 import { BillCard } from "./bill-card"
 import { FilterSheet } from "./filter-sheet"
 import { VP_FONT, baht, copyText, weekdayOf } from "./ui"
+import { downloadVpExcel } from "./export-excel"
 
 type Data = {
   vendor: { name: string; username: string }
@@ -29,6 +30,7 @@ export function VendorPortalPage() {
   const [filter, setFilter] = useState<VpFilter>({ sort: "recent" })
   const [sheet, setSheet] = useState(false)
   const [toast, setToast] = useState("")
+  const [exporting, setExporting] = useState(false)
 
   const toLogin = useCallback(() => router.replace("/vendor-portal/login"), [router])
 
@@ -67,6 +69,22 @@ export function VendorPortalPage() {
   const months = useMemo(() => vpBillMonths(bills), [bills])
   const shown = useMemo(() => vpFilterBills(bills, { ...filter, q }), [bills, filter, q])
   const total = useMemo(() => shown.reduce((n, b) => n + b.amount, 0), [shown])
+
+  const exportExcel = async () => {
+    if (!data || exporting) return
+    setExporting(true)
+    try {
+      const r = await downloadVpExcel(shown, data.vendor.username, data.today)
+      if (r.ok) showToast(`ดาวน์โหลด Excel ${shown.length} ใบแล้ว`)
+      else if (r.unauthorized) toLogin()
+      else showToast(r.error)
+    } catch {
+      showToast("ดาวน์โหลดไม่สำเร็จ ลองใหม่อีกครั้ง")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const countOf = (s: VpStatus | "all") => (s === "all" ? bills.length : bills.filter((b) => b.status === s).length)
   const activeGroups = (filter.statuses?.length ? 1 : 0) + (filter.months?.length || filter.from || filter.to ? 1 : 0) + ((filter.sort ?? "recent") !== "recent" ? 1 : 0)
   const quick: VpStatus | "all" | null = !filter.statuses?.length ? "all" : filter.statuses.length === 1 ? filter.statuses[0] : null
@@ -137,13 +155,19 @@ export function VendorPortalPage() {
               ))}
             </div>
 
-            <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2 text-[12.5px] text-slate-600">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-2 pt-2 text-[12.5px] text-slate-600">
               <span><b className="text-slate-900">{shown.length} ใบ</b> · {baht(total)}</span>
               {shown.length > 0 && (
-                <button onClick={() => onCopy(shown.map((b) => b.depositCode).join("\n"), `คัดลอกเลข DD ${shown.length} ใบแล้ว`)}
-                  className="inline-flex h-[34px] items-center gap-1.5 rounded-lg border border-[#1E3A5F] bg-white px-2.5 text-xs font-semibold text-[#1E3A5F]">
-                  <Copy className="h-[15px] w-[15px]" />คัดลอก DD {shown.length === bills.length ? "ทั้งหมด" : `${shown.length} ใบ`}
-                </button>
+                <div className="ml-auto flex gap-1.5">
+                  <button onClick={() => onCopy(shown.map((b) => b.depositCode).join("\n"), `คัดลอกเลข DD ${shown.length} ใบแล้ว`)}
+                    className="inline-flex h-[34px] items-center gap-1.5 rounded-lg border border-[#1E3A5F] bg-white px-2.5 text-xs font-semibold text-[#1E3A5F]">
+                    <Copy className="h-[15px] w-[15px]" />คัดลอก DD {shown.length === bills.length ? "ทั้งหมด" : `${shown.length} ใบ`}
+                  </button>
+                  <button onClick={exportExcel} disabled={exporting}
+                    className="inline-flex h-[34px] items-center gap-1.5 rounded-lg bg-[#1E3A5F] px-2.5 text-xs font-semibold text-white disabled:opacity-60">
+                    <Download className="h-[15px] w-[15px]" />{exporting ? "กำลังเตรียม…" : "Excel"}
+                  </button>
+                </div>
               )}
             </div>
 
