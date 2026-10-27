@@ -145,3 +145,31 @@ export function vpItemsOf(items: { item?: string; qty?: string; unit_price?: str
     }
   })
 }
+
+// ── ด่านสิทธิ์ ───────────────────────────────────────────────────────────────
+/** ใบนี้เจ้าที่ล็อกอินดูได้ไหม — ชื่อผู้ขายต้องอยู่ในชุดของบัญชี · ไม่ใช่คลังสระบุรี · อยู่ในช่วงเวลา
+ *  ใช้ทั้งตอนดึงรายการใบและด่าน 404 ของรายการสินค้า (ไม่ผ่าน = ทำเหมือนหาใบไม่เจอ) */
+export function vpCanSeeHead(
+  head: { supplier?: string; warehouse?: string; receivedAt: string },
+  names: string[],
+  status: VpStatus,
+  todayISO: string,
+): boolean {
+  const sup = String(head.supplier ?? "").trim()
+  if (!sup || !names.includes(sup)) return false
+  if (isSaraburiWarehouse(String(head.warehouse ?? ""))) return false
+  return vpVisible(head.receivedAt, status, todayISO)
+}
+
+/** ชื่อที่ ATMS มีมากกว่า 1 รหัส — DD เก็บแค่ชื่อ จึงแยกไม่ได้ว่าเป็นของเจ้าไหน → ไม่ขึ้นให้ใครเห็นเลย */
+export function vpAmbiguousNames(rows: { name?: string; code?: string }[]): Set<string> {
+  const codes = new Map<string, Set<string>>()
+  for (const r of rows ?? []) {
+    const n = String(r?.name ?? "").trim()
+    const c = String(r?.code ?? "").trim()
+    if (!n) continue
+    if (!codes.has(n)) codes.set(n, new Set())
+    codes.get(n)!.add(c)
+  }
+  return new Set([...codes].filter(([, cs]) => cs.size > 1).map(([n]) => n))
+}

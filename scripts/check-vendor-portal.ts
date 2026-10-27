@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import {
   vpStatusOf, vpWindowStart, vpLookbackStart, vpMonths, vpVisible,
   isSaraburiWarehouse, isCashVendor, normVpUsername, vpBillOf, vpNextTransfer, vpItemsOf,
-  VP_BILL_KEYS, VP_STATUS_LABEL,
+  VP_BILL_KEYS, VP_STATUS_LABEL, vpCanSeeHead, vpAmbiguousNames,
 } from "../lib/vendor-portal"
 
 // ── สถานะ: จ่ายแล้วชนะทุกอย่าง (ฝั่งภายใน "ไม่ผ่าน" ชนะ — ฝั่งเจ้าหนี้กลับกัน)
@@ -78,6 +78,25 @@ assert.deepEqual(
 )
 assert.deepEqual(vpItemsOf([{ item: "ค่าขนส่ง", qty: "", unit_price: "", total: "500" }]),
   [{ code: "", name: "ค่าขนส่ง", qty: "", unitPrice: 0, total: 500 }])
+
+// ── ใครดูใบไหนได้ (ด่าน 404 ของรายการสินค้า) ─────────────────────────────────
+const mine = ["หจก. สมชัยการช่าง", "สมชัยการช่าง"]
+const head = (o: Partial<{ supplier: string; warehouse: string; receivedAt: string }>) =>
+  ({ supplier: "สมชัยการช่าง", warehouse: "ลาดกระบัง", receivedAt: "2026-10-08", ...o })
+assert.equal(vpCanSeeHead(head({}), mine, "processing", "2026-10-27"), true)
+assert.equal(vpCanSeeHead(head({ supplier: "ร้านอื่น" }), mine, "processing", "2026-10-27"), false)
+assert.equal(vpCanSeeHead(head({ supplier: "" }), mine, "processing", "2026-10-27"), false)
+assert.equal(vpCanSeeHead(head({ warehouse: "คลังสระบุรี" }), mine, "processing", "2026-10-27"), false)
+assert.equal(vpCanSeeHead(head({ receivedAt: "2026-03-01" }), mine, "paid", "2026-10-27"), false)
+assert.equal(vpCanSeeHead(head({ receivedAt: "2026-03-01" }), mine, "scheduled", "2026-10-27"), true)
+assert.equal(vpCanSeeHead(head({}), [], "processing", "2026-10-27"), false)
+
+// ── ชื่อเดียวหลายรหัสใน ATMS = ไม่ขึ้นให้ใครเห็น
+assert.deepEqual([...vpAmbiguousNames([
+  { name: "ร้าน ก", code: "VEN-1" }, { name: "ร้าน ก", code: "VEN-2" },
+  { name: "ร้าน ข", code: "VEN-3" }, { name: "ร้าน ข", code: "VEN-3" },
+  { name: " ร้าน ค ", code: "VEN-4" }, { name: "ร้าน ค", code: "VEN-5" },
+])].sort(), ["ร้าน ก", "ร้าน ค"])
 
 console.log("check-vendor-portal: rules ok")
 
