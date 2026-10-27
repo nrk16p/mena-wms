@@ -11,6 +11,7 @@ import { BillCard } from "./bill-card"
 import { FilterSheet } from "./filter-sheet"
 import { VP_FONT, baht, copyText, weekdayOf } from "./ui"
 import { downloadVpExcel } from "./export-excel"
+import { COMPANY } from "@/lib/vendor-brand"
 
 type Data = {
   vendor: { name: string; username: string }
@@ -104,12 +105,18 @@ export function VendorPortalPage() {
   return (
     <div className="h-full overflow-y-auto bg-slate-50 text-slate-900" style={VP_FONT}>
       <div className="mx-auto max-w-xl pb-24">
-        <header className="sticky top-0 z-20 bg-[#1E3A5F] px-3 pb-2.5 pt-2.5 text-white sm:rounded-b-2xl">
-          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
-            <span className="truncate font-semibold">{data?.vendor.name ?? "ติดตามการจ่ายเงิน"}</span>
-            <button onClick={logout} className="h-8 flex-none rounded-lg px-2 text-white/85 hover:bg-white/10">ออกจากระบบ</button>
+        <header className="sticky top-0 z-20 overflow-hidden shadow-sm sm:rounded-b-2xl">
+          {/* แถบโลโก้ขาว — หน้าตาเดียวกับหน้าอู่ (/q) และเว็บทางการ */}
+          <div className="flex items-center gap-2.5 border-b border-slate-200 bg-white px-3 py-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/mena-logo.svg" alt="Mena Transport" className="h-8 w-auto flex-none" />
+            <div className="min-w-0 flex-1 leading-tight">
+              <div className="text-[10px] font-semibold tracking-[0.12em] text-[#046132]">SUPPLIER PORTAL</div>
+              <div className="truncate text-[13px] font-medium text-slate-900">{data?.vendor.name ?? "ติดตามการจ่ายเงิน"}</div>
+            </div>
+            <button onClick={logout} className="h-9 flex-none rounded-lg px-2 text-xs text-slate-600 hover:bg-slate-100">ออกจากระบบ</button>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 bg-[#046132] px-3 py-2.5">
             <label className="flex h-11 flex-1 items-center gap-2 rounded-xl bg-white px-3 text-slate-900">
               <Search className="h-[18px] w-[18px] flex-none text-slate-400" />
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้น DD / เบอร์รถ / ทะเบียน"
@@ -117,7 +124,7 @@ export function VendorPortalPage() {
               {q && <button onClick={() => setQ("")} aria-label="ล้างคำค้น" className="grid h-8 w-8 place-items-center rounded-lg text-slate-500"><X className="h-[18px] w-[18px]" /></button>}
             </label>
             <button onClick={() => setSheet(true)} aria-label="กรองรายการ"
-              className="relative grid h-11 w-11 flex-none place-items-center rounded-xl bg-white text-[#1E3A5F]">
+              className="relative grid h-11 w-11 flex-none place-items-center rounded-xl bg-white text-[#046132]">
               <SlidersHorizontal className="h-[18px] w-[18px]" />
               {activeGroups > 0 && <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-amber-400 px-1 text-[11px] font-bold text-slate-900">{activeGroups}</span>}
             </button>
@@ -149,7 +156,7 @@ export function VendorPortalPage() {
             <div className="flex gap-1.5 overflow-x-auto px-3 pb-1 pt-2.5 [scrollbar-width:none]">
               {QUICK.map((s) => (
                 <button key={s} onClick={() => setFilter({ ...filter, statuses: s === "all" ? [] : [s] })}
-                  className={`h-[34px] whitespace-nowrap rounded-full border px-3 text-[12.5px] font-medium ${quick === s ? "border-[#1E3A5F] bg-[#1E3A5F] text-white" : "border-slate-300 bg-white text-slate-700"}`}>
+                  className={`h-[34px] whitespace-nowrap rounded-full border px-3 text-[12.5px] font-medium ${quick === s ? "border-[#046132] bg-[#046132] text-white" : "border-slate-300 bg-white text-slate-700"}`}>
                   {s === "all" ? "ทั้งหมด" : VP_STATUS_LABEL[s]} {countOf(s)}
                 </button>
               ))}
@@ -160,11 +167,11 @@ export function VendorPortalPage() {
               {shown.length > 0 && (
                 <div className="ml-auto flex gap-1.5">
                   <button onClick={() => onCopy(shown.map((b) => b.depositCode).join("\n"), `คัดลอกเลข DD ${shown.length} ใบแล้ว`)}
-                    className="inline-flex h-[34px] items-center gap-1.5 rounded-lg border border-[#1E3A5F] bg-white px-2.5 text-xs font-semibold text-[#1E3A5F]">
+                    className="inline-flex h-[34px] items-center gap-1.5 rounded-lg border border-[#046132] bg-white px-2.5 text-xs font-semibold text-[#046132]">
                     <Copy className="h-[15px] w-[15px]" />คัดลอก DD {shown.length === bills.length ? "ทั้งหมด" : `${shown.length} ใบ`}
                   </button>
                   <button onClick={exportExcel} disabled={exporting}
-                    className="inline-flex h-[34px] items-center gap-1.5 rounded-lg bg-[#1E3A5F] px-2.5 text-xs font-semibold text-white disabled:opacity-60">
+                    className="inline-flex h-[34px] items-center gap-1.5 rounded-lg bg-[#046132] px-2.5 text-xs font-semibold text-white disabled:opacity-60">
                     <Download className="h-[15px] w-[15px]" />{exporting ? "กำลังเตรียม…" : "Excel"}
                   </button>
                 </div>
@@ -177,7 +184,7 @@ export function VendorPortalPage() {
             {bills.length > 0 && shown.length === 0 && (
               <div className="px-6 py-12 text-center text-sm text-slate-500">
                 ไม่เจอบิลที่ตรงกับที่ค้น
-                <div><button onClick={() => { setQ(""); setFilter({ sort: "recent" }) }} className="mt-2 h-10 px-3 font-semibold text-[#1E3A5F] underline">ล้างการค้นหาและตัวกรอง</button></div>
+                <div><button onClick={() => { setQ(""); setFilter({ sort: "recent" }) }} className="mt-2 h-10 px-3 font-semibold text-[#046132] underline">ล้างการค้นหาและตัวกรอง</button></div>
               </div>
             )}
 
@@ -198,6 +205,7 @@ export function VendorPortalPage() {
             <p className="px-6 pt-6 text-center text-xs leading-relaxed text-slate-400">
               ข้อมูลรับของตั้งแต่ {vpThaiDate(data.windowStart)} และบิลเก่าที่ยังรอโอน · สงสัยเรื่องบิล ติดต่อฝ่ายจัดซื้อ
             </p>
+            <p className="px-6 pt-3 text-center text-[11px] text-slate-400">{COMPANY.nameTh}</p>
           </>
         )}
       </div>

@@ -1,7 +1,9 @@
-// ของใช้ร่วมของหน้าเจ้าหนี้ — หน้านี้บังคับธีมสว่างเสมอ (ไม่ใช้ dark:) เพราะคนนอกเปิดจากไลน์บนมือถือ
+// ของใช้ร่วมของหน้าเจ้าหนี้ — ธีมเดียวกับหน้าอู่ (lib/vendor-brand.ts: เขียว #046132 + โลโก้ + Prompt)
+// บังคับธีมสว่างเสมอ (ไม่ใช้ dark:) เพราะคนนอกเปิดจากไลน์บนมือถือ
 import type { VpStatus } from "@/lib/vendor-portal"
+import { BRAND } from "@/lib/vendor-brand"
 
-export const VP_FONT = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
+export const VP_FONT = { fontFamily: BRAND.font }
 
 export const VP_BADGE: Record<VpStatus, { box: string; dot: string }> = {
   processing: { box: "bg-sky-50 text-sky-700",        dot: "bg-sky-500" },

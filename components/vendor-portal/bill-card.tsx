@@ -59,7 +59,7 @@ export function BillCard({ bill, today, query, onCopy, onUnauthorized }: {
       <div className="flex items-center gap-1.5">
         <span className="text-[15.5px] font-bold tracking-wide">{bill.depositCode}</span>
         <button onClick={copy} aria-label={`คัดลอกเลข ${bill.depositCode}`}
-          className={`grid h-10 w-10 flex-none place-items-center rounded-lg transition ${copied ? "bg-emerald-100 text-emerald-700" : "bg-indigo-50 text-[#1E3A5F] hover:bg-indigo-100"}`}>
+          className={`grid h-10 w-10 flex-none place-items-center rounded-lg transition ${copied ? "bg-emerald-100 text-emerald-700" : "bg-[#E8F1EC] text-[#046132] hover:bg-[#D5E8DD]"}`}>
           {copied ? <Check className="h-[18px] w-[18px]" /> : <Copy className="h-[18px] w-[18px]" />}
         </button>
         <span className="ml-auto whitespace-nowrap text-[15px] font-bold tabular-nums">{baht(bill.amount)}</span>
@@ -81,7 +81,7 @@ export function BillCard({ bill, today, query, onCopy, onUnauthorized }: {
       </div>
 
       <button onClick={toggle} aria-expanded={open}
-        className="mt-2 flex h-10 w-full items-center justify-between border-t border-dashed border-slate-200 text-[12.5px] font-semibold text-[#1E3A5F]">
+        className="mt-2 flex h-10 w-full items-center justify-between border-t border-dashed border-slate-200 text-[12.5px] font-semibold text-[#046132]">
         <span>รายการสินค้า</span>
         <ChevronDown className={`h-[18px] w-[18px] transition-transform ${open ? "rotate-180" : ""}`} />
       </button>

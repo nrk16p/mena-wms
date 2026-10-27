@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff } from "lucide-react"
 import { VP_FONT } from "@/components/vendor-portal/ui"
+import { COMPANY } from "@/lib/vendor-brand"
 
 export default function VendorPortalLoginPage() {
   const router = useRouter()
@@ -34,18 +35,20 @@ export default function VendorPortalLoginPage() {
     }
   }
 
-  const input = "h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/20"
+  const input = "h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none focus:border-[#046132] focus:ring-2 focus:ring-[#046132]/20"
 
   return (
     <div className="h-full overflow-y-auto bg-slate-50 text-slate-900" style={VP_FONT}>
-      <div className="bg-[#1E3A5F] px-6 pb-24 pt-12 text-center text-white">
-        <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-white text-sm font-bold text-[#1E3A5F]">MENA</div>
-        <h1 className="text-xl font-semibold">ติดตามการจ่ายเงินคู่ค้า</h1>
-        <p className="mt-1 text-sm text-white/80">เมน่า ทรานสปอร์ต</p>
-      </div>
+      <div className="h-40 bg-[#046132]" />
 
       <div className="px-4">
-      <form onSubmit={submit} className="mx-auto -mt-16 w-full max-w-sm space-y-4 rounded-2xl bg-white p-5 shadow-[0_4px_16px_rgba(15,23,42,0.08)]">
+      <form onSubmit={submit} className="mx-auto -mt-28 w-full max-w-sm space-y-4 rounded-2xl bg-white p-5 shadow-[0_4px_16px_rgba(15,23,42,0.08)]">
+        <div className="pb-1 text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/mena-logo.svg" alt="Mena Transport" className="mx-auto h-16 w-auto" />
+          <div className="mt-3 text-[11px] font-semibold tracking-[0.12em] text-[#046132]">SUPPLIER PORTAL</div>
+          <h1 className="mt-0.5 text-lg font-semibold text-slate-900">ติดตามการจ่ายเงินคู่ค้า</h1>
+        </div>
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-slate-700">ชื่อผู้ใช้</span>
           <input value={username} onChange={(e) => setUsername(e.target.value)} className={input}
@@ -65,15 +68,16 @@ export default function VendorPortalLoginPage() {
         </label>
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
         <button type="submit" disabled={busy}
-          className="h-12 w-full rounded-xl bg-[#1E3A5F] text-base font-semibold text-white transition hover:bg-[#17304f] disabled:opacity-60">
+          className="h-12 w-full rounded-xl bg-[#046132] text-base font-semibold text-white transition hover:bg-[#023A1E] disabled:opacity-60">
           {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
         </button>
       </form>
       </div>
 
-      <p className="mx-auto mt-5 max-w-sm px-6 pb-10 text-center text-sm leading-relaxed text-slate-500">
+      <p className="mx-auto mt-5 max-w-sm px-6 text-center text-sm leading-relaxed text-slate-500">
         ลืมรหัสผ่านหรือยังไม่มีบัญชี<br />ติดต่อฝ่ายจัดซื้อที่ดูแลร้านของคุณ
       </p>
+      <p className="mx-auto mt-8 max-w-sm px-6 pb-10 text-center text-xs text-slate-400">{COMPANY.nameTh}</p>
     </div>
   )
 }

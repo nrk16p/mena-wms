@@ -12,7 +12,7 @@ const SORTS: { k: VpSort; label: string }[] = [
 ]
 
 const OPT = "inline-flex h-10 items-center gap-1.5 rounded-xl border px-3 text-[13px] font-medium transition"
-const on = (v: boolean) => (v ? "border-[#1E3A5F] bg-indigo-50 font-semibold text-[#1E3A5F]" : "border-slate-300 text-slate-700 hover:bg-slate-50")
+const on = (v: boolean) => (v ? "border-[#046132] bg-[#E8F1EC] font-semibold text-[#046132]" : "border-slate-300 text-slate-700 hover:bg-slate-50")
 
 export function FilterSheet({ bills, months, value, onApply, onClose }: {
   bills: VpBill[]
@@ -91,7 +91,7 @@ export function FilterSheet({ bills, months, value, onApply, onClose }: {
 
         <div className="sticky bottom-0 mt-5 flex gap-2 bg-white pt-2">
           <button onClick={onClose} className="h-12 flex-1 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700">ยกเลิก</button>
-          <button onClick={() => onApply(f)} className="h-12 flex-[2] rounded-xl bg-[#1E3A5F] text-sm font-semibold text-white">ดูผล {result} ใบ</button>
+          <button onClick={() => onApply(f)} className="h-12 flex-[2] rounded-xl bg-[#046132] text-sm font-semibold text-white">ดูผล {result} ใบ</button>
         </div>
       </div>
     </div>
