@@ -973,6 +973,52 @@ export function inDateRange(ymd: string | undefined, from: string, to: string): 
   return true
 }
 
+// sentMarkedAt = เวลากดส่งบัญชี "ครั้งล่าสุด" (ผู้ใช้สั่ง 27/10/2026) — เดิมเก็บเฉพาะครั้งแรก
+// ใบที่เคยส่งแล้วถูกกดส่งอีกรอบจึงไม่ขึ้นในตัวกรองวันกดส่งของวันนั้น (เคส KKDD26090005)
+// ใบที่ผ่าน/จ่ายแล้วกดส่งซ้ำไม่ได้อยู่แล้ว (ด่าน apLockedAfterPass) จึงไม่กระทบกำหนดจ่ายที่คิดไปแล้ว
+export function apSentMarkPatch(
+  sentDate: string, hadSentDate: boolean, at: string, by: string,
+): { sentMarkedAt?: string; sentMarkedBy?: string } {
+  if (sentDate) return { sentMarkedAt: at, sentMarkedBy: by }
+  if (hadSentDate) return { sentMarkedAt: "", sentMarkedBy: "" }
+  return {}
+}
+
+type ApLogLike = { action?: string; field?: string; at?: string; by?: string }
+export const AP_RESUBMIT_ACTION = "จัดซื้อแก้ไขแล้ว ส่งตรวจใหม่"
+
+// การกดส่งครั้งล่าสุดจาก log — กดส่งบัญชี หรือส่งตรวจใหม่หลังตีกลับ (ทั้งคู่ตั้งเวลากดส่ง)
+// เลือกจากเวลาใหม่สุด ไม่พึ่งลำดับใน array
+export function apLatestSendPress(log: ApLogLike[] | null | undefined): { at: string; by: string } | null {
+  let best: { at: string; by: string } | null = null
+  for (const e of Array.isArray(log) ? log : []) {
+    const action = String(e?.action ?? "")
+    const isSend = (e?.field === "sent" && action.startsWith("ส่งบัญชี"))
+      || (e?.field === "review" && action === AP_RESUBMIT_ACTION)
+    const at = String(e?.at ?? "")
+    if (!isSend || Number.isNaN(Date.parse(at))) continue
+    if (!best || Date.parse(at) > Date.parse(best.at)) best = { at, by: String(e?.by ?? "") }
+  }
+  return best
+}
+
+// ใบเดิมที่เวลากดส่งค้างของครั้งก่อน → คืนเวลากดล่าสุดที่ควรเป็น · ไม่ต้องแก้ = null
+// แตะเฉพาะใบที่ยังส่งอยู่ ยังไม่ผ่าน ยังไม่จ่าย — ใบปิดแล้วกำหนดจ่ายคิดจากเวลาเดิมไปแล้ว
+export function apSentMarkedRefresh(doc: {
+  sentDate?: string; sentMarkedAt?: string
+  review?: { status?: string } | null
+  paid?: { paymentNos?: string[]; date?: string } | null
+  log?: ApLogLike[] | null
+}): { at: string; by: string } | null {
+  if (!String(doc.sentDate ?? "").trim()) return null
+  if (String(doc.review?.status ?? "").trim() === "ผ่าน" || apPaidConfirmed(doc.paid)) return null
+  const press = apLatestSendPress(doc.log)
+  if (!press) return null
+  const cur = Date.parse(String(doc.sentMarkedAt ?? ""))
+  if (!Number.isNaN(cur) && cur >= Date.parse(press.at)) return null
+  return press
+}
+
 // ปุ่มลัดของแถบกรอง — คิดจาก "วันนี้" ที่ส่งเข้ามา ไม่อ่านนาฬิกาเอง (เทสต์ได้ + ตรงกับ todayICT ที่หน้าใช้)
 export type ApRangePreset = "today" | "7d" | "month"
 export function apRangeOf(preset: ApRangePreset, todayISO: string): { from: string; to: string } {

@@ -7,7 +7,7 @@ import {
   AP_FILES_MAX, AP_NO_FIELDS, AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
   AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate, resolveCreditTerm,
   apManualPayDateError, applyManualPayDate,
-  apLockedAfterPass, apPaidConfirmed, AP_LOCKED_MSG,
+  apLockedAfterPass, apPaidConfirmed, AP_LOCKED_MSG, apSentMarkPatch, AP_RESUBMIT_ACTION,
   apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate,
   type ApDocKey, type ApDocs, type ApFile, type ApPayType, type ApReview, type ApReviewStatus,
 } from "@/lib/ap-tracking"
@@ -327,7 +327,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
       // และรอบพฤหัสของเครดิตสั้นตอนบัญชีกดผ่านรอบถัดไป
       if (isResubmit) { set.sentMarkedAt = at; set.sentMarkedBy = by }
       log.push({
-        action: isResubmit ? "จัดซื้อแก้ไขแล้ว ส่งตรวจใหม่"
+        action: isResubmit ? AP_RESUBMIT_ACTION
           : status ? `บัญชีตรวจเอกสาร: ${status}` : "ล้างผลตรวจเอกสาร",
         // การส่งตรวจใหม่บันทึก "สิ่งที่แก้" ลงประวัติ — เหตุผลตีกลับเดิมอยู่ใน log อยู่แล้ว
         field: "review", detail: isResubmit ? s(body.resubmitNote).slice(0, AP_REVIEW_NOTE_MAX) : note,
@@ -498,13 +498,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ code: str
     set.sentDate = sentDate
     // เวลาที่ "คนกดส่ง" — ต่างจาก sentDate ซึ่งคือวันที่เงินจะออก (พฤหัสนอกรอบ/วันครบกำหนด)
     // เก็บเป็นฟิลด์เพราะ API ตารางตัด log ทิ้ง (projection log:0) จึงอ่านจาก log ไม่ได้
-    // แก้วันโอนของใบที่ส่งไปแล้วต้องไม่รีเซ็ตเวลากดส่งเดิม — ไม่งั้นใบเก่าจะเด้งมากองวันนี้ทั้งหมด
+    // กดส่งซ้ำ (ใบที่เคยส่งแล้ว) = นับเป็นวันกดส่งใหม่ (ผู้ใช้สั่ง 27/10/2026) — กรองวันนี้ต้องเจอใบที่เพิ่งกด
+    Object.assign(set, apSentMarkPatch(sentDate, hadSentDate, at, by))
     if (sentDate) {
-      if (!hadSentDate) { set.sentMarkedAt = at; set.sentMarkedBy = by }
       log.push({ action: `ส่งบัญชี (${sentType})`, field: "sent", detail: sentDate, by, byEmail, at })
     } else if (hadSentDate) {
-      set.sentMarkedAt = ""
-      set.sentMarkedBy = ""
       // ยกเลิกจริง (เคยมี sentDate มาก่อน) เท่านั้นถึงจะลง log — ล้างค่าที่ว่างอยู่แล้วไม่ควรลง log หลอกๆ
       log.push({ action: "ยกเลิกส่งบัญชี", field: "sent", detail: sentDate, by, byEmail, at })
     }
