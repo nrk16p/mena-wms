@@ -15,12 +15,13 @@
 //   reviewedAt:   Date | null
 //   reviewNote:   string | null
 //   vendorCode:   string | null     รหัส vendor ในระบบหลัก — ใส่ตอนอนุมัติ/ผูกกับ vendor เดิม
+//   lineId:       string | null     LINE userId (U…) — ยืนยันจาก LIFF ID token ฝั่ง server · null = ไม่ได้เปิดผ่าน LINE
+//   lineDisplayName: string | null  ชื่อที่แสดงใน LINE ตอนส่งฟอร์ม
 //   source:       "form-vendor"
-//   meta:         { ip: string | null, userAgent: string | null }
 //   createdAt:    Date
 //   updatedAt:    Date
 // }
-// index: { taxId: 1 } · { status: 1, createdAt: -1 } · { createdAt: -1 }
+// index: { taxId: 1 } · { lineId: 1 } · { status: 1, createdAt: -1 } · { createdAt: -1 }
 
 export const VR_DB = "datawarehouse"
 export const VR_COLL = "vendor_registration"

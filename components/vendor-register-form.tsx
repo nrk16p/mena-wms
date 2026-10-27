@@ -2,7 +2,7 @@
 // ฟอร์มลงทะเบียน Vendor (/form-vendor) — ลิงก์ภายนอก ใครมีลิงก์ก็กรอกได้ ไม่ต้อง login
 // กดส่ง → POST /api/form-vendor → datawarehouse.vendor_registration (status: pending ให้ฝ่ายจัดซื้อตรวจ)
 // หน้าตาแบบแอปมือถือสำหรับ LINE LIFF: หัวเขียว + การ์ดฟอร์ม + ปุ่มส่งติดล่างจอ · สีจาก lib/vendor-brand
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { Liff } from "@line/liff"
 import { Building2, Check, MapPin, Phone, Receipt, User } from "lucide-react"
 import { scrollToTop } from "@/components/rfq-vendor-shared"
@@ -91,24 +91,30 @@ function Hero({ sub }: { sub: string }) {
   )
 }
 
-/** เปิดใน LINE (LIFF) ไหม — closeWindow/isInClient ใช้ได้ก่อน init · init เมื่อมี NEXT_PUBLIC_LIFF_ID */
+/** เปิดใน LINE (LIFF) ไหม — closeWindow/isInClient ใช้ได้ก่อน init · init เมื่อมี NEXT_PUBLIC_LIFF_ID
+ *  idToken() = LIFF ID token ไว้ให้ server ยืนยัน lineId (ต้องเปิด scope openid ใน LIFF app) · ไม่ได้ = null */
 function useLiff() {
   const [liff, setLiff] = useState<Liff | null>(null)
+  const ready = useRef<Promise<boolean>>(Promise.resolve(false))
   useEffect(() => {
     let alive = true
     import("@line/liff").then(({ default: l }) => {
       if (!alive || !l.isInClient()) return
       const id = process.env.NEXT_PUBLIC_LIFF_ID
-      if (id) l.init({ liffId: id }).catch(() => {})
+      if (id) ready.current = l.init({ liffId: id }).then(() => true, () => false)
       setLiff(l)
     }).catch(() => {})
     return () => { alive = false }
   }, [])
-  return liff
+  const idToken = async () => {
+    if (!liff || !(await ready.current)) return null
+    try { return liff.getIDToken() } catch { return null }
+  }
+  return { liff, idToken }
 }
 
 export function VendorRegisterForm() {
-  const liff = useLiff()
+  const { liff, idToken } = useLiff()
   const [f, setF] = useState<Form>(EMPTY)
   const [touched, setTouched] = useState(false)
   const [done, setDone] = useState<Form | null>(null)
@@ -133,7 +139,7 @@ export function VendorRegisterForm() {
     const clean = { ...f, firstName: f.firstName.trim(), lastName: f.lastName.trim(), onBehalf: f.onBehalf.trim(), address: f.address.trim() }
     setSaving(true)
     try {
-      const res = await fetch("/api/form-vendor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(clean) })
+      const res = await fetch("/api/form-vendor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...clean, lineIdToken: await idToken() }) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setSaveError(data.error || "บันทึกไม่สำเร็จ — ลองใหม่อีกครั้ง"); return }
       setDone(clean)
