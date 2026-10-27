@@ -9,7 +9,7 @@ import clientPromise from "./mongo"
 import { parseDmy, apNetOf, apGrossOf, apVatOf, apItemVerification } from "./ap-tracking"
 import {
   vpStatusOf, vpBillOf, vpMonths, vpLookbackStart, vpCanSeeHead, vpAmbiguousNames, vpItemsOf,
-  isSaraburiWarehouse, normVpUsername, type VpBill, type VpItem,
+  isSaraburiWarehouse, normVpUsername, vpPortalNames, type VpBill, type VpItem,
 } from "./vendor-portal"
 import { VP_COOKIE, readVpSession, vpSessionValid } from "./vendor-portal-auth"
 
@@ -57,7 +57,7 @@ export async function vpAmbiguousSet(atms: Db, names: string[]): Promise<Set<str
   return vpAmbiguousNames(rows)
 }
 
-/** ชื่อผู้ขายทุกชื่อที่บัญชีนี้ครอบ = ทุกแถว ap_supplier ที่รหัสตรงกัน · ตัดชื่อที่ ATMS มีหลายรหัสออก */
+/** ชื่อผู้ขายทุกชื่อที่บัญชีนี้ครอบ = ทุกแถว ap_supplier ที่รหัสตรงกัน · ตัดเงินสดและชื่อที่ ATMS มีหลายรหัสออก */
 export async function vpSupplierNames(db: VpDbs, atmsCode: string): Promise<string[]> {
   const code = normVpUsername(atmsCode)
   if (!code) return []
@@ -65,8 +65,7 @@ export async function vpSupplierNames(db: VpDbs, atmsCode: string): Promise<stri
     .find({ atmsCode: { $exists: true, $ne: "" } }, { projection: { _id: 0, name: 1, atmsCode: 1 }, maxTimeMS: 10000 })
     .limit(5000).toArray() as { name?: string; atmsCode?: unknown }[]
   const names = [...new Set(sups.filter((x) => normVpUsername(x.atmsCode) === code).map((x) => s(x.name)).filter(Boolean))]
-  const amb = await vpAmbiguousSet(db.atms, names)
-  return names.filter((n) => !amb.has(n))
+  return vpPortalNames(names, await vpAmbiguousSet(db.atms, names))
 }
 
 // เบอร์รถต่อทะเบียน — กติกาเดียวกับ route.ts: vehicle_daily ทับ vehiclemaster · ตัด "NaN"

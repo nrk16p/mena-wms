@@ -56,13 +56,21 @@ export function vpMonths(fromISO: string, todayISO: string): string[] {
   return out
 }
 
+/** ในช่วง 6 เดือนโชว์ทุกใบ · ก่อนช่วงโชว์เฉพาะใบ "รอโอน" (บัญชีผ่านแล้ว มีวันโอน)
+ *  ไม่ใช้ "ยังไม่โอน" ทั้งหมด: ใบเก่ายุค Excel (ก่อน ส.ค. 69) หลายใบไม่มีหลักฐานจ่ายในระบบ
+ *  จะค้าง "กำลังดำเนินการ" ทั้งที่จ่ายไปแล้ว (รีวิว 27/10/2569) */
 export function vpVisible(receivedAt: string, status: VpStatus, todayISO: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(receivedAt)) return false
   if (receivedAt >= vpWindowStart(todayISO)) return true
-  return status !== "paid" && receivedAt >= vpLookbackStart(todayISO)
+  return status === "scheduled" && receivedAt >= vpLookbackStart(todayISO)
 }
 
 // ── ใครเห็นอะไร ────────────────────────────────────────────────────────────
+/** ชื่อที่ใช้ดึงใบให้บัญชีหนึ่ง — ตัดถังเงินสด (บิลหลายร้านปนกัน) และชื่อที่ ATMS มีหลายรหัส */
+export function vpPortalNames(names: string[], ambiguous: Set<string>): string[] {
+  return names.filter((n) => !isCashVendor(n) && !ambiguous.has(n))
+}
+
 /** คลังตระกูลสระบุรี (ไม่ใช่สาย DIST) — WMS ไม่ได้ติดตามการจ่ายของคลังนี้ จึงซ่อนจากพอร์ทัล
  *  กติกาเดียวกับ isSaraburi ใน app/api/ap-tracking/payment-import/route.ts */
 export function isSaraburiWarehouse(w: string): boolean {

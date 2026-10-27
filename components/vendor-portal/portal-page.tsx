@@ -172,7 +172,7 @@ export function VendorPortalPage() {
             ))}
 
             <p className="px-6 pt-6 text-center text-xs leading-relaxed text-slate-400">
-              ข้อมูลรับของตั้งแต่ {vpThaiDate(data.windowStart)} และบิลที่ยังไม่โอน · สงสัยเรื่องบิล ติดต่อฝ่ายจัดซื้อ
+              ข้อมูลรับของตั้งแต่ {vpThaiDate(data.windowStart)} และบิลเก่าที่ยังรอโอน · สงสัยเรื่องบิล ติดต่อฝ่ายจัดซื้อ
             </p>
           </>
         )}

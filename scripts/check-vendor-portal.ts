@@ -5,7 +5,7 @@ import {
   vpStatusOf, vpWindowStart, vpLookbackStart, vpMonths, vpVisible,
   isSaraburiWarehouse, isCashVendor, normVpUsername, vpBillOf, vpNextTransfer, vpItemsOf,
   VP_BILL_KEYS, VP_STATUS_LABEL, vpCanSeeHead, vpAmbiguousNames, vpAccountRows, vpLineMessage,
-  vpFilterBills, vpThaiDate, vpMonthLabel, vpDueText, vpBillMonths,
+  vpFilterBills, vpThaiDate, vpMonthLabel, vpDueText, vpBillMonths, vpPortalNames,
 } from "../lib/vendor-portal"
 
 // ── สถานะ: จ่ายแล้วชนะทุกอย่าง (ฝั่งภายใน "ไม่ผ่าน" ชนะ — ฝั่งเจ้าหนี้กลับกัน)
@@ -28,7 +28,7 @@ assert.deepEqual(vpMonths("2026-10-01", "2026-10-27"), ["2026-10"])
 // ใบเก่ากว่าช่วง: โชว์เฉพาะที่ยังไม่โอน
 assert.equal(vpVisible("2026-04-30", "paid", "2026-10-27"), false)
 assert.equal(vpVisible("2026-04-30", "scheduled", "2026-10-27"), true)
-assert.equal(vpVisible("2026-04-30", "processing", "2026-10-27"), true)
+assert.equal(vpVisible("2026-04-30", "processing", "2026-10-27"), false)  // ใบเก่าค้างขั้นภายใน = ข้อมูลยุค Excel ไม่โชว์
 assert.equal(vpVisible("2026-05-01", "paid", "2026-10-27"), true)
 assert.equal(vpVisible("2025-12-31", "processing", "2026-10-27"), false)   // ก่อน go-live
 assert.equal(vpVisible("", "processing", "2026-10-27"), false)             // แปลงวันไม่ได้ = ไม่โชว์
@@ -178,6 +178,10 @@ assert.equal(vpDueText(L[2], "2026-10-30"), "ครบกำหนดโอน 2
 assert.equal(vpDueText(L[3], "2026-10-27"), "โอน 22 ต.ค. 69")
 assert.equal(vpDueText(L[0], "2026-10-27"), "")
 assert.equal(vpDueText(vpBillOf({ depositCode: "Z", receivedAt: "2026-10-01", amount: 1, status: "scheduled" }), "2026-10-27"), "")
+
+// ── ชื่อที่ใช้ดึงใบจริงทุก request: ตัดถังเงินสด + ชื่อซ้ำใน ATMS (รีวิว: รหัสเดียวมีชื่อเงินสดปน = เห็นบิลร้านอื่น)
+assert.deepEqual(vpPortalNames(["หจก. สมชัยการช่าง", "เงินสด (ไม่มีVAT)", "ร้านซ้ำ"], new Set(["ร้านซ้ำ"])), ["หจก. สมชัยการช่าง"])
+assert.deepEqual(vpPortalNames(["เงินสด"], new Set()), [])
 
 console.log("check-vendor-portal: rules ok")
 
