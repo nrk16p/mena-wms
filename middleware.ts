@@ -55,6 +55,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // ฟอร์มลงทะเบียน Vendor: ลิงก์ภายนอก ใครมีลิงก์ก็กรอกได้ ไม่ต้อง login (2026-10-27)
+  // /api/form-vendor = บันทึกฟอร์ม (POST อย่างเดียว) → datawarehouse.vendor_registration · route จำกัดจำนวนส่งต่อไอพีเอง
+  if (pathname === "/form-vendor" || (pathname === "/api/form-vendor" && request.method === "POST")) {
+    return NextResponse.next()
+  }
+
   // Public read-only sync API + คู่มือ API สำหรับทีมภายนอก (ไม่ต้อง login / ไม่ต้องมี api key)
   if (pathname === "/repair-external/api-guide" || pathname === "/tire/api-guide") {
     return NextResponse.next()

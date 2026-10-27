@@ -17,7 +17,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage        = pathname === "/login"
   const isPresentationPage = pathname === "/presentation"
   const isPrdPage          = pathname === "/prd"
-  const isVendorPage       = pathname.startsWith("/q/")   // ฟอร์มขอราคาอู่: ไม่มี sidebar/navbar/session guard
+  // ฟอร์มขอราคาอู่ + ฟอร์มลงทะเบียน Vendor: ไม่มี sidebar/navbar/session guard
+  const isVendorPage       = pathname.startsWith("/q/") || pathname === "/form-vendor"
 
   if (isLoginPage || isPresentationPage || isVendorPage) {
     return <div className="w-full h-full">{children}</div>

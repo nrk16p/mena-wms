@@ -4,7 +4,7 @@ import { BRAND, COMPANY } from "@/lib/vendor-brand"
 
 const wrap = { maxWidth: 880, margin: "0 auto", padding: "0 16px" } as const
 
-export function VendorTopBar() {
+export function VendorTopBar({ subtitle = "ระบบขอใบเสนอราคา" }: { subtitle?: string }) {
   return (
     <header style={{ flexShrink: 0, background: BRAND.white, borderBottom: `1px solid ${BRAND.line}`, fontFamily: BRAND.font }}>
       <div style={{ ...wrap, display: "flex", alignItems: "center", gap: 14, height: 64 }}>
@@ -13,7 +13,7 @@ export function VendorTopBar() {
         <div style={{ width: 1, height: 28, background: BRAND.line }} />
         <div style={{ lineHeight: 1.25 }}>
           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, color: BRAND.green }}>SUPPLIER PORTAL</div>
-          <div style={{ fontSize: 14, color: BRAND.ink }}>ระบบขอใบเสนอราคา</div>
+          <div style={{ fontSize: 14, color: BRAND.ink }}>{subtitle}</div>
         </div>
       </div>
     </header>
