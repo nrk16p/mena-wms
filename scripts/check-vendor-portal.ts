@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import {
   vpStatusOf, vpWindowStart, vpLookbackStart, vpMonths, vpVisible,
   isSaraburiWarehouse, isCashVendor, normVpUsername, vpBillOf, vpNextTransfer, vpItemsOf,
-  VP_BILL_KEYS, VP_STATUS_LABEL, vpCanSeeHead, vpAmbiguousNames,
+  VP_BILL_KEYS, VP_STATUS_LABEL, vpCanSeeHead, vpAmbiguousNames, vpAccountRows, vpLineMessage,
 } from "../lib/vendor-portal"
 
 // ── สถานะ: จ่ายแล้วชนะทุกอย่าง (ฝั่งภายใน "ไม่ผ่าน" ชนะ — ฝั่งเจ้าหนี้กลับกัน)
@@ -97,6 +97,49 @@ assert.deepEqual([...vpAmbiguousNames([
   { name: "ร้าน ข", code: "VEN-3" }, { name: "ร้าน ข", code: "VEN-3" },
   { name: " ร้าน ค ", code: "VEN-4" }, { name: "ร้าน ค", code: "VEN-5" },
 ])].sort(), ["ร้าน ก", "ร้าน ค"])
+
+// ── รายชื่อสำหรับหน้าจัดการบัญชี: รวมตามรหัสผู้ขาย
+const rows = vpAccountRows(
+  [
+    { name: "หจก. สมชัยการช่าง", atmsCode: "6", lastDdAt: "2026-10-20" },
+    { name: "สมชัยการช่าง", atmsCode: 6, lastDdAt: "2026-09-01" },
+    { name: "เงินสด (ไม่มีVAT)", atmsCode: "VEN-00001", lastDdAt: "2026-10-26" },
+    { name: "ร้านไม่มีรหัส", atmsCode: "", lastDdAt: "2026-10-01" },
+    { name: "ร้านซ้ำ", atmsCode: "VEN-00009", lastDdAt: "2026-10-01" },
+    { name: "ร้านซ้ำ 2", atmsCode: "VEN-00010", lastDdAt: "2026-10-01" },
+    { name: "ร้านซ้ำ 3", atmsCode: "VEN-00010", lastDdAt: "2026-03-01" },
+    { name: "ร้านเก่า", atmsCode: "VEN-00020", lastDdAt: "2026-02-01" },
+  ],
+  new Set(["ร้านซ้ำ", "ร้านซ้ำ 2"]),
+  [{ username: "VEN-00020", disabled: true, loginCount: 3, lastLoginAt: "2026-10-01T03:00:00.000Z", passwordSetAt: "2026-09-01T00:00:00.000Z" }],
+  "2026-05-01",
+)
+const by = (u: string) => rows.find((r) => r.username === u)!
+assert.deepEqual(by("6").names, ["หจก. สมชัยการช่าง", "สมชัยการช่าง"])
+assert.equal(by("6").displayName, "หจก. สมชัยการช่าง")   // ชื่อที่มีใบล่าสุด
+assert.equal(by("6").lastDdAt, "2026-10-20")
+assert.equal(by("6").eligible, true)
+assert.equal(by("6").recent, true)
+assert.equal(by("6").account, undefined)
+assert.equal(by("VEN-00001").eligible, false)
+assert.equal(by("VEN-00001").reason, "เงินสด")
+assert.equal(by("VEN-00009").eligible, false)
+assert.equal(by("VEN-00009").reason, "ชื่อซ้ำใน ATMS")
+assert.deepEqual(by("VEN-00010").names, ["ร้านซ้ำ 3"])          // ชื่อซ้ำถูกตัด เหลือชื่อที่ใช้ได้
+assert.deepEqual(by("VEN-00010").hiddenNames, ["ร้านซ้ำ 2"])
+assert.equal(by("VEN-00010").eligible, true)
+assert.equal(by("VEN-00020").recent, false)
+assert.deepEqual(by("VEN-00020").account, { disabled: true, loginCount: 3, lastLoginAt: "2026-10-01T03:00:00.000Z", passwordSetAt: "2026-09-01T00:00:00.000Z" })
+const noCode = rows.find((r) => r.allNames.includes("ร้านไม่มีรหัส"))!
+assert.equal(noCode.username, "")
+assert.equal(noCode.eligible, false)
+assert.equal(noCode.reason, "ไม่มีรหัสผู้ขาย")
+
+// ── ข้อความส่งไลน์
+assert.equal(
+  vpLineMessage({ username: "VEN-00008", password: "Kp7xR2mQa9" }, "https://mena-wms.vercel.app"),
+  "ลิงก์ดูสถานะบิลกับวันโอนเงินของร้านครับ\nhttps://mena-wms.vercel.app/vendor-portal\nชื่อผู้ใช้ VEN-00008\nรหัสผ่าน Kp7xR2mQa9",
+)
 
 console.log("check-vendor-portal: rules ok")
 

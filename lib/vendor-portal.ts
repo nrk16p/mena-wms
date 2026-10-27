@@ -173,3 +173,76 @@ export function vpAmbiguousNames(rows: { name?: string; code?: string }[]): Set<
   }
   return new Set([...codes].filter(([, cs]) => cs.size > 1).map(([n]) => n))
 }
+
+// ── หน้าจัดการบัญชี (WMS) ─────────────────────────────────────────────────────
+export type VpAccountInfo = { disabled: boolean; loginCount: number; lastLoginAt?: string; passwordSetAt?: string }
+export type VpAccountRow = {
+  username: string          // "" = ไม่มีรหัสผู้ขาย สร้างบัญชีไม่ได้
+  atmsCode: string
+  allNames: string[]        // ทุกชื่อใน ap_supplier ที่รหัสนี้ (ไว้จับคู่กับแถวในตาราง)
+  names: string[]           // ชื่อที่เจ้าหนี้จะเห็นใบจริง (ตัดเงินสด/ชื่อซ้ำใน ATMS แล้ว)
+  hiddenNames: string[]     // ชื่อซ้ำใน ATMS — ใบของชื่อนี้ไม่ขึ้นในพอร์ทัล
+  displayName: string
+  lastDdAt: string
+  recent: boolean           // มีใบ DD ในช่วง 6 เดือน (นับจาก lastDdAt ที่ sync ไว้)
+  eligible: boolean
+  reason?: "ไม่มีรหัสผู้ขาย" | "เงินสด" | "ชื่อซ้ำใน ATMS"
+  account?: VpAccountInfo
+}
+
+export function vpAccountRows(
+  sups: { name?: string; atmsCode?: unknown; lastDdAt?: string }[],
+  ambiguous: Set<string>,
+  accounts: ({ username: string } & Partial<VpAccountInfo>)[],
+  windowStart: string,
+): VpAccountRow[] {
+  const accBy = new Map(accounts.map((a) => [a.username, a]))
+  const groups = new Map<string, { name: string; last: string }[]>()
+  const out: VpAccountRow[] = []
+  for (const x of sups) {
+    const name = String(x.name ?? "").trim()
+    if (!name) continue
+    const last = String(x.lastDdAt ?? "").trim()
+    const code = normVpUsername(x.atmsCode)
+    if (!code) {
+      out.push({ username: "", atmsCode: "", allNames: [name], names: [], hiddenNames: [], displayName: name,
+        lastDdAt: last, recent: last >= windowStart, eligible: false, reason: "ไม่มีรหัสผู้ขาย" })
+      continue
+    }
+    if (!groups.has(code)) groups.set(code, [])
+    groups.get(code)!.push({ name, last })
+  }
+  for (const [code, list] of groups) {
+    const allNames = list.map((l) => l.name)
+    const cash = allNames.filter(isCashVendor)
+    const hiddenNames = allNames.filter((n) => !isCashVendor(n) && ambiguous.has(n))
+    const names = allNames.filter((n) => !isCashVendor(n) && !ambiguous.has(n))
+    const lastDdAt = list.reduce((m, l) => (l.last > m ? l.last : m), "")
+    const best = [...list].filter((l) => names.includes(l.name)).sort((a, b) => b.last.localeCompare(a.last))[0]
+    const a = accBy.get(code)
+    const row: VpAccountRow = {
+      username: code, atmsCode: code, allNames, names, hiddenNames,
+      displayName: best?.name ?? allNames[0],
+      lastDdAt, recent: lastDdAt >= windowStart,
+      eligible: names.length > 0,
+    }
+    if (!names.length) row.reason = cash.length === allNames.length ? "เงินสด" : "ชื่อซ้ำใน ATMS"
+    if (a) row.account = {
+      disabled: Boolean(a.disabled), loginCount: a.loginCount ?? 0,
+      ...(a.lastLoginAt ? { lastLoginAt: a.lastLoginAt } : {}),
+      ...(a.passwordSetAt ? { passwordSetAt: a.passwordSetAt } : {}),
+    }
+    out.push(row)
+  }
+  return out.sort((a, b) => a.displayName.localeCompare(b.displayName, "th"))
+}
+
+/** ข้อความที่จัดซื้อคัดลอกไปส่งไลน์ให้เจ้าหนี้ */
+export function vpLineMessage(c: { username: string; password: string }, origin: string): string {
+  return [
+    "ลิงก์ดูสถานะบิลกับวันโอนเงินของร้านครับ",
+    `${origin.replace(/\/+$/, "")}/vendor-portal`,
+    `ชื่อผู้ใช้ ${c.username}`,
+    `รหัสผ่าน ${c.password}`,
+  ].join("\n")
+}
