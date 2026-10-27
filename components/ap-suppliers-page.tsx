@@ -8,6 +8,9 @@ import { templateDocLabel, type ApDocTemplate, type ApTplDocKey } from "@/lib/ap
 import { ApDocTemplateShareDialog } from "./ap-doc-template-share"
 import { ApDocTemplateEditor, putDocTemplate } from "./ap-doc-template-editor"
 import { CARD, NUM, mitr } from "./ap-style"
+import { swalConfirm } from "@/lib/swal"
+import type { VpAccountRow } from "@/lib/vendor-portal"
+import { VpAccountCell, VpIssuedDialog, postVpAccount, type VpIssued } from "./vendor-portal-accounts"
 
 type Supplier = {
   name: string
@@ -44,6 +47,10 @@ export function ApSuppliersPage() {
   const [templates, setTemplates] = useState<ApDocTemplate[]>([])
   const [editing, setEditing] = useState<string | null>(null)       // ชื่อผู้ขายที่กำลังแก้แม่แบบ
   const [sharing, setSharing] = useState<Supplier | null>(null)
+  // บัญชีพอร์ทัลเจ้าหนี้ — จับคู่กับแถวด้วยชื่อ (หนึ่งบัญชีต่อรหัสผู้ขาย ครอบได้หลายชื่อ)
+  const [vpRows, setVpRows] = useState<VpAccountRow[]>([])
+  const [issued, setIssued] = useState<VpIssued[] | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   // ลิงก์จากโมดัลใบ DD ส่งชื่อผู้ขายมาใน ?q= — อ่านหลัง mount (อ่านตอน render แรกจะ hydrate ไม่ตรงกับเซิร์ฟเวอร์)
   useEffect(() => {
@@ -66,7 +73,35 @@ export function ApSuppliersPage() {
       swalError(`โหลดไม่สำเร็จ${e instanceof Error && e.message ? ` · ${e.message}` : ""}`)
     }
   }, [])
-  useEffect(() => { load() }, [load])
+
+  const loadVp = useCallback(async () => {
+    const r = await fetch("/api/ap-suppliers/portal-accounts").catch(() => null)
+    const d = r ? await r.json().catch(() => ({})) : {}
+    if (r?.ok) setVpRows((d.rows ?? []) as VpAccountRow[])
+  }, [])
+  // บัญชีเจ้าหนี้โหลดคู่กับรายชื่อ (แยก request — ช้า/ล้มก็ไม่ทำให้ตารางเครดิตเทอมพัง)
+  useEffect(() => { load(); loadVp() }, [load, loadVp])
+  const vpByName = useMemo(() => {
+    const m = new Map<string, VpAccountRow>()
+    for (const r of vpRows) for (const n of r.allNames) m.set(n, r)
+    return m
+  }, [vpRows])
+  const vpBulkCount = useMemo(() => vpRows.filter((r) => r.eligible && r.recent && !r.account).length, [vpRows])
+  const runBulk = async () => {
+    const ok = await swalConfirm(`สร้างบัญชีเจ้าหนี้ ${vpBulkCount} ราย?`, "เฉพาะเจ้าที่มีใบ DD ใน 6 เดือนและยังไม่มีบัญชี · รหัสผ่านโชว์ครั้งเดียว")
+    if (!ok.isConfirmed) return
+    setBulkBusy(true)
+    try {
+      const d = await postVpAccount("bulk")
+      if (d.issued?.length) setIssued(d.issued)
+      else swalToast("info", "ไม่มีเจ้าที่ต้องสร้างเพิ่ม")
+      loadVp()
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "สร้างไม่สำเร็จ")
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   // บันทึกแบบ optimistic — ล้มแล้วต้องย้อนกลับเองได้ ไม่พึ่ง load() ที่อาจล้มตาม
   const save = async (name: string, override: string) => {
@@ -203,6 +238,12 @@ export function ApSuppliersPage() {
           setNewName("")
         }}
           className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-white/5">เพิ่ม (30D)</button>
+        {vpBulkCount > 0 && (
+          <button onClick={runBulk} disabled={bulkBusy}
+            className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-60">
+            {bulkBusy ? "กำลังสร้าง…" : `สร้างบัญชีเจ้าหนี้ให้ทุกเจ้าที่ยังไม่มี (${vpBulkCount})`}
+          </button>
+        )}
       </div>
 
       <div className={`${CARD} overflow-hidden`}>
@@ -215,6 +256,7 @@ export function ApSuppliersPage() {
                 <th className="px-3 py-2 text-left w-28">ATMS</th>
                 <th className="px-3 py-2 text-left w-52">ใช้จริง</th>
                 <th className="px-3 py-2 text-left w-80">เอกสารที่ต้องแนบ</th>
+                <th className="px-3 py-2 text-left w-56">บัญชีเจ้าหนี้</th>
                 <th className="px-3 py-2 text-left w-44">แก้ไขล่าสุดโดย</th>
               </tr>
             </thead>
@@ -292,20 +334,25 @@ export function ApSuppliersPage() {
                         )
                       })()}
                     </td>
+                    <td className="px-3 py-2">
+                      <VpAccountCell row={vpByName.get(x.name)} onIssued={setIssued} onChanged={loadVp} />
+                    </td>
                     <td className="px-3 py-2 text-xs text-gray-500">{s(x.updatedBy) || "—"}</td>
                   </tr>
                 )
               })}
               {items !== null && shown.length === 0 && (
-                <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">ไม่พบซัพพลายเออร์</td></tr>
+                <tr><td colSpan={7} className="px-3 py-10 text-center text-gray-400">ไม่พบซัพพลายเออร์</td></tr>
               )}
               {items === null && (
-                <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">กำลังโหลด…</td></tr>
+                <tr><td colSpan={7} className="px-3 py-10 text-center text-gray-400">กำลังโหลด…</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {issued && <VpIssuedDialog issued={issued} onClose={() => setIssued(null)} />}
 
       {sharing && (
         <ApDocTemplateShareDialog name={sharing.name} code={s(sharing.atmsCode)}
