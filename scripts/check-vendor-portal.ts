@@ -80,3 +80,50 @@ assert.deepEqual(vpItemsOf([{ item: "ค่าขนส่ง", qty: "", unit_pr
   [{ code: "", name: "ค่าขนส่ง", qty: "", unitPrice: 0, total: 500 }])
 
 console.log("check-vendor-portal: rules ok")
+
+// ── รหัสผ่าน + session ───────────────────────────────────────────────────────
+async function checkAuth() {
+  const auth = await import("../lib/vendor-portal-auth")
+  const ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+  const pws = Array.from({ length: 50 }, () => auth.genVpPassword())
+  for (const pw of pws) {
+    assert.equal(pw.length, 10)
+    for (const ch of pw) assert.ok(ALPHA.includes(ch), `ตัวอักษรสับสน: ${ch}`)
+  }
+  assert.ok(new Set(pws).size > 45, "รหัสสุ่มซ้ำกันเยอะผิดปกติ")
+
+  const stored = await auth.hashVpPassword("Kp7xR2mQa9")
+  assert.match(stored, /^scrypt\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/)
+  assert.ok(!stored.includes("Kp7xR2mQa9"))
+  assert.equal(await auth.verifyVpPassword("Kp7xR2mQa9", stored), true)
+  assert.equal(await auth.verifyVpPassword("Kp7xR2mQa8", stored), false)
+  assert.equal(await auth.verifyVpPassword("Kp7xR2mQa9", "plain"), false)
+  assert.equal(await auth.verifyVpPassword("Kp7xR2mQa9", ""), false)
+  assert.notEqual(await auth.hashVpPassword("Kp7xR2mQa9"), stored)   // salt ต่างทุกครั้ง
+
+  process.env.NEXTAUTH_SECRET = "test-secret-a"
+  const tok = await auth.signVpSession({ sub: "VEN-00008", tv: 3 })
+  assert.deepEqual(await auth.readVpSession(tok), { sub: "VEN-00008", tv: 3 })
+  assert.equal(await auth.readVpSession(undefined), null)
+  assert.equal(await auth.readVpSession("abc.def.ghi"), null)
+  const [h, p, sig] = tok.split(".")
+  const forged = Buffer.from(JSON.stringify({ sub: "VEN-00009", tv: 3, exp: 9999999999 })).toString("base64url")
+  assert.equal(await auth.readVpSession(`${h}.${forged}.${sig}`), null)     // แก้ payload แล้วลายเซ็นไม่ตรง
+  assert.equal(await auth.readVpSession(`${h}.${p}.`), null)
+  process.env.NEXTAUTH_SECRET = "test-secret-b"
+  assert.equal(await auth.readVpSession(tok), null)                         // คนละกุญแจ
+  process.env.NEXTAUTH_SECRET = "test-secret-a"
+
+  assert.equal(auth.vpSessionValid({ tokenVersion: 3 }, { tv: 3 }), true)
+  assert.equal(auth.vpSessionValid({ tokenVersion: 4 }, { tv: 3 }), false)   // รีเซ็ตรหัสแล้ว session เก่าหลุด
+  assert.equal(auth.vpSessionValid({ tokenVersion: 3, disabled: true }, { tv: 3 }), false)
+  assert.equal(auth.vpSessionValid(null, { tv: 3 }), false)
+  assert.equal(auth.vpSessionValid({ tokenVersion: 3 }, null), false)
+  assert.equal(auth.VP_COOKIE, "vp_session")
+  assert.equal(auth.VP_MAX_FAILS, 5)
+  assert.equal(auth.VP_LOCK_MINUTES, 15)
+
+  console.log("check-vendor-portal: auth ok")
+}
+
+checkAuth().catch((e) => { console.error(e); process.exit(1) })
