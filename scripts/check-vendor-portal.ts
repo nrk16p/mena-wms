@@ -7,6 +7,7 @@ import {
   VP_BILL_KEYS, VP_STATUS_LABEL, vpCanSeeHead, vpAmbiguousNames, vpAccountRows, vpLineMessage,
   vpFilterBills, vpThaiDate, vpMonthLabel, vpDueText, vpBillMonths, vpPortalNames,
   vpBillSheetRows, vpItemSheetRows, vpExportFileName, vpParseCodes, VP_EXPORT_MAX,
+  vpUsernameFromCode, vpCanonUsername,
 } from "../lib/vendor-portal"
 
 // ── สถานะ: จ่ายแล้วชนะทุกอย่าง (ฝั่งภายใน "ไม่ผ่าน" ชนะ — ฝั่งเจ้าหนี้กลับกัน)
@@ -101,28 +102,55 @@ assert.deepEqual([...vpAmbiguousNames([
 ])].sort(), ["ร้าน ก", "ร้าน ค"])
 
 // ── รายชื่อสำหรับหน้าจัดการบัญชี: รวมตามรหัสผู้ขาย
+// ── ชื่อผู้ใช้ = Vendor- + เลขรหัสผู้ขาย 5 หลัก (ผู้ใช้สั่ง 27/10/2569) ──────────────────
+assert.equal(vpUsernameFromCode("VEN-00008"), "Vendor-00008")
+assert.equal(vpUsernameFromCode("6"), "Vendor-00006")
+assert.equal(vpUsernameFromCode(6), "Vendor-00006")
+assert.equal(vpUsernameFromCode("6.0"), "Vendor-00006")
+assert.equal(vpUsernameFromCode(" ven-123456 "), "Vendor-123456")
+assert.equal(vpUsernameFromCode("VEN00012"), "Vendor-00012")
+assert.equal(vpUsernameFromCode("ABC"), "")
+assert.equal(vpUsernameFromCode("VEN-0008-1"), "")       // เลขหลายชุด = เดาไม่ได้ ไม่ออกชื่อให้
+assert.equal(vpUsernameFromCode(""), "")
+assert.equal(vpUsernameFromCode("0"), "")                 // เลขศูนย์ล้วนไม่ใช่รหัสจริง
+// ล็อกอิน: พิมพ์ตัวเล็ก/ใหญ่ ไม่มีขีด หรือเลขไม่ครบ 5 หลักก็ได้ · รูปอื่นไม่รับ
+assert.equal(vpCanonUsername("vendor-00008"), "Vendor-00008")
+assert.equal(vpCanonUsername(" VENDOR-8 "), "Vendor-00008")
+assert.equal(vpCanonUsername("Vendor00008"), "Vendor-00008")
+assert.equal(vpCanonUsername("Vendor-123456"), "Vendor-123456")
+assert.equal(vpCanonUsername("VEN-00008"), "")
+assert.equal(vpCanonUsername("Vendor-"), "")
+assert.equal(vpCanonUsername({ $ne: "" }), "")
+
 const rows = vpAccountRows(
   [
-    { name: "หจก. สมชัยการช่าง", atmsCode: "6", lastDdAt: "2026-10-20" },
-    { name: "สมชัยการช่าง", atmsCode: 6, lastDdAt: "2026-09-01" },
+    { name: "หจก. สมชัยการช่าง", atmsCode: "VEN-00008", lastDdAt: "2026-10-20" },
+    { name: "สมชัยการช่าง", atmsCode: "ven-00008", lastDdAt: "2026-09-01" },
     { name: "เงินสด (ไม่มีVAT)", atmsCode: "VEN-00001", lastDdAt: "2026-10-26" },
     { name: "ร้านไม่มีรหัส", atmsCode: "", lastDdAt: "2026-10-01" },
     { name: "ร้านซ้ำ", atmsCode: "VEN-00009", lastDdAt: "2026-10-01" },
     { name: "ร้านซ้ำ 2", atmsCode: "VEN-00010", lastDdAt: "2026-10-01" },
     { name: "ร้านซ้ำ 3", atmsCode: "VEN-00010", lastDdAt: "2026-03-01" },
     { name: "ร้านเก่า", atmsCode: "VEN-00020", lastDdAt: "2026-02-01" },
+    { name: "ร้านเลขชน ก", atmsCode: "VEN-00006", lastDdAt: "2026-10-01" },
+    { name: "ร้านเลขชน ข", atmsCode: "6", lastDdAt: "2026-10-01" },
+    { name: "ร้านรหัสแปลก", atmsCode: "ABC", lastDdAt: "2026-10-01" },
   ],
   new Set(["ร้านซ้ำ", "ร้านซ้ำ 2"]),
-  [{ username: "VEN-00020", disabled: true, loginCount: 3, lastLoginAt: "2026-10-01T03:00:00.000Z", passwordSetAt: "2026-09-01T00:00:00.000Z" }],
+  [
+    { username: "Vendor-00020", atmsCode: "VEN-00020", disabled: true, loginCount: 3, lastLoginAt: "2026-10-01T03:00:00.000Z", passwordSetAt: "2026-09-01T00:00:00.000Z" },
+    { username: "VEN-00010", atmsCode: "VEN-00010", disabled: false, loginCount: 0 },   // บัญชีที่สร้างก่อนเปลี่ยนรูปชื่อ
+  ],
   "2026-05-01",
 )
-const by = (u: string) => rows.find((r) => r.username === u)!
-assert.deepEqual(by("6").names, ["หจก. สมชัยการช่าง", "สมชัยการช่าง"])
-assert.equal(by("6").displayName, "หจก. สมชัยการช่าง")   // ชื่อที่มีใบล่าสุด
-assert.equal(by("6").lastDdAt, "2026-10-20")
-assert.equal(by("6").eligible, true)
-assert.equal(by("6").recent, true)
-assert.equal(by("6").account, undefined)
+const by = (code: string) => rows.find((r) => r.atmsCode === code)!
+assert.equal(by("VEN-00008").username, "Vendor-00008")
+assert.deepEqual(by("VEN-00008").names, ["หจก. สมชัยการช่าง", "สมชัยการช่าง"])   // รหัสตัวเล็ก/ใหญ่ = เจ้าเดียวกัน
+assert.equal(by("VEN-00008").displayName, "หจก. สมชัยการช่าง")   // ชื่อที่มีใบล่าสุด
+assert.equal(by("VEN-00008").lastDdAt, "2026-10-20")
+assert.equal(by("VEN-00008").eligible, true)
+assert.equal(by("VEN-00008").recent, true)
+assert.equal(by("VEN-00008").account, undefined)
 assert.equal(by("VEN-00001").eligible, false)
 assert.equal(by("VEN-00001").reason, "เงินสด")
 assert.equal(by("VEN-00009").eligible, false)
@@ -130,17 +158,29 @@ assert.equal(by("VEN-00009").reason, "ชื่อซ้ำใน ATMS")
 assert.deepEqual(by("VEN-00010").names, ["ร้านซ้ำ 3"])          // ชื่อซ้ำถูกตัด เหลือชื่อที่ใช้ได้
 assert.deepEqual(by("VEN-00010").hiddenNames, ["ร้านซ้ำ 2"])
 assert.equal(by("VEN-00010").eligible, true)
+assert.equal(by("VEN-00010").account?.legacyUsername, "VEN-00010")   // ชื่อแบบเก่า → ต้องรีเซ็ตเพื่อเปลี่ยน
 assert.equal(by("VEN-00020").recent, false)
 assert.deepEqual(by("VEN-00020").account, { disabled: true, loginCount: 3, lastLoginAt: "2026-10-01T03:00:00.000Z", passwordSetAt: "2026-09-01T00:00:00.000Z" })
+// เลขชนกัน (VEN-00006 กับ 6 → Vendor-00006) = ห้ามสร้างทั้งคู่
+assert.equal(by("VEN-00006").eligible, false)
+assert.equal(by("VEN-00006").reason, "ชื่อผู้ใช้ซ้ำ")
+assert.equal(by("VEN-00006").clashWith, "6")
+assert.equal(by("6").eligible, false)
+assert.equal(by("6").clashWith, "VEN-00006")
+assert.equal(by("ABC").eligible, false)
+assert.equal(by("ABC").reason, "รหัสแปลงเป็นชื่อผู้ใช้ไม่ได้")
 const noCode = rows.find((r) => r.allNames.includes("ร้านไม่มีรหัส"))!
 assert.equal(noCode.username, "")
 assert.equal(noCode.eligible, false)
 assert.equal(noCode.reason, "ไม่มีรหัสผู้ขาย")
+// ไม่มีชื่อผู้ใช้ซ้ำในแถวที่สร้างบัญชีได้
+const usable = rows.filter((r) => r.eligible).map((r) => r.username)
+assert.equal(new Set(usable).size, usable.length)
 
 // ── ข้อความส่งไลน์
 assert.equal(
-  vpLineMessage({ username: "VEN-00008", password: "Kp7xR2mQa9" }, "https://mena-wms.vercel.app"),
-  "ลิงก์ดูสถานะบิลกับวันโอนเงินของร้านครับ\nhttps://mena-wms.vercel.app/vendor-portal\nชื่อผู้ใช้ VEN-00008\nรหัสผ่าน Kp7xR2mQa9",
+  vpLineMessage({ username: "Vendor-00008", password: "Kp7xR2mQa9" }, "https://mena-wms.vercel.app"),
+  "ลิงก์ดูสถานะบิลกับวันโอนเงินของร้านครับ\nhttps://mena-wms.vercel.app/vendor-portal\nชื่อผู้ใช้ Vendor-00008\nรหัสผ่าน Kp7xR2mQa9",
 )
 
 // ── หน้าเจ้าหนี้: กรอง/ค้นหา/เรียง ───────────────────────────────────────────

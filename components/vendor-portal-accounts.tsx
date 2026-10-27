@@ -37,7 +37,9 @@ export function VpAccountCell({ row, onIssued, onChanged }: {
 }) {
   const [busy, setBusy] = useState(false)
   if (!row) return <span className="text-[11px] text-gray-400">—</span>
-  if (!row.eligible) return <span className="text-[11px] text-gray-400">{row.reason}</span>
+  const why = row.reason === "ชื่อผู้ใช้ซ้ำ" ? `ชื่อผู้ใช้ ${row.username} ซ้ำกับรหัส ${row.clashWith} ตรวจรหัสใน ATMS ก่อน` : row.reason
+  // สร้างไม่ได้และยังไม่มีบัญชี = บอกเหตุผลอย่างเดียว · มีบัญชีค้างอยู่ ยังต้องปิดบัญชีได้
+  if (!row.eligible && !row.account) return <span className="text-[11px] text-gray-400">{why}</span>
 
   const run = async (action: Action, confirmText?: string) => {
     if (confirmText) {
@@ -46,7 +48,7 @@ export function VpAccountCell({ row, onIssued, onChanged }: {
     }
     setBusy(true)
     try {
-      const d = await postVpAccount(action, row.username)
+      const d = await postVpAccount(action, row.atmsCode)
       if (d.issued?.length) onIssued(d.issued)
       else swalToast("success", action === "disable" ? `ปิดบัญชี ${row.username} แล้ว` : `เปิดบัญชี ${row.username} แล้ว`)
       onChanged()
@@ -60,7 +62,14 @@ export function VpAccountCell({ row, onIssued, onChanged }: {
   const a = row.account
   return (
     <div className="space-y-1">
+      {row.username && <div className="font-mono text-[11px] text-gray-500">{row.username}</div>}
+      {!row.eligible && <div className="text-[11px] text-amber-700 dark:text-amber-400">{why}</div>}
       {!a && <div className="text-[11px] text-gray-400">ยังไม่มีบัญชี</div>}
+      {a?.legacyUsername && (
+        <div className="text-[10px] text-amber-700 dark:text-amber-400">
+          ชื่อผู้ใช้เดิม {a.legacyUsername} ใช้ไม่ได้แล้ว กดรีเซ็ตรหัสเพื่อเปลี่ยนเป็น {row.username}
+        </div>
+      )}
       {a && (
         <div className={`text-[11px] ${a.disabled ? "text-rose-600 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-400"}`}>
           {a.disabled ? "ปิดอยู่" : "มีบัญชีแล้ว"}
@@ -74,7 +83,7 @@ export function VpAccountCell({ row, onIssued, onChanged }: {
       )}
       <div className="flex flex-wrap gap-1">
         {!a && <button disabled={busy} onClick={() => run("create")} className={BTN}>สร้างบัญชี</button>}
-        {a && <button disabled={busy} onClick={() => run("reset", "ออกรหัสผ่านใหม่?")} className={BTN}>รีเซ็ตรหัส</button>}
+        {a && row.eligible && <button disabled={busy} onClick={() => run("reset", "ออกรหัสผ่านใหม่?")} className={BTN}>รีเซ็ตรหัส</button>}
         {a && !a.disabled && <button disabled={busy} onClick={() => run("disable", "ปิดบัญชีนี้? เจ้าหนี้จะเข้าไม่ได้ทันที")} className={BTN}>ปิดบัญชี</button>}
         {a?.disabled && <button disabled={busy} onClick={() => run("enable")} className={BTN}>เปิดบัญชี</button>}
       </div>

@@ -107,7 +107,7 @@ collection ใหม่ `master_data.vendor_portal_accounts` (unique index `user
 
 | field | ความหมาย |
 |---|---|
-| `username` | รหัสผู้ขาย ATMS (`ap_supplier.atmsCode`) ตัดช่องว่าง + ตัวพิมพ์ใหญ่ ล็อกอินพิมพ์เล็ก/ใหญ่ได้ |
+| `username` | **`Vendor-` + เลขรหัสผู้ขาย 5 หลัก** (ผู้ใช้สั่ง 27/10/2569) เช่น VEN-00008 → Vendor-00008, 6 → Vendor-00006 · ล็อกอินพิมพ์เล็ก/ใหญ่ ไม่มีขีด หรือเลขไม่ครบ 5 หลักได้ · รหัสที่ไม่มีเลข/มีเลขหลายชุดไม่ออกชื่อให้ · สองรหัสได้เลขเดียวกัน = ห้ามสร้างทั้งคู่ · unique index ทั้ง `username` และ `atmsCode` |
 | `atmsCode` | รหัสตามที่เก็บใน ap_supplier |
 | `displayName` | ชื่อที่โชว์หัวหน้า (ชื่อแรกของเจ้านี้) |
 | `passwordHash` | `scrypt$<salt>$<hash>` ใช้ `node:crypto` scrypt + `timingSafeEqual` ไม่ต้องลง package |

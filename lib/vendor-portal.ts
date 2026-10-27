@@ -83,8 +83,29 @@ export function isCashVendor(name: string): boolean {
   return String(name ?? "").trim().startsWith("เงินสด")
 }
 
+/** รหัสผู้ขายแบบเทียบได้ (ตัดช่องว่าง ตัวใหญ่ · 6.0 → 6) — ใช้เป็นคีย์จัดกลุ่ม ไม่ใช่ชื่อผู้ใช้ */
 export function normVpUsername(v: unknown): string {
   return normVendorCode(v ?? "").trim().toUpperCase()
+}
+
+// ── ชื่อผู้ใช้ = "Vendor-" + เลขรหัสผู้ขาย 5 หลัก (ผู้ใช้สั่ง 27/10/2569) ──────────────────
+// รหัสใน ATMS มีทั้ง "VEN-00008" และเลขเฉย ๆ "6" → ได้ Vendor-00008 / Vendor-00006 รูปเดียวกันหมด
+const vendorName = (digits: string) => {
+  const n = digits.replace(/^0+/, "")
+  return n ? `Vendor-${n.padStart(5, "0")}` : ""
+}
+
+/** รหัสผู้ขาย → ชื่อผู้ใช้ · รหัสที่มีเลขหลายชุดหรือไม่มีเลข = "" (ไม่ออกชื่อให้ ดีกว่าเดาผิด) */
+export function vpUsernameFromCode(code: unknown): string {
+  const m = /^[A-Za-z]*-?(\d+)$/.exec(normVendorCode(code ?? "").trim())
+  return m ? vendorName(m[1]) : ""
+}
+
+/** ที่เจ้าหนี้พิมพ์ตอนล็อกอิน → ชื่อผู้ใช้รูปมาตรฐาน · พิมพ์เล็ก/ใหญ่ ไม่มีขีด เลขไม่ครบ 5 หลักได้ · รูปอื่น = "" */
+export function vpCanonUsername(input: unknown): string {
+  if (typeof input !== "string") return ""
+  const m = /^vendor-?(\d+)$/i.exec(input.trim())
+  return m ? vendorName(m[1]) : ""
 }
 
 // ── สิ่งที่ส่งถึงเบราว์เซอร์เจ้าหนี้ ───────────────────────────────────────────
@@ -183,10 +204,13 @@ export function vpAmbiguousNames(rows: { name?: string; code?: string }[]): Set<
 }
 
 // ── หน้าจัดการบัญชี (WMS) ─────────────────────────────────────────────────────
-export type VpAccountInfo = { disabled: boolean; loginCount: number; lastLoginAt?: string; passwordSetAt?: string }
+export type VpAccountInfo = {
+  disabled: boolean; loginCount: number; lastLoginAt?: string; passwordSetAt?: string
+  legacyUsername?: string   // บัญชีที่สร้างก่อนเปลี่ยนเป็นรูป Vendor- — ล็อกอินไม่ได้จนกว่าจะรีเซ็ตรหัส
+}
 export type VpAccountRow = {
-  username: string          // "" = ไม่มีรหัสผู้ขาย สร้างบัญชีไม่ได้
-  atmsCode: string
+  username: string          // Vendor-NNNNN · "" = ไม่มีรหัส/รหัสแปลงไม่ได้ สร้างบัญชีไม่ได้
+  atmsCode: string          // รหัสผู้ขายแบบเทียบได้ (คีย์ของแถว และของบัญชี)
   allNames: string[]        // ทุกชื่อใน ap_supplier ที่รหัสนี้ (ไว้จับคู่กับแถวในตาราง)
   names: string[]           // ชื่อที่เจ้าหนี้จะเห็นใบจริง (ตัดเงินสด/ชื่อซ้ำใน ATMS แล้ว)
   hiddenNames: string[]     // ชื่อซ้ำใน ATMS — ใบของชื่อนี้ไม่ขึ้นในพอร์ทัล
@@ -194,17 +218,19 @@ export type VpAccountRow = {
   lastDdAt: string
   recent: boolean           // มีใบ DD ในช่วง 6 เดือน (นับจาก lastDdAt ที่ sync ไว้)
   eligible: boolean
-  reason?: "ไม่มีรหัสผู้ขาย" | "เงินสด" | "ชื่อซ้ำใน ATMS"
+  reason?: "ไม่มีรหัสผู้ขาย" | "เงินสด" | "ชื่อซ้ำใน ATMS" | "ชื่อผู้ใช้ซ้ำ" | "รหัสแปลงเป็นชื่อผู้ใช้ไม่ได้"
+  clashWith?: string        // รหัสอีกเจ้าที่ได้ชื่อผู้ใช้เดียวกัน
   account?: VpAccountInfo
 }
 
 export function vpAccountRows(
   sups: { name?: string; atmsCode?: unknown; lastDdAt?: string }[],
   ambiguous: Set<string>,
-  accounts: ({ username: string } & Partial<VpAccountInfo>)[],
+  accounts: ({ username: string; atmsCode?: string } & Partial<VpAccountInfo>)[],
   windowStart: string,
 ): VpAccountRow[] {
-  const accBy = new Map(accounts.map((a) => [a.username, a]))
+  // บัญชีผูกกับรหัสผู้ขาย (ไม่ใช่ชื่อผู้ใช้) — บัญชีรุ่นแรกเก็บ username = รหัส จึงถอยไปเทียบ username ด้วย
+  const accBy = new Map(accounts.map((a) => [normVpUsername(a.atmsCode || a.username), a]))
   const groups = new Map<string, { name: string; last: string }[]>()
   const out: VpAccountRow[] = []
   for (const x of sups) {
@@ -228,19 +254,33 @@ export function vpAccountRows(
     const lastDdAt = list.reduce((m, l) => (l.last > m ? l.last : m), "")
     const best = [...list].filter((l) => names.includes(l.name)).sort((a, b) => b.last.localeCompare(a.last))[0]
     const a = accBy.get(code)
+    const username = vpUsernameFromCode(code)
     const row: VpAccountRow = {
-      username: code, atmsCode: code, allNames, names, hiddenNames,
+      username, atmsCode: code, allNames, names, hiddenNames,
       displayName: best?.name ?? allNames[0],
       lastDdAt, recent: lastDdAt >= windowStart,
-      eligible: names.length > 0,
+      eligible: names.length > 0 && Boolean(username),
     }
     if (!names.length) row.reason = cash.length === allNames.length ? "เงินสด" : "ชื่อซ้ำใน ATMS"
+    else if (!username) row.reason = "รหัสแปลงเป็นชื่อผู้ใช้ไม่ได้"
     if (a) row.account = {
       disabled: Boolean(a.disabled), loginCount: a.loginCount ?? 0,
       ...(a.lastLoginAt ? { lastLoginAt: a.lastLoginAt } : {}),
       ...(a.passwordSetAt ? { passwordSetAt: a.passwordSetAt } : {}),
+      ...(a.username !== username ? { legacyUsername: a.username } : {}),
     }
     out.push(row)
+  }
+  // กันชื่อผู้ใช้ซ้ำ: สองรหัสที่ได้เลขเดียวกัน (VEN-00006 กับ 6) → ห้ามสร้างทั้งคู่ ให้คนตรวจใน ATMS ก่อน
+  const byUser = new Map<string, VpAccountRow[]>()
+  for (const r of out) if (r.eligible) byUser.set(r.username, [...(byUser.get(r.username) ?? []), r])
+  for (const list of byUser.values()) {
+    if (list.length < 2) continue
+    for (const r of list) {
+      r.eligible = false
+      r.reason = "ชื่อผู้ใช้ซ้ำ"
+      r.clashWith = list.filter((x) => x !== r).map((x) => x.atmsCode).join(", ")
+    }
   }
   return out.sort((a, b) => a.displayName.localeCompare(b.displayName, "th"))
 }

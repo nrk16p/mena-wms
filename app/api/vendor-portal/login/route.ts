@@ -1,7 +1,7 @@
 // POST /api/vendor-portal/login — เจ้าหนี้ล็อกอินด้วยรหัสผู้ขาย + รหัสผ่าน (ไม่ผ่าน next-auth)
 // ตอบข้อความเดียวเสมอเมื่อไม่ผ่าน ไม่บอกว่าผิดที่ชื่อหรือรหัส · ผิด 5 ครั้งล็อก 15 นาที
 import { NextRequest, NextResponse } from "next/server"
-import { normVpUsername } from "@/lib/vendor-portal"
+import { vpCanonUsername } from "@/lib/vendor-portal"
 import {
   VP_COOKIE, signVpSession, verifyVpPassword, vpCookieOptions, vpIsLocked, vpFailUpdate,
 } from "@/lib/vendor-portal-auth"
@@ -16,10 +16,16 @@ const DUMMY_HASH = "scrypt$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
-  const username = normVpUsername(body?.username)
+  const raw      = typeof body?.username === "string" ? body.username.trim() : ""
   const password = typeof body?.password === "string" ? body.password : ""
-  if (!username || !password) {
+  if (!raw || !password) {
     return NextResponse.json({ error: "กรอกชื่อผู้ใช้และรหัสผ่านให้ครบ" }, { status: 400 })
+  }
+  // ชื่อผู้ใช้ต้องเป็นรูป Vendor-NNNNN · รูปอื่น = ไม่มีบัญชี (ตอบแบบเดียวกับรหัสผิด)
+  const username = vpCanonUsername(raw)
+  if (!username) {
+    await verifyVpPassword(password, DUMMY_HASH)
+    return NextResponse.json({ error: BAD }, { status: 401 })
   }
 
   const db  = await vpDbs()

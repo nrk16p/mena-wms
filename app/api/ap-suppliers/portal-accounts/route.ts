@@ -17,7 +17,7 @@ type Issued = { username: string; password: string; displayName: string }
 async function loadRows(db: VpDbs): Promise<VpAccountRow[]> {
   const [sups, accounts] = await Promise.all([
     db.md.collection("ap_supplier").find({}, { projection: { _id: 0, name: 1, atmsCode: 1, lastDdAt: 1 }, maxTimeMS: 10000 }).limit(5000).toArray(),
-    db.md.collection<VpAccount>(VP_ACCOUNTS).find({}, { projection: { _id: 0, username: 1, disabled: 1, loginCount: 1, lastLoginAt: 1, passwordSetAt: 1 }, maxTimeMS: 10000 }).limit(5000).toArray(),
+    db.md.collection<VpAccount>(VP_ACCOUNTS).find({}, { projection: { _id: 0, username: 1, atmsCode: 1, disabled: 1, loginCount: 1, lastLoginAt: 1, passwordSetAt: 1 }, maxTimeMS: 10000 }).limit(5000).toArray(),
   ])
   const names = sups.map((x) => String(x.name ?? "").trim()).filter(Boolean)
   const amb = await vpAmbiguousSet(db.atms, names)
@@ -45,7 +45,9 @@ export async function POST(req: NextRequest) {
   try {
     const db = await vpDbs()
     const col = db.md.collection<VpAccount>(VP_ACCOUNTS)
+    // กันซ้ำชั้นฐานข้อมูล: ชื่อผู้ใช้ไม่ซ้ำ + หนึ่งรหัสผู้ขายมีได้บัญชีเดียว
     await col.createIndex({ username: 1 }, { unique: true })
+    await col.createIndex({ atmsCode: 1 }, { unique: true })
     const rows = await loadRows(db)
 
     const issue = async (row: VpAccountRow): Promise<Issued> => {
@@ -70,27 +72,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ issued })
     }
 
-    const row = rows.find((r) => r.username && r.username === code)
+    const row = rows.find((r) => r.atmsCode && r.atmsCode === code)
     if (!row) return NextResponse.json({ error: "ไม่พบรหัสผู้ขายนี้" }, { status: 404 })
+    const why = row.reason === "ชื่อผู้ใช้ซ้ำ" ? `ชื่อผู้ใช้ ${row.username} ซ้ำกับรหัส ${row.clashWith}` : row.reason
 
     if (action === "create") {
-      if (!row.eligible) return NextResponse.json({ error: `สร้างบัญชีไม่ได้: ${row.reason}` }, { status: 400 })
+      if (!row.eligible) return NextResponse.json({ error: `สร้างบัญชีไม่ได้: ${why}` }, { status: 400 })
       if (row.account) return NextResponse.json({ error: "เจ้านี้มีบัญชีแล้ว ใช้ปุ่มรีเซ็ตรหัสแทน" }, { status: 409 })
       return NextResponse.json({ issued: [await issue(row)] })
     }
 
     if (!row.account) return NextResponse.json({ error: "เจ้านี้ยังไม่มีบัญชี" }, { status: 404 })
+    // บัญชีรุ่นแรกเก็บ username = รหัสผู้ขาย และ atmsCode เดียวกัน — ค้นด้วย atmsCode ได้ทั้งสองรุ่น
+    const accFilter = { atmsCode: row.atmsCode }
 
     if (action === "reset") {
+      if (!row.eligible) return NextResponse.json({ error: `รีเซ็ตไม่ได้: ${why}` }, { status: 400 })
       const password = genVpPassword()
-      await col.updateOne({ username: row.username }, {
-        $set: { passwordHash: await hashVpPassword(password), passwordSetAt: now, passwordSetBy: by, failedCount: 0, lockedUntil: null, displayName: row.displayName },
+      await col.updateOne(accFilter, {
+        // เปลี่ยนชื่อผู้ใช้เป็นรูป Vendor- ไปพร้อมกัน (บัญชีที่สร้างก่อนเปลี่ยนรูปชื่อ)
+        $set: { username: row.username, passwordHash: await hashVpPassword(password), passwordSetAt: now, passwordSetBy: by, failedCount: 0, lockedUntil: null, displayName: row.displayName },
         $inc: { tokenVersion: 1 },   // session เดิมของเจ้าหนี้หลุดทันที
       })
       return NextResponse.json({ issued: [{ username: row.username, password, displayName: row.displayName }] })
     }
     if (action === "disable" || action === "enable") {
-      await col.updateOne({ username: row.username }, {
+      await col.updateOne(accFilter, {
         $set: { disabled: action === "disable", updatedAt: now, updatedBy: by },
         ...(action === "disable" ? { $inc: { tokenVersion: 1 } } : {}),
       })
@@ -98,6 +105,10 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: "action ไม่ถูกต้อง" }, { status: 400 })
   } catch (e) {
+    // E11000 = ชนดัชนีกันซ้ำ (ชื่อผู้ใช้หรือรหัสผู้ขายมีบัญชีอยู่แล้ว)
+    if ((e as { code?: number })?.code === 11000) {
+      return NextResponse.json({ error: "ชื่อผู้ใช้หรือรหัสผู้ขายนี้มีบัญชีอยู่แล้ว รีเฟรชหน้าแล้วลองใหม่" }, { status: 409 })
+    }
     console.error("[portal-accounts POST]", e)
     return NextResponse.json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, { status: 500 })
   }

@@ -52,7 +52,7 @@ export default function VendorPortalLoginPage() {
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-slate-700">ชื่อผู้ใช้</span>
           <input value={username} onChange={(e) => setUsername(e.target.value)} className={input}
-            autoComplete="username" autoCapitalize="characters" spellCheck={false} placeholder="รหัสผู้ขาย" />
+            autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="เช่น Vendor-00008" />
         </label>
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-slate-700">รหัสผ่าน</span>
