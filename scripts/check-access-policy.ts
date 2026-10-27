@@ -32,7 +32,7 @@ for (const d of ["จัดส่งลาดกระบัง", "จัดส�
   assert.equal(u(d).ap, "none", d)
 }
 assert.equal(u("Recruitment - Mass")["driver-handover"], "edit")
-assert.equal(u("Recruitment - Mass").pr, "none")
+assert.equal(u("Recruitment - Mass").pr, "edit")
 for (const d of ["Chief-Level", "Compliance", "Company Secretary & Compliance"]) {
   for (const s of SECTIONS) assert.equal(u(d)[s], s === "ai-mixer" ? "none" : "view", `${d} ${s}`)
 }

@@ -53,7 +53,8 @@ const PROCUREMENT = row({
   sku: "edit", pr: "edit", ap: "edit", "price-compare": "edit", vendor: "edit", "safety-stock": "edit",
   deadstock: "edit", tire: "view", repair: "edit",
 })
-const RECRUITMENT_MASS = row({ "driver-handover": "edit" })
+// สรรหา Mass เห็นติดตาม PR / คำขอเปิด PO ด้วย (ผู้ใช้สั่ง 2026-10-27)
+const RECRUITMENT_MASS = row({ pr: "edit", "driver-handover": "edit" })
 const IT = all("edit")
 
 // department_id ฝั่ง HR (ncacdb /departments = แผนก ใต้ฝ่าย ตั้งแต่ 2026-10-25)

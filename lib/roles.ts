@@ -19,6 +19,7 @@ export function isAdmin(email: string | null | undefined): boolean {
 export const SUPERADMIN_EMAILS = new Set([
   "narongkorn.a@menatransport.co.th",
   "natchaphak.k@menatransport.co.th",  // Deputy COO (Tarn) — ผู้ใช้สั่งเพิ่ม 2026-10-15
+  "kittaboon.l@menatransport.co.th",   // Bew (680043) — ผู้ใช้สั่งเพิ่ม 2026-10-27
 ])
 
 export function isSuperAdmin(email: string | null | undefined): boolean {
