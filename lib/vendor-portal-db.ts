@@ -162,11 +162,12 @@ export async function loadVpItems(db: VpDbs, code: string, names: string[], toda
   return { items: vpItemsOf(raw as { item?: string; qty?: string; unit_price?: string; total?: string }[]), ...totals, pending: false }
 }
 
-/** บัญชีของ session ใน request นี้ — null = ยังไม่ล็อกอิน / token เสีย / บัญชีปิด / รีเซ็ตรหัสไปแล้ว */
-export async function requireVpAccount(req: NextRequest, db?: VpDbs): Promise<VpAccount | null> {
+/** บัญชีของ session ใน request นี้ — null = ยังไม่ล็อกอิน / token เสีย / บัญชีปิด / รีเซ็ตรหัสไปแล้ว
+ *  ตรวจลายเซ็น cookie ก่อนแตะฐานข้อมูลเสมอ — request ที่ไม่มี/ปลอม cookie ไม่ต้องเปิด connection เลย */
+export async function requireVpAccount(req: NextRequest): Promise<{ acc: VpAccount; db: VpDbs } | null> {
   const sess = await readVpSession(req.cookies.get(VP_COOKIE)?.value)
   if (!sess) return null
-  const d = db ?? await vpDbs()
-  const acc = await d.md.collection(VP_ACCOUNTS).findOne({ username: sess.sub }, { projection: { _id: 0 }, maxTimeMS: 10000 }) as VpAccount | null
-  return vpSessionValid(acc, sess) ? acc : null
+  const db = await vpDbs()
+  const acc = await db.md.collection(VP_ACCOUNTS).findOne({ username: sess.sub }, { projection: { _id: 0 }, maxTimeMS: 10000 }) as VpAccount | null
+  return vpSessionValid(acc, sess) && acc ? { acc, db } : null
 }

@@ -5,6 +5,7 @@ import {
   vpStatusOf, vpWindowStart, vpLookbackStart, vpMonths, vpVisible,
   isSaraburiWarehouse, isCashVendor, normVpUsername, vpBillOf, vpNextTransfer, vpItemsOf,
   VP_BILL_KEYS, VP_STATUS_LABEL, vpCanSeeHead, vpAmbiguousNames, vpAccountRows, vpLineMessage,
+  vpFilterBills, vpThaiDate, vpMonthLabel, vpDueText, vpBillMonths,
 } from "../lib/vendor-portal"
 
 // ── สถานะ: จ่ายแล้วชนะทุกอย่าง (ฝั่งภายใน "ไม่ผ่าน" ชนะ — ฝั่งเจ้าหนี้กลับกัน)
@@ -140,6 +141,43 @@ assert.equal(
   vpLineMessage({ username: "VEN-00008", password: "Kp7xR2mQa9" }, "https://mena-wms.vercel.app"),
   "ลิงก์ดูสถานะบิลกับวันโอนเงินของร้านครับ\nhttps://mena-wms.vercel.app/vendor-portal\nชื่อผู้ใช้ VEN-00008\nรหัสผ่าน Kp7xR2mQa9",
 )
+
+// ── หน้าเจ้าหนี้: กรอง/ค้นหา/เรียง ───────────────────────────────────────────
+const L = [
+  vpBillOf({ depositCode: "LBDD26100412", receivedAt: "2026-10-21", vehicle: "71-5742", fleetNo: "ME042", amount: 12840, status: "processing" }),
+  vpBillOf({ depositCode: "LBDD26100288", receivedAt: "2026-10-15", vehicle: "72-0398", fleetNo: "ME117", amount: 9450, status: "processing" }),
+  vpBillOf({ depositCode: "LBDD26100131", receivedAt: "2026-10-08", vehicle: "71-5742", fleetNo: "ME042", amount: 13096.8, status: "scheduled", payDate: "2026-10-29" }),
+  vpBillOf({ depositCode: "LBDD26090655", receivedAt: "2026-09-24", supplierRefNo: "INV-6609-212", amount: 7980, status: "paid", paidDate: "2026-10-22" }),
+  vpBillOf({ depositCode: "LBDD26090001", receivedAt: "2026-09-01", amount: 100, status: "scheduled", payDate: "2026-11-05" }),
+]
+const codesOf = (xs: { depositCode: string }[]) => xs.map((x) => x.depositCode)
+assert.deepEqual(codesOf(vpFilterBills(L, {})), codesOf(L))                                   // ค่าตั้งต้น = รับของล่าสุดก่อน
+assert.deepEqual(codesOf(vpFilterBills(L, { q: "me042" })), ["LBDD26100412", "LBDD26100131"])  // เบอร์รถ ตัวเล็กก็เจอ
+assert.deepEqual(codesOf(vpFilterBills(L, { q: "715742" })), ["LBDD26100412", "LBDD26100131"]) // ทะเบียนไม่ใส่ขีดก็เจอ
+assert.deepEqual(codesOf(vpFilterBills(L, { q: "71-5742" })), ["LBDD26100412", "LBDD26100131"])
+assert.deepEqual(codesOf(vpFilterBills(L, { q: "inv-6609" })), ["LBDD26090655"])              // เลขใบแจ้งหนี้ร้าน
+assert.deepEqual(codesOf(vpFilterBills(L, { q: "0288" })), ["LBDD26100288"])
+assert.deepEqual(codesOf(vpFilterBills(L, { statuses: ["scheduled", "paid"] })), ["LBDD26100131", "LBDD26090655", "LBDD26090001"])
+assert.deepEqual(codesOf(vpFilterBills(L, { months: ["2026-09"] })), ["LBDD26090655", "LBDD26090001"])
+assert.deepEqual(codesOf(vpFilterBills(L, { from: "2026-09-24", to: "2026-10-08" })), ["LBDD26100131", "LBDD26090655"])
+assert.deepEqual(codesOf(vpFilterBills(L, { sort: "amount" })), ["LBDD26100131", "LBDD26100412", "LBDD26100288", "LBDD26090655", "LBDD26090001"])
+// กำหนดโอนใกล้สุด: ใบรอโอนเรียงวันโอน แล้วตามด้วยใบอื่นตามวันรับของล่าสุด
+assert.deepEqual(codesOf(vpFilterBills(L, { sort: "payDate" })), ["LBDD26100131", "LBDD26090001", "LBDD26100412", "LBDD26100288", "LBDD26090655"])
+assert.deepEqual(vpBillMonths(L), ["2026-09", "2026-10"])
+
+// ── วันที่ไทย
+assert.equal(vpThaiDate("2026-10-29"), "29 ต.ค. 69")
+assert.equal(vpThaiDate("2027-01-05"), "5 ม.ค. 70")
+assert.equal(vpThaiDate(""), "")
+assert.equal(vpMonthLabel("2026-10"), "ต.ค. 69")
+assert.equal(vpMonthLabel("2026-05", true), "พฤษภาคม 2569")
+
+// ── ข้อความวันที่ใต้สถานะ
+assert.equal(vpDueText(L[2], "2026-10-27"), "กำหนดโอน 29 ต.ค. 69")
+assert.equal(vpDueText(L[2], "2026-10-30"), "ครบกำหนดโอน 29 ต.ค. 69 · รอยืนยันยอดโอน")
+assert.equal(vpDueText(L[3], "2026-10-27"), "โอน 22 ต.ค. 69")
+assert.equal(vpDueText(L[0], "2026-10-27"), "")
+assert.equal(vpDueText(vpBillOf({ depositCode: "Z", receivedAt: "2026-10-01", amount: 1, status: "scheduled" }), "2026-10-27"), "")
 
 console.log("check-vendor-portal: rules ok")
 

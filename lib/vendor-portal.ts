@@ -246,3 +246,74 @@ export function vpLineMessage(c: { username: string; password: string }, origin:
     `รหัสผ่าน ${c.password}`,
   ].join("\n")
 }
+
+// ── หน้าเจ้าหนี้: กรอง/ค้นหา/เรียง (ทำในเบราว์เซอร์ — ใบของเจ้าเดียวหลักร้อยใบ) ─────────────
+export type VpSort = "recent" | "payDate" | "amount"
+export type VpFilter = { q?: string; statuses?: VpStatus[]; months?: string[]; from?: string; to?: string; sort?: VpSort }
+
+// ค้นแบบไม่สนตัวพิมพ์ ช่องว่าง และขีด — "715742" เจอ "71-5742"
+const squash = (v: string) => v.toLowerCase().replace(/[\s-]+/g, "")
+
+export function vpFilterBills(bills: VpBill[], f: VpFilter): VpBill[] {
+  const q = squash(f.q ?? "")
+  const st = new Set(f.statuses ?? [])
+  const mo = new Set(f.months ?? [])
+  const out = bills.filter((b) => {
+    if (st.size && !st.has(b.status)) return false
+    if (mo.size && !mo.has(b.receivedAt.slice(0, 7))) return false
+    if (f.from && b.receivedAt < f.from) return false
+    if (f.to && b.receivedAt > f.to) return false
+    if (q) {
+      const hay = [b.depositCode, b.fleetNo, b.vehicle, b.supplierRefNo].filter(Boolean).map((x) => squash(x!))
+      if (!hay.some((h) => h.includes(q))) return false
+    }
+    return true
+  })
+  const recent = (a: VpBill, b: VpBill) =>
+    b.receivedAt.localeCompare(a.receivedAt) || b.depositCode.localeCompare(a.depositCode)
+  if (f.sort === "amount") return out.sort((a, b) => b.amount - a.amount || recent(a, b))
+  if (f.sort === "payDate") {
+    return out.sort((a, b) => {
+      const pa = a.status === "scheduled" && a.payDate ? a.payDate : ""
+      const pb = b.status === "scheduled" && b.payDate ? b.payDate : ""
+      if (pa && pb) return pa.localeCompare(pb) || recent(a, b)
+      if (pa || pb) return pa ? -1 : 1
+      return recent(a, b)
+    })
+  }
+  return out.sort(recent)
+}
+
+/** เดือนที่มีใบจริง (รวมใบค้างที่เก่ากว่าช่วง 6 เดือน) เรียงเก่า → ใหม่ */
+export function vpBillMonths(bills: VpBill[]): string[] {
+  return [...new Set(bills.map((b) => b.receivedAt.slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m)))].sort()
+}
+
+const TH_MON = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+const TH_MON_FULL = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+
+/** "2026-10-29" → "29 ต.ค. 69" */
+export function vpThaiDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""))
+  if (!m) return ""
+  return `${Number(m[3])} ${TH_MON[Number(m[2]) - 1]} ${String(Number(m[1]) + 543).slice(-2)}`
+}
+
+/** "2026-10" → "ต.ค. 69" · full → "ตุลาคม 2569" */
+export function vpMonthLabel(ym: string, full = false): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(ym ?? ""))
+  if (!m) return ""
+  const i = Number(m[2]) - 1
+  return full ? `${TH_MON_FULL[i]} ${Number(m[1]) + 543}` : `${TH_MON[i]} ${String(Number(m[1]) + 543).slice(-2)}`
+}
+
+/** ข้อความวันที่ข้างป้ายสถานะ — เลยวันกำหนดโอนแต่การเงินยังไม่ยืนยัน = บอกตรง ๆ ว่ารอยืนยัน */
+export function vpDueText(b: VpBill, todayISO: string): string {
+  if (b.status === "paid") return b.paidDate ? `โอน ${vpThaiDate(b.paidDate)}` : ""
+  if (b.status === "scheduled" && b.payDate) {
+    return b.payDate < todayISO
+      ? `ครบกำหนดโอน ${vpThaiDate(b.payDate)} · รอยืนยันยอดโอน`
+      : `กำหนดโอน ${vpThaiDate(b.payDate)}`
+  }
+  return ""
+}

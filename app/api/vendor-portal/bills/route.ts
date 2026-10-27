@@ -2,15 +2,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { todayICT } from "@/lib/ap-tracking"
 import { vpNextTransfer, vpWindowStart } from "@/lib/vendor-portal"
-import { loadVpBills, requireVpAccount, vpDbs, vpSupplierNames } from "@/lib/vendor-portal-db"
+import { loadVpBills, requireVpAccount, vpSupplierNames } from "@/lib/vendor-portal-db"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(req: NextRequest) {
   try {
-    const db  = await vpDbs()
-    const acc = await requireVpAccount(req, db)
-    if (!acc) return NextResponse.json({ error: "กรุณาเข้าสู่ระบบ" }, { status: 401 })
+    const auth = await requireVpAccount(req)
+    if (!auth) return NextResponse.json({ error: "กรุณาเข้าสู่ระบบ" }, { status: 401 })
+    const { acc, db } = auth
     const today = todayICT()
     const names = await vpSupplierNames(db, acc.atmsCode)
     const bills = await loadVpBills(db, names, today)
