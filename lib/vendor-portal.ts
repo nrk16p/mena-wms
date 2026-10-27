@@ -220,18 +220,23 @@ export type VpAccountRow = {
   eligible: boolean
   reason?: "ไม่มีรหัสผู้ขาย" | "เงินสด" | "ชื่อซ้ำใน ATMS" | "ชื่อผู้ใช้ซ้ำ" | "รหัสแปลงเป็นชื่อผู้ใช้ไม่ได้"
   clashWith?: string        // รหัสอีกเจ้าที่ได้ชื่อผู้ใช้เดียวกัน
+  renumberedFrom?: string   // ชื่อที่ควรได้ แต่ชนกับรหัสอื่น จึงออกเลขใหม่ให้
   account?: VpAccountInfo
 }
 
+/** เลขใหม่เมื่อชื่อชน = 90000 + เลขประจำร้านใน ATMS (atmsId) — คงที่ทุกครั้งที่คิด ไม่ขึ้นกับลำดับข้อมูล */
+const RENUMBER_BASE = 90000
+const RENUMBER_STEP = 10000
+
 export function vpAccountRows(
-  sups: { name?: string; atmsCode?: unknown; lastDdAt?: string }[],
+  sups: { name?: string; atmsCode?: unknown; atmsId?: unknown; lastDdAt?: string }[],
   ambiguous: Set<string>,
   accounts: ({ username: string; atmsCode?: string } & Partial<VpAccountInfo>)[],
   windowStart: string,
 ): VpAccountRow[] {
   // บัญชีผูกกับรหัสผู้ขาย (ไม่ใช่ชื่อผู้ใช้) — บัญชีรุ่นแรกเก็บ username = รหัส จึงถอยไปเทียบ username ด้วย
   const accBy = new Map(accounts.map((a) => [normVpUsername(a.atmsCode || a.username), a]))
-  const groups = new Map<string, { name: string; last: string }[]>()
+  const groups = new Map<string, { name: string; last: string; atmsId: number }[]>()
   const out: VpAccountRow[] = []
   for (const x of sups) {
     const name = String(x.name ?? "").trim()
@@ -243,9 +248,13 @@ export function vpAccountRows(
         lastDdAt: last, recent: last >= windowStart, eligible: false, reason: "ไม่มีรหัสผู้ขาย" })
       continue
     }
+    const id = Number(x.atmsId)
     if (!groups.has(code)) groups.set(code, [])
-    groups.get(code)!.push({ name, last })
+    groups.get(code)!.push({ name, last, atmsId: Number.isInteger(id) && id > 0 ? id : 0 })
   }
+
+  type Meta = { natural: string; atmsId: number; acc?: (typeof accounts)[number] }
+  const meta = new Map<VpAccountRow, Meta>()
   for (const [code, list] of groups) {
     const allNames = list.map((l) => l.name)
     const cash = allNames.filter(isCashVendor)
@@ -253,33 +262,69 @@ export function vpAccountRows(
     const names = allNames.filter((n) => !isCashVendor(n) && !ambiguous.has(n))
     const lastDdAt = list.reduce((m, l) => (l.last > m ? l.last : m), "")
     const best = [...list].filter((l) => names.includes(l.name)).sort((a, b) => b.last.localeCompare(a.last))[0]
-    const a = accBy.get(code)
-    const username = vpUsernameFromCode(code)
+    const ids = list.map((l) => l.atmsId).filter(Boolean)
+    const natural = vpUsernameFromCode(code)
     const row: VpAccountRow = {
-      username, atmsCode: code, allNames, names, hiddenNames,
+      username: natural, atmsCode: code, allNames, names, hiddenNames,
       displayName: best?.name ?? allNames[0],
       lastDdAt, recent: lastDdAt >= windowStart,
-      eligible: names.length > 0 && Boolean(username),
+      eligible: names.length > 0 && Boolean(natural),
     }
     if (!names.length) row.reason = cash.length === allNames.length ? "เงินสด" : "ชื่อซ้ำใน ATMS"
-    else if (!username) row.reason = "รหัสแปลงเป็นชื่อผู้ใช้ไม่ได้"
-    if (a) row.account = {
+    else if (!natural) row.reason = "รหัสแปลงเป็นชื่อผู้ใช้ไม่ได้"
+    meta.set(row, { natural, atmsId: ids.length ? Math.min(...ids) : 0, acc: accBy.get(code) })
+    out.push(row)
+  }
+
+  // ── แจกชื่อผู้ใช้ไม่ให้ซ้ำ (ผู้ใช้สั่ง "ซ้ำกันเจนเลขใหม่ให้เลย" 27/10/2569) ─────────────────
+  const name = (n: number) => `Vendor-${String(n).padStart(5, "0")}`
+  const holder = new Map<string, string>()          // ชื่อผู้ใช้ → รหัสที่ถือชื่อนั้น
+  const fixed = new Set<VpAccountRow>()
+  // 1) บัญชีที่ออกชื่อรูปใหม่ไปแล้ว ชื่อนั้นคงเดิมเสมอ
+  for (const r of out) {
+    const a = meta.get(r)?.acc
+    if (a && vpCanonUsername(a.username) === a.username) {
+      r.username = a.username
+      holder.set(r.username, r.atmsCode)
+      fixed.add(r)
+    }
+  }
+  // 2) ที่เหลือ: เลขตรงตัวของทุกรหัสถูกกันไว้ก่อน เลขใหม่จะได้ไม่ไปเบียดรหัสจริงของร้านอื่น
+  const naturals = new Set(out.filter((r) => r.eligible).map((r) => meta.get(r)!.natural))
+  const byNatural = new Map<string, VpAccountRow[]>()
+  for (const r of out) {
+    if (!r.eligible || fixed.has(r)) continue
+    const n = meta.get(r)!.natural
+    byNatural.set(n, [...(byNatural.get(n) ?? []), r])
+  }
+  for (const n of [...byNatural.keys()].sort()) {
+    // รหัสที่มีตัวอักษรนำ (VEN-00182) ได้เลขตรงตัว · รหัสเลขล้วน (182) ได้เลขใหม่
+    const list = byNatural.get(n)!.sort((a, b) =>
+      Number(!/^[A-Z]/.test(a.atmsCode)) - Number(!/^[A-Z]/.test(b.atmsCode)) || a.atmsCode.localeCompare(b.atmsCode))
+    for (const r of list) {
+      if (!holder.has(n)) { r.username = n; holder.set(n, r.atmsCode); continue }
+      const clash = holder.get(n)!
+      const id = meta.get(r)!.atmsId
+      if (!id) {
+        // ไม่มีเลขประจำร้านให้คิดเลขใหม่แบบคงที่ — ห้ามสร้าง ให้คนตรวจรหัสใน ATMS
+        Object.assign(r, { eligible: false, reason: "ชื่อผู้ใช้ซ้ำ" as const, clashWith: clash })
+        continue
+      }
+      let k = RENUMBER_BASE + id
+      while (holder.has(name(k)) || naturals.has(name(k))) k += RENUMBER_STEP
+      Object.assign(r, { username: name(k), renumberedFrom: n, clashWith: clash })
+      holder.set(r.username, r.atmsCode)
+    }
+  }
+
+  for (const r of out) {
+    const a = meta.get(r)?.acc
+    if (!a) continue
+    r.account = {
       disabled: Boolean(a.disabled), loginCount: a.loginCount ?? 0,
       ...(a.lastLoginAt ? { lastLoginAt: a.lastLoginAt } : {}),
       ...(a.passwordSetAt ? { passwordSetAt: a.passwordSetAt } : {}),
-      ...(a.username !== username ? { legacyUsername: a.username } : {}),
-    }
-    out.push(row)
-  }
-  // กันชื่อผู้ใช้ซ้ำ: สองรหัสที่ได้เลขเดียวกัน (VEN-00006 กับ 6) → ห้ามสร้างทั้งคู่ ให้คนตรวจใน ATMS ก่อน
-  const byUser = new Map<string, VpAccountRow[]>()
-  for (const r of out) if (r.eligible) byUser.set(r.username, [...(byUser.get(r.username) ?? []), r])
-  for (const list of byUser.values()) {
-    if (list.length < 2) continue
-    for (const r of list) {
-      r.eligible = false
-      r.reason = "ชื่อผู้ใช้ซ้ำ"
-      r.clashWith = list.filter((x) => x !== r).map((x) => x.atmsCode).join(", ")
+      ...(a.username !== r.username ? { legacyUsername: a.username } : {}),
     }
   }
   return out.sort((a, b) => a.displayName.localeCompare(b.displayName, "th"))

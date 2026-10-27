@@ -63,6 +63,9 @@ export function VpAccountCell({ row, onIssued, onChanged }: {
   return (
     <div className="space-y-1">
       {row.username && <div className="font-mono text-[11px] text-gray-500">{row.username}</div>}
+      {row.renumberedFrom && (
+        <div className="text-[10px] text-gray-400">เลขใหม่ เพราะ {row.renumberedFrom} ซ้ำกับรหัส {row.clashWith}</div>
+      )}
       {!row.eligible && <div className="text-[11px] text-amber-700 dark:text-amber-400">{why}</div>}
       {!a && <div className="text-[11px] text-gray-400">ยังไม่มีบัญชี</div>}
       {a?.legacyUsername && (

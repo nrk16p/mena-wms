@@ -16,12 +16,12 @@ type Issued = { username: string; password: string; displayName: string }
 
 async function loadRows(db: VpDbs): Promise<VpAccountRow[]> {
   const [sups, accounts] = await Promise.all([
-    db.md.collection("ap_supplier").find({}, { projection: { _id: 0, name: 1, atmsCode: 1, lastDdAt: 1 }, maxTimeMS: 10000 }).limit(5000).toArray(),
+    db.md.collection("ap_supplier").find({}, { projection: { _id: 0, name: 1, atmsCode: 1, atmsId: 1, lastDdAt: 1 }, maxTimeMS: 10000 }).limit(5000).toArray(),
     db.md.collection<VpAccount>(VP_ACCOUNTS).find({}, { projection: { _id: 0, username: 1, atmsCode: 1, disabled: 1, loginCount: 1, lastLoginAt: 1, passwordSetAt: 1 }, maxTimeMS: 10000 }).limit(5000).toArray(),
   ])
   const names = sups.map((x) => String(x.name ?? "").trim()).filter(Boolean)
   const amb = await vpAmbiguousSet(db.atms, names)
-  return vpAccountRows(sups as { name?: string; atmsCode?: unknown; lastDdAt?: string }[], amb, accounts as VpAccount[], vpWindowStart(todayICT()))
+  return vpAccountRows(sups as { name?: string; atmsCode?: unknown; atmsId?: unknown; lastDdAt?: string }[], amb, accounts as VpAccount[], vpWindowStart(todayICT()))
 }
 
 export async function GET() {

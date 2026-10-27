@@ -132,14 +132,20 @@ const rows = vpAccountRows(
     { name: "ร้านซ้ำ 2", atmsCode: "VEN-00010", lastDdAt: "2026-10-01" },
     { name: "ร้านซ้ำ 3", atmsCode: "VEN-00010", lastDdAt: "2026-03-01" },
     { name: "ร้านเก่า", atmsCode: "VEN-00020", lastDdAt: "2026-02-01" },
-    { name: "ร้านเลขชน ก", atmsCode: "VEN-00006", lastDdAt: "2026-10-01" },
-    { name: "ร้านเลขชน ข", atmsCode: "6", lastDdAt: "2026-10-01" },
+    { name: "ร้านเลขชน ก", atmsCode: "VEN-00006", atmsId: 501, lastDdAt: "2026-10-01" },
+    { name: "ร้านเลขชน ข", atmsCode: "6", atmsId: 77, lastDdAt: "2026-10-01" },
+    { name: "รุ่งทรัพย์แอร์", atmsCode: "182", atmsId: 1203, lastDdAt: "2026-10-20" },
+    { name: "ร้าน VEN-00182", atmsCode: "VEN-00182", atmsId: 640, lastDdAt: "2026-10-01" },
+    { name: "ร้านชนไม่มีเลขประจำ ก", atmsCode: "VEN-00300", lastDdAt: "2026-10-01" },
+    { name: "ร้านชนไม่มีเลขประจำ ข", atmsCode: "300", lastDdAt: "2026-10-01" },
+    { name: "ร้านเลข 9 หมื่น", atmsCode: "VEN-90077", atmsId: 9, lastDdAt: "2026-10-01" },
     { name: "ร้านรหัสแปลก", atmsCode: "ABC", lastDdAt: "2026-10-01" },
   ],
   new Set(["ร้านซ้ำ", "ร้านซ้ำ 2"]),
   [
     { username: "Vendor-00020", atmsCode: "VEN-00020", disabled: true, loginCount: 3, lastLoginAt: "2026-10-01T03:00:00.000Z", passwordSetAt: "2026-09-01T00:00:00.000Z" },
     { username: "VEN-00010", atmsCode: "VEN-00010", disabled: false, loginCount: 0 },   // บัญชีที่สร้างก่อนเปลี่ยนรูปชื่อ
+    { username: "182", atmsCode: "182", disabled: false, loginCount: 0 },                // รุ่งทรัพย์แอร์ สร้างก่อน deploy รูปชื่อใหม่
   ],
   "2026-05-01",
 )
@@ -161,12 +167,23 @@ assert.equal(by("VEN-00010").eligible, true)
 assert.equal(by("VEN-00010").account?.legacyUsername, "VEN-00010")   // ชื่อแบบเก่า → ต้องรีเซ็ตเพื่อเปลี่ยน
 assert.equal(by("VEN-00020").recent, false)
 assert.deepEqual(by("VEN-00020").account, { disabled: true, loginCount: 3, lastLoginAt: "2026-10-01T03:00:00.000Z", passwordSetAt: "2026-09-01T00:00:00.000Z" })
-// เลขชนกัน (VEN-00006 กับ 6 → Vendor-00006) = ห้ามสร้างทั้งคู่
-assert.equal(by("VEN-00006").eligible, false)
-assert.equal(by("VEN-00006").reason, "ชื่อผู้ใช้ซ้ำ")
-assert.equal(by("VEN-00006").clashWith, "6")
-assert.equal(by("6").eligible, false)
+// เลขชนกัน (ผู้ใช้สั่ง "ซ้ำกันเจนเลขใหม่ให้เลย"): รหัสแบบ VEN- ได้เลขตรงตัว · รหัสเลขล้วนได้เลขใหม่ 9xxxx จากเลขประจำร้าน ATMS
+assert.equal(by("VEN-00006").username, "Vendor-00006")
+assert.equal(by("VEN-00006").eligible, true)
+assert.equal(by("6").username, "Vendor-100077")         // 90000 + atmsId 77 = 90077 แต่ VEN-90077 มีอยู่จริง → ขยับ +10000
+assert.equal(by("6").eligible, true)
+assert.equal(by("6").renumberedFrom, "Vendor-00006")
 assert.equal(by("6").clashWith, "VEN-00006")
+assert.equal(by("VEN-90077").username, "Vendor-90077")
+assert.equal(by("VEN-00182").username, "Vendor-00182")
+assert.equal(by("182").username, "Vendor-91203")         // 90000 + atmsId 1203
+assert.equal(by("182").account?.legacyUsername, "182")    // กดรีเซ็ตแล้วจะเปลี่ยนเป็น Vendor-91203
+// ชนกันแต่ไม่มีเลขประจำร้าน ATMS ให้คิดเลขใหม่ = ห้ามสร้าง (กันเลขเปลี่ยนไปมา)
+assert.equal(by("VEN-00300").username, "Vendor-00300")
+assert.equal(by("VEN-00300").eligible, true)
+assert.equal(by("300").eligible, false)
+assert.equal(by("300").reason, "ชื่อผู้ใช้ซ้ำ")
+assert.equal(by("300").clashWith, "VEN-00300")
 assert.equal(by("ABC").eligible, false)
 assert.equal(by("ABC").reason, "รหัสแปลงเป็นชื่อผู้ใช้ไม่ได้")
 const noCode = rows.find((r) => r.allNames.includes("ร้านไม่มีรหัส"))!
@@ -176,6 +193,14 @@ assert.equal(noCode.reason, "ไม่มีรหัสผู้ขาย")
 // ไม่มีชื่อผู้ใช้ซ้ำในแถวที่สร้างบัญชีได้
 const usable = rows.filter((r) => r.eligible).map((r) => r.username)
 assert.equal(new Set(usable).size, usable.length)
+// บัญชีที่ออกชื่อรูปใหม่ไปแล้ว ชื่อคงเดิมเสมอ แม้ข้อมูลรอบใหม่จะคิดเลขได้ไม่เหมือนเดิม
+const fixed = vpAccountRows(
+  [{ name: "ร้านเลขชน ข", atmsCode: "6", atmsId: 77, lastDdAt: "2026-10-01" }, { name: "ร้านเลขชน ก", atmsCode: "VEN-00006", atmsId: 501, lastDdAt: "2026-10-01" }],
+  new Set(), [{ username: "Vendor-90077", atmsCode: "6", disabled: false, loginCount: 1 }], "2026-05-01",
+)
+assert.equal(fixed.find((r) => r.atmsCode === "6")!.username, "Vendor-90077")
+assert.equal(fixed.find((r) => r.atmsCode === "6")!.account?.legacyUsername, undefined)
+assert.equal(fixed.find((r) => r.atmsCode === "VEN-00006")!.username, "Vendor-00006")
 
 // ── ข้อความส่งไลน์
 assert.equal(
