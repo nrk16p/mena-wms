@@ -6,7 +6,7 @@ import { X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   AP_DOC_FIELDS, AP_FILES_MAX, AP_LEGACY_DOC_FIELDS, AP_NO_FIELDS, AP_NO_MAX, AP_NOS_MAX, AP_TICK_FIELDS,
-  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc, isWeekendISO,
+  AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES, CREDIT_TERMS, apPaySchedule, apPayRecalc, isWeekendISO, longCreditCutoffBase,
   billingCutoff, ictDate, isShortCredit, payThursday, payThursdayChoices,
   AP_LOCKED_MSG, apLockedAfterPass,
   apDocLabel, apFilesByDoc, apItemVerification, apPaidConfirmed, apReviewMeta, apStatusMeta, apStatusOf, apTimeline,
@@ -1048,9 +1048,12 @@ export function ApTrackingDetail({
                       💰 {savedPay.type === "ตามรอบ"
                         ? savedPay.cutoff
                           /* ไม่โชว์วันครบกำหนดตรงนี้แล้ว — ตั้งแต่ 01/09/2026 วันจ่ายคิดจากวันกดผ่าน
-                             เข้ารอบตัด 25 ตรง ๆ ไม่มีวันครบเครดิตมาเกี่ยวข้อง · ครบกำหนดของจริง
-                             (นับจากวันทำ DD) อยู่บนหัวใบอยู่แล้ว เอามาวางซ้ำมีแต่ทำให้อ่านสับสน */
-                          ? <>ตามรอบ · ตัดรอบ {thaiDate(savedPay.cutoff)} · <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
+                             เข้ารอบตัด 25 ตรง ๆ ไม่มีวันครบเครดิตมาเกี่ยวข้อง (30D/60D เปลี่ยนเป็นวันส่งบัญชี
+                             ตั้งแต่ 28/10/2026) · ครบกำหนดของจริง (นับจากวันทำ DD) อยู่บนหัวใบอยู่แล้ว */
+                          ? <>ตามรอบ · ตัดรอบ {thaiDate(savedPay.cutoff)}
+                              {savedPay.basis?.cutoffFrom === "sent" && savedPay.basis.sentDate
+                                ? <> (นับจากวันส่งบัญชี {thaiDate(savedPay.basis.sentDate)})</> : null}
+                              {" "}· <b>จ่าย {thaiDate(savedPay.payDate)}</b></>
                           : <>ตามรอบ · <b>{savedPay.manual ? "จ่าย" : "โอนพฤหัส"} {thaiDate(savedPay.payDate)}</b></>
                         : <>นอกรอบ · <b>{savedPay.manual ? "จ่าย" : "โอนพฤหัส"} {thaiDate(savedPay.payDate)}</b></>}
                       {savedPay.basis?.creditTerm && savedPay.type === "ตามรอบ" && <> · เครดิต {savedPay.basis.creditTerm}</>}
@@ -1142,6 +1145,8 @@ export function ApTrackingDetail({
             passConfirm.payType === "นอกรอบ" ? passConfirm.payDate || undefined : undefined,
             row.sentMarkedDate)
           const needTerm = passConfirm.payType === "ตามรอบ" && !passConfirm.creditTerm
+          // 30D/60D ตัดรอบ 25 จากวันส่งบัญชี (ผู้ใช้สั่ง 28/10/2026) — ป้ายใต้ตัดรอบต้องบอกให้ถูกว่านับจากวันไหน
+          const cutoffFrom = longCreditCutoffBase(todayICT(), passConfirm.creditTerm, row.sentMarkedDate).from
           // วันจ่ายที่จะใช้จริง: ที่บัญชีเลือกเอง (ถ้าต่างจากที่ระบบคิด) ไม่งั้นวันที่ระบบคิด
           const manual = !!preview && !!passConfirm.manualDate && passConfirm.manualDate !== preview.payDate
           const effectivePayDate = manual ? passConfirm.manualDate : preview?.payDate ?? ""
@@ -1204,7 +1209,9 @@ export function ApTrackingDetail({
                   {preview ? (
                     <div className="space-y-0.5 text-xs">
                       {preview.type === "ตามรอบ" && preview.cutoff && (
-                        <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b> <span className="text-gray-400">{passConfirm.mode === "setPay" ? "(คิดจากวันนี้)" : "(จากวันกดผ่านวันนี้)"}</span></div>
+                        <div>ตัดรอบ <b>{thaiDate(preview.cutoff)}</b> <span className="text-gray-400">{cutoffFrom === "sent" && row.sentMarkedDate
+                          ? `(นับจากวันส่งบัญชี ${thaiDate(row.sentMarkedDate)})`
+                          : passConfirm.mode === "setPay" ? "(คิดจากวันนี้)" : "(จากวันกดผ่านวันนี้)"}</span></div>
                       )}
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-emerald-700 dark:text-emerald-400">
                         <span>

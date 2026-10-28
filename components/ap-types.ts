@@ -21,7 +21,8 @@ export type ApPaid = {
 export type ApPay = ApPaySchedule & {
   // บัญชีเลือกวันจ่ายเองในปฏิทินตอนกดผ่าน — systemPayDate = วันที่กติกาคิดได้ตอนนั้น (ไว้ย้อนดู)
   manual?: boolean; systemPayDate?: string
-  basis?: { passedAt: string; passedDate: string; creditTerm: string; requestedType: string }
+  // cutoffFrom/sentDate: รอบตัด 25 นับจากวันส่งบัญชี (sent) หรือวันกดผ่าน (passed) — มีเฉพาะใบที่ผ่านหลัง 28/10/2026
+  basis?: { passedAt: string; passedDate: string; creditTerm: string; requestedType: string; cutoffFrom?: string; sentDate?: string }
   by?: string; at?: string
 }
 

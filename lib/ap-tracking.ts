@@ -708,6 +708,8 @@ export function overdueDays(dueISO: string, todayISO: string): number {
 // กติกาจากผู้ใช้ 18/08/2026 — จุดตั้งต้นคือ "วันที่บัญชีกดผ่าน" ไม่ใช่วันส่งเอกสาร:
 //   ตามรอบ (เครดิตยาว 30D/60D/Immediate): เอา "วันกดผ่าน" เข้ารอบตัด 25 ตรง ๆ ไม่บวกเครดิตก่อน
 //           (แก้ 01/09/2026 ตามผู้ใช้ — เดิมบวกเทอมเป็นวันครบกำหนดแล้วค่อยตัดรอบ = คิดเครดิตซ้ำ)
+//           ⤷ แก้ 28/10/2026 ตามผู้ใช้: 30D/60D เปลี่ยนตัวตั้งเป็น "วันที่จัดซื้อกดส่งบัญชี" (sentMarkedAt)
+//             แทนวันกดผ่าน — ดู longCreditCutoffBase() · Immediate/90D ยังใช้วันกดผ่านเหมือนเดิม
 //           ตัดรอบวันที่ 25 นับถึงสิ้นวัน (กดผ่านวันที่ 25 พอดี = ทันรอบนั้น)
 //           จ่ายวันที่ 5 ของเดือนที่ 2 ถัดจากเดือนตัดรอบ · เสาร์-อาทิตย์ไม่เลื่อน
 //           เทอมยาวทุกตัวจึงได้วันจ่ายเท่ากัน (ผู้ใช้ยืนยัน 01/09/2026) — "+2 เดือน" คือตัวเครดิตเอง
@@ -798,7 +800,7 @@ export function apPaySchedule(
   // ผลพ่วงที่ผู้ใช้ยืนยันแล้ว: เทอมยาวทุกตัวได้วันจ่ายเท่ากัน — creditTerm เหลือหน้าที่แยกสาย
   // 7D/15D (รอบพฤหัส) ออกจากเทอมยาว จึงยังบังคับต้องมี ไม่งั้นเลือกสายไม่ได้
   if (!creditTerm) return null
-  const { cutoff, payDate } = payFromCutoff(passedISO)
+  const { cutoff, payDate } = payFromCutoff(longCreditCutoffBase(passedISO, creditTerm, sentDocISO).base)
   if (!cutoff) return null
   // dueDate เว้นว่างเหมือนนอกรอบ — ไม่มีวันครบกำหนดที่ใช้คิดวันจ่ายอีกแล้ว การเก็บเลขที่ไม่ได้
   // ใช้งานไว้แล้วเอาไปโชว์คู่กับ "ครบกำหนด" บนหัวใบ (คนละตัวตั้ง) คือต้นเหตุที่คนอ่านสับสน
@@ -865,6 +867,29 @@ export function isShortCredit(term: string): boolean {
   return t === "7D" || t === "15D"
 }
 
+// เครดิตยาว = 30D/60D (ผู้ใช้นิยาม 28/10/2026: "สั้น 7+15 ยาว 30+60")
+// Immediate/90D ไม่อยู่ในนิยามนี้ — ยังเดินสายตัดรอบ 25 จากวันกดผ่านตามเดิม
+export function isLongCredit(term: string): boolean {
+  const t = String(term ?? "").trim()
+  return t === "30D" || t === "60D"
+}
+
+// ตัวตั้งของรอบตัด 25 (ผู้ใช้สั่ง 28/10/2026): เครดิตยาว 30D/60D นับจาก "วันที่จัดซื้อกดส่งบัญชี"
+// ไม่ใช่วันที่บัญชีกดผ่าน — บัญชีตรวจช้าแล้วข้ามวันที่ 25 ไม่ควรดันใบไปรอบเดือนถัดไป
+// (เคส LAPO26100868: ส่งบัญชี 28/10 → ตัดรอบ 25/11 → จ่าย 5/01 ไม่ว่าบัญชีจะกดผ่านวันไหนของ พ.ย.)
+// ถอยไปใช้วันกดผ่านเมื่อ: ไม่ใช่ 30D/60D · ไม่มีวันส่ง (ใบเก่าก่อนเก็บ sentMarkedAt / ผ่านมาจากนำเข้าการตั้งเบิก)
+// · หรือวันจ่ายของรอบวันส่งเลยวันกดผ่านไปแล้ว (แบบเดียวกับเครดิตสั้น — ไม่ออกวันจ่ายย้อนหลังเอง)
+export type ApCutoffFrom = "sent" | "passed"
+export function longCreditCutoffBase(
+  passedISO: string, creditTerm: string, sentDocISO?: string,
+): { base: string; from: ApCutoffFrom } {
+  const sent = String(sentDocISO ?? "").trim()
+  if (!isLongCredit(creditTerm) || !sent) return { base: passedISO, from: "passed" }
+  const { payDate } = payFromCutoff(sent)
+  if (!payDate || payDate < passedISO) return { base: passedISO, from: "passed" }
+  return { base: sent, from: "sent" }
+}
+
 // ค่าใน pay ถูกคิดครั้งเดียวตอนบัญชีกดผ่านแล้วแช่ไว้ ไม่มีใครคิดใหม่ — กติกาที่เปลี่ยนทีหลัง
 // จึงไม่ย้อนไปถึงใบเก่า หน้าเว็บโชว์เลขที่เลิกใช้แล้วอย่างเงียบ ๆ ทั้งที่ข้อความอธิบายข้าง ๆ
 // render จากโค้ดใหม่ (เจอจริง 31/08/2026: ใบ 15D กดผ่าน 21/08 14:39 ยังเดินสายตัดรอบ 25
@@ -875,7 +900,8 @@ export function isShortCredit(term: string): boolean {
 export type ApPayStored = {
   type?: string; dueDate?: string; cutoff?: string; payDate?: string
   manual?: boolean               // บัญชีเลือกวันจ่ายเองในปฏิทิน — ไม่ใช่ผลของกติกา จึงไม่มีอะไรให้เทียบ
-  basis?: { passedDate?: string; creditTerm?: string } | null
+  // cutoffFrom/sentDate มีเฉพาะใบที่กดผ่านหลังกติกา 28/10/2026 — ใบเก่าไม่มี = คิดจากวันกดผ่าน
+  basis?: { passedDate?: string; creditTerm?: string; cutoffFrom?: string; sentDate?: string } | null
   at?: string
 }
 export function apPayRecalc(pay: ApPayStored | null | undefined, sentDocISO: string): ApPaySchedule | null {
@@ -895,7 +921,13 @@ export function apPayRecalc(pay: ApPayStored | null | undefined, sentDocISO: str
   }
   const creditTerm = String(pay.basis?.creditTerm ?? "").trim()
   if (!creditTerm) return null
-  const next = apPaySchedule(passed, type, creditTerm, undefined, sentDocISO)
+  // เครดิตยาว: ใบที่กดผ่านก่อนกติกา 28/10/2026 (ไม่มี basis.cutoffFrom) คิดเทียบด้วยวันกดผ่าน
+  // ไม่งั้นใบเก่าที่ปิดจบไปแล้วจะขึ้นธง ⚠️ กันทั้งระบบ ทั้งที่บัญชียืนยันตามกติกาตอนนั้นถูกแล้ว
+  // ใบใหม่ใช้วันส่งที่เก็บไว้ตอนกดผ่าน (basis.sentDate) — ไม่ขยับตาม sentMarkedAt ที่อาจถูกกดซ้ำทีหลัง
+  const anchor = !isLongCredit(creditTerm) ? sentDocISO
+    : !pay.basis?.cutoffFrom ? ""
+    : String(pay.basis.sentDate ?? sentDocISO)
+  const next = apPaySchedule(passed, type, creditTerm, undefined, anchor)
   if (!next) return null
   const same = String(pay.dueDate ?? "").trim() === next.dueDate
     && String(pay.cutoff ?? "").trim() === next.cutoff

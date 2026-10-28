@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
 import {
   AP_FILES_MAX, AP_NO_FIELDS, AP_PAY_TYPES, AP_REVIEW_NOTE_MAX, AP_REVIEW_STATUSES,
-  AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate, resolveCreditTerm,
+  AP_WRITABLE_DOC_KEYS, CREDIT_TERMS, apDocLabel, apPaySchedule, ictDate, longCreditCutoffBase, resolveCreditTerm,
   apManualPayDateError, applyManualPayDate,
   apLockedAfterPass, apPaidConfirmed, AP_LOCKED_MSG, apSentMarkPatch, AP_RESUBMIT_ACTION,
   apStatusOf, cleanDocNos, readDocNos, isDocSetComplete, missingDocLabels, reviewNeedsNote, thaiDate,
@@ -132,7 +132,9 @@ async function payOnPass(o: { client: Awaited<typeof clientPromise>; depositCode
   const chosenPayDate = payType === "นอกรอบ" ? s(body.payDate) || undefined : undefined
   // เครดิตสั้น (7D/15D) นับรอบพฤหัสจาก "วันส่งเอกสารเข้าบัญชี" — anchor คือ sentMarkedAt
   // ซึ่งถูกตั้งใหม่ทุกครั้งที่จัดซื้อส่งตรวจใหม่หลังตีกลับ (= เริ่มรอบใหม่ตามกติกา)
-  const schedule = apPaySchedule(ictDate(at), payType, creditTerm, chosenPayDate, ictDate(s(current?.sentMarkedAt)))
+  // เครดิตยาว 30D/60D ก็ตัดรอบ 25 จากวันส่งบัญชีเหมือนกัน (ผู้ใช้สั่ง 28/10/2026)
+  const sentDocDate = ictDate(s(current?.sentMarkedAt))
+  const schedule = apPaySchedule(ictDate(at), payType, creditTerm, chosenPayDate, sentDocDate)
   if (!schedule) {
     if (chosenPayDate) {
       return NextResponse.json(
@@ -157,7 +159,17 @@ async function payOnPass(o: { client: Awaited<typeof clientPromise>; depositCode
   // ย้อนหลัง = โอนไปก่อนแล้วค่อยมากดในระบบ — ติดไว้ใน log ให้ย้อนดูได้ว่าใบนี้กดทีหลัง
   const backdated = !!finalPay.manual && finalPay.payDate < ictDate(at)
   // เก็บทั้งผลลัพธ์และตัวตั้ง (basis) — ย้อนตรวจได้เสมอว่าเลขนี้คิดจากอะไร
-  const pay = { ...finalPay, basis: { passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType) }, by, at }
+  // cutoffFrom: รอบตัด 25 นับจากวันไหน (sent = วันส่งบัญชี / passed = วันกดผ่าน) — apPayRecalc ใช้แยก
+  // ใบที่กดผ่านด้วยกติกา 28/10/2026 ออกจากใบเก่า · ใบที่ไม่เดินสายตัดรอบ (นอกรอบ/เครดิตสั้น) ไม่ใส่
+  const cutoffFrom = finalPay.cutoff ? longCreditCutoffBase(ictDate(at), creditTerm, sentDocDate).from : ""
+  const pay = {
+    ...finalPay,
+    basis: {
+      passedAt: at, passedDate: ictDate(at), creditTerm, requestedType: s(current?.sentType),
+      ...(cutoffFrom ? { cutoffFrom, sentDate: sentDocDate } : {}),
+    },
+    by, at,
+  }
   const manualNote = finalPay.manual
     ? ` · บัญชีเลือกวันจ่ายเอง${backdated ? " ย้อนหลัง" : ""} (ระบบคิด ${thaiDate(finalPay.systemPayDate ?? "")})`
     : ""
@@ -165,6 +177,7 @@ async function payOnPass(o: { client: Awaited<typeof clientPromise>; depositCode
     action: "กำหนดจ่ายเงิน", field: "pay",
     detail: (payType === "ตามรอบ" && finalPay.cutoff
       ? `ตามรอบ · ตัดรอบ ${thaiDate(finalPay.cutoff)} · จ่าย ${thaiDate(finalPay.payDate)}`
+        + (cutoffFrom === "sent" ? ` (นับจากวันส่งบัญชี ${thaiDate(sentDocDate)})` : "")
       : `${payType} · ${finalPay.manual ? "จ่าย" : "โอนพฤหัส"} ${thaiDate(finalPay.payDate)}`) + manualNote,
     by, byEmail, at,
   })
