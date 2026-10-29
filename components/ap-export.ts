@@ -1,7 +1,7 @@
 // คอลัมน์ Excel แบบแบนของใบ DD — ใช้ร่วมกันทุกปุ่ม export ของ /ap-tracking (รายเดือน · รายปี ·
 // รายเจ้าหนี้) ให้ไฟล์ทุกใบมีหัวคอลัมน์ชุดเดียวกัน เอาไป pivot ต่อได้โดยไม่ต้อง map ใหม่
 // วันที่ทุกช่องเป็นวันไทย (ictDate) — review.at เก็บเป็น UTC ถ้า slice ตรง ๆ จะเป็นเมื่อวานช่วงเช้า
-import { ictDate } from "@/lib/ap-tracking"
+import { ictDate, overdueDays } from "@/lib/ap-tracking"
 import type { ApRow } from "@/components/ap-types"
 
 export const apFlatRow = (r: ApRow) => ({
@@ -35,3 +35,49 @@ export const apFlatRow = (r: ApRow) => ({
 })
 
 export const AP_FLAT_WIDTHS = [14, 11, 16, 30, 13, 12, 10, 12, 13, 9, 10, 11, 11, 11, 22, 11, 11, 18, 18, 18, 18, 18, 14, 24].map((w) => ({ wch: w }))
+
+// แท็บ "รอประกบ" — ไฟล์ไว้ไล่ตามเอกสารจากเจ้าหนี้ (ผู้ใช้สั่ง 29/10/2026)
+// ใบในแท็บนี้ยังไม่เคยกดส่ง ช่องกดส่ง/ผ่าน/จ่าย/PV ของชุดรวมจะว่างทั้งไฟล์ จึงใช้ชุดคอลัมน์ของตัวเอง
+// อายุใบ = วันนับจากวันที่รับของถึงวันนี้ (เวลาไทย) · เกินกำหนด = ค่าเดียวกับที่ตารางใช้ (API คิดให้)
+export const apWaitRow = (r: ApRow, today: string) => ({
+  "เลขใบรับของ": r.depositCode,
+  "วันที่รับของ": r.receivedAt,
+  "อายุใบ (วัน)": overdueDays(r.receivedAt, today),
+  "คลัง": r.warehouse,
+  "ซัพพลายเออร์": r.supplier,
+  "PO": r.purchaseOrder,
+  "ทะเบียนรถ": r.vehicle ?? "",
+  "เบอร์รถ": r.fleetNo ?? "",
+  "รวมสุทธิ": r.netAmount,
+  "เครดิตเทอม": r.creditTerm,
+  "ครบกำหนด": r.dueDate,
+  "เกินกำหนด (วัน)": r.overdue,
+  "ไฟล์แนบ": r.fileCount,
+  "หมายเหตุ PR": r.prNote ?? "",
+  "หมายเหตุ": r.note,
+})
+
+export const AP_WAIT_WIDTHS = [14, 11, 9, 16, 30, 13, 12, 10, 12, 10, 11, 10, 8, 30, 24].map((w) => ({ wch: w }))
+
+// แท็บ "ไม่ผ่าน" — review.at ของใบตีกลับคือเวลาที่บัญชีตีกลับ ถ้าใช้ชุดรวมจะไปโผล่ใต้หัว "ผ่านเมื่อ"
+// จ่ายแล้วเมื่อ: ตีกลับชนะทุกขั้น (ดู apStage) ใบที่โอนไปแล้วแต่ถูกตีกลับทีหลังจึงอยู่แท็บนี้ด้วย
+export const apRejectedRow = (r: ApRow) => ({
+  "เลขใบรับของ": r.depositCode,
+  "วันที่รับของ": r.receivedAt,
+  "คลัง": r.warehouse,
+  "ซัพพลายเออร์": r.supplier,
+  "PO": r.purchaseOrder,
+  "ทะเบียนรถ": r.vehicle ?? "",
+  "เบอร์รถ": r.fleetNo ?? "",
+  "รวมสุทธิ": r.netAmount,
+  "เครดิตเทอม": r.creditTerm,
+  "กดส่งเมื่อ": r.sentMarkedDate ?? "",
+  "ส่งโดย": r.sentMarkedBy ?? "",
+  "ตีกลับเมื่อ": ictDate(r.review?.at ?? ""),
+  "ตีกลับโดย": r.review?.by ?? "",
+  "เหตุผลที่ไม่ผ่าน": r.review?.note ?? "",
+  "จ่ายแล้วเมื่อ": r.paid?.date ?? "",
+  "หมายเหตุ": r.note,
+})
+
+export const AP_REJECTED_WIDTHS = [14, 11, 16, 30, 13, 12, 10, 12, 10, 11, 22, 11, 22, 40, 11, 24].map((w) => ({ wch: w }))

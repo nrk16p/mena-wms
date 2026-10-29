@@ -14,7 +14,7 @@ import { ApTable } from "@/components/ap-table"
 import { ApSupplierTable } from "@/components/ap-supplier-table"
 import { ApSupplierYearPanel } from "@/components/ap-supplier-year"
 import { ApDdSummaryPanel } from "@/components/ap-dd-summary"
-import { AP_FLAT_WIDTHS, apFlatRow } from "@/components/ap-export"
+import { AP_FLAT_WIDTHS, AP_REJECTED_WIDTHS, AP_WAIT_WIDTHS, apFlatRow, apRejectedRow, apWaitRow } from "@/components/ap-export"
 import { ApTrackingDetail } from "@/components/ap-tracking-detail"
 import { ApFinanceRequestDialog } from "@/components/ap-finance-request"
 import { ApPaidRoundDialog } from "@/components/ap-paid-round-dialog"
@@ -333,6 +333,19 @@ export function ApTrackingPage() {
       const [y, m, dd] = today.split("-").map(Number)
       XLSX.utils.book_append_sheet(wb, ws, `${dd}.${m}.${(y + 543) % 100}`)
       XLSX.writeFile(wb, `ใบปะหน้าสกท_${today}${payTypeFilter ? `_${payTypeFilter}` : ""}.xlsx`)
+      return
+    }
+    // แท็บ "รอประกบ"/"ไม่ผ่าน" มีชุดคอลัมน์ของตัวเอง (ดูเหตุผลใน ap-export) — ผู้ใช้สั่ง 29/10/2026
+    if (tab === "wait" || tab === "rejected") {
+      const wait = tab === "wait"
+      const ws = XLSX.utils.json_to_sheet(wait ? shown.map((r) => apWaitRow(r, today)) : shown.map(apRejectedRow))
+      ws["!cols"] = wait ? AP_WAIT_WIDTHS : AP_REJECTED_WIDTHS
+      const wb = XLSX.utils.book_new()
+      const sheet = wait ? "รอประกบ" : "ไม่ผ่าน"
+      XLSX.utils.book_append_sheet(wb, ws, sheet)
+      // ตั้งช่วงวันที่กดส่งไว้ (แท็บไม่ผ่าน) = เซิร์ฟเวอร์ค้นข้ามทุกเดือน ชื่อไฟล์ต้องบอกช่วงนั้น ไม่ใช่เดือนที่เลือก
+      const period = crossMonth ? `กดส่ง_${sentFrom || "แรกสุด"}_ถึง_${sentTo || today}` : month
+      XLSX.writeFile(wb, `เจ้าหนี้${sheet}_${period}.xlsx`)
       return
     }
     const ws = XLSX.utils.json_to_sheet(shown.map(apFlatRow))

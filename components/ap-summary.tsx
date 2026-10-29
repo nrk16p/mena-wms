@@ -267,6 +267,17 @@ export function ApHeader({
             : `เดือนนี้ ${totalShown.toLocaleString("th-TH")} ใบ`}
         </span>
         )}
+        {/* แท็บรอประกบ/ไม่ผ่าน ไม่มีแถบตัวกรองย่อยที่ปุ่ม Excel ของแท็บอื่นอาศัยอยู่ — วางข้างตัวนับใบแทน
+            ออกตามแถวที่กรองอยู่บนจอ (คลัง/คำค้น/ช่วงวันที่กดส่ง) ชุดคอลัมน์ดูที่ ap-export */}
+        {(tab === "wait" || tab === "rejected") && (
+          <button onClick={onExport} disabled={loading || totalShown === 0}
+            title={tab === "wait"
+              ? "ส่งออกใบรอประกบที่กรองอยู่ — อายุใบ ครบกำหนด เกินกำหนด ไว้ไล่ตามเอกสาร"
+              : "ส่งออกใบไม่ผ่านที่กรองอยู่ — พร้อมเหตุผลที่บัญชีตีกลับ"}
+            className="flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/10">
+            <FileDown className="h-3.5 w-3.5" />Excel
+          </button>
+        )}
         </div>
       </div>
 
