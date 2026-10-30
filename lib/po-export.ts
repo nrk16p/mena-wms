@@ -172,7 +172,16 @@ function rowHay(r: PoRow): string {
   }
   return h
 }
-const itemHay = (it: PoItem) => squash([it.sku, it.name, it.group, it.note].join("|"))
+// ข้อความค้นของรายการสินค้า — เก็บไว้ต่อชิ้น รายการสินค้ามาทีละก้อนแล้วสร้าง lines ใหม่ จะได้ไม่คำนวณซ้ำทั้งหมด
+const itemHayCache = new WeakMap<PoItem, string>()
+function itemHay(it: PoItem): string {
+  let h = itemHayCache.get(it)
+  if (h === undefined) {
+    h = squash([it.sku, it.name, it.group, it.note].join("|"))
+    itemHayCache.set(it, h)
+  }
+  return h
+}
 
 /** ตัวกรองหน้า /po — ใช้ทั้งแท็บรายการสินค้าและแท็บใบสั่งซื้อ */
 export type PoFilter = { q?: string; statuses?: PoStatusKey[]; suppliers?: string[]; skus?: string[] }

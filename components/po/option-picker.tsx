@@ -25,6 +25,8 @@ export function PoOptionPicker({
   const listRef = useRef<HTMLUListElement>(null)
 
   const matches = useMemo(() => poMatchOptions(options, query, selected), [options, query, selected])
+  // รายชื่อเปลี่ยนได้เองระหว่างที่รายการสินค้ายังโหลดไม่ครบ — บีบตำแหน่งไฮไลต์ให้อยู่ในรายการเสมอ
+  const act = matches.length ? Math.min(Math.max(active, 0), matches.length - 1) : -1
   const subOf = useMemo(() => new Map(options.map((o) => [o.value, o.sub])), [options])
 
   useEffect(() => {
@@ -47,14 +49,15 @@ export function PoOptionPicker({
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault()
       if (!open) { setOpen(true); return }
-      const next = e.key === "ArrowDown" ? Math.min(active + 1, matches.length - 1) : Math.max(active - 1, 0)
+      if (!matches.length) return
+      const next = e.key === "ArrowDown" ? Math.min(act + 1, matches.length - 1) : Math.max(act - 1, 0)
       setActive(next)
       listRef.current?.children[next]?.scrollIntoView({ block: "nearest" })
       return
     }
     if (e.key === "Enter") {
       e.preventDefault()
-      if (open && matches[active]) pick(matches[active].value)
+      if (open && act >= 0) pick(matches[act].value)
       return
     }
     if (e.key === "Backspace" && !query && selected.length) remove(selected[selected.length - 1])
@@ -67,7 +70,7 @@ export function PoOptionPicker({
     <div ref={boxRef} className="relative min-w-0">
       <label htmlFor={`${id}-in`} className="mb-1 block text-[11px] font-medium text-[#6B7C72] dark:text-gray-400">{label}</label>
       <div
-        onClick={() => inputRef.current?.focus()}
+        onClick={() => { inputRef.current?.focus(); setOpen(true) }}
         className={`flex min-h-[40px] flex-wrap items-center gap-1 rounded-[10px] border bg-white px-2 py-1 dark:bg-[#151a10] ${open ? "border-[#1B8C4B]" : "border-[#EEF2F0] dark:border-white/10"}`}
       >
         {selected.map((v) => (
@@ -86,13 +89,14 @@ export function PoOptionPicker({
           value={query}
           onChange={(e) => { setQuery(e.target.value); setActive(0); setOpen(true) }}
           onFocus={() => setOpen(true)}
+          onBlur={(e) => { if (!boxRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false) }}
           onKeyDown={onKey}
           placeholder={selected.length ? "เพิ่มอีก…" : placeholder}
           role="combobox"
           aria-expanded={showList}
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={showList && matches[active] ? `${id}-opt-${active}` : undefined}
+          aria-activedescendant={showList && act >= 0 ? `${id}-opt-${act}` : undefined}
           autoComplete="off"
           className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-[13px] text-[#14271C] outline-none placeholder:text-[#9AA8A0] dark:text-white"
         />
@@ -105,9 +109,9 @@ export function PoOptionPicker({
           )}
           <ul ref={listRef} id={listId} role="listbox" aria-label={label} className="max-h-72 overflow-y-auto py-1">
             {matches.map((o, i) => (
-              <li key={o.value} id={`${id}-opt-${i}`} role="option" aria-selected={i === active}
+              <li key={o.value} id={`${id}-opt-${i}`} role="option" aria-selected={i === act}
                 onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); pick(o.value) }}
-                className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] ${i === active ? "bg-[#EAF6EE] dark:bg-[#1B8C4B]/15" : ""}`}>
+                className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] ${i === act ? "bg-[#EAF6EE] dark:bg-[#1B8C4B]/15" : ""}`}>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[#14271C] dark:text-gray-100">{o.label}</span>
                   {o.sub && <span className="block truncate text-[11px] text-[#6B7C72] dark:text-gray-400">{o.sub}</span>}

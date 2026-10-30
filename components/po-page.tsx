@@ -260,7 +260,8 @@ export function PoPage() {
     const id = ++reqId.current
     const bad = poRangeError(f, t)
     setOpen(null); setLimit(PAGE)
-    setItems(new Map()); setDetailIds(new Map()); setFetched(new Set()); setItemsError("")
+    // ล้างหัวใบชุดเก่าด้วย ไม่งั้นระหว่างรอช่วงใหม่ แท็บรายการสินค้าจะขึ้นว่า "ยังไม่มีรายการ" ทั้งที่กำลังโหลด
+    setRows([]); setItems(new Map()); setDetailIds(new Map()); setFetched(new Set()); setItemsError("")
     if (bad) { setError(bad); setRows([]); setTotal(0); setLoading(false); return }
     setLoading(true); setError(""); setLoaded(0)
     const all: PoRow[] = []
