@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   atmsDateISO, poRangeError, poMonthRegex, poStatusKey, poRowOf, filterPoRows,
   poSheetRows, poItemOf, poItemSheetRows, poExportFileName, poParseCodes, PO_MAX_DAYS, PO_ITEMS_CHUNK,
+  poLines, filterPoLines, poSupplierOptions, poSkuOptions, poMatchOptions, poExportSheets,
 } from "../lib/po-export"
 
 // ── วันที่จาก ATMS ─────────────────────────────────────────────
@@ -124,5 +125,66 @@ assert.equal(poExportFileName("2026-10-01", "2026-10-30", "due"), "PO_กำห�
 assert.deepEqual(poParseCodes(" LBPO1, LBPO2,,LBPO1 ,"), ["LBPO1", "LBPO2"])
 assert.deepEqual(poParseCodes(null), [])
 assert.equal(poParseCodes(Array.from({ length: PO_ITEMS_CHUNK + 5 }, (_, i) => `P${i}`).join(",")), null) // เกิน = ปฏิเสธ
+
+// ── แท็บรายการสินค้า: หนึ่งแถวต่อบรรทัดสินค้า ─────────────────────
+const it2 = poItemOf({ po_code: "LBPO26100012", seq: 2, group: "ค่าแรง", sku: "LB-BRK01", name: "ค่าแรงเปลี่ยนผ้าเบรก",
+  amount: 1, unit_price: 500, total: 500 })
+const r3 = poRowOf({ "รหัส": "KKPO26100003", "วันที่": "05/10/2026", "ซัพพลายเออร์": "หจก. สมชัย การช่าง",
+  "สถานะการรับสินค้า": "ยังไม่ได้รับสินค้า" }, {})
+const it3 = poItemOf({ po_code: "KKPO26100003", seq: 1, group: "เบรก", sku: "BR-HN500-R", name: "ผ้าเบรกหลัง HINO 500",
+  amount: 4, unit_price: 3700, total: 14800 })
+const all3 = [row, r2, r3]
+const itemMap = new Map([["LBPO26100012", [it, it2]], ["KKPO26100003", [it3]]])
+const lines = poLines(all3, itemMap)
+assert.deepEqual(lines.map((l) => [l.row.code, l.item.sku]),
+  [["LBPO26100012", "BR-HN500-R"], ["LBPO26100012", "LB-BRK01"], ["KKPO26100003", "BR-HN500-R"]]) // ตามลำดับใบ
+assert.equal(new Set(lines.map((l) => l.key)).size, 3)
+
+// กรองรหัสสินค้า (หลายตัวได้) — แท็บใบสั่งซื้อเหลือเฉพาะใบที่มีสินค้านั้น
+assert.deepEqual(filterPoLines(lines, { skus: ["BR-HN500-R"] }).map((l) => l.row.code), ["LBPO26100012", "KKPO26100003"])
+assert.deepEqual(filterPoLines(lines, { skus: ["BR-HN500-R", "LB-BRK01"] }).length, 3)
+assert.deepEqual(filterPoRows(all3, { skus: ["LB-BRK01"] }, itemMap).map((r) => r.code), ["LBPO26100012"])
+assert.deepEqual(filterPoRows(all3, { skus: ["BR-HN500-R"] }).map((r) => r.code), [])  // ยังไม่มีรายการ = ไม่ตรง
+assert.deepEqual(filterPoRows(all3, { skus: [] }, itemMap).length, 3)
+
+// กรองซัพพลายเออร์ (ชื่อตรงตัว)
+assert.deepEqual(filterPoRows(all3, { suppliers: ["หจก. สมชัย การช่าง"] }).map((r) => r.code), ["LBPO26100012", "KKPO26100003"])
+assert.deepEqual(filterPoLines(lines, { suppliers: ["บจก. ยางดี"] }), [])
+assert.deepEqual(filterPoLines(lines, { suppliers: ["หจก. สมชัย"] }), [])                      // ไม่ใช่ค้นบางส่วน
+assert.deepEqual(filterPoLines(lines, { skus: ["BR-HN500-R"], statuses: ["none"] }).map((l) => l.row.code), ["KKPO26100003"])
+
+// ช่องค้นหาเดิมหาในชื่อ/รหัสสินค้าด้วย
+assert.deepEqual(filterPoLines(lines, { q: "ค่าแรง" }).map((l) => l.item.sku), ["LB-BRK01"])
+assert.deepEqual(filterPoRows(all3, { q: "ค่าแรง" }, itemMap).map((r) => r.code), ["LBPO26100012"])
+assert.deepEqual(filterPoRows(all3, { q: "ค่าแรง" }).map((r) => r.code), [])
+assert.equal(filterPoLines(lines, { q: "me042" }).length, 2)        // ตรงที่หัวใบ = ทุกบรรทัดของใบนั้น
+// คำค้น + รหัสสินค้า ต้องตรงบรรทัดเดียวกัน แท็บใบสั่งซื้อกับแท็บรายการสินค้าจะได้ตรงกัน
+assert.deepEqual(filterPoRows(all3, { q: "ค่าแรง", skus: ["BR-HN500-R"] }, itemMap).map((r) => r.code), [])
+assert.deepEqual(filterPoLines(lines, { q: "ค่าแรง", skus: ["BR-HN500-R"] }), [])
+
+// ── รายชื่อให้เลือก (autocomplete) ─────────────────────────────
+const sup = poSupplierOptions([...all3, poRowOf({ "รหัส": "X1", "ซัพพลายเออร์": "" }, {})])
+assert.deepEqual(sup.map((o) => [o.value, o.count]), [["หจก. สมชัย การช่าง", 2], ["บจก. ยางดี", 1]]) // ชื่อว่างไม่ขึ้น
+const skuOpts = poSkuOptions([...lines, ...poLines([r2], new Map([["KKPO26100002", [poItemOf({ po_code: "KKPO26100002", name: "ไม่มีรหัส" })]]]))])
+assert.deepEqual(skuOpts.map((o) => [o.value, o.count]), [["BR-HN500-R", 2], ["LB-BRK01", 1]])       // รหัสว่างไม่ขึ้น
+assert.equal(skuOpts[0].sub, "ผ้าเบรกหลัง HINO 500")
+// ค้นได้ทั้งรหัสและชื่อ · ขึ้นต้นตรงมาก่อน · ไม่สนขีด/ตัวพิมพ์ · หลายคำสลับลำดับได้
+assert.deepEqual(poMatchOptions(skuOpts, "ผ้าเบรก").map((o) => o.value), ["BR-HN500-R", "LB-BRK01"])
+assert.deepEqual(poMatchOptions(skuOpts, "brhn").map((o) => o.value), ["BR-HN500-R"])
+assert.deepEqual(poMatchOptions(skuOpts, "hino ผ้า").map((o) => o.value), ["BR-HN500-R"])
+assert.deepEqual(poMatchOptions(skuOpts, "ไม่มีแน่นอน"), [])
+assert.deepEqual(poMatchOptions(skuOpts, "", ["BR-HN500-R"]).map((o) => o.value), ["LB-BRK01"])     // ตัวที่เลือกแล้วไม่ขึ้นซ้ำ
+assert.deepEqual(poMatchOptions(sup, "สมชัย").map((o) => o.value), ["หจก. สมชัย การช่าง"])
+assert.equal(poMatchOptions(Array.from({ length: 30 }, (_, i) => ({ value: `S${i}`, label: `S${i}`, sub: "", count: 1 })), "s").length, 8)
+
+// ── Excel ตามที่กรอง ─────────────────────────────────────────
+const shSku = poExportSheets(all3, itemMap, { skus: ["BR-HN500-R"] })
+assert.deepEqual(shSku.po.map((r) => r["เลขที่ PO"]), ["LBPO26100012", "KKPO26100003"])
+assert.deepEqual(shSku.items.map((r) => [r["เลขที่ PO"], r["รหัสสินค้า"]]), [["LBPO26100012", "BR-HN500-R"], ["KKPO26100003", "BR-HN500-R"]])
+assert.equal(shSku.po[0]["จำนวนรายการ"], 2)                       // จำนวนรายการทั้งใบ ไม่ใช่เฉพาะที่กรอง
+const shAll = poExportSheets(all3, itemMap, {})
+assert.equal(shAll.po.length, 3)
+assert.deepEqual(shAll.items.map((r) => r["ชื่อสินค้า"]),
+  ["ผ้าเบรกหลัง HINO 500", "ค่าแรงเปลี่ยนผ้าเบรก", "ยังไม่มีรายการในระบบ", "ผ้าเบรกหลัง HINO 500"])
 
 console.log("check-po-export: ok")

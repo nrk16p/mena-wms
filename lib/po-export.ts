@@ -161,17 +161,108 @@ export function poRowOf(po: Doc, ctx: { pr?: Doc | null; dd?: { code: string; da
 
 const squash = (t: string) => t.toLowerCase().replace(/[\s\-]+/g, "")
 
-/** ค้น (เลข PO/PR/DD, ซัพพลายเออร์, ทะเบียน, เบอร์รถ, หมายเหตุ PR …) + กรองสถานะ */
-export function filterPoRows(rows: PoRow[], f: { q?: string; statuses?: PoStatusKey[] }): PoRow[] {
-  const q = squash(f.q ?? "")
-  const st = new Set(f.statuses ?? [])
+// ข้อความค้นของหัวใบ — คำนวณครั้งเดียวต่อแถว (พิมพ์ค้นทุกตัวอักษรไม่ต้อง join ใหม่)
+const rowHayCache = new WeakMap<PoRow, string>()
+function rowHay(r: PoRow): string {
+  let h = rowHayCache.get(r)
+  if (h === undefined) {
+    h = squash([r.code, r.pr, r.supplier, r.vehicle, r.fleetNo, r.prNote, r.requester, r.user,
+      r.warehouse, r.dept, ...r.dd.map((d) => d.code)].join("|"))
+    rowHayCache.set(r, h)
+  }
+  return h
+}
+const itemHay = (it: PoItem) => squash([it.sku, it.name, it.group, it.note].join("|"))
+
+/** ตัวกรองหน้า /po — ใช้ทั้งแท็บรายการสินค้าและแท็บใบสั่งซื้อ */
+export type PoFilter = { q?: string; statuses?: PoStatusKey[]; suppliers?: string[]; skus?: string[] }
+
+type Prepared = { q: string; st: Set<PoStatusKey>; sup: Set<string>; sku: Set<string> }
+const prep = (f: PoFilter): Prepared => ({
+  q: squash(f.q ?? ""), st: new Set(f.statuses ?? []), sup: new Set(f.suppliers ?? []), sku: new Set(f.skus ?? []),
+})
+const headOk = (r: PoRow, p: Prepared) => (!p.st.size || p.st.has(r.statusKey)) && (!p.sup.size || p.sup.has(r.supplier))
+const lineOk = (r: PoRow, it: PoItem, hay: string | null, p: Prepared) =>
+  headOk(r, p) && (!p.sku.size || p.sku.has(it.sku)) && (!p.q || rowHay(r).includes(p.q) || (hay ?? itemHay(it)).includes(p.q))
+
+/**
+ * กรองใบสั่งซื้อ: สถานะ · ซัพพลายเออร์ · รหัสสินค้า · คำค้น (เลข PO/PR/DD, ซัพ, ทะเบียน, เบอร์รถ, หมายเหตุ PR, ชื่อ/รหัสสินค้า)
+ * เงื่อนไขที่ต้องดูรายการสินค้า ใบนั้นต้องมีอย่างน้อยหนึ่งบรรทัดที่ตรง — ตรงกับแท็บรายการสินค้าเสมอ
+ */
+export function filterPoRows(rows: PoRow[], f: PoFilter, items?: Map<string, PoItem[]>): PoRow[] {
+  const p = prep(f)
   return rows.filter((r) => {
-    if (st.size && !st.has(r.statusKey)) return false
-    if (!q) return true
-    const hay = [r.code, r.pr, r.supplier, r.vehicle, r.fleetNo, r.prNote, r.requester, r.user,
-      r.warehouse, r.dept, ...r.dd.map((d) => d.code)].join("|")
-    return squash(hay).includes(q)
+    if (!headOk(r, p)) return false
+    if (!p.sku.size && (!p.q || rowHay(r).includes(p.q))) return true
+    return (items?.get(r.code) ?? []).some((it) => lineOk(r, it, null, p))
   })
+}
+
+/** หนึ่งบรรทัดสินค้าในใบ (แท็บรายการสินค้า) */
+export type PoLine = { key: string; row: PoRow; item: PoItem; hay: string }
+
+/** บรรทัดสินค้าทั้งหมดของใบที่ให้มา เรียงตามลำดับใบ · ใบที่ยังไม่มีรายการไม่ขึ้น */
+export function poLines(rows: PoRow[], items: Map<string, PoItem[]>): PoLine[] {
+  const out: PoLine[] = []
+  for (const r of rows) {
+    const list = items.get(r.code)
+    if (!list) continue
+    list.forEach((it, i) => out.push({ key: `${r.code}#${i}`, row: r, item: it, hay: itemHay(it) }))
+  }
+  return out
+}
+
+export function filterPoLines(lines: PoLine[], f: PoFilter): PoLine[] {
+  const p = prep(f)
+  return lines.filter((l) => lineOk(l.row, l.item, l.hay, p))
+}
+
+// ── รายชื่อให้เลือก (autocomplete) ───────────────────────────────────
+export type PoOption = { value: string; label: string; sub: string; count: number }
+
+const byCount = (a: PoOption, b: PoOption) => b.count - a.count || a.label.localeCompare(b.label, "th")
+
+/** ซัพพลายเออร์ที่มีในข้อมูลชุดนี้ · count = จำนวนใบ */
+export function poSupplierOptions(rows: PoRow[]): PoOption[] {
+  const n = new Map<string, number>()
+  for (const r of rows) if (r.supplier) n.set(r.supplier, (n.get(r.supplier) ?? 0) + 1)
+  return [...n].map(([v, c]) => ({ value: v, label: v, sub: "", count: c })).sort(byCount)
+}
+
+/** รหัสสินค้าที่มีในข้อมูลชุดนี้ · sub = ชื่อที่ใช้บ่อยสุด · count = จำนวนบรรทัด */
+export function poSkuOptions(lines: PoLine[]): PoOption[] {
+  const by = new Map<string, { count: number; names: Map<string, number> }>()
+  for (const { item } of lines) {
+    if (!item.sku) continue
+    let e = by.get(item.sku)
+    if (!e) { e = { count: 0, names: new Map() }; by.set(item.sku, e) }
+    e.count++
+    if (item.name) e.names.set(item.name, (e.names.get(item.name) ?? 0) + 1)
+  }
+  return [...by].map(([sku, e]) => ({
+    value: sku, label: sku, count: e.count,
+    sub: [...e.names].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "",
+  })).sort(byCount)
+}
+
+/**
+ * คัดรายชื่อตามที่พิมพ์: ทุกคำต้องเจอ (สลับลำดับได้ ไม่สนขีด/ตัวพิมพ์) · คำที่ขึ้นต้นตรงมาก่อน แล้วเรียงตามจำนวน
+ * ยังไม่พิมพ์ = ตัวที่ใช้บ่อยสุด · ตัวที่เลือกแล้วไม่ขึ้นซ้ำ
+ */
+export function poMatchOptions(opts: PoOption[], query: string, exclude: string[] = [], limit = 8): PoOption[] {
+  const skip = new Set(exclude)
+  const toks = query.toLowerCase().split(/\s+/).map(squash).filter(Boolean)
+  const scored: { o: PoOption; rank: number }[] = []
+  for (const o of opts) {
+    if (skip.has(o.value)) continue
+    if (!toks.length) { scored.push({ o, rank: 0 }); continue }
+    const text = `${o.value} ${o.label} ${o.sub}`.toLowerCase()
+    const hay = squash(text)
+    if (!toks.every((t) => hay.includes(t))) continue
+    const prefix = squash(o.value).startsWith(toks.join("")) || text.split(/\s+/).some((w) => squash(w).startsWith(toks[0]))
+    scored.push({ o, rank: prefix ? 0 : 1 })
+  }
+  return scored.sort((a, b) => a.rank - b.rank || byCount(a.o, b.o)).slice(0, limit).map((x) => x.o)
 }
 
 // ── Excel ──────────────────────────────────────────────────────────────
@@ -272,6 +363,22 @@ export function poItemSheetRows(rows: PoRow[], items: Map<string, PoItem[]>): Re
     }
   }
   return out
+}
+
+/**
+ * ข้อมูล 2 ชีตตามตัวกรอง: ชีตหัวใบ = ใบที่ตรง · ชีตรายการ = เฉพาะบรรทัดที่ตรง (ใบที่ยังไม่มีรายการขึ้นหนึ่งแถวบอกไว้)
+ * "จำนวนรายการ" ในชีตหัวใบนับทั้งใบ ไม่ใช่เฉพาะที่กรอง
+ */
+export function poExportSheets(rows: PoRow[], items: Map<string, PoItem[]>, f: PoFilter) {
+  const shown = filterPoRows(rows, f, items)
+  const matched = new Map<string, PoItem[]>()
+  for (const l of filterPoLines(poLines(shown, items), f)) {
+    const list = matched.get(l.row.code)
+    if (list) list.push(l.item)
+    else matched.set(l.row.code, [l.item])
+  }
+  const counts = new Map([...items].map(([code, list]) => [code, list.length]))
+  return { po: poSheetRows(shown, counts), items: poItemSheetRows(shown, matched) }
 }
 
 export function poExportFileName(from: string, to: string, field: PoDateField): string {
