@@ -19,7 +19,7 @@ import {
   Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
   Landmark, Layers, LayoutDashboard, MapPin, PackageSearch, PackageX,
-  PlusCircle, Scale, ShieldCheck, Shuffle, TableProperties, Truck, Users, Wrench,
+  PlusCircle, Scale, ShieldCheck, ShoppingCart, Shuffle, TableProperties, Truck, Users, Wrench,
 } from "lucide-react"
 
 export type NavItem = {
@@ -140,6 +140,8 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "PR อนุมัติแล้ว รอเปิด PO / รอรับของ" },
       { href: "/order-tracking", label: "ติดตามคำขอเปิด PO", icon: ClipboardList, exact: true,
         desc: "แจ้งขอซื้อ · จัดซื้อรับเรื่อง · ปิดจบอัตโนมัติ" },
+      { href: "/po", label: "ใบสั่งซื้อ (PO) · Excel", icon: ShoppingCart, exact: true,
+        desc: "กรองตามวันที่ ดาวน์โหลดหัวใบ + รายการสินค้า" },
       { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen,
         desc: "วิธีอ่านสถานะและตัวกรอง" },
       { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen,

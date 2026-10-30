@@ -144,7 +144,7 @@ export function accessFor(p: { department?: string | null; departmentId?: number
 // ── ทางเดิน → ส่วนงาน (ตรงกับเมนูใน lib/nav.ts — scripts/check-access-policy.ts ตรวจให้) ──────
 const PAGE_PREFIXES: [string, Section | "admin"][] = [
   ["/sku", "sku"], ["/codes", "sku"], ["/vehicles", "sku"], ["/atms-new-sku-report", "sku"],
-  ["/pr", "pr"], ["/order-tracking", "pr"],
+  ["/pr", "pr"], ["/order-tracking", "pr"], ["/po", "pr"],
   ["/ap-tracking", "ap"],
   ["/price-compare", "price-compare"],
   ["/vendors", "vendor"], ["/rfq", "vendor"],
@@ -160,7 +160,7 @@ const PAGE_PREFIXES: [string, Section | "admin"][] = [
 const API_PREFIXES: [string, Section | "admin"][] = [
   ["/api/sku", "sku"], ["/api/sku-convert", "sku"], ["/api/codes", "sku"], ["/api/vehicles", "sku"],
   ["/api/atms-sku-report", "sku"],
-  ["/api/pr", "pr"], ["/api/order-tracking", "pr"],
+  ["/api/pr", "pr"], ["/api/order-tracking", "pr"], ["/api/po", "pr"],
   ["/api/ap-tracking", "ap"], ["/api/ap-suppliers", "ap"], ["/api/ap-doc-templates", "ap"],
   ["/api/price-compare", "price-compare"],
   ["/api/vendors", "vendor"], ["/api/rfq", "vendor"],
