@@ -83,7 +83,7 @@ function Detail({ r, state }: { r: PoRow; state: ItemState | undefined }) {
       ) : state === "error" ? (
         <p className="text-[12px] text-[#DC2626]">โหลดรายการสินค้าไม่สำเร็จ กดที่แถวอีกครั้งเพื่อลองใหม่</p>
       ) : state.items.length === 0 ? (
-        <p className="text-[12px] text-[#6B7C72]">ยังไม่มีรายการสินค้าของใบนี้ในระบบ (ระบบดึงจาก ATMS ทุกคืน)</p>
+        <p className="text-[12px] text-[#6B7C72]">ยังไม่มีรายการสินค้าของใบนี้ในระบบ จะขึ้นหลังดึงข้อมูลจาก ATMS รอบถัดไป</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-[#EEF2F0] dark:border-white/10">
           <table className="w-full min-w-[640px] border-collapse text-[12px]">
@@ -386,7 +386,7 @@ export function PoPage() {
         </div>
       )}
       <p className="mt-3 text-[11px] text-[#9AA8A0]">
-        ข้อมูลจาก ATMS อัปเดตทุกคืน · ยอดรวมด้านบนไม่นับใบที่ยกเลิก · Excel ได้ตามที่กรองอยู่ ชีตแรกเป็นหัวใบ ชีตที่สองเป็นรายการสินค้า
+        ข้อมูลจาก ATMS อัปเดตวันละ 5 รอบ (06:00 10:00 14:00 18:00 22:00) · ยอดรวมด้านบนไม่นับใบที่ยกเลิก · Excel ได้ตามที่กรองอยู่ ชีตแรกเป็นหัวใบ ชีตที่สองเป็นรายการสินค้า
       </p>
     </div>
   )
