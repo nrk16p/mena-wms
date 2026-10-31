@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>เบิกอะไหล่ออนไลน์ + คิวสโตร์</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* layout: เอกสาร BA คอลัมน์เดียว กว้างอ่านง่าย · ภาพ flow + จอคิวตัวอย่างเป็นตัวเล่าเรื่องหลัก */
+  --bg:#F4F6F5; --paper:#FFFFFF; --ink:#1B2421; --muted:#5B6863; --line:#D7DDDA;
+  --accent:#0F6E66; --accent-soft:#E2F1EF; --ticket:#FFF4CC; --ticket-line:#E8D27A;
+  --warn:#B45309; --bad:#B42318; --good:#15803D; --ret:#EDE7FB; --ret-line:#B9A6EE;
+  --display:"IBM Plex Sans Thai","Noto Sans Thai",system-ui,sans-serif;
+  --body:"IBM Plex Sans Thai","Noto Sans Thai",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121816; --paper:#1A2220; --ink:#E6ECE9; --muted:#9AA8A2; --line:#2F3A37;
+  --accent:#4FC1B4; --accent-soft:#16312E; --ticket:#3A3418; --ticket-line:#6B5E22;
+  --warn:#F59E0B; --bad:#F87171; --good:#4ADE80; --ret:#2A2340; --ret-line:#5B4A99; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#121816; --paper:#1A2220; --ink:#E6ECE9; --muted:#9AA8A2; --line:#2F3A37;
+  --accent:#4FC1B4; --accent-soft:#16312E; --ticket:#3A3418; --ticket-line:#6B5E22;
+  --warn:#F59E0B; --bad:#F87171; --good:#4ADE80; --ret:#2A2340; --ret-line:#5B4A99; color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.7}
+main{max-width:980px;margin:0 auto;padding:32px 20px 64px;display:grid;gap:28px}
+header{display:grid;gap:6px}
+.eyebrow{font-size:13px;color:var(--muted);letter-spacing:.02em}
+h1{font-family:var(--display);font-size:32px;line-height:1.25;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-size:22px;margin:0 0 8px;text-wrap:balance}
+h3{font-size:17px;margin:14px 0 6px}
+p{margin:0 0 10px;max-width:68ch}
+section{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:22px 22px 18px}
+.lead{font-size:17px}
+code,.mono{font-family:var(--mono);font-size:13.5px}
+code{background:var(--accent-soft);padding:1px 5px;border-radius:4px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;vertical-align:top;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{font-weight:600;color:var(--muted);font-size:13px}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.p-user{color:var(--accent)} .p-mine{color:var(--warn)} .p-open{color:var(--bad)}
+figure{margin:0;display:grid;gap:8px}
+figcaption{font-size:14px;color:var(--muted)}
+.diagram{overflow-x:auto}
+.diagram svg{width:100%;min-width:760px;height:auto;color:var(--ink)}
+/* จอคิวตัวอย่าง */
+.board{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px;overflow-x:auto}
+.col{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;display:grid;gap:8px;align-content:start}
+.col h4{margin:0;font-size:14px;display:flex;justify-content:space-between}
+.card{background:var(--ticket);border:1px solid var(--ticket-line);border-radius:6px;padding:8px 10px;font-size:13.5px;line-height:1.5;display:grid;gap:2px}
+.card.ret{background:var(--ret);border-color:var(--ret-line)}
+.card.urgent{border-left:5px solid var(--bad)}
+.card .top{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px}
+.late{color:var(--bad);font-weight:600}
+.btn{justify-self:start;margin-top:4px;font:inherit;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:5px;border:1px solid var(--accent);background:var(--paper);color:var(--accent)}
+.done{color:var(--good);font-weight:600}
+ol.plan{margin:0;padding-left:22px;display:grid;gap:12px}
+ol.plan li{padding-left:4px}
+ol.plan b{font-family:var(--display)}
+.small{font-size:14px;color:var(--muted)}
+ul{margin:0 0 10px;padding-left:22px}
+ul li{margin:2px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:640px){.grid2{grid-template-columns:1fr} h1{font-size:26px} section{padding:16px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="eyebrow">BA · mena-wms × ATMS · ร่าง 31/10/2026</div>
+  <h1>เบิกอะไหล่ออนไลน์ และจอคิวงานสโตร์</h1>
+  <p class="lead">ยานยนต์ยื่นใบเบิกในเว็บแทนกระดาษ ใบเบิกไปเข้าคิวที่จอสโตร์เหมือนออเดอร์ในครัว พอสโตร์กดส่งของ ระบบจะสร้างใบเบิก (WD) ใน ATMS ให้เองด้วยบัญชีของสโตร์คนนั้น สโตร์ไม่ต้องไปคีย์ซ้ำอีกรอบ ส่วนของที่คืนก็ทำผ่านทางเดียวกัน</p>
+  <p class="small"><span class="pill p-user">ผู้ใช้ตัดสินแล้ว</span> &nbsp;<span class="pill p-mine">ผู้ออกแบบเลือกให้ แก้ได้</span> &nbsp;<span class="pill p-open">ยังต้องถาม</span></p>
+</header>
+
+<section>
+  <h2>ตอนนี้กับหลังทำ</h2>
+  <div class="grid2">
+    <div>
+      <h3>ตอนนี้</h3>
+      <p>ยานยนต์เขียนใบเบิกด้วยมือแล้วเดินไปยื่นสโตร์ สโตร์จัดของ แล้วค่อยไปคีย์ WD ใน ATMS เอง ระหว่างทางไม่มีใครเห็นว่าใบไหนรออยู่ ใบไหนจัดเสร็จแล้ว ของที่คืนก็ต้องตามกันเอง</p>
+    </div>
+    <div>
+      <h3>หลังทำ</h3>
+      <p>ทุกใบมีเลขและสถานะในเว็บ สโตร์เห็นคิวเรียงให้อยู่บนจอเดียว ยานยนต์ก็เห็นสถานะใบของตัวเอง เหมือนดูว่าอาหารใกล้ได้หรือยัง เลข WD ใน ATMS ผูกกับคำขอให้ตั้งแต่ตอนส่งของ</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Flow ทั้งหมด</h2>
+  <figure class="diagram">
+    <svg viewBox="0 0 1080 350" role="img" aria-label="Flow เบิกอะไหล่: ยานยนต์ยื่นคำขอ สโตร์รับงาน จัดของ ส่งของ ATMS สร้าง WD และอนุมัติ ยานยนต์กดรับแล้ว ถ้ามีของคืน ยานยนต์ขอคืน สโตร์รับคืน ATMS สร้างใบรับคืนอ้าง WD">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-opacity=".18">
+        <rect x="0.5" y="12" width="1079" height="100" rx="6"/>
+        <rect x="0.5" y="124" width="1079" height="100" rx="6"/>
+        <rect x="0.5" y="236" width="1079" height="100" rx="6"/>
+      </g>
+      <g font-family="IBM Plex Sans Thai, sans-serif" font-size="13" font-weight="600" fill="currentColor">
+        <text x="14" y="66">ยานยนต์</text><text x="14" y="82" font-weight="400" font-size="11" opacity=".7">login WMS</text>
+        <text x="14" y="178">สโตร์</text><text x="14" y="194" font-weight="400" font-size="11" opacity=".7">WMS + บัญชี ATMS</text>
+        <text x="14" y="290">ATMS</text><text x="14" y="306" font-weight="400" font-size="11" opacity=".7">ผ่าน api-ncac</text>
+      </g>
+      <g font-family="IBM Plex Sans Thai, sans-serif" font-size="12.5" fill="currentColor" text-anchor="middle">
+        <rect x="110" y="40" width="140" height="48" rx="6" fill="none" stroke="currentColor"/>
+        <text x="180" y="60">ยื่นคำขอเบิก</text><text x="180" y="77" font-size="11" opacity=".75">MR · SKU · จำนวน</text>
+
+        <rect x="270" y="152" width="120" height="48" rx="6" fill="none" stroke="currentColor"/>
+        <text x="330" y="172">รับงาน</text><text x="330" y="189" font-size="11" opacity=".75">ชื่อสโตร์ติดใบ</text>
+
+        <rect x="420" y="152" width="130" height="48" rx="6" fill="none" stroke="currentColor"/>
+        <text x="485" y="172">จัดของ</text><text x="485" y="189" font-size="11" opacity=".75">แก้จำนวนจริง · ของขาด</text>
+
+        <rect x="580" y="152" width="130" height="48" rx="6" fill="none" stroke="#0F6E66" stroke-width="2"/>
+        <text x="645" y="172" font-weight="600">ส่งของ</text><text x="645" y="189" font-size="11" opacity=".75">กดครั้งเดียว</text>
+
+        <rect x="555" y="264" width="180" height="48" rx="6" fill="none" stroke="#0F6E66" stroke-width="2"/>
+        <text x="645" y="284">สร้าง WD → เพิ่มรายการ</text><text x="645" y="301" font-size="11" opacity=".75">→ อนุมัติ (ตัดสต๊อก)</text>
+
+        <rect x="760" y="40" width="130" height="48" rx="6" fill="none" stroke="currentColor"/>
+        <text x="825" y="60">กด "รับแล้ว"</text><text x="825" y="77" font-size="11" opacity=".75">แทนเซ็นกระดาษ</text>
+
+        <rect x="930" y="40" width="130" height="48" rx="6" fill="none" stroke="currentColor" stroke-dasharray="5 3"/>
+        <text x="995" y="60">ขอคืน</text><text x="995" y="77" font-size="11" opacity=".75">อ้าง WD เดิม</text>
+
+        <rect x="930" y="152" width="130" height="48" rx="6" fill="none" stroke="currentColor" stroke-dasharray="5 3"/>
+        <text x="995" y="172">รับคืน + ตรวจ</text><text x="995" y="189" font-size="11" opacity=".75">ของกลับคลัง</text>
+
+        <rect x="930" y="264" width="130" height="48" rx="6" fill="none" stroke="currentColor" stroke-dasharray="5 3"/>
+        <text x="995" y="284">ใบรับ DD ไม่มี PO</text><text x="995" y="301" font-size="11" opacity=".75">อ้าง WD → อนุมัติ</text>
+      </g>
+      <g fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)">
+        <path d="M180 88 V120 H330 V150"/>
+        <path d="M390 176 H418"/>
+        <path d="M550 176 H578"/>
+        <path d="M645 200 V262"/>
+        <path d="M735 288 H825 V90"/>
+        <path d="M890 64 H928" stroke-dasharray="4 3"/>
+        <path d="M995 88 V150" stroke-dasharray="4 3"/>
+        <path d="M995 200 V262" stroke-dasharray="4 3"/>
+      </g>
+      <g font-family="IBM Plex Sans Thai, sans-serif" font-size="11" fill="currentColor" opacity=".8">
+        <text x="200" y="114">เข้าคิว</text>
+        <text x="832" y="230">เลข WD</text><text x="832" y="244">กลับ WMS</text>
+        <text x="894" y="56">เหลือ/ผิด</text>
+      </g>
+    </svg>
+    <figcaption>เส้นทึบคือการเบิก เส้นประคือการคืน ATMS ถูกเรียกแค่สองจังหวะ คือตอนสโตร์กดส่งของและตอนกดรับคืน ทั้งสองจังหวะใช้บัญชี ATMS ของสโตร์คนที่กด</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>สิ่งที่ตกลงกันแล้ว</h2>
+  <div class="tbl"><table>
+    <tr><th>เรื่อง</th><th>ตกลงว่า</th><th></th></tr>
+    <tr><td>ยานยนต์</td><td>ใช้แค่ login WMS ตามปกติ ไม่ต้องมีบัญชี ATMS</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
+    <tr><td>บัญชีที่ใช้ตัดสต๊อก</td><td>บัญชี ATMS ของสโตร์คนที่กดส่งของหรือรับคืน ใน ATMS จะขึ้นชื่อคนนั้นเป็นผู้ทำรายการ</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
+    <tr><td>API</td><td>ทุกขั้นเรียกผ่าน API ได้ด้วย เผื่อระบบอื่นอย่าง Mena-Next มาเรียก</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
+    <tr><td>จอสโตร์</td><td>แบบจอครัว ใบงานเลื่อนช่อง ใหม่ → กำลังจัด → พร้อมส่ง → ส่งแล้ว</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
+    <tr><td>คืนของ</td><td>ต้องรองรับ และ ATMS ต้องตรงกับ WMS ตลอด</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
+    <tr><td>ลำดับคิว</td><td>ใครมาก่อนได้ก่อน ยกเว้นใบที่ติดป้าย "รถจอดรออะไหล่" ได้แซงขึ้นบนสุด</td><td><span class="pill p-mine">เลือกให้</span></td></tr>
+    <tr><td>session ATMS หมดอายุ</td><td>ให้สโตร์ login ATMS ใหม่ แล้วระบบทำต่อจากขั้นที่ค้างไว้ จะไม่สลับไปใช้บัญชีกลาง</td><td><span class="pill p-mine">เลือกให้</span></td></tr>
+    <tr><td>ใครยิง ATMS</td><td>api-ncac บน Render เพราะใบเดียวต้องยิงหลายคำขอติดกัน ถ้ายิงจาก Vercel เสี่ยงหมดเวลากลางทาง</td><td><span class="pill p-mine">เลือกให้</span></td></tr>
+    <tr><td>ผูกบัญชี ATMS</td><td>อีเมลในหน้า profile ของ ATMS ต้องตรงกับอีเมลที่ใช้ login WMS ถึงจะผูกได้</td><td><span class="pill p-mine">เลือกให้</span></td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>จอคิวสโตร์ (ตัวอย่าง)</h2>
+  <p>จอนี้แยกตามคลัง ใบใหม่ขึ้นเองพร้อมเสียงเตือน ไม่ต้องกดรีเฟรช ใบสีม่วงคือใบขอคืน ใบที่มีแถบแดงคือรถจอดรออะไหล่</p>
+  <div class="board" aria-label="ตัวอย่างจอคิวสโตร์ คลังลาดกระบัง">
+    <div class="col"><h4>ใหม่ <span>3</span></h4>
+      <div class="card urgent"><div class="top"><span>SW-2610-014</span><span class="late">42 นาที</span></div><b>70-1234 · รถจอดรอ</b><span>LBMR26100031 CM-เบรก</span><span>ผ้าเบรกหลัง ×4</span><button class="btn" type="button">รับงาน</button></div>
+      <div class="card"><div class="top"><span>SW-2610-015</span><span>12 นาที</span></div><b>71-5520</b><span>LBMR26100034 PM</span><span>กรองโซล่า ×2 · กรองเครื่อง ×1</span><button class="btn" type="button">รับงาน</button></div>
+      <div class="card ret"><div class="top"><span>คืน · SW-2610-009</span><span>5 นาที</span></div><b>70-8812</b><span>อ้าง LBWD26102203</span><span>หลอดไฟหน้า ×1</span><button class="btn" type="button">รับคืน</button></div>
+    </div>
+    <div class="col"><h4>กำลังจัด <span>1</span></h4>
+      <div class="card"><div class="top"><span>SW-2610-012</span><span>25 นาที</span></div><b>72-0045</b><span>สโตร์: สมชาย</span><span>จัดแล้ว 3/5 · ขาด 1</span><button class="btn" type="button">จัดครบ</button></div>
+    </div>
+    <div class="col"><h4>พร้อมส่ง <span>1</span></h4>
+      <div class="card"><div class="top"><span>SW-2610-011</span><span>31 นาที</span></div><b>70-3391</b><span>รอช่างมารับ</span><button class="btn" type="button">ส่งของ</button></div>
+    </div>
+    <div class="col"><h4>ส่งแล้ววันนี้ <span>2</span></h4>
+      <div class="card"><div class="top"><span>SW-2610-010</span><span class="done">รับแล้ว</span></div><b>71-0907</b><span class="mono">LBWD26102207</span></div>
+      <div class="card"><div class="top"><span>SW-2610-008</span><span>รอกดรับ</span></div><b>70-6614</b><span class="mono">LBWD26102205</span></div>
+    </div>
+  </div>
+  <p class="small" style="margin-top:10px">เลขใบ ทะเบียน และชื่อในจอนี้เป็นตัวอย่าง ยังไม่ใช่ข้อมูลจริง</p>
+</section>
+
+<section>
+  <h2>สถานะของใบคำขอ</h2>
+  <div class="tbl"><table>
+    <tr><th>สถานะ</th><th>เกิดตอน</th><th>ใครกด</th></tr>
+    <tr><td>ใหม่</td><td>ยื่นคำขอเข้ามา ยังยกเลิกเองได้</td><td>ยานยนต์ / API</td></tr>
+    <tr><td>กำลังจัด</td><td>มีสโตร์รับงานแล้ว ชื่อติดอยู่บนใบ คนอื่นจะได้ไม่จัดซ้ำ</td><td>สโตร์</td></tr>
+    <tr><td>พร้อมส่ง</td><td>จัดครบแล้ว รอช่างมารับ</td><td>สโตร์</td></tr>
+    <tr><td>กำลังส่งเข้า ATMS</td><td>กดส่งของ ระบบกำลังสร้าง WD ถ้ามีคนกดซ้ำจะไม่ยิงซ้ำ</td><td>ระบบ</td></tr>
+    <tr><td>ส่งแล้ว</td><td>WD อนุมัติใน ATMS แล้ว มีเลข LBWD… ติดบนใบ</td><td>ระบบ</td></tr>
+    <tr><td>รับแล้ว</td><td>ช่างกดรับของ</td><td>ยานยนต์ / API</td></tr>
+    <tr><td>ส่ง ATMS ไม่สำเร็จ</td><td>ATMS ล่มหรือ session หมดกลางทาง ขึ้นปุ่มลองใหม่ ระบบจะทำต่อจากขั้นที่ค้าง ไม่สร้างใบใหม่</td><td>สโตร์กดลองใหม่</td></tr>
+    <tr><td>ปฏิเสธ / ยกเลิก</td><td>สโตร์ปฏิเสธต้องใส่เหตุผล ผู้ขอยกเลิกได้เฉพาะตอนยังไม่มีใครรับงาน</td><td>สโตร์ / ยานยนต์</td></tr>
+  </table></div>
+  <p class="small" style="margin-top:10px">ใบ "เบิกตัดยอด" (ของลงรถไปแล้ว) จะข้ามช่องกำลังจัดกับพร้อมส่ง สโตร์ตรวจแล้วกดตัดยอด ระบบสร้าง WD ให้เลย <span class="pill p-open">ยังต้องถาม</span></p>
+</section>
+
+<section>
+  <h2>ATMS ทำงานยังไง (สำรวจแล้ว 31/10/2026)</h2>
+  <p>ใบเบิก 1 ใบต้องยิง 3 จังหวะ คือสร้างหัวใบ เพิ่มรายการทีละบรรทัด แล้วกดอนุมัติ สต๊อกถูกตัดตอนอนุมัติ ฟอร์มของ ATMS ไม่มีตัวกันยิงซ้ำ เราเลยส่งตรงได้ วิธีเดียวกับที่ api-ncac ใช้เปิดใบแจ้งซ่อมอยู่ตอนนี้</p>
+  <div class="tbl"><table>
+    <tr><th>จังหวะ</th><th>หน้า ATMS</th><th>ช่องที่ต้องส่ง</th></tr>
+    <tr><td>1. หัวใบ WD</td><td><code>/inv/withdraw/add</code></td><td>คลัง · จุดประสงค์ในการเบิก (60 แบบ CM-/AC-/OTH-) · ค่าใช้จ่ายเสริม · หมายเหตุ (ใส่เลขคำขอ WMS ไว้ตามหาใบ)</td></tr>
+    <tr><td>2. รายการ</td><td><code>/inv/withdraw.item/add/…</code></td><td>รายการแจ้งซ่อม (MR item) · SKU · serial ถ้าเป็นของมีเลขเฉพาะ · จำนวน · หมายเหตุ</td></tr>
+    <tr><td>3. อนุมัติ</td><td><code>/inv/withdraw/approve/id/…</code></td><td>ยังไม่ได้ลองกดจริง ต้องทดสอบก่อน</td></tr>
+    <tr><td>คืนของ</td><td><code>/inv/deposit/add</code></td><td>ใบรับไม่ใส่ PO แต่อ้างเลข WD เดิม ส่วนหน้าเพิ่มรายการคืนยังไม่ได้เปิดดู</td></tr>
+    <tr><td>ค้นข้อมูล</td><td>json ของ ATMS</td><td>ค้น MR item (ได้ชื่อช่างและคนขับมาด้วย) · ค้น SKU ตามคลัง · ค้น serial · ค้นเลข WD</td></tr>
+    <tr><td>ผู้ใช้</td><td><code>/account/user/profile</code></td><td>username · อีเมล · สาขา · แผนก · เป็นช่างไหม เอาไว้ผูกบัญชีและเลือกคลังเริ่มต้นให้สโตร์</td></tr>
+  </table></div>
+  <p class="small" style="margin-top:10px">ช่องค้น SKU ของ ATMS ไม่ส่งยอดคงเหลือกลับมา ตอนยื่นคำขอจะโชว์ยอดจากสำเนาที่ WMS ซิงก์ไว้ทุกคืน พอถึงตอนสโตร์จัดของค่อยอ่านยอดสดจาก ATMS อีกที</p>
+</section>
+
+<section>
+  <h2>กันไม่ให้ตัดสต๊อกซ้ำ</h2>
+  <p>เรื่องที่ห้ามเกิดที่สุดคือมี WD สองใบจากคำขอเดียว ซึ่งเกิดได้ถ้ากดส่งซ้ำ เปิดสองแท็บ หรือเน็ตหลุดกลางทาง</p>
+  <p>ตอนกดส่ง ระบบจะล็อกคำขอไว้ก่อน ใครกดซ้ำก็ไม่ยิงซ้ำ สร้างหัวใบเสร็จจะจด id ไว้ทันที แต่ละบรรทัดก็ติ๊กไว้ทีละบรรทัด ถ้าพังกลางทาง ปุ่มลองใหม่จะเริ่มจากขั้นที่ค้าง ไม่สร้างหัวใบใหม่ ถ้าไม่แน่ใจว่าหัวใบสร้างไปแล้วหรือยัง ระบบจะค้น WD ที่มีเลขคำขออยู่ในหมายเหตุก่อน</p>
+  <p>ยิง ATMS ห่างกันประมาณ 1 วินาที และให้สโตร์หนึ่งคนส่งได้ทีละใบ เพราะเคยยิงติดกัน 176 ครั้งแล้ว ATMS error ไป 40%</p>
+</section>
+
+<section>
+  <h2>ตามให้ตรงกับ ATMS</h2>
+  <p>ใน ATMS แก้ WD ย้อนหลังได้ ถ้ามีคนไปถอนอนุมัติ ลบ หรือแก้จำนวนในใบที่ WMS สร้าง ระบบจะขึ้นธง "ATMS ถูกแก้" ให้สโตร์เห็น จะไม่แก้ข้อมูลฝั่ง WMS เอง ใบอายุ 7 วันล่าสุดจะถูกเช็กซ้ำเป็นรอบ ๆ จาก api-ncac และเช็กทุกครั้งที่มีคนเปิดดูใบ</p>
+  <p>รอบเช็กไม่ใช้ cron ของ Vercel เพราะ WMS ใช้ครบ 2 ตัวตามเพดานของแพ็กเกจแล้ว</p>
+</section>
+
+<section>
+  <h2>API</h2>
+  <div class="tbl"><table>
+    <tr><th>ทำอะไร</th><th>Endpoint</th><th>ใครเรียกได้</th></tr>
+    <tr><td>ค้น MR / SKU / ตัวเลือกคลังและจุดประสงค์</td><td><code>GET /api/store-withdraw/lookup/*</code></td><td>ทุกคนที่ login · API key</td></tr>
+    <tr><td>ยื่นคำขอ · ดูรายการ · ดูรายละเอียด</td><td><code>POST/GET /api/store-withdraw</code></td><td>ยานยนต์ · API key</td></tr>
+    <tr><td>ยกเลิก · กดรับแล้ว · ขอคืน</td><td><code>POST …/:no/cancel|receive|returns</code></td><td>ยานยนต์ · API key</td></tr>
+    <tr><td>รับงาน · แก้จำนวน · จัดครบ · ปฏิเสธ</td><td><code>POST/PATCH …/:no/claim|lines|ready|reject</code></td><td>สโตร์</td></tr>
+    <tr><td>ส่งของ → WD (ลองใหม่ก็ใช้ตัวนี้)</td><td><code>POST …/:no/issue</code></td><td>สโตร์ที่ login อยู่เท่านั้น</td></tr>
+    <tr><td>รับคืน → DD</td><td><code>POST …/:no/returns/:rid/accept</code></td><td>สโตร์ที่ login อยู่เท่านั้น</td></tr>
+    <tr><td>ผูกบัญชี ATMS</td><td><code>POST /api/store-withdraw/atms-link</code></td><td>สโตร์</td></tr>
+  </table></div>
+  <p class="small" style="margin-top:10px">ระบบภายนอกใช้ API key แยกของแต่ละระบบ และต้องส่งอีเมลคนที่กดจริงมาด้วย งานที่ตัดสต๊อกใน ATMS ทำผ่าน API key ไม่ได้ เพราะต้องใช้ session ATMS ของสโตร์คนนั้น จะมีหน้าคู่มือ API ให้แบบเดียวกับของ repair-external</p>
+</section>
+
+<section>
+  <h2>แผนงาน</h2>
+  <ol class="plan">
+    <li><b>สำรวจ ATMS ส่วนที่เหลือ</b> เปิดหน้าเพิ่มรายการคืน ดูวิธีติ๊ก "คืนอะไหล่ครบแล้ว" แล้วลองกดอนุมัติกับใบทดสอบ LBWD26102206 ดูว่าตัดสต๊อกตอนไหน ขั้นนี้ต้องให้คุณอนุญาตก่อน เพราะมีการเขียนข้อมูลลง ATMS จริง และต้องตอบคำถามที่ค้างให้จบในขั้นนี้</li>
+    <li><b>api-ncac: ตัวยิง ATMS</b> ทำ route สร้างหัวใบ เพิ่มรายการ อนุมัติ และเปิด view ตรวจผล ของคืนก็ทำชุดเดียวกัน รวมถึง login + อ่าน profile และช่องค้น MR/SKU/serial ทุก route มีโหมดลองยิง (dry-run) ที่ไม่บันทึกจริง</li>
+    <li><b>WMS: ข้อมูลและ API</b> ทำคอลเลกชันคำขอ เลขใบ SW-YYMM-NNN สถานะตามตาราง log ทุกครั้งที่สถานะเปลี่ยน สิทธิ์ผู้ขอกับสโตร์ใช้ระบบสิทธิ์ตามแผนกที่มีอยู่ เปิด API key และทำ test ของ state machine</li>
+    <li><b>หน้าผู้ขอเบิก</b> ฟอร์มยื่นคำขอที่เห็นสต๊อก รายการคำขอของฉันที่อัปเดตเอง และปุ่มรับแล้ว ต้องใช้บนมือถือได้</li>
+    <li><b>จอคิวสโตร์ + ผูกบัญชี ATMS</b> ทำจอแบบครัว รับงาน จัด ส่ง ลองใหม่ เสียงเตือน แล้วทดสอบส่งจริงกับ WD 1 ใบที่ลาดกระบังโดยมีสโตร์ดูอยู่ด้วย</li>
+    <li><b>คืนของ</b> ทำการขอคืน การรับคืน การสร้าง DD อ้าง WD และติ๊กคืนครบ</li>
+    <li><b>ซิงก์กลับ</b> รอบเช็กใบ 7 วัน ธง "ATMS ถูกแก้" และหน้าคู่มือ API</li>
+    <li><b>นำร่องลาดกระบัง</b> ใช้คู่กับกระดาษ 2 สัปดาห์ เทียบเลข WD ทุกใบกับ ATMS ทำคลิปสอนสั้น ๆ แล้วค่อยขยายไปคลังอื่น</li>
+  </ol>
+  <p class="small" style="margin-top:12px">ข้อ 2 กับ 3 ทำคู่กันได้ หน้าจอข้อ 4 และ 5 รอ API ข้อ 3 ก่อน โค้ดแยก branch ใหม่ทั้ง WMS และ api-ncac และจะไม่ push ขึ้น production จนกว่าคุณจะสั่ง</p>
+</section>
+
+<section>
+  <h2>ความเสี่ยงที่รู้อยู่</h2>
+  <ul>
+    <li>session ATMS อยู่ได้ประมาณ 30 นาที ถ้าไม่เก็บรหัสผ่านไว้ สโตร์อาจต้อง login ATMS ใหม่หลายรอบต่อวัน</li>
+    <li>ATMS ทั้งระบบรับโหลดได้น้อย ถ้ามีหลายคลังกดส่งพร้อมกันต้องต่อคิวฝั่ง api-ncac</li>
+    <li>api-ncac บน Render ถ้าหลับอยู่ ครั้งแรกที่ปลุกจะช้า การกดส่งครั้งแรกของวันอาจรอหลายวินาที</li>
+    <li>ยอดสต๊อกตอนยื่นคำขอมาจากสำเนาที่ซิงก์ทุกคืน ยอดที่เห็นอาจไม่ตรงกับของจริงในวันนั้น</li>
+    <li>ถ้ามีคนแก้ WD ใน ATMS เอง WMS ทำได้แค่ขึ้นธงเตือน ยังแก้ข้อมูลกลับให้เองไม่ได้</li>
+  </ul>
+</section>
+
+<section>
+  <h2>คำถามที่ยังค้าง <span class="pill p-open">ยังต้องถาม</span></h2>
+  <ol class="plan">
+    <li>"เบิกตัดยอด" ทำงานจริงยังไง ตอนนี้ใช้ที่เดาไว้ว่าของลงรถไปแล้ว แค่มาตัดยอดทีหลัง</li>
+    <li>"Safety Stock" กับ "อะไหล่ลงคัน" ในโน้ตคืออะไร เป็นจุดประสงค์การเบิก หรือเป็นประเภทคำขออีกแบบ</li>
+    <li>จะเก็บรหัสผ่าน ATMS ของสโตร์แบบเข้ารหัส ให้ระบบ login ใหม่เองไหม หรือให้สโตร์กรอกใหม่ทุกครั้งที่หมด</li>
+    <li>ต้องให้หัวหน้าอนุมัติคำขอก่อนเข้าคิวสโตร์ไหม</li>
+    <li>นำร่องที่คลังลาดกระบังก่อนใช่ไหม</li>
+    <li>ใบที่คนคีย์ตรงใน ATMS ต้องขึ้นในจอคิวด้วยไหม</li>
+  </ol>
+</section>
+
+<p class="small">เอกสารออกแบบตัวเต็มอยู่ที่ <code>docs/superpowers/specs/2026-10-31-store-withdraw-design.md</code> branch <code>docs/store-withdraw</code> ใน mena-wms</p>
+</main>
+</body>
+</html>

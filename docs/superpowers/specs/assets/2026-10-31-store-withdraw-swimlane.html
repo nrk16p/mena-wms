@@ -1,0 +1,117 @@
+<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swimlane เบิกอะไหล่ออนไลน์</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F4F6F5;--paper:#fff;--ink:#1B2421;--muted:#5B6863;--line:#C9D1CD;--accent:#0F6E66;--ret:#6D4FC2;--bad:#B42318;--sync:#B45309}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans Thai","Noto Sans Thai",sans-serif}
+main{padding:24px 20px;display:grid;gap:14px;max-width:1500px;margin:0 auto}
+h1{font-size:24px;margin:0} p{margin:0;color:var(--muted);font-size:14.5px;max-width:110ch}
+.wrap{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px;overflow-x:auto}
+svg{width:100%;min-width:1100px;height:auto;display:block}
+.lane0{fill:#FAFBFA} .lane1{fill:#F1F4F2} .lanehead{fill:#E4EAE7}
+.ln{font-size:16px;font-weight:700;text-anchor:middle;fill:var(--ink)} .ls{font-size:10.5px;text-anchor:middle;fill:var(--muted)}
+.phase{fill:#E4EAE7} .pt{font-size:12px;font-weight:600;text-anchor:middle;fill:var(--muted)}
+.b{fill:#fff;stroke:#3E4A45;stroke-width:1.3} .b.key{stroke:var(--accent);stroke-width:2.4;fill:#E2F1EF}
+.b.ret{stroke:var(--ret);fill:#F1ECFC;stroke-dasharray:5 3} .b.bad{stroke:var(--bad);fill:#FDECEA} .b.sync{stroke:var(--sync);fill:#FEF3E2;stroke-dasharray:2 3}
+.t1{font-size:13px;font-weight:600;text-anchor:middle;fill:var(--ink)} .t2{font-size:11px;text-anchor:middle;fill:var(--muted)}
+.nb{fill:var(--ink)} .nt{font-size:10px;font-weight:700;fill:#fff;text-anchor:middle}
+.a{fill:none;stroke:#3E4A45;stroke-width:1.5} .a.dash{stroke:var(--ret);stroke-dasharray:5 4} .a.bad{stroke:var(--bad);stroke-dasharray:4 3} .a.dot{stroke:var(--sync);stroke-dasharray:2 3}
+.lb{font-size:11px;fill:var(--muted)} .badt{fill:var(--bad)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--muted)} .legend span::before{content:"";display:inline-block;width:22px;height:0;border-top:2px solid;margin-right:6px;vertical-align:middle}
+.l1::before{border-color:#3E4A45!important} .l2::before{border-top:2px dashed var(--ret)!important} .l3::before{border-top:2px dashed var(--bad)!important} .l4::before{border-top:2px dotted var(--sync)!important}
+</style></head><body><main>
+<h1>Swimlane: เบิกอะไหล่ออนไลน์ + คิวสโตร์</h1>
+<p>ร่าง 31/10/2026 · ยานยนต์ยื่นคำขอในเว็บ คำขอเข้าคิวที่จอสโตร์ พอสโตร์กดส่งของ ระบบสร้าง WD ใน ATMS ด้วยบัญชีของสโตร์คนนั้นแล้วอนุมัติให้เลย ส่วนของที่คืนจะเป็นใบรับ DD ไม่มี PO อ้าง WD เดิม กล่องขอบเขียวหนาคือจังหวะที่ตัดสต๊อกจริง</p>
+<div class="wrap"><svg viewBox="0 0 1460 660" role="img" aria-label="Swimlane 4 เลน ยานยนต์ WMS สโตร์ ATMS แสดงการเบิก การคืน และการซิงก์กลับ">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3E4A45"/></marker></defs>
+<rect class="lane0" x="0" y="30" width="1460" height="140"/>
+<rect class="lanehead" x="0" y="30" width="112" height="140"/>
+<text class="ln" x="56" y="98">ยานยนต์</text><text class="ls" x="56" y="116">login WMS อย่างเดียว</text>
+<rect class="lane1" x="0" y="180" width="1460" height="140"/>
+<rect class="lanehead" x="0" y="180" width="112" height="140"/>
+<text class="ln" x="56" y="248">WMS</text><text class="ls" x="56" y="266">ระบบ / คิว / API</text>
+<rect class="lane0" x="0" y="330" width="1460" height="140"/>
+<rect class="lanehead" x="0" y="330" width="112" height="140"/>
+<text class="ln" x="56" y="398">สโตร์</text><text class="ls" x="56" y="416">WMS + บัญชี ATMS</text>
+<rect class="lane1" x="0" y="480" width="1460" height="140"/>
+<rect class="lanehead" x="0" y="480" width="112" height="140"/>
+<text class="ln" x="56" y="548">ATMS</text><text class="ls" x="56" y="566">ยิงผ่าน api-ncac</text>
+<rect class="phase" x="130" y="4" width="845" height="22" rx="4"/><text class="pt" x="552.5" y="20">เบิกของ</text>
+<rect class="phase" x="995" y="4" width="275" height="22" rx="4"/><text class="pt" x="1132.5" y="20">คืนของ</text>
+<rect class="phase" x="1290" y="4" width="160" height="22" rx="4"/><text class="pt" x="1370.0" y="20">ซิงก์กลับ</text>
+<rect class="b" x="138.0" y="72.0" width="124" height="56" rx="7"/>
+<text class="t1" x="200" y="95">ยื่นคำขอเบิก</text><text class="t2" x="200" y="114">MR · SKU · จำนวน</text>
+<circle class="nb" cx="140.0" cy="70.0" r="10"/><text class="nt" x="140.0" y="74.0">1</text>
+<rect class="b" x="138.0" y="222.0" width="124" height="56" rx="7"/>
+<text class="t1" x="200" y="245">ออกเลขคำขอ</text><text class="t2" x="200" y="264">SW-YYMM-NNN · เข้าคิว</text>
+<circle class="nb" cx="140.0" cy="220.0" r="10"/><text class="nt" x="140.0" y="224.0">2</text>
+<rect class="b" x="278.0" y="372.0" width="124" height="56" rx="7"/>
+<text class="t1" x="340" y="395">รับงาน</text><text class="t2" x="340" y="414">ชื่อสโตร์ติดใบ</text>
+<circle class="nb" cx="280.0" cy="370.0" r="10"/><text class="nt" x="280.0" y="374.0">3</text>
+<rect class="b" x="418.0" y="372.0" width="124" height="56" rx="7"/>
+<text class="t1" x="480" y="395">จัดของ</text><text class="t2" x="480" y="414">แก้จำนวน · ของขาด</text>
+<circle class="nb" cx="420.0" cy="370.0" r="10"/><text class="nt" x="420.0" y="374.0">4</text>
+<polygon class="b" points="620,366 658,400 620,434 582,400"/><text class="t1" x="620" y="405">ของพอ?</text>
+<rect class="b bad" x="558.0" y="222.0" width="124" height="56" rx="7"/>
+<text class="t1" x="620" y="245">ปฏิเสธ / ของขาด</text><text class="t2" x="620" y="264">ต้องมีเหตุผล</text>
+<rect class="b" x="558.0" y="72.0" width="124" height="56" rx="7"/>
+<text class="t1" x="620" y="95">เห็นสถานะ</text><text class="t2" x="620" y="114">+ เหตุผล</text>
+<rect class="b key" x="698.0" y="372.0" width="124" height="56" rx="7"/>
+<text class="t1" x="760" y="395">กดส่งของ</text><text class="t2" x="760" y="414">ระบบล็อก กันกดซ้ำ</text>
+<circle class="nb" cx="700.0" cy="370.0" r="10"/><text class="nt" x="700.0" y="374.0">5</text>
+<rect class="b key" x="685.0" y="522.0" width="150" height="56" rx="7"/>
+<text class="t1" x="760" y="545">หัวใบ → รายการ</text><text class="t2" x="760" y="564">→ อนุมัติ ตัดสต๊อก</text>
+<circle class="nb" cx="687.0" cy="520.0" r="10"/><text class="nt" x="687.0" y="524.0">6</text>
+<rect class="b" x="843.0" y="222.0" width="124" height="56" rx="7"/>
+<text class="t1" x="905" y="245">เก็บเลข WD</text><text class="t2" x="905" y="264">สถานะ ส่งแล้ว</text>
+<circle class="nb" cx="845.0" cy="220.0" r="10"/><text class="nt" x="845.0" y="224.0">7</text>
+<rect class="b" x="843.0" y="72.0" width="124" height="56" rx="7"/>
+<text class="t1" x="905" y="95">กด รับแล้ว</text><text class="t2" x="905" y="114">แทนเซ็นกระดาษ</text>
+<circle class="nb" cx="845.0" cy="70.0" r="10"/><text class="nt" x="845.0" y="74.0">8</text>
+<path class="a" d="M200 128 V220" marker-end="url(#ar)"/>
+<path class="a" d="M262 250 H340 V370" marker-end="url(#ar)"/>
+<text class="lb" x="348" y="294" text-anchor="start">เด้งเข้าจอ + เสียง</text>
+<path class="a" d="M402 400 H416" marker-end="url(#ar)"/>
+<path class="a" d="M542 400 H580" marker-end="url(#ar)"/>
+<path class="a" d="M658 400 H696" marker-end="url(#ar)"/>
+<text class="lb" x="662" y="392" text-anchor="start">พอ</text>
+<path class="a" d="M620 366 V280" marker-end="url(#ar)"/>
+<text class="lb" x="626" y="354" text-anchor="start">ไม่พอ</text>
+<path class="a" d="M620 222 V130" marker-end="url(#ar)"/>
+<path class="a" d="M760 428 V520" marker-end="url(#ar)"/>
+<text class="lb" x="766" y="450" text-anchor="start">PHPSESSID สโตร์</text>
+<path class="a" d="M835 550 H905 V280" marker-end="url(#ar)"/>
+<text class="lb" x="842" y="542" text-anchor="start">LBWD…</text>
+<path class="a" d="M905 222 V130" marker-end="url(#ar)"/>
+<path class="a bad" d="M685 562 H664 V440 H700 V430" marker-end="url(#ar)"/>
+<text class="lb badt" x="560" y="598" text-anchor="start">ไม่สำเร็จ → ลองใหม่ ทำต่อจากขั้นที่ค้าง</text>
+<rect class="b ret" x="998.0" y="72.0" width="124" height="56" rx="7"/>
+<text class="t1" x="1060" y="95">ขอคืน</text><text class="t2" x="1060" y="114">อ้าง WD เดิม</text>
+<circle class="nb" cx="1000.0" cy="70.0" r="10"/><text class="nt" x="1000.0" y="74.0">R1</text>
+<rect class="b ret" x="998.0" y="222.0" width="124" height="56" rx="7"/>
+<text class="t1" x="1060" y="245">เข้าคิวเป็นใบคืน</text><text class="t2" x="1060" y="264">สีม่วงในจอ</text>
+<rect class="b ret" x="998.0" y="372.0" width="124" height="56" rx="7"/>
+<text class="t1" x="1060" y="395">รับคืน + ตรวจ</text><text class="t2" x="1060" y="414">จำนวน ≤ ที่เบิก</text>
+<circle class="nb" cx="1000.0" cy="370.0" r="10"/><text class="nt" x="1000.0" y="374.0">R2</text>
+<rect class="b ret" x="990.0" y="522.0" width="140" height="56" rx="7"/>
+<text class="t1" x="1060" y="545">ใบรับ DD ไม่มี PO</text><text class="t2" x="1060" y="564">อ้าง WD → อนุมัติ</text>
+<circle class="nb" cx="992.0" cy="520.0" r="10"/><text class="nt" x="992.0" y="524.0">R3</text>
+<rect class="b ret" x="1135.0" y="222.0" width="140" height="56" rx="7"/>
+<text class="t1" x="1205" y="245">สถานะ คืนแล้ว</text><text class="t2" x="1205" y="264">คืนครบ → ติ๊กใน ATMS</text>
+<path class="a dash" d="M967 100 H996" marker-end="url(#ar)"/>
+<text class="lb" x="981" y="120" text-anchor="middle">เหลือ/ผิด</text>
+<path class="a dash" d="M1060 128 V220" marker-end="url(#ar)"/>
+<path class="a dash" d="M1060 278 V370" marker-end="url(#ar)"/>
+<path class="a dash" d="M1060 428 V520" marker-end="url(#ar)"/>
+<path class="a dash" d="M1130 550 H1205 V280" marker-end="url(#ar)"/>
+<rect class="b sync" x="1300.0" y="522.0" width="140" height="56" rx="7"/>
+<text class="t1" x="1370" y="545">มีคนแก้/ลบ WD</text><text class="t2" x="1370" y="564">ใน ATMS เอง</text>
+<rect class="b sync" x="1300.0" y="222.0" width="140" height="56" rx="7"/>
+<text class="t1" x="1370" y="245">ธง ATMS ถูกแก้</text><text class="t2" x="1370" y="264">สโตร์เห็น ไม่แก้เอง</text>
+<path class="a dot" d="M1370 522 V280" marker-end="url(#ar)"/>
+<text class="lb" x="1376" y="400" text-anchor="start">เช็กใบ 7 วัน</text>
+<text class="lb" x="1376" y="416" text-anchor="start">รอบ api-ncac</text>
+</svg></div>
+<div class="legend"><span class="l1">เบิก</span><span class="l2">คืนของ</span><span class="l3">ส่ง ATMS ไม่สำเร็จ</span><span class="l4">ซิงก์กลับจาก ATMS</span></div>
+<p>เบิกตัดยอด (ของลงรถไปแล้ว) ข้ามข้อ 3–4 สโตร์ตรวจแล้วกดตัดยอดที่ข้อ 5 ได้เลย · ยังเป็นคำเดา รอยืนยัน</p>
+</main></body></html>
