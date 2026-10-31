@@ -1,9 +1,9 @@
 // lib/store-withdraw/issue.ts — ส่งใบเบิก/รับคืนเข้า ATMS ผ่าน api-ncac แบบทำต่อได้ (resumable)
 // กันยิงซ้ำ: สลับสถานะด้วย findOneAndUpdate({no, status: เดิม}) ใน transition · progress เก็บไว้ส่งซ้ำตอน retry
 import { getCreds } from "./creds"
-import { ConflictError, ddmmyyyyBkk, swCol, transition, writeLog, type Actor } from "./db"
+import { ConflictError, NotFoundError, ddmmyyyyBkk, swCol, transition, writeLog, type Actor } from "./db"
 import { issueLines } from "./core"
-import { ncac } from "./ncac"
+import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
 import type { AtmsProgress, SwLine, SwRequest } from "./types"
 
 export const STUCK_MS = 5 * 60_000
@@ -12,16 +12,21 @@ type WireProgress = { gm_id?: number | null; done?: number[]; approved?: boolean
 type Reply = { progress?: WireProgress; detail?: unknown }
 
 const MSG = {
-  noCreds: "ยังไม่ได้ผูกบัญชี ATMS — ไปผูกบัญชีก่อน แล้วกดส่งใหม่",
-  badAuth: "ATMS ไม่รับบัญชีนี้ (รหัสผ่านอาจเปลี่ยน) — ผูกบัญชีใหม่ แล้วกดส่งใหม่",
-  network: "ติดต่อ ATMS ไม่ได้ในตอนนี้ — รอสักครู่แล้วกดส่งใหม่ ระบบจะทำต่อจากที่ค้างไว้",
-  noLines: "ไม่มีรายการที่จ่ายได้ — ตรวจจำนวนจ่ายในใบนี้ก่อน",
-  noWd: "ใบเบิกนี้ยังไม่มีเลขใบเบิกใน ATMS — ส่งเบิกให้สำเร็จก่อนจึงรับคืนได้",
-  noPrice: (codes: string[]) => `ไม่พบราคาต่อหน่วยของ ${codes.join(", ")} ในใบเบิก ATMS — เช็กใบเบิกใน ATMS แล้วลองใหม่`,
-  crashed: "ระบบขัดข้องระหว่างส่ง ATMS — กดลองใหม่ ถ้ายังไม่ได้ให้แจ้งผู้ดูแล",
-  noCode: "ATMS ไม่ส่งเลขใบกลับมา — กดลองใหม่",
+  noCreds: "ยังไม่ได้ผูกบัญชี ATMS ไปผูกบัญชีก่อน แล้วกดส่งใหม่",
+  badAuth: "ATMS ไม่รับบัญชีนี้ (รหัสผ่านอาจเปลี่ยน) ผูกบัญชีใหม่ แล้วกดส่งใหม่",
+  config: NCAC_CONFIG_MSG,
+  // ส่งออกไปแล้วแต่ไม่ได้คำตอบ (timeout/เครือข่าย) ไม่รู้ว่า ATMS ทำไปหรือยัง จึงห้ามยิงซ้ำทันที
+  unknown: "ยังไม่รู้ผลจาก ATMS รอ 5 นาทีแล้วกดลองใหม่",
+  network: "ติดต่อ ATMS ไม่ได้ตอนนี้ กดส่งใหม่ได้เลย จะทำต่อจากที่ค้างไว้",
+  incomplete: "ข้อมูลที่ส่งไป ATMS ไม่ครบ แจ้งแอดมิน",
+  noLines: "ไม่มีรายการที่จ่ายได้ ตรวจจำนวนจ่ายในใบนี้ก่อน",
+  noWd: "ใบเบิกนี้ยังไม่มีเลขใบเบิกใน ATMS ส่งเบิกให้สำเร็จก่อนจึงรับคืนได้",
+  noPrice: (codes: string[]) => `ไม่พบราคาต่อหน่วยของ ${codes.join(", ")} ในใบเบิก ATMS เช็กใบเบิกใน ATMS แล้วลองใหม่`,
+  crashed: "ระบบขัดข้องระหว่างส่ง ATMS กดลองใหม่ ถ้ายังไม่ได้ให้แจ้งผู้ดูแล",
+  noCode: "ATMS ไม่ส่งเลขใบกลับมา กดลองใหม่",
   over: "คืนเกินจำนวนที่เบิก",
-  wdFail: "อ่านใบเบิกจาก ATMS ไม่ได้ — ลองใหม่อีกครั้ง",
+  wdFail: "อ่านใบเบิกจาก ATMS ไม่ได้ ลองใหม่อีกครั้ง",
+  partial: "ATMS ทำไม่ครบ กดส่งใหม่เพื่อทำต่อ",
 } as const
 
 const toWire = (a: AtmsProgress) =>
@@ -32,39 +37,75 @@ function fromWire(p: WireProgress | undefined, prev: AtmsProgress): AtmsProgress
   return { ...prev, gmId: p.gm_id ?? prev.gmId, done: p.done ?? prev.done, approved: p.approved ?? prev.approved, code: p.code ?? prev.code }
 }
 
+/** ข้อความจาก ATMS ที่ปลอดภัยให้ผู้ใช้เห็น · โครงสร้าง (เช่น 422 ของ FastAPI) ไม่โชว์ดิบ เก็บไว้ใน log ฝั่งเซิร์ฟเวอร์ */
 function detailText(d: unknown, fallback: string): string {
   if (typeof d === "string" && d) return d.slice(0, 300)
-  if (d != null && typeof d === "object") return JSON.stringify(d).slice(0, 300)
+  if (d != null && typeof d === "object") {
+    console.warn("[store-withdraw] ncac detail (โครงสร้าง):", JSON.stringify(d).slice(0, 500))
+    return MSG.incomplete
+  }
   return fallback
 }
 
 const headerRemark = (r: SwRequest) => [r.mrCode, r.plate, r.remark].map((s) => (s ?? "").trim()).filter(Boolean).join(" ")
 
-type Outcome = { kind: "ok" | "partial" | "auth" | "error" | "network"; atms: AtmsProgress }
+type Outcome = { kind: "ok" | "partial" | "auth" | "config" | "error"; atms: AtmsProgress }
 
 /** แปลงผลตอบกลับของ api-ncac เป็นสถานะ progress ใหม่ — ใช้ร่วมกันทั้ง issue และ return */
 function interpret(status: number, data: Reply | null, prev: AtmsProgress): Outcome {
   const base = { ...prev, needCreds: false }
   if (status >= 200 && status < 300) return { kind: "ok", atms: { ...fromWire(data?.progress, base), error: null } }
-  if (status === 409) return { kind: "partial", atms: { ...fromWire(data?.progress, base), error: detailText(data?.detail, "ATMS ทำไม่ครบ — กดส่งใหม่เพื่อทำต่อ") } }
+  if (status === 409) return { kind: "partial", atms: { ...fromWire(data?.progress, base), error: detailText(data?.detail, MSG.partial) } }
+  // 401 = ATMS ไม่รับบัญชีของผู้ใช้ (ผูกใหม่) · 403 = api-ncac ไม่รับ key ของ WMS (ปัญหาตั้งค่า ผู้ใช้ผูกบัญชีใหม่ก็ไม่หาย)
   if (status === 401) return { kind: "auth", atms: { ...base, needCreds: true, error: MSG.badAuth } }
-  return { kind: "error", atms: { ...base, error: detailText(data?.detail, `ATMS ตอบกลับผิดปกติ (${status})`) } }
+  if (status === 403) return { kind: "config", atms: { ...base, needCreds: false, error: MSG.config } }
+  return { kind: "error", atms: { ...base, error: detailText(data?.detail, `ATMS ตอบกลับผิดปกติ (${status}) ลองใหม่อีกครั้ง`) } }
 }
 
 async function callNcac(...args: Parameters<typeof ncac>): Promise<{ status: number; data: Reply | null } | null> {
   try {
     const r = await ncac<Reply | null>(...args)
     return r
-  } catch {
+  } catch (e) {
+    // ตั้งค่า api-ncac ไม่ครบ = ยังไม่ได้ยิงอะไร → ทำเหมือน 403 (ตั้งค่าผิด) ไม่ใช่ "ไม่รู้ผล"
+    if (e instanceof NcacConfigError) return { status: 403, data: null }
     return null // timeout / เครือข่ายล่ม — ไม่เก็บ error ดิบ เผื่อมี URL/ข้อมูลหลุด
   }
+}
+
+/**
+ * ยิง ATMS ไปแล้วแต่ไม่ได้คำตอบ: ค้างสถานะ ISSUING ไว้ (ไม่ใช่ ISSUE_FAILED) บันทึกแค่ atms.error + เวลา
+ * ปล่อยให้กติกา "ค้างเกิน 5 นาที ยึดทำต่อได้" เป็นตัวเปิดให้ลองใหม่ → ไม่ยิงซ้อนกับคำขอเดิมที่อาจยังวิ่งอยู่ใน ATMS
+ */
+async function holdIssueUnknown(no: string, actor: Actor): Promise<SwRequest> {
+  const col = await swCol()
+  const after = await col.findOneAndUpdate(
+    { no, status: "ISSUING" },
+    { $set: { "atms.error": MSG.unknown, "atms.needCreds": false, updatedAt: new Date() } },
+    { returnDocument: "after" },
+  )
+  if (!after) throw new ConflictError()
+  await writeLog({ no, action: "issue-unknown", from: "ISSUING", to: "ISSUING", actor: { email: actor.email, name: actor.name, via: actor.via } })
+  return after
+}
+
+async function holdReturnUnknown(no: string, rid: string, actor: Actor): Promise<SwRequest> {
+  const col = await swCol()
+  const after = await col.findOneAndUpdate(
+    { no, returns: { $elemMatch: { rid, status: "RETURNING" } } },
+    { $set: { "returns.$[r].atms.error": MSG.unknown, "returns.$[r].atms.needCreds": false, updatedAt: new Date() } },
+    { arrayFilters: [{ "r.rid": rid }], returnDocument: "after" },
+  )
+  if (!after) throw new ConflictError()
+  await writeLog({ no, action: "return-unknown", from: "RETURNING", to: "RETURNING", actor: { email: actor.email, name: actor.name, via: actor.via }, note: rid })
+  return after
 }
 
 /** ใบที่ ISSUING ค้างเกิน 5 นาที (โปรเซสตายกลางคัน) ให้ยึดมาทำต่อได้ ไม่งั้นค้างตลอด */
 async function claimIssue(no: string, actor: Actor): Promise<SwRequest> {
   const col = await swCol()
   const cur = await col.findOne({ no })
-  if (!cur) throw new ConflictError("ไม่พบใบขอเบิกนี้")
+  if (!cur) throw new NotFoundError()
   if (cur.status === "ISSUING" && Date.now() - cur.updatedAt.getTime() > STUCK_MS) {
     const after = await col.findOneAndUpdate(
       { no, status: "ISSUING", updatedAt: cur.updatedAt },
@@ -85,8 +126,10 @@ export async function issueRequest(no: string, actor: Actor): Promise<SwRequest>
   } catch (e) {
     if (e instanceof ConflictError) throw e
     // ห้ามค้าง ISSUING — แปลงเป็น ISSUE_FAILED พร้อมข้อความไทย (ไม่ใส่ข้อความ error ดิบ)
+    // เขียนเฉพาะ atms.error / needCreds ห้ามเขียนทั้งก้อน atms ทับ (claimed อ่านก่อนบันทึก startedAt/gmId/done)
+    console.error("[store-withdraw] issue crashed", no, e instanceof Error ? e.message : e)
     try {
-      return await transition(no, "issueFailed", actor, { atms: { ...claimed.atms, needCreds: false, error: MSG.crashed } })
+      return await transition(no, "issueFailed", actor, { "atms.error": MSG.crashed, "atms.needCreds": false })
     } catch {
       return (await (await swCol()).findOne({ no })) ?? claimed
     }
@@ -126,7 +169,7 @@ async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
   }
 
   const r = await callNcac("POST", "/atms/withdraw/issue", { creds, body })
-  if (!r) return fail({ ...prev, needCreds: false, error: MSG.network })
+  if (!r) return holdIssueUnknown(no, actor)
   const out = interpret(r.status, r.data, prev)
   if (out.kind === "ok" && !(out.atms.code && out.atms.approved)) return fail({ ...out.atms, error: MSG.noCode })
   if (out.kind === "ok") return transition(no, "issued", actor, { atms: { ...out.atms, drift: null } }) // ส่งสำเร็จ = ล้างธงเก่า
@@ -141,7 +184,9 @@ async function claimReturn(no: string, rid: string, actor: Actor): Promise<SwReq
   const col = await swCol()
   const cur = await col.findOne({ no })
   const prior = cur?.returns.find((x) => x.rid === rid)?.status
-  if (!cur || !prior || !["ISSUED", "RECEIVED"].includes(cur.status)) throw new ConflictError()
+  if (!cur) throw new NotFoundError()
+  if (!prior) throw new NotFoundError("ไม่พบใบคืนนี้")
+  if (!["ISSUED", "RECEIVED"].includes(cur.status)) throw new ConflictError()
   const now = new Date()
   const stale = new Date(now.getTime() - STUCK_MS)
   const filter =
@@ -190,8 +235,11 @@ export async function acceptReturn(no: string, rid: string, actor: Actor): Promi
     return await runReturn(claimed, rid, actor)
   } catch (e) {
     if (e instanceof ConflictError) throw e
+    console.error("[store-withdraw] return crashed", no, rid, e instanceof Error ? e.message : e)
     try {
-      const atms = claimed.returns.find((x) => x.rid === rid)!.atms
+      // อ่านใบล่าสุดก่อนเขียน — claimed เก่ากว่า startedAt/progress ที่บันทึกไปแล้ว
+      const latest = (await (await swCol()).findOne({ no })) ?? claimed
+      const atms = (latest.returns.find((x) => x.rid === rid) ?? claimed.returns.find((x) => x.rid === rid)!).atms
       return await settleReturn(no, rid, actor, false, { ...atms, needCreds: false, error: MSG.crashed })
     } catch {
       return (await (await swCol()).findOne({ no })) ?? claimed
@@ -219,8 +267,9 @@ async function runReturn(claimed: SwRequest, rid: string, actor: Actor): Promise
 
   // ราคาต่อหน่วยมาจากใบเบิกใน ATMS (จับคู่ด้วยรหัส SKU)
   const wd = await callNcac("GET", `/atms/withdraw/${gmId}`, { creds })
-  if (!wd) return fail({ ...prev, needCreds: false, error: MSG.network })
+  if (!wd) return fail({ ...prev, needCreds: false, error: MSG.network }) // อ่านอย่างเดียว ยังไม่ได้เขียน ATMS → ลองใหม่ได้เลย
   if (wd.status === 401) return fail({ ...prev, needCreds: true, error: MSG.badAuth })
+  if (wd.status === 403) return fail({ ...prev, needCreds: false, error: MSG.config })
   if (wd.status < 200 || wd.status >= 300) return fail({ ...prev, needCreds: false, error: detailText(wd.data?.detail, MSG.wdFail) })
   const items = ((wd.data as { items?: WdItem[] } | null)?.items ?? [])
   const price = new Map<string, number>()
@@ -267,7 +316,7 @@ async function runReturn(claimed: SwRequest, rid: string, actor: Actor): Promise
   }
 
   const r = await callNcac("POST", "/atms/withdraw/return", { creds, body })
-  if (!r) return fail({ ...prev, needCreds: false, error: MSG.network })
+  if (!r) return holdReturnUnknown(no, rid, actor)
   const out = interpret(r.status, r.data, prev)
   if (out.kind !== "ok") return fail(out.atms)
   if (!(out.atms.code && out.atms.approved)) return fail({ ...out.atms, error: MSG.noCode })

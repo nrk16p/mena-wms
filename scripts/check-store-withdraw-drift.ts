@@ -11,6 +11,7 @@ process.env.STORE_WITHDRAW_DB = "sw_drift_test"
 process.env.ATMS_LOOKUP_USERNAME = "reader"
 process.env.ATMS_LOOKUP_PASSWORD = "reader-pw"
 process.env.STORE_WITHDRAW_API_KEYS = "key-one,key-two"
+process.env.STORE_WITHDRAW_TICK_KEY = "tick-secret"
 delete process.env.MONGO_URI // ห้ามแตะ cluster จริง
 
 const eq = assert.deepEqual
@@ -176,10 +177,12 @@ async function main() {
   eq((await POST(mk({}))).status, 401)
   eq((await POST(mk({ "x-api-key": "nope" }))).status, 401)
   eq((await POST(mk({ "x-user": "a@b.c" }))).status, 401)
+  eq((await POST(mk({ "x-api-key": "key-one" }))).status, 401) // กุญแจผู้ขอใช้เรียก drift-tick ไม่ได้
+  eq((await POST(mk({ "x-api-key": "key-two" }))).status, 401)
   await (await swCol()).deleteMany({})
   await seed("T-R1", 3001)
   reply(good)
-  const ok = await POST(mk({ "x-api-key": "key-two" }))
+  const ok = await POST(mk({ "x-api-key": "tick-secret" }))
   eq(ok.status, 200)
   const body = await ok.json()
   eq(Object.keys(body).sort(), ["checked", "drifted", "skipped"])

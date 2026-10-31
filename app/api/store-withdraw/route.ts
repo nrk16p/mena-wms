@@ -1,5 +1,6 @@
 // app/api/store-withdraw/route.ts — GET รายการ (?mine=1 | ?inv=&status=) · POST ยื่นคำขอ (session หรือ x-api-key)
 import { NextResponse, type NextRequest } from "next/server"
+import { clampLimit } from "@/lib/store-withdraw/core"
 import { swCol } from "@/lib/store-withdraw/db"
 import { getActor, guard, isResponse, readJson, err } from "@/lib/store-withdraw/http"
 import { createRequest } from "@/lib/store-withdraw/service"
@@ -22,7 +23,7 @@ export function GET(req: NextRequest) {
     }
     const status = sp.get("status")?.trim()
     if (status) filter.status = { $in: status.split(",").map((s) => s.trim()).filter(Boolean) }
-    const limit = Math.min(parseInt(sp.get("limit") ?? "200", 10) || 200, 500)
+    const limit = clampLimit(sp.get("limit"), 200, 500)
     const items = await (await swCol()).find(filter, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(limit).toArray()
     return NextResponse.json({ items })
   })

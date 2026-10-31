@@ -66,4 +66,4 @@ export type SwRequest = {
   updatedAt: Date
 }
 
-export type SwAction = "claim" | "ready" | "issue" | "issued" | "issueFailed" | "receive" | "reject" | "cancel"
+export type SwAction = "claim" | "ready" | "issue" | "issued" | "issueFailed" | "receive" | "reject" | "closeManual" | "cancel"

@@ -4,13 +4,13 @@ import { NextResponse, type NextRequest } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { atLeast, type Access } from "@/lib/access-policy"
-import { ConflictError, type Actor } from "./db"
+import { validApiUser } from "./core"
+import { ConflictError, NotFoundError, type Actor } from "./db"
 
 export const err = (message: string, status: number) => NextResponse.json({ error: message }, { status })
 
-export function apiKeyValid(key: string | null): boolean {
+function keyIn(key: string | null, keys: string[]): boolean {
   if (!key) return false
-  const keys = (process.env.STORE_WITHDRAW_API_KEYS ?? "").split(",").map((k) => k.trim()).filter(Boolean)
   const a = Buffer.from(key)
   let hit = false
   for (const k of keys) {
@@ -20,8 +20,22 @@ export function apiKeyValid(key: string | null): boolean {
   }
   return hit
 }
+const list = (v: string | undefined) => (v ?? "").split(",").map((k) => k.trim()).filter(Boolean)
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** กุญแจ drift-tick (STORE_WITHDRAW_TICK_KEY) · แยกจากกุญแจผู้ขอโดยเด็ดขาด */
+export const tickKeys = () => list(process.env.STORE_WITHDRAW_TICK_KEY)
+
+/** กุญแจฝั่งผู้ขอ (STORE_WITHDRAW_API_KEYS) · กุญแจที่ตรงกับกุญแจ tick ใช้ไม่ได้ ต่อให้ตั้งซ้ำกันพลาด */
+export function apiKeyValid(key: string | null): boolean {
+  const tick = tickKeys()
+  const keys = list(process.env.STORE_WITHDRAW_API_KEYS).filter((k) => !tick.includes(k))
+  return keyIn(key, keys)
+}
+
+/** กุญแจของงานตั้งเวลา drift-tick เท่านั้น */
+export function tickKeyValid(key: string | null): boolean {
+  return keyIn(key, tickKeys())
+}
 
 /**
  * ผู้ทำรายการ: session ก่อน · ไม่มี session แต่มี x-api-key ที่ถูกต้อง + x-user (อีเมล) → via "api"
@@ -34,13 +48,13 @@ export async function getActor(req: NextRequest, allowApi: boolean): Promise<Act
   }
   const key = req.headers.get("x-api-key")
   if (key) {
-    if (!allowApi) return err("งานนี้ต้องล็อกอินเข้าระบบ WMS เอง เรียกด้วย API key ไม่ได้", 403)
-    if (!apiKeyValid(key)) return err("API key ไม่ถูกต้อง — ตรวจกุญแจกับผู้ดูแลระบบ", 401)
+    if (!allowApi) return err("งานนี้ต้องล็อกอินเข้า WMS เอง เรียกด้วย API key ไม่ได้", 403)
+    if (!apiKeyValid(key)) return err("API key ไม่ถูกต้อง ตรวจกุญแจกับผู้ดูแลระบบ", 401)
     const user = (req.headers.get("x-user") ?? "").trim().toLowerCase()
-    if (!EMAIL.test(user)) return err("ต้องส่งอีเมลคนที่ทำจริงใน header x-user", 400)
+    if (!validApiUser(user)) return err("ต้องส่งอีเมล @menatransport.co.th ของคนที่ทำจริงใน header x-user", 400)
     return { email: user, name: user, via: "api" }
   }
-  return err("ยังไม่ได้ล็อกอิน — เข้าสู่ระบบแล้วลองใหม่", 401)
+  return err("ยังไม่ได้ล็อกอิน เข้าสู่ระบบแล้วลองใหม่", 401)
 }
 
 /**
@@ -52,7 +66,7 @@ export async function getStoreActor(req: NextRequest): Promise<Actor | NextRespo
   if (isResponse(actor)) return actor
   const session = await getServerSession(authOptions)
   const access = (session?.user as { access?: Access } | undefined)?.access
-  if (!access || !atLeast(access["store-queue"], "edit")) return err("งานนี้เฉพาะสโตร์ — ขอสิทธิ์คิวงานสโตร์จากผู้ดูแลระบบ", 403)
+  if (!access || !atLeast(access["store-queue"], "edit")) return err("งานนี้เฉพาะสโตร์ ขอสิทธิ์คิวงานสโตร์จากผู้ดูแลระบบ", 403)
   return actor
 }
 
@@ -65,10 +79,11 @@ export async function guard(fn: () => Promise<NextResponse>): Promise<NextRespon
   try {
     return await fn()
   } catch (e) {
+    if (e instanceof NotFoundError) return err(e.message, 404)
     if (e instanceof ConflictError) return err(e.message, 409)
     if (e instanceof HttpError) return err(e.message, e.status)
     console.error("[store-withdraw]", e)
-    return err("ระบบขัดข้อง — ลองใหม่อีกครั้ง ถ้ายังไม่ได้ให้แจ้งผู้ดูแล", 500)
+    return err("ระบบขัดข้อง ลองใหม่อีกครั้ง ถ้ายังไม่ได้ให้แจ้งผู้ดูแล", 500)
   }
 }
 
@@ -90,6 +105,6 @@ export async function readJson(req: NextRequest): Promise<Record<string, unknown
 /** ผู้ขอต้องเป็นเจ้าของใบ (เทียบอีเมล) */
 export function assertOwner(reqDoc: { requestedBy: { email: string } }, actor: Actor) {
   if (reqDoc.requestedBy.email.trim().toLowerCase() !== actor.email) {
-    throw new HttpError("ใบนี้ไม่ใช่ของคุณ — ทำรายการได้เฉพาะใบที่ตัวเองยื่น", 403)
+    throw new HttpError("ใบนี้ไม่ใช่ของคุณ ทำรายการได้เฉพาะใบที่ตัวเองยื่น", 403)
   }
 }

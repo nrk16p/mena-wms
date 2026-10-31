@@ -44,6 +44,8 @@ export type NavItem = {
   hideOnHome?: boolean
   /** ส่วนงานที่ต้องมีสิทธิ์อย่างน้อย "ดู" ถึงจะเห็นเมนูนี้ (ใช้กับเมนูที่สิทธิ์ต่างจากกลุ่ม เช่น คิวสโตร์) · ไม่ระบุ = ตามกลุ่ม */
   section?: Section
+  /** ระดับต่ำสุดของ section ที่ต้องมี (ไม่ระบุ = ดู) · คิวสโตร์ใช้ "edit" ให้ตรงกับ route ที่ปฏิเสธคนดูอย่างเดียว */
+  sectionMin?: "view" | "edit"
 }
 
 export type NavGroup = {
@@ -263,7 +265,7 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ดูสถานะใบที่ยื่น ยกเลิก รับของ ขอคืน" },
       { href: "/store-withdraw/new", label: "ขอเบิกใหม่", icon: Plus, exact: true,
         desc: "ยื่นคำขอเบิกอะไหล่ (สต๊อก / ตัดยอด)" },
-      { href: "/store-withdraw/queue", label: "คิวงานสโตร์", icon: Inbox, exact: true, section: "store-queue",
+      { href: "/store-withdraw/queue", label: "คิวงานสโตร์", icon: Inbox, exact: true, section: "store-queue", sectionMin: "edit",
         desc: "รับงาน จัดของ ส่งของ และรับคืน (เฉพาะสโตร์)" },
     ],
   },
@@ -318,7 +320,7 @@ type Viewer = {
 }
 
 const sectionOk = (item: NavItem, viewer: Viewer) =>
-  !item.section || !viewer.access || atLeast(viewer.access[item.section], "view")
+  !item.section || !viewer.access || atLeast(viewer.access[item.section], item.sectionMin ?? "view")
 
 function groupVisible(group: NavGroup, viewer: Viewer) {
   if (group.superadminOnly && !viewer.isSuperAdmin) return false

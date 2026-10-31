@@ -11,6 +11,13 @@ export class ConflictError extends Error {
   }
 }
 
+export class NotFoundError extends Error {
+  constructor(message = "ไม่พบใบขอเบิกนี้ ตรวจเลขที่ใบอีกครั้ง") {
+    super(message)
+    this.name = "NotFoundError"
+  }
+}
+
 export type Actor = { email: string; name: string; via: "web" | "api" }
 
 export type CredDoc = {
@@ -47,6 +54,8 @@ export async function getDb(): Promise<Db> {
     await Promise.all([
       db.collection("store_withdraw_requests").createIndex({ no: 1 }, { unique: true }),
       db.collection("store_withdraw_requests").createIndex({ inventoryId: 1, status: 1, createdAt: 1 }),
+      db.collection("store_withdraw_requests").createIndex({ "requestedBy.email": 1, createdAt: -1 }),
+      db.collection("store_withdraw_log").createIndex({ no: 1, at: 1 }),
       db.collection("store_atms_creds").createIndex({ email: 1 }, { unique: true }),
       db.collection("store_withdraw_atms_cache").createIndex({ fetchedAt: 1 }, { expireAfterSeconds: 180 }),
     ])
@@ -64,7 +73,8 @@ export async function swLogCol(): Promise<Collection<LogDoc>> {
 export async function credCol(): Promise<Collection<CredDoc>> {
   return (await getDb()).collection<CredDoc>("store_atms_creds")
 }
-export async function atmsCacheCol(): Promise<Collection<{ key: string; data: unknown; fetchedAt: Date }>> {
+// fetchedAt = ตัวที่ TTL index ลบทิ้ง · savedAt = สำเนาถาวร (ไม่มี fetchedAt จึงไม่โดน TTL)
+export async function atmsCacheCol(): Promise<Collection<{ key: string; data: unknown; fetchedAt?: Date; savedAt?: Date }>> {
   return (await getDb()).collection("store_withdraw_atms_cache")
 }
 
@@ -108,14 +118,14 @@ export async function transition(
   no: string,
   action: SwAction,
   actor: Actor,
-  patch: Partial<SwRequest> = {},
+  patch: Partial<SwRequest> | Record<string, unknown> = {},
 ): Promise<SwRequest> {
   const col = await swCol()
   const cur = await col.findOne({ no })
-  if (!cur) throw new ConflictError("ไม่พบใบขอเบิกนี้")
+  if (!cur) throw new NotFoundError()
   const to = nextStatus(cur, action)
   if (!to) throw new ConflictError()
-  const { _id: _ignore, no: _no, status: _st, ...safe } = patch
+  const { _id: _ignore, no: _no, status: _st, ...safe } = patch as Record<string, unknown>
   void _ignore; void _no; void _st
   const after = await col.findOneAndUpdate(
     { no, status: cur.status },

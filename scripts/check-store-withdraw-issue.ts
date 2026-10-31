@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import { randomBytes } from "node:crypto"
 import { MongoClient } from "mongodb"
 import { MongoMemoryServer } from "mongodb-memory-server"
+import type { SwRequest } from "../lib/store-withdraw/types"
 
 process.env.STORE_ATMS_CRED_KEY = randomBytes(32).toString("base64")
 process.env.NCAC_BASE = "http://ncac.test"
@@ -12,7 +13,7 @@ process.env.STORE_WITHDRAW_DB = "sw_test"
 delete process.env.MONGO_URI // ห้ามแตะ cluster จริง
 
 const eq = assert.deepEqual
-type Json = Record<string, any>
+type Json = Record<string, unknown> & { date?: string; progress?: unknown; lines?: unknown }
 const store = { email: "store@x.co", name: "คลัง", via: "web" as const }
 const noCreds = { email: "nocreds@x.co", name: "ไม่มีบัญชี", via: "web" as const }
 
@@ -21,7 +22,7 @@ type Call = { url: string; path: string; method: string; body: Json | null; head
 let calls: Call[] = []
 let handler: (c: Call) => Promise<{ status: number; body: unknown }> | { status: number; body: unknown } = () => ({ status: 200, body: {} })
 const realFetch = globalThis.fetch
-globalThis.fetch = (async (input: any, init: any = {}) => {
+globalThis.fetch = (async (input: RequestInfo | URL, init: { method?: string; body?: string; headers?: Record<string, string> } = {}) => {
   const url = String(input)
   const c: Call = { url, path: new URL(url).pathname, method: init.method ?? "GET", body: init.body ? JSON.parse(init.body) : null, headers: init.headers ?? {} }
   calls.push(c)
@@ -53,7 +54,7 @@ async function main() {
       no, kind: "stock", status: "READY", inventoryId: 5, inventoryName: "สระบุรี", pickToId: 9, pickToName: "ช่าง",
       plate: "70-1234", mrCode: "MR-1", urgent: false, remark: "ด่วน", lines: mkLines(), requestedBy: store, claimedBy: null,
       rejectReason: null, atms: { ...baseAtms }, returns: [], createdAt: now, updatedAt: now, ...p,
-    } as any)
+    } as unknown as SwRequest)
     return no
   }
   const get = async (no: string) => (await (await swCol()).findOne({ no }))!
@@ -130,16 +131,50 @@ async function main() {
   await issueRequest(n4, noCreds)
   eq((await get(n4)).status, "ISSUE_FAILED"); eq((await get(n4)).atms.needCreds, true); eq(calls.length, 0)
 
+  // I1: timeout/เครือข่าย = ไม่รู้ผล → ค้าง ISSUING (ไม่ใช่ ISSUE_FAILED) ห้ามยิงซ้ำจนครบ 5 นาที
   const n5 = await seed("T-NET")
   handler = () => { throw new Error("ECONNRESET") }
-  await issueRequest(n5, store)
-  eq((await get(n5)).status, "ISSUE_FAILED"); eq((await get(n5)).atms.needCreds, false)
+  const n5r = await issueRequest(n5, store)
+  eq(n5r.status, "ISSUING"); eq((await get(n5)).status, "ISSUING"); eq((await get(n5)).atms.needCreds, false)
+  eq((await get(n5)).atms.error, "ยังไม่รู้ผลจาก ATMS รอ 5 นาทีแล้วกดลองใหม่")
   assert.ok(!(await get(n5)).atms.error!.includes("ECONNRESET"))
+  assert.ok((await get(n5)).atms.startedAt instanceof Date)
+  calls = []
+  eq(await issueRequest(n5, store).catch((e) => e.name), "ConflictError"); eq(calls.length, 0) // ยังไม่ครบ 5 นาที = ไม่ยิงซ้ำ
+  assert.ok((await (await swLogCol()).find({ no: n5, action: "issue-unknown" }).toArray()).length === 1)
+  // ครบ 5 นาที → ยึดทำต่อ ใช้วันเดิม + progress เดิม
+  const n5start = (await get(n5)).atms.startedAt
+  await (await swCol()).updateOne({ no: n5 }, { $set: { updatedAt: new Date(Date.now() - 6 * 60_000) } })
+  handler = () => ({ status: 200, body: { progress: { gm_id: 5, done: [0, 1], approved: true, code: "WD-NET" } } })
+  eq((await issueRequest(n5, store)).status, "ISSUED"); eq((await get(n5)).atms.code, "WD-NET"); eq((await get(n5)).atms.error, null); eq((await get(n5)).atms.startedAt, n5start)
 
   const n6 = await seed("T-422")
   handler = () => ({ status: 422, body: { detail: "SKU ไม่พอ" } })
   await issueRequest(n6, store)
   eq((await get(n6)).atms.error, "SKU ไม่พอ")
+
+  // detail แบบโครงสร้าง (422 ของ FastAPI) ห้ามโชว์ดิบ
+  const n6b = await seed("T-422J")
+  handler = () => ({ status: 422, body: { detail: [{ loc: ["body", "lines", 0, "sku_name"], msg: "field required", type: "value_error.missing" }] } })
+  await issueRequest(n6b, store)
+  eq((await get(n6b)).status, "ISSUE_FAILED"); eq((await get(n6b)).atms.error, "ข้อมูลที่ส่งไป ATMS ไม่ครบ แจ้งแอดมิน")
+  assert.ok(!/loc|field required|body/.test((await get(n6b)).atms.error!))
+
+  // I3: 403 = api-ncac ไม่รับ key ของ WMS → ข้อความตั้งค่า ไม่ขอผูกบัญชีใหม่
+  const n403 = await seed("T-403")
+  handler = () => ({ status: 403, body: { detail: "forbidden" } })
+  await issueRequest(n403, store)
+  eq((await get(n403)).status, "ISSUE_FAILED"); eq((await get(n403)).atms.needCreds, false)
+  eq((await get(n403)).atms.error, "WMS ต่อ api-ncac ไม่ได้ (key ไม่ตรง) — แจ้งแอดมิน")
+  // NCAC_API_KEY / NCAC_BASE ว่าง = ล้มก่อนยิง (ไม่มีการเรียกออก)
+  for (const k of ["NCAC_API_KEY", "NCAC_BASE"] as const) {
+    const saved = process.env[k]; process.env[k] = ""
+    const nc = await seed("T-NOCFG-" + k); calls = []
+    await issueRequest(nc, store)
+    eq((await get(nc)).status, "ISSUE_FAILED"); eq((await get(nc)).atms.needCreds, false); eq(calls.length, 0)
+    eq((await get(nc)).atms.error, "WMS ต่อ api-ncac ไม่ได้ (key ไม่ตรง) — แจ้งแอดมิน")
+    process.env[k] = saved
+  }
 
   const n7 = await seed("T-EMPTY", { lines: mkLines().map((l) => ({ ...l, issuedQty: 0 })) }); calls = []
   await issueRequest(n7, store)
@@ -151,7 +186,7 @@ async function main() {
   const nCut = await seed("T-CUT", { status: "NEW", kind: "cutoff" })
   handler = () => ({ status: 200, body: { progress: { gm_id: 2, done: [0, 1], approved: true, code: "WD-2" } } })
   eq((await issueRequest(nCut, store)).status, "ISSUED")
-  eq(await issueRequest("T-NONE", store).catch((e) => e.name), "ConflictError")
+  eq(await issueRequest("T-NONE", store).catch((e) => e.name), "NotFoundError")
   assert.ok(new ConflictError() instanceof Error)
 
   // ---- stuck ISSUING ----
@@ -186,7 +221,7 @@ async function main() {
   eq(ra.returns[0].status, "RETURNED"); eq(ra.returns[0].acceptedBy, store.email); eq(ra.lines[0].returnedQty, 3)
   eq(callsTo("/atms/withdraw/777")[0].method, "GET")
   // คืนที่เหลือ → ครบทุกบรรทัด → mark_complete
-  await (await swCol()).updateOne({ no: rA }, { $push: { returns: mkRet("r2", [[0, 1], [2, 1]]) } as any })
+  await (await swCol()).updateOne({ no: rA }, { $push: { returns: mkRet("r2", [[0, 1], [2, 1]]) } as never })
   await acceptReturn(rA, "r2", store)
   eq(lastBody("/atms/withdraw/return").mark_complete, true)
   eq((await get(rA)).lines.map((l) => l.returnedQty), [4, 0, 1])
@@ -248,7 +283,11 @@ async function main() {
     return { status: 200, body: { progress: { gm_id: 777, done: [0], approved: true, code: "WD-77" } } }
   }
   await acceptReturn(rG, "r1", store)
-  eq((await get(rG)).returns[0].status, "RETURN_FAILED")
+  eq((await get(rG)).returns[0].status, "RETURNING") // ไม่รู้ผล = ค้าง RETURNING ไม่เปิดให้ยิงซ้ำทันที
+  eq((await get(rG)).returns[0].atms.error, "ยังไม่รู้ผลจาก ATMS รอ 5 นาทีแล้วกดลองใหม่")
+  eq(await acceptReturn(rG, "r1", store).catch((e) => e.name), "ConflictError")
+  eq(dates.length, 1)
+  await (await swCol()).updateOne({ no: rG }, { $set: { updatedAt: new Date(Date.now() - 6 * 60_000) } })
   await acceptReturn(rG, "r1", store)
   eq(dates, ["31/10/2026", "31/10/2026"])
   eq((await get(rG)).returns[0].status, "RETURNED")
@@ -278,7 +317,7 @@ async function main() {
   const nC = await seed("T-NOCODE")
   handler = () => ({ status: 200, body: { progress: { gm_id: 31, done: [0, 1], approved: true, code: null } } })
   await issueRequest(nC, store)
-  eq((await get(nC)).status, "ISSUE_FAILED"); eq((await get(nC)).atms.error, "ATMS ไม่ส่งเลขใบกลับมา — กดลองใหม่"); eq((await get(nC)).atms.gmId, 31); eq((await get(nC)).atms.done, [0, 1])
+  eq((await get(nC)).status, "ISSUE_FAILED"); eq((await get(nC)).atms.error, "ATMS ไม่ส่งเลขใบกลับมา กดลองใหม่"); eq((await get(nC)).atms.gmId, 31); eq((await get(nC)).atms.done, [0, 1])
   const nA = await seed("T-NOAPPR")
   handler = () => ({ status: 200, body: { progress: { gm_id: 32, done: [0, 1], approved: false, code: "WD-32" } } })
   await issueRequest(nA, store)
@@ -287,6 +326,41 @@ async function main() {
   handler = (c) => c.path === "/atms/withdraw/777" ? { status: 200, body: wd } : { status: 200, body: { progress: { gm_id: 777, done: [0], approved: false, code: "WD-77" } } }
   const ri = await acceptReturn(rI, "r1", store)
   eq(ri.returns[0].status, "RETURN_FAILED"); eq(ri.lines[0].returnedQty, 0); eq(ri.returns[0].atms.done, [0])
+
+
+  // ---- I2: reject จาก ISSUE_FAILED / ปิดมือ ----
+  const nR1 = await seed("T-REJ1", { status: "ISSUE_FAILED", atms: { ...baseAtms, error: "x" } })
+  eq((await transition(nR1, "reject", store, { rejectReason: "ของหมด" })).status, "REJECTED")
+  const nR2 = await seed("T-REJ2", { status: "ISSUE_FAILED", atms: { ...baseAtms, gmId: 77, done: [0], error: "x" } })
+  eq(await transition(nR2, "reject", store, { rejectReason: "ของหมด" }).catch((e) => e.name), "ConflictError") // มี WD แล้ว ปฏิเสธตรง ๆ ไม่ได้
+  const closed = await transition(nR2, "closeManual", store, { rejectReason: "ปิดมือ: แก้ใน ATMS แล้ว" })
+  eq(closed.status, "REJECTED"); eq(closed.rejectReason, "ปิดมือ: แก้ใน ATMS แล้ว"); eq(closed.atms.gmId, 77)
+  eq((await (await swLogCol()).find({ no: nR2, action: "closeManual" }).toArray()).length, 1)
+  eq(await transition(nR1, "closeManual", store).catch((e) => e.name), "ConflictError")
+  eq(await transition("T-GONE", "reject", store).catch((e) => e.name), "NotFoundError")
+
+  // ---- I4: crash หลัง claim ห้ามเขียนทับ startedAt/gmId/done ----
+  const goodKey2 = process.env.STORE_ATMS_CRED_KEY
+  delete process.env.STORE_ATMS_CRED_KEY // getCreds ถอดรหัสไม่ได้ → throw หลังบันทึก startedAt
+  const nCr = await seed("T-CRASH", { atms: { ...baseAtms, gmId: 55, done: [0], approved: false } })
+  await issueRequest(nCr, store)
+  const cr = await get(nCr)
+  eq(cr.status, "ISSUE_FAILED"); eq(cr.atms.gmId, 55); eq(cr.atms.done, [0])
+  assert.ok(cr.atms.startedAt instanceof Date, "startedAt ต้องไม่หาย")
+  eq(cr.atms.needCreds, false); assert.ok(cr.atms.error && !/STORE_ATMS|key/i.test(cr.atms.error))
+  // ใบคืน: crash ก่อนยิง ต้องรักษา startedAt ที่ claimReturn บันทึกไว้
+  const rCr = await seed("T-RCRASH", { status: "ISSUED", lines: issuedLines(), atms: { ...baseAtms, gmId: 777, code: "WD-77", approved: true }, returns: [mkRet("r1", [[0, 1]])] })
+  await acceptReturn(rCr, "r1", store)
+  const rcr = (await get(rCr)).returns[0]
+  eq(rcr.status, "RETURN_FAILED"); assert.ok(rcr.atms.startedAt instanceof Date)
+  process.env.STORE_ATMS_CRED_KEY = goodKey2
+
+  // ---- 403 ตอนคืน ----
+  const r403 = await seed("T-R403", { status: "ISSUED", lines: issuedLines(), atms: { ...baseAtms, gmId: 777, code: "WD-77", approved: true }, returns: [mkRet("r1", [[0, 1]])] })
+  handler = (c) => c.path === "/atms/withdraw/777" ? { status: 403, body: { detail: "forbidden" } } : { status: 200, body: {} }
+  const r403r = await acceptReturn(r403, "r1", store)
+  eq(r403r.returns[0].status, "RETURN_FAILED"); eq(r403r.returns[0].atms.needCreds, false); eq(r403r.returns[0].atms.error, "WMS ต่อ api-ncac ไม่ได้ (key ไม่ตรง) — แจ้งแอดมิน")
+  eq(await acceptReturn("T-NONE", "r1", store).catch((e) => e.name), "NotFoundError")
 
   // ---- ล้างทิ้ง ----
   await client.db("sw_test").dropDatabase()

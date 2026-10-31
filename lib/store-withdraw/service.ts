@@ -1,9 +1,9 @@
-// lib/store-withdraw/service.ts — ตรรกะหลัง route: ตัวเลือก/ค้นหาจาก ATMS (บัญชีค้นข้อมูลของ WMS) · สร้างใบ · ขอคืน · จอคิว
+// lib/store-withdraw/service.ts ตรรกะหลัง route: ตัวเลือก/ค้นหาจาก ATMS (บัญชีค้นข้อมูลของ WMS) · สร้างใบ · ขอคืน · จอคิว
 import { randomBytes } from "node:crypto"
-import { atmsCacheCol, ddmmyyyyBkk, nextNo, swCol, writeLog, ConflictError, type Actor } from "./db"
+import { atmsCacheCol, ddmmyyyyBkk, nextNo, swCol, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
 import { queueSort, returnableQty } from "./core"
 import { HttpError } from "./http"
-import { ncac } from "./ncac"
+import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
 import type { AtmsProgress, SwKind, SwLine, SwRequest } from "./types"
 
 export const emptyAtms = (): AtmsProgress => ({
@@ -15,7 +15,7 @@ export const emptyAtms = (): AtmsProgress => ({
 function lookupCreds() {
   const username = process.env.ATMS_LOOKUP_USERNAME
   const password = process.env.ATMS_LOOKUP_PASSWORD
-  if (!username || !password) throw new HttpError("ยังไม่ได้ตั้งบัญชี ATMS สำหรับค้นข้อมูล", 503)
+  if (!username || !password) throw new HttpError("ยังไม่ได้ตั้งบัญชี ATMS สำหรับค้นข้อมูล แจ้งแอดมิน", 503)
   return { username, password }
 }
 
@@ -24,11 +24,14 @@ async function ncacRead<T>(path: string, query?: Record<string, string | number 
   let r: { status: number; data: T }
   try {
     r = await ncac<T>("GET", path, { creds, query })
-  } catch {
-    throw new HttpError("ติดต่อ ATMS ไม่ได้ในตอนนี้ — รอสักครู่แล้วลองใหม่", 502)
+  } catch (e) {
+    if (e instanceof NcacConfigError) throw new HttpError(NCAC_CONFIG_MSG, 502)
+    throw new HttpError("ติดต่อ ATMS ไม่ได้ตอนนี้ รอสักครู่แล้วลองใหม่", 502)
   }
-  if (r.status === 401) throw new HttpError("ATMS ไม่รับบัญชีค้นข้อมูลของ WMS — แจ้งผู้ดูแลให้ตรวจรหัสผ่าน", 502)
-  if (r.status < 200 || r.status >= 300) throw new HttpError("ATMS ตอบกลับผิดปกติ — ลองใหม่อีกครั้ง", 502)
+  // 403 = api-ncac ไม่รับ key ของ WMS (ตั้งค่า) · 401 = ATMS ไม่รับบัญชีค้นข้อมูล
+  if (r.status === 403) throw new HttpError(NCAC_CONFIG_MSG, 502)
+  if (r.status === 401) throw new HttpError("ATMS ไม่รับบัญชีค้นข้อมูลของ WMS แจ้งผู้ดูแลให้ตรวจรหัสผ่าน", 502)
+  if (r.status < 200 || r.status >= 300) throw new HttpError("ATMS ตอบกลับผิดปกติ ลองใหม่อีกครั้ง", 502)
   return r.data
 }
 
@@ -39,9 +42,23 @@ export async function getOptions(): Promise<Options> {
   const cache = await atmsCacheCol()
   const hit = await cache.findOne({ key: "options" })
   if (hit) return hit.data as Options
-  const d = await ncacRead<{ inventories?: Option[]; pick_tos?: Option[] }>("/atms/withdraw/options")
-  const data: Options = { inventories: d.inventories ?? [], pickTos: d.pick_tos ?? [] }
-  await cache.replaceOne({ key: "options" }, { key: "options", data, fetchedAt: new Date() }, { upsert: true })
+  let data: Options
+  try {
+    const d = await ncacRead<{ inventories?: Option[]; pick_tos?: Option[] }>("/atms/withdraw/options")
+    data = { inventories: d.inventories ?? [], pickTos: d.pick_tos ?? [] }
+  } catch (e) {
+    // ATMS / api-ncac ล่ม: ใช้สำเนาล่าสุด (ไม่มี TTL) ให้ยื่นคำขอต่อได้ · ไม่เคยมีสำเนา = ปล่อย error เดิม
+    const last = await cache.findOne({ key: "options:last" })
+    if (last) {
+      console.warn("[store-withdraw] ดึงตัวเลือกจาก ATMS ไม่ได้ ใช้สำเนาล่าสุด:", e instanceof Error ? e.message : e)
+      return last.data as Options
+    }
+    throw e
+  }
+  const now = new Date()
+  await cache.replaceOne({ key: "options" }, { key: "options", data, fetchedAt: now }, { upsert: true })
+  // สำเนาถาวร: ใช้ savedAt (ไม่ใช่ fetchedAt) เพื่อไม่ให้ TTL index ลบ
+  await cache.replaceOne({ key: "options:last" }, { key: "options:last", data, savedAt: now }, { upsert: true })
   return data
 }
 
@@ -85,6 +102,10 @@ async function mergeStock(rows: Row[], inventoryId?: number): Promise<Row[]> {
 
 export type CreateInput = Record<string, unknown>
 
+export const MAX_LINES = 50
+export const MAX_REMARK = 500
+export const MAX_PLATE = 20
+
 function posNum(v: unknown): number | null {
   const n = typeof v === "number" ? v : Number(v)
   return Number.isFinite(n) && n > 0 ? n : null
@@ -96,8 +117,11 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
   if (kind !== "stock" && kind !== "cutoff") throw new HttpError("เลือกประเภทคำขอ (เบิกจากสต๊อก หรือ เบิกตัดยอด)", 400)
   const plate = str(body.plate)
   if (!plate) throw new HttpError("ใส่ทะเบียนรถก่อนยื่นคำขอ", 400)
+  if (plate.length > MAX_PLATE) throw new HttpError(`ทะเบียนรถยาวเกิน ${MAX_PLATE} ตัวอักษร`, 400)
+  if (str(body.remark).length > MAX_REMARK) throw new HttpError(`หมายเหตุยาวเกิน ${MAX_REMARK} ตัวอักษร`, 400)
   const rawLines = Array.isArray(body.lines) ? (body.lines as Row[]) : []
   if (rawLines.length === 0) throw new HttpError("เพิ่มรายการอะไหล่อย่างน้อย 1 รายการ", 400)
+  if (rawLines.length > MAX_LINES) throw new HttpError(`ใส่ได้ไม่เกิน ${MAX_LINES} รายการต่อใบ แยกเป็นหลายใบ`, 400)
 
   const opts = await getOptions()
   const inv = opts.inventories.find((o) => o.id === Number(body.inventoryId))
@@ -111,9 +135,9 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
     const qty = posNum(r.requestedQty)
     const skuCode = str(r.skuCode)
     const skuName = str(r.skuName)
-    if (!Number.isInteger(skuId) || skuId <= 0) throw new HttpError("รายการอะไหล่ไม่ถูกต้อง — เลือกจากผลค้นหาใหม่", 400)
+    if (!Number.isInteger(skuId) || skuId <= 0) throw new HttpError("รายการอะไหล่ไม่ถูกต้อง เลือกจากผลค้นหาใหม่", 400)
     if (qty == null) throw new HttpError("จำนวนที่ขอต้องมากกว่า 0", 400)
-    if (!skuCode || !skuName) throw new HttpError("รายการอะไหล่ขาดรหัสหรือชื่อ — เลือกจากผลค้นหาใหม่", 400)
+    if (!skuCode || !skuName) throw new HttpError("รายการอะไหล่ขาดรหัสหรือชื่อ เลือกจากผลค้นหาใหม่", 400)
     const prev = merged.get(skuId)
     if (prev) { prev.requestedQty += qty; continue } // sku ซ้ำในใบเดียว = รวมให้
     merged.set(skuId, {
@@ -153,8 +177,8 @@ const RETURN_HOLD = ["RETURN_REQUESTED", "RETURNING", "RETURN_FAILED"]
 export async function requestReturn(no: string, body: CreateInput, actor: Actor): Promise<{ rid: string }> {
   const col = await swCol()
   const cur = await col.findOne({ no })
-  if (!cur) throw new ConflictError("ไม่พบใบขอเบิกนี้")
-  if (cur.requestedBy.email.trim().toLowerCase() !== actor.email) throw new HttpError("ใบนี้ไม่ใช่ของคุณ — ขอคืนได้เฉพาะใบที่ตัวเองยื่น", 403)
+  if (!cur) throw new NotFoundError()
+  if (cur.requestedBy.email.trim().toLowerCase() !== actor.email) throw new HttpError("ใบนี้ไม่ใช่ของคุณ ขอคืนได้เฉพาะใบที่ตัวเองยื่น", 403)
   if (cur.status !== "ISSUED" && cur.status !== "RECEIVED") throw new ConflictError("ใบนี้ยังไม่ได้ส่งของ ขอคืนไม่ได้")
   const raw = Array.isArray(body.lines) ? (body.lines as Row[]) : []
   if (raw.length === 0) throw new HttpError("เลือกรายการที่จะคืนอย่างน้อย 1 รายการ", 400)
@@ -173,7 +197,7 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
     for (const l of o.lines) pending.set(l.lineIndex, (pending.get(l.lineIndex) ?? 0) + l.qty)
   }
   for (const [i, q] of want) {
-    if (q > returnableQty(cur.lines[i], pending.get(i) ?? 0)) throw new ConflictError("คืนเกินจำนวนที่เบิกไป — ตรวจจำนวนที่คืนได้แล้วลองใหม่")
+    if (q > returnableQty(cur.lines[i], pending.get(i) ?? 0)) throw new ConflictError("คืนเกินจำนวนที่เบิกไป ตรวจจำนวนที่คืนได้แล้วลองใหม่")
   }
 
   const rid = "R" + randomBytes(3).toString("hex").toUpperCase()
@@ -182,7 +206,7 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
     lines: [...want].map(([lineIndex, qty]) => ({ lineIndex, qty })),
     requestedBy: actor.email, acceptedBy: null, atms: emptyAtms(), createdAt: new Date(),
   }
-  // เงื่อนไขจำนวน returns เดิม — ถ้ามีคนขอคืนซ้อนระหว่างนี้จะไม่ผ่าน (กันคืนเกิน)
+  // เงื่อนไขจำนวน returns เดิม ถ้ามีคนขอคืนซ้อนระหว่างนี้จะไม่ผ่าน (กันคืนเกิน)
   const after = await col.findOneAndUpdate(
     { no, status: cur.status, returns: { $size: cur.returns.length } },
     { $push: { returns: ret }, $set: { updatedAt: new Date() } },

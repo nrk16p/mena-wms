@@ -9,18 +9,31 @@ export type NcacOpts = {
 
 export const NCAC_TIMEOUT_MS = 90_000
 
+/** ตั้งค่า NCAC_BASE / NCAC_API_KEY ไม่ครบ — ยังไม่ได้ยิงอะไรออกไป (ไม่ใช่ปัญหาเครือข่าย ไม่ใช่รหัส ATMS ผิด) */
+export class NcacConfigError extends Error {
+  constructor() {
+    super("WMS ต่อ api-ncac ไม่ได้ (key ไม่ตรง) — แจ้งแอดมิน")
+    this.name = "NcacConfigError"
+  }
+}
+export const NCAC_CONFIG_MSG = "WMS ต่อ api-ncac ไม่ได้ (key ไม่ตรง) — แจ้งแอดมิน"
+
 export async function ncac<T = unknown>(
   method: "GET" | "POST",
   path: string,
   opts: NcacOpts = {},
 ): Promise<{ status: number; data: T }> {
   const base = process.env.NCAC_BASE
-  if (!base) throw new Error("ยังไม่ได้ตั้ง NCAC_BASE")
+  const apiKey = process.env.NCAC_API_KEY
+  if (!base || !apiKey) {
+    console.error("[store-withdraw] ยังไม่ได้ตั้ง NCAC_BASE หรือ NCAC_API_KEY")
+    throw new NcacConfigError()
+  }
   const qs = opts.query
     ? Object.entries(opts.query).filter(([, v]) => v !== undefined).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&")
     : ""
   const url = base.replace(/\/+$/, "") + path + (qs ? `?${qs}` : "")
-  const headers: Record<string, string> = { "x-api-key": process.env.NCAC_API_KEY ?? "" }
+  const headers: Record<string, string> = { "x-api-key": apiKey }
   if (opts.body !== undefined) headers["content-type"] = "application/json"
   if (opts.creds) {
     headers["X-ATMS-Username"] = opts.creds.username

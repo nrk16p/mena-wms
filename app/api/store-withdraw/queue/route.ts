@@ -1,6 +1,6 @@
 // GET /api/store-withdraw/queue?inv= → { columns: {NEW, PREPARING, READY, DONE_TODAY}, atmsKeyed: [] } (session เท่านั้น)
 // atmsKeyed = WD วันนี้ที่คีย์ตรงใน ATMS (แคช 3 นาที · อ่านด้วยบัญชีค้นข้อมูลของ WMS · ช้า/ล่ม = ว่าง ไม่ทำให้คิวหลักรอ) · ต้องมีสิทธิ์ store-queue แก้ได้
-import { NextResponse, type NextRequest } from "next/server"
+import { after, NextResponse, type NextRequest } from "next/server"
 import { getStoreActor, guard, isResponse } from "@/lib/store-withdraw/http"
 import { buildQueue, listAtmsKeyed } from "@/lib/store-withdraw/service"
 
@@ -17,9 +17,15 @@ export function GET(req: NextRequest) {
     if (isResponse(actor)) return actor
     const inv = Number(req.nextUrl.searchParams.get("inv"))
     const validInv = Number.isInteger(inv) && inv > 0
+    // เริ่มดึงรายการ ATMS ทันที (single-flight อยู่ใน service) แล้วให้ after() ถือฟังก์ชันไว้จนดึง+เขียนแคชเสร็จ
+    // ไม่งั้น Vercel อาจหยุดฟังก์ชันทันทีที่ตอบ → แคชไม่ถูกเขียน รอบ poll ถัดไปก็ว่างอีก
+    const keyed = validInv ? listAtmsKeyed(inv, new Date()) : null
+    if (keyed) {
+      try { after(() => keyed.then(() => undefined, () => undefined)) } catch { /* นอก request scope (เช่นเทสต์) — ปล่อยให้ทำงานตามปกติ */ }
+    }
     const [columns, atmsKeyed] = await Promise.all([
       buildQueue(validInv ? inv : null),
-      validInv ? withBudget(listAtmsKeyed(inv, new Date())) : Promise.resolve([]),
+      keyed ? withBudget(keyed) : Promise.resolve([]),
     ])
     return NextResponse.json({ columns, atmsKeyed })
   })

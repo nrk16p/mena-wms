@@ -1,7 +1,7 @@
 // scripts/check-store-withdraw-core.ts
 // รัน: STORE_ATMS_CRED_KEY=$(openssl rand -base64 32) npx tsx scripts/check-store-withdraw-core.ts
 import assert from "node:assert/strict"
-import { nextStatus, queueSort, issueLines, validateLineEdit, returnableQty, formatNo, waitMinutes } from "../lib/store-withdraw/core"
+import { nextStatus, queueSort, issueLines, allZeroIssue, clampLimit, validApiUser, validateLineEdit, returnableQty, formatNo, waitMinutes } from "../lib/store-withdraw/core"
 import { encryptSecret, decryptSecret } from "../lib/store-withdraw/crypto"
 import type { SwLine, SwRequest } from "../lib/store-withdraw/types"
 
@@ -28,6 +28,13 @@ eq(nextStatus({ status: "ISSUED", kind: "stock" }, "receive"), "RECEIVED")
 eq(nextStatus({ status: "ISSUED", kind: "cutoff" }, "receive"), null)
 for (const s of ["NEW", "PREPARING", "READY"] as const) eq(nextStatus({ status: s, kind: "stock" }, "reject"), "REJECTED")
 eq(nextStatus({ status: "ISSUING", kind: "stock" }, "reject"), null)
+// ISSUE_FAILED: ยังไม่มี WD ใน ATMS (gmId ว่าง) ปฏิเสธได้ · มี WD แล้วต้องปิดมือ
+eq(nextStatus({ status: "ISSUE_FAILED", kind: "stock", atms: { gmId: null } }, "reject"), "REJECTED")
+eq(nextStatus({ status: "ISSUE_FAILED", kind: "stock", atms: { gmId: 55 } }, "reject"), null)
+eq(nextStatus({ status: "ISSUE_FAILED", kind: "stock" }, "reject"), null) // ไม่รู้ gmId = ไม่ให้ปฏิเสธ (ปลอดภัยไว้ก่อน)
+eq(nextStatus({ status: "ISSUE_FAILED", kind: "stock", atms: { gmId: 55 } }, "closeManual"), "REJECTED")
+eq(nextStatus({ status: "ISSUE_FAILED", kind: "stock", atms: { gmId: null } }, "closeManual"), null)
+eq(nextStatus({ status: "READY", kind: "stock", atms: { gmId: 55 } }, "closeManual"), null)
 eq(nextStatus({ status: "NEW", kind: "stock" }, "cancel"), "CANCELLED")
 eq(nextStatus({ status: "PREPARING", kind: "stock" }, "cancel"), null)
 
@@ -36,6 +43,23 @@ const inp = [r("a", false, "10:00"), r("b", true, "10:30")]
 queueSort(inp); eq(inp.map(x => x.no), ["a", "b"]) // ไม่แก้อาร์เรย์เดิม
 
 eq(issueLines([line(), line({ issuedQty: 0 }), line({ issuedQty: 1 }), line({ requestedQty: 0 })]).map(x => x.index), [0, 2])
+
+eq(allZeroIssue([line({ issuedQty: 0 }), line({ issuedQty: 0 })]), true)
+eq(allZeroIssue([line({ issuedQty: 0 }), line({ issuedQty: null })]), false)
+eq(allZeroIssue([]), true)
+
+eq(clampLimit("0", 20, 50), 20)
+eq(clampLimit("-5", 20, 50), 1)
+eq(clampLimit("999", 20, 50), 50)
+eq(clampLimit(null, 20, 50), 20)
+eq(clampLimit("7", 20, 50), 7)
+
+eq(validApiUser("a.b@menatransport.co.th"), true)
+eq(validApiUser("A.B@MENATRANSPORT.CO.TH"), true)
+eq(validApiUser("a@gmail.com"), false)
+eq(validApiUser("a b@menatransport.co.th"), false)
+eq(validApiUser("@menatransport.co.th"), false)
+eq(validApiUser("a@x@menatransport.co.th"), false)
 
 eq(validateLineEdit(line({ requestedQty: 2 }), 3), "จ่ายได้ไม่เกินที่ขอ (2)")
 eq(validateLineEdit(line({ requestedQty: 2 }), -1), "จำนวนติดลบไม่ได้")

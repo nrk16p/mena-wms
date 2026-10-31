@@ -15,6 +15,8 @@ export type CardActions = {
   prepare: (i: QItem) => void
   issue: (i: QItem) => void
   reject: (i: QItem) => void
+  /** ปิดใบที่ WD เกิดใน ATMS แล้วแต่ไปต่อไม่ได้ (แก้ใน ATMS เองแล้ว) */
+  closeManual: (i: QItem) => void
   acceptReturn: (i: QItem) => void
   /** เปิดดูการ์ด — คิวใช้ตรวจใบกับ ATMS (ไม่บังคับ) */
   open?: (i: QItem) => void
@@ -46,6 +48,9 @@ export function TicketCard({ item, now, busy, actions, column }: {
   const failed = isReturn ? ret!.status === "RETURN_FAILED" : item.status === "ISSUE_FAILED"
   const issuing = busy === "issue" || (isReturn ? ret!.status === "RETURNING" : item.status === "ISSUING")
   const stale = !busy && issuing && now.getTime() - new Date(item.updatedAt).getTime() > STUCK_MS
+  // ยิง ATMS ไปแล้วไม่ได้คำตอบ: ใบค้าง ISSUING พร้อมข้อความ · ปุ่มลองใหม่เปิดเมื่อครบ 5 นาที (stale) กันตัดซ้ำ
+  const unknown = !busy && issuing && !!atms.error
+  const showError = failed || unknown
 
   const stripe = item.urgent && !done ? "border-l-red-500" : isReturn ? "border-l-purple-500" : "border-l-transparent"
   const tone = failed
@@ -103,9 +108,9 @@ export function TicketCard({ item, now, busy, actions, column }: {
         </p>
       )}
 
-      {failed && (
+      {showError && (
         <p role="alert" data-testid="atms-error" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>{atms.error || "ส่ง ATMS ไม่สำเร็จ — กดลองใหม่"}</span>
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>{atms.error || "ส่ง ATMS ไม่สำเร็จ กดลองใหม่"}</span>
         </p>
       )}
 
@@ -115,6 +120,8 @@ export function TicketCard({ item, now, busy, actions, column }: {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {busy === "other" ? (
             <span data-testid="working" className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-500"><Loader2 size={14} className="animate-spin" />กำลังทำรายการ</span>
+          ) : unknown && !stale ? (
+            <button type="button" data-testid="retry-wait" className={primary} disabled title="รอครบ 5 นาทีก่อนลองใหม่">ลองใหม่</button>
           ) : issuing && !stale ? (
             <span data-testid="issuing" className="inline-flex items-center gap-1.5 rounded-xl bg-violet-50 px-3 py-2 text-sm text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
               <Loader2 size={14} className="animate-spin" />กำลังตัดใน ATMS
@@ -122,7 +129,12 @@ export function TicketCard({ item, now, busy, actions, column }: {
           ) : isReturn ? (
             <button type="button" className={primary} onClick={() => actions.acceptReturn(item)}>{failed || stale ? "ลองใหม่" : "รับคืน"}</button>
           ) : failed || stale ? (
-            <button type="button" className={primary} onClick={() => actions.issue(item)}>ลองใหม่</button>
+            <>
+              <button type="button" className={primary} onClick={() => actions.issue(item)}>ลองใหม่</button>
+              {failed && (item.atms.gmId == null
+                ? <button type="button" className={ghost} onClick={() => actions.reject(item)}>ปฏิเสธ</button>
+                : <button type="button" data-testid="close-manual" className={ghost} onClick={() => actions.closeManual(item)}>ปิดใบ (แก้ใน ATMS แล้ว)</button>)}
+            </>
           ) : item.status === "NEW" ? (
             <>
               {item.kind === "cutoff"

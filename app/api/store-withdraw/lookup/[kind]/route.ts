@@ -1,6 +1,7 @@
 // GET /api/store-withdraw/lookup/{mr|sku|serial|wd}?q=&limit=&inv=&sku_id= — ค้นข้อมูล ATMS ด้วยบัญชีค้นข้อมูลของ WMS
 // sku: รวมสต๊อกจาก atms_sku_master (stockQty, ไม่มี = null)
 import { NextResponse, type NextRequest } from "next/server"
+import { clampLimit } from "@/lib/store-withdraw/core"
 import { getActor, guard, isResponse, err, type RouteCtx } from "@/lib/store-withdraw/http"
 import { lookup, lookupKind } from "@/lib/store-withdraw/service"
 
@@ -17,7 +18,7 @@ export function GET(req: NextRequest, ctx: RouteCtx<{ kind: string }>) {
     const sp = req.nextUrl.searchParams
     const q = (sp.get("q") ?? "").trim()
     if (q.length < 2) return NextResponse.json({ results: [] })
-    const limit = Math.min(parseInt(sp.get("limit") ?? "20", 10) || 20, 50)
+    const limit = clampLimit(sp.get("limit"), 20, 50)
     const results = await lookup(kind, q, limit, optNum(sp.get("inv") ?? sp.get("inventory_id")), optNum(sp.get("sku_id")))
     return NextResponse.json({ results })
   })

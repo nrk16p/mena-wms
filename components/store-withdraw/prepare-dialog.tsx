@@ -34,11 +34,13 @@ export function PrepareDialog({ item, onClose, onReady }: { item: QItem; onClose
     const n = Number(raw)
     const bad = validateLineEdit(l, n)
     if (bad) return bad
-    if (n < l.requestedQty && !rows[i].short) return "จ่ายน้อยกว่าที่ขอ — ติ๊ก \"ของขาด\" หรือแก้จำนวนให้ครบก่อน"
+    if (n < l.requestedQty && !rows[i].short) return "จ่ายน้อยกว่าที่ขอ ติ๊ก \"ของขาด\" หรือแก้จำนวนให้ครบก่อน"
     return null
   })
   const allHandled = rows.every((r) => r.checked || r.short)
-  const canSubmit = !busy && allHandled && problems.every((p) => p === null)
+  // จ่าย 0 ทุกบรรทัด = ไม่มีอะไรให้ตัด ATMS ใบจะค้าง → ให้ปฏิเสธแทน
+  const noneIssued = rows.every((r) => r.qty.trim() !== "" && Number(r.qty) === 0)
+  const canSubmit = !busy && allHandled && !noneIssued && problems.every((p) => p === null)
 
   const submit = async () => {
     setBusy(true)
@@ -84,6 +86,7 @@ export function PrepareDialog({ item, onClose, onReady }: { item: QItem; onClose
             )
           })}
         </ul>
+        {noneIssued && <p data-testid="none-issued" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">ไม่มีของจ่ายเลย กดปฏิเสธแทน</p>}
         {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-xl border border-[#E2E8E4] px-4 py-2.5 text-sm dark:border-white/10">ปิด</button>

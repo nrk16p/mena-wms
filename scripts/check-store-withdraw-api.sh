@@ -40,7 +40,7 @@ fi
 
 echo "== เปิด Mongo ในเครื่อง + api-ncac จำลอง"
 echo '{}' > "$TMP/ctl.json"
-npx tsx scripts/store-withdraw-test-infra.ts "$TMP/infra.json" "$TMP/ncac-calls.log" "$TMP/ctl.json" > "$TMP/infra.out" 2>&1 &
+NCAC_EXPECT_KEY=k-test npx tsx scripts/store-withdraw-test-infra.ts "$TMP/infra.json" "$TMP/ncac-calls.log" "$TMP/ctl.json" > "$TMP/infra.out" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 120); do [ -f "$TMP/infra.json" ] && break; sleep 1; done
 [ -f "$TMP/infra.json" ] || { echo "infra ไม่ขึ้น"; cat "$TMP/infra.out"; exit 1; }
@@ -50,7 +50,7 @@ NCAC_BASE=$(python3 -c "import json;print(json.load(open('$TMP/infra.json'))['nc
 echo "== เปิด next dev :$PORT"
 MONGO_URI="$MONGO_URI" MONGO_DB=master_data STORE_WITHDRAW_DB=sw_api_test NCAC_BASE="$NCAC_BASE" NCAC_API_KEY=k-test \
   ATMS_LOOKUP_USERNAME=svc ATMS_LOOKUP_PASSWORD=svcpw STORE_ATMS_CRED_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())") \
-  STORE_WITHDRAW_API_KEYS="key-one,key-two" NEXTAUTH_URL="http://localhost:$PORT" NEXTAUTH_SECRET="$SECRET" \
+  STORE_WITHDRAW_API_KEYS="key-one,key-two" STORE_WITHDRAW_TICK_KEY="tick-key-1" NEXTAUTH_URL="http://localhost:$PORT" NEXTAUTH_SECRET="$SECRET" \
   npx next dev -p $PORT > "$TMP/dev.out" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 90); do curl -s -o /dev/null "http://localhost:$PORT/login" && break; sleep 1; done
@@ -83,6 +83,8 @@ expect "options มีคลัง+จุดประสงค์" "d['inventori
 code 200 "lookup sku" -H "$R" "$B/lookup/sku?q=oil&inv=4"
 expect "sku รวมสต๊อก (501=12, 599=null)" "[x['stockQty'] for x in d['results']]==[12,None]"
 code 200 "lookup mr" -H "$R" "$B/lookup/mr?q=MR1"
+code 200 "lookup limit ติดลบ" -H "$R" "$B/lookup/mr?q=MR1&limit=-5"
+code 200 "lookup limit 0" -H "$R" "$B/lookup/mr?q=MR1&limit=0"
 code 400 "lookup kind ผิด" -H "$R" "$B/lookup/bogus?q=x"
 code 200 "lookup cutoff" -H "$R" "$B/lookup/cutoff?mr=MR-1&inv=4"
 expect "cutoff คืน lines เป็น list" "isinstance(d['lines'],list)"
@@ -139,6 +141,9 @@ code 200 "claim" -H "$S" -X POST "$B/$NO/claim"
 expect "PREPARING + claimedBy" "d['request']['status']=='PREPARING' and d['request']['claimedBy']['email']=='store1@menatransport.co.th'"
 code 409 "cancel หลัง claim" -H "$R" -X POST "$B/$NO/cancel"
 code 409 "claim ซ้ำ" -H "$S" -X POST "$B/$NO/claim"
+code 404 "claim ใบที่ไม่มี" -H "$S" -X POST "$B/SW-0000-999/claim"
+code 404 "ready ใบที่ไม่มี" -H "$S" -X POST "$B/SW-0000-999/ready"
+code 404 "ดูใบที่ไม่มี" -H "$R" "$B/SW-0000-999"
 code 400 "แก้จำนวนเกินที่ขอ" -H "$S" -H "$J" -X PATCH "$B/$NO/lines" -d '{"lines":[{"index":0,"issuedQty":9,"short":false}]}'
 code 200 "แก้จำนวนจ่าย" -H "$S" -H "$J" -X PATCH "$B/$NO/lines" -d '{"lines":[{"index":0,"issuedQty":4,"short":true},{"index":1,"issuedQty":1,"short":false}]}'
 expect "issuedQty=4 short" "d['request']['lines'][0]['issuedQty']==4 and d['request']['lines'][0]['short']==True"
@@ -147,11 +152,58 @@ code 409 "issue ก่อน ready" -H "$S" -X POST "$B/$NO/issue"
 code 200 "ready" -H "$S" -X POST "$B/$NO/ready"
 code 409 "แก้บรรทัดหลัง ready" -H "$S" -H "$J" -X PATCH "$B/$NO/lines" -d '{"lines":[{"index":0,"issuedQty":1,"short":false}]}'
 
+echo "== จัดครบ: จ่าย 0 ทุกบรรทัดไม่ได้"
+code 201 "สร้างใบจ่ายศูนย์" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"70-0000","lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":2}]}'
+NOZ=$(jget "d['no']")
+code 200 "claim ใบจ่ายศูนย์" -H "$S" -X POST "$B/$NOZ/claim"
+code 200 "ใส่จ่าย 0 + ของขาด" -H "$S" -H "$J" -X PATCH "$B/$NOZ/lines" -d '{"lines":[{"index":0,"issuedQty":0,"short":true}]}'
+code 400 "ready จ่าย 0 ทุกบรรทัด" -H "$S" -X POST "$B/$NOZ/ready"
+expect "ข้อความบอกให้ปฏิเสธแทน" "'ปฏิเสธแทน' in d['error']"
+code 200 "ปฏิเสธใบจ่ายศูนย์" -H "$S" -H "$J" -X POST "$B/$NOZ/reject" -d '{"reason":"ของหมด"}'
+
+echo "== สัญญา api-ncac: 403 = ตั้งค่า / ไม่รู้ผล = ค้าง ISSUING / ปฏิเสธและปิดมือจาก ISSUE_FAILED"
+CUT='{"kind":"cutoff","inventoryId":4,"pickToId":7,"plate":"70-5555","lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":1}]}'
+code 201 "สร้างใบตัดยอด A" -H "$R" -H "$J" -X POST "$B" -d "$CUT"
+NA=$(jget "d['no']")
+echo '{"forbid":true}' > "$TMP/ctl.json"
+code 200 "issue ตอน ncac ตอบ 403" -H "$S" -X POST "$B/$NA/issue"
+expect "ISSUE_FAILED + ข้อความตั้งค่า + ไม่ขอผูกบัญชีใหม่" "d['request']['status']=='ISSUE_FAILED' and d['request']['atms']['needCreds']==False and 'api-ncac' in d['request']['atms']['error']"
+code 502 "ผูกบัญชีตอน ncac ตอบ 403" -H "$S" -H "$J" -X POST "$B/atms-link" -d '{"username":"store1","password":"secret-pw"}'
+expect "ข้อความตั้งค่า ไม่ใช่รหัสผิด" "'api-ncac' in d['error']"
+echo '{}' > "$TMP/ctl.json"
+code 200 "ปฏิเสธใบ ISSUE_FAILED ที่ยังไม่มี WD" -H "$S" -H "$J" -X POST "$B/$NA/reject" -d '{"reason":"ยกเลิกงาน"}'
+expect "REJECTED" "d['request']['status']=='REJECTED'"
+
+code 201 "สร้างใบตัดยอด B" -H "$R" -H "$J" -X POST "$B" -d "$CUT"
+NB=$(jget "d['no']")
+echo '{"issue":"drop"}' > "$TMP/ctl.json"
+code 200 "issue ตอนเชื่อมต่อหลุด" -H "$S" -X POST "$B/$NB/issue"
+expect "ค้าง ISSUING ไม่ใช่ ISSUE_FAILED + บอกรอ 5 นาที" "d['request']['status']=='ISSUING' and 'รอ 5 นาที' in d['request']['atms']['error']"
+echo '{}' > "$TMP/ctl.json"
+N0=$(grep -c "POST /atms/withdraw/issue" "$TMP/ncac-calls.log")
+code 409 "กดซ้ำทันทีไม่ได้ (กัน WD ซ้ำ)" -H "$S" -X POST "$B/$NB/issue"
+[ "$(grep -c 'POST /atms/withdraw/issue' "$TMP/ncac-calls.log")" = "$N0" ] && ok "ไม่ยิง ncac ซ้ำ" || bad "ยิง ncac ซ้ำทั้งที่ยังไม่ครบ 5 นาที"
+code 409 "ปฏิเสธใบที่ค้าง ISSUING ไม่ได้" -H "$S" -H "$J" -X POST "$B/$NB/reject" -d '{"reason":"x"}'
+
+code 201 "สร้างใบตัดยอด C" -H "$R" -H "$J" -X POST "$B" -d "$CUT"
+NC=$(jget "d['no']")
+echo '{"issue":"409"}' > "$TMP/ctl.json"
+code 200 "issue ทำไม่ครบ (มี WD แล้ว)" -H "$S" -X POST "$B/$NC/issue"
+expect "ISSUE_FAILED และมี gmId" "d['request']['status']=='ISSUE_FAILED' and d['request']['atms']['gmId']==9001"
+echo '{}' > "$TMP/ctl.json"
+code 409 "ปฏิเสธตรง ๆ ไม่ได้เมื่อมี WD แล้ว" -H "$S" -H "$J" -X POST "$B/$NC/reject" -d '{"reason":"x"}'
+code 400 "ปิดมือต้องมีหมายเหตุ" -H "$S" -H "$J" -X POST "$B/$NC/close-manual" -d '{}'
+code 403 "ผู้ขอปิดมือไม่ได้" -H "$R" -H "$J" -X POST "$B/$NC/close-manual" -d '{"note":"x"}'
+code 200 "ปิดมือ" -H "$S" -H "$J" -X POST "$B/$NC/close-manual" -d '{"note":"ลบ WD ใน ATMS แล้ว"}'
+expect "REJECTED + ขึ้นต้น ปิดมือ" "d['request']['status']=='REJECTED' and d['request']['rejectReason'].startswith('ปิดมือ: ')"
+
 echo "== x-api-key"
 code 201 "api-key สร้าง" -H "x-api-key: key-two" -H "x-user: ext.user@menatransport.co.th" -H "$J" -X POST "$B" -d "$BODY"
 APINO=$(jget "d['no']")
 code 200 "api-key ดูรายละเอียด" -H "x-api-key: key-two" -H "x-user: ext.user@menatransport.co.th" "$B/$APINO"
 expect "via=api และ requestedBy จาก x-user" "d['request']['requestedBy']['via']=='api' and d['request']['requestedBy']['email']=='ext.user@menatransport.co.th'"
+code 400 "x-user ไม่ใช่อีเมลบริษัท" -H "x-api-key: key-one" -H "x-user: someone@gmail.com" -H "$J" -X POST "$B" -d "$BODY"
+code 400 "x-user มีช่องว่าง" -H "x-api-key: key-one" -H "x-user: a b@menatransport.co.th" -H "$J" -X POST "$B" -d "$BODY"
 code 400 "api-key ไม่มี x-user" -H "x-api-key: key-one" -H "$J" -X POST "$B" -d "$BODY"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" -X POST "$B/$NO/issue")
 if [ "$CODE" = 401 ] || [ "$CODE" = 403 ]; then ok "api-key issue ถูกปฏิเสธ ($CODE)"; else bad "api-key issue ได้ $CODE"; fi
@@ -163,7 +215,11 @@ echo "== drift"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$B/drift-tick")
 if [ "$CODE" = 401 ] || [ "$CODE" = 403 ] || [ "$CODE" = 307 ]; then ok "drift-tick ไม่มีกุญแจถูกปฏิเสธ ($CODE)"; else bad "drift-tick ไม่มีกุญแจได้ $CODE"; fi
 code 401 "drift-tick กุญแจผิด" -H "x-api-key: wrong" -X POST "$B/drift-tick"
-code 200 "drift-tick กุญแจถูก" -H "x-api-key: key-one" -X POST "$B/drift-tick"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: key-one" -X POST "$B/drift-tick")
+if [ "$CODE" = 401 ] || [ "$CODE" = 403 ] || [ "$CODE" = 307 ]; then ok "กุญแจผู้ขอเรียก drift-tick ไม่ได้ ($CODE)"; else bad "กุญแจผู้ขอเรียก drift-tick ได้ $CODE"; fi
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: tick-key-1" -H "x-user: ext.user@menatransport.co.th" -H "$J" -X POST "$B" -d "$BODY")
+if [ "$CODE" = 401 ] || [ "$CODE" = 403 ] || [ "$CODE" = 307 ]; then ok "กุญแจ tick ยื่นคำขอไม่ได้ ($CODE)"; else bad "กุญแจ tick ยื่นคำขอได้ $CODE"; fi
+code 200 "drift-tick กุญแจถูก" -H "x-api-key: tick-key-1" -X POST "$B/drift-tick"
 expect "drift-tick ตอบ checked/drifted/skipped" "sorted(d.keys())==['checked','drifted','skipped']"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" -X POST "$B/$NO/check")
 if [ "$CODE" = 401 ] || [ "$CODE" = 403 ]; then ok "api-key check ถูกปฏิเสธ ($CODE)"; else bad "api-key check ได้ $CODE"; fi

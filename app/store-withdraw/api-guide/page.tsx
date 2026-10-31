@@ -34,7 +34,7 @@ export default function Page() {
           <p>ทุก endpoint ด้านล่างส่ง 2 header นี้ (ขอ API key จากผู้ดูแลระบบ WMS):</p>
           <ul className="ml-1 space-y-2">
             <Param name="x-api-key" required>กุญแจของระบบที่เรียก</Param>
-            <Param name="x-user" required>อีเมลของ<b>คนที่ทำรายการจริง</b> — ใบจะเป็นของอีเมลนี้ และเรียกดู/ยกเลิก/รับของ/ขอคืนได้เฉพาะใบของอีเมลตัวเอง</Param>
+            <Param name="x-user" required>อีเมล @menatransport.co.th ของ<b>คนที่ทำรายการจริง</b> ใบจะเป็นของอีเมลนี้ และเรียกดู/ยกเลิก/รับของ/ขอคืนได้เฉพาะใบของอีเมลตัวเอง</Param>
           </ul>
           <p>งานฝั่งสโตร์ (รับงาน จัดของ ส่งของ ปฏิเสธ รับคืน) <b>เรียกด้วย API key ไม่ได้</b> ต้องล็อกอินเข้า WMS เอง</p>
         </Section>
@@ -132,7 +132,7 @@ export default function Page() {
         <Section icon={TriangleAlert} title="รหัส error">
           <p>ทุก error ตอบเป็น <code>{`{ "error": "ข้อความภาษาไทย" }`}</code></p>
           <ul className="ml-1 space-y-2">
-            <Param name="400">ข้อมูลไม่ครบหรือไม่ถูกต้อง · ไม่ได้ส่ง <code>x-user</code> หรืออีเมลผิดรูปแบบ</Param>
+            <Param name="400">ข้อมูลไม่ครบหรือไม่ถูกต้อง · ไม่ได้ส่ง <code>x-user</code> หรือไม่ใช่อีเมล @menatransport.co.th · ใส่เกิน 50 รายการ หมายเหตุเกิน 500 ตัวอักษร ทะเบียนเกิน 20 ตัวอักษร</Param>
             <Param name="401">API key ไม่ถูกต้อง (หรือไม่ได้ล็อกอิน)</Param>
             <Param name="403">ใบไม่ใช่ของ <code>x-user</code> · ลิสต์โดยไม่ใส่ <code>mine=1</code> · เรียกงานสโตร์ด้วย API key</Param>
             <Param name="404">ไม่พบใบเลขที่นั้น</Param>

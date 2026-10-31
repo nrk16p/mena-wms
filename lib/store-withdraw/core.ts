@@ -2,7 +2,7 @@
 // ไม่แตะ DB/env เพื่อให้ทดสอบตรง ๆ ด้วย tsx ได้
 import type { SwAction, SwLine, SwRequest, SwStatus } from "./types"
 
-export function nextStatus(req: Pick<SwRequest, "status" | "kind">, action: SwAction): SwStatus | null {
+export function nextStatus(req: Pick<SwRequest, "status" | "kind"> & { atms?: { gmId: number | null } }, action: SwAction): SwStatus | null {
   const { status, kind } = req
   switch (action) {
     case "claim": return status === "NEW" ? "PREPARING" : null
@@ -14,7 +14,13 @@ export function nextStatus(req: Pick<SwRequest, "status" | "kind">, action: SwAc
     case "issued": return status === "ISSUING" ? "ISSUED" : null
     case "issueFailed": return status === "ISSUING" ? "ISSUE_FAILED" : null
     case "receive": return status === "ISSUED" && kind === "stock" ? "RECEIVED" : null
-    case "reject": return status === "NEW" || status === "PREPARING" || status === "READY" ? "REJECTED" : null
+    case "reject":
+      if (status === "NEW" || status === "PREPARING" || status === "READY") return "REJECTED"
+      // ส่ง ATMS พลาดและยังไม่มี WD เกิดขึ้น (รู้แน่ว่า gmId ว่าง) = ปฏิเสธได้ ไม่งั้นใบค้างตลอด
+      if (status === "ISSUE_FAILED" && req.atms && req.atms.gmId == null) return "REJECTED"
+      return null
+    // WD เกิดใน ATMS แล้วแต่ไปต่อไม่ได้ — สโตร์แก้ใน ATMS เองแล้วปิดใบ (ต้องมีหมายเหตุ)
+    case "closeManual": return status === "ISSUE_FAILED" && req.atms && req.atms.gmId != null ? "REJECTED" : null
     case "cancel": return status === "NEW" ? "CANCELLED" : null
   }
   return null
@@ -51,3 +57,16 @@ export function formatNo(yymm: string, seq: number): string {
 export function waitMinutes(createdAt: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / 60000))
 }
+
+/** ไม่มีบรรทัดไหนจ่ายได้เลย (จ่าย 0 ทุกบรรทัด) */
+export const allZeroIssue = (lines: SwLine[]): boolean => issueLines(lines).length === 0
+
+/** limit จาก query: ค่าเสีย/0 = ค่าเริ่มต้น · ติดลบ = 1 · เกิน max = max */
+export function clampLimit(raw: string | null, def: number, max: number): number {
+  const n = parseInt(raw ?? "", 10)
+  if (!Number.isFinite(n) || n === 0) return def
+  return Math.min(Math.max(n, 1), max)
+}
+
+/** x-user ของ API key ต้องเป็นอีเมลบริษัทเท่านั้น */
+export const validApiUser = (s: string): boolean => /^[^@\s]+@menatransport\.co\.th$/i.test(s)

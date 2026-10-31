@@ -11,7 +11,10 @@ if (!out) throw new Error("usage: store-withdraw-test-infra.ts <out.json> <calls
 const callsLog = process.argv[3]
 // argv[4] (ไม่บังคับ) = ไฟล์ JSON คุมพฤติกรรมจำลองระหว่างรัน เช่น {"issue":"409","issueDelayMs":1500}
 const ctlFile = process.argv[4]
-const ctl = (): { issue?: string; issueDelayMs?: number; list?: string } => {
+// สัญญา api-ncac: x-api-key ไม่ตรง/ไม่มี = 403 (401 = ATMS ไม่รับบัญชีผู้ใช้เท่านั้น) · key ที่ถูกอ่านจาก env NCAC_EXPECT_KEY (ไม่ตั้ง = "k-test")
+const EXPECT_KEY = process.env.NCAC_EXPECT_KEY || "k-test"
+// issue: "409" = ทำไม่ครบ · "drop" = ตัดการเชื่อมต่อกลางคัน (ไม่รู้ผล) · forbid=true = ตอบ 403 ทุกเส้นทาง
+const ctl = (): { issue?: string; issueDelayMs?: number; list?: string; forbid?: boolean } => {
   try { return ctlFile ? JSON.parse(fs.readFileSync(ctlFile, "utf8")) : {} } catch { return {} }
 }
 
@@ -38,6 +41,7 @@ void (async () => {
     req.on("end", () => {
       if (callsLog) fs.appendFileSync(callsLog, `${req.method} ${u.pathname} user=${req.headers["x-atms-username"] ?? ""}\n`)
       const user = String(req.headers["x-atms-username"] ?? "")
+      if (req.headers["x-api-key"] !== EXPECT_KEY || ctl().forbid) return json(res, 403, { detail: "forbidden: bad x-api-key" })
       if (u.pathname === "/atms/withdraw/whoami") {
         if (user === "badstore") return json(res, 401, { detail: "login failed" })
         return json(res, 200, { username: user, email: user === "store1" ? "store1@menatransport.co.th" : "someone.else@menatransport.co.th", name: "สโตร์ 1", branch: "ลาดกระบัง" })
@@ -50,6 +54,7 @@ void (async () => {
       }
       if (u.pathname === "/atms/withdraw/issue") {
         const c = ctl()
+        if (c.issue === "drop") return void req.socket.destroy()
         const reply = () => c.issue === "409"
           ? json(res, 409, { detail: "ATMS ตัดสต๊อกบรรทัดที่ 2 ไม่สำเร็จ: สต๊อกไม่พอ", progress: { gm_id: 9001, done: [0], approved: false, code: "LBWD-9001" } })
           : json(res, 200, { progress: { gm_id: 9001, done: [0], approved: true, code: "LBWD-9001" } })

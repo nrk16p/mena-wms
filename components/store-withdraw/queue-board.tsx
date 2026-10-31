@@ -201,6 +201,7 @@ export function QueueBoard() {
       const res = await api(`/api/store-withdraw/${i.no}/issue`, { method: "POST" })
       const r = res.request as QItem
       if (r.status === "ISSUED") await swalToast("success", `ตัดใน ATMS แล้ว เลข WD ${r.atms.code ?? "-"}`)
+      else if (r.status === "ISSUING") await swalToast("warning", r.atms.error || "ยังไม่รู้ผลจาก ATMS รอ 5 นาทีแล้วกดลองใหม่")
       else if (r.status === "ISSUE_FAILED") {
         if (r.atms.needCreds) { setLink({ linked: false }); askLink(() => { void issue(i) }) }
         else await swalToast("error", r.atms.error || "ส่ง ATMS ไม่สำเร็จ")
@@ -219,6 +220,16 @@ export function QueueBoard() {
     setBusyKey(k, "other")
     try { await api(`/api/store-withdraw/${i.no}/reject`, { method: "POST", body: { reason: r.value.trim() } }); await load() }
     catch (e) { await swalToast("warning", errMsg(e, "ปฏิเสธไม่สำเร็จ")); await load() }
+    finally { setBusyKey(k, null) }
+  }
+
+  const closeManual = async (i: QItem) => {
+    const r = await swalTextInput({ title: `ปิดใบ ${i.no}`, label: `ใบนี้มี WD ${i.atms.code ?? `#${i.atms.gmId}`} ใน ATMS แล้ว ใส่หมายเหตุว่าแก้อะไรไปบ้าง`, placeholder: "เช่น ลบ WD ใน ATMS แล้ว / คีย์เองแล้ว", required: true, confirmText: "ปิดใบ", danger: true })
+    if (!r.isConfirmed || !r.value?.trim()) return
+    const k = itemKey(i)
+    setBusyKey(k, "other")
+    try { await api(`/api/store-withdraw/${i.no}/close-manual`, { method: "POST", body: { note: r.value.trim() } }); await load() }
+    catch (e) { await swalToast("warning", errMsg(e, "ปิดใบไม่สำเร็จ")); await load() }
     finally { setBusyKey(k, null) }
   }
 
@@ -268,7 +279,7 @@ export function QueueBoard() {
       .catch(() => {})
   }
 
-  const actions: CardActions = { claim, prepare: setPrep, issue, reject, acceptReturn, open }
+  const actions: CardActions = { claim, prepare: setPrep, issue, reject, closeManual, acceptReturn, open }
   const total = data ? COLS.reduce((n, c) => n + data.columns[c.key].length, 0) : 0
 
   return (
@@ -306,7 +317,7 @@ export function QueueBoard() {
 
       {link && !link.linked && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-          <span>ยังไม่ได้ผูกบัญชี ATMS — ผูกก่อนจึงจะส่งของ ตัดยอด หรือรับคืนได้</span>
+          <span>ยังไม่ได้ผูกบัญชี ATMS ผูกก่อนจึงจะส่งของ ตัดยอด หรือรับคืนได้</span>
           <button type="button" onClick={() => setLinkOpen(true)} className="rounded-lg bg-amber-600 px-3 py-1.5 text-white">ผูกบัญชี</button>
         </div>
       )}

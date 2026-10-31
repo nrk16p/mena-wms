@@ -21,10 +21,10 @@ const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\
 
 // เบิกอะไหล่หน้าร้านคลัง: ระบบภายนอกเรียกฝั่งผู้ขอได้ด้วย x-api-key (env STORE_WITHDRAW_API_KEYS คั่นด้วย comma) + x-user (อีเมล)
 // งานของสโตร์ (claim/lines/ready/issue/reject/check/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
-// /api/store-withdraw/drift-tick = งานตั้งเวลาจาก api-ncac ใช้ x-api-key อย่างเดียว (ผ่านฟังก์ชันนี้โดยไม่ต้องมี session · route ตรวจกุญแจซ้ำ)
+// /api/store-withdraw/drift-tick = งานตั้งเวลาจาก api-ncac ใช้ x-api-key = STORE_WITHDRAW_TICK_KEY อย่างเดียว (ผ่านฟังก์ชันนี้โดยไม่ต้องมี session · route ตรวจกุญแจซ้ำ)
 const STORE_WITHDRAW_SESSION_ONLY = [
   /^\/api\/store-withdraw\/(queue|atms-link|live-stock)$/,
-  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|check)$/,
+  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check)$/,
   /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]
 
@@ -41,8 +41,12 @@ function storeWithdrawKeyOk(pathname: string, request: NextRequest): boolean {
   if (STORE_WITHDRAW_SESSION_ONLY.some((r) => r.test(pathname))) return false
   const key = request.headers.get("x-api-key")
   if (!key) return false // x-user (อีเมล) ให้ route ตรวจและตอบ 400 ภาษาไทยเอง
+  const list = (v: string | undefined) => (v ?? "").split(",").map((x) => x.trim()).filter(Boolean)
+  const tick = list(process.env.STORE_WITHDRAW_TICK_KEY)
+  // drift-tick รับเฉพาะกุญแจ tick · endpoint อื่นรับเฉพาะกุญแจผู้ขอ (แยกกันขาด ต่อให้ตั้งค่าซ้ำก็ไม่ปน)
+  const keys = pathname === "/api/store-withdraw/drift-tick" ? tick : list(process.env.STORE_WITHDRAW_API_KEYS).filter((k) => !tick.includes(k))
   let hit = false
-  for (const k of (process.env.STORE_WITHDRAW_API_KEYS ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
+  for (const k of keys) {
     if (sameSecret(key, k)) hit = true
   }
   return hit
