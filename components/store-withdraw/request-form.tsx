@@ -10,7 +10,7 @@ import { SkuPicker, type SkuHit } from "./sku-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
 
 type Opt = { id: number; name: string }
-type FormLine = { skuId: number; skuCode: string; skuName: string; qty: string; stockQty: number | null; mrItemId: number | null; mrItemLabel: string | null; remark: string }
+type FormLine = { skuId: number; skuCode: string; skuName: string; qty: string; stockQty: number | null; mrItemId: number | null; mrItemLabel: string | null; remark: string; auto?: boolean }
 
 const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
@@ -32,6 +32,7 @@ export function RequestForm() {
   const [remark, setRemark] = useState("")
   const [lines, setLines] = useState<FormLine[]>([])
   const [cutoffMsg, setCutoffMsg] = useState("")
+  const [cutoffErr, setCutoffErr] = useState("")
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -60,14 +61,15 @@ export function RequestForm() {
       .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "ดึงใบรับของไม่สำเร็จ"); return j })
       .then((j: { lines?: { skuId: number; skuCode: string; skuName: string; qty: number }[] }) => {
         const got = j.lines ?? []
+        setCutoffErr("")
         if (got.length === 0) { setCutoffMsg("ยังไม่เจอใบรับของ MR นี้ ใส่รายการเองได้"); return }
         setCutoffMsg(`เติมจากใบรับของ ${got.length} รายการแล้ว แก้หรือลบได้`)
         setLines((cur) => {
           const have = new Set(cur.map((l) => l.skuId))
-          return [...cur, ...got.filter((g) => !have.has(g.skuId)).map((g) => ({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: null, mrItemId: null, mrItemLabel: null, remark: "" }))]
+          return [...cur, ...got.filter((g) => !have.has(g.skuId)).map((g) => ({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: null, mrItemId: null, mrItemLabel: null, remark: "", auto: true }))]
         })
       })
-      .catch((e) => { if (!ctl.signal.aborted) { fetchedFor.current = ""; setCutoffMsg(e instanceof Error ? e.message : "ดึงใบรับของไม่สำเร็จ") } })
+      .catch((e) => { if (!ctl.signal.aborted) { fetchedFor.current = ""; setCutoffMsg(""); setCutoffErr(e instanceof Error ? e.message : "ดึงใบรับของไม่สำเร็จ") } })
     return () => ctl.abort()
   }, [kind, mrCode, inventoryId])
 
@@ -77,6 +79,9 @@ export function RequestForm() {
       return [...cur, { skuId: s.skuId, skuCode: s.skuCode, skuName: s.skuName, qty: "1", stockQty: s.stockQty, mrItemId: mrItems.length === 1 ? mrItems[0].id : null, mrItemLabel: mrItems.length === 1 ? mrItems[0].label : null, remark: "" }]
     })
   }, [mrItems])
+
+  // เปลี่ยน MR/คลัง → ทิ้งรายการที่เติมจากใบรับของเดิม เหลือเฉพาะที่เพิ่มเอง
+  const dropAuto = () => { setLines((c) => c.filter((l) => !l.auto)); setCutoffMsg(""); setCutoffErr(""); fetchedFor.current = "" }
 
   const patch = (i: number, p: Partial<FormLine>) => setLines((cur) => cur.map((l, k) => (k === i ? { ...l, ...p } : l)))
   const setMrItem = (i: number, id: string) => {
@@ -142,7 +147,7 @@ export function RequestForm() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelCls} htmlFor="sw-inv">คลัง</label>
-            <select id="sw-inv" className={inputCls} value={inventoryId} onChange={(e) => setInventoryId(Number(e.target.value))}>
+            <select id="sw-inv" className={inputCls} value={inventoryId} onChange={(e) => { setInventoryId(Number(e.target.value)); dropAuto() }}>
               {invs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
           </div>
@@ -161,11 +166,12 @@ export function RequestForm() {
             <span className={labelCls}>ใบแจ้งซ่อม (MR)</span>
             <MrPicker
               mrCode={mrCode}
-              onPick={(code, items) => { setMrCode(code); setMrItems(items); if (items.length === 1) setLines((c) => c.map((l) => ({ ...l, mrItemId: l.mrItemId ?? items[0].id, mrItemLabel: l.mrItemLabel ?? items[0].label }))) }}
-              onClear={() => { setMrCode(""); setMrItems([]); setCutoffMsg(""); fetchedFor.current = "" }}
+              onPick={(code, items) => { dropAuto(); setMrCode(code); setMrItems(items); if (items.length === 1) setLines((c) => c.map((l) => ({ ...l, mrItemId: l.mrItemId ?? items[0].id, mrItemLabel: l.mrItemLabel ?? items[0].label }))) }}
+              onClear={() => { setMrCode(""); setMrItems([]); dropAuto() }}
             />
           </div>
         </div>
+        {kind === "cutoff" && mrCode && cutoffErr && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{cutoffErr}</p>}
         {kind === "cutoff" && mrCode && cutoffMsg && <p className="rounded-xl bg-[#1B8C4B]/10 px-3 py-2 text-xs text-[#14532d] dark:text-emerald-300">{cutoffMsg}</p>}
 
         <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-800 dark:text-gray-200">

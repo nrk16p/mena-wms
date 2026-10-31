@@ -2,21 +2,12 @@
 
 import { useState } from "react"
 import { Search, X } from "lucide-react"
+import { parseMrRow, type MrRow } from "@/lib/store-withdraw/mr-row"
 import { useLookup } from "./use-lookup"
 
-export type MrItem = { id: number; label: string; mrCode: string }
+export type MrItem = MrRow
 
 type Row = Record<string, unknown>
-const s = (v: unknown) => (v == null ? "" : String(v).trim())
-
-// ATMS ส่งแถว MR item มาหลายชื่อฟิลด์ — อ่านเท่าที่เจอ แล้วดึงรหัส MR จากฟิลด์ตรง ๆ หรือจากข้อความป้าย
-export function normMr(r: Row): MrItem | null {
-  const id = Number(r.id ?? r.mr_item_id ?? r.mrItemId)
-  const label = s(r.label ?? r.text ?? r.name ?? r.value ?? r.description)
-  const code = s(r.mr_code ?? r.mrCode ?? r.mr ?? r.mr_no ?? r.code) || (label.match(/MR[-\w/]*\d[-\w/]*/i)?.[0] ?? "")
-  if (!Number.isFinite(id) || id <= 0 || !label) return null
-  return { id, label, mrCode: code }
-}
 
 const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
@@ -30,7 +21,7 @@ export function MrPicker({ mrCode, onPick, onClear }: {
   const [q, setQ] = useState("")
   const [open, setOpen] = useState(false)
   const { rows, loading, error, tooShort } = useLookup<Row>("mr", q)
-  const items = rows.map(normMr).filter((x): x is MrItem => x !== null)
+  const items = rows.map(parseMrRow).filter((x): x is MrItem => x !== null)
 
   if (mrCode) {
     return (
