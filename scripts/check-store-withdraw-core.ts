@@ -13,7 +13,7 @@ function line(p: Partial<SwLine> = {}): SwLine {
 }
 function r(no: string, urgent: boolean, hhmm: string): SwRequest {
   const at = new Date(`2026-10-31T${hhmm}:00+07:00`)
-  return { no, kind: "stock", status: "NEW", inventoryId: 1, inventoryName: "", pickToId: 1, pickToName: "", plate: "", mrCode: null, urgent, remark: "", lines: [], requestedBy: { email: "", name: "", via: "web" }, claimedBy: null, rejectReason: null, atms: { gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null }, returns: [], createdAt: at, updatedAt: at }
+  return { no, kind: "stock", status: "NEW", inventoryId: 1, inventoryName: "", pickToId: 1, pickToName: "", plate: "", mrCode: null, urgent, remark: "", lines: [], requestedBy: { email: "", name: "", via: "web" }, claimedBy: null, rejectReason: null, atms: { gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null }, returns: [], createdAt: at, updatedAt: at }
 }
 
 eq(nextStatus({ status: "NEW", kind: "stock" }, "claim"), "PREPARING")
@@ -59,6 +59,15 @@ eq(tok.split(":").length, 4); eq(tok.startsWith("v1:"), true)
 const parts = tok.split(":"); const ct = Buffer.from(parts[3], "base64"); ct[0] ^= 1; parts[3] = ct.toString("base64")
 assert.throws(() => decryptSecret(parts.join(":")))
 assert.throws(() => decryptSecret("garbage"))
+{ // แก้ tag / IV ต้องถอดไม่ได้ · tag สั้นกว่า 16 ไบต์ต้องไม่ผ่าน
+  const t = encryptSecret("secret").split(":")
+  const tg = Buffer.from(t[2], "base64"); tg[0] ^= 1
+  assert.throws(() => decryptSecret([t[0], t[1], tg.toString("base64"), t[3]].join(":")))
+  const iv = Buffer.from(t[1], "base64"); iv[0] ^= 1
+  assert.throws(() => decryptSecret([t[0], iv.toString("base64"), t[2], t[3]].join(":")))
+  const short = Buffer.from(t[2], "base64").subarray(0, 4)
+  assert.throws(() => decryptSecret([t[0], t[1], short.toString("base64"), t[3]].join(":")), /รูปแบบ/)
+}
 const saved = process.env.STORE_ATMS_CRED_KEY
 process.env.STORE_ATMS_CRED_KEY = Buffer.alloc(16).toString("base64")
 assert.throws(() => encryptSecret("x"), /32/)

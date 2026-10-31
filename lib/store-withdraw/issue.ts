@@ -1,0 +1,222 @@
+// lib/store-withdraw/issue.ts — ส่งใบเบิก/รับคืนเข้า ATMS ผ่าน api-ncac แบบทำต่อได้ (resumable)
+// กันยิงซ้ำ: สลับสถานะด้วย findOneAndUpdate({no, status: เดิม}) ใน transition · progress เก็บไว้ส่งซ้ำตอน retry
+import { getCreds } from "./creds"
+import { ConflictError, ddmmyyyyBkk, swCol, transition, writeLog, type Actor } from "./db"
+import { issueLines } from "./core"
+import { ncac } from "./ncac"
+import type { AtmsProgress, SwLine, SwRequest } from "./types"
+
+export const STUCK_MS = 5 * 60_000
+
+type WireProgress = { gm_id?: number | null; done?: number[]; approved?: boolean; code?: string | null }
+type Reply = { progress?: WireProgress; detail?: unknown }
+
+const MSG = {
+  noCreds: "ยังไม่ได้ผูกบัญชี ATMS — ไปผูกบัญชีก่อน แล้วกดส่งใหม่",
+  badAuth: "ATMS ไม่รับบัญชีนี้ (รหัสผ่านอาจเปลี่ยน) — ผูกบัญชีใหม่ แล้วกดส่งใหม่",
+  network: "ติดต่อ ATMS ไม่ได้ในตอนนี้ — รอสักครู่แล้วกดส่งใหม่ ระบบจะทำต่อจากที่ค้างไว้",
+  noLines: "ไม่มีรายการที่จ่ายได้ — ตรวจจำนวนจ่ายในใบนี้ก่อน",
+  noWd: "ใบเบิกนี้ยังไม่มีเลขใบเบิกใน ATMS — ส่งเบิกให้สำเร็จก่อนจึงรับคืนได้",
+  noPrice: (codes: string[]) => `ไม่พบราคาต่อหน่วยของ ${codes.join(", ")} ในใบเบิก ATMS — เช็กใบเบิกใน ATMS แล้วลองใหม่`,
+  wdFail: "อ่านใบเบิกจาก ATMS ไม่ได้ — ลองใหม่อีกครั้ง",
+} as const
+
+const toWire = (a: AtmsProgress) =>
+  a.gmId == null && a.done.length === 0 ? undefined : { gm_id: a.gmId, done: a.done, approved: a.approved, code: a.code }
+
+function fromWire(p: WireProgress | undefined, prev: AtmsProgress): AtmsProgress {
+  if (!p) return prev
+  return { ...prev, gmId: p.gm_id ?? prev.gmId, done: p.done ?? prev.done, approved: p.approved ?? prev.approved, code: p.code ?? prev.code }
+}
+
+function detailText(d: unknown, fallback: string): string {
+  if (typeof d === "string" && d) return d.slice(0, 300)
+  if (d != null && typeof d === "object") return JSON.stringify(d).slice(0, 300)
+  return fallback
+}
+
+const headerRemark = (r: SwRequest) => [r.mrCode, r.plate, r.remark].map((s) => (s ?? "").trim()).filter(Boolean).join(" ")
+
+type Outcome = { kind: "ok" | "partial" | "auth" | "error" | "network"; atms: AtmsProgress }
+
+/** แปลงผลตอบกลับของ api-ncac เป็นสถานะ progress ใหม่ — ใช้ร่วมกันทั้ง issue และ return */
+function interpret(status: number, data: Reply | null, prev: AtmsProgress): Outcome {
+  const base = { ...prev, needCreds: false }
+  if (status >= 200 && status < 300) return { kind: "ok", atms: { ...fromWire(data?.progress, base), error: null } }
+  if (status === 409) return { kind: "partial", atms: { ...fromWire(data?.progress, base), error: detailText(data?.detail, "ATMS ทำไม่ครบ — กดส่งใหม่เพื่อทำต่อ") } }
+  if (status === 401) return { kind: "auth", atms: { ...base, needCreds: true, error: MSG.badAuth } }
+  return { kind: "error", atms: { ...base, error: detailText(data?.detail, `ATMS ตอบกลับผิดปกติ (${status})`) } }
+}
+
+async function callNcac(...args: Parameters<typeof ncac>): Promise<{ status: number; data: Reply | null } | null> {
+  try {
+    const r = await ncac<Reply | null>(...args)
+    return r
+  } catch {
+    return null // timeout / เครือข่ายล่ม — ไม่เก็บ error ดิบ เผื่อมี URL/ข้อมูลหลุด
+  }
+}
+
+/** ใบที่ ISSUING ค้างเกิน 5 นาที (โปรเซสตายกลางคัน) ให้ยึดมาทำต่อได้ ไม่งั้นค้างตลอด */
+async function claimIssue(no: string, actor: Actor): Promise<SwRequest> {
+  const col = await swCol()
+  const cur = await col.findOne({ no })
+  if (!cur) throw new ConflictError("ไม่พบใบขอเบิกนี้")
+  if (cur.status === "ISSUING" && Date.now() - cur.updatedAt.getTime() > STUCK_MS) {
+    const after = await col.findOneAndUpdate(
+      { no, status: "ISSUING", updatedAt: cur.updatedAt },
+      { $set: { updatedAt: new Date() } },
+      { returnDocument: "after" },
+    )
+    if (!after) throw new ConflictError()
+    await writeLog({ no, action: "issue-resume", from: "ISSUING", to: "ISSUING", actor: { email: actor.email, name: actor.name, via: actor.via } })
+    return after
+  }
+  return transition(no, "issue", actor)
+}
+
+export async function issueRequest(no: string, actor: Actor): Promise<SwRequest> {
+  const claimed = await claimIssue(no, actor)
+  const col = await swCol()
+  const startedAt = claimed.atms.startedAt ?? new Date()
+  if (!claimed.atms.startedAt) await col.updateOne({ no, "atms.startedAt": null }, { $set: { "atms.startedAt": startedAt } })
+  const prev: AtmsProgress = { ...claimed.atms, startedAt }
+
+  const fail = (atms: AtmsProgress) => transition(no, "issueFailed", actor, { atms })
+
+  const creds = await getCreds(actor.email)
+  if (!creds) return fail({ ...prev, needCreds: true, error: MSG.noCreds })
+
+  const sent = issueLines(claimed.lines) // progress.done เป็น index ของลิสต์นี้
+  if (sent.length === 0) return fail({ ...prev, needCreds: false, error: MSG.noLines })
+
+  const body = {
+    inventory_id: claimed.inventoryId,
+    pick_to_id: claimed.pickToId,
+    remark_token: claimed.no,
+    remark: headerRemark(claimed),
+    date: ddmmyyyyBkk(startedAt),
+    lines: sent.map(({ line }) => ({
+      sku_id: line.skuId,
+      amount: line.issuedQty ?? line.requestedQty,
+      sku_name: line.skuName,
+      ...(line.mrItemId != null ? { mr_item_id: line.mrItemId } : {}),
+      ...(line.serialNoId != null ? { serial_no_id: line.serialNoId } : {}),
+      ...(line.remark ? { remark: line.remark } : {}),
+    })),
+    ...(toWire(prev) ? { progress: toWire(prev) } : {}),
+  }
+
+  const r = await callNcac("POST", "/atms/withdraw/issue", { creds, body })
+  if (!r) return fail({ ...prev, needCreds: false, error: MSG.network })
+  const out = interpret(r.status, r.data, prev)
+  if (out.kind === "ok") return transition(no, "issued", actor, { atms: out.atms })
+  return fail(out.atms)
+}
+
+// ---------- รับคืน ----------
+
+const RETURN_OPEN = ["RETURN_REQUESTED", "RETURN_FAILED"]
+
+async function claimReturn(no: string, rid: string, actor: Actor): Promise<SwRequest> {
+  const col = await swCol()
+  const now = new Date()
+  const stale = new Date(now.getTime() - STUCK_MS)
+  const after = await col.findOneAndUpdate(
+    {
+      no,
+      status: { $in: ["ISSUED", "RECEIVED"] },
+      $or: [
+        { returns: { $elemMatch: { rid, status: { $in: RETURN_OPEN } } } },
+        { returns: { $elemMatch: { rid, status: "RETURNING" } }, updatedAt: { $lt: stale } }, // ค้างเกิน 5 นาที
+      ],
+    },
+    { $set: { "returns.$[r].status": "RETURNING", "returns.$[r].acceptedBy": actor.email, updatedAt: now } },
+    { arrayFilters: [{ "r.rid": rid }], returnDocument: "after" },
+  )
+  if (!after) throw new ConflictError()
+  await writeLog({ no, action: "acceptReturn", from: "RETURN_REQUESTED", to: "RETURNING", actor: { email: actor.email, name: actor.name, via: actor.via }, note: rid })
+  return after
+}
+
+async function settleReturn(
+  no: string, rid: string, actor: Actor, ok: boolean, atms: AtmsProgress, inc: Record<string, number> = {},
+): Promise<SwRequest> {
+  const col = await swCol()
+  const status = ok ? "RETURNED" : "RETURN_FAILED"
+  const after = await col.findOneAndUpdate(
+    { no, returns: { $elemMatch: { rid, status: "RETURNING" } } },
+    {
+      $set: { "returns.$[r].status": status, "returns.$[r].atms": atms, updatedAt: new Date() },
+      ...(Object.keys(inc).length ? { $inc: inc } : {}),
+    },
+    { arrayFilters: [{ "r.rid": rid }], returnDocument: "after" },
+  )
+  if (!after) throw new ConflictError()
+  await writeLog({ no, action: ok ? "returned" : "returnFailed", from: "RETURNING", to: status, actor: { email: actor.email, name: actor.name, via: actor.via }, note: rid })
+  return after
+}
+
+type WdItem = { sku_code?: string; unit_price?: number | string | null }
+
+export async function acceptReturn(no: string, rid: string, actor: Actor): Promise<SwRequest> {
+  const claimed = await claimReturn(no, rid, actor)
+  const ret = claimed.returns.find((x) => x.rid === rid)!
+  const startedAt = ret.atms.startedAt ?? new Date()
+  const prev: AtmsProgress = { ...ret.atms, startedAt }
+  const fail = (atms: AtmsProgress) => settleReturn(no, rid, actor, false, atms)
+
+  const creds = await getCreds(actor.email)
+  if (!creds) return fail({ ...prev, needCreds: true, error: MSG.noCreds })
+
+  const gmId = claimed.atms.gmId
+  if (gmId == null || !claimed.atms.code) return fail({ ...prev, needCreds: false, error: MSG.noWd })
+
+  const picked = ret.lines
+    .filter((l) => l.qty > 0 && claimed.lines[l.lineIndex])
+    .map((l) => ({ lineIndex: l.lineIndex, qty: l.qty, line: claimed.lines[l.lineIndex] as SwLine }))
+  if (picked.length === 0) return fail({ ...prev, needCreds: false, error: MSG.noLines })
+
+  // ราคาต่อหน่วยมาจากใบเบิกใน ATMS (จับคู่ด้วยรหัส SKU)
+  const wd = await callNcac("GET", `/atms/withdraw/${gmId}`, { creds })
+  if (!wd) return fail({ ...prev, needCreds: false, error: MSG.network })
+  if (wd.status === 401) return fail({ ...prev, needCreds: true, error: MSG.badAuth })
+  if (wd.status < 200 || wd.status >= 300) return fail({ ...prev, needCreds: false, error: detailText(wd.data?.detail, MSG.wdFail) })
+  const items = ((wd.data as { items?: WdItem[] } | null)?.items ?? [])
+  const price = new Map<string, number>()
+  for (const it of items) {
+    const p = Number(it.unit_price)
+    if (it.sku_code && Number.isFinite(p) && !price.has(it.sku_code)) price.set(it.sku_code, p)
+  }
+  const missing = picked.filter((p) => !price.has(p.line.skuCode)).map((p) => p.line.skuCode)
+  if (missing.length) return fail({ ...prev, needCreds: false, error: MSG.noPrice([...new Set(missing)]) })
+
+  const thisQty = new Map<number, number>()
+  for (const p of picked) thisQty.set(p.lineIndex, (thisQty.get(p.lineIndex) ?? 0) + p.qty)
+  const complete = claimed.lines.every((l, i) => l.returnedQty + (thisQty.get(i) ?? 0) >= (l.issuedQty ?? l.requestedQty))
+
+  const body = {
+    inventory_id: claimed.inventoryId,
+    withdraw_id: gmId,
+    withdraw_code: claimed.atms.code,
+    remark_token: `${claimed.no}-${rid}`,
+    date: ddmmyyyyBkk(startedAt),
+    lines: picked.map(({ qty, line }) => ({
+      sku_id: line.skuId,
+      amount: qty,
+      unit_price: price.get(line.skuCode)!,
+      sku_name: line.skuName,
+      ...(line.remark ? { remark: line.remark } : {}),
+    })),
+    ...(toWire(prev) ? { progress: toWire(prev) } : {}),
+    mark_complete: complete,
+  }
+
+  const r = await callNcac("POST", "/atms/withdraw/return", { creds, body })
+  if (!r) return fail({ ...prev, needCreds: false, error: MSG.network })
+  const out = interpret(r.status, r.data, prev)
+  if (out.kind !== "ok") return fail(out.atms)
+  const inc: Record<string, number> = {}
+  for (const [i, q] of thisQty) inc[`lines.${i}.returnedQty`] = q
+  return settleReturn(no, rid, actor, true, out.atms, inc)
+}

@@ -20,7 +20,9 @@ export function encryptSecret(plain: string): string {
 export function decryptSecret(token: string): string {
   const [v, iv, tag, ct] = token.split(":")
   if (v !== "v1" || !iv || !tag || ct === undefined) throw new Error("รูปแบบข้อมูลที่เข้ารหัสไม่ถูกต้อง")
-  const d = createDecipheriv("aes-256-gcm", getKey(), Buffer.from(iv, "base64"))
-  d.setAuthTag(Buffer.from(tag, "base64"))
+  const tagBuf = Buffer.from(tag, "base64")
+  if (tagBuf.length !== 16) throw new Error("รูปแบบข้อมูลที่เข้ารหัสไม่ถูกต้อง")
+  const d = createDecipheriv("aes-256-gcm", getKey(), Buffer.from(iv, "base64"), { authTagLength: 16 })
+  d.setAuthTag(tagBuf)
   return Buffer.concat([d.update(Buffer.from(ct, "base64")), d.final()]).toString("utf8")
 }

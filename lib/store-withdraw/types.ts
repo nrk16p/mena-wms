@@ -28,6 +28,7 @@ export type AtmsProgress = {
   needCreds: boolean
   lastCheckAt: Date | null
   drift: string | null
+  startedAt: Date | null // ครั้งแรกที่ส่ง ATMS — ใช้เป็น date ทุกครั้งที่ retry (ATMS ค้นหมายเหตุตามวันสร้าง)
 }
 
 export type SwReturnStatus = "RETURN_REQUESTED" | "RETURNING" | "RETURNED" | "RETURN_FAILED"
