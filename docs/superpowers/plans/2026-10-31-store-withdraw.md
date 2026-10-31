@@ -72,7 +72,7 @@
   - `options() -> dict` = `{"inventories": [{"id": int, "name": str}], "pick_tos": [{"id": int, "name": str}]}` (จาก `/inv/withdraw/add`)
   - `lookup(kind: Literal["mr_item","sku","serial","wd"], q: str, limit: int = 20, inventory_id: int | None = None, sku_id: int | None = None) -> list[dict]` — คืน JSON ของ ATMS ตรง ๆ (`id`, `name`, + `code/inventory_id/has_serial_no` สำหรับ sku, `driver/mechanic` สำหรับ mr_item)
   - `profile() -> dict` = `{"username","email","name","branch","department","is_driver": bool,"is_mechanic": bool}`
-  - `get_withdraw(gm_id: int) -> dict` = `{"id","code","inventory","pick_to","remark","user","created_at","approved": bool,"spare_part_returned": bool,"items":[{"sku_code","sku_name","amount": float,"mr_item": str|None}]}`
+  - `get_withdraw(gm_id: int) -> dict` = `{"id","code","inventory","pick_to","remark","user","approver": str|None,"created_at","approved": bool,"spare_part_returned": bool,"items":[{"sku_code","sku_name","amount": float,"unit_price": float,"mr_item_id": int|None}]}` — `approved` = มี label `approver` ไม่ว่าง หรือมีลิงก์ `/inv/withdraw/reject/id/` (ดู `docs/atms-withdraw-recon.md`)
   - `list_withdraws(inventory_id: int, date_ddmmyyyy: str) -> list[dict]` = `[{"id","code","pick_to","user","remark","created_at","approved"}]` (ตั้ง rows-per-page 1000 ก่อน แล้วคืนค่าเดิมหลังดึง ตาม `pipeline_atms_supplier.py`)
   - `find_withdraw_by_remark(token: str, inventory_id: int, date_ddmmyyyy: str) -> list[int]`
 
@@ -89,8 +89,9 @@ def test_get_withdraw_empty_view(fake_client):
     assert w["code"] == "LBWD26102206" and w["approved"] is False and w["items"] == []
 
 def test_get_withdraw_approved_has_items(fake_client):
-    w = fake_client.get_withdraw(APPROVED_ID)   # id จาก fixture wd_view_approved.html
-    assert w["approved"] is True and len(w["items"]) >= 1
+    w = fake_client.get_withdraw(560545)   # fixture wd_view_approved.html
+    assert w["approved"] is True and w["code"] == "LBWD26102179"
+    assert w["items"][0]["sku_code"] == "LB07AC00110" and w["items"][0]["amount"] == 2.0 and w["items"][0]["unit_price"] == 248.25
 
 def test_profile_fields(fake_client):
     p = fake_client.profile()
@@ -100,8 +101,9 @@ def test_login_page_raises_auth_error(fake_client_login_page):
     with pytest.raises(AtmsAuthError):
         fake_client_login_page.get_withdraw(560724)
 
-def test_find_withdraw_by_remark(fake_client):
-    assert fake_client.find_withdraw_by_remark("SW-2610-001", 4, "31/10/2026") == [EXPECTED_ID]
+def test_find_withdraw_by_remark(fake_client):   # ใช้ข้อความหมายเหตุที่มีอยู่จริงใน wd_index.html เป็น token
+    assert fake_client.find_withdraw_by_remark(TOKEN_IN_FIXTURE, 4, "31/10/2026") == [ID_OF_THAT_ROW]
+    assert fake_client.find_withdraw_by_remark("SW-9999-999", 4, "31/10/2026") == []
 ```
 
 - [ ] **Step 2:** `.venv/bin/pytest tests/atms/test_withdraw_read.py -v` → FAIL (import error)
@@ -121,10 +123,12 @@ def test_find_withdraw_by_remark(fake_client):
   - `@dataclass IssueProgress(gm_id: int | None = None, done: list[int] = field(default_factory=list), approved: bool = False, code: str | None = None)` — `done` = index ของ line ที่ส่งแล้ว
   - `issue_withdraw(inventory_id: int, pick_to_id: int, remark_token: str, lines: list[IssueLine], progress: IssueProgress | None = None, remark: str = "", date_ddmmyyyy: str | None = None) -> IssueProgress` — ขั้นตอน: ถ้า `progress.gm_id` ว่าง → `find_withdraw_by_remark(remark_token, …)` ก่อน (เจอ 1 ใบ = ใช้ใบนั้น, เจอ >1 = raise `AtmsOpenJobError("พบหลายใบที่มีเลข …")`) → ไม่เจอค่อย POST หัวใบ (`remark` = `f"{remark_token} {remark}".strip()`) → ทุก line ที่ index ไม่อยู่ใน `done` POST แล้ว append → approve → `get_withdraw` ตรวจ `approved` และจำนวนบรรทัด = len(lines) → คืน progress ครบ
   - เมื่อพังกลางทาง raise `WithdrawPartialError(progress: IssueProgress, cause: Exception)` (subclass `AtmsOpenJobError`) — ผู้เรียกเก็บ `progress` ไว้ส่งกลับมาตอนลองใหม่
-  - `return_to_stock(inventory_id: int, withdraw_id: int, remark_token: str, lines: list[ReturnLine], progress: IssueProgress | None = None, mark_complete: bool = False) -> IssueProgress` — DD `type=deposit`, `purchase_order_id=""`, `withdraw_id`; `ReturnLine` field ตามที่ Task 0 พบ; `mark_complete` = ตั้ง "คืนอะไหล่ครบแล้ว" ตามวิธีจาก Task 0
+  - `@dataclass ReturnLine(sku_id: int, amount: float, unit_price: float, serial_no: str = "", remark: str = "")` — `unit_price` บังคับใน ATMS ใช้ราคาจากบรรทัด WD เดิม
+  - `return_to_stock(inventory_id: int, withdraw_id: int, withdraw_code: str, remark_token: str, lines: list[ReturnLine], progress: IssueProgress | None = None, mark_complete: bool = False) -> IssueProgress` — DD `POST /inv/deposit/add` (`type=deposit`, `purchase_order_id=""`, `withdraw`=code, `withdraw_id`, `supplier_ref_no="-"`, `supplier_inv_date`=วันนี้ DD/MM/YYYY, `extra_cost=0.00`) → `POST /inv/deposit.item/add/good_movement_id/<dd>/inventory_id/<inv>` → `GET /inv/deposit/approve/id/<dd>` → ตรวจ view มี approver · `mark_complete` = `GET /inv/withdraw/spare.part.returned/type/y/id/<withdraw_id>`
+  - อนุมัติ WD = `GET /inv/withdraw/approve/id/<gm>` แล้วตรวจ view · ถ้ายังไม่อนุมัติ raise `WithdrawPartialError` ข้อความ `"ATMS ยังไม่อนุมัติใบ <code> — บัญชีนี้อาจไม่มีสิทธิ์อนุมัติ"` · 302 หลังสร้างหัวใบ: เอา id จาก `Location` (`/id/(\d+)`) ถ้าไม่มีให้ `find_withdraw_by_remark`
   - ทุก request เขียน: `time.sleep(self.pace)` ก่อนยิง · `self.dry_run` = ไม่ยิง คืน progress ปลอม `gm_id=0`
 
-- [ ] **Step 1: เขียนเทสต์ (fake transport จดลำดับ request)**
+- [ ] **Step 1: เขียนเทสต์ (fake transport จดลำดับ request; หน้า view ก่อน/หลังอนุมัติใช้ `wd_view_empty.html` / `wd_view_approved.html` ปรับ id/code ใน fake)**
 
 ```python
 def test_issue_full_sequence(fake_writer):
@@ -255,7 +259,7 @@ ok(encryptSecret("x") !== encryptSecret("x"))                                // 
 
 **Files:**
 - Create: `lib/store-withdraw/db.ts`, `lib/store-withdraw/ncac.ts`, `lib/store-withdraw/issue.ts`, `lib/store-withdraw/creds.ts`
-- Test: `scripts/check-store-withdraw-issue.ts` (ใช้ Mongo ชั่วคราว: db `master_data_test_sw` บน `MONGO_URI` เดิม ลบทิ้งท้ายเทสต์ — ห้ามแตะ `master_data`)
+- Test: `scripts/check-store-withdraw-issue.ts` — Mongo ในเครื่องด้วย devDependency `mongodb-memory-server` (ห้ามต่อ cluster prod); `db.ts` อ่านชื่อ db จาก env `STORE_WITHDRAW_DB` (ค่าเริ่มต้น `master_data`) และรับ `MongoClient` ที่ inject ได้สำหรับเทสต์
 
 **Interfaces:**
 - `db.ts`: `swCol()` (`store_withdraw_requests`, unique index `no`, index `{inventoryId:1,status:1,createdAt:1}`), `swLogCol()` (`store_withdraw_log`), `credCol()` (`store_atms_creds`, unique `email`), `atmsCacheCol()` (`store_withdraw_atms_cache`, TTL 3 นาทีบน `fetchedAt`)
@@ -342,7 +346,7 @@ eq(await nextNo(new Date("2026-10-31")), "SW-2610-001"); eq(await nextNo(new Dat
 **Files:**
 - Create: `lib/store-withdraw/drift.ts` — `checkDrift(no): Promise<SwRequest>` เรียก ncac `GET /atms/withdraw/{gmId}` เทียบ `approved` + จำนวนบรรทัด + amount ต่อ SKU → ต่างกัน = เซ็ต `atms.drift` (ข้อความไทย) ไม่แก้ข้อมูลอื่น · 404 = drift "ใบถูกลบใน ATMS"
 - Create: `app/api/store-withdraw/[no]/check/route.ts` (POST, สโตร์), `app/api/store-withdraw/drift-tick/route.ts` (POST, `x-api-key` เท่านั้น: ตรวจใบ ISSUED/RECEIVED อายุ ≤ 7 วัน ทีละใบ ห่าง 1 วินาที สูงสุด 40 ใบต่อรอบ ใช้ creds ของสโตร์ผู้ส่งใบนั้น)
-- Create (api-ncac): `scripts/pipeline/store_withdraw_drift.py` + ลงทะเบียนใน pipeline registry ให้ `POST /pipeline/run/store-withdraw-drift` เรียก WMS `drift-tick` ทุก 30 นาที 07:00–20:00 (ตามกลไก schedule เดิมของ api-ncac)
+- Create (api-ncac): `scripts/pipeline/store_withdraw_drift.py` + ลงทะเบียนใน pipeline registry ให้ `POST /pipeline/run/store-withdraw-drift` เรียก WMS `drift-tick` (env `WMS_BASE`, `WMS_STORE_WITHDRAW_KEY`) · ตั้งรอบทุก 30 นาทีเป็นงานของผู้ใช้บน Render (ห้ามแก้ Render เอง — เขียนขั้นตอนไว้ใน report)
 - Create: `app/store-withdraw/api-guide/page.tsx` (แบบ `/repair-external/api-guide`: header, ตัวอย่าง curl ทุก endpoint ฝั่งผู้ขอ, รหัส error)
 - Modify: `components/store-withdraw/ticket-card.tsx` — ธง "ATMS ถูกแก้" + ข้อความ drift · เปิดดูรายละเอียดใบ = เรียก `/check`
 - Test: `scripts/check-store-withdraw-drift.ts` (stub ncac: approved→unapproved, บรรทัดหาย, 404)
