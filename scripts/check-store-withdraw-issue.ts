@@ -113,8 +113,11 @@ async function main() {
   // เลื่อน startedAt ไปเมื่อวานเพื่อพิสูจน์ว่า retry ใช้วันเดิม ไม่ใช่วันนี้
   const old = new Date("2026-10-30T20:00:00Z") // = 31/10/2026 03:00 เวลาไทย
   await (await swCol()).updateOne({ no: n2 }, { $set: { "atms.startedAt": old } })
-  handler = () => ({ status: 200, body: { progress: { gm_id: 560800, done: [0, 1], approved: true, code: "WD-9" } } })
+  eq((await get(n2)).atms.error, "ติดที่บรรทัดสอง") // ก่อนลองใหม่ยังเป็น error เก่า
+  let midErr: unknown = "unset"
+  handler = async () => { const d = await get(n2); midErr = d.status === "ISSUING" ? d.atms.error : "not-issuing"; return { status: 200, body: { progress: { gm_id: 560800, done: [0, 1], approved: true, code: "WD-9" } } } }
   await issueRequest(n2, store)
+  eq(midErr, null) // ระหว่างยิง ATMS รอบลองใหม่ ต้องล้าง error เก่าแล้ว (การ์ดโชว์ "กำลังตัดใน ATMS")
   eq(lastBody("/atms/withdraw/issue").progress, { gm_id: 560800, done: [0], approved: false, code: null })
   eq(lastBody("/atms/withdraw/issue").date, "31/10/2026")
   eq((await get(n2)).status, "ISSUED"); eq((await get(n2)).atms.code, "WD-9")
@@ -353,6 +356,14 @@ async function main() {
   await acceptReturn(rCr, "r1", store)
   const rcr = (await get(rCr)).returns[0]
   eq(rcr.status, "RETURN_FAILED"); assert.ok(rcr.atms.startedAt instanceof Date)
+  // ลองรับคืนใหม่: ระหว่าง RETURNING ต้องไม่เหลือ error เก่า
+  eq(rcr.atms.error !== null, true)
+  process.env.STORE_ATMS_CRED_KEY = goodKey2
+  let midRetErr: unknown = "unset"
+  handler = async () => { const rr = (await get(rCr)).returns[0]; midRetErr = rr.status === "RETURNING" ? rr.atms.error : "not-returning"; return { status: 500, body: { detail: "x" } } }
+  await acceptReturn(rCr, "r1", store)
+  eq(midRetErr, null)
+  delete process.env.STORE_ATMS_CRED_KEY
   process.env.STORE_ATMS_CRED_KEY = goodKey2
 
   // ---- 403 ตอนคืน ----

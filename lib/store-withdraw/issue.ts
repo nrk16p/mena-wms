@@ -109,14 +109,14 @@ async function claimIssue(no: string, actor: Actor): Promise<SwRequest> {
   if (cur.status === "ISSUING" && Date.now() - cur.updatedAt.getTime() > STUCK_MS) {
     const after = await col.findOneAndUpdate(
       { no, status: "ISSUING", updatedAt: cur.updatedAt },
-      { $set: { updatedAt: new Date() } },
+      { $set: { updatedAt: new Date(), "atms.error": null } },
       { returnDocument: "after" },
     )
     if (!after) throw new ConflictError()
     await writeLog({ no, action: "issue-resume", from: "ISSUING", to: "ISSUING", actor: { email: actor.email, name: actor.name, via: actor.via } })
     return after
   }
-  return transition(no, "issue", actor)
+  return transition(no, "issue", actor, { "atms.error": null }) // ลองใหม่ปกติ ไม่ให้การ์ดโชว์ error เก่า
 }
 
 export async function issueRequest(no: string, actor: Actor): Promise<SwRequest> {
@@ -198,7 +198,7 @@ async function claimReturn(no: string, rid: string, actor: Actor): Promise<SwReq
   if (!filter) throw new ConflictError()
   const after = await col.findOneAndUpdate(
     filter,
-    { $set: { "returns.$[r].status": "RETURNING", "returns.$[r].acceptedBy": actor.email, updatedAt: now } },
+    { $set: { "returns.$[r].status": "RETURNING", "returns.$[r].acceptedBy": actor.email, "returns.$[r].atms.error": null, updatedAt: now } },
     { arrayFilters: [{ "r.rid": rid }], returnDocument: "after" },
   )
   if (!after) throw new ConflictError()
