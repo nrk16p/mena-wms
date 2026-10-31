@@ -6,7 +6,7 @@ import { swalConfirm, swalError, swalTextInput, swalToast } from "@/lib/swal"
 import { AtmsLinkDialog } from "./atms-link-dialog"
 import { PrepareDialog } from "./prepare-dialog"
 import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-types"
-import { KeyedCard, TicketCard, type CardActions } from "./ticket-card"
+import { KeyedCard, TicketCard, type BusyKind, type CardActions } from "./ticket-card"
 
 type Opt = { id: number; name: string }
 type ColKey = "NEW" | "PREPARING" | "READY" | "DONE_TODAY"
@@ -35,7 +35,7 @@ export function QueueBoard() {
   const [data, setData] = useState<QData | null>(null)
   const [error, setError] = useState("")
   const [now, setNow] = useState(() => new Date())
-  const [busy, setBusy] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState<Map<string, BusyKind>>(new Map())
   const [prep, setPrep] = useState<QItem | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -82,6 +82,7 @@ export function QueueBoard() {
     } catch { /* เงียบ */ }
   }, [ensureAudio])
 
+  useEffect(() => () => { void audio.current?.close().catch(() => {}); audio.current = null }, [])
   useEffect(() => {
     // อ่านค่าที่จำไว้หลัง mount (กัน hydration ไม่ตรง) — เลื่อนออกจาก effect body ตามกติกา lint
     const t = setTimeout(() => {
@@ -176,16 +177,16 @@ export function QueueBoard() {
   }, [load])
 
   // ---------- การกระทำ ----------
-  const setBusyKey = (k: string, on: boolean) => setBusy((s) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n })
+  const setBusyKey = (k: string, kind: BusyKind | null) => setBusy((s) => { const n = new Map(s); if (kind) n.set(k, kind); else n.delete(k); return n })
 
   const askLink = (then: () => void) => { pendingAfterLink.current = then; setLinkOpen(true) }
 
   const claim = async (i: QItem) => {
     const k = itemKey(i)
-    setBusyKey(k, true)
+    setBusyKey(k, "other")
     try { await api(`/api/store-withdraw/${i.no}/claim`, { method: "POST" }); await load() }
     catch (e) { await swalToast("warning", errMsg(e, "รับงานไม่สำเร็จ")); await load() }
-    finally { setBusyKey(k, false) }
+    finally { setBusyKey(k, null) }
   }
 
   const issue = async (i: QItem) => {
@@ -195,7 +196,7 @@ export function QueueBoard() {
       if (!c.isConfirmed) return
     }
     const k = itemKey(i)
-    setBusyKey(k, true)
+    setBusyKey(k, "issue")
     try {
       const res = await api(`/api/store-withdraw/${i.no}/issue`, { method: "POST" })
       const r = res.request as QItem
@@ -208,24 +209,24 @@ export function QueueBoard() {
     } catch (e) {
       await swalToast("warning", errMsg(e, "ส่งของไม่สำเร็จ"))
       await load()
-    } finally { setBusyKey(k, false) }
+    } finally { setBusyKey(k, null) }
   }
 
   const reject = async (i: QItem) => {
     const r = await swalTextInput({ title: `ปฏิเสธใบ ${i.no}`, label: "เหตุผล (ผู้ขอจะเห็นข้อความนี้)", placeholder: "เช่น ของหมด รออะไหล่เข้า", required: true, confirmText: "ปฏิเสธ", danger: true })
     if (!r.isConfirmed || !r.value?.trim()) return
     const k = itemKey(i)
-    setBusyKey(k, true)
+    setBusyKey(k, "other")
     try { await api(`/api/store-withdraw/${i.no}/reject`, { method: "POST", body: { reason: r.value.trim() } }); await load() }
     catch (e) { await swalToast("warning", errMsg(e, "ปฏิเสธไม่สำเร็จ")); await load() }
-    finally { setBusyKey(k, false) }
+    finally { setBusyKey(k, null) }
   }
 
   const acceptReturn = async (i: QItem) => {
     if (!i.return) return
     if (!linkRef.current?.linked) { askLink(() => { void acceptReturn(i) }); return }
     const k = itemKey(i)
-    setBusyKey(k, true)
+    setBusyKey(k, "issue")
     try {
       const res = await api(`/api/store-withdraw/${i.no}/returns/${i.return.rid}/accept`, { method: "POST" })
       const ret = (res.request as QItem).returns.find((x) => x.rid === i.return!.rid)
@@ -236,7 +237,7 @@ export function QueueBoard() {
     } catch (e) {
       await swalToast("warning", errMsg(e, "รับคืนไม่สำเร็จ"))
       await load()
-    } finally { setBusyKey(k, false) }
+    } finally { setBusyKey(k, null) }
   }
 
   const markReady = async (no: string) => {
@@ -316,7 +317,7 @@ export function QueueBoard() {
                   <p className="rounded-xl border border-dashed border-[#E2E8E4] px-3 py-6 text-center text-xs text-gray-400 dark:border-white/10">ไม่มีงาน</p>
                 ) : (
                   <ul className="space-y-3">
-                    {items.map((i) => <TicketCard key={itemKey(i)} item={i} now={now} busy={busy.has(itemKey(i))} actions={actions} column={c.key} />)}
+                    {items.map((i) => <TicketCard key={itemKey(i)} item={i} now={now} busy={busy.get(itemKey(i)) ?? null} actions={actions} column={c.key} />)}
                     {keyed.map((k, n) => <KeyedCard key={`${k.id ?? k.code}-${n}`} row={k} />)}
                   </ul>
                 )}

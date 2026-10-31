@@ -142,7 +142,7 @@ for (const g of NAV_GROUPS) {
   if (g.key === "overview") continue
   for (const it of g.items) {
     if (it.subheader || it.href === "/" || it.href.startsWith("#")) continue
-    assert.equal(sectionForPage(it.href), g.key, `${it.href} อยู่กลุ่ม ${g.key}`)
+    assert.equal(sectionForPage(it.href), it.section ?? g.key, `${it.href} อยู่กลุ่ม ${g.key}`)
   }
 }
 
@@ -202,5 +202,13 @@ console.log("check-access-policy: ok")
   assert.equal(run("/api/store-withdraw/SW-2610-001", "GET", storePerson).ok, true)
   assert.equal(run("/api/store-withdraw/queue", "GET", veh).ok, false)
   assert.equal(run("/store-withdraw/queue", "GET", veh).ok, false)
+  // เมนู "คิวงานสโตร์": เห็นเมื่อมีสิทธิ์ store-queue อย่างน้อยดู · คนไม่มีสิทธิ์ไม่เห็น · กลุ่ม none แต่เห็นคิว = ยังเห็นเฉพาะคิว
+  const hrefs = (a: Record<string, string>) => sidebarGroups({ access: a as never }).flatMap((g) => g.items.map((i) => i.href))
+  const base = { ...veh.access } as Record<string, string>
+  assert.equal(hrefs({ ...base, "store-queue": "none" }).includes("/store-withdraw/queue"), false)
+  assert.equal(hrefs({ ...base, "store-queue": "view" }).includes("/store-withdraw/queue"), true)
+  const onlyQueue = hrefs({ ...base, "store-withdraw": "none", "store-queue": "edit" }).filter((h) => h.startsWith("/store-withdraw"))
+  assert.deepEqual(onlyQueue, ["/store-withdraw/queue"])
+  assert.equal(sidebarGroups({}).flatMap((g) => g.items).some((i) => i.href === "/store-withdraw/queue"), true)
 }
 console.log("store-withdraw access: OK")

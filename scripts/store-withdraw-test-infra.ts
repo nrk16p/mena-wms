@@ -11,7 +11,7 @@ if (!out) throw new Error("usage: store-withdraw-test-infra.ts <out.json> <calls
 const callsLog = process.argv[3]
 // argv[4] (ไม่บังคับ) = ไฟล์ JSON คุมพฤติกรรมจำลองระหว่างรัน เช่น {"issue":"409","issueDelayMs":1500}
 const ctlFile = process.argv[4]
-const ctl = (): { issue?: string; issueDelayMs?: number } => {
+const ctl = (): { issue?: string; issueDelayMs?: number; list?: string } => {
   try { return ctlFile ? JSON.parse(fs.readFileSync(ctlFile, "utf8")) : {} } catch { return {} }
 }
 
@@ -56,6 +56,9 @@ void (async () => {
         return c.issueDelayMs ? void setTimeout(reply, c.issueDelayMs) : reply()
       }
       if (u.pathname === "/atms/withdraw/list") {
+        const mode = ctl().list
+        if (mode === "fail") return json(res, 500, { detail: "mock: ATMS down" })
+        if (mode === "slow") return void setTimeout(() => json(res, 200, { rows: [] }), 15000)
         // แถว id 9001 = ใบที่ WMS ตัดเอง (ต้องถูกตัดออก) · 8123 = คีย์ตรงใน ATMS
         return json(res, 200, { rows: [
           { id: 9001, code: "LBWD-9001", pick_to: "ซ่อมรถ", user: "store1", remark: "SW", created_at: "2026-10-31 09:10", approved: true },
@@ -63,7 +66,7 @@ void (async () => {
         ] })
       }
       if (u.pathname === "/atms/sku/lookup") {
-        return json(res, 200, { rows: [{ found: true, code: "OIL-001", name: "น้ำมันเครื่อง", stock_qty: 7, sku_pk: 501 }] })
+        return json(res, 200, { rows: [{ found: true, code: "OIL-001", name: "น้ำมันเครื่อง", stock_qty: 7, sku_pk: 501 }, { found: true, code: "FLT-002", name: "ไส้กรอง", stock_qty: 99, sku_pk: 9999 }] })
       }
       if (u.pathname === "/atms/withdraw/9001") {
         return json(res, 200, { id: 9001, code: "LBWD-9001", items: [{ sku_code: "OIL-001", unit_price: 100 }] })

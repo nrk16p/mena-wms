@@ -14,7 +14,7 @@
 //   • hideOnHome / subheader → ไม่ขึ้นบนการ์ดหน้าหลัก (เป็นของ sidebar อย่างเดียว)
 
 import type { ElementType } from "react"
-import type { Access } from "./access-policy"
+import { atLeast, type Access, type Section } from "./access-policy"
 import {
   Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
@@ -42,6 +42,8 @@ export type NavItem = {
   desc?: string
   /** ไม่ต้องขึ้นบนหน้าหลัก (เช่น "หน้าหลัก" ที่ลิงก์หาตัวเอง) */
   hideOnHome?: boolean
+  /** ส่วนงานที่ต้องมีสิทธิ์อย่างน้อย "ดู" ถึงจะเห็นเมนูนี้ (ใช้กับเมนูที่สิทธิ์ต่างจากกลุ่ม เช่น คิวสโตร์) · ไม่ระบุ = ตามกลุ่ม */
+  section?: Section
 }
 
 export type NavGroup = {
@@ -261,6 +263,8 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ดูสถานะใบที่ยื่น ยกเลิก รับของ ขอคืน" },
       { href: "/store-withdraw/new", label: "ขอเบิกใหม่", icon: Plus, exact: true,
         desc: "ยื่นคำขอเบิกอะไหล่ (สต๊อก / ตัดยอด)" },
+      { href: "/store-withdraw/queue", label: "คิวงานสโตร์", icon: Inbox, exact: true, section: "store-queue",
+        desc: "รับงาน จัดของ ส่งของ และรับคืน (เฉพาะสโตร์)" },
     ],
   },
   {
@@ -313,14 +317,22 @@ type Viewer = {
   access?: Access
 }
 
+const sectionOk = (item: NavItem, viewer: Viewer) =>
+  !item.section || !viewer.access || atLeast(viewer.access[item.section], "view")
+
 function groupVisible(group: NavGroup, viewer: Viewer) {
   if (group.superadminOnly && !viewer.isSuperAdmin) return false
-  if (viewer.access && (viewer.access as Record<string, string>)[group.key] === "none") return false
+  // กลุ่มที่ไม่มีสิทธิ์ แต่มีเมนูที่ผูกสิทธิ์ส่วนงานอื่นและผู้ใช้เห็นอยู่ (เช่น สโตร์ที่เห็นแต่คิว) = ยังแสดงกลุ่ม
+  if (viewer.access && (viewer.access as Record<string, string>)[group.key] === "none"
+    && !group.items.some((i) => i.section && sectionOk(i, viewer))) return false
   return !group.visibleToEmails || group.visibleToEmails.includes(viewer.email ?? "")
 }
 
-function itemVisible(item: NavItem, viewer: Viewer) {
+function itemVisible(item: NavItem, viewer: Viewer, group?: NavGroup) {
   if (item.hidden) return false
+  if (!sectionOk(item, viewer)) return false
+  // เมนูที่ไม่ผูก section ใช้สิทธิ์ของกลุ่ม: กลุ่มเป็น none = ซ่อน
+  if (group && !item.section && viewer.access && (viewer.access as Record<string, string>)[group.key] === "none") return false
   if (item.adminOnly && !viewer.isAdmin) return false
   if (item.branch && viewer.canSeeBranch && !viewer.canSeeBranch(item.branch)) return false
   return true
@@ -330,7 +342,7 @@ function itemVisible(item: NavItem, viewer: Viewer) {
 export function sidebarGroups(viewer: Viewer): NavGroup[] {
   return NAV_GROUPS
     .filter((g) => groupVisible(g, viewer))
-    .map((g) => ({ ...g, items: g.items.filter((i) => itemVisible(i, viewer)) }))
+    .map((g) => ({ ...g, items: g.items.filter((i) => itemVisible(i, viewer, g)) }))
     .filter((g) => g.items.some((i) => !i.subheader))
 }
 
@@ -357,7 +369,7 @@ export function homeModules(viewer: Viewer): HomeModule[] {
       color: g.color,
       bg: g.bg,
       links: g.items
-        .filter((i) => !i.subheader && !i.hideOnHome && itemVisible(i, viewer))
+        .filter((i) => !i.subheader && !i.hideOnHome && itemVisible(i, viewer, g))
         .map((i) => ({ href: i.href, label: i.homeLabel ?? i.label, desc: i.desc ?? "", icon: i.icon })),
     }))
     .filter((m) => m.links.length > 0)

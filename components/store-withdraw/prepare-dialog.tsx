@@ -28,7 +28,15 @@ export function PrepareDialog({ item, onClose, onReady }: { item: QItem; onClose
   }, [item])
 
   const set = (i: number, p: Partial<Row>) => setRows((c) => c.map((r, k) => (k === i ? { ...r, ...p } : r)))
-  const problems = item.lines.map((l, i) => validateLineEdit(l, Number(rows[i].qty)))
+  const problems = item.lines.map((l, i) => {
+    const raw = rows[i].qty.trim()
+    if (raw === "") return "ใส่จำนวนที่จ่าย (จ่ายไม่ได้ให้ใส่ 0 แล้วติ๊กของขาด)"
+    const n = Number(raw)
+    const bad = validateLineEdit(l, n)
+    if (bad) return bad
+    if (n < l.requestedQty && !rows[i].short) return "จ่ายน้อยกว่าที่ขอ — ติ๊ก \"ของขาด\" หรือแก้จำนวนให้ครบก่อน"
+    return null
+  })
   const allHandled = rows.every((r) => r.checked || r.short)
   const canSubmit = !busy && allHandled && problems.every((p) => p === null)
 

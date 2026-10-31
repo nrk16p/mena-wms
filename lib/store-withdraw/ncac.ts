@@ -3,6 +3,8 @@ export type NcacOpts = {
   creds?: { username: string; password: string }
   body?: unknown
   query?: Record<string, string | number | undefined>
+  /** ไม่ระบุ = NCAC_TIMEOUT_MS (90 วิ ของงานตัดสต๊อก) · งานอ่านที่ห้ามค้างหน้าจอให้ใส่สั้น ๆ */
+  timeoutMs?: number
 }
 
 export const NCAC_TIMEOUT_MS = 90_000
@@ -28,7 +30,7 @@ export async function ncac<T = unknown>(
     method,
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    signal: AbortSignal.timeout(NCAC_TIMEOUT_MS),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? NCAC_TIMEOUT_MS),
     cache: "no-store",
   })
   const text = await res.text()

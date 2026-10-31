@@ -39,7 +39,8 @@ else
 fi
 
 echo "== เปิด Mongo ในเครื่อง + api-ncac จำลอง"
-npx tsx scripts/store-withdraw-test-infra.ts "$TMP/infra.json" "$TMP/ncac-calls.log" > "$TMP/infra.out" 2>&1 &
+echo '{}' > "$TMP/ctl.json"
+npx tsx scripts/store-withdraw-test-infra.ts "$TMP/infra.json" "$TMP/ncac-calls.log" "$TMP/ctl.json" > "$TMP/infra.out" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 120); do [ -f "$TMP/infra.json" ] && break; sleep 1; done
 [ -f "$TMP/infra.json" ] || { echo "infra ไม่ขึ้น"; cat "$TMP/infra.out"; exit 1; }
@@ -101,9 +102,10 @@ expect "รวม skuId ซ้ำ (501 = 5) และสถานะ NEW" "d['re
 
 echo "== คิวสโตร์"
 code 200 "queue" -H "$S" "$B/queue?inv=4"
-expect "ใบอยู่ช่อง NEW และยังไม่ผูกบัญชี = atmsKeyed ว่าง" "any(r['no']=='$NO' for r in d['columns']['NEW']) and d['atmsKeyed']==[]"
+expect "ใบอยู่ช่อง NEW และ atmsKeyed อ่านด้วยบัญชี svc (ไม่ต้องผูกบัญชีสโตร์)" "any(r['no']=='$NO' for r in d['columns']['NEW']) and [x['id'] for x in d['atmsKeyed']]==[9001, 8123]"
+grep -q "GET /atms/withdraw/list user=svc" "$TMP/ncac-calls.log" && ok "list ยิงด้วยบัญชีค้นข้อมูล svc" || bad "list ไม่ได้ใช้ svc"
 code 200 "live-stock (ncac จำลอง)" -H "$S" "$B/live-stock?inv=4&items=OIL-001:501,FLT-002:502"
-expect "สต๊อกสด 7 (live) + สำเนา 3 (ไม่ live)" "d['stock']['OIL-001']=={'qty':7,'live':True} and d['stock']['FLT-002']=={'qty':3,'live':False}"
+expect "สต๊อกสด 7 (live) + FLT-002 skuPk ไม่ตรง → ถอยไปสำเนา 3" "d['stock']['OIL-001']=={'qty':7,'live':True} and d['stock']['FLT-002']=={'qty':3,'live':False}"
 
 echo "== ผูกบัญชี ATMS"
 code 403 "ผูกอีเมลไม่ตรง" -H "$S" -H "$J" -X POST "$B/atms-link" -d '{"username":"other","password":"pw"}'
@@ -117,6 +119,19 @@ expect "ยังไม่มี gmId = เห็นทั้ง 9001 และ 
 CALLS_BEFORE=$(grep -c "GET /atms/withdraw/list" "$TMP/ncac-calls.log")
 code 200 "queue ซ้ำ (แคช 3 นาที)" -H "$S" "$B/queue?inv=4"
 [ "$(grep -c 'GET /atms/withdraw/list' "$TMP/ncac-calls.log")" = "$CALLS_BEFORE" ] && ok "แคช: ไม่ยิง ncac list ซ้ำ" || bad "ยิง ncac list ซ้ำทั้งที่มีแคช"
+
+echo "== list ล่ม/ช้า ไม่ทำให้คิวค้าง + negative cache"
+echo '{"list":"fail"}' > "$TMP/ctl.json"
+code 200 "queue inv=5 ตอน ATMS ล่ม" -H "$S" "$B/queue?inv=5"
+expect "คิวหลักมา atmsKeyed ว่าง" "d['atmsKeyed']==[] and 'NEW' in d['columns']"
+N1=$(grep -c "GET /atms/withdraw/list" "$TMP/ncac-calls.log")
+code 200 "queue inv=5 ซ้ำ" -H "$S" "$B/queue?inv=5"
+[ "$(grep -c 'GET /atms/withdraw/list' "$TMP/ncac-calls.log")" = "$N1" ] && ok "พักหลังพลาด: ไม่ยิง ATMS ซ้ำใน 2 นาที" || bad "ยิง list ซ้ำหลังพลาด"
+echo '{"list":"slow"}' > "$TMP/ctl.json"
+T0=$(python3 -c "import time;print(time.time())")
+code 200 "queue inv=6 ตอน ATMS ช้า" -H "$S" "$B/queue?inv=6"
+python3 -c "import time,sys;sys.exit(0 if time.time()-$T0<4 else 1)" && ok "ไม่รอ list เกิน 4 วิ" || bad "คิวรอ list นานเกินไป"
+echo '{}' > "$TMP/ctl.json"
 
 echo "== cancel / claim / lines / ready / issue"
 code 403 "คนอื่นยกเลิกใบไม่ได้" -H "$R2" -X POST "$B/$NO/cancel"

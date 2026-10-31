@@ -8,6 +8,8 @@ import { itemKey, type QItem, type QKeyed } from "./queue-types"
 export const WAIT_WARN_MIN = 30
 const STUCK_MS = 5 * 60_000
 
+export type BusyKind = "issue" | "other"
+
 export type CardActions = {
   claim: (i: QItem) => void
   prepare: (i: QItem) => void
@@ -31,7 +33,7 @@ function waitText(min: number) {
 }
 
 export function TicketCard({ item, now, busy, actions, column }: {
-  item: QItem; now: Date; busy: boolean; actions: CardActions; column: "NEW" | "PREPARING" | "READY" | "DONE_TODAY"
+  item: QItem; now: Date; busy: BusyKind | null; actions: CardActions; column: "NEW" | "PREPARING" | "READY" | "DONE_TODAY"
 }) {
   const isReturn = item.itemType === "return" && !!item.return
   const ret = item.return
@@ -40,7 +42,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
   const late = !done && mins > WAIT_WARN_MIN
   const atms = isReturn ? ret!.atms : item.atms
   const failed = isReturn ? ret!.status === "RETURN_FAILED" : item.status === "ISSUE_FAILED"
-  const issuing = busy || (isReturn ? ret!.status === "RETURNING" : item.status === "ISSUING")
+  const issuing = busy === "issue" || (isReturn ? ret!.status === "RETURNING" : item.status === "ISSUING")
   const stale = !busy && issuing && now.getTime() - new Date(item.updatedAt).getTime() > STUCK_MS
 
   const stripe = item.urgent && !done ? "border-l-red-500" : isReturn ? "border-l-purple-500" : "border-l-transparent"
@@ -103,7 +105,9 @@ export function TicketCard({ item, now, busy, actions, column }: {
         <div className="mt-2"><StatusChip status={item.status} /></div>
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {issuing && !stale ? (
+          {busy === "other" ? (
+            <span data-testid="working" className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-500"><Loader2 size={14} className="animate-spin" />กำลังทำรายการ</span>
+          ) : issuing && !stale ? (
             <span data-testid="issuing" className="inline-flex items-center gap-1.5 rounded-xl bg-violet-50 px-3 py-2 text-sm text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
               <Loader2 size={14} className="animate-spin" />กำลังตัดใน ATMS
             </span>

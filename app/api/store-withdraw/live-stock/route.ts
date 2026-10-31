@@ -20,7 +20,11 @@ export function GET(req: NextRequest) {
 
     const stock: Record<string, { qty: number; live: boolean }> = {}
     const live = await fetchLiveSku(items.map((x) => x.code))
-    for (const [code, row] of live) stock[code] = { qty: row.stockQty, live: true }
+    // รับของสดเฉพาะแถวที่เป็น SKU เดียวกับบรรทัดในใบ (skuPk ตรง) — ไม่ตรง/ไม่มี = ถอยไปสำเนา
+    for (const [code, row] of live) {
+      const it = items.find((x) => x.code === code)
+      if (it && row.skuPk === it.skuId) stock[code] = { qty: row.stockQty, live: true }
+    }
 
     const missing = items.filter((x) => !(x.code in stock) && Number.isInteger(x.skuId))
     if (missing.length) {

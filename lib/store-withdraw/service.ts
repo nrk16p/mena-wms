@@ -2,7 +2,6 @@
 import { randomBytes } from "node:crypto"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, swCol, writeLog, ConflictError, type Actor } from "./db"
 import { queueSort, returnableQty } from "./core"
-import { getCreds } from "./creds"
 import { HttpError } from "./http"
 import { ncac } from "./ncac"
 import type { AtmsProgress, SwKind, SwLine, SwRequest } from "./types"
@@ -255,30 +254,58 @@ const toKeyed = (r: Row): AtmsKeyedRow => ({
   approved: r.approved === true,
 })
 
+export const KEYED_LIST_TIMEOUT_MS = 5_000
+export const KEYED_FRESH_MS = 180_000 // TTL index ลบช้าได้ ~60 วิ จึงเช็กอายุเองตอนอ่านด้วย
+export const KEYED_FAIL_MS = 120_000 // ดึงพลาดแล้วพัก 2 นาที ไม่ยิง ATMS ซ้ำ
+
+const inflight = new Map<string, Promise<AtmsKeyedRow[] | null>>()
+
+async function fetchKeyed(inventoryId: number, date: string): Promise<AtmsKeyedRow[] | null> {
+  const username = process.env.ATMS_LOOKUP_USERNAME
+  const password = process.env.ATMS_LOOKUP_PASSWORD
+  if (!username || !password) return null
+  try {
+    const r = await ncac<{ rows?: Row[] } | null>("GET", "/atms/withdraw/list", {
+      creds: { username, password }, query: { inventory_id: inventoryId, date }, timeoutMs: KEYED_LIST_TIMEOUT_MS,
+    })
+    if (r.status < 200 || r.status >= 300) return null
+    return (r.data?.rows ?? []).map(toKeyed)
+  } catch {
+    return null
+  }
+}
+
 /**
- * WD วันนี้ของคลังนั้นที่ถูกคีย์ตรงใน ATMS · แคช 3 นาที (TTL index ของ atmsCacheCol) ใช้ร่วมทุกจอ
- * ยิง api-ncac ด้วยบัญชี ATMS ของสโตร์ที่เปิดจอ · ไม่มีบัญชี/ATMS ล่ม = [] (จอถามผูกบัญชีเอง · ไม่เก็บแคชผลที่พลาด)
- * ตัดแถวที่ id ตรงกับ atms.gmId ของใบใน WMS ออก (เป็นใบที่ WMS ตัดเอง ไม่ใช่คีย์ตรง)
+ * WD วันนี้ของคลังนั้นที่ถูกคีย์ตรงใน ATMS (อ่านอย่างเดียว) · อ่านด้วยบัญชีค้นข้อมูลของ WMS (env ATMS_LOOKUP_*) ไม่ใช้บัญชีสโตร์
+ * กันหน้าจอค้างและกันยิง ATMS รัว: timeout 5 วิ · พลาดแล้วจำไว้ 2 นาที (คืนแถวแคชล่าสุดถ้ามี ไม่งั้น []) · 1 คีย์ = 1 คำขอพร้อมกัน
+ * แคช 3 นาที ใช้ร่วมทุกจอ · ตัดแถวที่ id ตรงกับ atms.gmId ของใบใน WMS (ที่ WMS ตัดเอง) ออก
  */
-export async function listAtmsKeyed(inventoryId: number, now: Date, email: string): Promise<AtmsKeyedRow[]> {
+export async function listAtmsKeyed(inventoryId: number, now: Date): Promise<AtmsKeyedRow[]> {
   const date = ddmmyyyyBkk(now)
   const key = `wd-list:${inventoryId}:${date}`
   const cache = await atmsCacheCol()
-  let rows: AtmsKeyedRow[] | null = null
-  const hit = await cache.findOne({ key })
-  if (hit && Array.isArray(hit.data)) rows = hit.data as AtmsKeyedRow[]
-  if (!rows) {
-    const creds = await getCreds(email)
-    if (!creds) return []
-    try {
-      const r = await ncac<{ rows?: Row[] } | null>("GET", "/atms/withdraw/list", { creds, query: { inventory_id: inventoryId, date } })
-      if (r.status < 200 || r.status >= 300) return []
-      rows = (r.data?.rows ?? []).map(toKeyed)
-      await cache.replaceOne({ key }, { key, data: rows, fetchedAt: new Date() }, { upsert: true })
-    } catch {
-      return []
+  const doc = await cache.findOne({ key }) as ({ data?: unknown; fetchedAt: Date; failedAt?: Date } | null)
+  const stale = doc && Array.isArray(doc.data) ? (doc.data as AtmsKeyedRow[]) : null
+  const age = (d?: Date) => (d ? now.getTime() - new Date(d).getTime() : Infinity)
+
+  let rows: AtmsKeyedRow[]
+  if (stale && age(doc!.fetchedAt) < KEYED_FRESH_MS) rows = stale
+  else if (doc?.failedAt && age(doc.failedAt) < KEYED_FAIL_MS) rows = stale ?? []
+  else {
+    let p = inflight.get(key)
+    if (!p) {
+      p = fetchKeyed(inventoryId, date).then(async (got) => {
+        try {
+          if (got) await cache.replaceOne({ key }, { key, data: got, fetchedAt: new Date() }, { upsert: true })
+          else await cache.updateOne({ key }, { $set: { failedAt: new Date() }, $setOnInsert: { fetchedAt: new Date() } }, { upsert: true })
+        } catch { /* แคชเขียนไม่ได้ก็ไม่เป็นไร */ }
+        return got
+      }).finally(() => { inflight.delete(key) })
+      inflight.set(key, p)
     }
+    rows = (await p) ?? stale ?? []
   }
+
   const mine = await (await swCol()).find(
     { inventoryId, "atms.gmId": { $ne: null } },
     { projection: { _id: 0, "atms.gmId": 1, "returns.atms.gmId": 1 } },
