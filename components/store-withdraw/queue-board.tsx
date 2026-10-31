@@ -256,7 +256,19 @@ export function QueueBoard() {
     catch (e) { swalError(errMsg(e, "เลิกผูกไม่สำเร็จ")) }
   }
 
-  const actions: CardActions = { claim, prepare: setPrep, issue, reject, acceptReturn }
+  // เปิดดูใบ → เทียบกับ ATMS (ห่างกันอย่างน้อย 60 วิต่อใบ · พลาดก็เงียบ ไม่รบกวนงานหลัก)
+  const lastCheck = useRef<Map<string, number>>(new Map())
+  const open = (i: QItem) => {
+    if (i.itemType === "return" || i.atms.gmId == null) return
+    const t = Date.now()
+    if (t - (lastCheck.current.get(i.no) ?? 0) < 60_000) return
+    lastCheck.current.set(i.no, t)
+    void api(`/api/store-withdraw/${encodeURIComponent(i.no)}/check`, { method: "POST" })
+      .then((r: { checked?: boolean }) => { if (r.checked) void load() })
+      .catch(() => {})
+  }
+
+  const actions: CardActions = { claim, prepare: setPrep, issue, reject, acceptReturn, open }
   const total = data ? COLS.reduce((n, c) => n + data.columns[c.key].length, 0) : 0
 
   return (

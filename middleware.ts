@@ -20,10 +20,11 @@ const MOBILE_API_PREFIXES = [
 const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\/[^/]+\/push-next-garage$/]
 
 // เบิกอะไหล่หน้าร้านคลัง: ระบบภายนอกเรียกฝั่งผู้ขอได้ด้วย x-api-key (env STORE_WITHDRAW_API_KEYS คั่นด้วย comma) + x-user (อีเมล)
-// งานของสโตร์ (claim/lines/ready/issue/reject/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
+// งานของสโตร์ (claim/lines/ready/issue/reject/check/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
+// /api/store-withdraw/drift-tick = งานตั้งเวลาจาก api-ncac ใช้ x-api-key อย่างเดียว (ผ่านฟังก์ชันนี้โดยไม่ต้องมี session · route ตรวจกุญแจซ้ำ)
 const STORE_WITHDRAW_SESSION_ONLY = [
   /^\/api\/store-withdraw\/(queue|atms-link|live-stock)$/,
-  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject)$/,
+  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|check)$/,
   /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]
 
@@ -96,7 +97,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Public read-only sync API + คู่มือ API สำหรับทีมภายนอก (ไม่ต้อง login / ไม่ต้องมี api key)
-  if (pathname === "/repair-external/api-guide" || pathname === "/tire/api-guide") {
+  if (pathname === "/repair-external/api-guide" || pathname === "/tire/api-guide" || pathname === "/store-withdraw/api-guide") {
     return NextResponse.next()
   }
   // sync API เปิด public ทุก method (อ่าน + เขียน) ตามการตัดสินใจของทีม 2026-08-06

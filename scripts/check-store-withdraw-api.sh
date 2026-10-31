@@ -159,6 +159,17 @@ CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: wrong" -H "x-user: 
 if [ "$CODE" = 401 ]; then ok "api-key ผิด 401"; else bad "api-key ผิดได้ $CODE"; fi
 code 200 "api-key ยกเลิกใบตัวเอง" -H "x-api-key: key-two" -H "x-user: ext.user@menatransport.co.th" -X POST "$B/$APINO/cancel"
 
+echo "== drift"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$B/drift-tick")
+if [ "$CODE" = 401 ] || [ "$CODE" = 403 ] || [ "$CODE" = 307 ]; then ok "drift-tick ไม่มีกุญแจถูกปฏิเสธ ($CODE)"; else bad "drift-tick ไม่มีกุญแจได้ $CODE"; fi
+code 401 "drift-tick กุญแจผิด" -H "x-api-key: wrong" -X POST "$B/drift-tick"
+code 200 "drift-tick กุญแจถูก" -H "x-api-key: key-one" -X POST "$B/drift-tick"
+expect "drift-tick ตอบ checked/drifted/skipped" "sorted(d.keys())==['checked','drifted','skipped']"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" -X POST "$B/$NO/check")
+if [ "$CODE" = 401 ] || [ "$CODE" = 403 ]; then ok "api-key check ถูกปฏิเสธ ($CODE)"; else bad "api-key check ได้ $CODE"; fi
+code 200 "สโตร์ check" -H "$S" -X POST "$B/$NO/check"
+code 200 "หน้าคู่มือ API เปิดสาธารณะ" "http://localhost:$PORT/store-withdraw/api-guide"
+
 echo "== issue (ncac จำลอง)"
 code 200 "issue" -H "$S" -X POST "$B/$NO/issue"
 expect "ISSUED + เลข WD" "d['request']['status']=='ISSUED' and d['request']['atms']['code']=='LBWD-9001'"

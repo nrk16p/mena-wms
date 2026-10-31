@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertTriangle, Loader2, Undo2 } from "lucide-react"
+import { AlertTriangle, Flag, Loader2, Undo2 } from "lucide-react"
 import { waitMinutes } from "@/lib/store-withdraw/core"
 import { StatusChip } from "./status-chip"
 import { itemKey, type QItem, type QKeyed } from "./queue-types"
@@ -16,6 +16,8 @@ export type CardActions = {
   issue: (i: QItem) => void
   reject: (i: QItem) => void
   acceptReturn: (i: QItem) => void
+  /** เปิดดูการ์ด — คิวใช้ตรวจใบกับ ATMS (ไม่บังคับ) */
+  open?: (i: QItem) => void
 }
 
 const btn = "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium disabled:opacity-60"
@@ -62,7 +64,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
   return (
     <li data-testid="ticket" data-no={item.no} data-kind={isReturn ? "return" : item.kind} data-status={isReturn ? ret!.status : item.status}
       className={`rounded-2xl border border-l-4 p-3.5 ${stripe} ${tone}`}>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-2" onClick={() => actions.open?.(item)}>
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-x-1.5 text-sm font-semibold text-gray-900 dark:text-white">
             {isReturn && <Undo2 size={14} className="text-purple-600" aria-label="ใบคืน" />}
@@ -94,6 +96,12 @@ export function TicketCard({ item, now, busy, actions, column }: {
       {item.remark && !isReturn && <p className="mt-1.5 text-xs text-gray-500">หมายเหตุ: {item.remark}</p>}
 
       {atms.code && <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">เลข {isReturn ? "DD" : "WD"}: <span data-testid="wd-code" className="font-semibold">{atms.code}</span></p>}
+
+      {atms.drift && (
+        <p data-testid="atms-drift" className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+          <Flag size={14} className="mt-0.5 shrink-0" /><span><b>ATMS ถูกแก้</b> · {atms.drift}</span>
+        </p>
+      )}
 
       {failed && (
         <p role="alert" data-testid="atms-error" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">
