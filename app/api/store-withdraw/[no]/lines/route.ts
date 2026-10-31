@@ -3,13 +3,13 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { validateLineEdit } from "@/lib/store-withdraw/core"
 import { ConflictError, swCol, writeLog } from "@/lib/store-withdraw/db"
-import { getActor, guard, isResponse, readJson, err, type RouteCtx } from "@/lib/store-withdraw/http"
+import { getStoreActor, guard, isResponse, readJson, err, type RouteCtx } from "@/lib/store-withdraw/http"
 
 export const dynamic = "force-dynamic"
 
 export function PATCH(req: NextRequest, ctx: RouteCtx<{ no: string }>) {
   return guard(async () => {
-    const actor = await getActor(req, false)
+    const actor = await getStoreActor(req)
     if (isResponse(actor)) return actor
     const { no } = await ctx.params
     const body = await readJson(req)

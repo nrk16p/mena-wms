@@ -1,13 +1,13 @@
 // POST /api/store-withdraw/:no/reject — สโตร์ปฏิเสธคำขอ ต้องมีเหตุผล (session เท่านั้น)
 import { NextResponse, type NextRequest } from "next/server"
 import { transition } from "@/lib/store-withdraw/db"
-import { getActor, guard, isResponse, readJson, err, type RouteCtx } from "@/lib/store-withdraw/http"
+import { getStoreActor, guard, isResponse, readJson, err, type RouteCtx } from "@/lib/store-withdraw/http"
 
 export const dynamic = "force-dynamic"
 
 export function POST(req: NextRequest, ctx: RouteCtx<{ no: string }>) {
   return guard(async () => {
-    const actor = await getActor(req, false)
+    const actor = await getStoreActor(req)
     if (isResponse(actor)) return actor
     const { no } = await ctx.params
     const reason = String((await readJson(req)).reason ?? "").trim()

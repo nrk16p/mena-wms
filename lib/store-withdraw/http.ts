@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto"
 import { NextResponse, type NextRequest } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { atLeast, type Access } from "@/lib/access-policy"
 import { ConflictError, type Actor } from "./db"
 
 export const err = (message: string, status: number) => NextResponse.json({ error: message }, { status })
@@ -40,6 +41,19 @@ export async function getActor(req: NextRequest, allowApi: boolean): Promise<Act
     return { email: user, name: user, via: "api" }
   }
   return err("ยังไม่ได้ล็อกอิน — เข้าสู่ระบบแล้วลองใหม่", 401)
+}
+
+/**
+ * งานของสโตร์: ต้องเป็น session และมีสิทธิ์ "คิวงานสโตร์" ระดับแก้ได้ (เช็กซ้ำที่ route นอกเหนือจาก middleware)
+ * อ่าน access จาก session เหมือนที่ middleware/หน้าอื่นอ่าน
+ */
+export async function getStoreActor(req: NextRequest): Promise<Actor | NextResponse> {
+  const actor = await getActor(req, false)
+  if (isResponse(actor)) return actor
+  const session = await getServerSession(authOptions)
+  const access = (session?.user as { access?: Access } | undefined)?.access
+  if (!access || !atLeast(access["store-queue"], "edit")) return err("งานนี้เฉพาะสโตร์ — ขอสิทธิ์คิวงานสโตร์จากผู้ดูแลระบบ", 403)
+  return actor
 }
 
 export const isResponse = (x: Actor | NextResponse): x is NextResponse => x instanceof NextResponse

@@ -56,16 +56,25 @@ for _ in $(seq 1 90); do curl -s -o /dev/null "http://localhost:$PORT/login" && 
 
 REQ_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"req1@menatransport.co.th","name":"ผู้ขอ","employee":{"username":"req1","department":"ยานยนต์","position":"ช่าง"}}' | tail -1)
 REQ2_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"req2@menatransport.co.th","name":"ผู้ขออีกคน","employee":{"username":"req2","department":"ยานยนต์","position":"ช่าง"}}' | tail -1)
-STORE_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"store1@menatransport.co.th","name":"สโตร์ 1","employee":{"username":"store1","department":"Store","position":"สโตร์"},"accessOverrides":{"store-queue":"edit"}}' | tail -1)
+# accessAt = เพิ่งรีเฟรชสิทธิ์ → route ไม่ไปอ่าน override จาก DB ทับ (ในระบบจริง token มี accessAt หลัง login เสมอ)
+NOW_MS=$(python3 -c "import time;print(int(time.time()*1000))")
+VIEW_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"viewer@menatransport.co.th","name":"ดูอย่างเดียว","employee":{"username":"viewer","department":"Store","position":"สโตร์"},"accessOverrides":{"store-queue":"view"},"accessAt":'$NOW_MS'}' | tail -1)
+STORE_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"store1@menatransport.co.th","name":"สโตร์ 1","employee":{"username":"store1","department":"Store","position":"สโตร์"},"accessOverrides":{"store-queue":"edit"},"accessAt":'$NOW_MS'}' | tail -1)
 R="Cookie: next-auth.session-token=$REQ_TOKEN"
 R2="Cookie: next-auth.session-token=$REQ2_TOKEN"
 S="Cookie: next-auth.session-token=$STORE_TOKEN"
+V="Cookie: next-auth.session-token=$VIEW_TOKEN"
 J="Content-Type: application/json"
 
 echo "== สิทธิ์"
 code 401 "ไม่มี session" "$B"
 code 403 "ผู้ขอเข้าคิวสโตร์ไม่ได้" -H "$R" "$B/queue?inv=4"
 code 403 "ผู้ขอ claim ไม่ได้" -H "$R" -X POST "$B/SW-0000-001/claim"
+
+code 200 "viewer เห็นตัวเลือกได้" -H "$V" "$B/options"
+code 403 "view-only เข้าคิวไม่ได้ (route เช็กซ้ำ)" -H "$V" "$B/queue?inv=4"
+code 403 "view-only claim ไม่ได้" -H "$V" -X POST "$B/SW-0000-001/claim"
+code 403 "view-only live-stock ไม่ได้" -H "$V" "$B/live-stock?inv=4&items=OIL-001:501"
 
 echo "== options / lookup"
 code 200 "options" -H "$R" "$B/options"
@@ -92,7 +101,9 @@ expect "รวม skuId ซ้ำ (501 = 5) และสถานะ NEW" "d['re
 
 echo "== คิวสโตร์"
 code 200 "queue" -H "$S" "$B/queue?inv=4"
-expect "ใบอยู่ช่อง NEW" "any(r['no']=='$NO' for r in d['columns']['NEW']) and d['atmsKeyed']==[]"
+expect "ใบอยู่ช่อง NEW และยังไม่ผูกบัญชี = atmsKeyed ว่าง" "any(r['no']=='$NO' for r in d['columns']['NEW']) and d['atmsKeyed']==[]"
+code 200 "live-stock (ncac จำลอง)" -H "$S" "$B/live-stock?inv=4&items=OIL-001:501,FLT-002:502"
+expect "สต๊อกสด 7 (live) + สำเนา 3 (ไม่ live)" "d['stock']['OIL-001']=={'qty':7,'live':True} and d['stock']['FLT-002']=={'qty':3,'live':False}"
 
 echo "== ผูกบัญชี ATMS"
 code 403 "ผูกอีเมลไม่ตรง" -H "$S" -H "$J" -X POST "$B/atms-link" -d '{"username":"other","password":"pw"}'
@@ -100,6 +111,12 @@ code 422 "ผูกรหัสผิด" -H "$S" -H "$J" -X POST "$B/atms-link"
 code 200 "ผูกสำเร็จ" -H "$S" -H "$J" -X POST "$B/atms-link" -d '{"username":"store1","password":"secret-pw"}'
 code 200 "สถานะผูก" -H "$S" "$B/atms-link"
 expect "linked และไม่คืนรหัสผ่าน" "d['linked']==True and 'password' not in str(d) and 'secret-pw' not in str(d)"
+
+code 200 "queue หลังผูกบัญชี" -H "$S" "$B/queue?inv=4"
+expect "ยังไม่มี gmId = เห็นทั้ง 9001 และ 8123" "[x['id'] for x in d['atmsKeyed']]==[9001, 8123]"
+CALLS_BEFORE=$(grep -c "GET /atms/withdraw/list" "$TMP/ncac-calls.log")
+code 200 "queue ซ้ำ (แคช 3 นาที)" -H "$S" "$B/queue?inv=4"
+[ "$(grep -c 'GET /atms/withdraw/list' "$TMP/ncac-calls.log")" = "$CALLS_BEFORE" ] && ok "แคช: ไม่ยิง ncac list ซ้ำ" || bad "ยิง ncac list ซ้ำทั้งที่มีแคช"
 
 echo "== cancel / claim / lines / ready / issue"
 code 403 "คนอื่นยกเลิกใบไม่ได้" -H "$R2" -X POST "$B/$NO/cancel"
@@ -132,6 +149,8 @@ code 200 "issue" -H "$S" -X POST "$B/$NO/issue"
 expect "ISSUED + เลข WD" "d['request']['status']=='ISSUED' and d['request']['atms']['code']=='LBWD-9001'"
 grep -q "POST /atms/withdraw/issue user=store1" "$TMP/ncac-calls.log" && ok "ยิง ncac ด้วยบัญชีสโตร์" || bad "ไม่เห็นการยิง ncac ของสโตร์"
 code 409 "issue ซ้ำ" -H "$S" -X POST "$B/$NO/issue"
+code 200 "queue หลังมี gmId: ตัดแถว 9001 ออก" -H "$S" "$B/queue?inv=4"
+expect "atmsKeyed เหลือเฉพาะ 8123" "[x['id'] for x in d['atmsKeyed']]==[8123]"
 
 echo "== receive / returns / accept"
 code 403 "คนอื่นกดรับแทนไม่ได้" -H "$R2" -X POST "$B/$NO/receive"

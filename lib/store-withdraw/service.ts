@@ -2,6 +2,7 @@
 import { randomBytes } from "node:crypto"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, swCol, writeLog, ConflictError, type Actor } from "./db"
 import { queueSort, returnableQty } from "./core"
+import { getCreds } from "./creds"
 import { HttpError } from "./http"
 import { ncac } from "./ncac"
 import type { AtmsProgress, SwKind, SwLine, SwRequest } from "./types"
@@ -208,7 +209,8 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
     ],
   }
   if (inventoryId != null) filter.inventoryId = inventoryId
-  const docs = await col.find(filter, { projection: { _id: 0 } }).limit(500).toArray()
+  // เรียงก่อน limit: งานค้างเก่าสุดต้องไม่หลุดออกจากคิวเมื่อมีใบสะสมเกิน 500
+  const docs = await col.find(filter, { projection: { _id: 0 } }).sort({ urgent: -1, createdAt: 1 }).limit(500).toArray()
 
   const cols: Record<"NEW" | "PREPARING" | "READY" | "DONE_TODAY", QueueItem[]> = { NEW: [], PREPARING: [], READY: [], DONE_TODAY: [] }
   const today = ddmmyyyyBkk(now)
@@ -229,4 +231,62 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
     NEW: queueSort(cols.NEW), PREPARING: queueSort(cols.PREPARING), READY: queueSort(cols.READY),
     DONE_TODAY: [...cols.DONE_TODAY].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()),
   }
+}
+
+// ---------- WD ที่คีย์ตรงใน ATMS (อ่านอย่างเดียว) ----------
+
+export type AtmsKeyedRow = {
+  id: number | null
+  code: string
+  pick_to: string
+  user: string
+  remark: string
+  created_at: string
+  approved: boolean
+}
+
+const toKeyed = (r: Row): AtmsKeyedRow => ({
+  id: r.id == null || r.id === "" || !Number.isFinite(Number(r.id)) ? null : Number(r.id),
+  code: str(r.code),
+  pick_to: str(r.pick_to),
+  user: str(r.user),
+  remark: str(r.remark),
+  created_at: str(r.created_at),
+  approved: r.approved === true,
+})
+
+/**
+ * WD วันนี้ของคลังนั้นที่ถูกคีย์ตรงใน ATMS · แคช 3 นาที (TTL index ของ atmsCacheCol) ใช้ร่วมทุกจอ
+ * ยิง api-ncac ด้วยบัญชี ATMS ของสโตร์ที่เปิดจอ · ไม่มีบัญชี/ATMS ล่ม = [] (จอถามผูกบัญชีเอง · ไม่เก็บแคชผลที่พลาด)
+ * ตัดแถวที่ id ตรงกับ atms.gmId ของใบใน WMS ออก (เป็นใบที่ WMS ตัดเอง ไม่ใช่คีย์ตรง)
+ */
+export async function listAtmsKeyed(inventoryId: number, now: Date, email: string): Promise<AtmsKeyedRow[]> {
+  const date = ddmmyyyyBkk(now)
+  const key = `wd-list:${inventoryId}:${date}`
+  const cache = await atmsCacheCol()
+  let rows: AtmsKeyedRow[] | null = null
+  const hit = await cache.findOne({ key })
+  if (hit && Array.isArray(hit.data)) rows = hit.data as AtmsKeyedRow[]
+  if (!rows) {
+    const creds = await getCreds(email)
+    if (!creds) return []
+    try {
+      const r = await ncac<{ rows?: Row[] } | null>("GET", "/atms/withdraw/list", { creds, query: { inventory_id: inventoryId, date } })
+      if (r.status < 200 || r.status >= 300) return []
+      rows = (r.data?.rows ?? []).map(toKeyed)
+      await cache.replaceOne({ key }, { key, data: rows, fetchedAt: new Date() }, { upsert: true })
+    } catch {
+      return []
+    }
+  }
+  const mine = await (await swCol()).find(
+    { inventoryId, "atms.gmId": { $ne: null } },
+    { projection: { _id: 0, "atms.gmId": 1, "returns.atms.gmId": 1 } },
+  ).toArray()
+  const own = new Set<number>()
+  for (const d of mine) {
+    if (d.atms?.gmId != null) own.add(d.atms.gmId)
+    for (const x of d.returns ?? []) if (x.atms?.gmId != null) own.add(x.atms.gmId)
+  }
+  return rows.filter((r) => r.id == null || !own.has(r.id))
 }

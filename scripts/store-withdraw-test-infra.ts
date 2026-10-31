@@ -9,6 +9,11 @@ import { MongoMemoryServer } from "mongodb-memory-server"
 const out = process.argv[2]
 if (!out) throw new Error("usage: store-withdraw-test-infra.ts <out.json> <calls.log>")
 const callsLog = process.argv[3]
+// argv[4] (ไม่บังคับ) = ไฟล์ JSON คุมพฤติกรรมจำลองระหว่างรัน เช่น {"issue":"409","issueDelayMs":1500}
+const ctlFile = process.argv[4]
+const ctl = (): { issue?: string; issueDelayMs?: number } => {
+  try { return ctlFile ? JSON.parse(fs.readFileSync(ctlFile, "utf8")) : {} } catch { return {} }
+}
 
 const json = (res: http.ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { "content-type": "application/json" })
@@ -44,7 +49,21 @@ void (async () => {
         return json(res, 200, { results: [{ id: 1, label: `${kind}:${u.searchParams.get("q")}` }] })
       }
       if (u.pathname === "/atms/withdraw/issue") {
-        return json(res, 200, { progress: { gm_id: 9001, done: [0], approved: true, code: "LBWD-9001" } })
+        const c = ctl()
+        const reply = () => c.issue === "409"
+          ? json(res, 409, { detail: "ATMS ตัดสต๊อกบรรทัดที่ 2 ไม่สำเร็จ: สต๊อกไม่พอ", progress: { gm_id: 9001, done: [0], approved: false, code: "LBWD-9001" } })
+          : json(res, 200, { progress: { gm_id: 9001, done: [0], approved: true, code: "LBWD-9001" } })
+        return c.issueDelayMs ? void setTimeout(reply, c.issueDelayMs) : reply()
+      }
+      if (u.pathname === "/atms/withdraw/list") {
+        // แถว id 9001 = ใบที่ WMS ตัดเอง (ต้องถูกตัดออก) · 8123 = คีย์ตรงใน ATMS
+        return json(res, 200, { rows: [
+          { id: 9001, code: "LBWD-9001", pick_to: "ซ่อมรถ", user: "store1", remark: "SW", created_at: "2026-10-31 09:10", approved: true },
+          { id: 8123, code: "LBWD-8123", pick_to: "ซ่อมรถ", user: "คนคีย์ตรง", remark: "70-9999 ยางหน้า", created_at: "2026-10-31 10:05", approved: true },
+        ] })
+      }
+      if (u.pathname === "/atms/sku/lookup") {
+        return json(res, 200, { rows: [{ found: true, code: "OIL-001", name: "น้ำมันเครื่อง", stock_qty: 7, sku_pk: 501 }] })
       }
       if (u.pathname === "/atms/withdraw/9001") {
         return json(res, 200, { id: 9001, code: "LBWD-9001", items: [{ sku_code: "OIL-001", unit_price: 100 }] })

@@ -22,7 +22,7 @@ const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\
 // เบิกอะไหล่หน้าร้านคลัง: ระบบภายนอกเรียกฝั่งผู้ขอได้ด้วย x-api-key (env STORE_WITHDRAW_API_KEYS คั่นด้วย comma) + x-user (อีเมล)
 // งานของสโตร์ (claim/lines/ready/issue/reject/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
 const STORE_WITHDRAW_SESSION_ONLY = [
-  /^\/api\/store-withdraw\/(queue|atms-link)$/,
+  /^\/api\/store-withdraw\/(queue|atms-link|live-stock)$/,
   /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject)$/,
   /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]
