@@ -172,6 +172,7 @@ ul li{margin:2px 0}
     <tr><td>คืนของ</td><td>ต้องรองรับ และ ATMS ต้องตรงกับ WMS ตลอด</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
     <tr><td>หัวหน้าอนุมัติ</td><td>ไม่ต้อง ยื่นแล้วเข้าคิวสโตร์ทันที</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
     <tr><td>นำร่อง</td><td>คลังลาดกระบังก่อน</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
+    <tr><td>WD ที่คีย์ตรงใน ATMS</td><td>ขึ้นในจอคิวด้วย เป็นการ์ดสีเทาในช่องส่งแล้ว ป้าย "คีย์ใน ATMS" ดูได้อย่างเดียว ดึงใหม่ทุกประมาณ 3 นาที</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
     <tr><td>ลำดับคิว</td><td>ใครมาก่อนได้ก่อน ยกเว้นใบที่ติดป้าย "รถจอดรออะไหล่" ได้แซงขึ้นบนสุด</td><td><span class="pill p-mine">เลือกให้</span></td></tr>
     <tr><td>รหัส ATMS ของสโตร์</td><td>กรอกครั้งเดียวตอนผูกบัญชี ระบบเก็บแบบเข้ารหัส แล้ว login ใหม่ให้เองตอน session หมด สโตร์ไม่ต้องทำอะไร ถ้าเปลี่ยนรหัสใน ATMS ระบบจะขอรหัสใหม่ครั้งเดียว และไม่สลับไปใช้บัญชีกลาง</td><td><span class="pill p-user">ผู้ใช้</span></td></tr>
     <tr><td>ใครยิง ATMS</td><td>api-ncac บน Render เพราะใบเดียวต้องยิงหลายคำขอติดกัน ถ้ายิงจาก Vercel เสี่ยงหมดเวลากลางทาง</td><td><span class="pill p-mine">เลือกให้</span></td></tr>
@@ -197,6 +198,7 @@ ul li{margin:2px 0}
     <div class="col"><h4>ส่งแล้ววันนี้ <span>2</span></h4>
       <div class="card"><div class="top"><span>SW-2610-010</span><span class="done">รับแล้ว</span></div><b>71-0907</b><span class="mono">LBWD26102207</span></div>
       <div class="card"><div class="top"><span>SW-2610-008</span><span>รอกดรับ</span></div><b>70-6614</b><span class="mono">LBWD26102205</span></div>
+      <div class="card" style="background:var(--bg);border-style:dashed"><div class="top"><span>คีย์ใน ATMS</span><span>10:42</span></div><span class="mono">LBWD26102204</span><span>CM-งานซ่อม · โดย somchai.k</span></div>
     </div>
   </div>
   <p class="small" style="margin-top:10px">เลขใบ ทะเบียน และชื่อในจอนี้เป็นตัวอย่าง ยังไม่ใช่ข้อมูลจริง</p>
@@ -292,7 +294,6 @@ ul li{margin:2px 0}
   <ol class="plan">
     <li>ใบเบิกตัดยอด ใครเป็นคนเริ่ม ยานยนต์ยื่นเอง หรือสโตร์เปิดเองตอนรับ DD เข้าระบบ</li>
     <li>"Safety Stock" กับ "อะไหล่ลงคัน" ในโน้ตคืออะไร เป็นจุดประสงค์การเบิก หรือเป็นประเภทคำขออีกแบบ</li>
-                <li>ใบที่คนคีย์ตรงใน ATMS ต้องขึ้นในจอคิวด้วยไหม</li>
   </ol>
 </section>
 
