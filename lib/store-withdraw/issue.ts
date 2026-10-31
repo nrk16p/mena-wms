@@ -18,6 +18,9 @@ const MSG = {
   noLines: "ไม่มีรายการที่จ่ายได้ — ตรวจจำนวนจ่ายในใบนี้ก่อน",
   noWd: "ใบเบิกนี้ยังไม่มีเลขใบเบิกใน ATMS — ส่งเบิกให้สำเร็จก่อนจึงรับคืนได้",
   noPrice: (codes: string[]) => `ไม่พบราคาต่อหน่วยของ ${codes.join(", ")} ในใบเบิก ATMS — เช็กใบเบิกใน ATMS แล้วลองใหม่`,
+  crashed: "ระบบขัดข้องระหว่างส่ง ATMS — กดลองใหม่ ถ้ายังไม่ได้ให้แจ้งผู้ดูแล",
+  noCode: "ATMS ไม่ส่งเลขใบกลับมา — กดลองใหม่",
+  over: "คืนเกินจำนวนที่เบิก",
   wdFail: "อ่านใบเบิกจาก ATMS ไม่ได้ — ลองใหม่อีกครั้ง",
 } as const
 
@@ -77,6 +80,21 @@ async function claimIssue(no: string, actor: Actor): Promise<SwRequest> {
 
 export async function issueRequest(no: string, actor: Actor): Promise<SwRequest> {
   const claimed = await claimIssue(no, actor)
+  try {
+    return await runIssue(claimed, actor)
+  } catch (e) {
+    if (e instanceof ConflictError) throw e
+    // ห้ามค้าง ISSUING — แปลงเป็น ISSUE_FAILED พร้อมข้อความไทย (ไม่ใส่ข้อความ error ดิบ)
+    try {
+      return await transition(no, "issueFailed", actor, { atms: { ...claimed.atms, needCreds: false, error: MSG.crashed } })
+    } catch {
+      return (await (await swCol()).findOne({ no })) ?? claimed
+    }
+  }
+}
+
+async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
+  const no = claimed.no
   const col = await swCol()
   const startedAt = claimed.atms.startedAt ?? new Date()
   if (!claimed.atms.startedAt) await col.updateOne({ no, "atms.startedAt": null }, { $set: { "atms.startedAt": startedAt } })
@@ -110,6 +128,7 @@ export async function issueRequest(no: string, actor: Actor): Promise<SwRequest>
   const r = await callNcac("POST", "/atms/withdraw/issue", { creds, body })
   if (!r) return fail({ ...prev, needCreds: false, error: MSG.network })
   const out = interpret(r.status, r.data, prev)
+  if (out.kind === "ok" && !(out.atms.code && out.atms.approved)) return fail({ ...out.atms, error: MSG.noCode })
   if (out.kind === "ok") return transition(no, "issued", actor, { atms: out.atms })
   return fail(out.atms)
 }
@@ -120,23 +139,29 @@ const RETURN_OPEN = ["RETURN_REQUESTED", "RETURN_FAILED"]
 
 async function claimReturn(no: string, rid: string, actor: Actor): Promise<SwRequest> {
   const col = await swCol()
+  const cur = await col.findOne({ no })
+  const prior = cur?.returns.find((x) => x.rid === rid)?.status
+  if (!cur || !prior || !["ISSUED", "RECEIVED"].includes(cur.status)) throw new ConflictError()
   const now = new Date()
   const stale = new Date(now.getTime() - STUCK_MS)
+  const filter =
+    prior === "RETURNING"
+      ? { no, status: cur.status, returns: { $elemMatch: { rid, status: "RETURNING" } }, updatedAt: { $lt: stale } } // ค้างเกิน 5 นาที
+      : RETURN_OPEN.includes(prior)
+        ? { no, status: cur.status, returns: { $elemMatch: { rid, status: prior } } }
+        : null
+  if (!filter) throw new ConflictError()
   const after = await col.findOneAndUpdate(
-    {
-      no,
-      status: { $in: ["ISSUED", "RECEIVED"] },
-      $or: [
-        { returns: { $elemMatch: { rid, status: { $in: RETURN_OPEN } } } },
-        { returns: { $elemMatch: { rid, status: "RETURNING" } }, updatedAt: { $lt: stale } }, // ค้างเกิน 5 นาที
-      ],
-    },
+    filter,
     { $set: { "returns.$[r].status": "RETURNING", "returns.$[r].acceptedBy": actor.email, updatedAt: now } },
     { arrayFilters: [{ "r.rid": rid }], returnDocument: "after" },
   )
   if (!after) throw new ConflictError()
-  await writeLog({ no, action: "acceptReturn", from: "RETURN_REQUESTED", to: "RETURNING", actor: { email: actor.email, name: actor.name, via: actor.via }, note: rid })
-  return after
+  // บันทึกเวลาเริ่มก่อนยิง ATMS — ค้างแล้วรีไทรต้องใช้วันเดิม (ATMS ค้นหมายเหตุตามวันสร้าง)
+  await col.updateOne({ no }, { $set: { "returns.$[r].atms.startedAt": now } }, { arrayFilters: [{ "r.rid": rid, "r.atms.startedAt": null }] })
+  const fresh = (await col.findOne({ no })) ?? after
+  await writeLog({ no, action: "acceptReturn", from: prior, to: "RETURNING", actor: { email: actor.email, name: actor.name, via: actor.via }, note: rid })
+  return fresh
 }
 
 async function settleReturn(
@@ -161,8 +186,23 @@ type WdItem = { sku_code?: string; unit_price?: number | string | null }
 
 export async function acceptReturn(no: string, rid: string, actor: Actor): Promise<SwRequest> {
   const claimed = await claimReturn(no, rid, actor)
+  try {
+    return await runReturn(claimed, rid, actor)
+  } catch (e) {
+    if (e instanceof ConflictError) throw e
+    try {
+      const atms = claimed.returns.find((x) => x.rid === rid)!.atms
+      return await settleReturn(no, rid, actor, false, { ...atms, needCreds: false, error: MSG.crashed })
+    } catch {
+      return (await (await swCol()).findOne({ no })) ?? claimed
+    }
+  }
+}
+
+async function runReturn(claimed: SwRequest, rid: string, actor: Actor): Promise<SwRequest> {
+  const no = claimed.no
   const ret = claimed.returns.find((x) => x.rid === rid)!
-  const startedAt = ret.atms.startedAt ?? new Date()
+  const startedAt = ret.atms.startedAt ?? new Date() // claimReturn บันทึกไว้แล้วเสมอ
   const prev: AtmsProgress = { ...ret.atms, startedAt }
   const fail = (atms: AtmsProgress) => settleReturn(no, rid, actor, false, atms)
 
@@ -195,6 +235,20 @@ export async function acceptReturn(no: string, rid: string, actor: Actor): Promi
   for (const p of picked) thisQty.set(p.lineIndex, (thisQty.get(p.lineIndex) ?? 0) + p.qty)
   const complete = claimed.lines.every((l, i) => l.returnedQty + (thisQty.get(i) ?? 0) >= (l.issuedQty ?? l.requestedQty))
 
+  // เช็กจำนวนอีกรอบก่อนยิง: ต้องไม่เกิน เบิก − คืนแล้ว − ใบคืนอื่นที่กำลัง RETURNING
+  const latest = (await (await swCol()).findOne({ no })) ?? claimed
+  const pending = new Map<number, number>()
+  for (const o of latest.returns) {
+    if (o.rid === rid || o.status !== "RETURNING") continue
+    for (const l of o.lines) pending.set(l.lineIndex, (pending.get(l.lineIndex) ?? 0) + l.qty)
+  }
+  for (const [i, q] of thisQty) {
+    const l = latest.lines[i]
+    if (!l || q > (l.issuedQty ?? l.requestedQty) - l.returnedQty - (pending.get(i) ?? 0)) {
+      return fail({ ...prev, needCreds: false, error: MSG.over })
+    }
+  }
+
   const body = {
     inventory_id: claimed.inventoryId,
     withdraw_id: gmId,
@@ -216,6 +270,7 @@ export async function acceptReturn(no: string, rid: string, actor: Actor): Promi
   if (!r) return fail({ ...prev, needCreds: false, error: MSG.network })
   const out = interpret(r.status, r.data, prev)
   if (out.kind !== "ok") return fail(out.atms)
+  if (!(out.atms.code && out.atms.approved)) return fail({ ...out.atms, error: MSG.noCode })
   const inc: Record<string, number> = {}
   for (const [i, q] of thisQty) inc[`lines.${i}.returnedQty`] = q
   return settleReturn(no, rid, actor, true, out.atms, inc)

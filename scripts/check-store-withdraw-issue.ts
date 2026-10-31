@@ -112,7 +112,7 @@ async function main() {
   // เลื่อน startedAt ไปเมื่อวานเพื่อพิสูจน์ว่า retry ใช้วันเดิม ไม่ใช่วันนี้
   const old = new Date("2026-10-30T20:00:00Z") // = 31/10/2026 03:00 เวลาไทย
   await (await swCol()).updateOne({ no: n2 }, { $set: { "atms.startedAt": old } })
-  handler = () => ({ status: 200, body: { progress: { gm_id: 560800, done: [0, 1], approved: false, code: "WD-9" } } })
+  handler = () => ({ status: 200, body: { progress: { gm_id: 560800, done: [0, 1], approved: true, code: "WD-9" } } })
   await issueRequest(n2, store)
   eq(lastBody("/atms/withdraw/issue").progress, { gm_id: 560800, done: [0], approved: false, code: null })
   eq(lastBody("/atms/withdraw/issue").date, "31/10/2026")
@@ -206,7 +206,7 @@ async function main() {
   handler = (c) => c.path === "/atms/withdraw/777" ? { status: 200, body: wd } : { status: 409, body: { detail: "ครึ่งทาง", progress: { gm_id: 777, done: [0], approved: false, code: null } } }
   const rc1 = await acceptReturn(rC, "r1", store)
   eq(rc1.returns[0].status, "RETURN_FAILED"); eq(rc1.returns[0].atms.done, [0]); eq(rc1.lines[0].returnedQty, 0)
-  handler = (c) => c.path === "/atms/withdraw/777" ? { status: 200, body: wd } : { status: 200, body: { progress: { gm_id: 777, done: [0, 1], approved: false, code: null } } }
+  handler = (c) => c.path === "/atms/withdraw/777" ? { status: 200, body: wd } : { status: 200, body: { progress: { gm_id: 777, done: [0, 1], approved: true, code: "WD-77" } } }
   const rc2 = await acceptReturn(rC, "r1", store)
   eq(lastBody("/atms/withdraw/return").progress, { gm_id: 777, done: [0], approved: false, code: null })
   eq(rc2.returns[0].status, "RETURNED"); eq(rc2.lines.map((l) => l.returnedQty), [2, 0, 1])
@@ -220,6 +220,73 @@ async function main() {
   // คืนของใบที่ยังไม่ ISSUED ไม่ได้
   const rE = await seed("T-RET5", { status: "READY", returns: [mkRet("r1", [[0, 1]])] })
   eq(await acceptReturn(rE, "r1", store).catch((e) => e.name), "ConflictError")
+
+
+  // ---- fix round 1 ----
+  // (6) log.from = สถานะเดิมจริง
+  const accLogs = (await (await swLogCol()).find({ no: "T-RET3", action: "acceptReturn" }).sort({ at: 1 }).toArray()).map((l) => l.from)
+  eq(accLogs, ["RETURN_REQUESTED", "RETURN_FAILED"])
+
+  // (1) startedAt ของใบคืนถูกบันทึกก่อนยิง ATMS · ค้าง RETURNING แล้วรีไทรใช้วันเดิม
+  const rF = await seed("T-RSTART", { status: "ISSUED", lines: issuedLines(), atms: { ...baseAtms, gmId: 777, code: "WD-77", approved: true }, returns: [mkRet("r1", [[0, 1]])] })
+  let startedAtDuringPost: Date | null = null
+  handler = async (c) => {
+    if (c.path === "/atms/withdraw/777") return { status: 200, body: wd }
+    startedAtDuringPost = (await get(rF)).returns[0].atms.startedAt
+    throw new Error("crash after ncac")
+  }
+  await acceptReturn(rF, "r1", store)
+  assert.ok(startedAtDuringPost instanceof Date, "startedAt ต้องถูกเก็บก่อน POST")
+  const stuckAt = (await get(rF)).returns[0].atms.startedAt!
+  eq(stuckAt, startedAtDuringPost)
+  const rG = await seed("T-RSTALE", { status: "ISSUED", updatedAt: new Date(Date.now() - 6 * 60_000), lines: issuedLines(), atms: { ...baseAtms, gmId: 777, code: "WD-77", approved: true }, returns: [{ ...mkRet("r1", [[0, 1]], "RETURNING"), atms: { ...baseAtms, startedAt: old } }] })
+  const dates: string[] = []
+  handler = (c) => {
+    if (c.path === "/atms/withdraw/777") return { status: 200, body: wd }
+    dates.push(c.body!.date)
+    if (dates.length === 1) throw new Error("crash after ncac")
+    return { status: 200, body: { progress: { gm_id: 777, done: [0], approved: true, code: "WD-77" } } }
+  }
+  await acceptReturn(rG, "r1", store)
+  eq((await get(rG)).returns[0].status, "RETURN_FAILED")
+  await acceptReturn(rG, "r1", store)
+  eq(dates, ["31/10/2026", "31/10/2026"])
+  eq((await get(rG)).returns[0].status, "RETURNED")
+
+  // (3) exception หลัง claim → failed state ภาษาไทย ไม่ค้าง ไม่หลุดความลับ
+  const goodKey = process.env.STORE_ATMS_CRED_KEY
+  delete process.env.STORE_ATMS_CRED_KEY
+  const nK = await seed("T-NOKEY")
+  await issueRequest(nK, store)
+  eq((await get(nK)).status, "ISSUE_FAILED")
+  assert.ok(!/STORE_ATMS|key/i.test((await get(nK)).atms.error ?? "") && (await get(nK)).atms.error)
+  const rK = await seed("T-NOKEY2", { status: "ISSUED", lines: issuedLines(), atms: { ...baseAtms, gmId: 777, code: "WD-77", approved: true }, returns: [mkRet("r1", [[0, 1]])] })
+  await acceptReturn(rK, "r1", store)
+  eq((await get(rK)).returns[0].status, "RETURN_FAILED")
+  assert.ok(!/STORE_ATMS|key/i.test((await get(rK)).returns[0].atms.error ?? ""))
+  process.env.STORE_ATMS_CRED_KEY = goodKey
+
+  // (4) คืนรวมเกินที่เบิก (รวมใบที่กำลัง RETURNING) → ไม่ POST
+  const rH = await seed("T-OVER", { status: "ISSUED", lines: issuedLines(), atms: { ...baseAtms, gmId: 777, code: "WD-77", approved: true }, returns: [mkRet("r1", [[0, 3]], "RETURNING"), mkRet("r2", [[0, 3]])] })
+  handler = (c) => c.path === "/atms/withdraw/777" ? { status: 200, body: wd } : { status: 200, body: { progress: { gm_id: 777, done: [0], approved: true, code: "WD-77" } } }
+  calls = []
+  const oh = await acceptReturn(rH, "r2", store)
+  eq(oh.returns[1].status, "RETURN_FAILED"); eq(oh.returns[1].atms.error, "คืนเกินจำนวนที่เบิก"); eq(callsTo("/atms/withdraw/return").length, 0)
+  eq(oh.lines[0].returnedQty, 0)
+
+  // (5) 200 แต่ไม่มีเลขใบ / ไม่ approved → ไม่ใช่ ISSUED/RETURNED
+  const nC = await seed("T-NOCODE")
+  handler = () => ({ status: 200, body: { progress: { gm_id: 31, done: [0, 1], approved: true, code: null } } })
+  await issueRequest(nC, store)
+  eq((await get(nC)).status, "ISSUE_FAILED"); eq((await get(nC)).atms.error, "ATMS ไม่ส่งเลขใบกลับมา — กดลองใหม่"); eq((await get(nC)).atms.gmId, 31); eq((await get(nC)).atms.done, [0, 1])
+  const nA = await seed("T-NOAPPR")
+  handler = () => ({ status: 200, body: { progress: { gm_id: 32, done: [0, 1], approved: false, code: "WD-32" } } })
+  await issueRequest(nA, store)
+  eq((await get(nA)).status, "ISSUE_FAILED")
+  const rI = await seed("T-RNOAPPR", { status: "ISSUED", lines: issuedLines(), atms: { ...baseAtms, gmId: 777, code: "WD-77", approved: true }, returns: [mkRet("r1", [[0, 1]])] })
+  handler = (c) => c.path === "/atms/withdraw/777" ? { status: 200, body: wd } : { status: 200, body: { progress: { gm_id: 777, done: [0], approved: false, code: "WD-77" } } }
+  const ri = await acceptReturn(rI, "r1", store)
+  eq(ri.returns[0].status, "RETURN_FAILED"); eq(ri.lines[0].returnedQty, 0); eq(ri.returns[0].atms.done, [0])
 
   // ---- ล้างทิ้ง ----
   await client.db("sw_test").dropDatabase()
