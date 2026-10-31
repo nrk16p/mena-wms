@@ -259,7 +259,7 @@ export function QueueBoard() {
   // เปิดดูใบ → เทียบกับ ATMS (ห่างกันอย่างน้อย 60 วิต่อใบ · พลาดก็เงียบ ไม่รบกวนงานหลัก)
   const lastCheck = useRef<Map<string, number>>(new Map())
   const open = (i: QItem) => {
-    if (i.itemType === "return" || i.atms.gmId == null) return
+    if (i.itemType === "return" || i.atms.gmId == null || (i.status !== "ISSUED" && i.status !== "RECEIVED")) return
     const t = Date.now()
     if (t - (lastCheck.current.get(i.no) ?? 0) < 60_000) return
     lastCheck.current.set(i.no, t)

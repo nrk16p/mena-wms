@@ -15,6 +15,7 @@ export function POST(req: NextRequest, ctx: RouteCtx<{ no: string }>) {
     const { no } = await ctx.params
     const cur = await (await swCol()).findOne({ no }, { projection: { _id: 0 } })
     if (!cur) return err("ไม่พบใบขอเบิกนี้ — ตรวจเลขที่ใบอีกครั้ง", 404)
+    if (cur.status !== "ISSUED" && cur.status !== "RECEIVED") return NextResponse.json({ request: cur, checked: false })
     const last = cur.atms.lastCheckAt ? new Date(cur.atms.lastCheckAt).getTime() : 0
     if (Date.now() - last < MIN_GAP_MS) return NextResponse.json({ request: cur, checked: false })
     const { request, state } = await checkDriftDetailed(no)

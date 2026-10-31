@@ -129,7 +129,7 @@ async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
   if (!r) return fail({ ...prev, needCreds: false, error: MSG.network })
   const out = interpret(r.status, r.data, prev)
   if (out.kind === "ok" && !(out.atms.code && out.atms.approved)) return fail({ ...out.atms, error: MSG.noCode })
-  if (out.kind === "ok") return transition(no, "issued", actor, { atms: out.atms })
+  if (out.kind === "ok") return transition(no, "issued", actor, { atms: { ...out.atms, drift: null } }) // ส่งสำเร็จ = ล้างธงเก่า
   return fail(out.atms)
 }
 

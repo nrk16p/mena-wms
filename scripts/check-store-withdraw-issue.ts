@@ -77,7 +77,7 @@ async function main() {
   eq(await nextNo(new Date("2026-11-02")), "SW-2611-001")
 
   // ---- concurrent → one ATMS call ----
-  const n1 = await seed("T-CONC")
+  const n1 = await seed("T-CONC", { atms: { ...baseAtms, drift: "ธงเก่า" } })
   handler = async () => { await sleep(80); return { status: 200, body: { progress: { gm_id: 1, done: [0, 1], approved: true, code: "WD-1" } } } }
   calls = []
   const res = await Promise.allSettled([issueRequest(n1, store), issueRequest(n1, store)])
@@ -85,7 +85,7 @@ async function main() {
   eq(res.filter((r) => r.status === "rejected").length, 1)
   eq((res.find((r) => r.status === "rejected") as PromiseRejectedResult).reason.name, "ConflictError")
   const d1 = await get(n1)
-  eq(d1.status, "ISSUED"); eq(d1.atms.gmId, 1); eq(d1.atms.code, "WD-1"); eq(d1.atms.approved, true); eq(d1.atms.needCreds, false)
+  eq(d1.status, "ISSUED"); eq(d1.atms.gmId, 1); eq(d1.atms.code, "WD-1"); eq(d1.atms.approved, true); eq(d1.atms.needCreds, false); eq(d1.atms.drift, null) // ส่งสำเร็จล้างธง drift เก่า
   const sent = lastBody("/atms/withdraw/issue")
   eq(sent.remark_token, n1)
   eq(sent.remark, "MR-1 70-1234 ด่วน")

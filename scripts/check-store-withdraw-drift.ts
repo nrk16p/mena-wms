@@ -97,7 +97,7 @@ async function main() {
   await seed("T-5XX", 107, { atms: atms(107, { drift: "ของเดิม" }) })
   reply({ detail: "boom" }, 502)
   let d = await checkDriftDetailed("T-5XX")
-  eq(d.state, "skipped"); eq(d.request!.atms.drift, "ของเดิม"); eq((await get("T-5XX")).atms.lastCheckAt, null)
+  eq(d.state, "skipped"); eq(d.request!.atms.drift, "ของเดิม")
   const savedFetch = globalThis.fetch
   globalThis.fetch = (async () => { throw new Error("ECONNRESET") }) as typeof fetch
   d = await checkDriftDetailed("T-5XX")
@@ -106,6 +106,19 @@ async function main() {
   reply({ detail: "login" }, 401)
   eq((await checkDriftDetailed("T-5XX")).state, "skipped")
 
+  // ---- ISSUING / ISSUE_FAILED มี gmId → ไม่ตรวจ ไม่เขียน ----
+  for (const st of ["ISSUING", "ISSUE_FAILED"]) {
+    await seed(`T-${st}`, 150, { status: st, atms: atms(150, { approved: false }) })
+    calls = []
+    reply({ ...good, approved: false })
+    const g = await checkDriftDetailed(`T-${st}`)
+    eq(g.state, "skipped"); eq(calls.length, 0); eq((await get(`T-${st}`)).atms.drift, null); eq((await get(`T-${st}`)).atms.lastCheckAt, null)
+  }
+
+  // ---- ATMS พลาด → lastCheckAt ถูกตั้ง (drift เดิมคงอยู่) · env หาย → ไม่ตั้ง ----
+  assert.ok((await get("T-5XX")).atms.lastCheckAt instanceof Date, "error ตั้ง lastCheckAt")
+  eq((await get("T-5XX")).atms.drift, "ของเดิม")
+
   // ---- ไม่มี gmId / ไม่ตั้งบัญชีอ่าน → ข้ามโดยไม่เรียก ATMS ----
   await seed("T-NOGM", null)
   calls = []
@@ -113,6 +126,14 @@ async function main() {
   const u = process.env.ATMS_LOOKUP_USERNAME
   delete process.env.ATMS_LOOKUP_USERNAME
   eq((await checkDriftDetailed("T-OK")).state, "skipped"); eq(calls.length, 0)
+  eq((await get("T-OK")).atms.lastCheckAt instanceof Date, true) // ค่าจากรอบก่อน ไม่ถูกแตะ
+  // env หาย → tick คืนทันที ไม่มีลูป/sleep
+  {
+    const sl: number[] = []
+    calls = []
+    const t = await driftTick({ sleep: async (ms) => { sl.push(ms) } })
+    eq(t, { checked: 0, drifted: 0, skipped: 0 }); eq(sl.length, 0); eq(calls.length, 0)
+  }
   process.env.ATMS_LOOKUP_USERNAME = u
 
   // ================= drift-tick =================
