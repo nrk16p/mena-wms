@@ -18,8 +18,8 @@ import type { Access } from "./access-policy"
 import {
   Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
-  Landmark, Layers, LayoutDashboard, MapPin, PackageSearch, PackageX,
-  PlusCircle, Scale, ShieldCheck, ShoppingCart, Shuffle, TableProperties, Truck, Users, Wrench,
+  Landmark, Layers, LayoutDashboard, MapPin, PackageMinus, PackageSearch, PackageX,
+  Plus, PlusCircle, Scale, ShieldCheck, ShoppingCart, Shuffle, TableProperties, Truck, Users, Wrench,
 } from "lucide-react"
 
 export type NavItem = {
@@ -248,6 +248,19 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "#vendor-data-status", label: "สถานะข้อมูล", icon: Inbox, subheader: true, hideOnHome: true },
       { href: "/vendors/data-status", label: "ตารางสถานะข้อมูล", icon: ClipboardList, exact: true, indent: true,
         homeLabel: "สถานะข้อมูล", desc: "บิล/ใบเสนอราคาที่อัปโหลด · รูป + รายการ · AI อ่านบิล" },
+    ],
+  },
+  {
+    key: "store-withdraw",
+    label: "เบิกอะไหล่",
+    homeDesc: "ยื่นคำขอเบิกอะไหล่จากสโตร์ และตามสถานะใบที่ยื่น",
+    homeIcon: PackageMinus, color: "#0F766E", bg: "#CCFBF1", homeOrder: 66,
+    collapsible: true,
+    items: [
+      { href: "/store-withdraw", label: "ขอเบิกอะไหล่ของฉัน", icon: PackageMinus, exact: true,
+        desc: "ดูสถานะใบที่ยื่น ยกเลิก รับของ ขอคืน" },
+      { href: "/store-withdraw/new", label: "ขอเบิกใหม่", icon: Plus, exact: true,
+        desc: "ยื่นคำขอเบิกอะไหล่ (สต๊อก / ตัดยอด)" },
     ],
   },
   {
