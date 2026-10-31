@@ -12,7 +12,7 @@ import { auditorActive, isExternalAuditor } from "./external-auditors"
 
 export const SECTIONS = [
   "sku", "pr", "ap", "price-compare", "vendor", "safety-stock", "deadstock",
-  "tire", "repair", "driver-handover", "ai-mixer",
+  "tire", "repair", "driver-handover", "ai-mixer", "store-withdraw", "store-queue",
 ] as const
 export type Section = (typeof SECTIONS)[number]
 export type Level = "none" | "view" | "edit"
@@ -22,6 +22,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   sku: "จัดการ SKU", pr: "ติดตาม PR / คำขอเปิด PO", ap: "เจ้าหนี้ (AP)", "price-compare": "ใบเทียบราคา",
   vendor: "Vendor List / ใบขอราคาอู่", "safety-stock": "Safety Stock", deadstock: "ของค้างคลัง",
   tire: "จัดการยาง", repair: "อู่นอก & อะไหล่ลงคัน", "driver-handover": "ส่งมอบรถ พจส.ใหม่", "ai-mixer": "AI รถโม่ (ทดสอบ)",
+  "store-withdraw": "เบิกอะไหล่ (ยื่นคำขอ)", "store-queue": "คิวงานสโตร์",
 }
 export const LEVEL_LABELS: Record<Level, string> = { none: "ไม่เห็น", view: "ดูอย่างเดียว", edit: "แก้ได้" }
 
@@ -47,6 +48,7 @@ const VEHICLE = row({
   // ของค้างคลัง: ยานยนต์แก้ได้ (ผู้ใช้สั่ง 2026-10-07) · Safety Stock ยังดูอย่างเดียว
   sku: "edit", pr: "edit", "price-compare": "view", vendor: "edit", "safety-stock": "view", deadstock: "edit",
   tire: "edit", repair: "edit", "driver-handover": "view",
+  "store-withdraw": "edit", // ยื่นคำขอเบิกอะไหล่ · คิวสโตร์ (store-queue) ให้รายคนที่ /admin/users
 })
 const PROCUREMENT = row({
   // เจ้าหนี้: จัดซื้อแก้ได้ (ผู้ใช้สั่ง 2026-10-07) — ปุ่มตรวจผ่าน/ยืนยันจ่ายยังจำกัดบัญชี/การเงินตามเดิม (lib/roles.ts)
@@ -154,6 +156,7 @@ const PAGE_PREFIXES: [string, Section | "admin"][] = [
   ["/repair-external", "repair"], ["/garages", "repair"],
   ["/driver-handover", "driver-handover"],
   ["/ai-mixer-maintenance", "ai-mixer"],
+  ["/store-withdraw", "store-withdraw"], ["/store-withdraw/queue", "store-queue"],
   ["/admin", "admin"],
 ]
 
@@ -173,7 +176,15 @@ const API_PREFIXES: [string, Section | "admin"][] = [
   ["/api/repair-history", "repair"], ["/api/vehicle-daily", "repair"],
   ["/api/driver-handover", "driver-handover"],
   ["/api/ai-mixer-maintenance", "ai-mixer"],
+  ["/api/store-withdraw", "store-withdraw"], ["/api/store-withdraw/queue", "store-queue"],
+  ["/api/store-withdraw/atms-link", "store-queue"],
   ["/api/admin", "admin"],
+]
+
+/** งานของสโตร์ที่มีเลขใบอยู่กลางทาง (/api/store-withdraw/:no/claim ฯลฯ) — เทียบ prefix ตรง ๆ ไม่ได้ จึงใช้ pattern */
+const STORE_QUEUE_API = [
+  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject)$/,
+  /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]
 
 /** API ที่หลายส่วนงานเรียกอ่าน (dropdown / รายชื่อ / ค้นหา) — อ่านได้ทุกคนที่ล็อกอิน การเขียนยังคุมตามเจ้าของ */
@@ -191,7 +202,8 @@ function longest(path: string, table: [string, Section | "admin"][]): Section | 
 }
 
 export const sectionForPage = (pathname: string) => longest(pathname, PAGE_PREFIXES)
-export const sectionForApi = (pathname: string) => longest(pathname, API_PREFIXES)
+export const sectionForApi = (pathname: string) =>
+  STORE_QUEUE_API.some((r) => r.test(pathname)) ? "store-queue" : longest(pathname, API_PREFIXES)
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 
@@ -205,6 +217,8 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   if (section === "admin") return p.isSuperAdmin ? { ok: true } : { ok: false, api, section, need: "superadmin" }
   const read = !api || READ_METHODS.has(p.method.toUpperCase())
   if (api && read && SHARED_READ.some((s) => under(p.pathname, s))) return { ok: true }
+  // เบิกอะไหล่: คนที่เห็นคิวสโตร์อย่างเดียว (ไม่มีสิทธิ์ยื่นคำขอ) ยังต้องอ่านตัวเลือก/ค้นหา/รายละเอียดใบได้
+  if (api && read && under(p.pathname, "/api/store-withdraw") && atLeast(p.access["store-queue"], "view")) return { ok: true }
   const need: Level = read ? "view" : "edit"
   return atLeast(p.access[section], need) ? { ok: true } : { ok: false, api, section, need }
 }

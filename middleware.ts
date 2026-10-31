@@ -19,6 +19,34 @@ const MOBILE_API_PREFIXES = [
 // ไม่ต้องมี session — route ตรวจ key ซ้ำเองแล้วบันทึกผู้ทำเป็น "ระบบ (API key)"
 const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\/[^/]+\/push-next-garage$/]
 
+// เบิกอะไหล่หน้าร้านคลัง: ระบบภายนอกเรียกฝั่งผู้ขอได้ด้วย x-api-key (env STORE_WITHDRAW_API_KEYS คั่นด้วย comma) + x-user (อีเมล)
+// งานของสโตร์ (claim/lines/ready/issue/reject/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
+const STORE_WITHDRAW_SESSION_ONLY = [
+  /^\/api\/store-withdraw\/(queue|atms-link)$/,
+  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject)$/,
+  /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
+]
+
+// เทียบสตริงแบบเวลาคงที่ (edge runtime ไม่มี node:crypto)
+function sameSecret(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
+function storeWithdrawKeyOk(pathname: string, request: NextRequest): boolean {
+  if (pathname !== "/api/store-withdraw" && !pathname.startsWith("/api/store-withdraw/")) return false
+  if (STORE_WITHDRAW_SESSION_ONLY.some((r) => r.test(pathname))) return false
+  const key = request.headers.get("x-api-key")
+  if (!key) return false // x-user (อีเมล) ให้ route ตรวจและตอบ 400 ภาษาไทยเอง
+  let hit = false
+  for (const k of (process.env.STORE_WITHDRAW_API_KEYS ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
+    if (sameSecret(key, k)) hit = true
+  }
+  return hit
+}
+
 function withCors(res: NextResponse, origin: string | null): NextResponse {
   if (origin) {
     res.headers.set("Access-Control-Allow-Origin", origin)
@@ -106,6 +134,9 @@ export async function middleware(request: NextRequest) {
     if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }), postOrigin)
     return withCors(NextResponse.next(), postOrigin)
   }
+
+  // เบิกอะไหล่หน้าร้านคลัง: x-api-key (+ x-user ที่ route ตรวจ) ไม่มี session — route ยืนยันกุญแจซ้ำและเลือกผู้ทำรายการจาก x-user
+  if (storeWithdrawKeyOk(pathname, request)) return NextResponse.next()
 
   // Mobile app access via API key
   if (GARAGE_SYNC_API.some((r) => r.test(pathname))) {

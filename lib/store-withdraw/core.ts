@@ -21,7 +21,7 @@ export function nextStatus(req: Pick<SwRequest, "status" | "kind">, action: SwAc
 }
 
 /** เร่งด่วนก่อน แล้วเก่าก่อน — คืนอาร์เรย์ใหม่ ไม่แก้ของเดิม */
-export function queueSort(a: SwRequest[]): SwRequest[] {
+export function queueSort<T extends SwRequest>(a: T[]): T[] {
   return [...a].sort((x, y) =>
     Number(y.urgent) - Number(x.urgent) || x.createdAt.getTime() - y.createdAt.getTime())
 }

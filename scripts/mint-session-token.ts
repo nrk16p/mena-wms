@@ -7,6 +7,8 @@ const env = Object.fromEntries(fs.readFileSync(".env", "utf8").split("\n").filte
 if (!/localhost|127\.0\.0\.1/.test(env.NEXTAUTH_URL ?? "")) throw new Error("mint-session-token: dev only (NEXTAUTH_URL is not localhost)")
 // IIFE: package.json ไม่มี "type": "module" → tsx transform เป็น CJS ซึ่งไม่รองรับ top-level await
 void (async () => {
-  const token = await encode({ secret: env.NEXTAUTH_SECRET, token: { name: "API Test", email: "apitest@menatransport.co.th", sub: "apitest", role: "user", employee: { username: "apitest", department: "ทดสอบ", position: "ทดสอบ" } } })
+  // argv[2] (ไม่บังคับ) = JSON ทับ claim เริ่มต้น เช่น '{"email":"a@x","employee":{"department":"ยานยนต์"},"accessOverrides":{"store-queue":"edit"}}'
+  const extra = process.argv[2] ? JSON.parse(process.argv[2]) : {}
+  const token = await encode({ secret: env.NEXTAUTH_SECRET, token: { name: "API Test", email: "apitest@menatransport.co.th", sub: "apitest", role: "user", employee: { username: "apitest", department: "ทดสอบ", position: "ทดสอบ" }, ...extra } })
   console.log(token)
 })()

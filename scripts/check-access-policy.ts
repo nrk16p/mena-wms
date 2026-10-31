@@ -14,6 +14,7 @@ const u = (department: string | null, email = "someone@menatransport.co.th") => 
 assert.deepEqual(u("ยานยนต์"), {
   sku: "edit", pr: "edit", ap: "none", "price-compare": "view", vendor: "edit",
   "safety-stock": "view", deadstock: "edit", tire: "edit", repair: "edit", "driver-handover": "view", "ai-mixer": "none",
+  "store-withdraw": "edit", "store-queue": "none",
 })
 assert.equal(u("Procurement")["safety-stock"], "edit")
 assert.equal(u("Procurement").ap, "edit")
@@ -159,3 +160,47 @@ assert.ok(home.includes("ap") && !home.includes("tire"))
 assert.ok(sidebarGroups({ email: "x" }).some((g) => g.key === "sku"))
 
 console.log("check-access-policy: ok")
+
+// 99. เบิกอะไหล่หน้าร้านคลัง (store-withdraw): ผู้ขอ = ยานยนต์ · สโตร์ = override รายคน · IT ได้ทั้งคู่
+{
+  const veh = u("ยานยนต์")
+  assert.equal(veh["store-withdraw"], "edit")
+  assert.equal(veh["store-queue"], "none")
+  const it = u("Information Technology")
+  assert.equal(it["store-withdraw"], "edit")
+  assert.equal(it["store-queue"], "edit")
+  for (const d of ["Procurement", "Accounting", "Delivery Service", "Compensation & Benefits"]) {
+    assert.equal(u(d)["store-withdraw"], "none", d)
+    assert.equal(u(d)["store-queue"], "none", d)
+  }
+  const storePerson = accessFor({ department: "Store", email: "s@menatransport.co.th", overrides: { "store-queue": "edit" } })
+  assert.equal(storePerson["store-queue"], "edit")
+  const run = (pathname: string, method: string, access: Access) => checkRequest({ pathname, method, access, isSuperAdmin: false })
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/issue"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/claim"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/lines"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/ready"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/reject"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/returns/R1/accept"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw/queue"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw/atms-link"), "store-queue")
+  assert.equal(sectionForApi("/api/store-withdraw"), "store-withdraw")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001"), "store-withdraw")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/cancel"), "store-withdraw")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/receive"), "store-withdraw")
+  assert.equal(sectionForApi("/api/store-withdraw/SW-2610-001/returns"), "store-withdraw")
+  assert.equal(sectionForApi("/api/store-withdraw/lookup/sku"), "store-withdraw")
+  assert.equal(sectionForPage("/store-withdraw"), "store-withdraw")
+  assert.equal(sectionForPage("/store-withdraw/queue"), "store-queue")
+  assert.equal(run("/api/store-withdraw/SW-2610-001/issue", "POST", veh).ok, false)
+  assert.equal(run("/api/store-withdraw/SW-2610-001/issue", "POST", storePerson).ok, true)
+  assert.equal(run("/api/store-withdraw", "POST", veh).ok, true)
+  assert.equal(run("/api/store-withdraw", "POST", storePerson).ok, false)
+  // สโตร์ที่ไม่มีสิทธิ์ยื่นคำขอ ยังอ่านตัวเลือก/ค้นหา/รายละเอียดใบได้
+  assert.equal(run("/api/store-withdraw/options", "GET", storePerson).ok, true)
+  assert.equal(run("/api/store-withdraw/lookup/sku", "GET", storePerson).ok, true)
+  assert.equal(run("/api/store-withdraw/SW-2610-001", "GET", storePerson).ok, true)
+  assert.equal(run("/api/store-withdraw/queue", "GET", veh).ok, false)
+  assert.equal(run("/store-withdraw/queue", "GET", veh).ok, false)
+}
+console.log("store-withdraw access: OK")
