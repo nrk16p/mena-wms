@@ -1,10 +1,16 @@
 // lib/store-withdraw/crypto.ts — เข้ารหัสรหัสผ่าน ATMS ของคลัง (AES-256-GCM, ใช้ฝั่งเซิร์ฟเวอร์เท่านั้น)
-// รูปแบบ token: v1:<iv b64>:<tag b64>:<ciphertext b64> · กุญแจ = base64 ของ 32 ไบต์ใน STORE_ATMS_CRED_KEY
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
+// รูปแบบ token: v1:<iv b64>:<tag b64>:<ciphertext b64>
+// กุญแจ = STORE_ATMS_CRED_KEY (base64 32 ไบต์) ถ้าตั้งไว้ · ไม่ตั้ง = สร้างจาก NEXTAUTH_SECRET เดิมด้วย HKDF-SHA256
+//   (ถ้าเปลี่ยน NEXTAUTH_SECRET ภายหลัง สโตร์ต้องผูกบัญชี ATMS ใหม่ — เหมือนตอนเปลี่ยน STORE_ATMS_CRED_KEY)
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto"
 
 function getKey(): Buffer {
   const raw = process.env.STORE_ATMS_CRED_KEY
-  if (!raw) throw new Error("ยังไม่ได้ตั้ง STORE_ATMS_CRED_KEY")
+  if (!raw) {
+    const base = process.env.NEXTAUTH_SECRET
+    if (!base) throw new Error("ยังไม่ได้ตั้ง STORE_ATMS_CRED_KEY หรือ NEXTAUTH_SECRET")
+    return Buffer.from(hkdfSync("sha256", base, "mena-wms/store-withdraw", "atms-cred-v1", 32))
+  }
   const key = Buffer.from(raw, "base64")
   if (key.length !== 32) throw new Error("STORE_ATMS_CRED_KEY ต้องเป็น base64 ของ 32 ไบต์")
   return key

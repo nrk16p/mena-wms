@@ -9,8 +9,8 @@ export const NO_CRED_KEY_MSG = "ยังไม่ได้ตั้งกุญ
 export async function linkAtmsAccount(actor: Actor, username: string, password: string) {
   if (!username || !password) throw new HttpError("กรอกชื่อผู้ใช้และรหัสผ่าน ATMS ให้ครบ", 400)
   // เช็กกุญแจเข้ารหัสก่อนแตะ ATMS — ไม่งั้นผู้ใช้กรอกรหัสผ่านไปแล้วค่อยไปพังตอนบันทึก
-  if (!process.env.STORE_ATMS_CRED_KEY) {
-    console.warn("[store-withdraw] ยังไม่ได้ตั้ง STORE_ATMS_CRED_KEY ผูกบัญชี ATMS ไม่ได้")
+  if (!process.env.STORE_ATMS_CRED_KEY && !process.env.NEXTAUTH_SECRET) {
+    console.warn("[store-withdraw] ไม่มี STORE_ATMS_CRED_KEY และ NEXTAUTH_SECRET ผูกบัญชี ATMS ไม่ได้")
     throw new HttpError(NO_CRED_KEY_MSG, 503)
   }
   let r: { status: number; data: AtmsProfile | null }

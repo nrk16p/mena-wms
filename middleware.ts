@@ -4,6 +4,7 @@ import { getToken } from "next-auth/jwt"
 import { accessFor, checkRequest, SECTION_LABELS, type Overrides, type Section } from "./lib/access-policy"
 import { isSuperAdmin } from "./lib/roles"
 import { signInAllowed } from "./lib/external-auditors"
+import { requesterKeys, tickKeys } from "./lib/store-withdraw/env"
 
 // API routes the mobile app may call with an x-api-key header instead of a browser session
 const MOBILE_API_PREFIXES = [
@@ -19,9 +20,9 @@ const MOBILE_API_PREFIXES = [
 // ไม่ต้องมี session — route ตรวจ key ซ้ำเองแล้วบันทึกผู้ทำเป็น "ระบบ (API key)"
 const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\/[^/]+\/push-next-garage$/]
 
-// เบิกอะไหล่หน้าร้านคลัง: ระบบภายนอกเรียกฝั่งผู้ขอได้ด้วย x-api-key (env STORE_WITHDRAW_API_KEYS คั่นด้วย comma) + x-user (อีเมล)
+// เบิกอะไหล่หน้าร้านคลัง: ระบบภายนอกเรียกฝั่งผู้ขอได้ด้วย x-api-key (STORE_WITHDRAW_API_KEYS · ไม่ตั้ง = ATMS_API_KEY) + x-user (อีเมล)
 // งานของสโตร์ (claim/lines/ready/issue/reject/check/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
-// /api/store-withdraw/drift-tick = งานตั้งเวลาจาก api-ncac ใช้ x-api-key = STORE_WITHDRAW_TICK_KEY อย่างเดียว (ผ่านฟังก์ชันนี้โดยไม่ต้องมี session · route ตรวจกุญแจซ้ำ)
+// /api/store-withdraw/drift-tick = งานตั้งเวลาจาก api-ncac ใช้ x-api-key = STORE_WITHDRAW_TICK_KEY (ไม่ตั้ง = NCAC_API_KEY) อย่างเดียว (ผ่านฟังก์ชันนี้โดยไม่ต้องมี session · route ตรวจกุญแจซ้ำ)
 const STORE_WITHDRAW_SESSION_ONLY = [
   /^\/api\/store-withdraw\/(queue|atms-link|live-stock)$/,
   /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check)$/,
@@ -41,10 +42,8 @@ function storeWithdrawKeyOk(pathname: string, request: NextRequest): boolean {
   if (STORE_WITHDRAW_SESSION_ONLY.some((r) => r.test(pathname))) return false
   const key = request.headers.get("x-api-key")
   if (!key) return false // x-user (อีเมล) ให้ route ตรวจและตอบ 400 ภาษาไทยเอง
-  const list = (v: string | undefined) => (v ?? "").split(",").map((x) => x.trim()).filter(Boolean)
-  const tick = list(process.env.STORE_WITHDRAW_TICK_KEY)
-  // drift-tick รับเฉพาะกุญแจ tick · endpoint อื่นรับเฉพาะกุญแจผู้ขอ (แยกกันขาด ต่อให้ตั้งค่าซ้ำก็ไม่ปน)
-  const keys = pathname === "/api/store-withdraw/drift-tick" ? tick : list(process.env.STORE_WITHDRAW_API_KEYS).filter((k) => !tick.includes(k))
+  // drift-tick รับเฉพาะกุญแจ tick · endpoint อื่นรับเฉพาะกุญแจผู้ขอ (แยกกันขาด) · ค่าเริ่มต้นใช้กุญแจเดิม (lib/store-withdraw/env.ts)
+  const keys = pathname === "/api/store-withdraw/drift-tick" ? tickKeys() : requesterKeys()
   let hit = false
   for (const k of keys) {
     if (sameSecret(key, k)) hit = true

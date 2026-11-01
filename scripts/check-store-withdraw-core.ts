@@ -96,7 +96,17 @@ const saved = process.env.STORE_ATMS_CRED_KEY
 process.env.STORE_ATMS_CRED_KEY = Buffer.alloc(16).toString("base64")
 assert.throws(() => encryptSecret("x"), /32/)
 delete process.env.STORE_ATMS_CRED_KEY
-assert.throws(() => encryptSecret("x"), /ยังไม่ได้ตั้ง STORE_ATMS_CRED_KEY/)
+const savedNa = process.env.NEXTAUTH_SECRET
+delete process.env.NEXTAUTH_SECRET
+assert.throws(() => encryptSecret("x"), /ยังไม่ได้ตั้ง STORE_ATMS_CRED_KEY หรือ NEXTAUTH_SECRET/)
+// ไม่ตั้ง STORE_ATMS_CRED_KEY → ใช้กุญแจที่สร้างจาก NEXTAUTH_SECRET เดิม
+process.env.NEXTAUTH_SECRET = "existing-nextauth-secret"
+const tokNa = encryptSecret("pw-เดิม")
+assert.equal(decryptSecret(tokNa), "pw-เดิม")
+process.env.NEXTAUTH_SECRET = "another-secret"
+assert.throws(() => decryptSecret(tokNa)) // เปลี่ยน NEXTAUTH_SECRET = ถอดของเดิมไม่ได้
 process.env.STORE_ATMS_CRED_KEY = saved
+assert.throws(() => decryptSecret(tokNa)) // ตั้ง STORE_ATMS_CRED_KEY แล้ว ใช้กุญแจนั้นแทน
+if (savedNa === undefined) delete process.env.NEXTAUTH_SECRET; else process.env.NEXTAUTH_SECRET = savedNa
 
 console.log("check-store-withdraw-core: all passed")

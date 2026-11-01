@@ -75,9 +75,13 @@ async function main() {
   // ---- ผูกบัญชี ----
   handler = () => ({ status: 200, body: { username: "u", email: actor.email, name: "ช่าง" } })
   const savedKey = process.env.STORE_ATMS_CRED_KEY
-  delete process.env.STORE_ATMS_CRED_KEY; calls = []
+  const savedNa = process.env.NEXTAUTH_SECRET
+  delete process.env.STORE_ATMS_CRED_KEY; delete process.env.NEXTAUTH_SECRET; calls = []
   const nk = await linkAtmsAccount(actor, "u", "pw").catch((e) => e)
   eq(nk.status, 503); eq(nk.message, "ยังไม่ได้ตั้งกุญแจเข้ารหัสบัญชี ATMS — แจ้งแอดมิน"); eq(calls.length, 0)
+  process.env.NEXTAUTH_SECRET = "existing-nextauth-secret" // มีแค่ NEXTAUTH_SECRET เดิม ก็ผูกได้
+  eq((await linkAtmsAccount(actor, "u", "pw")).linked, true)
+  if (savedNa === undefined) delete process.env.NEXTAUTH_SECRET; else process.env.NEXTAUTH_SECRET = savedNa
   process.env.STORE_ATMS_CRED_KEY = savedKey
   eq((await linkAtmsAccount(actor, "u", "pw")).linked, true)
   handler = () => ({ status: 403, body: {} })
@@ -112,6 +116,14 @@ async function main() {
   eq(apiKeyValid("tick-one"), false); eq(apiKeyValid("req-one"), true)
   delete process.env.STORE_WITHDRAW_TICK_KEY
   eq(tickKeyValid("tick-one"), false); eq(tickKeyValid(""), false); eq(tickKeyValid(null), false)
+  // ค่าเริ่มต้นใช้กุญแจเดิม: tick = NCAC_API_KEY · ผู้ขอ = ATMS_API_KEY (เมื่อไม่ได้ตั้ง STORE_WITHDRAW_API_KEYS)
+  eq(tickKeyValid("k-test"), true); eq(apiKeyValid("k-test"), false)
+  delete process.env.STORE_WITHDRAW_API_KEYS
+  process.env.ATMS_API_KEY = "mena-next-key"
+  eq(apiKeyValid("mena-next-key"), true); eq(tickKeyValid("mena-next-key"), false)
+  process.env.STORE_WITHDRAW_API_KEYS = "own-key" // ตั้งเองแล้ว ATMS_API_KEY ไม่ใช้
+  eq(apiKeyValid("mena-next-key"), false); eq(apiKeyValid("own-key"), true)
+  delete process.env.ATMS_API_KEY
 
   // ---- รายการ ATMS ที่คีย์ตรง: ดึงสำเร็จแล้วเขียนแคช (ใช้ใน after()) ----
   handler = (p) => (p === "/atms/withdraw/list" ? { status: 200, body: { rows: [{ id: 8123, code: "WD-8123", approved: true }] } } : { status: 404, body: {} })

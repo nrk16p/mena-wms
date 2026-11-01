@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth"
 import { atLeast, type Access } from "@/lib/access-policy"
 import { validApiUser } from "./core"
 import { ConflictError, NotFoundError, type Actor } from "./db"
+import { requesterKeys, tickKeys } from "./env"
 
 export const err = (message: string, status: number) => NextResponse.json({ error: message }, { status })
 
@@ -20,16 +21,13 @@ function keyIn(key: string | null, keys: string[]): boolean {
   }
   return hit
 }
-const list = (v: string | undefined) => (v ?? "").split(",").map((k) => k.trim()).filter(Boolean)
 
-/** กุญแจ drift-tick (STORE_WITHDRAW_TICK_KEY) · แยกจากกุญแจผู้ขอโดยเด็ดขาด */
-export const tickKeys = () => list(process.env.STORE_WITHDRAW_TICK_KEY)
+/** กุญแจ drift-tick / กุญแจผู้ขอ — ค่าเริ่มต้นใช้กุญแจเดิม ดู lib/store-withdraw/env.ts */
+export { tickKeys }
 
 /** กุญแจฝั่งผู้ขอ (STORE_WITHDRAW_API_KEYS) · กุญแจที่ตรงกับกุญแจ tick ใช้ไม่ได้ ต่อให้ตั้งซ้ำกันพลาด */
 export function apiKeyValid(key: string | null): boolean {
-  const tick = tickKeys()
-  const keys = list(process.env.STORE_WITHDRAW_API_KEYS).filter((k) => !tick.includes(k))
-  return keyIn(key, keys)
+  return keyIn(key, requesterKeys())
 }
 
 /** กุญแจของงานตั้งเวลา drift-tick เท่านั้น */

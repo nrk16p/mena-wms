@@ -1,5 +1,6 @@
 // lib/store-withdraw/service.ts ตรรกะหลัง route: ตัวเลือก/ค้นหาจาก ATMS (บัญชีค้นข้อมูลของ WMS) · สร้างใบ · ขอคืน · จอคิว
 import { randomBytes } from "node:crypto"
+import { lookupCreds } from "./env"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, swCol, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
 import { queueSort, returnableQty } from "./core"
 import { HttpError } from "./http"
@@ -12,15 +13,10 @@ export const emptyAtms = (): AtmsProgress => ({
 
 // ---------- อ่านข้อมูลจาก ATMS ด้วยบัญชีค้นข้อมูลของ WMS (ผู้ขอไม่มีบัญชี ATMS) ----------
 
-function lookupCreds() {
-  const username = process.env.ATMS_LOOKUP_USERNAME
-  const password = process.env.ATMS_LOOKUP_PASSWORD
-  if (!username || !password) throw new HttpError("ยังไม่ได้ตั้งบัญชี ATMS สำหรับค้นข้อมูล แจ้งแอดมิน", 503)
-  return { username, password }
-}
+// บัญชีอ่าน: ATMS_LOOKUP_* ถ้าตั้งไว้ · ไม่ตั้ง = api-ncac ใช้บัญชี ATMS ของตัวเอง (lib/store-withdraw/env.ts)
 
 async function ncacRead<T>(path: string, query?: Record<string, string | number | undefined>): Promise<T> {
-  const creds = lookupCreds()
+  const creds = lookupCreds() ?? undefined
   let r: { status: number; data: T }
   try {
     r = await ncac<T>("GET", path, { creds, query })
@@ -285,12 +281,9 @@ export const KEYED_FAIL_MS = 120_000 // ดึงพลาดแล้วพั�
 const inflight = new Map<string, Promise<AtmsKeyedRow[] | null>>()
 
 async function fetchKeyed(inventoryId: number, date: string): Promise<AtmsKeyedRow[] | null> {
-  const username = process.env.ATMS_LOOKUP_USERNAME
-  const password = process.env.ATMS_LOOKUP_PASSWORD
-  if (!username || !password) return null
   try {
     const r = await ncac<{ rows?: Row[] } | null>("GET", "/atms/withdraw/list", {
-      creds: { username, password }, query: { inventory_id: inventoryId, date }, timeoutMs: KEYED_LIST_TIMEOUT_MS,
+      creds: lookupCreds() ?? undefined, query: { inventory_id: inventoryId, date }, timeoutMs: KEYED_LIST_TIMEOUT_MS,
     })
     if (r.status < 200 || r.status >= 300) return null
     return (r.data?.rows ?? []).map(toKeyed)
@@ -300,7 +293,7 @@ async function fetchKeyed(inventoryId: number, date: string): Promise<AtmsKeyedR
 }
 
 /**
- * WD วันนี้ของคลังนั้นที่ถูกคีย์ตรงใน ATMS (อ่านอย่างเดียว) · อ่านด้วยบัญชีค้นข้อมูลของ WMS (env ATMS_LOOKUP_*) ไม่ใช้บัญชีสโตร์
+ * WD วันนี้ของคลังนั้นที่ถูกคีย์ตรงใน ATMS (อ่านอย่างเดียว) · อ่านด้วยบัญชีค้นข้อมูล (ATMS_LOOKUP_* หรือบัญชีของ api-ncac) ไม่ใช้บัญชีสโตร์
  * กันหน้าจอค้างและกันยิง ATMS รัว: timeout 5 วิ · พลาดแล้วจำไว้ 2 นาที (คืนแถวแคชล่าสุดถ้ามี ไม่งั้น []) · 1 คีย์ = 1 คำขอพร้อมกัน
  * แคช 3 นาที ใช้ร่วมทุกจอ · ตัดแถวที่ id ตรงกับ atms.gmId ของใบใน WMS (ที่ WMS ตัดเอง) ออก
  */

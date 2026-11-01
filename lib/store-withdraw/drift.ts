@@ -1,7 +1,8 @@
 // lib/store-withdraw/drift.ts — ตรวจว่าใบ WD ที่ WMS ตัดไปแล้วถูกแก้ใน ATMS ภายหลังหรือไม่ ("drift")
-// อ่าน ATMS ด้วยบัญชีค้นข้อมูลของ WMS (ATMS_LOOKUP_USERNAME/PASSWORD) ไม่ล็อกอินแทนสโตร์ทีละคน
+// อ่าน ATMS ด้วยบัญชีค้นข้อมูล (ATMS_LOOKUP_* ถ้าตั้ง · ไม่ตั้ง = บัญชีของ api-ncac) ไม่ล็อกอินแทนสโตร์ทีละคน
 // เขียนเฉพาะ atms.drift + atms.lastCheckAt — ไม่แตะข้อมูลอื่น ไม่แตะ updatedAt
 import { swCol } from "./db"
+import { lookupCreds } from "./env"
 import { ncac } from "./ncac"
 import type { SwLine, SwRequest } from "./types"
 
@@ -53,7 +54,7 @@ async function touchChecked(no: string, fallback: SwRequest): Promise<SwRequest>
   return after ?? fallback
 }
 
-export const driftReady = () => !!(process.env.ATMS_LOOKUP_USERNAME && process.env.ATMS_LOOKUP_PASSWORD)
+export const driftReady = () => !!(process.env.NCAC_BASE && process.env.NCAC_API_KEY)
 
 export type CheckState = "checked" | "skipped"
 
@@ -66,15 +67,13 @@ export async function checkDriftDetailed(no: string): Promise<{ request: SwReque
   if (cur.status !== "ISSUED" && cur.status !== "RECEIVED") return { request: cur, state: "skipped" }
   const gmId = cur.atms.gmId
   if (gmId == null) return { request: cur, state: "skipped" }
-  const username = process.env.ATMS_LOOKUP_USERNAME
-  const password = process.env.ATMS_LOOKUP_PASSWORD
-  if (!username || !password) {
-    console.warn(`[store-withdraw] drift ${no}: ยังไม่ได้ตั้ง ATMS_LOOKUP_USERNAME/PASSWORD — ข้ามการตรวจ`)
+  if (!driftReady()) {
+    console.warn(`[store-withdraw] drift ${no}: ยังไม่ได้ตั้ง NCAC_BASE/NCAC_API_KEY — ข้ามการตรวจ`)
     return { request: cur, state: "skipped" }
   }
   let r: { status: number; data: Wire }
   try {
-    r = await ncac<Wire>("GET", `/atms/withdraw/${gmId}`, { creds: { username, password }, timeoutMs: READ_TIMEOUT_MS })
+    r = await ncac<Wire>("GET", `/atms/withdraw/${gmId}`, { creds: lookupCreds() ?? undefined, timeoutMs: READ_TIMEOUT_MS })
   } catch (e) {
     console.warn(`[store-withdraw] drift ${no}: ติดต่อ api-ncac ไม่ได้ — ข้าม`, e instanceof Error ? e.message : e)
     return { request: await touchChecked(no, cur), state: "skipped" }
@@ -109,7 +108,7 @@ const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 /** ตรวจใบ ISSUED/RECEIVED อายุ ≤ 7 วัน เรียง lastCheckAt เก่าสุดก่อน · ห่าง ≥ gapMs · หยุดก่อนครบ budgetMs */
 export async function driftTick(o: TickOpts = {}): Promise<TickResult> {
   if (!driftReady()) {
-    console.warn("[store-withdraw] drift-tick: ยังไม่ได้ตั้ง ATMS_LOOKUP_USERNAME/PASSWORD — ข้ามทั้งรอบ")
+    console.warn("[store-withdraw] drift-tick: ยังไม่ได้ตั้ง NCAC_BASE/NCAC_API_KEY — ข้ามทั้งรอบ")
     return { checked: 0, drifted: 0, skipped: 0 }
   }
   const max = o.max ?? 40

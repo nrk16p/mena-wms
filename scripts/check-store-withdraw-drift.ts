@@ -124,8 +124,22 @@ async function main() {
   await seed("T-NOGM", null)
   calls = []
   eq((await checkDriftDetailed("T-NOGM")).state, "skipped"); eq(calls.length, 0)
+  // ไม่ตั้ง ATMS_LOOKUP_* → ยังตรวจได้ ส่งไปโดยไม่มีบัญชี ให้ api-ncac ใช้บัญชีของตัวเอง
   const u = process.env.ATMS_LOOKUP_USERNAME
   delete process.env.ATMS_LOOKUP_USERNAME
+  {
+    const before = await get("T-OK")
+    await (await swCol()).updateOne({ no: "T-OK" }, { $set: { "atms.lastCheckAt": null } })
+    calls = []
+    await checkDriftDetailed("T-OK")
+    eq(calls.length, 1); eq(calls[0].headers["X-ATMS-Username"], undefined)
+    await (await swCol()).updateOne({ no: "T-OK" }, { $set: { "atms.lastCheckAt": before.atms.lastCheckAt } })
+  }
+  process.env.ATMS_LOOKUP_USERNAME = u
+  // ไม่ได้ตั้ง NCAC (ต่อ api-ncac ไม่ได้) → ข้ามโดยไม่เรียก
+  const nk = process.env.NCAC_API_KEY
+  delete process.env.NCAC_API_KEY
+  calls = []
   eq((await checkDriftDetailed("T-OK")).state, "skipped"); eq(calls.length, 0)
   eq((await get("T-OK")).atms.lastCheckAt instanceof Date, true) // ค่าจากรอบก่อน ไม่ถูกแตะ
   // env หาย → tick คืนทันที ไม่มีลูป/sleep
@@ -135,7 +149,7 @@ async function main() {
     const t = await driftTick({ sleep: async (ms) => { sl.push(ms) } })
     eq(t, { checked: 0, drifted: 0, skipped: 0 }); eq(sl.length, 0); eq(calls.length, 0)
   }
-  process.env.ATMS_LOOKUP_USERNAME = u
+  process.env.NCAC_API_KEY = nk
 
   // ================= drift-tick =================
   await (await swCol()).deleteMany({})
