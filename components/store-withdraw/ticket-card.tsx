@@ -79,6 +79,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
           <p className="text-xs text-gray-500">
             {isReturn ? "ขอคืนอะไหล่" : item.kind === "cutoff" ? "เบิกตัดยอด" : "เบิกจากสต๊อก"}
             {item.mrCode && ` · ${item.mrCode}`} · {item.requestedBy.name}
+            {item.ref && <span data-testid="ref"> · อ้างอิง {item.ref.type === "po" ? "PO" : "DD"} {item.ref.code}</span>}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">

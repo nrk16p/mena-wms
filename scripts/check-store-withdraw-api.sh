@@ -86,8 +86,44 @@ code 200 "lookup mr" -H "$R" "$B/lookup/mr?q=MR1"
 code 200 "lookup limit ติดลบ" -H "$R" "$B/lookup/mr?q=MR1&limit=-5"
 code 200 "lookup limit 0" -H "$R" "$B/lookup/mr?q=MR1&limit=0"
 code 400 "lookup kind ผิด" -H "$R" "$B/lookup/bogus?q=x"
-code 200 "lookup cutoff" -H "$R" "$B/lookup/cutoff?mr=MR-1&inv=4"
-expect "cutoff คืน lines เป็น list" "isinstance(d['lines'],list)"
+code 400 "lookup/cutoff ถูกลบแล้ว" -H "$R" "$B/lookup/cutoff?mr=MR-1&inv=4"
+
+echo "== อ้างอิง PO / DD"
+code 200 "lookup po" -H "$R" "$B/lookup/po?q=LBPO26&inv=4"
+expect "po ส่งต่อผล doc/search (kind, q, inv ไปถึง ncac)" "d['results'][0]['code']=='LBPO26100704' and d['results'][0]['kind']=='po' and d['results'][0]['q']=='LBPO26' and d['results'][0]['inv']=='4'"
+code 200 "lookup dd" -H "$R" "$B/lookup/dd?q=LBDD26"
+expect "dd ส่งต่อ" "d['results'][0]['kind']=='dd' and d['results'][0]['status'] is None"
+code 200 "lookup po สั้นเกินไป" -H "$R" "$B/lookup/po?q=L"
+expect "q สั้น = ว่าง" "d['results']==[]"
+code 200 "api-key lookup po" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" "$B/lookup/po?q=LBPO26"
+code 401 "lookup po ไม่ล็อกอิน" "$B/lookup/po?q=LBPO26"
+code 200 "รายการในใบ po" -H "$R" "$B/lookup/doc/po/157902?inv=4"
+expect "doc + lines (OIL-001→501 สต๊อก 12 / FLT-002→502 จากสำเนา / ค่าแรง LB00269 ไม่มีทั้งสำเนาและ ATMS ตรงเป๊ะ→null แต่ไม่ถูกกรองทิ้ง)" "d['doc']['code']=='LBPO26100704' and [l['skuId'] for l in d['lines']]==[501,501,502,None] and d['lines'][0]['stockQty']==12 and d['lines'][3]['isLabour'] is True and [l['qty'] for l in d['lines']]==[2,1,0,1]"
+expect "warnings มีค่าแรง" "'ใบนี้มีบรรทัดค่าแรง/บริการ' in d['warnings']"
+code 200 "รายการในใบ dd (api-key)" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" "$B/lookup/doc/dd/157902?inv=4"
+code 404 "ใบที่ไม่พบ" -H "$R" "$B/lookup/doc/po/404404"
+code 400 "ชนิดใบผิด" -H "$R" "$B/lookup/doc/pr/1"
+code 400 "id ผิด" -H "$R" "$B/lookup/doc/po/abc"
+code 401 "รายการในใบ ไม่ล็อกอิน" "$B/lookup/doc/po/157902"
+REFBODY='{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"70-7777","mrCode":"MR-9","ref":{"type":"po","code":"LBPO26100704","id":157902},"lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":2}]}'
+code 400 "ref type ผิด" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"x","ref":{"type":"pr","code":"LBPR123"},"lines":[{"skuId":1,"skuCode":"a","skuName":"a","requestedQty":1}]}'
+code 400 "ref code ว่าง" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"x","ref":{"type":"po","code":"  "},"lines":[{"skuId":1,"skuCode":"a","skuName":"a","requestedQty":1}]}'
+code 201 "สร้างพร้อม ref" -H "$R" -H "$J" -X POST "$B" -d "$REFBODY"
+NREF=$(jget "d['no']")
+code 200 "ดูใบที่มี ref" -H "$R" "$B/$NREF"
+expect "รายละเอียดมี ref" "d['request']['ref']=={'type':'po','code':'LBPO26100704','id':157902}"
+code 201 "สร้างใบที่ไม่อ้างอิง" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"70-6666","lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":1}]}'
+NNOREF=$(jget "d['no']")
+code 200 "รายการของฉัน มี ref" -H "$R" "$B?mine=1"
+expect "list: ใบที่อ้างมี ref · ใบที่ไม่อ้างได้ ref เป็น null" "[x['ref'] for x in d['items'] if x['no']=='$NREF'][0]['code']=='LBPO26100704' and [x['ref'] for x in d['items'] if x['no']=='$NNOREF'][0] is None"
+code 200 "ดูใบที่ไม่อ้างอิง" -H "$R" "$B/$NNOREF"
+expect "detail: ref เป็น null" "d['request']['ref'] is None"
+code 200 "ยกเลิกใบที่ไม่อ้างอิง" -H "$R" -X POST "$B/$NNOREF/cancel"
+code 200 "รายการในใบ: ตัดไปแล้ว/cutBy" -H "$R" "$B/lookup/doc/po/157902?inv=4"
+expect "OIL-001 alreadyCut=2 จากใบ $NREF" "d['lines'][0]['alreadyCut']==2 and d['lines'][0]['cutBy']==['$NREF'] and d['warnings'].count('บางบรรทัดมีคำขออื่นอ้างและตัดไปแล้ว')==1"
+code 200 "ยกเลิกใบที่อ้าง" -H "$R" -X POST "$B/$NREF/cancel"
+code 200 "รายการในใบหลังยกเลิก" -H "$R" "$B/lookup/doc/po/157902?inv=4"
+expect "ยกเลิกแล้วไม่นับ" "d['lines'][0]['alreadyCut']==0 and d['lines'][0]['cutBy']==[]"
 
 echo "== สร้างคำขอ"
 BODY='{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"70-1234","mrCode":"MR-1","urgent":true,"lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":2},{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":3},{"skuId":502,"skuCode":"FLT-002","skuName":"ไส้กรอง","requestedQty":1}]}'
@@ -231,6 +267,11 @@ code 200 "issue" -H "$S" -X POST "$B/$NO/issue"
 expect "ISSUED + เลข WD" "d['request']['status']=='ISSUED' and d['request']['atms']['code']=='LBWD-9001'"
 grep -q "POST /atms/withdraw/issue user=store1" "$TMP/ncac-calls.log" && ok "ยิง ncac ด้วยบัญชีสโตร์" || bad "ไม่เห็นการยิง ncac ของสโตร์"
 code 409 "issue ซ้ำ" -H "$S" -X POST "$B/$NO/issue"
+code 201 "สร้างใบตัดยอดพร้อม ref" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"cutoff","inventoryId":4,"pickToId":7,"plate":"70-8888","mrCode":"MR-9","remark":"ด่วน","ref":{"type":"dd","code":"LBDD26100001","id":157902},"lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":1}]}'
+NRM=$(jget "d['no']")
+code 200 "issue ใบที่มี ref" -H "$S" -X POST "$B/$NRM/issue"
+expect "ISSUED" "d['request']['status']=='ISSUED'"
+grep -q "remark_token=$NRM remark=MR-9 LBDD26100001 70-8888 ด่วน" "$TMP/ncac-calls.log" && ok "remark ที่ส่ง ATMS มีเลขใบ แต่ remark_token ยังเป็นเลข SW" || bad "remark ที่ส่ง ncac ไม่ตรง: $(grep 'remark_token' "$TMP/ncac-calls.log" | tail -2)"
 code 200 "queue หลังมี gmId: ตัดแถว 9001 ออก" -H "$S" "$B/queue?inv=4"
 expect "atmsKeyed เหลือเฉพาะ 8123" "[x['id'] for x in d['atmsKeyed']]==[8123]"
 

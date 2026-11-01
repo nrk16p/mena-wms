@@ -47,7 +47,7 @@ function detailText(d: unknown, fallback: string): string {
   return fallback
 }
 
-const headerRemark = (r: SwRequest) => [r.mrCode, r.plate, r.remark].map((s) => (s ?? "").trim()).filter(Boolean).join(" ")
+const headerRemark = (r: SwRequest) => [r.mrCode, r.ref?.code, r.plate, r.remark].map((s) => (s ?? "").trim()).filter(Boolean).join(" ")
 
 type Outcome = { kind: "ok" | "partial" | "auth" | "config" | "error"; atms: AtmsProgress }
 

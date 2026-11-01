@@ -46,7 +46,7 @@ export default function Page() {
 { "inventories": [ { "id": 4, "name": "ลาดกระบัง" } ],
   "pickTos":     [ { "id": 7, "name": "ซ่อมรถ" } ] }`}</CodeBlock>
           <p><code>inventoryId</code> และ <code>pickToId</code> ตอนยื่นคำขอต้องมาจากรายการนี้</p>
-          <Ep verb="GET" path="/api/store-withdraw/lookup/{mr|sku|serial|wd}?q=&limit=&inv=&sku_id=" />
+          <Ep verb="GET" path="/api/store-withdraw/lookup/{mr|sku|serial|wd|po|dd}?q=&limit=&inv=&sku_id=" />
           <CodeBlock>{`curl ${HDR} "${API}/lookup/sku?q=น้ำมันเครื่อง&inv=4&limit=10"
 
 { "results": [ { "skuId": 501, "skuCode": "OIL-001", "skuName": "น้ำมันเครื่อง", "stockQty": 12, "raw": { ... } } ] }`}</CodeBlock>
@@ -56,7 +56,31 @@ export default function Page() {
             <Param name="inv">รหัสคลัง — ใช้กรองสต๊อกของ <code>kind=sku</code> (<code>stockQty</code> เป็น <code>null</code> ถ้าไม่มีข้อมูล)</Param>
             <Param name="sku_id">ใช้กับ <code>kind=serial</code> เพื่อจำกัดเฉพาะ SKU นั้น</Param>
           </ul>
-          <p>เอา <code>skuId / skuCode / skuName</code> จากผลค้น SKU ไปใส่ในบรรทัดของคำขอ · <code>kind</code> ที่ไม่ใช่ mr, sku, serial, wd ตอบ 400</p>
+          <p>เอา <code>skuId / skuCode / skuName</code> จากผลค้น SKU ไปใส่ในบรรทัดของคำขอ · <code>kind</code> ที่ไม่ใช่ mr, sku, serial, wd, po, dd ตอบ 400</p>
+        </Section>
+
+        <Section icon={Search} title="อ้างอิงใบ PO / DD และดึงรายการมาใส่คำขอ">
+          <Ep verb="GET" path="/api/store-withdraw/lookup/{po|dd}?q=&inv=&limit=" />
+          <CodeBlock>{`curl ${HDR} "${API}/lookup/po?q=LBPO2610&inv=4"
+
+{ "results": [ { "id": 157902, "code": "LBPO26100704", "kind": "po", "date": "25/10/2026",
+                 "supplier": "...", "status": "ยังไม่ได้รับสินค้า", "total": 1100, "ref": "LBPR26100561" } ] }`}</CodeBlock>
+          <p>ค้นเลขใบจาก ATMS (<code>q</code> อย่างน้อย 2 ตัวอักษร) · ค้นย้อนหลัง 90 วัน เรียงใหม่สุดก่อน · DD ที่ไม่มี supplier/status/total ได้ <code>null</code></p>
+          <Ep verb="GET" path="/api/store-withdraw/lookup/doc/{po|dd}/{id}?inv=" />
+          <CodeBlock>{`curl ${HDR} "${API}/lookup/doc/po/157902?inv=4"
+
+{ "doc":   { "id": 157902, "code": "LBPO26100704", "kind": "po", "date": "25/10/2026", "supplier": "...", "pr": "LBPR26100561", "po": null },
+  "lines": [ { "skuCode": "LB03SS00471", "skuName": "LB03SS00471 : ลูกหมากคันเกียร์ LH 8*8", "group": "ระบบช่วงล่าง", "isLabour": false,
+               "docQty": 1, "receivedQty": 0, "qty": 0, "unitPrice": 300,
+               "skuId": 4101, "stockQty": 12, "alreadyCut": 0, "cutBy": [ "SW-2611-004" ] } ],
+  "warnings": [ "ใบนี้ยังไม่ได้รับของ" ] }`}</CodeBlock>
+          <ul className="ml-1 space-y-2">
+            <Param name="qty">จำนวนตั้งต้นที่ควรนำเข้า = จำนวนที่<b>รับแล้ว</b> (DD = จำนวนในใบ) · PO ที่ยังไม่รับ = 0</Param>
+            <Param name="skuId">เอาไปใส่บรรทัดคำขอได้เลย · <code>null</code> = หา SKU ในคลังนี้ไม่เจอ ใส่ในคำขอไม่ได้</Param>
+            <Param name="isLabour">บรรทัดค่าแรง/บริการ (ไม่ได้กรองทิ้ง · ATMS อาจไม่ยอมตัดสต๊อก ถ้าไม่ผ่านจะขึ้นเป็น ISSUE_FAILED)</Param>
+            <Param name="alreadyCut / cutBy">ยอดที่คำขออื่นอ้างใบนี้และตัดไปแล้ว กับเลขคำขอเหล่านั้น (ไม่นับที่ยกเลิก/ปฏิเสธ) · ไว้เตือนอย่างเดียว ไม่บล็อก</Param>
+          </ul>
+          <p>ไม่พบใบตอบ 404 · เรียกด้วย API key ได้เหมือน <code>lookup</code> อื่น (อ่านอย่างเดียว) · ใส่ <code>ref</code> ในคำขอเพื่อให้สโตร์เห็นว่าอ้างใบไหน</p>
         </Section>
 
         <Section icon={PackagePlus} title="ยื่นคำขอเบิก">
@@ -67,6 +91,7 @@ export default function Page() {
   "pickToId": 7,
   "plate": "70-1234",
   "mrCode": "MR-2610-001",      // ไม่บังคับ
+  "ref": { "type": "po", "code": "LBPO26100704", "id": 157902 },   // ไม่บังคับ · type = po | dd · code 3-40 ตัว · id ไม่บังคับ
   "urgent": false,               // true = รถจอดรอ
   "remark": "",
   "lines": [
@@ -79,6 +104,7 @@ export default function Page() {
           <ul className="ml-1 space-y-2">
             <Param name="kind" required><code>stock</code> หรือ <code>cutoff</code></Param>
             <Param name="plate" required>ทะเบียนรถ</Param>
+            <Param name="ref">ใบ PO / DD ที่อ้างอิง · ผิดรูปแบบตอบ 400 · ส่งต่อไปอยู่ในหมายเหตุของใบเบิกใน ATMS · ตอนดูใบ (<code>GET</code>) มี <code>ref</code> เสมอ (<code>null</code> ถ้าไม่ได้อ้างอิง)</Param>
             <Param name="lines" required>อย่างน้อย 1 บรรทัด · <code>skuId</code> (จำนวนเต็ม), <code>skuCode</code>, <code>skuName</code>, <code>requestedQty</code> (&gt; 0) บังคับ · SKU ซ้ำในใบเดียวระบบรวมจำนวนให้</Param>
           </ul>
         </Section>

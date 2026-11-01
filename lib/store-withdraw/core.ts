@@ -1,6 +1,6 @@
 // lib/store-withdraw/core.ts — ตรรกะล้วนของงานเบิกของหน้าร้านคลัง (สถานะ · เรียงคิว · ตรวจจำนวน)
 // ไม่แตะ DB/env เพื่อให้ทดสอบตรง ๆ ด้วย tsx ได้
-import type { SwAction, SwLine, SwRequest, SwStatus } from "./types"
+import type { SwAction, SwLine, SwRef, SwRequest, SwStatus } from "./types"
 
 export function nextStatus(req: Pick<SwRequest, "status" | "kind"> & { atms?: { gmId: number | null } }, action: SwAction): SwStatus | null {
   const { status, kind } = req
@@ -70,3 +70,53 @@ export function clampLimit(raw: string | null, def: number, max: number): number
 
 /** x-user ของ API key ต้องเป็นอีเมลบริษัทเท่านั้น */
 export const validApiUser = (s: string): boolean => /^[^@\s]+@menatransport\.co\.th$/i.test(s)
+
+// ---------- อ้างอิงใบ PO / DD ----------
+
+export const REF_CODE_MIN = 3
+export const REF_CODE_MAX = 40
+
+/** ตรวจ ref ที่ส่งมากับคำขอ · ไม่ใส่/null = ไม่อ้างอิง · ผิดรูปแบบ = { error } เป็นข้อความไทยพร้อมโชว์ */
+export function parseRef(raw: unknown): { ref: SwRef | null } | { error: string } {
+  if (raw == null) return { ref: null }
+  if (typeof raw !== "object" || Array.isArray(raw)) return { error: "ใบอ้างอิงไม่ถูกต้อง เลือกใบ PO หรือ DD ใหม่" }
+  const r = raw as Record<string, unknown>
+  if (r.type !== "po" && r.type !== "dd") return { error: "ประเภทใบอ้างอิงต้องเป็น po หรือ dd" }
+  const code = typeof r.code === "string" ? r.code.trim() : ""
+  if (code.length < REF_CODE_MIN || code.length > REF_CODE_MAX) return { error: `เลขใบอ้างอิงต้องยาว ${REF_CODE_MIN}-${REF_CODE_MAX} ตัวอักษร` }
+  let id: number | null = null
+  if (r.id != null) {
+    if (typeof r.id !== "number" || !Number.isInteger(r.id) || r.id <= 0) return { error: "id ของใบอ้างอิงไม่ถูกต้อง" }
+    id = r.id
+  }
+  return { ref: { type: r.type, code, id } }
+}
+
+/** คำขอที่ยังนับว่า "ตัดไปแล้ว" — ที่ยกเลิก/ถูกปฏิเสธไม่นับ */
+export const COUNTS_AS_CUT = (status: SwStatus): boolean => status !== "CANCELLED" && status !== "REJECTED"
+
+/** รวมยอดที่คำขออื่นอ้างใบเดียวกันตัดไปแล้ว ต่อรหัสสินค้า (issuedQty ?? requestedQty) */
+export function tallyCut(reqs: Pick<SwRequest, "no" | "status" | "lines">[]): Map<string, { qty: number; by: string[] }> {
+  const out = new Map<string, { qty: number; by: string[] }>()
+  for (const r of reqs) {
+    if (!COUNTS_AS_CUT(r.status)) continue
+    for (const l of r.lines) {
+      const cur = out.get(l.skuCode) ?? { qty: 0, by: [] }
+      cur.qty += l.issuedQty ?? l.requestedQty
+      if (!cur.by.includes(r.no)) cur.by.push(r.no)
+      out.set(l.skuCode, cur)
+    }
+  }
+  return out
+}
+
+export type DocLineLite = { isLabour: boolean; receivedQty: number; alreadyCut: number }
+
+/** ข้อความเตือนสั้น ๆ ของแผงรายการ (เตือนอย่างเดียว ไม่บล็อก) */
+export function docWarnings(kind: "po" | "dd", lines: DocLineLite[]): string[] {
+  const w: string[] = []
+  if (kind === "po" && lines.length > 0 && lines.every((l) => !(l.receivedQty > 0))) w.push("ใบนี้ยังไม่ได้รับของ")
+  if (lines.some((l) => l.isLabour)) w.push("ใบนี้มีบรรทัดค่าแรง/บริการ")
+  if (lines.some((l) => l.alreadyCut > 0)) w.push("บางบรรทัดมีคำขออื่นอ้างและตัดไปแล้ว")
+  return w
+}

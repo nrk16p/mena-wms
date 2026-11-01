@@ -55,6 +55,7 @@ export async function getDb(): Promise<Db> {
       db.collection("store_withdraw_requests").createIndex({ no: 1 }, { unique: true }),
       db.collection("store_withdraw_requests").createIndex({ inventoryId: 1, status: 1, createdAt: 1 }),
       db.collection("store_withdraw_requests").createIndex({ "requestedBy.email": 1, createdAt: -1 }),
+      db.collection("store_withdraw_requests").createIndex({ "ref.code": 1, createdAt: -1 }, { sparse: true }),
       db.collection("store_withdraw_log").createIndex({ no: 1, at: 1 }),
       db.collection("store_atms_creds").createIndex({ email: 1 }, { unique: true }),
       db.collection("store_withdraw_atms_cache").createIndex({ fetchedAt: 1 }, { expireAfterSeconds: 180 }),
@@ -62,6 +63,12 @@ export async function getDb(): Promise<Db> {
     indexed.add(db)
   }
   return db
+}
+
+/** สำเนาทะเบียนสินค้า ATMS (อ่านอย่างเดียว) — db ตาม MONGO_DB ไม่ใช่ db ของงานเบิก */
+export async function skuMasterCol() {
+  const client = injected ?? (await (await import("../mongo")).default)
+  return client.db(process.env.MONGO_DB ?? "master_data").collection("atms_sku_master")
 }
 
 export async function swCol(): Promise<Collection<SwRequest>> {
@@ -136,3 +143,6 @@ export async function transition(
   await writeLog({ no, action, from: cur.status, to, actor: { email: actor.email, name: actor.name, via: actor.via } })
   return after
 }
+
+/** ใบเก่าก่อนมีฟีเจอร์อ้างอิง PO/DD ไม่มี field ref — response ทุกเส้นคืน ref: null ให้เสมอ */
+export const withRef = <T extends { ref?: SwRequest["ref"] }>(d: T): T & { ref: NonNullable<SwRequest["ref"]> | null } => ({ ...d, ref: d.ref ?? null })

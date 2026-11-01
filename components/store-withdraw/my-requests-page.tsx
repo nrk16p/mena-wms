@@ -129,7 +129,9 @@ export function MyRequestsPage() {
                     <p className="text-sm font-semibold text-gray-900 dark:text-white">{r.no} <span className="font-normal text-gray-500">· {r.plate}</span></p>
                     <p className="text-xs text-gray-500">
                       {r.kind === "cutoff" ? "เบิกตัดยอด" : "เบิกจากสต๊อก"} · {r.inventoryName} · {fmt(r.createdAt)}
-                      {r.mrCode && ` · ${r.mrCode}`}{r.urgent && " · รถจอดรออะไหล่"}
+                      {r.mrCode && ` · ${r.mrCode}`}
+                      {r.ref && <span data-testid="ref"> · อ้างอิง {r.ref.type === "po" ? "PO" : "DD"} {r.ref.code}</span>}
+                      {r.urgent && " · รถจอดรออะไหล่"}
                     </p>
                   </div>
                   <StatusChip status={r.status} />

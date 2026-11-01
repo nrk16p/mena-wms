@@ -1,4 +1,4 @@
-// GET /api/store-withdraw/lookup/{mr|sku|serial|wd}?q=&limit=&inv=&sku_id= — ค้นข้อมูล ATMS ด้วยบัญชีค้นข้อมูลของ WMS
+// GET /api/store-withdraw/lookup/{mr|sku|serial|wd|po|dd}?q=&limit=&inv=&sku_id= — ค้นข้อมูล ATMS ด้วยบัญชีค้นข้อมูลของ WMS
 // sku: รวมสต๊อกจาก atms_sku_master (stockQty, ไม่มี = null)
 import { NextResponse, type NextRequest } from "next/server"
 import { clampLimit } from "@/lib/store-withdraw/core"
@@ -14,7 +14,7 @@ export function GET(req: NextRequest, ctx: RouteCtx<{ kind: string }>) {
     const actor = await getActor(req, true)
     if (isResponse(actor)) return actor
     const kind = lookupKind((await ctx.params).kind)
-    if (!kind) return err("ชนิดการค้นหาไม่ถูกต้อง (mr, sku, serial, wd)", 400)
+    if (!kind) return err("ชนิดการค้นหาไม่ถูกต้อง (mr, sku, serial, wd, po, dd)", 400)
     const sp = req.nextUrl.searchParams
     const q = (sp.get("q") ?? "").trim()
     if (q.length < 2) return NextResponse.json({ results: [] })

@@ -43,6 +43,9 @@ export type SwReturn = {
   createdAt: Date
 }
 
+/** ใบ PO / DD ที่ผู้ขออ้างอิง (ไม่บังคับ) */
+export type SwRef = { type: "po" | "dd"; code: string; id: number | null }
+
 export type SwRequest = {
   _id?: unknown
   no: string
@@ -54,6 +57,8 @@ export type SwRequest = {
   pickToName: string
   plate: string
   mrCode: string | null
+  /** ใบเก่าก่อนมีฟีเจอร์นี้ไม่มี field — ฝั่ง API คืน null ให้เสมอ */
+  ref?: SwRef | null
   urgent: boolean
   remark: string
   lines: SwLine[]

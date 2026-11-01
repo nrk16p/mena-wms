@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Trash2, Loader2 } from "lucide-react"
@@ -9,9 +9,12 @@ import type { SwKind } from "@/lib/store-withdraw/types"
 import { SkuPicker, type SkuHit } from "./sku-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
 import { OptionCombobox } from "./option-combobox"
+import { DocRefPicker } from "./doc-ref-picker"
+import { DocLinesPanel } from "./doc-lines-panel"
+import { DOC_LABEL, type DocHit, type DocKind, type ImportLine } from "./doc-ref-types"
 
 type Opt = { id: number; name: string }
-type FormLine = { skuId: number; skuCode: string; skuName: string; qty: string; stockQty: number | null; mrItemId: number | null; mrItemLabel: string | null; remark: string; auto?: boolean }
+type FormLine = { skuId: number; skuCode: string; skuName: string; qty: string; stockQty: number | null; mrItemId: number | null; mrItemLabel: string | null; remark: string; fromDoc?: boolean }
 
 const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
@@ -32,8 +35,10 @@ export function RequestForm() {
   const [urgent, setUrgent] = useState(false)
   const [remark, setRemark] = useState("")
   const [lines, setLines] = useState<FormLine[]>([])
-  const [cutoffMsg, setCutoffMsg] = useState("")
-  const [cutoffErr, setCutoffErr] = useState("")
+  const [docKind, setDocKind] = useState<DocKind>("po")
+  const [doc, setDoc] = useState<DocHit | null>(null)
+  const [docPanel, setDocPanel] = useState(false)
+  const [docMsg, setDocMsg] = useState("")
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -48,32 +53,6 @@ export function RequestForm() {
     return () => ctl.abort()
   }, [])
 
-  // เบิกตัดยอด + มี MR → ดึงรายการจากใบรับของ (DD) มาเติมให้ · แก้/ลบได้
-  const fetchedFor = useRef("")
-  useEffect(() => {
-    if (kind !== "cutoff" || !mrCode) return
-    const key = `${mrCode}|${inventoryId}`
-    if (fetchedFor.current === key) return
-    fetchedFor.current = key
-    const ctl = new AbortController()
-    const sp = new URLSearchParams({ mr: mrCode })
-    if (inventoryId) sp.set("inv", String(inventoryId))
-    fetch(`/api/store-withdraw/lookup/cutoff?${sp}`, { signal: ctl.signal })
-      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "ดึงใบรับของไม่สำเร็จ"); return j })
-      .then((j: { lines?: { skuId: number; skuCode: string; skuName: string; qty: number }[] }) => {
-        const got = j.lines ?? []
-        setCutoffErr("")
-        if (got.length === 0) { setCutoffMsg("ยังไม่เจอใบรับของ MR นี้ ใส่รายการเองได้"); return }
-        setCutoffMsg(`เติมจากใบรับของ ${got.length} รายการแล้ว แก้หรือลบได้`)
-        setLines((cur) => {
-          const have = new Set(cur.map((l) => l.skuId))
-          return [...cur, ...got.filter((g) => !have.has(g.skuId)).map((g) => ({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: null, mrItemId: null, mrItemLabel: null, remark: "", auto: true }))]
-        })
-      })
-      .catch((e) => { if (!ctl.signal.aborted) { fetchedFor.current = ""; setCutoffMsg(""); setCutoffErr(e instanceof Error ? e.message : "ดึงใบรับของไม่สำเร็จ") } })
-    return () => ctl.abort()
-  }, [kind, mrCode, inventoryId])
-
   const addSku = useCallback((s: SkuHit) => {
     setLines((cur) => {
       if (cur.some((l) => l.skuId === s.skuId)) return cur.map((l) => (l.skuId === s.skuId ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l))
@@ -81,8 +60,26 @@ export function RequestForm() {
     })
   }, [mrItems])
 
-  // เปลี่ยน MR/คลัง → ทิ้งรายการที่เติมจากใบรับของเดิม เหลือเฉพาะที่เพิ่มเอง
-  const dropAuto = () => { setLines((c) => c.filter((l) => !l.auto)); setCutoffMsg(""); setCutoffErr(""); fetchedFor.current = "" }
+  // เปลี่ยน/ล้างใบอ้างอิง หรือเปลี่ยนคลัง → ทิ้งรายการที่นำเข้าจากใบ เหลือเฉพาะที่พิมพ์เอง
+  const dropFromDoc = () => setLines((c) => c.filter((l) => !l.fromDoc))
+  const pickDoc = (d: DocHit) => { dropFromDoc(); setDoc(d); setDocPanel(true); setDocMsg("") }
+  const clearDoc = () => { dropFromDoc(); setDoc(null); setDocPanel(false); setDocMsg("") }
+  const changeKind = (k: DocKind) => { clearDoc(); setDocKind(k) }
+
+  // นำเข้าจากแผงรายการ: SKU เดียวกับที่มีอยู่แล้ว = บวกจำนวนเพิ่ม · ที่ใหม่ติดแท็ก fromDoc
+  const importLines = (got: ImportLine[]) => {
+    setLines((cur) => {
+      const next = cur.map((l) => ({ ...l }))
+      for (const g of got) {
+        const at = next.findIndex((l) => l.skuId === g.skuId)
+        if (at >= 0) next[at].qty = String((Number(next[at].qty) || 0) + g.qty)
+        else next.push({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: g.stockQty, mrItemId: mrItems.length === 1 ? mrItems[0].id : null, mrItemLabel: mrItems.length === 1 ? mrItems[0].label : null, remark: "", fromDoc: true })
+      }
+      return next
+    })
+    setDocPanel(false)
+    setDocMsg(`นำเข้า ${got.length} รายการแล้ว อยู่ในรายการอะไหล่ด้านล่าง แก้จำนวนหรือลบได้`)
+  }
 
   const patch = (i: number, p: Partial<FormLine>) => setLines((cur) => cur.map((l, k) => (k === i ? { ...l, ...p } : l)))
   const setMrItem = (i: number, id: string) => {
@@ -105,7 +102,7 @@ export function RequestForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind, inventoryId, pickToId, plate: plate.trim(), mrCode: mrCode || undefined, urgent, remark: remark.trim(),
+          kind, inventoryId, pickToId, plate: plate.trim(), mrCode: mrCode || undefined, ref: doc ? { type: doc.kind, code: doc.code, id: doc.id } : undefined, urgent, remark: remark.trim(),
           lines: lines.map((l) => ({ skuId: l.skuId, skuCode: l.skuCode, skuName: l.skuName, requestedQty: Number(l.qty), mrItemId: l.mrItemId ?? undefined, mrItemLabel: l.mrItemLabel ?? undefined, remark: l.remark.trim() })),
         }),
       })
@@ -149,7 +146,7 @@ export function RequestForm() {
           <div>
             <label className={labelCls} htmlFor="sw-inv">คลัง</label>
             <OptionCombobox id="sw-inv" options={invs} value={inventoryId} placeholder="เลือกคลัง" searchPlaceholder="พิมพ์ชื่อคลัง"
-              onChange={(v) => { setInventoryId(v); dropAuto() }} />
+              onChange={(v) => { setInventoryId(v); dropFromDoc(); setDocMsg(""); if (doc) setDocPanel(true) }} />
           </div>
           <div>
             <label className={labelCls} htmlFor="sw-pick">จุดประสงค์</label>
@@ -164,13 +161,23 @@ export function RequestForm() {
             <span className={labelCls}>ใบแจ้งซ่อม (MR)</span>
             <MrPicker
               mrCode={mrCode}
-              onPick={(code, items) => { dropAuto(); setMrCode(code); setMrItems(items); if (items.length === 1) setLines((c) => c.map((l) => ({ ...l, mrItemId: l.mrItemId ?? items[0].id, mrItemLabel: l.mrItemLabel ?? items[0].label }))) }}
-              onClear={() => { setMrCode(""); setMrItems([]); dropAuto() }}
+              onPick={(code, items) => { setMrCode(code); setMrItems(items); if (items.length === 1) setLines((c) => c.map((l) => ({ ...l, mrItemId: l.mrItemId ?? items[0].id, mrItemLabel: l.mrItemLabel ?? items[0].label }))) }}
+              onClear={() => { setMrCode(""); setMrItems([]) }}
             />
           </div>
         </div>
-        {kind === "cutoff" && mrCode && cutoffErr && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{cutoffErr}</p>}
-        {kind === "cutoff" && mrCode && cutoffMsg && <p className="rounded-xl bg-[#1B8C4B]/10 px-3 py-2 text-xs text-[#14532d] dark:text-emerald-300">{cutoffMsg}</p>}
+
+        <div>
+          <span className={labelCls}>อ้างอิงใบ PO / DD (ไม่บังคับ)</span>
+          <DocRefPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} kind={docKind} onKind={changeKind}
+            picked={doc} onPick={pickDoc} onClear={clearDoc} panelOpen={docPanel} onTogglePanel={() => setDocPanel((v) => !v)} />
+          {doc && !docPanel && docMsg && <p data-testid="docref-msg" className="mt-2 rounded-xl bg-[#1B8C4B]/10 px-3 py-2 text-xs text-[#14532d] dark:text-emerald-300">{docMsg}</p>}
+          {doc && docPanel && (
+            <div className="mt-2">
+              <DocLinesPanel doc={doc} inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} onImport={importLines} />
+            </div>
+          )}
+        </div>
 
         <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-800 dark:text-gray-200">
           <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.target.checked)} className="h-4 w-4 accent-[#1B8C4B]" />
@@ -201,7 +208,7 @@ export function RequestForm() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{l.skuName}</p>
-                    <p className="text-xs text-gray-500">{l.skuCode}{l.stockQty != null && ` · คงเหลือ ${l.stockQty.toLocaleString("th-TH")}`}</p>
+                    <p className="text-xs text-gray-500">{l.skuCode}{l.stockQty != null && ` · คงเหลือ ${l.stockQty.toLocaleString("th-TH")}`}{l.fromDoc && doc && ` · จาก ${DOC_LABEL[doc.kind]} ${doc.code}`}</p>
                   </div>
                   <button type="button" aria-label="ลบรายการ" onClick={() => setLines((c) => c.filter((_, k) => k !== i))} className="shrink-0 p-1 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
                 </div>
