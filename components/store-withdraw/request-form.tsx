@@ -8,6 +8,7 @@ import { swalError, swalToast } from "@/lib/swal"
 import type { SwKind } from "@/lib/store-withdraw/types"
 import { SkuPicker, type SkuHit } from "./sku-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
+import { OptionCombobox } from "./option-combobox"
 
 type Opt = { id: number; name: string }
 type FormLine = { skuId: number; skuCode: string; skuName: string; qty: string; stockQty: number | null; mrItemId: number | null; mrItemLabel: string | null; remark: string; auto?: boolean }
@@ -147,16 +148,13 @@ export function RequestForm() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={labelCls} htmlFor="sw-inv">คลัง</label>
-            <select id="sw-inv" className={inputCls} value={inventoryId} onChange={(e) => { setInventoryId(Number(e.target.value)); dropAuto() }}>
-              {invs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
+            <OptionCombobox id="sw-inv" options={invs} value={inventoryId} placeholder="เลือกคลัง" searchPlaceholder="พิมพ์ชื่อคลัง"
+              onChange={(v) => { setInventoryId(v); dropAuto() }} />
           </div>
           <div>
             <label className={labelCls} htmlFor="sw-pick">จุดประสงค์</label>
-            <select id="sw-pick" className={inputCls} value={pickToId} onChange={(e) => setPickToId(e.target.value ? Number(e.target.value) : "")}>
-              <option value="">เลือกจุดประสงค์</option>
-              {picks.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
+            <OptionCombobox id="sw-pick" options={picks} value={pickToId} placeholder="เลือกจุดประสงค์" searchPlaceholder="พิมพ์ เช่น CM, ซ่อม, อุบัติเหตุ" clearable
+              onChange={setPickToId} />
           </div>
           <div>
             <label className={labelCls} htmlFor="sw-plate">ทะเบียนรถ</label>
