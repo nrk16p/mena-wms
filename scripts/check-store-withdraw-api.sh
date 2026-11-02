@@ -102,12 +102,40 @@ expect "doc + lines (OIL-001→501 สต๊อก 12 / FLT-002→502 จาก�
 expect "warnings มีค่าแรง" "'ใบนี้มีบรรทัดค่าแรง/บริการ' in d['warnings']"
 code 200 "รายการในใบ dd (api-key)" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" "$B/lookup/doc/dd/157902?inv=4"
 code 404 "ใบที่ไม่พบ" -H "$R" "$B/lookup/doc/po/404404"
-code 400 "ชนิดใบผิด" -H "$R" "$B/lookup/doc/pr/1"
+code 400 "ชนิดใบผิด" -H "$R" "$B/lookup/doc/xx/1"
 code 400 "id ผิด" -H "$R" "$B/lookup/doc/po/abc"
+code 200 "lookup pr ด้วยทะเบียน" -H "$R" "$B/lookup/pr?q=71-1234&inv=4&limit=20"
+expect "pr: kind/q ถึง ncac · limit ถูกจำกัด 5 · remark ส่งต่อ" "d['results'][0]['kind']=='pr' and d['results'][0]['q']=='71-1234' and d['results'][0]['limit']=='5' and d['results'][0]['remark']=='71-1234 เปลี่ยนผ้าเบรค'"
+code 200 "รายการในใบ pr" -H "$R" "$B/lookup/doc/pr/55?inv=4"
+expect "pr: ไม่มีค่าแรง · qty=จำนวนที่ขอ · เตือนข้ามค่าแรง" "d['doc']['kind']=='pr' and [l['skuCode'] for l in d['lines']]==['OIL-001','OIL-001','FLT-002'] and not any(l['isLabour'] for l in d['lines']) and [l['qty'] for l in d['lines']]==[4,1,2] and 'ข้ามบรรทัดค่าแรง 1 รายการ (นำเข้าเฉพาะอะไหล่)' in d['warnings']"
 code 401 "รายการในใบ ไม่ล็อกอิน" "$B/lookup/doc/po/157902"
 REFBODY='{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"70-7777","mrCode":"MR-9","ref":{"type":"po","code":"LBPO26100704","id":157902},"lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":2}]}'
-code 400 "ref type ผิด" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"x","ref":{"type":"pr","code":"LBPR123"},"lines":[{"skuId":1,"skuCode":"a","skuName":"a","requestedQty":1}]}'
+code 400 "ref type ผิด" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"x","ref":{"type":"xx","code":"LBPR123"},"lines":[{"skuId":1,"skuCode":"a","skuName":"a","requestedQty":1}]}'
 code 400 "ref code ว่าง" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"x","ref":{"type":"po","code":"  "},"lines":[{"skuId":1,"skuCode":"a","skuName":"a","requestedQty":1}]}'
+code 201 "สร้างพร้อม ref pr" -H "$R" -H "$J" -X POST "$B" -d '{"kind":"stock","inventoryId":4,"pickToId":7,"plate":"71-1234","ref":{"type":"pr","code":"LBPR26100561","id":55},"lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":1}]}'
+NPR=$(jget "d['no']")
+code 200 "ดูใบที่อ้าง pr" -H "$R" "$B/$NPR"
+expect "ref pr + workType อนุมานจาก kind=stock → garage_in" "d['request']['ref']['type']=='pr' and d['request']['workType']=='garage_in'"
+code 200 "ยกเลิกใบ pr" -H "$R" -X POST "$B/$NPR/cancel"
+echo "== ประเภทงาน (workType)"
+WL='"inventoryId":4,"pickToId":7,"plate":"เบอร์ 1234","lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":1}]'
+code 201 "workType=mobile_pm (ไม่ส่ง kind)" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",$WL}"
+NW1=$(jget "d['no']")
+code 200 "ดู mobile_pm" -H "$R" "$B/$NW1"
+expect "mobile_pm → kind stock · ทะเบียนเป็นเบอร์รถได้" "d['request']['workType']=='mobile_pm' and d['request']['kind']=='stock' and d['request']['plate']=='เบอร์ 1234'"
+code 201 "workType=garage_out" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"garage_out\",$WL}"
+NW2=$(jget "d['no']")
+code 200 "ดู garage_out" -H "$R" "$B/$NW2"
+expect "garage_out → kind cutoff" "d['request']['workType']=='garage_out' and d['request']['kind']=='cutoff'"
+code 201 "kind=cutoff แบบเดิม (ไม่ส่ง workType)" -H "$R" -H "$J" -X POST "$B" -d "{\"kind\":\"cutoff\",$WL}"
+NW3=$(jget "d['no']")
+code 200 "รายการของฉัน มี workType ทุกใบ" -H "$R" "$B?mine=1"
+expect "list: ใบ NW3 อนุมานเป็น garage_out · ทุกใบมี workType" "[x['workType'] for x in d['items'] if x['no']=='$NW3'][0]=='garage_out' and all('workType' in x for x in d['items'])"
+code 400 "workType ขัดกับ kind" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"garage_in\",\"kind\":\"cutoff\",$WL}"
+expect "ข้อความ 400 เป็นไทย" "'อู่ใน' in d['error']"
+code 400 "workType ผิดค่า" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"x\",$WL}"
+code 400 "ไม่ส่ง workType และ kind" -H "$R" -H "$J" -X POST "$B" -d "{$WL}"
+for N in "$NW1" "$NW2" "$NW3"; do curl -s -o /dev/null -H "$R" -X POST "$B/$N/cancel"; done
 code 201 "สร้างพร้อม ref" -H "$R" -H "$J" -X POST "$B" -d "$REFBODY"
 NREF=$(jget "d['no']")
 code 200 "ดูใบที่มี ref" -H "$R" "$B/$NREF"

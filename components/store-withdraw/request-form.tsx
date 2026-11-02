@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Trash2, Loader2 } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
-import type { SwKind } from "@/lib/store-withdraw/types"
+import type { SwWorkType } from "@/lib/store-withdraw/types"
+import { WORK_TYPE_KIND, WORK_TYPE_LABEL } from "@/lib/store-withdraw/core"
 import { SkuPicker, type SkuHit } from "./sku-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
 import { OptionCombobox } from "./option-combobox"
@@ -23,7 +24,8 @@ const LATKRABANG = 4
 
 export function RequestForm() {
   const router = useRouter()
-  const [kind, setKind] = useState<SwKind>("stock")
+  const [workType, setWorkType] = useState<SwWorkType>("garage_in")
+  const kind = WORK_TYPE_KIND[workType]
   const [invs, setInvs] = useState<Opt[]>([])
   const [picks, setPicks] = useState<Opt[]>([])
   const [optErr, setOptErr] = useState("")
@@ -92,7 +94,8 @@ export function RequestForm() {
   }
 
   const submit = async () => {
-    if (!plate.trim()) return swalError("ใส่ทะเบียนรถก่อนยื่นคำขอ")
+    if (!plate.trim()) return swalError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ")
+    if (workType === "garage_in" && !mrCode) return swalError("งานอู่ในต้องเลือกใบแจ้งซ่อม (MR) ก่อน")
     if (!inventoryId || !pickToId) return swalError("เลือกคลังกับจุดประสงค์ให้ครบ")
     if (lines.length === 0) return swalError("เพิ่มอะไหล่อย่างน้อย 1 รายการ")
     if (lines.some((l) => !(Number(l.qty) > 0))) return swalError("จำนวนที่ขอต้องมากกว่า 0 ทุกรายการ")
@@ -102,7 +105,7 @@ export function RequestForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind, inventoryId, pickToId, plate: plate.trim(), mrCode: mrCode || undefined, ref: doc ? { type: doc.kind, code: doc.code, id: doc.id } : undefined, urgent, remark: remark.trim(),
+          workType, kind, inventoryId, pickToId, plate: plate.trim(), mrCode: mrCode || undefined, ref: doc ? { type: doc.kind, code: doc.code, id: doc.id } : undefined, urgent, remark: remark.trim(),
           lines: lines.map((l) => ({ skuId: l.skuId, skuCode: l.skuCode, skuName: l.skuName, requestedQty: Number(l.qty), mrItemId: l.mrItemId ?? undefined, mrItemLabel: l.mrItemLabel ?? undefined, remark: l.remark.trim() })),
         }),
       })
@@ -116,10 +119,10 @@ export function RequestForm() {
     }
   }
 
-  const kindBtn = (k: SwKind, text: string, hint: string) => (
-    <button type="button" onClick={() => setKind(k)} aria-pressed={kind === k}
-      className={`flex-1 rounded-xl border px-3 py-2.5 text-left transition ${kind === k ? "border-[#1B8C4B] bg-[#1B8C4B]/10" : "border-[#E2E8E4] dark:border-white/10"}`}>
-      <span className="block text-sm font-medium text-gray-900 dark:text-white">{text}</span>
+  const workBtn = (w: SwWorkType, hint: string) => (
+    <button type="button" key={w} onClick={() => setWorkType(w)} aria-pressed={workType === w} data-testid={`wt-${w}`}
+      className={`flex-1 rounded-xl border px-3 py-2.5 text-left transition ${workType === w ? "border-[#1B8C4B] bg-[#1B8C4B]/10" : "border-[#E2E8E4] dark:border-white/10"}`}>
+      <span className="block text-sm font-medium text-gray-900 dark:text-white">{WORK_TYPE_LABEL[w]}</span>
       <span className="block text-[11px] text-gray-500">{hint}</span>
     </button>
   )
@@ -135,10 +138,11 @@ export function RequestForm() {
 
       <section className="space-y-4 rounded-2xl border border-[#EEF2F0] bg-white p-4 dark:border-white/10 dark:bg-[#161922]">
         <div>
-          <span className={labelCls}>ประเภท</span>
+          <span className={labelCls}>ประเภทงาน</span>
           <div className="flex flex-col gap-2 sm:flex-row">
-            {kindBtn("stock", "เบิกจากสต๊อก", "ของมีในคลัง สโตร์จัดให้")}
-            {kindBtn("cutoff", "เบิกตัดยอด", "ของซื้อมาใช้เลย ตัดยอดตามใบรับของ")}
+            {workBtn("garage_in", "ซ่อมในอู่ เบิกจากสต๊อก ต้องมี MR")}
+            {workBtn("garage_out", "ซื้อมาใช้เลย ตัดยอดตามใบรับของ")}
+            {workBtn("mobile_pm", "ช่างออกหน้างาน เบิกจากสต๊อก")}
           </div>
         </div>
 
@@ -154,11 +158,11 @@ export function RequestForm() {
               onChange={setPickToId} />
           </div>
           <div>
-            <label className={labelCls} htmlFor="sw-plate">ทะเบียนรถ</label>
-            <input id="sw-plate" className={inputCls} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="เช่น 71-1234" />
+            <label className={labelCls} htmlFor="sw-plate">ทะเบียนรถ/เบอร์รถ</label>
+            <input id="sw-plate" className={inputCls} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="เช่น 71-1234 หรือ เบอร์ 1234" />
           </div>
           <div>
-            <span className={labelCls}>ใบแจ้งซ่อม (MR)</span>
+            <span className={labelCls}>ใบแจ้งซ่อม (MR){workType === "garage_in" && <span className="text-red-600"> *ต้องเลือก</span>}</span>
             <MrPicker
               mrCode={mrCode}
               onPick={(code, items) => { setMrCode(code); setMrItems(items); if (items.length === 1) setLines((c) => c.map((l) => ({ ...l, mrItemId: l.mrItemId ?? items[0].id, mrItemLabel: l.mrItemLabel ?? items[0].label }))) }}
@@ -168,8 +172,8 @@ export function RequestForm() {
         </div>
 
         <div>
-          <span className={labelCls}>อ้างอิงใบ PO / DD (ไม่บังคับ)</span>
-          <DocRefPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} kind={docKind} onKind={changeKind}
+          <span className={labelCls}>อ้างอิงใบ PO / DD / PR (ไม่บังคับ)</span>
+          <DocRefPicker plate={plate} inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} kind={docKind} onKind={changeKind}
             picked={doc} onPick={pickDoc} onClear={clearDoc} panelOpen={docPanel} onTogglePanel={() => setDocPanel((v) => !v)} />
           {doc && !docPanel && docMsg && <p data-testid="docref-msg" className="mt-2 rounded-xl bg-[#1B8C4B]/10 px-3 py-2 text-xs text-[#14532d] dark:text-emerald-300">{docMsg}</p>}
           {doc && docPanel && (

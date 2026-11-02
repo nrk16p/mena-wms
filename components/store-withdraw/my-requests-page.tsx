@@ -5,7 +5,8 @@ import Link from "next/link"
 import { Plus, PackageMinus, RefreshCw, Undo2 } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { returnableQty } from "@/lib/store-withdraw/core"
+import { WORK_TYPE_LABEL, returnableQty, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
 import { StatusChip } from "./status-chip"
 
@@ -128,9 +129,10 @@ export function MyRequestsPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900 dark:text-white">{r.no} <span className="font-normal text-gray-500">· {r.plate}</span></p>
                     <p className="text-xs text-gray-500">
+                      <span data-testid="worktype" className="mr-1.5 rounded-full bg-[#1B8C4B]/10 px-1.5 py-0.5 text-[11px] font-medium text-[#14532d] dark:text-emerald-300">{WORK_TYPE_LABEL[r.workType ?? workTypeFromKind(r.kind)]}</span>
                       {r.kind === "cutoff" ? "เบิกตัดยอด" : "เบิกจากสต๊อก"} · {r.inventoryName} · {fmt(r.createdAt)}
                       {r.mrCode && ` · ${r.mrCode}`}
-                      {r.ref && <span data-testid="ref"> · อ้างอิง {r.ref.type === "po" ? "PO" : "DD"} {r.ref.code}</span>}
+                      {r.ref && <span data-testid="ref"> · อ้างอิง {DOC_LABEL[r.ref.type]} {r.ref.code}</span>}
                       {r.urgent && " · รถจอดรออะไหล่"}
                     </p>
                   </div>

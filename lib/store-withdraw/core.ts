@@ -1,6 +1,6 @@
 // lib/store-withdraw/core.ts — ตรรกะล้วนของงานเบิกของหน้าร้านคลัง (สถานะ · เรียงคิว · ตรวจจำนวน)
 // ไม่แตะ DB/env เพื่อให้ทดสอบตรง ๆ ด้วย tsx ได้
-import type { SwAction, SwLine, SwRef, SwRequest, SwStatus } from "./types"
+import type { SwAction, SwKind, SwLine, SwRef, SwRequest, SwStatus, SwWorkType } from "./types"
 
 export function nextStatus(req: Pick<SwRequest, "status" | "kind"> & { atms?: { gmId: number | null } }, action: SwAction): SwStatus | null {
   const { status, kind } = req
@@ -71,7 +71,30 @@ export function clampLimit(raw: string | null, def: number, max: number): number
 /** x-user ของ API key ต้องเป็นอีเมลบริษัทเท่านั้น */
 export const validApiUser = (s: string): boolean => /^[^@\s]+@menatransport\.co\.th$/i.test(s)
 
-// ---------- อ้างอิงใบ PO / DD ----------
+// ---------- ประเภทงาน (อู่ใน / อู่นอก / Mobile-PM) ----------
+
+export const WORK_TYPES: SwWorkType[] = ["garage_in", "garage_out", "mobile_pm"]
+export const WORK_TYPE_LABEL: Record<SwWorkType, string> = { garage_in: "อู่ใน", garage_out: "อู่นอก", mobile_pm: "Mobile/PM" }
+/** ประเภทงาน → kind ที่เก็บ (อู่นอกซื้อมาใช้เลย = ตัดยอด · นอกนั้นเบิกจากสต๊อก) */
+export const WORK_TYPE_KIND: Record<SwWorkType, SwKind> = { garage_in: "stock", garage_out: "cutoff", mobile_pm: "stock" }
+/** ใบเก่า/ไคลเอนต์เก่าที่ไม่มี workType: stock → อู่ใน, cutoff → อู่นอก */
+export const workTypeFromKind = (kind: SwKind): SwWorkType => (kind === "cutoff" ? "garage_out" : "garage_in")
+
+/** ตรวจ workType + kind ที่ส่งมาพร้อมกัน · ไม่ส่ง workType = อนุมานจาก kind · ขัดกัน/ผิดรูปแบบ = { error } */
+export function resolveWorkType(rawWorkType: unknown, rawKind: unknown): { workType: SwWorkType; kind: SwKind } | { error: string } {
+  const kind = rawKind === "stock" || rawKind === "cutoff" ? rawKind : null
+  if (rawKind != null && rawKind !== "" && !kind) return { error: "ประเภทคำขอไม่ถูกต้อง (stock หรือ cutoff)" }
+  if (rawWorkType == null || rawWorkType === "") {
+    if (!kind) return { error: "เลือกประเภทงาน (อู่ใน / อู่นอก / Mobile/PM)" }
+    return { workType: workTypeFromKind(kind), kind }
+  }
+  if (typeof rawWorkType !== "string" || !(WORK_TYPES as string[]).includes(rawWorkType)) return { error: "ประเภทงานต้องเป็น garage_in, garage_out หรือ mobile_pm" }
+  const workType = rawWorkType as SwWorkType
+  if (kind && kind !== WORK_TYPE_KIND[workType]) return { error: `ประเภทงาน ${WORK_TYPE_LABEL[workType]} ต้องใช้ kind เป็น ${WORK_TYPE_KIND[workType]} ไม่ใช่ ${kind} ตรวจค่าที่ส่งมาอีกที` }
+  return { workType, kind: WORK_TYPE_KIND[workType] }
+}
+
+// ---------- อ้างอิงใบ PO / DD / PR ----------
 
 export const REF_CODE_MIN = 3
 export const REF_CODE_MAX = 40
@@ -79,9 +102,9 @@ export const REF_CODE_MAX = 40
 /** ตรวจ ref ที่ส่งมากับคำขอ · ไม่ใส่/null = ไม่อ้างอิง · ผิดรูปแบบ = { error } เป็นข้อความไทยพร้อมโชว์ */
 export function parseRef(raw: unknown): { ref: SwRef | null } | { error: string } {
   if (raw == null) return { ref: null }
-  if (typeof raw !== "object" || Array.isArray(raw)) return { error: "ใบอ้างอิงไม่ถูกต้อง เลือกใบ PO หรือ DD ใหม่" }
+  if (typeof raw !== "object" || Array.isArray(raw)) return { error: "ใบอ้างอิงไม่ถูกต้อง เลือกใบ PO, DD หรือ PR ใหม่" }
   const r = raw as Record<string, unknown>
-  if (r.type !== "po" && r.type !== "dd") return { error: "ประเภทใบอ้างอิงต้องเป็น po หรือ dd" }
+  if (r.type !== "po" && r.type !== "dd" && r.type !== "pr") return { error: "ประเภทใบอ้างอิงต้องเป็น po, dd หรือ pr" }
   const code = typeof r.code === "string" ? r.code.trim() : ""
   if (code.length < REF_CODE_MIN || code.length > REF_CODE_MAX) return { error: `เลขใบอ้างอิงต้องยาว ${REF_CODE_MIN}-${REF_CODE_MAX} ตัวอักษร` }
   let id: number | null = null
@@ -113,7 +136,7 @@ export function tallyCut(reqs: Pick<SwRequest, "no" | "status" | "lines">[]): Ma
 export type DocLineLite = { isLabour: boolean; receivedQty: number; alreadyCut: number }
 
 /** ข้อความเตือนสั้น ๆ ของแผงรายการ (เตือนอย่างเดียว ไม่บล็อก) */
-export function docWarnings(kind: "po" | "dd", lines: DocLineLite[]): string[] {
+export function docWarnings(kind: "po" | "dd" | "pr", lines: DocLineLite[]): string[] {
   const w: string[] = []
   if (kind === "po" && lines.length > 0 && lines.every((l) => !(l.receivedQty > 0))) w.push("ใบนี้ยังไม่ได้รับของ")
   if (lines.some((l) => l.isLabour)) w.push("ใบนี้มีบรรทัดค่าแรง/บริการ")

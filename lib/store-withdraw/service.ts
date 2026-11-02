@@ -2,10 +2,10 @@
 import { randomBytes } from "node:crypto"
 import { lookupCreds } from "./env"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, skuMasterCol, swCol, withRef, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
-import { docWarnings, parseRef, queueSort, returnableQty, tallyCut } from "./core"
+import { docWarnings, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
-import type { AtmsProgress, SwKind, SwLine, SwRequest } from "./types"
+import type { AtmsProgress, SwLine, SwRequest } from "./types"
 
 export const emptyAtms = (): AtmsProgress => ({
   gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null,
@@ -59,16 +59,17 @@ export async function getOptions(): Promise<Options> {
   return data
 }
 
-const KINDS: Record<string, string> = { mr: "mr_item", mr_item: "mr_item", sku: "sku", serial: "serial", wd: "wd", po: "po", dd: "dd" }
+const KINDS: Record<string, string> = { mr: "mr_item", mr_item: "mr_item", sku: "sku", serial: "serial", wd: "wd", po: "po", dd: "dd", pr: "pr" }
 export const lookupKind = (k: string) => KINDS[k] ?? null
 
 type Row = Record<string, unknown>
 const str = (v: unknown) => (v == null ? "" : String(v).trim())
 
 export async function lookup(kind: string, q: string, limit: number, inventoryId?: number, skuId?: number): Promise<Row[]> {
-  if (kind === "po" || kind === "dd") {
+  if (kind === "po" || kind === "dd" || kind === "pr") {
     // ค้นเลขใบ PO / DD ผ่าน api-ncac (อ่านอย่างเดียว) · ส่งต่อผลตามสัญญา ไม่ดัดแปลง
-    const d = await ncacRead<{ results?: Row[] }>("/atms/withdraw/doc/search", { kind, q, inventory_id: inventoryId, limit })
+    // PR: q = ทะเบียน/เบอร์รถ · เอาแค่ 5 ใบล่าสุด (ใหม่สุดก่อน) พร้อม remark ให้ผู้ใช้ตรวจ
+    const d = await ncacRead<{ results?: Row[] }>("/atms/withdraw/doc/search", { kind, q, inventory_id: inventoryId, limit: kind === "pr" ? Math.min(limit, PR_LATEST_LIMIT) : limit })
     return d.results ?? []
   }
   const d = await ncacRead<{ results?: Row[] }>(`/atms/withdraw/lookup/${kind}`, { q, limit, inventory_id: inventoryId, sku_id: skuId })
@@ -107,6 +108,7 @@ export type CreateInput = Record<string, unknown>
 export const MAX_LINES = 50
 export const MAX_REMARK = 500
 export const MAX_PLATE = 20
+export const PR_LATEST_LIMIT = 5
 
 function posNum(v: unknown): number | null {
   const n = typeof v === "number" ? v : Number(v)
@@ -115,11 +117,12 @@ function posNum(v: unknown): number | null {
 const optInt = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null)
 
 export async function createRequest(body: CreateInput, actor: Actor): Promise<SwRequest> {
-  const kind = body.kind
-  if (kind !== "stock" && kind !== "cutoff") throw new HttpError("เลือกประเภทคำขอ (เบิกจากสต๊อก หรือ เบิกตัดยอด)", 400)
+  const wt = resolveWorkType(body.workType, body.kind)
+  if ("error" in wt) throw new HttpError(wt.error, 400)
+  const { kind, workType } = wt
   const plate = str(body.plate)
-  if (!plate) throw new HttpError("ใส่ทะเบียนรถก่อนยื่นคำขอ", 400)
-  if (plate.length > MAX_PLATE) throw new HttpError(`ทะเบียนรถยาวเกิน ${MAX_PLATE} ตัวอักษร`, 400)
+  if (!plate) throw new HttpError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ", 400)
+  if (plate.length > MAX_PLATE) throw new HttpError(`ทะเบียนรถ/เบอร์รถยาวเกิน ${MAX_PLATE} ตัวอักษร`, 400)
   if (str(body.remark).length > MAX_REMARK) throw new HttpError(`หมายเหตุยาวเกิน ${MAX_REMARK} ตัวอักษร`, 400)
   const rawLines = Array.isArray(body.lines) ? (body.lines as Row[]) : []
   if (rawLines.length === 0) throw new HttpError("เพิ่มรายการอะไหล่อย่างน้อย 1 รายการ", 400)
@@ -154,7 +157,8 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
   const now = new Date()
   const doc: SwRequest = {
     no: await nextNo(now),
-    kind: kind as SwKind,
+    kind,
+    workType,
     status: "NEW",
     inventoryId: inv.id, inventoryName: inv.name,
     pickToId: pick.id, pickToName: pick.name,
@@ -358,7 +362,7 @@ type NcacDocLine = {
   unit_price?: number | null; total?: number | null; remark?: string; is_labour?: boolean
 }
 type NcacDoc = {
-  id: number; code: string; kind: "po" | "dd"; date?: string | null; supplier?: string | null
+  id: number; code: string; kind: "po" | "dd" | "pr"; date?: string | null; supplier?: string | null
   pr?: string | null; po?: string | null; withdraw?: string | null; lines?: NcacDocLine[]
 }
 
@@ -368,7 +372,7 @@ export type DocLine = {
   skuId: number | null; stockQty: number | null; alreadyCut: number; cutBy: string[]
 }
 export type DocDetail = {
-  doc: { id: number; code: string; kind: "po" | "dd"; date: string | null; supplier: string | null; pr: string | null; po: string | null }
+  doc: { id: number; code: string; kind: "po" | "dd" | "pr"; date: string | null; supplier: string | null; pr: string | null; po: string | null }
   lines: DocLine[]
   warnings: string[]
 }
@@ -399,18 +403,22 @@ async function masterByCode(codes: string[], inventoryId?: number): Promise<Map<
 }
 
 /** รายการในใบ PO / DD พร้อมข้อมูลช่วยตัดสินใจ · 404 ถ้าไม่พบใบ */
-export async function getDocDetail(kind: "po" | "dd", id: number, inventoryId?: number): Promise<DocDetail> {
+export async function getDocDetail(kind: "po" | "dd" | "pr", id: number, inventoryId?: number): Promise<DocDetail> {
   const d = await ncacRead<NcacDoc>(`/atms/withdraw/doc/${kind}/${id}`, undefined, "ไม่พบใบนี้ใน ATMS ตรวจเลขใบอีกครั้ง")
-  const raw = Array.isArray(d.lines) ? d.lines : []
+  const rawAll = Array.isArray(d.lines) ? d.lines : []
+  // PR: นำเข้าเฉพาะอะไหล่ — ตัดบรรทัดค่าแรงทิ้งที่ฝั่งเซิร์ฟเวอร์ (PO/DD เก็บไว้และติดป้าย)
+  const raw = kind === "pr" ? rawAll.filter((l) => l.is_labour !== true) : rawAll
+  const skippedLabour = rawAll.length - raw.length
   const base = raw.map((l) => {
     const skuName = str(l.sku_name)
     const skuCode = str(l.sku_code) || skuName.split(" : ")[0].trim()
     const docQty = numOr(l.amount, 0)
     // DD: จำนวนในใบ = จำนวนที่รับแล้ว · PO: คอลัมน์ "รับ"
-    const receivedQty = kind === "dd" ? numOr(l.received, docQty) : numOr(l.received, 0)
+    // PR: ยังไม่มีการรับ (receivedQty 0) · จำนวนตั้งต้นที่เบิก = จำนวนที่ขอในใบ
+    const receivedQty = kind === "pr" ? 0 : kind === "dd" ? numOr(l.received, docQty) : numOr(l.received, 0)
     return {
       skuCode, skuName: skuName || skuCode, group: str(l.group), isLabour: l.is_labour === true,
-      docQty, receivedQty, qty: receivedQty, unitPrice: typeof l.unit_price === "number" ? l.unit_price : null,
+      docQty, receivedQty, qty: kind === "pr" ? docQty : receivedQty, unitPrice: typeof l.unit_price === "number" ? l.unit_price : null,
     }
   })
 
@@ -462,6 +470,7 @@ export async function getDocDetail(kind: "po" | "dd", id: number, inventoryId?: 
     return { ...b, skuId: h?.skuId ?? null, stockQty: h?.stockQty ?? null, alreadyCut: c?.qty ?? 0, cutBy: c?.by ?? [] }
   })
   const warnings = docWarnings(kind, lines)
+  if (skippedLabour > 0) warnings.unshift(`ข้ามบรรทัดค่าแรง ${skippedLabour} รายการ (นำเข้าเฉพาะอะไหล่)`)
   if (capped) warnings.push("ค้น SKU ใน ATMS ได้ไม่ครบ บางบรรทัดอาจขึ้นว่าไม่พบ ลองเปิดใบใหม่อีกครั้ง")
   if (lookupFailed) warnings.push("ติดต่อ ATMS ค้น SKU ไม่ได้ในบางบรรทัด ลองเปิดใบใหม่อีกครั้ง")
   return {

@@ -1,7 +1,7 @@
 // lib/store-withdraw/db.ts — Mongo ของงานเบิกของหน้าร้านคลัง
 // ชื่อ db จาก env STORE_WITHDRAW_DB (ค่าเริ่มต้น master_data) · เทสต์ inject MongoClient ได้ด้วย setStoreWithdrawClient
 import type { Collection, Db, MongoClient } from "mongodb"
-import { formatNo, nextStatus } from "./core"
+import { formatNo, nextStatus, workTypeFromKind } from "./core"
 import type { SwAction, SwRequest } from "./types"
 
 export class ConflictError extends Error {
@@ -144,5 +144,6 @@ export async function transition(
   return after
 }
 
-/** ใบเก่าก่อนมีฟีเจอร์อ้างอิง PO/DD ไม่มี field ref — response ทุกเส้นคืน ref: null ให้เสมอ */
-export const withRef = <T extends { ref?: SwRequest["ref"] }>(d: T): T & { ref: NonNullable<SwRequest["ref"]> | null } => ({ ...d, ref: d.ref ?? null })
+/** ใบเก่าก่อนมีฟีเจอร์อ้างอิง PO/DD ไม่มี field ref และใบก่อนมี workType ไม่มี workType — response ทุกเส้นคืน ref: null และ workType ที่อนุมานจาก kind ให้เสมอ */
+export const withRef = <T extends { kind: SwRequest["kind"]; ref?: SwRequest["ref"]; workType?: SwRequest["workType"] }>(d: T): T & { ref: NonNullable<SwRequest["ref"]> | null; workType: NonNullable<SwRequest["workType"]> } =>
+  ({ ...d, ref: d.ref ?? null, workType: d.workType ?? workTypeFromKind(d.kind) })

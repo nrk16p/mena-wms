@@ -58,13 +58,13 @@ void (async () => {
       // อ้างอิง PO / DD (สัญญา api-ncac: docs/superpowers/specs/2026-11-01-store-withdraw-doc-ref-design.md)
       if (u.pathname === "/atms/withdraw/doc/search") {
         const kind = u.searchParams.get("kind")
-        return json(res, 200, { results: [{ id: 157902, code: kind === "dd" ? "LBDD26100001" : "LBPO26100704", kind, date: "25/10/2026", supplier: "บ.ทดสอบ", status: kind === "dd" ? null : "ยังไม่ได้รับสินค้า", total: 1100, ref: "LBPR26100561", q: u.searchParams.get("q"), inv: u.searchParams.get("inventory_id") }] })
+        return json(res, 200, { results: [{ id: 157902, code: kind === "dd" ? "LBDD26100001" : kind === "pr" ? "LBPR26100561" : "LBPO26100704", kind, date: "25/10/2026", supplier: kind === "pr" ? "" : "บ.ทดสอบ", status: kind === "dd" ? null : kind === "pr" ? "อนุมัติ" : "ยังไม่ได้รับสินค้า", total: 1100, ref: "LBPR26100561", remark: kind === "pr" ? `${u.searchParams.get("q")} เปลี่ยนผ้าเบรค` : undefined, limit: u.searchParams.get("limit"), q: u.searchParams.get("q"), inv: u.searchParams.get("inventory_id") }] })
       }
       if (u.pathname.startsWith("/atms/withdraw/doc/")) {
         const [, , , , kind, id] = u.pathname.split("/")
         if (id === "404404") return json(res, 404, { detail: "ไม่พบใบ" })
         const line = (o: Record<string, unknown>) => ({ group: "ทั่วไป", amount: 1, received: 1, remaining: 0, unit_price: 100, total: 100, remark: "", is_labour: false, ...o })
-        return json(res, 200, { id: Number(id), code: kind === "dd" ? "LBDD26100001" : "LBPO26100704", kind, date: "25/10/2026", supplier: "บ.ทดสอบ", inventory: "ลาดกระบัง", pr: "LBPR26100561", po: null, withdraw: null, remark: "",
+        return json(res, 200, { id: Number(id), code: kind === "dd" ? "LBDD26100001" : kind === "pr" ? "LBPR26100561" : "LBPO26100704", kind, date: "25/10/2026", supplier: "บ.ทดสอบ", inventory: "ลาดกระบัง", pr: "LBPR26100561", po: null, withdraw: null, remark: "",
           lines: [
             line({ sku_code: "OIL-001", sku_name: "OIL-001 : น้ำมันเครื่อง", amount: 4, received: 2, remaining: 2 }),
             line({ sku_code: "OIL-001", sku_name: "OIL-001 : น้ำมันเครื่อง", amount: 1, received: 1 }),

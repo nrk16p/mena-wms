@@ -1,6 +1,6 @@
 "use client"
 
-// แผงรายการในใบ PO / DD: ติ๊กเลือกบรรทัด · แก้จำนวน · ป้ายค่าแรง/ไม่พบ SKU/ตัดไปแล้ว · ปุ่มนำเข้า
+// แผงรายการในใบ PO / DD / PR: ติ๊กเลือกบรรทัด · แก้จำนวน · ป้ายค่าแรง/ไม่พบ SKU/ตัดไปแล้ว · ปุ่มนำเข้า
 // เตือนอย่างเดียว ไม่บล็อก (ยกเว้นบรรทัดไม่มี SKU ที่ติ๊กไม่ได้ เพราะใบเบิกต้องใช้ sku id จริง)
 import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
@@ -79,7 +79,9 @@ function Lines({ data, onImport }: { data: DocDetailResp; onImport: (l: ImportLi
         <ul className="divide-y divide-[#EEF2F0] dark:divide-white/10">
           {lines.map((l, i) => {
             const noSku = l.skuId == null
-            const over = Number(qty[i]) > l.receivedQty
+            const isPr = data.doc.kind === "pr"
+            const limitQty = isPr ? l.docQty : l.receivedQty
+            const over = Number(qty[i]) > limitQty
             return (
               <li key={i} data-testid="docline" className={`py-2.5 ${noSku ? "opacity-60" : ""}`}>
                 <div className="flex items-start gap-2.5">
@@ -95,14 +97,14 @@ function Lines({ data, onImport }: { data: DocDetailResp; onImport: (l: ImportLi
                       {l.stockQty != null && <span>คงเหลือ {num(l.stockQty)}</span>}
                       {l.alreadyCut > 0 && <span className="text-amber-700 dark:text-amber-300">ตัดไปแล้ว {num(l.alreadyCut)} ({l.cutBy.join(", ")})</span>}
                     </div>
-                    <p className="mt-0.5 text-xs text-gray-500">{data.doc.kind === "po" ? `สั่ง ${num(l.docQty)} · รับแล้ว ${num(l.receivedQty)}` : `ในใบ ${num(l.docQty)}`}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">{data.doc.kind === "po" ? `สั่ง ${num(l.docQty)} · รับแล้ว ${num(l.receivedQty)}` : data.doc.kind === "pr" ? `ขอซื้อ ${num(l.docQty)}` : `ในใบ ${num(l.docQty)}`}</p>
                   </div>
                   <input aria-label={`จำนวน ${l.skuCode}`} inputMode="decimal" disabled={noSku} value={qty[i]}
                     onChange={(e) => setQty((c) => c.map((v, k) => (k === i ? e.target.value : v)))}
                     className="w-20 shrink-0 rounded-[11px] border border-[#E2E8E4] bg-white px-2.5 py-2 text-right text-sm text-gray-900 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] disabled:bg-gray-50 dark:border-white/10 dark:bg-[#0f1117] dark:text-white" />
                 </div>
                 {!noSku && over && (
-                  <p data-testid="docline-over" className="ml-[26px] mt-1 text-xs text-orange-600 dark:text-orange-400">เกินจำนวนที่รับ ({num(l.receivedQty)}) ใส่ต่อได้ แต่ตรวจอีกทีนะ</p>
+                  <p data-testid="docline-over" className="ml-[26px] mt-1 text-xs text-orange-600 dark:text-orange-400">เกินจำนวน{isPr ? "ที่ขอ" : "ที่รับ"} ({num(limitQty)}) ใส่ต่อได้ แต่ตรวจอีกทีนะ</p>
                 )}
               </li>
             )

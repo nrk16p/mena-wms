@@ -44,7 +44,8 @@ async function main() {
   eq(core.parseRef(null), { ref: null })
   eq(core.parseRef({ type: "po", code: " LBPO26100704 ", id: 157902 }), { ref: { type: "po", code: "LBPO26100704", id: 157902 } })
   eq(core.parseRef({ type: "dd", code: "LBDD1" }), { ref: { type: "dd", code: "LBDD1", id: null } })
-  for (const bad of [{ type: "pr", code: "LBPR123" }, { type: "po", code: "" }, { type: "po", code: "   " }, { type: "po", code: "ab" }, { type: "po", code: "x".repeat(41) }, { type: "po" }, { type: "po", code: "LBPO123", id: -3 }, { type: "po", code: "LBPO123", id: "7" }, "LBPO123", [1]]) {
+  eq(core.parseRef({ type: "pr", code: "LBPR26100561", id: 9 }), { ref: { type: "pr", code: "LBPR26100561", id: 9 } })
+  for (const bad of [{ type: "xx", code: "LBPR123" }, { type: "po", code: "" }, { type: "po", code: "   " }, { type: "po", code: "ab" }, { type: "po", code: "x".repeat(41) }, { type: "po" }, { type: "po", code: "LBPO123", id: -3 }, { type: "po", code: "LBPO123", id: "7" }, "LBPO123", [1]]) {
     assert.ok("error" in core.parseRef(bad), "ต้องปฏิเสธ " + JSON.stringify(bad))
   }
 
@@ -135,6 +136,40 @@ async function main() {
   eq(d.warnings, ["ใบนี้มีบรรทัดค่าแรง/บริการ", "บางบรรทัดมีคำขออื่นอ้างและตัดไปแล้ว"])
   eq(d.lines.map((l) => l.skuCode), ["A-1", "B-2", "C-3", "LB00269", "NEW-1", "NEW-2"])
 
+  // ---- PR: lookup (q = ทะเบียน · limit ≤ 5 · remark ส่งต่อ) + getDocDetail นำเข้าเฉพาะอะไหล่ ----
+  eq(svc.lookupKind("pr"), "pr")
+  const prHit = { id: 777, code: "LBPR26100561", kind: "pr", date: "25/10/2026", supplier: "", status: "อนุมัติ", total: 500, ref: null, remark: "71-1234 เปลี่ยนผ้าเบรค" }
+  handler = (c) => (c.path === "/atms/withdraw/doc/search" ? { status: 200, body: { results: [prHit] } } : { status: 404, body: {} })
+  calls = []
+  eq(await svc.lookup("pr", "71-1234", 20, 4), [prHit]) // remark ถึงปลายทาง
+  eq(callsTo("/atms/withdraw/doc/search")[0].query.get("kind"), "pr")
+  eq(callsTo("/atms/withdraw/doc/search")[0].query.get("q"), "71-1234")
+  eq(callsTo("/atms/withdraw/doc/search")[0].query.get("limit"), "5") // ขอ 20 ก็ยัง 5
+  await svc.lookup("pr", "1234", 3)
+  eq(callsTo("/atms/withdraw/doc/search")[1].query.get("limit"), "3")
+  await mkReq("SW-PR1", "NEW", { type: "pr", code: "LBPR26100561", id: 777 }, [{ skuCode: "A-1", requestedQty: 3 }])
+  await mkReq("SW-PR2", "NEW", { type: "po", code: "LBPR26100561", id: null }, [{ skuCode: "A-1", requestedQty: 9 }]) // คนละชนิด ไม่นับ
+  handler = (c) => {
+    if (c.path === "/atms/withdraw/doc/pr/777") return { status: 200, body: poDoc([
+      line({ sku_code: "A-1", sku_name: "A-1 : น็อต", amount: 4, received: 0, remaining: 4 }),
+      line({ sku_code: "LB00269", sku_name: "LB00269 : ค่าแรง", group: "ค่าแรง", is_labour: true, amount: 1, received: 0 }),
+      line({ sku_code: "LB00270", sku_name: "LB00270 : ค่าแรง 2", group: "ค่าแรง", is_labour: true, amount: 1, received: 0 }),
+      line({ sku_code: "B-2", sku_name: "B-2 : สลัก", amount: 2, received: 0 }),
+    ], { id: 777, kind: "pr", code: "LBPR26100561", supplier: "" }) }
+    return { status: 404, body: { detail: "nf" } }
+  }
+  calls = []
+  const pr = await svc.getDocDetail("pr", 777, 4)
+  eq(pr.doc.kind, "pr")
+  eq(pr.lines.map((l) => l.skuCode), ["A-1", "B-2"]) // ค่าแรงถูกตัดทิ้งฝั่งเซิร์ฟเวอร์
+  eq(pr.lines.map((l) => [l.docQty, l.receivedQty, l.qty, l.isLabour]), [[4, 0, 4, false], [2, 0, 2, false]]) // qty ตั้งต้น = จำนวนที่ขอ
+  eq(pr.lines[0].alreadyCut, 3); eq(pr.lines[0].cutBy, ["SW-PR1"]) // alreadyCut นับเฉพาะ ref.type=pr
+  eq(pr.warnings, ["ข้ามบรรทัดค่าแรง 2 รายการ (นำเข้าเฉพาะอะไหล่)", "บางบรรทัดมีคำขออื่นอ้างและตัดไปแล้ว"]) // ไม่มี "ยังไม่ได้รับของ"
+  eq(callsTo("/atms/withdraw/lookup/sku").length, 0) // ไม่เสียโควตาค้น SKU ให้บรรทัดค่าแรง
+  // PO ยังเก็บค่าแรงไว้เหมือนเดิม (ทดสอบข้างบนแล้ว) · PR ไม่มีค่าแรง = ไม่มีคำเตือนข้าม
+  handler = (c) => c.path === "/atms/withdraw/doc/pr/778" ? { status: 200, body: poDoc([line({ sku_code: "A-1", amount: 1, received: 0 })], { id: 778, kind: "pr", code: "LBPR2" }) } : { status: 404, body: {} }
+  eq((await svc.getDocDetail("pr", 778, 4)).warnings, [])
+
   // ---- เพดาน 25 ครั้ง ----
   const many = Array.from({ length: 30 }, (_, i) => line({ sku_code: `Z-${i}`, sku_name: `Z-${i} : ของ ${i}` }))
   handler = (c) => c.path === "/atms/withdraw/doc/po/1" ? { status: 200, body: poDoc(many, { id: 1, code: "LBPO-MANY" }) } : c.path === "/atms/withdraw/lookup/sku" ? { status: 200, body: { results: [{ id: 7000 + Number(c.query.get("q")!.slice(2)), code: c.query.get("q") }] } } : { status: 404, body: {} }
@@ -178,6 +213,34 @@ async function main() {
   eq((await sw.findOne({ no: (await svc.createRequest(body(null), actor)).no }))!.ref, null)
   for (const bad of [{ type: "xx", code: "LBPO123" }, { type: "po", code: "" }, { type: "po", code: "  " }, "LBPO123"]) eq(await status(svc.createRequest(body(bad), actor)), 400)
   eq(withRef({ a: 1 } as { a: number; ref?: never }).ref, null)
+
+  // ---- ref ชนิด pr เก็บได้ · workType: อนุมานจาก kind / map ไป kind / ขัดกัน = 400 / withRef ใบเก่า ----
+  const rp = await svc.createRequest(body({ type: "pr", code: "LBPR26100561", id: 777 }), actor)
+  eq(rp.ref, { type: "pr", code: "LBPR26100561", id: 777 })
+  eq((await sw.findOne({ no: rp.no }))!.ref, { type: "pr", code: "LBPR26100561", id: 777 })
+  const wtBody = (o: Json) => ({ ...body(), kind: undefined, ...o })
+  eq([r1.kind, r1.workType], ["stock", "garage_in"]) // ไม่ส่ง workType: stock → อู่ใน
+  eq((await svc.createRequest({ ...body(), kind: "cutoff" }, actor)).workType, "garage_out")
+  for (const [w, k] of [["garage_in", "stock"], ["garage_out", "cutoff"], ["mobile_pm", "stock"]] as const) {
+    const a = await svc.createRequest(wtBody({ workType: w }), actor) // ส่งแต่ workType
+    eq([a.workType, a.kind], [w, k])
+    eq((await sw.findOne({ no: a.no }))!.workType, w) // เก็บลง DB
+    const b = await svc.createRequest(wtBody({ workType: w, kind: k }), actor) // ส่งคู่ที่ตรงกัน
+    eq([b.workType, b.kind], [w, k])
+  }
+  for (const bad of [{ workType: "garage_in", kind: "cutoff" }, { workType: "garage_out", kind: "stock" }, { workType: "mobile_pm", kind: "cutoff" }, { workType: "xx" }, { workType: 5 }, {}, { kind: "foo" }]) {
+    eq(await status(svc.createRequest(wtBody(bad), actor)), 400)
+  }
+  try { await svc.createRequest(wtBody({ workType: "garage_in", kind: "cutoff" }), actor) } catch (e) { assert.ok(/อู่ใน/.test((e as Error).message), "ข้อความไทยบอกประเภทงาน") }
+  // ใบเก่าไม่มี workType → withRef อนุมานให้
+  eq(withRef({ kind: "stock" as const }).workType, "garage_in")
+  eq(withRef({ kind: "cutoff" as const }).workType, "garage_out")
+  eq(withRef({ kind: "cutoff" as const, workType: "mobile_pm" as const }).workType, "mobile_pm")
+  await sw.insertOne({ ...(await sw.findOne({ no: r1.no }, { projection: { _id: 0 } }))!, no: "SW-OLD", workType: undefined } as never)
+  await sw.updateOne({ no: "SW-OLD" }, { $unset: { workType: "" } })
+  assert.ok(!("workType" in (await sw.findOne({ no: "SW-OLD" }))!))
+  const q = await svc.buildQueue(4)
+  eq(q.NEW.find((x) => x.no === "SW-OLD")!.workType, "garage_in")
 
   // ---- remark ส่ง ATMS มีเลขใบ · remark_token ไม่เปลี่ยน ----
   await saveCreds(store.email, "atms.user", "pw", { username: "atms.user", branch: "x", name: "x" })

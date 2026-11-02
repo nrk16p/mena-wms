@@ -59,14 +59,15 @@ export default function Page() {
           <p>เอา <code>skuId / skuCode / skuName</code> จากผลค้น SKU ไปใส่ในบรรทัดของคำขอ · <code>kind</code> ที่ไม่ใช่ mr, sku, serial, wd, po, dd ตอบ 400</p>
         </Section>
 
-        <Section icon={Search} title="อ้างอิงใบ PO / DD และดึงรายการมาใส่คำขอ">
-          <Ep verb="GET" path="/api/store-withdraw/lookup/{po|dd}?q=&inv=&limit=" />
+        <Section icon={Search} title="อ้างอิงใบ PO / DD / PR และดึงรายการมาใส่คำขอ">
+          <Ep verb="GET" path="/api/store-withdraw/lookup/{po|dd|pr}?q=&inv=&limit=" />
           <CodeBlock>{`curl ${HDR} "${API}/lookup/po?q=LBPO2610&inv=4"
 
 { "results": [ { "id": 157902, "code": "LBPO26100704", "kind": "po", "date": "25/10/2026",
                  "supplier": "...", "status": "ยังไม่ได้รับสินค้า", "total": 1100, "ref": "LBPR26100561" } ] }`}</CodeBlock>
           <p>ค้นเลขใบจาก ATMS (<code>q</code> อย่างน้อย 2 ตัวอักษร) · ค้นย้อนหลัง 90 วัน เรียงใหม่สุดก่อน · DD ที่ไม่มี supplier/status/total ได้ <code>null</code></p>
-          <Ep verb="GET" path="/api/store-withdraw/lookup/doc/{po|dd}/{id}?inv=" />
+          <p><b>PR:</b> <code>lookup/pr?q=71-1234</code> — <code>q</code> คือ<b>ทะเบียน/เบอร์รถ</b> ได้ PR ล่าสุดของรถคันนั้นไม่เกิน 5 ใบ (ใหม่สุดก่อน) แต่ละใบมี <code>remark</code> (ข้อความหมายเหตุของ PR) ไว้ตรวจว่าตรงงาน</p>
+          <Ep verb="GET" path="/api/store-withdraw/lookup/doc/{po|dd|pr}/{id}?inv=" />
           <CodeBlock>{`curl ${HDR} "${API}/lookup/doc/po/157902?inv=4"
 
 { "doc":   { "id": 157902, "code": "LBPO26100704", "kind": "po", "date": "25/10/2026", "supplier": "...", "pr": "LBPR26100561", "po": null },
@@ -76,6 +77,7 @@ export default function Page() {
   "warnings": [ "ใบนี้ยังไม่ได้รับของ" ] }`}</CodeBlock>
           <ul className="ml-1 space-y-2">
             <Param name="qty">จำนวนตั้งต้นที่ควรนำเข้า = จำนวนที่<b>รับแล้ว</b> (DD = จำนวนในใบ) · PO ที่ยังไม่รับ = 0</Param>
+            <Param name="PR">ใบ PR นำเข้า<b>เฉพาะอะไหล่</b> — บรรทัดค่าแรงถูกตัดออกที่เซิร์ฟเวอร์ (มีคำเตือน &quot;ข้ามบรรทัดค่าแรง N รายการ&quot;) · <code>qty</code> ตั้งต้น = จำนวนที่ขอในใบ (<code>docQty</code>) · <code>receivedQty</code> เป็น 0 เสมอ</Param>
             <Param name="skuId">เอาไปใส่บรรทัดคำขอได้เลย · <code>null</code> = หา SKU ในคลังนี้ไม่เจอ ใส่ในคำขอไม่ได้</Param>
             <Param name="isLabour">บรรทัดค่าแรง/บริการ (ไม่ได้กรองทิ้ง · ATMS อาจไม่ยอมตัดสต๊อก ถ้าไม่ผ่านจะขึ้นเป็น ISSUE_FAILED)</Param>
             <Param name="alreadyCut / cutBy">ยอดที่คำขออื่นอ้างใบนี้และตัดไปแล้ว กับเลขคำขอเหล่านั้น (ไม่นับที่ยกเลิก/ปฏิเสธ) · ไว้เตือนอย่างเดียว ไม่บล็อก</Param>
@@ -86,12 +88,12 @@ export default function Page() {
         <Section icon={PackagePlus} title="ยื่นคำขอเบิก">
           <Ep verb="POST" path="/api/store-withdraw" />
           <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}" -d '{
-  "kind": "stock",              // stock = เบิกจากสต๊อก | cutoff = เบิกตัดยอด
+  "workType": "garage_in",      // garage_in = อู่ใน | garage_out = อู่นอก | mobile_pm = Mobile/PM
   "inventoryId": 4,
   "pickToId": 7,
-  "plate": "70-1234",
+  "plate": "70-1234",          // ทะเบียนรถ หรือเบอร์รถ เช่น "เบอร์ 1234"
   "mrCode": "MR-2610-001",      // ไม่บังคับ
-  "ref": { "type": "po", "code": "LBPO26100704", "id": 157902 },   // ไม่บังคับ · type = po | dd · code 3-40 ตัว · id ไม่บังคับ
+  "ref": { "type": "po", "code": "LBPO26100704", "id": 157902 },   // ไม่บังคับ · type = po | dd | pr · code 3-40 ตัว · id ไม่บังคับ
   "urgent": false,               // true = รถจอดรอ
   "remark": "",
   "lines": [
@@ -102,9 +104,10 @@ export default function Page() {
 
 201  { "no": "SW-2610-001" }`}</CodeBlock>
           <ul className="ml-1 space-y-2">
-            <Param name="kind" required><code>stock</code> หรือ <code>cutoff</code></Param>
-            <Param name="plate" required>ทะเบียนรถ</Param>
-            <Param name="ref">ใบ PO / DD ที่อ้างอิง · ผิดรูปแบบตอบ 400 · ส่งต่อไปอยู่ในหมายเหตุของใบเบิกใน ATMS · ตอนดูใบ (<code>GET</code>) มี <code>ref</code> เสมอ (<code>null</code> ถ้าไม่ได้อ้างอิง)</Param>
+            <Param name="workType" required><code>garage_in</code> (อู่ใน) · <code>garage_out</code> (อู่นอก) · <code>mobile_pm</code> (Mobile/PM) · ระบบแปลงเป็น <code>kind</code> ให้เอง: อู่ใน/Mobile-PM = <code>stock</code> (เบิกจากสต๊อก), อู่นอก = <code>cutoff</code> (ตัดยอด) · ตอนดูใบ (<code>GET</code>) มี <code>workType</code> ทุกใบ</Param>
+            <Param name="kind">ส่งแบบเดิมได้ (<code>stock</code> หรือ <code>cutoff</code>) ถ้าไม่ส่ง <code>workType</code> ระบบอนุมานให้: stock = อู่ใน, cutoff = อู่นอก · ส่งสองตัวที่ขัดกัน เช่น <code>garage_in</code> กับ <code>cutoff</code> ตอบ 400</Param>
+            <Param name="plate" required>ทะเบียนรถ หรือเบอร์รถ (ยาวไม่เกิน 20 ตัว · ยังไม่รองรับใบที่ไม่มีรถ)</Param>
+            <Param name="ref">ใบ PO / DD / PR ที่อ้างอิง · ผิดรูปแบบตอบ 400 · ส่งต่อไปอยู่ในหมายเหตุของใบเบิกใน ATMS · ตอนดูใบ (<code>GET</code>) มี <code>ref</code> เสมอ (<code>null</code> ถ้าไม่ได้อ้างอิง)</Param>
             <Param name="lines" required>อย่างน้อย 1 บรรทัด · <code>skuId</code> (จำนวนเต็ม), <code>skuCode</code>, <code>skuName</code>, <code>requestedQty</code> (&gt; 0) บังคับ · SKU ซ้ำในใบเดียวระบบรวมจำนวนให้</Param>
           </ul>
         </Section>

@@ -1,6 +1,9 @@
 // lib/store-withdraw/types.ts — ชนิดข้อมูลของงานเบิกของหน้าร้านคลัง (ใบขอเบิก SW-yymm-nnn)
 export type SwKind = "stock" | "cutoff"
 
+/** ประเภทงานที่ผู้ขอเลือก (อู่ใน / อู่นอก / Mobile-PM) · kind ที่เก็บคู่กันยังเป็นตัวกำหนดวิธีตัดสต๊อก/ส่ง ATMS */
+export type SwWorkType = "garage_in" | "garage_out" | "mobile_pm"
+
 export type SwStatus =
   | "NEW" | "PREPARING" | "READY" | "ISSUING" | "ISSUED"
   | "ISSUE_FAILED" | "RECEIVED" | "REJECTED" | "CANCELLED"
@@ -43,13 +46,15 @@ export type SwReturn = {
   createdAt: Date
 }
 
-/** ใบ PO / DD ที่ผู้ขออ้างอิง (ไม่บังคับ) */
-export type SwRef = { type: "po" | "dd"; code: string; id: number | null }
+/** ใบ PO / DD / PR ที่ผู้ขออ้างอิง (ไม่บังคับ) */
+export type SwRef = { type: "po" | "dd" | "pr"; code: string; id: number | null }
 
 export type SwRequest = {
   _id?: unknown
   no: string
   kind: SwKind
+  /** ใบเก่าก่อนมีฟีเจอร์นี้ไม่มี field — ฝั่ง API คืนค่าที่อนุมานจาก kind ให้เสมอ */
+  workType?: SwWorkType
   status: SwStatus
   inventoryId: number
   inventoryName: string

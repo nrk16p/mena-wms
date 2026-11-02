@@ -1,7 +1,8 @@
 "use client"
 
 import { AlertTriangle, Flag, Loader2, Undo2 } from "lucide-react"
-import { waitMinutes } from "@/lib/store-withdraw/core"
+import { WORK_TYPE_LABEL, waitMinutes, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { DOC_LABEL } from "./doc-ref-types"
 import { StatusChip } from "./status-chip"
 import { itemKey, type QItem, type QKeyed } from "./queue-types"
 
@@ -78,8 +79,9 @@ export function TicketCard({ item, now, busy, actions, column }: {
           </p>
           <p className="text-xs text-gray-500">
             {isReturn ? "ขอคืนอะไหล่" : item.kind === "cutoff" ? "เบิกตัดยอด" : "เบิกจากสต๊อก"}
+            {!isReturn && <span data-testid="worktype" className="ml-1.5 rounded-full bg-[#1B8C4B]/10 px-1.5 py-0.5 text-[11px] font-medium text-[#14532d] dark:text-emerald-300">{WORK_TYPE_LABEL[item.workType ?? workTypeFromKind(item.kind)]}</span>}
             {item.mrCode && ` · ${item.mrCode}`} · {item.requestedBy.name}
-            {item.ref && <span data-testid="ref"> · อ้างอิง {item.ref.type === "po" ? "PO" : "DD"} {item.ref.code}</span>}
+            {item.ref && <span data-testid="ref"> · อ้างอิง {DOC_LABEL[item.ref.type]} {item.ref.code}</span>}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
