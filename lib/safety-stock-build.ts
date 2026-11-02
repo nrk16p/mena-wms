@@ -155,12 +155,11 @@ export async function buildSnapshotRows(
     anyCost.add(code, r.c, r.d)
     if (kind === "stock") stockCost.add(code, r.c, r.d)
 
-    // ประวัติรับเข้ารายครั้ง — เฉพาะของซื้อเข้าสต๊อก (มีเลข PO และไม่ใช่ลงคัน) ที่เหลือนับไว้ให้ท้ายตารางบอกว่าซ่อนกี่ครั้ง
-    // แถวที่จับคู่ PR ไม่ได้ยังเก็บ (เป็นของซื้อเข้าคลังจริง แค่ไม่รู้ว่ารอกี่วัน)
-    if (kind !== "stock") {
+    // ประวัติรับเข้ารายครั้ง — แยกสองกลุ่ม: ซื้อเข้าสต๊อก (stock) กับอะไหล่ลงคัน (vehicle) ใช้ตัวแยกเดิม receiptKindOf
+    // ที่เหลือ (ไม่มีเลข PO) นับไว้ให้ท้ายตารางบอกว่าซ่อนกี่ครั้ง · แถวที่จับคู่ PR ไม่ได้ยังเก็บ (รับเข้าจริง แค่ไม่รู้ว่ารอกี่วัน)
+    if (kind === "noPo") {
       const h = hiddenBySku.get(code) ?? { vehicle: 0, noPo: 0 }
-      if (kind === "vehicle") h.vehicle++
-      else h.noPo++
+      h.noPo++
       hiddenBySku.set(code, h)
     } else if (r.d && (r.q ?? 0) > 0) {
       const t = new Date(r.d)
@@ -172,6 +171,7 @@ export async function buildSnapshotRows(
           qty: r.q as number,
           prCode: pr ?? null,
           poCode: po as string,
+          kind,
           cost: r.c ?? null,
           leadDays: days,
         })
@@ -192,9 +192,11 @@ export async function buildSnapshotRows(
   }
 
   // ใหม่→เก่า แล้วตัดเพดาน — คนเปิดดูสนใจครั้งล่าสุดก่อนเสมอ (ราคาทุน/เวลารอของล่าสุดคือตัวที่ใช้ตัดสินใจ)
-  for (const xs of recvBySku.values()) {
+  // ตัดเพดานแยกตามกลุ่ม — รอบลงคันถี่ไม่ควรดันรอบซื้อเข้าสต๊อกหลุดออกจากประวัติ
+  for (const [code, xs] of recvBySku) {
     xs.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-    if (xs.length > RECEIPT_HISTORY_MAX) xs.length = RECEIPT_HISTORY_MAX
+    const cnt = { stock: 0, vehicle: 0 }
+    recvBySku.set(code, xs.filter((e) => ++cnt[e.kind ?? "stock"] <= RECEIPT_HISTORY_MAX))
   }
 
   // ใช้ floor เดียวกับรายรหัส/รายกลุ่ม (LT_MIN_SAMPLES) — ตัวอย่างเดียวก็ยึดเป็นค่ากลางทั้งคลังไม่ได้

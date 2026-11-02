@@ -312,8 +312,10 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
   if (rows === null) return <p style={{ fontSize: 12.5, color: "#9CA3AF", margin: 0 }}>กำลังโหลดประวัติ...</p>
 
   // ที่ซ่อนไปต้องบอกจำนวน ไม่งั้นคนที่จำได้ว่าของเข้ามาหลายรอบจะคิดว่าข้อมูลหาย
+  // snapshot ใหม่เก็บรอบลงคันไว้ในตารางแล้ว (rows มี kind) ไม่ต้องบอกว่าซ่อน
+  const grouped = rows.some((r) => r.kind !== undefined)
   const hiddenParts = [
-    hidden?.vehicle ? `อะไหล่ลงคัน ${hidden.vehicle} ครั้ง` : "",
+    !grouped && hidden?.vehicle ? `อะไหล่ลงคัน ${hidden.vehicle} ครั้ง` : "",
     hidden?.noPo ? `รับเข้าที่ไม่มีเลข PO ${hidden.noPo} ครั้ง` : "",
   ].filter(Boolean)
   const hiddenNote = hiddenParts.length ? `ไม่รวม${hiddenParts.join(" กับ")}` : ""
@@ -333,26 +335,16 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
   // snapshot รุ่นก่อน 27/10/2026 ยังไม่มีเลข PO และยังไม่ได้กรองลงคัน — โชว์ PR แบบเดิมไปจนกว่า build รอบถัดไป (ทุกชั่วโมง)
   const legacy = rows.some((r) => r.poCode === undefined)
   const COLLAPSED = 6
-  const shown = expanded ? rows : rows.slice(0, COLLAPSED)
+  const stockRows = grouped ? rows.filter((r) => r.kind !== "vehicle") : rows
+  const vehicleRows = grouped ? rows.filter((r) => r.kind === "vehicle") : []
+  const shownStock = expanded ? stockRows : stockRows.slice(0, COLLAPSED)
+  const shownVehicle = expanded ? vehicleRows : vehicleRows.slice(0, COLLAPSED)
+  const hasMore = stockRows.length > COLLAPSED || vehicleRows.length > COLLAPSED
   const withLead = rows.filter((r) => r.leadDays !== null).length
   const th: React.CSSProperties = { textAlign: "right", fontWeight: 600, color: "#6B7280", padding: "4px 6px", whiteSpace: "nowrap" }
   const td: React.CSSProperties = { textAlign: "right", padding: "4px 6px", whiteSpace: "nowrap" }
 
-  return (
-    <>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #E5E7EB" }}>
-              <th style={{ ...th, textAlign: "left" }}>วันที่รับ</th>
-              <th style={{ ...th, textAlign: "left" }}>{legacy ? "ใบ PR" : "ใบ PO"}</th>
-              <th style={th}>จำนวน</th>
-              <th style={th}>ราคาทุน/{unit}</th>
-              <th style={th}>รอของ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r, i) => (
+  const row = (r: ReceiptEntry, i: number) => (
               <tr key={`${r.date}-${r.poCode ?? r.prCode ?? ""}-${i}`} style={{ borderBottom: "1px solid #F3F4F6" }}>
                 <td style={{ ...td, textAlign: "left" }}>{thaiDate(r.date)}</td>
                 {legacy ? (
@@ -369,12 +361,45 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
                   {r.leadDays === null ? "—" : `${r.leadDays} วัน`}
                 </td>
               </tr>
-            ))}
+  )
+  const section = (title: string, all: ReceiptEntry[], list: ReceiptEntry[]) => {
+    if (!grouped) return list.map((r, i) => row(r, i))
+    const qty = all.reduce((t, r) => t + r.qty, 0)
+    return (
+      <>
+        <tr style={{ background: "#F9FAFB" }}>
+          <td colSpan={5} style={{ padding: "6px 6px", fontWeight: 700, color: "#374151", textAlign: "left" }}>
+            {title} <span style={{ fontWeight: 400, color: "#6B7280" }}>· {all.length} ครั้ง · รวม {num(qty)} {unit}</span>
+          </td>
+        </tr>
+        {all.length === 0 ? (
+          <tr><td colSpan={5} style={{ ...td, textAlign: "left", color: "#9CA3AF" }}>ไม่มีในช่วง 24 เดือน</td></tr>
+        ) : list.map((r, i) => row(r, i))}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid #E5E7EB" }}>
+              <th style={{ ...th, textAlign: "left" }}>วันที่รับ</th>
+              <th style={{ ...th, textAlign: "left" }}>{legacy ? "ใบ PR" : "ใบ PO"}</th>
+              <th style={th}>จำนวน</th>
+              <th style={th}>ราคาทุน/{unit}</th>
+              <th style={th}>รอของ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {section("Safety stock (ซื้อเข้าสต๊อก)", stockRows, shownStock)}
+            {grouped && section("ลงคัน (ซื้อมาเบิกให้รถคันนั้น)", vehicleRows, shownVehicle)}
           </tbody>
         </table>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-        {rows.length > COLLAPSED && (
+        {hasMore && (
           <button
             onClick={() => setExpanded((v) => !v)}
             style={{ border: "none", background: "transparent", padding: 0, fontSize: 12, fontWeight: 700, color: "#1D4ED8", cursor: "pointer" }}
@@ -388,9 +413,9 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
           </span>
         ) : (
           <span style={{ fontSize: 11, color: "#9CA3AF" }} title={hiddenNote ? hiddenTitle : undefined}>
-            เฉพาะของซื้อเข้าสต๊อก{hiddenNote && ` — ${hiddenNote}`} · เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุด ·
+            {grouped ? "แยกซื้อเข้าสต๊อกกับลงคัน" : "เฉพาะของซื้อเข้าสต๊อก"}{hiddenNote && ` — ${hiddenNote}`} · เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุดต่อกลุ่ม ·
             {" "}{withLead} ครั้งรู้วันรอของ (นับจากวันเปิด PR ถึงวันรับ)
-            {hidden?.vehicle ? " · เวลารอของด้านบนยังนับรอบลงคันรวมอยู่" : ""}
+            {(grouped ? vehicleRows.length > 0 : hidden?.vehicle) ? " · เวลารอของด้านบนยังนับรอบลงคันรวมอยู่" : ""}
           </span>
         )}
       </div>
