@@ -85,3 +85,25 @@ export function canImportPayment(
 ): boolean {
   return isFinance(email, department) || isAccounting(email, department)
 }
+
+// ── ระดับผู้จัดการขึ้นไป ─────────────────────────────────────────────────────
+// ใช้กับ /sku/pending (ดู + อนุมัติ/ปฏิเสธคำขอ SKU) — ผู้ใช้สั่ง 2026-11-02 "manager level ขึ้นไปเข้าได้"
+// ไม่มีฟิลด์ระดับตำแหน่งที่เชื่อถือได้ จึงจับคำจากช่อง position (และ position_level) ที่ HR ส่งมา
+// ผู้ช่วยผู้จัดการ / Assistant ... Manager ไม่นับ (ต่ำกว่าระดับผู้จัดการ) — ถ้าตำแหน่งใครพิมพ์แปลกจนหลุด
+// ให้ใส่อีเมลใน MANAGER_EMAILS
+export const MANAGER_EMAILS = new Set<string>([])
+
+const MANAGER_RE = /ผู้จัดการ|ผจก\.?|ผู้อำนวยการ|ผอ\.|กรรมการ|ประธาน|manager|director|\bvp\b|vice\s*president|president|chief|\bc[a-z]o\b|\bhead\b/i
+const ASSISTANT_RE = /ผู้ช่วย|ผช\.|assistant|asst/i
+
+export function isManagerOrAbove(
+  email: string | null | undefined,
+  position: string | null | undefined,
+  positionLevel?: string | null,
+): boolean {
+  if (isAdmin(email)) return true
+  if (MANAGER_EMAILS.has((email ?? "").toLowerCase())) return true
+  const text = `${position ?? ""} ${positionLevel ?? ""}`
+  if (ASSISTANT_RE.test(text)) return false
+  return MANAGER_RE.test(text)
+}

@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, AlertTriangle, Layers, ChevronRight } from "lucide-react"
 import Link from "next/link"
+import { isManagerOrAbove } from "@/lib/roles"
 import { ImageThumbs } from "@/components/image-thumbs"
 import { swalRejectInput, swalToast } from "@/lib/swal"
 import { type CodeLabels, labelOf, codeWithLabel, l2Label, l3Label } from "@/lib/code-labels"
@@ -188,7 +189,9 @@ export default function PendingPage() {
   const [loading, setLoading] = useState(true)
   const [acting, setActing]   = useState<string | null>(null)
 
-  const isAdmin = session?.user?.role === "admin"
+  // admin หรือผู้จัดการขึ้นไป (ดูจากตำแหน่ง) — API approve เช็กกติกาเดียวกันอีกชั้น
+  const isAdmin = session?.user?.role === "admin" ||
+    isManagerOrAbove(session?.user?.email, session?.user?.employee?.position, session?.user?.employee?.position_level)
 
   useEffect(() => {
     if (status === "authenticated" && !isAdmin) router.replace("/sku")

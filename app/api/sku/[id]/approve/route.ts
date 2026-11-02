@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import clientPromise from "@/lib/mongo"
 import { authOptions } from "@/lib/auth"
-import { isAdmin } from "@/lib/roles"
+import { isManagerOrAbove } from "@/lib/roles"
 
 const DB   = process.env.MONGO_DB ?? "master_data"
 const COLL = "master_sku"
 
 export async function PUT(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
-  if (!isAdmin(session?.user?.email)) {
+  if (!isManagerOrAbove(session?.user?.email, session?.user?.employee?.position, session?.user?.employee?.position_level)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -26,7 +26,7 @@ export async function PUT(_: NextRequest, { params }: { params: Promise<{ id: st
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
-  if (!isAdmin(session?.user?.email)) {
+  if (!isManagerOrAbove(session?.user?.email, session?.user?.employee?.position, session?.user?.employee?.position_level)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

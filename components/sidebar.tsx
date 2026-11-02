@@ -10,6 +10,7 @@ import { ThemeToggle } from "./theme-toggle"
 import { useBranchScope } from "./use-branch-scope"
 import { canSeeBranch } from "@/lib/branch-scope"
 // เมนูทั้งหมดอยู่ที่ lib/nav.ts ที่เดียว — หน้าหลัก (app/page.tsx) ก็อ่านจากไฟล์เดียวกัน
+import { isManagerOrAbove } from "@/lib/roles"
 import { sidebarGroups, type NavGroup } from "@/lib/nav"
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -32,6 +33,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
   const userEmail = session?.user?.email ?? ""
+  const canApproveSku = isAdmin || isManagerOrAbove(userEmail, session?.user?.employee?.position, session?.user?.employee?.position_level)
   // ผู้ใช้ที่ผูกกับสาขา (site_id 2/3) ไม่ต้องเห็นเมนูของอีกสาขา
   const scope = useBranchScope()
   const visibleGroups = sidebarGroups({
@@ -45,12 +47,12 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   useEffect(() => { setGroupOpen({}) }, [pathname])
 
   useEffect(() => {
-    if (!isAdmin) return
+    if (!canApproveSku) return
     fetch("/api/sku?status=pending&limit=1")
       .then((r) => r.json())
       .then((d) => setPendingCount(d.total ?? 0))
       .catch(() => {})
-  }, [isAdmin, pathname])
+  }, [canApproveSku, pathname])
 
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href
@@ -159,7 +161,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
             if (!first) return null
             const GroupIcon = first.icon
             const groupActive = group.items.some((i) => !i.subheader && isActive(i.href, i.exact))
-            const showDot = group.label === "จัดการ SKU" && isAdmin && pendingCount > 0
+            const showDot = group.label === "จัดการ SKU" && canApproveSku && pendingCount > 0
             return (
               <Link
                 key={group.label}
@@ -271,7 +273,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
                 })}
 
                 {/* รออนุมัติ SKU (admin only) */}
-                {group.label === "จัดการ SKU" && isAdmin && (
+                {group.label === "จัดการ SKU" && canApproveSku && (
                   <Link
                     href="/sku/pending"
                     title={collapsed ? "รออนุมัติ" : undefined}
