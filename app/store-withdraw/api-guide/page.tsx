@@ -78,9 +78,9 @@ export default function Page() {
   "warnings": [ "ใบนี้ยังไม่ได้รับของ" ] }`}</CodeBlock>
           <ul className="ml-1 space-y-2">
             <Param name="qty">จำนวนตั้งต้นที่ควรนำเข้า = จำนวนที่<b>รับแล้ว</b> (DD = จำนวนในใบ) · PO ที่ยังไม่รับ = 0</Param>
-            <Param name="PR">ใบ PR นำเข้า<b>เฉพาะอะไหล่</b> — บรรทัดค่าแรงถูกตัดออกที่เซิร์ฟเวอร์ (มีคำเตือน &quot;ข้ามบรรทัดค่าแรง N รายการ&quot;) · <code>qty</code> ตั้งต้น = จำนวนที่ขอในใบ (<code>docQty</code>) · <code>receivedQty</code> เป็น 0 เสมอ</Param>
+            <Param name="PR / PO / DD">นำเข้า<b>เฉพาะอะไหล่</b> — บรรทัดค่าแรงถูกตัดออกที่เซิร์ฟเวอร์ (มีคำเตือน &quot;ข้ามบรรทัดค่าแรง N รายการ&quot;) · <code>qty</code> ตั้งต้น = จำนวนที่ขอในใบ (<code>docQty</code>) · <code>receivedQty</code> เป็น 0 เสมอ</Param>
             <Param name="skuId">เอาไปใส่บรรทัดคำขอได้เลย · <code>null</code> = หา SKU ในคลังนี้ไม่เจอ ใส่ในคำขอไม่ได้</Param>
-            <Param name="isLabour">บรรทัดค่าแรง/บริการ (ไม่ได้กรองทิ้ง · ATMS อาจไม่ยอมตัดสต๊อก ถ้าไม่ผ่านจะขึ้นเป็น ISSUE_FAILED)</Param>
+            <Param name="isLabour">เป็น false เสมอ เพราะบรรทัดค่าแรงถูกตัดออกแล้ว</Param>
             <Param name="alreadyCut / cutBy">ยอดที่คำขออื่นอ้างใบนี้และตัดไปแล้ว กับเลขคำขอเหล่านั้น (ไม่นับที่ยกเลิก/ปฏิเสธ) · ไว้เตือนอย่างเดียว ไม่บล็อก</Param>
           </ul>
           <p>ไม่พบใบตอบ 404 · เรียกด้วย API key ได้เหมือน <code>lookup</code> อื่น (อ่านอย่างเดียว) · ใส่ <code>ref</code> ในคำขอเพื่อให้สโตร์เห็นว่าอ้างใบไหน</p>

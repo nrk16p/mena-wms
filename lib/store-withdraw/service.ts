@@ -412,8 +412,8 @@ async function masterByCode(codes: string[], inventoryId?: number): Promise<Map<
 export async function getDocDetail(kind: "po" | "dd" | "pr", id: number, inventoryId?: number): Promise<DocDetail> {
   const d = await ncacRead<NcacDoc>(`/atms/withdraw/doc/${kind}/${id}`, undefined, "ไม่พบใบนี้ใน ATMS ตรวจเลขใบอีกครั้ง")
   const rawAll = Array.isArray(d.lines) ? d.lines : []
-  // PR: นำเข้าเฉพาะอะไหล่ — ตัดบรรทัดค่าแรงทิ้งที่ฝั่งเซิร์ฟเวอร์ (PO/DD เก็บไว้และติดป้าย)
-  const raw = kind === "pr" ? rawAll.filter((l) => l.is_labour !== true) : rawAll
+  // นำเข้าเฉพาะอะไหล่ (PR/PO/DD เหมือนกัน) — ตัดบรรทัดค่าแรงทิ้งที่ฝั่งเซิร์ฟเวอร์
+  const raw = rawAll.filter((l) => l.is_labour !== true)
   const skippedLabour = rawAll.length - raw.length
   const base = raw.map((l) => {
     const skuName = str(l.sku_name)

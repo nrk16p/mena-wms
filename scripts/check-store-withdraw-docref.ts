@@ -129,12 +129,12 @@ async function main() {
   eq(by["A-1"], { skuCode: "A-1", skuName: "A-1 : น็อต", group: "ทั่วไป", isLabour: false, docQty: 4, receivedQty: 2, qty: 2, unitPrice: 300, skuId: 501, stockQty: 12, alreadyCut: 5, cutBy: ["SW-A", "SW-B"] })
   eq([by["B-2"].skuId, by["B-2"].stockQty, by["B-2"].qty, by["B-2"].docQty], [502, 3, 0, 1]) // inventoryId สตริง "4" ก็ตรงคลัง · PO ยังไม่รับ qty 0
   eq([by["C-3"].skuId, by["C-3"].stockQty], [503, null]) // สำเนาเป็นคลัง 5 → ไม่เอาสต๊อก
-  eq(by["LB00269"].isLabour, true) // ค่าแรงไม่ถูกกรองทิ้ง
+  eq(by["LB00269"], undefined) // ค่าแรงถูกตัดทิ้งที่เซิร์ฟเวอร์ (PO/DD/PR เหมือนกัน)
   eq([by["NEW-1"].skuId, by["NEW-2"].skuId], [9002, null]) // ATMS fallback รหัสตรงเป๊ะเท่านั้น (ไม่หยิง NEW-1-X / NEW-2-LONG)
-  eq(callsTo("/atms/withdraw/lookup/sku").map((c) => c.query.get("q")).sort(), ["LB00269", "NEW-1", "NEW-2"]) // เจอในสำเนาแล้วไม่ถาม ATMS
+  eq(callsTo("/atms/withdraw/lookup/sku").map((c) => c.query.get("q")).sort(), ["NEW-1", "NEW-2"]) // เจอในสำเนาแล้วไม่ถาม ATMS
   eq(callsTo("/atms/withdraw/lookup/sku")[0].query.get("inventory_id"), "4")
-  eq(d.warnings, ["ใบนี้มีบรรทัดค่าแรง/บริการ", "บางบรรทัดมีคำขออื่นอ้างและตัดไปแล้ว"])
-  eq(d.lines.map((l) => l.skuCode), ["A-1", "B-2", "C-3", "LB00269", "NEW-1", "NEW-2"])
+  eq(d.warnings, ["ข้ามบรรทัดค่าแรง 1 รายการ (นำเข้าเฉพาะอะไหล่)", "บางบรรทัดมีคำขออื่นอ้างและตัดไปแล้ว"])
+  eq(d.lines.map((l) => l.skuCode), ["A-1", "B-2", "C-3", "NEW-1", "NEW-2"])
 
   // ---- PR: lookup (q = ทะเบียน · limit ≤ 5 · remark ส่งต่อ) + getDocDetail นำเข้าเฉพาะอะไหล่ ----
   eq(svc.lookupKind("pr"), "pr")
