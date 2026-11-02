@@ -59,7 +59,7 @@ export default function Page() {
           <p>เอา <code>skuId / skuCode / skuName</code> จากผลค้น SKU ไปใส่ในบรรทัดของคำขอ · <code>kind</code> ที่ไม่ใช่ mr, sku, serial, wd, po, dd ตอบ 400</p>
         </Section>
 
-        <Section icon={Search} title="อ้างอิงใบ PO / DD / PR และดึงรายการมาใส่คำขอ">
+        <Section icon={Search} title="อ้างอิงใบ PR / PO / DD และดึงรายการมาใส่คำขอ">
           <Ep verb="GET" path="/api/store-withdraw/lookup/{po|dd|pr}?q=&inv=&limit=" />
           <CodeBlock>{`curl ${HDR} "${API}/lookup/po?q=LBPO2610&inv=4"
 
@@ -107,7 +107,7 @@ export default function Page() {
             <Param name="workType" required><code>garage_in</code> (อู่ใน) · <code>garage_out</code> (อู่นอก) · <code>mobile_pm</code> (Mobile/PM) · ระบบแปลงเป็น <code>kind</code> ให้เอง: อู่ใน/Mobile-PM = <code>stock</code> (เบิกจากสต๊อก), อู่นอก = <code>cutoff</code> (ตัดยอด) · ตอนดูใบ (<code>GET</code>) มี <code>workType</code> ทุกใบ</Param>
             <Param name="kind">ส่งแบบเดิมได้ (<code>stock</code> หรือ <code>cutoff</code>) ถ้าไม่ส่ง <code>workType</code> ระบบอนุมานให้: stock = อู่ใน, cutoff = อู่นอก · ส่งสองตัวที่ขัดกัน เช่น <code>garage_in</code> กับ <code>cutoff</code> ตอบ 400</Param>
             <Param name="plate" required>ทะเบียนรถ หรือเบอร์รถ (ยาวไม่เกิน 20 ตัว · ยังไม่รองรับใบที่ไม่มีรถ)</Param>
-            <Param name="ref">ใบ PO / DD / PR ที่อ้างอิง · ผิดรูปแบบตอบ 400 · ส่งต่อไปอยู่ในหมายเหตุของใบเบิกใน ATMS · ตอนดูใบ (<code>GET</code>) มี <code>ref</code> เสมอ (<code>null</code> ถ้าไม่ได้อ้างอิง)</Param>
+            <Param name="ref">ใบ PR / PO / DD ที่อ้างอิง · ผิดรูปแบบตอบ 400 · ส่งต่อไปอยู่ในหมายเหตุของใบเบิกใน ATMS · ตอนดูใบ (<code>GET</code>) มี <code>ref</code> เสมอ (<code>null</code> ถ้าไม่ได้อ้างอิง)</Param>
             <Param name="lines" required>อย่างน้อย 1 บรรทัด · <code>skuId</code> (จำนวนเต็ม), <code>skuCode</code>, <code>skuName</code>, <code>requestedQty</code> (&gt; 0) บังคับ · SKU ซ้ำในใบเดียวระบบรวมจำนวนให้</Param>
           </ul>
         </Section>

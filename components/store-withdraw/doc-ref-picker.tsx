@@ -1,6 +1,6 @@
 "use client"
 
-// ช่อง "อ้างอิงใบ PO / DD / PR" ของฟอร์มเบิกอะไหล่: สลับ PO | DD | PR แล้วพิมพ์ค้นเลขใบ (รอหยุดพิมพ์ 300 ms ผ่าน useLookup)
+// ช่อง "อ้างอิงใบ PR / PO / DD" ของฟอร์มเบิกอะไหล่: สลับ PR | PO | DD แล้วพิมพ์ค้นเลขใบ (รอหยุดพิมพ์ 300 ms ผ่าน useLookup)
 // PR: ค้นด้วยทะเบียน/เบอร์รถ (ใช้ค่าจากช่องทะเบียนของฟอร์ม หรือพิมพ์เองในช่องนี้) แล้วโชว์ PR ล่าสุดของรถ 5 ใบพร้อมหมายเหตุ
 import { useState } from "react"
 import { Search, X } from "lucide-react"
@@ -41,7 +41,7 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
     <div className="space-y-2">
       <div className="flex flex-col gap-2 sm:flex-row">
         <div role="group" aria-label="ชนิดใบอ้างอิง" className="flex shrink-0 rounded-xl border border-[#E2E8E4] p-0.5 dark:border-white/10 sm:w-48">
-          {(["po", "dd", "pr"] as DocKind[]).map(seg)}
+          {(["pr", "po", "dd"] as DocKind[]).map(seg)}
         </div>
         <div className="relative min-w-0 flex-1">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />

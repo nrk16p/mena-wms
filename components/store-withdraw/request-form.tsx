@@ -37,7 +37,7 @@ export function RequestForm() {
   const [urgent, setUrgent] = useState(false)
   const [remark, setRemark] = useState("")
   const [lines, setLines] = useState<FormLine[]>([])
-  const [docKind, setDocKind] = useState<DocKind>("po")
+  const [docKind, setDocKind] = useState<DocKind>("pr")
   const [doc, setDoc] = useState<DocHit | null>(null)
   const [docPanel, setDocPanel] = useState(false)
   const [docMsg, setDocMsg] = useState("")
@@ -172,7 +172,7 @@ export function RequestForm() {
         </div>
 
         <div>
-          <span className={labelCls}>อ้างอิงใบ PO / DD / PR (ไม่บังคับ)</span>
+          <span className={labelCls}>อ้างอิงใบ PR / PO / DD (ไม่บังคับ)</span>
           <DocRefPicker plate={plate} inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} kind={docKind} onKind={changeKind}
             picked={doc} onPick={pickDoc} onClear={clearDoc} panelOpen={docPanel} onTogglePanel={() => setDocPanel((v) => !v)} />
           {doc && !docPanel && docMsg && <p data-testid="docref-msg" className="mt-2 rounded-xl bg-[#1B8C4B]/10 px-3 py-2 text-xs text-[#14532d] dark:text-emerald-300">{docMsg}</p>}
