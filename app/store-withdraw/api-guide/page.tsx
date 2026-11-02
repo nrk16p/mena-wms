@@ -1,4 +1,4 @@
-import { Code2, FileJson, KeyRound, ListChecks, PackagePlus, Search, TriangleAlert } from "lucide-react"
+import { ClipboardCheck, Code2, FileJson, KeyRound, ListChecks, PackagePlus, Search, TriangleAlert } from "lucide-react"
 import { CodeBlock, Method, Param, Section } from "@/components/api-guide-ui"
 
 const BASE = "https://mena-wms.vercel.app"
@@ -25,7 +25,7 @@ export default function Page() {
           <h1 className="text-xl font-bold text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif" }}>
             API เบิกอะไหล่หน้าร้านคลัง
           </h1>
-          <p className="text-xs text-[#9AA8A0]">สำหรับระบบอื่นที่ยื่นคำขอเบิกแทนผู้ใช้ — ยื่น · ดูสถานะ · ยกเลิก · กดรับของ · ขอคืน</p>
+          <p className="text-xs text-[#9AA8A0]">สำหรับระบบอื่นที่ยื่นคำขอเบิกแทนผู้ใช้ — ยื่น · ดูสถานะ · ยกเลิก · กดรับของ · ขอคืน · สรุปการใช้ (Mobile/PM)</p>
         </div>
       </div>
 
@@ -92,7 +92,8 @@ export default function Page() {
   "workType": "garage_in",      // garage_in = อู่ใน | garage_out = อู่นอก | mobile_pm = Mobile/PM
   "inventoryId": 4,
   "pickToId": 7,
-  "plate": "70-1234",          // ทะเบียนรถ หรือเบอร์รถ เช่น "เบอร์ 1234"
+  "plate": "70-1234",          // ทะเบียนรถ หรือเบอร์รถ เช่น "เบอร์ 1234" (mobile_pm ไม่บังคับ)
+  "summaryDueAt": "2026-11-05T17:00:00+07:00",   // mobile_pm เท่านั้น และบังคับ · กำหนดสรุปการใช้
   "mrCode": "MR-2610-001",      // ไม่บังคับ
   "ref": { "type": "po", "code": "LBPO26100704", "id": 157902 },   // ไม่บังคับ · type = po | dd | pr · code 3-40 ตัว · id ไม่บังคับ
   "urgent": false,               // true = รถจอดรอ
@@ -107,7 +108,8 @@ export default function Page() {
           <ul className="ml-1 space-y-2">
             <Param name="workType" required><code>garage_in</code> (อู่ใน) · <code>garage_out</code> (อู่นอก) · <code>mobile_pm</code> (Mobile/PM) · ระบบแปลงเป็น <code>kind</code> ให้เอง: อู่ใน/Mobile-PM = <code>stock</code> (เบิกจากสต๊อก), อู่นอก = <code>cutoff</code> (ตัดยอด) · ตอนดูใบ (<code>GET</code>) มี <code>workType</code> ทุกใบ</Param>
             <Param name="kind">ส่งแบบเดิมได้ (<code>stock</code> หรือ <code>cutoff</code>) ถ้าไม่ส่ง <code>workType</code> ระบบอนุมานให้: stock = อู่ใน, cutoff = อู่นอก · ส่งสองตัวที่ขัดกัน เช่น <code>garage_in</code> กับ <code>cutoff</code> ตอบ 400</Param>
-            <Param name="plate" required>ทะเบียนรถ หรือเบอร์รถ (ยาวไม่เกิน 20 ตัว · ยังไม่รองรับใบที่ไม่มีรถ)</Param>
+            <Param name="plate" required>ทะเบียนรถ หรือเบอร์รถ (ยาวไม่เกิน 20 ตัว) · <code>mobile_pm</code> ไม่ต้องใส่ก็ได้ เพราะทะเบียนไปใส่ตอนสรุปการใช้</Param>
+            <Param name="summaryDueAt">บังคับเฉพาะ <code>mobile_pm</code> · วันเวลาแบบ ISO ที่ต้องกลับมาสรุปว่าใช้ของกับรถคันไหน · ต้องเป็นเวลาหลังจากตอนนี้ และไม่เกิน 60 วัน ไม่งั้นตอบ 400 · <code>mrCode</code> ไม่บังคับเหมือนกัน</Param>
             <Param name="ref">ใบ PR / PO / DD ที่อ้างอิง · ผิดรูปแบบตอบ 400 · ส่งต่อไปอยู่ในหมายเหตุของใบเบิกใน ATMS · ตอนดูใบ (<code>GET</code>) มี <code>ref</code> เสมอ (<code>null</code> ถ้าไม่ได้อ้างอิง)</Param>
             <Param name="lines" required>อย่างน้อย 1 บรรทัด · <code>skuId</code> (จำนวนเต็ม), <code>skuCode</code>, <code>skuName</code>, <code>requestedQty</code> (&gt; 0) บังคับ · SKU ซ้ำในใบเดียวระบบรวมจำนวนให้</Param>
           </ul>
@@ -129,6 +131,7 @@ export default function Page() {
                "returns": [ ... ] },
   "log": [ { "action": "create", "from": null, "to": "NEW", "at": "2026-10-31T02:10:00.000Z", ... } ] }`}</CodeBlock>
           <p>สถานะ: <code>NEW</code> รอสโตร์ · <code>PREPARING</code> กำลังจัด · <code>READY</code> จัดเสร็จ · <code>ISSUING</code> กำลังตัดใน ATMS · <code>ISSUED</code> ส่งของแล้ว · <code>ISSUE_FAILED</code> ส่ง ATMS ไม่สำเร็จ (สโตร์ลองใหม่) · <code>RECEIVED</code> ผู้ขอรับของแล้ว · <code>REJECTED</code> สโตร์ปฏิเสธ (ดู <code>rejectReason</code>) · <code>CANCELLED</code> ยกเลิก</p>
+          <p>Mobile/PM: <code>HANDED_OUT</code> เบิกแล้ว รอสรุปการใช้ · <code>SUMMARIZED</code> สรุปแล้ว รอตัดสต๊อก · <code>SETTLING</code> กำลังตัดใน ATMS · <code>SETTLE_FAILED</code> ตัดสต๊อกไม่สำเร็จ (สโตร์ลองใหม่) · <code>SETTLED</code> ตัดแล้ว (เลข WD ต่อทะเบียนอยู่ใน <code>settleGroups[].atms.code</code>)</p>
 
           <Ep verb="POST" path="/api/store-withdraw/{no}/cancel" />
           <CodeBlock>{`curl -X POST ${HDR} "${API}/SW-2610-001/cancel"
@@ -151,7 +154,38 @@ export default function Page() {
 
 201  { "rid": "R3FA9C1" }`}</CodeBlock>
           <p><code>reasonCode</code>: <code>unused</code> ไม่ได้ใช้ · <code>claim</code> ส่งเคลม · <code>sell</code> ขายออก · <code>keep_other_truck</code> เก็บไว้ใช้คันอื่น · <code>over_order</code> เบิกเกินที่ใช้จริง · <code>job_cancelled</code> งานยกเลิก/ซ่อมเสร็จก่อน · <code>other</code> อื่นๆ (ต้องมี <code>reasonNote</code>)</p>
-          <p>ขอคืนได้เมื่อสถานะ <code>ISSUED</code> หรือ <code>RECEIVED</code> · คืนเกินจำนวนที่เบิก (รวมที่รอคืนอยู่) ตอบ 409 · สโตร์ต้องเป็นคนกดรับคืนใน WMS ผลอยู่ใน <code>returns[]</code> ของใบ</p>
+          <p>ขอคืนได้เมื่อสถานะ <code>ISSUED</code> หรือ <code>RECEIVED</code> · คืนเกินจำนวนที่เบิก (รวมที่รอคืนอยู่) ตอบ 409 · สโตร์ต้องเป็นคนกดรับคืนใน WMS ผลอยู่ใน <code>returns[]</code> ของใบ · ใบ <code>mobile_pm</code> ขอคืนไม่ได้ (ตอบ 409) ของเหลือให้กรอกตอนสรุปการใช้แทน</p>
+        </Section>
+
+        <Section icon={ClipboardCheck} title="Mobile/PM: เบิกไปก่อน สรุปการใช้ทีหลัง">
+          <p>ขั้นตอน: ยื่นพร้อม <code>summaryDueAt</code> → สโตร์รับงาน จัดของ กดส่งของ (ยังไม่ตัดใน ATMS) ใบเป็น <code>HANDED_OUT</code> → ช่างสรุปว่าใช้ของกับรถคันไหน ใบเป็น <code>SUMMARIZED</code> → สโตร์รับของเหลือคืนแล้วกดตัดสต๊อก ได้ WD หนึ่งใบต่อทะเบียน เฉพาะส่วนที่ใช้ ของเหลือไม่ตัด ใบเป็น <code>SETTLED</code></p>
+          <p>ใบ <code>HANDED_OUT</code> ที่เลยกำหนดสรุปแล้ว ระบบไม่ทำอะไรเอง แค่ขึ้นสีแดง &quot;เลยกำหนดสรุป&quot; ที่หน้าผู้ขอและคิวสโตร์ · ใบมี <code>summaryDueAt</code> กับ <code>summaryExtensions</code> (เลื่อนไปกี่ครั้ง)</p>
+
+          <Ep verb="POST" path="/api/store-withdraw/{no}/summary" />
+          <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2611-001/summary" -d '{
+  "usages": [
+    { "lineIndex": 0, "plate": "70-1234", "mrCode": "LBMR26110001", "mrItemId": 257041, "mrItemLabel": "LBMR26110001 PM-ระบบไฟ : 257041", "qty": 2 },
+    { "lineIndex": 0, "plate": "71-5678", "mrCode": "LBMR26110002", "mrItemId": 257100, "mrItemLabel": "LBMR26110002 PM-ระบบเบรค : 257100", "qty": 1 }
+  ],
+  "note": ""                     // ไม่บังคับ
+}'
+
+{ "request": { ... "status": "SUMMARIZED",
+               "summary": { "usages": [ ... ], "returns": [ { "lineIndex": 0, "qty": 1 } ], "note": "", "by": { ... }, "at": "..." } } }`}</CodeBlock>
+          <ul className="ml-1 space-y-2">
+            <Param name="usages">หนึ่งแถว = ใช้บรรทัดไหน (<code>lineIndex</code> เริ่ม 0) กับรถคันไหน MR ไหน ประเภทการซ่อมไหน (<code>mrItemId</code> + <code>mrItemLabel</code> จาก <code>lookup/mr</code>) กี่ชิ้น · ทุก field บังคับ · <code>qty</code> &gt; 0 · ใช้หลายคันก็ส่งหลายแถว</Param>
+            <Param name="ของเหลือ">ระบบคิดให้เอง = จ่ายไป − ใช้รวม ต่อบรรทัด (ได้ใน <code>summary.returns</code>) · ใช้รวมเกินที่จ่ายตอบ 400 · ไม่ได้ใช้เลยส่ง <code>usages: []</code> ได้ (คืนทั้งหมด)</Param>
+          </ul>
+          <p>ได้เฉพาะเจ้าของใบ (403) และเฉพาะสถานะ <code>HANDED_OUT</code> (409) · สรุปแล้วแก้ไม่ได้</p>
+
+          <Ep verb="POST" path="/api/store-withdraw/{no}/extend" />
+          <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2611-001/extend" -d '{ "summaryDueAt": "2026-11-08T17:00:00+07:00" }'
+
+{ "request": { ... "summaryDueAt": "2026-11-08T10:00:00.000Z", "summaryExtensions": 1 } }`}</CodeBlock>
+          <p>เลื่อนกำหนดได้เฉพาะเจ้าของใบตอนสถานะ <code>HANDED_OUT</code> · เวลาใหม่ต้องเป็นอนาคตและไม่เกิน 60 วันจากตอนนี้ · บันทึกเวลาเก่า/ใหม่ไว้ใน log</p>
+
+          <Ep verb="POST" path="/api/store-withdraw/{no}/settle" />
+          <p>งานของสโตร์ <b>เรียกด้วย API key ไม่ได้</b> (กดในคิวสโตร์) · ส่ง <code>{`{ "returnConfirmed": true }`}</code> เมื่อมีของเหลือ ไม่ส่งตอบ 400 · ตัดด้วยบัญชี ATMS ของสโตร์ที่กด · WD แยกใบต่อทะเบียน (<code>settleGroups[]</code> เรียงตามทะเบียน แต่ละกลุ่มมีเลข <code>{`{no}-{ลำดับ}`}</code> ในหมายเหตุ WD) · พลาดกลางทางเป็น <code>SETTLE_FAILED</code> กดอีกครั้งทำต่อเฉพาะทะเบียนที่ยังไม่เสร็จ ใบที่ตัดแล้วไม่ถูกสร้างซ้ำ · ไม่ได้ใช้เลย = ไม่สร้าง WD ปิดเป็น <code>SETTLED</code> ทันที</p>
         </Section>
 
         <Section icon={FileJson} title="field ที่ควรรู้ใน atms">

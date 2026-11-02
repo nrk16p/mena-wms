@@ -2,7 +2,8 @@
 import { randomBytes } from "node:crypto"
 import { lookupCreds } from "./env"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, skuMasterCol, swCol, withRef, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
-import { RETURN_REASONS, docWarnings, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
+import { RETURN_REASONS, docWarnings, isPendingFlow, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
+import { handedOutSort, parseDue } from "./pending"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
 import type { AtmsProgress, SwLine, SwRequest } from "./types"
@@ -127,7 +128,15 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
   if ("error" in wt) throw new HttpError(wt.error, 400)
   const { kind, workType } = wt
   const plate = str(body.plate)
-  if (!plate) throw new HttpError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ", 400)
+  // Mobile/PM: ของหนึ่งใบอาจใช้หลายคัน ทะเบียนไปใส่ตอนสรุปการใช้ · ต้องมีกำหนดสรุปยอดแทน
+  const pending = workType === "mobile_pm"
+  let summaryDueAt: Date | null = null
+  if (pending) {
+    const d = parseDue(body.summaryDueAt, new Date())
+    if ("error" in d) throw new HttpError(d.error, 400)
+    summaryDueAt = d.due
+  }
+  if (!plate && !pending) throw new HttpError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ", 400)
   if (plate.length > MAX_PLATE) throw new HttpError(`ทะเบียนรถ/เบอร์รถยาวเกิน ${MAX_PLATE} ตัวอักษร`, 400)
   if (str(body.remark).length > MAX_REMARK) throw new HttpError(`หมายเหตุยาวเกิน ${MAX_REMARK} ตัวอักษร`, 400)
   const rawLines = Array.isArray(body.lines) ? (body.lines as Row[]) : []
@@ -177,6 +186,7 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
     requestedBy: { email: actor.email, name: actor.name, via: actor.via },
     claimedBy: null, rejectReason: null,
     atms: emptyAtms(), returns: [],
+    ...(pending ? { summaryDueAt, summaryExtensions: 0, summary: null } : {}),
     createdAt: now, updatedAt: now,
   }
   await (await swCol()).insertOne(doc as Parameters<Awaited<ReturnType<typeof swCol>>["insertOne"]>[0])
@@ -196,6 +206,7 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
   const cur = await col.findOne({ no })
   if (!cur) throw new NotFoundError()
   if (cur.requestedBy.email.trim().toLowerCase() !== actor.email) throw new HttpError("ใบนี้ไม่ใช่ของคุณ ขอคืนได้เฉพาะใบที่ตัวเองยื่น", 403)
+  if (isPendingFlow(cur)) throw new ConflictError("งาน Mobile/PM ไม่ต้องขอคืน ของที่เหลือให้กรอกตอนสรุปการใช้")
   if (cur.status !== "ISSUED" && cur.status !== "RECEIVED") throw new ConflictError("ใบนี้ยังไม่ได้ส่งของ ขอคืนไม่ได้")
   const reasonCode = str(body.reasonCode)
   const rr = RETURN_REASONS.find((x) => x.code === reasonCode)
@@ -244,15 +255,17 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
 
 // ---------- จอคิว ----------
 
+const PENDING_OPEN = ["HANDED_OUT", "SUMMARIZED", "SETTLING", "SETTLE_FAILED"]
+
 export type QueueItem = SwRequest & { itemType: "request" | "return"; return?: SwRequest["returns"][number] }
 
 export async function buildQueue(inventoryId: number | null, now = new Date()) {
   const col = await swCol()
-  const open = ["NEW", "PREPARING", "READY", "ISSUING", "ISSUE_FAILED"]
+  const open = ["NEW", "PREPARING", "READY", "ISSUING", "ISSUE_FAILED", ...PENDING_OPEN]
   const filter: Record<string, unknown> = {
     $or: [
       { status: { $in: open } },
-      { status: { $in: ["ISSUED", "RECEIVED"] }, updatedAt: { $gte: new Date(now.getTime() - 48 * 3600_000) } },
+      { status: { $in: ["ISSUED", "RECEIVED", "SETTLED"] }, updatedAt: { $gte: new Date(now.getTime() - 48 * 3600_000) } },
       { status: { $in: ["ISSUED", "RECEIVED"] }, "returns.status": { $in: RETURN_HOLD } },
     ],
   }
@@ -260,7 +273,7 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
   // เรียงก่อน limit: งานค้างเก่าสุดต้องไม่หลุดออกจากคิวเมื่อมีใบสะสมเกิน 500
   const docs = await col.find(filter, { projection: { _id: 0 } }).sort({ urgent: -1, createdAt: 1 }).limit(500).toArray()
 
-  const cols: Record<"NEW" | "PREPARING" | "READY" | "DONE_TODAY", QueueItem[]> = { NEW: [], PREPARING: [], READY: [], DONE_TODAY: [] }
+  const cols: Record<"NEW" | "PREPARING" | "READY" | "DONE_TODAY" | "HANDED_OUT", QueueItem[]> = { NEW: [], PREPARING: [], READY: [], DONE_TODAY: [], HANDED_OUT: [] }
   const today = ddmmyyyyBkk(now)
   for (const d of docs) {
     const item: QueueItem = { ...withRef(d), itemType: "request" }
@@ -268,6 +281,9 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
     else if (d.status === "PREPARING") cols.PREPARING.push(item)
     else if (d.status === "READY") cols.READY.push(item)
     else if (d.status === "ISSUING" || d.status === "ISSUE_FAILED") (d.kind === "cutoff" ? cols.NEW : cols.READY).push(item)
+    // Mobile/PM: ของออกไปแล้วรอช่างสรุป = แยกช่อง · สรุปแล้ว = งานสโตร์ (ตัดสต๊อก) เรียงตามเวลาที่สรุป
+    else if (d.status === "HANDED_OUT") cols.HANDED_OUT.push(item)
+    else if (d.status === "SUMMARIZED" || d.status === "SETTLING" || d.status === "SETTLE_FAILED") cols.NEW.push({ ...item, createdAt: d.summary?.at ?? d.createdAt })
     else if (ddmmyyyyBkk(d.updatedAt) === today) cols.DONE_TODAY.push(item)
     for (const r of d.returns) {
       if (r.status === "RETURN_REQUESTED" || r.status === "RETURNING" || r.status === "RETURN_FAILED") {
@@ -278,6 +294,7 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
   return {
     NEW: queueSort(cols.NEW), PREPARING: queueSort(cols.PREPARING), READY: queueSort(cols.READY),
     DONE_TODAY: [...cols.DONE_TODAY].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()),
+    HANDED_OUT: handedOutSort(cols.HANDED_OUT),
   }
 }
 
@@ -353,13 +370,14 @@ export async function listAtmsKeyed(inventoryId: number, now: Date): Promise<Atm
   }
 
   const mine = await (await swCol()).find(
-    { inventoryId, "atms.gmId": { $ne: null } },
-    { projection: { _id: 0, "atms.gmId": 1, "returns.atms.gmId": 1 } },
+    { inventoryId, $or: [{ "atms.gmId": { $ne: null } }, { settleGroups: { $elemMatch: { "atms.gmId": { $ne: null } } } }] },
+    { projection: { _id: 0, "atms.gmId": 1, "returns.atms.gmId": 1, "settleGroups.atms.gmId": 1 } },
   ).toArray()
   const own = new Set<number>()
   for (const d of mine) {
     if (d.atms?.gmId != null) own.add(d.atms.gmId)
     for (const x of d.returns ?? []) if (x.atms?.gmId != null) own.add(x.atms.gmId)
+    for (const g of d.settleGroups ?? []) if (g.atms?.gmId != null) own.add(g.atms.gmId) // WD ต่อทะเบียนของ Mobile/PM
   }
   return rows.filter((r) => r.id == null || !own.has(r.id))
 }

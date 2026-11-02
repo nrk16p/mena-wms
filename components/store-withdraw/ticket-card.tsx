@@ -1,9 +1,12 @@
 "use client"
 
+import { useState } from "react"
 import { AlertTriangle, Flag, Loader2, Undo2 } from "lucide-react"
-import { WORK_TYPE_LABEL, waitMinutes, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { WORK_TYPE_LABEL, isPendingFlow, waitMinutes, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { lateMinutes, lateText, leftoverTotal } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import { StatusChip } from "./status-chip"
+import { SummaryView } from "./summary-dialog"
 import { itemKey, type QItem, type QKeyed } from "./queue-types"
 
 export const WAIT_WARN_MIN = 30
@@ -19,6 +22,8 @@ export type CardActions = {
   /** ปิดใบที่ WD เกิดใน ATMS แล้วแต่ไปต่อไม่ได้ (แก้ใน ATMS เองแล้ว) */
   closeManual: (i: QItem) => void
   acceptReturn: (i: QItem) => void
+  /** Mobile/PM: ตัดสต๊อกหลังช่างสรุป (returnConfirmed = ติ๊กรับของคืนแล้ว) */
+  settle: (i: QItem, returnConfirmed: boolean) => void
   /** เปิดดูการ์ด — คิวใช้ตรวจใบกับ ATMS (ไม่บังคับ) */
   open?: (i: QItem) => void
 }
@@ -38,16 +43,24 @@ function waitText(min: number) {
 }
 
 export function TicketCard({ item, now, busy, actions, column }: {
-  item: QItem; now: Date; busy: BusyKind | null; actions: CardActions; column: "NEW" | "PREPARING" | "READY" | "DONE_TODAY"
+  item: QItem; now: Date; busy: BusyKind | null; actions: CardActions; column: "NEW" | "PREPARING" | "READY" | "DONE_TODAY" | "HANDED_OUT"
 }) {
   const isReturn = item.itemType === "return" && !!item.return
   const ret = item.return
   const done = column === "DONE_TODAY"
+  const waiting = column === "HANDED_OUT" // ของออกไปแล้ว รอช่างสรุป — ไม่ใช่งานสโตร์
+  // Mobile/PM ที่ช่างสรุปแล้ว: ตัดสต๊อก (WD ต่อทะเบียน) · error/progress อยู่ในกลุ่ม
+  const settleItem = !isReturn && isPendingFlow(item) && (item.status === "SUMMARIZED" || item.status === "SETTLING" || item.status === "SETTLE_FAILED")
+  const showSummary = !isReturn && !!item.summary && (settleItem || item.status === "SETTLED")
+  const groupErr = (item.settleGroups ?? []).find((g) => g.status !== "DONE" && g.atms.error)?.atms.error ?? null
+  const leftover = leftoverTotal(item.summary)
+  const [returnOk, setReturnOk] = useState(false)
   const mins = waitMinutes(new Date(item.createdAt), now)
-  const late = !done && mins > WAIT_WARN_MIN
-  const atms = isReturn ? ret!.atms : item.atms
-  const failed = isReturn ? ret!.status === "RETURN_FAILED" : item.status === "ISSUE_FAILED"
-  const issuing = busy === "issue" || (isReturn ? ret!.status === "RETURNING" : item.status === "ISSUING")
+  const late = !done && !waiting && mins > WAIT_WARN_MIN
+  const dueLate = lateMinutes(item, now)
+  const atms = isReturn ? ret!.atms : settleItem ? { ...item.atms, error: groupErr } : item.atms
+  const failed = isReturn ? ret!.status === "RETURN_FAILED" : item.status === "ISSUE_FAILED" || item.status === "SETTLE_FAILED"
+  const issuing = busy === "issue" || (isReturn ? ret!.status === "RETURNING" : item.status === "ISSUING" || item.status === "SETTLING")
   const stale = !busy && issuing && now.getTime() - new Date(item.updatedAt).getTime() > STUCK_MS
   // ยิง ATMS ไปแล้วไม่ได้คำตอบ: ใบค้าง ISSUING พร้อมข้อความ · ปุ่มลองใหม่เปิดเมื่อครบ 5 นาที (stale) กันตัดซ้ำ
   const unknown = !busy && issuing && !!atms.error
@@ -76,7 +89,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
           <p className="flex flex-wrap items-center gap-x-1.5 text-sm font-semibold text-gray-900 dark:text-white">
             {isReturn && <Undo2 size={14} className="text-purple-600" aria-label="ใบคืน" />}
             <span>{item.no}</span>
-            <span className="font-normal text-gray-500">· {item.plate}</span>
+            {item.plate && <span className="font-normal text-gray-500">· {item.plate}</span>}
           </p>
           <p className="text-xs text-gray-500">
             {isReturn ? "ขอคืนอะไหล่" : item.kind === "cutoff" ? "เบิกตัดยอด" : "เบิกจากสต๊อก"}
@@ -90,10 +103,15 @@ export function TicketCard({ item, now, busy, actions, column }: {
           {item.urgent && !done && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">รถจอดรอ</span>}
           {done
             ? <span className="text-xs text-gray-500">{hm(item.updatedAt)}</span>
+            : waiting
+              ? (dueLate > 0
+                  ? <span data-testid="due-late" className="whitespace-nowrap rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">เลยกำหนดสรุป {lateText(dueLate)}</span>
+                  : <span data-testid="due" className="whitespace-nowrap text-xs text-gray-500">สรุปภายใน {dueText(item.summaryDueAt)}</span>)
             : <span data-testid="wait" data-late={late ? "1" : "0"} className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${late ? "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300" : "text-gray-500"}`}>{waitText(mins)}</span>}
         </div>
       </div>
 
+      {showSummary ? <SummaryView req={item} compact /> : (
       <ul className="mt-2 divide-y divide-[#EEF2F0] text-sm dark:divide-white/10">
         {lines.slice(0, 5).map((l) => (
           <li key={l.key} className="flex items-start justify-between gap-3 py-1">
@@ -103,6 +121,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
         ))}
         {lines.length > 5 && <li className="py-1 text-xs text-gray-500">และอีก {lines.length - 5} รายการ</li>}
       </ul>
+      )}
       {item.remark && !isReturn && <p className="mt-1.5 text-xs text-gray-500">หมายเหตุ: {item.remark}</p>}
 
       {atms.code && <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">เลข {isReturn ? "DD" : "WD"}: <span data-testid="wd-code" className="font-semibold">{atms.code}</span></p>}
@@ -119,7 +138,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
         </p>
       )}
 
-      {done ? (
+      {done || waiting ? (
         <div className="mt-2"><StatusChip status={item.status} /></div>
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -133,6 +152,18 @@ export function TicketCard({ item, now, busy, actions, column }: {
             </span>
           ) : isReturn ? (
             <button type="button" className={primary} onClick={() => actions.acceptReturn(item)}>{failed || stale ? "ลองใหม่" : "รับคืน"}</button>
+          ) : settleItem ? (
+            <div className="flex w-full flex-col gap-2">
+              {leftover > 0 && (
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-800 dark:text-gray-200">
+                  <input type="checkbox" data-testid="return-ok" checked={returnOk} onChange={(e) => setReturnOk(e.target.checked)} className="h-4 w-4 accent-[#1B8C4B]" />
+                  รับของคืนแล้ว
+                </label>
+              )}
+              <button type="button" data-testid="settle" className={primary} disabled={leftover > 0 && !returnOk} onClick={() => actions.settle(item, returnOk)}>
+                {failed || stale ? "ลองใหม่" : "ตัดสต๊อก"}
+              </button>
+            </div>
           ) : failed || stale ? (
             <>
               <button type="button" className={primary} onClick={() => actions.issue(item)}>ลองใหม่</button>
@@ -163,6 +194,12 @@ export function TicketCard({ item, now, busy, actions, column }: {
       )}
     </li>
   )
+}
+
+const dueText = (iso: string | Date | null | undefined) => {
+  if (!iso) return "-"
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? "-" : d.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
 export function KeyedCard({ row }: { row: QKeyed }) {

@@ -10,6 +10,12 @@ const META: Record<SwStatus, { label: string; cls: string }> = {
   RECEIVED:     { label: "รับแล้ว",           cls: "bg-green-50 text-green-700 ring-green-200 dark:bg-green-500/10 dark:text-green-300 dark:ring-green-500/30" },
   REJECTED:     { label: "สโตร์ปฏิเสธ",       cls: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30" },
   CANCELLED:    { label: "ยกเลิกแล้ว",        cls: "bg-gray-100 text-gray-600 ring-gray-200 dark:bg-white/5 dark:text-gray-400 dark:ring-white/10" },
+  // Mobile/PM แบบสรุปทีหลัง
+  HANDED_OUT:    { label: "เบิกแล้ว รอสรุปการใช้", cls: "bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/30" },
+  SUMMARIZED:    { label: "รอตัดสต๊อก",         cls: "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30" },
+  SETTLING:      { label: "กำลังตัดใน ATMS",     cls: "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/30" },
+  SETTLE_FAILED: { label: "ตัดสต๊อกไม่สำเร็จ",    cls: "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30" },
+  SETTLED:       { label: "ตัดแล้ว",             cls: "bg-green-50 text-green-700 ring-green-200 dark:bg-green-500/10 dark:text-green-300 dark:ring-green-500/30" },
 }
 
 export const statusLabel = (s: SwStatus) => META[s]?.label ?? s

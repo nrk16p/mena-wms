@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { Plus, PackageMinus, RefreshCw, Undo2 } from "lucide-react"
+import { CalendarClock, ClipboardCheck, Plus, PackageMinus, RefreshCw, Undo2 } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { RETURN_REASONS, WORK_TYPE_LABEL, returnableQty, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, returnableQty, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { lateMinutes, lateText } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
 import { StatusChip } from "./status-chip"
+import { ExtendDueDialog, SummaryDialog, SummaryView, type PendingReq } from "./summary-dialog"
 
-type Req = Omit<SwRequest, "createdAt" | "updatedAt" | "returns"> & {
+type Req = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "summaryDueAt" | "summary" | "settleGroups"> & PendingReq & {
   createdAt: string
   returns: { status: string; lines: { lineIndex: number; qty: number }[] }[]
 }
@@ -45,6 +47,9 @@ export function MyRequestsPage() {
   const [error, setError] = useState("")
   const [busyNo, setBusyNo] = useState("")
   const [ret, setRet] = useState<Req | null>(null)
+  const [sum, setSum] = useState<Req | null>(null)
+  const [ext, setExt] = useState<Req | null>(null)
+  const [now, setNow] = useState(() => new Date())
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   const inflight = useRef<AbortController | null>(null)
 
@@ -57,6 +62,7 @@ export function MyRequestsPage() {
       const j = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(j.error || "โหลดรายการไม่สำเร็จ")
       setItems(j.items ?? [])
+      setNow(new Date())
       setError("")
     } catch (e) {
       if (!ctl.signal.aborted) setError(e instanceof Error ? e.message : "โหลดรายการไม่สำเร็จ")
@@ -122,12 +128,15 @@ export function MyRequestsPage() {
         <ul className="space-y-3">
           {items.map((r) => {
             const busy = busyNo === r.no
-            const canReturn = r.status === "ISSUED" || r.status === "RECEIVED"
+            const pending = isPendingFlow(r)
+            // Mobile/PM ไม่มีขอคืน — ของเหลือกรอกตอนสรุปการใช้
+            const canReturn = !pending && (r.status === "ISSUED" || r.status === "RECEIVED")
+            const late = lateMinutes(r, now)
             return (
               <li key={r.no} className="rounded-2xl border border-[#EEF2F0] bg-white p-4 dark:border-white/10 dark:bg-[#161922]">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{r.no} <span className="font-normal text-gray-500">· {r.plate}</span></p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{r.no}{r.plate && <span className="font-normal text-gray-500"> · {r.plate}</span>}</p>
                     <p className="text-xs text-gray-500">
                       <span data-testid="worktype" className="mr-1.5 rounded-full bg-[#1B8C4B]/10 px-1.5 py-0.5 text-[11px] font-medium text-[#14532d] dark:text-emerald-300">{WORK_TYPE_LABEL[r.workType ?? workTypeFromKind(r.kind)]}</span>
                       {r.kind === "cutoff" ? "เบิกตัดยอด" : "เบิกจากสต๊อก"} · {r.inventoryName} · {fmt(r.createdAt)}
@@ -144,6 +153,13 @@ export function MyRequestsPage() {
                   <p className="mt-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">เหตุผลที่สโตร์ปฏิเสธ: {r.rejectReason}</p>
                 )}
                 {r.status === "ISSUE_FAILED" && <p className="mt-2 text-xs text-red-600">สโตร์กำลังตามเรื่องกับ ATMS อยู่ ไม่ต้องยื่นใหม่</p>}
+                {pending && r.summaryDueAt && (r.status === "NEW" || r.status === "PREPARING" || r.status === "READY" || r.status === "HANDED_OUT") && (
+                  <p data-testid="due" data-late={late > 0 ? "1" : "0"} className={`mt-1.5 text-xs ${late > 0 ? "font-medium text-red-600" : "text-gray-600 dark:text-gray-300"}`}>
+                    กำหนดสรุปยอด {fmt(r.summaryDueAt)}{(r.summaryExtensions ?? 0) > 0 && ` (เลื่อนแล้ว ${r.summaryExtensions} ครั้ง)`}
+                    {late > 0 && <span className="ml-1.5 rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">เลยกำหนดสรุป {lateText(late)}</span>}
+                  </p>
+                )}
+                {r.status === "SETTLE_FAILED" && <p className="mt-2 text-xs text-red-600">สโตร์กำลังตามเรื่องกับ ATMS อยู่ ไม่ต้องสรุปใหม่</p>}
 
                 <ul className="mt-2 divide-y divide-[#EEF2F0] text-sm dark:divide-white/10">
                   {r.lines.map((l: SwLine) => (
@@ -157,8 +173,12 @@ export function MyRequestsPage() {
                   ))}
                 </ul>
 
-                {(r.status === "NEW" || r.status === "ISSUED" || canReturn) && (
+                {r.summary && <SummaryView req={r} />}
+
+                {(r.status === "NEW" || r.status === "ISSUED" || canReturn || (pending && r.status === "HANDED_OUT")) && (
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {pending && r.status === "HANDED_OUT" && <button type="button" data-testid="summary-btn" disabled={busy} onClick={() => setSum(r)} className="inline-flex items-center gap-1.5 rounded-xl bg-[#1B8C4B] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-60"><ClipboardCheck size={14} />สรุปการใช้</button>}
+                    {pending && r.status === "HANDED_OUT" && <button type="button" data-testid="extend-btn" disabled={busy} onClick={() => setExt(r)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><CalendarClock size={14} />เลื่อนกำหนด</button>}
                     {r.status === "NEW" && <button type="button" disabled={busy} onClick={() => cancel(r)} className="rounded-xl border border-red-200 px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-500/30 dark:hover:bg-red-500/10">ยกเลิก</button>}
                     {r.status === "ISSUED" && r.kind === "stock" && <button type="button" disabled={busy} onClick={() => receive(r)} className="rounded-xl bg-[#1B8C4B] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-60">รับแล้ว</button>}
                     {canReturn && <button type="button" disabled={busy} onClick={() => setRet(r)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><Undo2 size={14} />ขอคืน</button>}
@@ -171,6 +191,8 @@ export function MyRequestsPage() {
       )}
 
       {ret && <ReturnDialog req={ret} onClose={() => setRet(null)} onDone={() => { setRet(null); load() }} />}
+      {sum && <SummaryDialog req={sum} onClose={() => setSum(null)} onDone={() => { setSum(null); load() }} />}
+      {ext && <ExtendDueDialog req={ext} onClose={() => setExt(null)} onDone={() => { setExt(null); load() }} />}
     </div>
   )
 }

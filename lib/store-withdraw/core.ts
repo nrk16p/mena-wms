@@ -2,12 +2,27 @@
 // ไม่แตะ DB/env เพื่อให้ทดสอบตรง ๆ ด้วย tsx ได้
 import type { SwAction, SwKind, SwLine, SwRef, SwRequest, SwStatus, SwWorkType } from "./types"
 
-export function nextStatus(req: Pick<SwRequest, "status" | "kind"> & { atms?: { gmId: number | null } }, action: SwAction): SwStatus | null {
+/** Mobile/PM แบบ pending (ส่งของก่อน สรุปแล้วค่อยตัด) = ใบ mobile_pm ที่มีกำหนดสรุปยอด · ใบ mobile_pm เก่าก่อนมีฟีเจอร์ใช้ขั้นตอนเดิม */
+export const isPendingFlow = (r: { workType?: SwWorkType; summaryDueAt?: Date | string | null }): boolean =>
+  r.workType === "mobile_pm" && r.summaryDueAt != null
+
+export function nextStatus(
+  req: Pick<SwRequest, "status" | "kind"> & { atms?: { gmId: number | null }; workType?: SwWorkType; summaryDueAt?: Date | string | null },
+  action: SwAction,
+): SwStatus | null {
   const { status, kind } = req
+  const pending = isPendingFlow(req)
   switch (action) {
     case "claim": return status === "NEW" ? "PREPARING" : null
     case "ready": return status === "PREPARING" ? "READY" : null
+    // pending: ส่งของ = ไม่แตะ ATMS · ใบ pending จะไม่มีทางเข้า ISSUING (กันยิง ATMS ผิดขั้น)
+    case "handOut": return pending && status === "READY" ? "HANDED_OUT" : null
+    case "summarize": return pending && status === "HANDED_OUT" ? "SUMMARIZED" : null
+    case "settle": return pending && (status === "SUMMARIZED" || status === "SETTLE_FAILED") ? "SETTLING" : null
+    case "settled": return status === "SETTLING" ? "SETTLED" : null
+    case "settleFailed": return status === "SETTLING" ? "SETTLE_FAILED" : null
     case "issue":
+      if (pending) return null
       if (status === "READY" || status === "ISSUE_FAILED") return "ISSUING"
       if (status === "NEW" && kind === "cutoff") return "ISSUING" // ตัดยอดข้ามขั้นจัดของได้
       return null

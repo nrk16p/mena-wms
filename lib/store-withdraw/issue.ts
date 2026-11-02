@@ -11,7 +11,8 @@ export const STUCK_MS = 5 * 60_000
 type WireProgress = { gm_id?: number | null; done?: number[]; approved?: boolean; code?: string | null }
 type Reply = { progress?: WireProgress; detail?: unknown }
 
-const MSG = {
+/** ข้อความไทยของงานส่ง ATMS — settle.ts ใช้ร่วม */
+export const MSG = {
   noCreds: "ยังไม่ได้ผูกบัญชี ATMS ไปผูกบัญชีก่อน แล้วกดส่งใหม่",
   badAuth: "ATMS ไม่รับบัญชีนี้ (รหัสผ่านอาจเปลี่ยน) ผูกบัญชีใหม่ แล้วกดส่งใหม่",
   config: NCAC_CONFIG_MSG,
@@ -29,10 +30,10 @@ const MSG = {
   partial: "ATMS ทำไม่ครบ กดส่งใหม่เพื่อทำต่อ",
 } as const
 
-const toWire = (a: AtmsProgress) =>
+export const toWire = (a: AtmsProgress) =>
   a.gmId == null && a.done.length === 0 ? undefined : { gm_id: a.gmId, done: a.done, approved: a.approved, code: a.code }
 
-function fromWire(p: WireProgress | undefined, prev: AtmsProgress): AtmsProgress {
+export function fromWire(p: WireProgress | undefined, prev: AtmsProgress): AtmsProgress {
   if (!p) return prev
   return { ...prev, gmId: p.gm_id ?? prev.gmId, done: p.done ?? prev.done, approved: p.approved ?? prev.approved, code: p.code ?? prev.code }
 }
@@ -49,10 +50,10 @@ function detailText(d: unknown, fallback: string): string {
 
 const headerRemark = (r: SwRequest) => [r.mrCode, r.ref?.code, r.plate, r.remark].map((s) => (s ?? "").trim()).filter(Boolean).join(" ")
 
-type Outcome = { kind: "ok" | "partial" | "auth" | "config" | "error"; atms: AtmsProgress }
+export type Outcome = { kind: "ok" | "partial" | "auth" | "config" | "error"; atms: AtmsProgress }
 
 /** แปลงผลตอบกลับของ api-ncac เป็นสถานะ progress ใหม่ — ใช้ร่วมกันทั้ง issue และ return */
-function interpret(status: number, data: Reply | null, prev: AtmsProgress): Outcome {
+export function interpret(status: number, data: Reply | null, prev: AtmsProgress): Outcome {
   const base = { ...prev, needCreds: false }
   if (status >= 200 && status < 300) return { kind: "ok", atms: { ...fromWire(data?.progress, base), error: null } }
   if (status === 409) return { kind: "partial", atms: { ...fromWire(data?.progress, base), error: detailText(data?.detail, MSG.partial) } }
@@ -62,7 +63,7 @@ function interpret(status: number, data: Reply | null, prev: AtmsProgress): Outc
   return { kind: "error", atms: { ...base, error: detailText(data?.detail, `ATMS ตอบกลับผิดปกติ (${status}) ลองใหม่อีกครั้ง`) } }
 }
 
-async function callNcac(...args: Parameters<typeof ncac>): Promise<{ status: number; data: Reply | null } | null> {
+export async function callNcac(...args: Parameters<typeof ncac>): Promise<{ status: number; data: Reply | null } | null> {
   try {
     const r = await ncac<Reply | null>(...args)
     return r

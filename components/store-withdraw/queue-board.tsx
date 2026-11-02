@@ -5,11 +5,12 @@ import { Bell, BellOff, KeyRound, Loader2, MoreVertical, RefreshCw, Store } from
 import { swalConfirm, swalError, swalTextInput, swalToast } from "@/lib/swal"
 import { AtmsLinkDialog } from "./atms-link-dialog"
 import { PrepareDialog } from "./prepare-dialog"
+import { isPendingFlow } from "@/lib/store-withdraw/core"
 import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-types"
 import { KeyedCard, TicketCard, type BusyKind, type CardActions } from "./ticket-card"
 
 type Opt = { id: number; name: string }
-type ColKey = "NEW" | "PREPARING" | "READY" | "DONE_TODAY"
+type ColKey = "NEW" | "PREPARING" | "READY" | "DONE_TODAY" | "HANDED_OUT"
 
 const POLL_MS = 10_000
 const LATKRABANG = 4
@@ -19,6 +20,8 @@ const COLS: { key: ColKey; title: string; dot: string }[] = [
   { key: "PREPARING", title: "กำลังจัด", dot: "bg-blue-500" },
   { key: "READY", title: "พร้อมส่ง", dot: "bg-emerald-500" },
   { key: "DONE_TODAY", title: "ส่งแล้ววันนี้", dot: "bg-gray-400" },
+  // Mobile/PM: ของออกไปแล้ว รอช่างสรุป (เลยกำหนดอยู่บนสุด) · สรุปแล้วจะย้ายไปช่องใหม่เป็นงานตัดสต๊อก
+  { key: "HANDED_OUT", title: "รอช่างสรุป", dot: "bg-orange-500" },
 ]
 
 // ปิด Radix dialog แล้วค่อยเปิด swal: ถ้าเปิดซ้อนในจังหวะเดียวกัน swal จะจำ aria-hidden ของหน้าหลักไว้แล้วคืนค่าทับตอนปิด
@@ -189,7 +192,42 @@ export function QueueBoard() {
     finally { setBusyKey(k, null) }
   }
 
+  // Mobile/PM: ส่งของ = ไม่แตะ ATMS จึงไม่ต้องผูกบัญชี
+  const handOut = async (i: QItem) => {
+    const k = itemKey(i)
+    setBusyKey(k, "other")
+    try {
+      await api(`/api/store-withdraw/${i.no}/issue`, { method: "POST" })
+      await swalToast("success", "ส่งของแล้ว ใบนี้รอช่างสรุปการใช้")
+      await load()
+    } catch (e) { await swalToast("warning", errMsg(e, "ส่งของไม่สำเร็จ")); await load() }
+    finally { setBusyKey(k, null) }
+  }
+
+  const settleStock = async (i: QItem, returnConfirmed: boolean) => {
+    if (!linkRef.current?.linked) { askLink(() => { void settleStock(i, returnConfirmed) }); return }
+    const k = itemKey(i)
+    setBusyKey(k, "issue")
+    try {
+      const res = await api(`/api/store-withdraw/${i.no}/settle`, { method: "POST", body: { returnConfirmed } })
+      const r = res.request as QItem
+      const groups = r.settleGroups ?? []
+      const err = groups.find((g) => g.status !== "DONE" && g.atms.error)?.atms
+      if (r.status === "SETTLED") await swalToast("success", groups.length ? `ตัดสต๊อกแล้ว ${groups.map((g) => g.atms.code).filter(Boolean).join(", ")}` : "ยืนยันแล้ว ไม่มีของต้องตัด (คืนทั้งหมด)")
+      else if (r.status === "SETTLING") await swalToast("warning", err?.error || "ยังไม่รู้ผลจาก ATMS รอ 5 นาทีแล้วกดลองใหม่")
+      else if (r.status === "SETTLE_FAILED") {
+        if (err?.needCreds) { setLink({ linked: false }); askLink(() => { void settleStock(i, returnConfirmed) }) }
+        else await swalToast("error", err?.error || "ตัดสต๊อกใน ATMS ไม่สำเร็จ")
+      }
+      await load()
+    } catch (e) {
+      await swalToast("warning", errMsg(e, "ตัดสต๊อกไม่สำเร็จ"))
+      await load()
+    } finally { setBusyKey(k, null) }
+  }
+
   const issue = async (i: QItem) => {
+    if (isPendingFlow(i) && i.status === "READY") { void handOut(i); return }
     if (!linkRef.current?.linked) { askLink(() => { void issue(i) }); return }
     if (i.kind === "cutoff" && i.status === "NEW") {
       const c = await swalConfirm(`ตัดยอดใบ ${i.no}?`, "ตัดสต๊อกใน ATMS ทันที ย้อนไม่ได้")
@@ -270,7 +308,8 @@ export function QueueBoard() {
   // เปิดดูใบ → เทียบกับ ATMS (ห่างกันอย่างน้อย 60 วิต่อใบ · พลาดก็เงียบ ไม่รบกวนงานหลัก)
   const lastCheck = useRef<Map<string, number>>(new Map())
   const open = (i: QItem) => {
-    if (i.itemType === "return" || i.atms.gmId == null || (i.status !== "ISSUED" && i.status !== "RECEIVED")) return
+    const settled = i.status === "SETTLED" && (i.settleGroups ?? []).some((g) => g.atms.gmId != null)
+    if (i.itemType === "return" || (!settled && (i.atms.gmId == null || (i.status !== "ISSUED" && i.status !== "RECEIVED")))) return
     const t = Date.now()
     if (t - (lastCheck.current.get(i.no) ?? 0) < 60_000) return
     lastCheck.current.set(i.no, t)
@@ -279,8 +318,9 @@ export function QueueBoard() {
       .catch(() => {})
   }
 
-  const actions: CardActions = { claim, prepare: setPrep, issue, reject, closeManual, acceptReturn, open }
-  const total = data ? COLS.reduce((n, c) => n + data.columns[c.key].length, 0) : 0
+  const actions: CardActions = { claim, prepare: setPrep, issue, reject, closeManual, acceptReturn, settle: settleStock, open }
+  const colItems = (k: ColKey) => (data?.columns[k] ?? []) as QItem[]
+  const total = data ? COLS.reduce((n, c) => n + colItems(c.key).length, 0) : 0
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 p-4 sm:p-6">
@@ -324,11 +364,11 @@ export function QueueBoard() {
       {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
 
       {!data ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-busy="true">{[0, 1, 2, 3].map((i) => <div key={i} className="h-48 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/5" />)}</div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5" aria-busy="true">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="h-48 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/5" />)}</div>
       ) : (
-        <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="board" data-total={total}>
+        <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-5" data-testid="board" data-total={total}>
           {COLS.map((c) => {
-            const items = data.columns[c.key]
+            const items = colItems(c.key)
             const keyed = c.key === "DONE_TODAY" ? data.atmsKeyed : []
             return (
               <section key={c.key} data-col={c.key} className="min-w-0 rounded-2xl bg-[#F6F8F7] p-3 dark:bg-white/[0.03]">

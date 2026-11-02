@@ -225,7 +225,8 @@ async function main() {
   const rp = await svc.createRequest(body({ type: "pr", code: "LBPR26100561", id: 777 }), actor)
   eq(rp.ref, { type: "pr", code: "LBPR26100561", id: 777 })
   eq((await sw.findOne({ no: rp.no }))!.ref, { type: "pr", code: "LBPR26100561", id: 777 })
-  const wtBody = (o: Json) => ({ ...body(), kind: undefined, ...o })
+  // mobile_pm ต้องมีกำหนดสรุปยอด (งานอื่นไม่สนใจ field นี้)
+  const wtBody = (o: Json) => ({ ...body(), kind: undefined, summaryDueAt: new Date(Date.now() + 86_400_000).toISOString(), ...o })
   eq([r1.kind, r1.workType], ["stock", "garage_in"]) // ไม่ส่ง workType: stock → อู่ใน
   eq((await svc.createRequest({ ...body(), kind: "cutoff" }, actor)).workType, "garage_out")
   for (const [w, k] of [["garage_in", "stock"], ["garage_out", "cutoff"], ["mobile_pm", "stock"]] as const) {

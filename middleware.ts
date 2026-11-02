@@ -21,11 +21,11 @@ const MOBILE_API_PREFIXES = [
 const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\/[^/]+\/push-next-garage$/]
 
 // เบิกอะไหล่หน้าร้านคลัง: ระบบภายนอกเรียกฝั่งผู้ขอได้ด้วย x-api-key (STORE_WITHDRAW_API_KEYS · ไม่ตั้ง = ATMS_API_KEY) + x-user (อีเมล)
-// งานของสโตร์ (claim/lines/ready/issue/reject/check/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
+// งานของสโตร์ (claim/lines/ready/issue/reject/check/settle/accept/atms-link/queue) ต้องใช้ session เท่านั้น — route ตรวจกุญแจซ้ำเองด้วย timingSafeEqual
 // /api/store-withdraw/drift-tick = งานตั้งเวลาจาก api-ncac ใช้ x-api-key = STORE_WITHDRAW_TICK_KEY (ไม่ตั้ง = NCAC_API_KEY) อย่างเดียว (ผ่านฟังก์ชันนี้โดยไม่ต้องมี session · route ตรวจกุญแจซ้ำ)
 const STORE_WITHDRAW_SESSION_ONLY = [
   /^\/api\/store-withdraw\/(queue|atms-link|live-stock)$/,
-  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check)$/,
+  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check|settle)$/,
   /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]
 

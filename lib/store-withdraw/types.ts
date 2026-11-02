@@ -7,6 +7,8 @@ export type SwWorkType = "garage_in" | "garage_out" | "mobile_pm"
 export type SwStatus =
   | "NEW" | "PREPARING" | "READY" | "ISSUING" | "ISSUED"
   | "ISSUE_FAILED" | "RECEIVED" | "REJECTED" | "CANCELLED"
+  // Mobile/PM แบบ pending: ส่งของโดยยังไม่ตัด ATMS → ช่างสรุปการใช้ → สโตร์ตัดสต๊อก (WD แยกใบต่อทะเบียน)
+  | "HANDED_OUT" | "SUMMARIZED" | "SETTLING" | "SETTLE_FAILED" | "SETTLED"
 
 export type SwLine = {
   skuId: number
@@ -48,6 +50,29 @@ export type SwReturn = {
   createdAt: Date
 }
 
+/** ช่างสรุปว่าใช้ของบรรทัดไหนกับรถคันไหน · MR ไหน · ประเภทการซ่อมไหน */
+export type SwUsage = { lineIndex: number; plate: string; mrCode: string; mrItemId: number; mrItemLabel: string; qty: number }
+
+/** สรุปการใช้ของใบ Mobile/PM · returns = ของเหลือต่อบรรทัด (เบิก − ใช้) คำนวณให้ ไม่ต้องกรอก */
+export type SwSummary = {
+  usages: SwUsage[]
+  returns: { lineIndex: number; qty: number }[]
+  note: string
+  by: { email: string; name: string }
+  at: Date
+}
+
+/** WD หนึ่งใบต่อทะเบียน · เลขและบรรทัดถูกบันทึกตอนกดตัดครั้งแรก ลองใหม่ได้ค่าเดิมเสมอ */
+export type SwSettleGroup = {
+  n: number               // ลำดับกลุ่ม เริ่ม 1 (เรียงตามทะเบียน)
+  plate: string
+  token: string           // remark_token = `${no}-${n}`
+  mrCodes: string[]
+  lines: { lineIndex: number; mrItemId: number; qty: number }[]
+  status: "PENDING" | "DONE"
+  atms: AtmsProgress
+}
+
 /** ใบ PO / DD / PR ที่ผู้ขออ้างอิง (ไม่บังคับ) */
 export type SwRef = { type: "po" | "dd" | "pr"; code: string; id: number | null }
 
@@ -74,8 +99,16 @@ export type SwRequest = {
   rejectReason: string | null
   atms: AtmsProgress
   returns: SwReturn[]
+  /** Mobile/PM: กำหนดสรุปยอด (ใบที่มี field นี้ = ใช้ขั้นตอน pending) · ใบเก่า/งานอื่นไม่มี */
+  summaryDueAt?: Date | null
+  summaryExtensions?: number
+  summary?: SwSummary | null
+  settleGroups?: SwSettleGroup[]
+  returnConfirmedBy?: { email: string; name: string } | null
+  returnConfirmedAt?: Date | null
   createdAt: Date
   updatedAt: Date
 }
 
 export type SwAction = "claim" | "ready" | "issue" | "issued" | "issueFailed" | "receive" | "reject" | "closeManual" | "cancel"
+  | "handOut" | "summarize" | "settle" | "settled" | "settleFailed"

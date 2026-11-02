@@ -124,7 +124,8 @@ expect "ref pr + workType อนุมานจาก kind=stock → garage_in" 
 code 200 "ยกเลิกใบ pr" -H "$R" -X POST "$B/$NPR/cancel"
 echo "== ประเภทงาน (workType)"
 WL='"inventoryId":4,"pickToId":7,"plate":"เบอร์ 1234","lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":1}]'
-code 201 "workType=mobile_pm (ไม่ส่ง kind)" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",$WL}"
+DUE=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=2)).isoformat())")
+code 201 "workType=mobile_pm (ไม่ส่ง kind)" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",\"summaryDueAt\":\"$DUE\",$WL}"
 NW1=$(jget "d['no']")
 code 200 "ดู mobile_pm" -H "$R" "$B/$NW1"
 expect "mobile_pm → kind stock · ทะเบียนเป็นเบอร์รถได้" "d['request']['workType']=='mobile_pm' and d['request']['kind']=='stock' and d['request']['plate']=='เบอร์ 1234'"
@@ -327,6 +328,73 @@ code 200 "accept คืน" -H "$S" -X POST "$B/$NO/returns/$RID/accept"
 expect "RETURNED + returnedQty=1" "d['request']['returns'][0]['status']=='RETURNED' and d['request']['lines'][0]['returnedQty']==1"
 code 200 "log" -H "$R" "$B/$NO"
 expect "log มีหลายรายการ" "len(d['log'])>=5"
+
+echo "== Mobile/PM แบบสรุปทีหลัง (ส่งของไม่ตัด ATMS → สรุปการใช้ → ตัดสต๊อก WD ต่อทะเบียน)"
+PL='"lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":3},{"skuId":502,"skuCode":"FLT-002","skuName":"ไส้กรอง","requestedQty":1}]'
+PAST=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=1)).isoformat())")
+FAR=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=61)).isoformat())")
+DUE2=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=5)).isoformat())")
+code 400 "mobile_pm ไม่มีกำหนดสรุป" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",\"inventoryId\":4,\"pickToId\":7,$PL}"
+expect "ข้อความไทยบอกให้ใส่กำหนด" "'กำหนดสรุปยอด' in d['error']"
+code 400 "กำหนดสรุปเป็นอดีต" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",\"summaryDueAt\":\"$PAST\",\"inventoryId\":4,\"pickToId\":7,$PL}"
+code 400 "กำหนดสรุปเกิน 60 วัน" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",\"summaryDueAt\":\"$FAR\",\"inventoryId\":4,\"pickToId\":7,$PL}"
+code 400 "อู่ในยังต้องมีทะเบียน" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"garage_in\",\"inventoryId\":4,\"pickToId\":7,$PL}"
+code 201 "mobile_pm ไม่มีทะเบียน/MR" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",\"summaryDueAt\":\"$DUE\",\"inventoryId\":4,\"pickToId\":7,$PL}"
+NP=$(jget "d['no']")
+code 200 "ดูใบ mobile_pm" -H "$R" "$B/$NP"
+expect "plate ว่าง + summaryDueAt + summaryExtensions 0" "d['request']['plate']=='' and d['request']['summaryDueAt'] and d['request']['summaryExtensions']==0"
+code 200 "claim mobile_pm" -H "$S" -X POST "$B/$NP/claim"
+code 200 "ready mobile_pm" -H "$S" -X POST "$B/$NP/ready"
+NI=$(grep -c "POST /atms/withdraw/issue" "$TMP/ncac-calls.log")
+code 200 "ส่งของ mobile_pm" -H "$S" -X POST "$B/$NP/issue"
+expect "HANDED_OUT ไม่มีเลข WD" "d['request']['status']=='HANDED_OUT' and d['request']['atms']['gmId'] is None"
+[ "$(grep -c 'POST /atms/withdraw/issue' "$TMP/ncac-calls.log")" = "$NI" ] && ok "ส่งของ mobile_pm ไม่ยิง ATMS" || bad "ส่งของ mobile_pm ยิง ATMS"
+code 409 "ส่งของซ้ำ" -H "$S" -X POST "$B/$NP/issue"
+code 200 "queue มีช่องรอช่างสรุป" -H "$S" "$B/queue?inv=4"
+expect "ใบอยู่ HANDED_OUT ไม่อยู่ช่องอื่น" "any(r['no']=='$NP' for r in d['columns']['HANDED_OUT']) and not any(r['no']=='$NP' for c in ['NEW','PREPARING','READY','DONE_TODAY'] for r in d['columns'][c])"
+code 409 "mobile_pm ขอคืนไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/returns" -d '{"reasonCode":"unused","lines":[{"lineIndex":0,"qty":1}]}'
+expect "ข้อความ 409 บอกให้สรุปแทน" "'สรุปการใช้' in d['error']"
+code 403 "คนอื่นเลื่อนกำหนดไม่ได้" -H "$R2" -H "$J" -X POST "$B/$NP/extend" -d "{\"summaryDueAt\":\"$DUE2\"}"
+code 400 "เลื่อนไปอดีตไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/extend" -d "{\"summaryDueAt\":\"$PAST\"}"
+code 200 "เลื่อนกำหนด" -H "$R" -H "$J" -X POST "$B/$NP/extend" -d "{\"summaryDueAt\":\"$DUE2\"}"
+expect "summaryExtensions = 1" "d['request']['summaryExtensions']==1 and d['request']['status']=='HANDED_OUT'"
+U1='{"lineIndex":0,"plate":"70-2222","mrCode":"LBMR26110002","mrItemId":22,"mrItemLabel":"LBMR26110002 PM-เบรค : 22","qty":1}'
+U2='{"lineIndex":0,"plate":"70-1111","mrCode":"LBMR26110001","mrItemId":11,"mrItemLabel":"LBMR26110001 PM-ไฟ : 11","qty":1}'
+U3='{"lineIndex":1,"plate":"70-1111","mrCode":"LBMR26110001","mrItemId":11,"mrItemLabel":"LBMR26110001 PM-ไฟ : 11","qty":1}'
+code 403 "คนอื่นสรุปไม่ได้" -H "$R2" -H "$J" -X POST "$B/$NP/summary" -d "{\"usages\":[$U1]}"
+code 400 "สรุปเกินที่เบิก" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[{"lineIndex":1,"plate":"70-1111","mrCode":"M","mrItemId":1,"mrItemLabel":"x","qty":2}]}'
+code 400 "สรุปไม่มี MR" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[{"lineIndex":0,"plate":"70-1111","mrCode":"","mrItemId":1,"mrItemLabel":"x","qty":1}]}'
+code 403 "ผู้ขอตัดสต๊อกเองไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}'
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}')
+if [ "$CODE" = 401 ] || [ "$CODE" = 403 ]; then ok "api-key settle ถูกปฏิเสธ ($CODE)"; else bad "api-key settle ได้ $CODE"; fi
+code 409 "ตัดก่อนสรุปไม่ได้" -H "$S" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}'
+code 200 "สรุปการใช้ 2 คัน" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d "{\"usages\":[$U1,$U2,$U3],\"note\":\"ใช้สองคัน\"}"
+expect "SUMMARIZED + ของเหลือ OIL 1 (คิดให้)" "d['request']['status']=='SUMMARIZED' and d['request']['summary']['returns']==[{'lineIndex':0,'qty':1}]"
+code 409 "สรุปซ้ำไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[]}'
+code 409 "เลื่อนหลังสรุปไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/extend" -d "{\"summaryDueAt\":\"$DUE2\"}"
+code 200 "queue หลังสรุป" -H "$S" "$B/queue?inv=4"
+expect "ใบไปอยู่ช่อง NEW (งานตัดสต๊อก)" "any(r['no']=='$NP' and r['status']=='SUMMARIZED' for r in d['columns']['NEW'])"
+code 400 "ตัดสต๊อกไม่ติ๊กรับของคืน" -H "$S" -H "$J" -X POST "$B/$NP/settle" -d '{}'
+expect "ข้อความบอกให้ติ๊ก" "'รับของคืนแล้ว' in d['error']"
+NI=$(grep -c "POST /atms/withdraw/issue" "$TMP/ncac-calls.log")
+code 200 "ตัดสต๊อก" -H "$S" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}'
+expect "SETTLED + WD 2 ใบ (เรียงทะเบียน 70-1111, 70-2222)" "d['request']['status']=='SETTLED' and [(g['token'],g['plate'],g['status']) for g in d['request']['settleGroups']]==[('$NP-1','70-1111','DONE'),('$NP-2','70-2222','DONE')] and d['request']['returnConfirmedBy']['email']=='store1@menatransport.co.th'"
+[ "$(grep -c 'POST /atms/withdraw/issue' "$TMP/ncac-calls.log")" = "$((NI+2))" ] && ok "ยิง ATMS 2 ครั้ง (หนึ่งครั้งต่อทะเบียน)" || bad "จำนวนครั้งที่ยิง ATMS ไม่ใช่ 2"
+grep -q "remark_token=$NP-1 remark=LBMR26110001 70-1111" "$TMP/ncac-calls.log" && grep -q "remark_token=$NP-2 remark=LBMR26110002 70-2222" "$TMP/ncac-calls.log" && ok "token/หมายเหตุต่อทะเบียนถูก" || bad "token/หมายเหตุ settle: $(grep "remark_token=$NP" "$TMP/ncac-calls.log")"
+grep -q "POST /atms/withdraw/issue user=store1" "$TMP/ncac-calls.log" && ok "ตัดด้วยบัญชีสโตร์" || bad "ไม่ได้ใช้บัญชีสโตร์"
+NI=$(grep -c "POST /atms/withdraw/issue" "$TMP/ncac-calls.log")
+code 409 "ตัดซ้ำไม่ได้" -H "$S" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}'
+[ "$(grep -c 'POST /atms/withdraw/issue' "$TMP/ncac-calls.log")" = "$NI" ] && ok "ตัดซ้ำไม่ยิง ATMS" || bad "ตัดซ้ำยิง ATMS"
+code 200 "ดูใบหลังตัด (log)" -H "$R" "$B/$NP"
+expect "log มี handOut/extendDue/summarize/settled" "all(a in [l['action'] for l in d['log']] for a in ['handOut','extendDue','summarize','settled'])"
+code 201 "mobile_pm คืนหมด" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"mobile_pm\",\"summaryDueAt\":\"$DUE\",\"inventoryId\":4,\"pickToId\":7,$PL}"
+NZ=$(jget "d['no']")
+for st in claim ready issue; do curl -s -o /dev/null -H "$S" -X POST "$B/$NZ/$st"; done
+code 200 "สรุปไม่ได้ใช้เลย" -H "$R" -H "$J" -X POST "$B/$NZ/summary" -d '{"usages":[]}'
+NI=$(grep -c "POST /atms/withdraw/issue" "$TMP/ncac-calls.log")
+code 200 "ตัดสต๊อกใบคืนหมด" -H "$S" -H "$J" -X POST "$B/$NZ/settle" -d '{"returnConfirmed":true}'
+expect "SETTLED ไม่มี WD" "d['request']['status']=='SETTLED' and d['request']['settleGroups']==[]"
+[ "$(grep -c 'POST /atms/withdraw/issue' "$TMP/ncac-calls.log")" = "$NI" ] && ok "คืนหมดไม่ยิง ATMS" || bad "คืนหมดยิง ATMS"
 
 echo
 if [ "$FAILS" = 0 ]; then echo "check-store-withdraw-api: OK"; else echo "check-store-withdraw-api: $FAILS FAILED"; tail -30 "$TMP/dev.out"; exit 1; fi

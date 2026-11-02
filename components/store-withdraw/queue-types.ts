@@ -1,8 +1,9 @@
 import type { AtmsProgress, SwLine, SwRequest, SwReturn } from "@/lib/store-withdraw/types"
+import type { PendingReq } from "./summary-dialog"
 
 // รูปแบบที่ /api/store-withdraw/queue ส่งมาหลัง JSON (วันที่เป็นสตริง ISO)
 export type QReturn = Omit<SwReturn, "createdAt" | "atms"> & { createdAt: string; atms: Omit<AtmsProgress, "lastCheckAt" | "startedAt"> & { lastCheckAt: string | null; startedAt: string | null } }
-export type QItem = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "atms" | "lines"> & {
+export type QItem = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "atms" | "lines" | "summaryDueAt" | "summary" | "settleGroups"> & PendingReq & {
   atms: QReturn["atms"]
   lines: SwLine[]
   createdAt: string
@@ -13,7 +14,8 @@ export type QItem = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "atm
 }
 export type QKeyed = { id: number | null; code: string; pick_to: string; user: string; remark: string; created_at: string; approved: boolean }
 export type QData = {
-  columns: { NEW: QItem[]; PREPARING: QItem[]; READY: QItem[]; DONE_TODAY: QItem[] }
+  /** HANDED_OUT = Mobile/PM ที่ของออกไปแล้วรอช่างสรุป (ไคลเอนต์เก่าที่ไม่รู้จักช่องนี้ไม่เป็นไร) */
+  columns: { NEW: QItem[]; PREPARING: QItem[]; READY: QItem[]; DONE_TODAY: QItem[]; HANDED_OUT?: QItem[] }
   atmsKeyed: QKeyed[]
 }
 export type LinkStatus = { linked: boolean; atmsUsername?: string; branch?: string }

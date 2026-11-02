@@ -7,6 +7,7 @@ import { ArrowLeft, Trash2, Loader2 } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import type { SwWorkType } from "@/lib/store-withdraw/types"
 import { WORK_TYPE_KIND, WORK_TYPE_LABEL } from "@/lib/store-withdraw/core"
+import { DUE_MAX_DAYS } from "@/lib/store-withdraw/pending"
 import { SkuPicker, type SkuHit } from "./sku-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
 import { OptionCombobox } from "./option-combobox"
@@ -23,11 +24,17 @@ const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-40
 const LATKRABANG = 4
 // "LBMR26100001 อู่ใน-CM-ระบบไฟ : 257041" → "อู่ใน-CM-ระบบไฟ" (ตัดเลข MR หน้า กับ id ท้าย)
 const mrItemName = (label: string) => label.replace(/^\S*MR\S*\d\s+/i, "").replace(/\s*:\s*\d+$/, "")
+// datetime-local ใช้เวลาเครื่อง (ไทย) · min/max ของช่องเลือกกำหนดสรุป
+const pad = (n: number) => String(n).padStart(2, "0")
+const toLocalInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 
 export function RequestForm() {
   const router = useRouter()
   const [workType, setWorkType] = useState<SwWorkType>("garage_in")
   const needMr = workType !== "mobile_pm"   // อู่ใน/อู่นอก: ใบเบิกต้องละเอียดถึง MR + ประเภทการซ่อม
+  const pendingFlow = workType === "mobile_pm" // Mobile/PM: ทะเบียน/MR ไปใส่ตอนสรุปการใช้ · ต้องมีกำหนดสรุปยอด
+  const [due, setDue] = useState("")
+  const [dueLimits] = useState(() => ({ min: toLocalInput(new Date()), max: toLocalInput(new Date(Date.now() + DUE_MAX_DAYS * 86_400_000)) }))
   const kind = WORK_TYPE_KIND[workType]
   const [invs, setInvs] = useState<Opt[]>([])
   const [picks, setPicks] = useState<Opt[]>([])
@@ -106,7 +113,13 @@ export function RequestForm() {
   }
 
   const submit = async () => {
-    if (!plate.trim()) return swalError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ")
+    if (!pendingFlow && !plate.trim()) return swalError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ")
+    const dueAt = due ? new Date(due) : null
+    if (pendingFlow) {
+      if (!dueAt || isNaN(dueAt.getTime())) return swalError("ใส่กำหนดสรุปยอด (วันและเวลา) ก่อนยื่นคำขอ")
+      if (dueAt.getTime() <= Date.now()) return swalError("กำหนดสรุปยอดต้องเป็นเวลาหลังจากตอนนี้")
+      if (dueAt.getTime() > Date.now() + DUE_MAX_DAYS * 86_400_000) return swalError(`กำหนดสรุปยอดได้ไม่เกิน ${DUE_MAX_DAYS} วันจากวันนี้`)
+    }
     if (needMr && !mrCode) return swalError(`งาน${WORK_TYPE_LABEL[workType]}ต้องเลือกใบแจ้งซ่อม (MR) ก่อน`)
     if (needMr && mrItems.length === 0) return swalError("เลือก MR จากรายการที่ค้นเจอ เพื่อเลือกประเภทการซ่อมได้")
     if (mrItems.length > 0 && chosen.length === 0) return swalError("เลือกประเภทการซ่อมของ MR ด้วย")
@@ -120,7 +133,7 @@ export function RequestForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workType, kind, inventoryId, pickToId, plate: plate.trim(), mrCode: mrCode || undefined, ref: doc ? { type: doc.kind, code: doc.code, id: doc.id } : undefined, urgent, remark: remark.trim(),
+          workType, kind, inventoryId, pickToId, plate: plate.trim(), summaryDueAt: pendingFlow && dueAt ? dueAt.toISOString() : undefined, mrCode: mrCode || undefined, ref: doc ? { type: doc.kind, code: doc.code, id: doc.id } : undefined, urgent, remark: remark.trim(),
           lines: lines.map((l) => ({ skuId: l.skuId, skuCode: l.skuCode, skuName: l.skuName, requestedQty: Number(l.qty), mrItemId: l.mrItemId ?? undefined, mrItemLabel: l.mrItemLabel ?? undefined, remark: l.remark.trim() })),
         }),
       })
@@ -157,9 +170,18 @@ export function RequestForm() {
           <div className="flex flex-col gap-2 sm:flex-row">
             {workBtn("garage_in", "ซ่อมในอู่ เบิกจากสต๊อก ต้องมี MR")}
             {workBtn("garage_out", "ซื้อมาใช้เลย ต้องมี MR ตัดยอดตามใบรับของ")}
-            {workBtn("mobile_pm", "ช่างออกหน้างาน เบิกจากสต๊อก")}
+            {workBtn("mobile_pm", "ช่างออกหน้างาน เบิกไปก่อน สรุปการใช้ทีหลัง")}
           </div>
         </div>
+
+        {pendingFlow && (
+          <div>
+            <label className={labelCls} htmlFor="sw-due">กำหนดสรุปยอด<span className="text-red-600"> *ต้องใส่</span></label>
+            <input id="sw-due" type="datetime-local" data-testid="due" className={inputCls} value={due} onChange={(e) => setDue(e.target.value)}
+              min={dueLimits.min} max={dueLimits.max} />
+            <p className="mt-1 text-xs text-gray-500">ถึงเวลานี้ต้องกลับมาสรุปว่าใช้ของกับรถคันไหน ที่เหลือคืนสโตร์ สโตร์จะตัดสต๊อกหลังสรุป</p>
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -173,7 +195,7 @@ export function RequestForm() {
               onChange={setPickToId} />
           </div>
           <div>
-            <label className={labelCls} htmlFor="sw-plate">ทะเบียนรถ/เบอร์รถ</label>
+            <label className={labelCls} htmlFor="sw-plate">ทะเบียนรถ/เบอร์รถ{pendingFlow && <span className="font-normal text-gray-400"> (ไม่บังคับ ใส่ตอนสรุปได้)</span>}</label>
             <input id="sw-plate" className={inputCls} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="เช่น 71-1234 หรือ เบอร์ 1234" />
           </div>
           <div>
