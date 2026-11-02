@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Trash2, Loader2 } from "lucide-react"
@@ -37,7 +37,9 @@ export function RequestForm() {
   const [plate, setPlate] = useState("")
   const [mrCode, setMrCode] = useState("")
   const [mrItems, setMrItems] = useState<MrItem[]>([])
-  const [mrSel, setMrSel] = useState<MrItem | null>(null)   // ประเภทการซ่อมที่เลือก (รายการใน MR) · ใช้เป็นค่าตั้งต้นของทุกบรรทัด
+  const [mrSelIds, setMrSelIds] = useState<number[]>([])   // ประเภทการซ่อมที่เลือก (รายการใน MR) · 1 ใบเบิก = 1 MR แต่เลือกได้หลายประเภท
+  const chosen = useMemo(() => mrItems.filter((m) => mrSelIds.includes(m.id)), [mrItems, mrSelIds])
+  const mrSel = useMemo(() => (chosen.length === 1 ? chosen[0] : null), [chosen])     // เลือกประเภทเดียว = เป็นค่าตั้งต้นของทุกบรรทัด
   const [urgent, setUrgent] = useState(false)
   const [remark, setRemark] = useState("")
   const [lines, setLines] = useState<FormLine[]>([])
@@ -92,20 +94,25 @@ export function RequestForm() {
     const it = mrItems.find((m) => String(m.id) === id)
     patch(i, { mrItemId: it?.id ?? null, mrItemLabel: it?.label ?? null })
   }
-  const applyAllMr = (id: string) => {
-    const it = mrItems.find((m) => String(m.id) === id) ?? null
-    setMrSel(it)
-    setLines((cur) => cur.map((l) => ({ ...l, mrItemId: it?.id ?? null, mrItemLabel: it?.label ?? null })))
+  // ติ๊ก/เอาออกประเภทการซ่อม → เหลือประเภทเดียว = ลงทุกบรรทัด · หลายประเภท = บรรทัดที่ประเภทถูกเอาออกต้องเลือกใหม่
+  const toggleType = (id: number) => {
+    const ids = mrSelIds.includes(id) ? mrSelIds.filter((x) => x !== id) : [...mrSelIds, id]
+    const sel = mrItems.filter((m) => ids.includes(m.id))
+    setMrSelIds(ids)
+    setLines((cur) => cur.map((l) => {
+      if (sel.length === 1) return { ...l, mrItemId: sel[0].id, mrItemLabel: sel[0].label }
+      return l.mrItemId && ids.includes(l.mrItemId) ? l : { ...l, mrItemId: null, mrItemLabel: null }
+    }))
   }
 
   const submit = async () => {
     if (!plate.trim()) return swalError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ")
     if (needMr && !mrCode) return swalError(`งาน${WORK_TYPE_LABEL[workType]}ต้องเลือกใบแจ้งซ่อม (MR) ก่อน`)
     if (needMr && mrItems.length === 0) return swalError("เลือก MR จากรายการที่ค้นเจอ เพื่อเลือกประเภทการซ่อมได้")
-    if (mrItems.length > 0 && !mrSel) return swalError("เลือกประเภทการซ่อมของ MR ด้วย")
+    if (mrItems.length > 0 && chosen.length === 0) return swalError("เลือกประเภทการซ่อมของ MR ด้วย")
     if (!inventoryId || !pickToId) return swalError("เลือกคลังกับจุดประสงค์ให้ครบ")
     if (lines.length === 0) return swalError("เพิ่มอะไหล่อย่างน้อย 1 รายการ")
-    if (needMr && lines.some((l) => !l.mrItemId)) return swalError("ทุกรายการอะไหล่ต้องระบุประเภทการซ่อม")
+    if ((needMr || chosen.length > 0) && lines.some((l) => !l.mrItemId)) return swalError("ทุกรายการอะไหล่ต้องระบุว่าใช้กับประเภทการซ่อมไหน")
     if (lines.some((l) => !(Number(l.qty) > 0))) return swalError("จำนวนที่ขอต้องมากกว่า 0 ทุกรายการ")
     setBusy(true)
     try {
@@ -175,16 +182,20 @@ export function RequestForm() {
             <MrPicker
               mrCode={mrCode}
               plate={plate}
-              onPick={(code, items) => { setMrCode(code); setMrItems(items); const one = items.length === 1 ? items[0] : null; setMrSel(one); setLines((c) => c.map((l) => ({ ...l, mrItemId: one?.id ?? null, mrItemLabel: one?.label ?? null }))) }}
-              onClear={() => { setMrCode(""); setMrItems([]); setMrSel(null); setLines((c) => c.map((l) => ({ ...l, mrItemId: null, mrItemLabel: null }))) }}
+              onPick={(code, items) => { setMrCode(code); setMrItems(items); const one = items.length === 1 ? items[0] : null; setMrSelIds(one ? [one.id] : []); setLines((c) => c.map((l) => ({ ...l, mrItemId: one?.id ?? null, mrItemLabel: one?.label ?? null }))) }}
+              onClear={() => { setMrCode(""); setMrItems([]); setMrSelIds([]); setLines((c) => c.map((l) => ({ ...l, mrItemId: null, mrItemLabel: null }))) }}
             />
             {mrItems.length > 0 && (
               <div className="mt-2">
-                <label className={labelCls} htmlFor="sw-mritem">ประเภทการซ่อม<span className="text-red-600"> *ต้องเลือก</span></label>
-                <select id="sw-mritem" className={inputCls} value={mrSel?.id ?? ""} onChange={(e) => applyAllMr(e.target.value)}>
-                  <option value="">เลือกประเภทการซ่อม</option>
-                  {mrItems.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
-                </select>
+                <span className={labelCls}>ประเภทการซ่อม<span className="text-red-600"> *ต้องเลือก</span> <span className="font-normal text-gray-400">(1 ใบเบิกอ้าง MR เดียว เลือกได้หลายประเภท)</span></span>
+                <div className="space-y-1.5" role="group" aria-label="ประเภทการซ่อม">
+                  {mrItems.map((m) => (
+                    <label key={m.id} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm ${mrSelIds.includes(m.id) ? "border-[#1B8C4B] bg-[#1B8C4B]/10" : "border-[#E2E8E4] dark:border-white/10"}`}>
+                      <input type="checkbox" checked={mrSelIds.includes(m.id)} onChange={() => toggleType(m.id)} className="h-4 w-4 accent-[#1B8C4B]" />
+                      <span className="min-w-0 break-words text-gray-900 dark:text-white">{mrItemName(m.label)}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -229,10 +240,10 @@ export function RequestForm() {
                   <input aria-label="จำนวน" inputMode="decimal" className={inputCls} value={l.qty} onChange={(e) => patch(i, { qty: e.target.value })} />
                   <input aria-label="หมายเหตุรายการ" className={inputCls} placeholder="หมายเหตุ (ไม่ใส่ก็ได้)" value={l.remark} onChange={(e) => patch(i, { remark: e.target.value })} />
                 </div>
-                {mrItems.length > 0 && (
+                {chosen.length > 1 && (
                   <select aria-label="รายการใน MR" className={`${inputCls} mt-2`} value={l.mrItemId ?? ""} onChange={(e) => setMrItem(i, e.target.value)}>
                     <option value="" disabled>เลือกประเภทการซ่อม</option>
-                    {mrItems.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
+                    {chosen.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
                   </select>
                 )}
                 {l.stockQty != null && Number(l.qty) > l.stockQty && kind === "stock" && (
