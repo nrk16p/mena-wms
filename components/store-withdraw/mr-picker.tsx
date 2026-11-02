@@ -85,7 +85,17 @@ export function MrPicker({ mrCode, plate = "", onPick, onClear }: {
               <span className="block truncate text-xs text-gray-500">
                 {[h.plate, h.step, h.driver && `คนขับ ${h.driver}`, h.mechanic && `ช่าง ${h.mechanic}`].filter(Boolean).join(" · ")}
               </span>
-              {h.remark && <span className="mt-0.5 line-clamp-3 whitespace-normal break-words text-xs text-gray-500">{h.remark}</span>}
+              {h.items.length > 0 ? (
+                <span className="mt-1 block space-y-1">
+                  {h.items.slice(0, 3).map((i, n) => (
+                    <span key={n} className="block whitespace-normal break-words text-xs">
+                      {i.type && <span className="block font-medium text-gray-800 dark:text-gray-200">{i.type}</span>}
+                      {i.detail && <span className="block line-clamp-2 text-gray-500">{i.detail}</span>}
+                    </span>
+                  ))}
+                  {h.items.length > 3 && <span className="block text-xs text-gray-400">และอีก {h.items.length - 3} รายการ</span>}
+                </span>
+              ) : h.remark && <span className="mt-0.5 line-clamp-3 whitespace-normal break-words text-xs text-gray-500">{h.remark}</span>}
             </button>
           ))}
           {!loading && items.map((it) => (
