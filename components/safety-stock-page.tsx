@@ -335,11 +335,8 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
   // snapshot รุ่นก่อน 27/10/2026 ยังไม่มีเลข PO และยังไม่ได้กรองลงคัน — โชว์ PR แบบเดิมไปจนกว่า build รอบถัดไป (ทุกชั่วโมง)
   const legacy = rows.some((r) => r.poCode === undefined)
   const COLLAPSED = 6
-  const stockRows = grouped ? rows.filter((r) => r.kind !== "vehicle") : rows
-  const vehicleRows = grouped ? rows.filter((r) => r.kind === "vehicle") : []
-  const shownStock = expanded ? stockRows : stockRows.slice(0, COLLAPSED)
-  const shownVehicle = expanded ? vehicleRows : vehicleRows.slice(0, COLLAPSED)
-  const hasMore = stockRows.length > COLLAPSED || vehicleRows.length > COLLAPSED
+  const shown = expanded ? rows : rows.slice(0, COLLAPSED)
+  const hasMore = rows.length > COLLAPSED
   const withLead = rows.filter((r) => r.leadDays !== null).length
   const th: React.CSSProperties = { textAlign: "right", fontWeight: 600, color: "#6B7280", padding: "4px 6px", whiteSpace: "nowrap" }
   const td: React.CSSProperties = { textAlign: "right", padding: "4px 6px", whiteSpace: "nowrap" }
@@ -354,6 +351,16 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
                 ) : (
                   <td style={{ ...td, textAlign: "left", color: "#374151" }}>{r.poCode}</td>
                 )}
+                {/* snapshot เก่าไม่มี kind และไม่เก็บรอบลงคัน = ทุกแถวเป็นของซื้อเข้าสต๊อก */}
+                {(
+                  <td style={{ ...td, textAlign: "left" }}>
+                    <span style={r.kind === "vehicle"
+                      ? { background: "#FEF3C7", color: "#92400E", borderRadius: 6, padding: "1px 7px", fontWeight: 600 }
+                      : { background: "#DBEAFE", color: "#1E40AF", borderRadius: 6, padding: "1px 7px", fontWeight: 600 }}>
+                      {r.kind === "vehicle" ? "ลงคัน" : "Safety stock"}
+                    </span>
+                  </td>
+                )}
                 <td style={td}>{num(r.qty)}</td>
                 <td style={td}>{r.cost == null ? "—" : baht(r.cost)}</td>
                 {/* แถวที่จับคู่ PR ไม่ได้ ไม่มีวันเปิดใบให้นับ — ต้องเว้นไว้ ไม่ใช่เติม 0 ซึ่งจะอ่านว่า "ได้ของวันเดียวกัน" */}
@@ -362,23 +369,6 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
                 </td>
               </tr>
   )
-  const section = (title: string, all: ReceiptEntry[], list: ReceiptEntry[]) => {
-    if (!grouped) return list.map((r, i) => row(r, i))
-    const qty = all.reduce((t, r) => t + r.qty, 0)
-    return (
-      <>
-        <tr style={{ background: "#F9FAFB" }}>
-          <td colSpan={5} style={{ padding: "6px 6px", fontWeight: 700, color: "#374151", textAlign: "left" }}>
-            {title} <span style={{ fontWeight: 400, color: "#6B7280" }}>· {all.length} ครั้ง · รวม {num(qty)} {unit}</span>
-          </td>
-        </tr>
-        {all.length === 0 ? (
-          <tr><td colSpan={5} style={{ ...td, textAlign: "left", color: "#9CA3AF" }}>ไม่มีในช่วง 24 เดือน</td></tr>
-        ) : list.map((r, i) => row(r, i))}
-      </>
-    )
-  }
-
   return (
     <>
       <div style={{ overflowX: "auto" }}>
@@ -387,14 +377,14 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
             <tr style={{ borderBottom: "1px solid #E5E7EB" }}>
               <th style={{ ...th, textAlign: "left" }}>วันที่รับ</th>
               <th style={{ ...th, textAlign: "left" }}>{legacy ? "ใบ PR" : "ใบ PO"}</th>
+              <th style={{ ...th, textAlign: "left" }}>ประเภท</th>
               <th style={th}>จำนวน</th>
               <th style={th}>ราคาทุน/{unit}</th>
               <th style={th}>รอของ</th>
             </tr>
           </thead>
           <tbody>
-            {section("Safety stock (ซื้อเข้าสต๊อก)", stockRows, shownStock)}
-            {grouped && section("ลงคัน (ซื้อมาเบิกให้รถคันนั้น)", vehicleRows, shownVehicle)}
+            {shown.map((r, i) => row(r, i))}
           </tbody>
         </table>
       </div>
@@ -413,9 +403,9 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
           </span>
         ) : (
           <span style={{ fontSize: 11, color: "#9CA3AF" }} title={hiddenNote ? hiddenTitle : undefined}>
-            {grouped ? "แยกซื้อเข้าสต๊อกกับลงคัน" : "เฉพาะของซื้อเข้าสต๊อก"}{hiddenNote && ` — ${hiddenNote}`} · เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุดต่อกลุ่ม ·
+            {grouped ? "รวมซื้อเข้าสต๊อกกับลงคัน (ดูคอลัมน์ประเภท)" : "เฉพาะของซื้อเข้าสต๊อก"}{hiddenNote && ` — ${hiddenNote}`} · เก็บได้สูงสุด {RECEIPT_HISTORY_MAX} ครั้งล่าสุดต่อกลุ่ม ·
             {" "}{withLead} ครั้งรู้วันรอของ (นับจากวันเปิด PR ถึงวันรับ)
-            {(grouped ? vehicleRows.length > 0 : hidden?.vehicle) ? " · เวลารอของด้านบนยังนับรอบลงคันรวมอยู่" : ""}
+            {(grouped ? rows.some((r) => r.kind === "vehicle") : hidden?.vehicle) ? " · เวลารอของด้านบนยังนับรอบลงคันรวมอยู่" : ""}
           </span>
         )}
       </div>
