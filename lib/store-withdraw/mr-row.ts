@@ -18,12 +18,12 @@ export function parseMrRow(r: Record<string, unknown>): MrRow | null {
 export const looksLikeMrCode = (t: string) => /MR\d/i.test(t)
 
 /** หัวใบแจ้งซ่อมจาก lookup/mrv: { id, code, date, plate, vehicle_no, step, driver, mechanic, ... } */
-export type MrHead = { id: number; code: string; date: string; step: string; driver: string; mechanic: string; plate: string }
+export type MrHead = { id: number; code: string; date: string; step: string; driver: string; mechanic: string; plate: string; remark: string }
 
 export function parseMrHead(r: Record<string, unknown>): MrHead | null {
   const code = s(r.code)
   if (!code) return null
   const plate = s(r.plate)
   const vno = s(r.vehicle_no)
-  return { id: Number(r.id) || 0, code, date: s(r.date), step: s(r.step), driver: s(r.driver), mechanic: s(r.mechanic), plate: plate && vno && plate !== vno ? `${plate} (${vno})` : plate || vno }
+  return { id: Number(r.id) || 0, code, date: s(r.date), step: s(r.step), driver: s(r.driver), mechanic: s(r.mechanic), remark: s(r.remark), plate: plate && vno && plate !== vno ? `${plate} (${vno})` : plate || vno }
 }

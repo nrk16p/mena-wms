@@ -85,6 +85,7 @@ export function MrPicker({ mrCode, plate = "", onPick, onClear }: {
               <span className="block truncate text-xs text-gray-500">
                 {[h.plate, h.step, h.driver && `คนขับ ${h.driver}`, h.mechanic && `ช่าง ${h.mechanic}`].filter(Boolean).join(" · ")}
               </span>
+              {h.remark && <span className="mt-0.5 line-clamp-3 whitespace-normal break-words text-xs text-gray-500">{h.remark}</span>}
             </button>
           ))}
           {!loading && items.map((it) => (

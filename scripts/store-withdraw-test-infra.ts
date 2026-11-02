@@ -52,7 +52,7 @@ void (async () => {
       if (u.pathname === "/atms/withdraw/options") return json(res, 200, { inventories: [{ id: 4, name: "ลาดกระบัง" }], pick_tos: [{ id: 7, name: "ซ่อมรถ" }] })
       if (u.pathname === "/atms/withdraw/mr/search") {
         const q = u.searchParams.get("q")
-        return json(res, 200, { results: [{ id: 9001, code: "LBMR26100001", date: "25/10/2026", plate: q, vehicle_no: "1234", step: "รออะไหล่", branch: "ลาดกระบัง", project: "CM", driver: "สมชาย", mechanic: "ช่างเอ", limit: u.searchParams.get("limit") }] })
+        return json(res, 200, { results: [{ id: 9001, code: "LBMR26100001", date: "25/10/2026", plate: q, vehicle_no: "1234", step: "รออะไหล่", branch: "ลาดกระบัง", project: "CM", driver: "สมชาย", mechanic: "ช่างเอ", remark: "อู่ใน-CM-ระบบเครื่องยนต์: ปัญหา ความร้อนขึ้น · อู่ใน-PM-ระบบไฟ: ไฟท้ายซ้ายไม่ติด", limit: u.searchParams.get("limit") }] })
       }
       if (u.pathname.startsWith("/atms/withdraw/lookup/")) {
         const kind = u.pathname.split("/").pop()
