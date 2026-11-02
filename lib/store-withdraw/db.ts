@@ -1,6 +1,7 @@
 // lib/store-withdraw/db.ts — Mongo ของงานเบิกของหน้าร้านคลัง
 // ชื่อ db จาก env STORE_WITHDRAW_DB (ค่าเริ่มต้น master_data) · เทสต์ inject MongoClient ได้ด้วย setStoreWithdrawClient
 import type { Collection, Db, MongoClient } from "mongodb"
+import { entryHash } from "./chain"
 import { formatNo, nextStatus, workTypeFromKind } from "./core"
 import type { SwAction, SwRequest } from "./types"
 
@@ -37,6 +38,9 @@ export type LogDoc = {
   actor: { email: string; name: string; via: string }
   at: Date
   note?: string
+  /** ลำดับต่อใบ เริ่ม 1 + แฮชต่อกัน (ดู chain.ts) · รายการเก่าก่อนมีฟีเจอร์ไม่มีสองช่องนี้ */
+  seq?: number
+  hash?: string
 }
 
 let injected: MongoClient | null = null
@@ -57,6 +61,9 @@ export async function getDb(): Promise<Db> {
       db.collection("store_withdraw_requests").createIndex({ "requestedBy.email": 1, createdAt: -1 }),
       db.collection("store_withdraw_requests").createIndex({ "ref.code": 1, createdAt: -1 }, { sparse: true }),
       db.collection("store_withdraw_log").createIndex({ no: 1, at: 1 }),
+      db.collection("store_withdraw_log").createIndex({ no: 1, seq: 1 }, { unique: true, partialFilterExpression: { seq: { $gt: 0 } } }),
+      db.collection("store_withdraw_requests").createIndex({ createdAt: 1 }),
+      db.collection("store_withdraw_attachments").createIndex({ no: 1, context: 1, confirmedAt: 1 }),
       db.collection("store_atms_creds").createIndex({ email: 1 }, { unique: true }),
       db.collection("store_withdraw_atms_cache").createIndex({ fetchedAt: 1 }, { expireAfterSeconds: 180 }),
     ])
@@ -113,8 +120,27 @@ export async function nextNo(now: Date): Promise<string> {
   return formatNo(yymm, r.seq)
 }
 
-export async function writeLog(entry: Omit<LogDoc, "at">, at = new Date()) {
-  await (await swLogCol()).insertOne({ ...entry, at })
+/**
+ * เขียน log แบบต่อโซ่แฮช: seq = ท้ายโซ่ + 1 · hash = sha256(hash ก่อนหน้า + รายการ)
+ * เขียนพร้อมกันหลายตัว: unique index {no, seq} ทำให้มีตัวเดียวได้ seq นั้น ตัวที่แพ้อ่านท้ายโซ่ใหม่แล้วลองอีก
+ */
+export async function writeLog(entry: Omit<LogDoc, "at" | "seq" | "hash">, at = new Date()) {
+  const col = await swLogCol()
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const last = await col.find({ no: entry.no, seq: { $gt: 0 } }, { projection: { seq: 1, hash: 1 } }).sort({ seq: -1 }).limit(1).next()
+    const seq = (last?.seq ?? 0) + 1
+    const base: Record<string, unknown> = { ...entry, at, seq }
+    for (const k of Object.keys(base)) if (base[k] === undefined) delete base[k]
+    const hash = entryHash(last?.hash ?? "", base)
+    try {
+      await col.insertOne({ ...base, hash } as unknown as LogDoc)
+      return
+    } catch (e) {
+      if ((e as { code?: number }).code !== 11000) throw e
+      await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 15)))
+    }
+  }
+  throw new Error("writeLog: เขียน log ไม่สำเร็จหลังลองซ้ำหลายครั้ง")
 }
 
 /**

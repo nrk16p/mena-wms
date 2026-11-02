@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import crypto from "crypto"
 
@@ -72,4 +72,38 @@ export async function deleteDoc(key: string): Promise<void> {
   if (!bucket) throw new Error("Missing DO_SPACES_BUCKET")
   if (!key.startsWith(DOC_PREFIX + "/")) throw new Error("key นอกขอบเขต media-docs")
   await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
+}
+
+// ── ไฟล์แนบหลักฐาน (bucket ส่วนตัว ไม่ใส่ ACL public) — ใช้โดย lib/store-withdraw/storage.ts ──
+function privateBucket(): string {
+  const bucket = process.env.DO_SPACES_BUCKET
+  if (!bucket) throw new Error("Missing DO_SPACES_BUCKET")
+  return bucket
+}
+
+/** presigned PUT สำหรับ browser อัปโหลดตรง (ส่งไฟล์ด้วย Content-Type เดียวกับที่ขอ) */
+export async function presignPrivatePut(key: string, contentType: string, expiresIn = 600): Promise<string> {
+  return getSignedUrl(s3(), new PutObjectCommand({ Bucket: privateBucket(), Key: key, ContentType: contentType }), { expiresIn })
+}
+
+/** HeadObject — ไม่เจอไฟล์คืน null */
+export async function headPrivate(key: string): Promise<{ size: number; contentType: string | null } | null> {
+  try {
+    const r = await s3().send(new HeadObjectCommand({ Bucket: privateBucket(), Key: key }))
+    return { size: Number(r.ContentLength ?? 0), contentType: r.ContentType ?? null }
+  } catch (e) {
+    const x = e as { name?: string; $metadata?: { httpStatusCode?: number } }
+    if (x.name === "NotFound" || x.name === "NoSuchKey" || x.$metadata?.httpStatusCode === 404) return null
+    throw e
+  }
+}
+
+/** presigned GET อายุสั้น (ค่าเริ่มต้น 5 นาที) */
+export async function presignPrivateGet(key: string, filename: string, expiresIn = 300): Promise<string> {
+  const safe = filename.replace(/["\r\n]/g, "_")
+  return getSignedUrl(
+    s3(),
+    new GetObjectCommand({ Bucket: privateBucket(), Key: key, ResponseContentDisposition: `inline; filename*=UTF-8''${encodeURIComponent(safe)}` }),
+    { expiresIn },
+  )
 }

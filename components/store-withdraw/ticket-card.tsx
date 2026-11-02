@@ -5,6 +5,7 @@ import { AlertTriangle, Flag, Loader2, Undo2 } from "lucide-react"
 import { WORK_TYPE_LABEL, isPendingFlow, waitMinutes, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { lateMinutes, lateText, leftoverTotal } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
+import { AttachButton, AttachChip } from "./attach-picker"
 import { StatusChip } from "./status-chip"
 import { SummaryView } from "./summary-dialog"
 import { itemKey, type QItem, type QKeyed } from "./queue-types"
@@ -124,6 +125,8 @@ export function TicketCard({ item, now, busy, actions, column }: {
       )}
       {item.remark && !isReturn && <p className="mt-1.5 text-xs text-gray-500">หมายเหตุ: {item.remark}</p>}
 
+      {!isReturn && <AttachChip no={item.no} count={item.attachCount ?? 0} />}
+
       {atms.code && <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">เลข {isReturn ? "DD" : "WD"}: <span data-testid="wd-code" className="font-semibold">{atms.code}</span></p>}
 
       {atms.drift && (
@@ -192,6 +195,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
           {item.claimedBy && item.status !== "NEW" && !isReturn && <span className="text-xs text-gray-500">จัดโดย {item.claimedBy.name}</span>}
         </div>
       )}
+      {!isReturn && <div className="mt-2"><AttachButton no={item.no} context="other" /></div>}
     </li>
   )
 }

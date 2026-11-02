@@ -14,7 +14,7 @@ const u = (department: string | null, email = "someone@menatransport.co.th") => 
 assert.deepEqual(u("ยานยนต์"), {
   sku: "edit", pr: "edit", ap: "none", "price-compare": "view", vendor: "edit",
   "safety-stock": "view", deadstock: "edit", tire: "edit", repair: "edit", "driver-handover": "view", "ai-mixer": "none",
-  "store-withdraw": "edit", "store-queue": "none",
+  "store-withdraw": "edit", "store-queue": "none", "store-audit": "none",
 })
 assert.equal(u("Procurement")["safety-stock"], "edit")
 assert.equal(u("Procurement").ap, "edit")
@@ -35,7 +35,7 @@ for (const d of ["จัดส่งลาดกระบัง", "จัดส�
 assert.equal(u("Recruitment - Mass")["driver-handover"], "edit")
 assert.equal(u("Recruitment - Mass").pr, "edit")
 for (const d of ["Chief-Level", "Compliance", "Company Secretary & Compliance"]) {
-  for (const s of SECTIONS) assert.equal(u(d)[s], s === "ai-mixer" ? "none" : "view", `${d} ${s}`)
+  for (const s of SECTIONS) assert.equal(u(d)[s], s === "ai-mixer" || s === "store-audit" ? "none" : "view", `${d} ${s}`)
 }
 // ชื่อแผนกเทียบแบบไม่สนตัวพิมพ์/ช่องว่างหัวท้าย
 assert.equal(u("  procurement ")["safety-stock"], "edit")

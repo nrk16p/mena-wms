@@ -27,3 +27,12 @@
 - รัน uvicorn แบบ worker เดียว เพราะล็อกต่อผู้ใช้อยู่ใน process
 - ตั้งเวลาเรียก `POST /pipeline/run/store-withdraw-drift` ทุก 30 นาที ช่วง 07:00–20:00 (หลังขึ้นระบบ)
 - บัญชี `ATMS_USERNAME` ถูกใช้ร่วมกับ pipeline อื่น: งานอ่านรายการตั้ง rows-per-page ชั่วคราวแล้วคืนค่า ถ้าเจอรายการ pipeline ถูกตัดสั้นช่วงกลางวัน ให้แยกบัญชีอ่าน (ตั้ง `ATMS_LOOKUP_*` ฝั่ง WMS)
+
+## ไฟล์แนบหลักฐาน (DO Spaces)
+
+ใช้ตัวแปร `DO_SPACES_*` ชุดเดิม ไม่มีตัวแปรใหม่ · ไฟล์เก็บใต้ `store-withdraw/<เลขใบ>/` ใน bucket เดียวกัน (ไม่ใส่ `DO_SPACES_PREFIX`) และเป็น private ดูผ่านลิงก์ที่ระบบออกให้ อายุ 5 นาที
+
+- เก็บ 7 ปี: **อย่าตั้ง lifecycle rule ของ bucket ให้ลบหรือหมดอายุ object ใต้ `store-withdraw/`** (ตั้งกฎลบเฉพาะ prefix อื่น) โค้ดไม่มีส่วนไหนลบไฟล์เหล่านี้
+- bucket ต้องอนุญาต CORS `PUT` จากโดเมน WMS (ตั้งไว้แล้วถ้าอัปโหลด PDF ของ AP ใช้งานได้อยู่)
+- การทำงานของ audit ใช้ collection `store_withdraw_attachments` (เพิ่มอย่างเดียว) และ `store_withdraw_log` ที่มี `seq` + `hash` ต่อโซ่ · index ใหม่สร้างเองตอนเรียกใช้ครั้งแรก (`{no, seq}` unique แบบ partial, `{createdAt}`)
+- สิทธิ์ดูหน้าตรวจสอบย้อนหลัง: ส่วน `store-audit` ให้รายคนที่ /admin/users (ค่าเริ่มต้น ไม่มีใครเห็น ยกเว้นผู้ดูแลระบบ)

@@ -59,12 +59,14 @@ REQ_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"req1@menatransport.
 REQ2_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"req2@menatransport.co.th","name":"ผู้ขออีกคน","employee":{"username":"req2","department":"ยานยนต์","position":"ช่าง"}}' | tail -1)
 # accessAt = เพิ่งรีเฟรชสิทธิ์ → route ไม่ไปอ่าน override จาก DB ทับ (ในระบบจริง token มี accessAt หลัง login เสมอ)
 NOW_MS=$(python3 -c "import time;print(int(time.time()*1000))")
+AUDIT_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"auditor@menatransport.co.th","name":"ผู้ตรวจสอบ","employee":{"username":"auditor","department":"Accounting","position":"บัญชี"},"accessOverrides":{"store-audit":"view"},"accessAt":'$NOW_MS'}' | tail -1)
 VIEW_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"viewer@menatransport.co.th","name":"ดูอย่างเดียว","employee":{"username":"viewer","department":"Store","position":"สโตร์"},"accessOverrides":{"store-queue":"view"},"accessAt":'$NOW_MS'}' | tail -1)
 STORE_TOKEN=$(npx tsx scripts/mint-session-token.ts '{"email":"store1@menatransport.co.th","name":"สโตร์ 1","employee":{"username":"store1","department":"Store","position":"สโตร์"},"accessOverrides":{"store-queue":"edit"},"accessAt":'$NOW_MS'}' | tail -1)
 R="Cookie: next-auth.session-token=$REQ_TOKEN"
 R2="Cookie: next-auth.session-token=$REQ2_TOKEN"
 S="Cookie: next-auth.session-token=$STORE_TOKEN"
 V="Cookie: next-auth.session-token=$VIEW_TOKEN"
+AU="Cookie: next-auth.session-token=$AUDIT_TOKEN"
 J="Content-Type: application/json"
 
 echo "== สิทธิ์"
@@ -395,6 +397,51 @@ NI=$(grep -c "POST /atms/withdraw/issue" "$TMP/ncac-calls.log")
 code 200 "ตัดสต๊อกใบคืนหมด" -H "$S" -H "$J" -X POST "$B/$NZ/settle" -d '{"returnConfirmed":true}'
 expect "SETTLED ไม่มี WD" "d['request']['status']=='SETTLED' and d['request']['settleGroups']==[]"
 [ "$(grep -c 'POST /atms/withdraw/issue' "$TMP/ncac-calls.log")" = "$NI" ] && ok "คืนหมดไม่ยิง ATMS" || bad "คืนหมดยิง ATMS"
+
+echo "== ไฟล์แนบหลักฐาน + ตรวจสอบย้อนหลัง (ไม่แตะที่เก็บไฟล์จริง: เช็กเฉพาะสิทธิ์/ตรวจข้อมูลก่อนถึงขั้นสร้างลิงก์)"
+PRE='{"context":"return","filename":"a.jpg","contentType":"application/zip","size":10}'
+code 401 "presign ไม่มี session" -H "$J" -X POST "$B/$NO/attachments/presign" -d "$PRE"
+code 401 "confirm ไม่มี session" -H "$J" -X POST "$B/$NO/attachments/confirm" -d '{"id":"x"}'
+code 401 "list แนบไม่มี session" "$B/$NO/attachments"
+code 400 "presign ชนิดไฟล์ไม่รองรับ" -H "$R" -H "$J" -X POST "$B/$NO/attachments/presign" -d "$PRE"
+code 400 "presign ผ่าน API key (ผู้ขอ) ผ่านด่านสิทธิ์ แล้วติดชนิดไฟล์" -H "x-api-key: key-one" -H "x-user: req1@menatransport.co.th" -H "$J" -X POST "$B/$NO/attachments/presign" -d "$PRE"
+code 403 "presign คนอื่นที่ไม่ใช่เจ้าของใบ" -H "$R2" -H "$J" -X POST "$B/$NO/attachments/presign" -d '{"context":"return","filename":"a.jpg","contentType":"image/jpeg","size":10}'
+code 403 "presign สโตร์ดูอย่างเดียว" -H "$V" -H "$J" -X POST "$B/$NO/attachments/presign" -d '{"context":"other","filename":"a.jpg","contentType":"image/jpeg","size":10}'
+code 403 "list แนบ คนอื่นที่ไม่ใช่เจ้าของใบ" -H "$R2" "$B/$NO/attachments"
+code 200 "list แนบ เจ้าของใบ (ยังไม่มีไฟล์)" -H "$R" "$B/$NO/attachments"
+expect "items ว่าง" "d['items']==[]"
+code 404 "presign ใบที่ไม่มี" -H "$R" -H "$J" -X POST "$B/SW-0000-404/attachments/presign" -d '{"context":"other","filename":"a.jpg","contentType":"image/jpeg","size":10}'
+code 400 "ขอคืนแบบส่งเคลมไม่แนบไฟล์" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"reasonCode":"claim","lines":[{"lineIndex":0,"qty":1}]}'
+code 400 "ขอคืนแนบไฟล์ที่ไม่มีจริง" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"reasonCode":"claim","attachmentIds":["ไม่มี"],"lines":[{"lineIndex":0,"qty":1}]}'
+for m in PUT PATCH DELETE; do
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "$R" -X $m "$B/$NO/attachments")
+  if [ "$CODE" = 405 ] || [ "$CODE" = 404 ]; then ok "แก้/ลบไฟล์แนบไม่ได้ ($m $CODE)"; else bad "$m ไฟล์แนบได้ $CODE"; fi
+done
+AUD="$B/audit"
+TODAY=$(python3 -c "import datetime;print(datetime.date.today().isoformat())")
+OLD=$(python3 -c "import datetime;print((datetime.date.today()-datetime.timedelta(days=94)).isoformat())")
+code 401 "audit ไม่มี session" "$AUD?from=$TODAY&to=$TODAY"
+code 401 "audit รายใบไม่มี session" "$AUD/$NO"
+code 401 "audit export ไม่มี session" "$AUD/export?from=$TODAY&to=$TODAY"
+code 401 "audit ด้วย API key ไม่ได้ (session เท่านั้น)" -H "x-api-key: key-one" -H "x-user: req1@menatransport.co.th" "$AUD?from=$TODAY&to=$TODAY"
+code 403 "audit ผู้ขอไม่มีสิทธิ์" -H "$R" "$AUD?from=$TODAY&to=$TODAY"
+code 403 "audit สโตร์ (store-queue แก้ได้) ไม่ได้สิทธิ์ติดมา" -H "$S" "$AUD?from=$TODAY&to=$TODAY"
+code 403 "audit รายใบ สโตร์ไม่ได้สิทธิ์" -H "$S" "$AUD/$NO"
+code 403 "audit export ผู้ขอไม่มีสิทธิ์" -H "$R" "$AUD/export?from=$TODAY&to=$TODAY"
+code 400 "audit ไม่ใส่ช่วงวันที่" -H "$AU" "$AUD"
+code 400 "audit ช่วงเกิน 93 วัน" -H "$AU" "$AUD?from=$OLD&to=$TODAY"
+code 400 "audit วันที่ผิดรูปแบบ" -H "$AU" "$AUD?from=x&to=y"
+code 200 "audit ผู้มีสิทธิ์" -H "$AU" "$AUD?from=$TODAY&to=$TODAY"
+expect "มีแถวของ $NO และ chainOk" "any(r['no']=='$NO' and r['chainOk'] for r in d['rows']) and d['truncated']==False"
+code 200 "audit กรองด้วยเลขใบ" -H "$AU" "$AUD?from=$TODAY&to=$TODAY&q=$NO"
+expect "เหลือใบเดียว" "[r['no'] for r in d['rows']]==['$NO']"
+code 200 "audit รายใบ" -H "$AU" "$AUD/$NO"
+expect "ไทม์ไลน์ + โซ่ log ผ่าน + ลิงก์ ATMS" "len(d['timeline'])>=5 and d['chain']['ok'] and d['atms'][0]['url'].startswith('https://www.mena-atms.com/inv/withdraw/view/id/')"
+code 404 "audit รายใบที่ไม่มี" -H "$AU" "$AUD/SW-0000-404"
+CODE=$(curl -s -o "$TMP/audit.xlsx" -w "%{http_code} %{content_type}" -H "$AU" "$AUD/export?from=$TODAY&to=$TODAY")
+case "$CODE" in "200 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") ok "audit export xlsx";; *) bad "audit export: $CODE";; esac
+[ "$(head -c 2 "$TMP/audit.xlsx")" = "PK" ] && ok "export เป็นไฟล์ zip/xlsx จริง" || bad "export ไม่ใช่ xlsx"
+code 400 "audit export ไม่ใส่ช่วงวันที่" -H "$AU" "$AUD/export"
 
 echo
 if [ "$FAILS" = 0 ]; then echo "check-store-withdraw-api: OK"; else echo "check-store-withdraw-api: $FAILS FAILED"; tail -30 "$TMP/dev.out"; exit 1; fi

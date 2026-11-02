@@ -12,7 +12,7 @@ import { auditorActive, isExternalAuditor } from "./external-auditors"
 
 export const SECTIONS = [
   "sku", "pr", "ap", "price-compare", "vendor", "safety-stock", "deadstock",
-  "tire", "repair", "driver-handover", "ai-mixer", "store-withdraw", "store-queue",
+  "tire", "repair", "driver-handover", "ai-mixer", "store-withdraw", "store-queue", "store-audit",
 ] as const
 export type Section = (typeof SECTIONS)[number]
 export type Level = "none" | "view" | "edit"
@@ -23,6 +23,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   vendor: "Vendor List / ใบขอราคาอู่", "safety-stock": "Safety Stock", deadstock: "ของค้างคลัง",
   tire: "จัดการยาง", repair: "อู่นอก & อะไหล่ลงคัน", "driver-handover": "ส่งมอบรถ พจส.ใหม่", "ai-mixer": "AI รถโม่ (ทดสอบ)",
   "store-withdraw": "เบิกอะไหล่ (ยื่นคำขอ)", "store-queue": "คิวงานสโตร์",
+  "store-audit": "ตรวจสอบย้อนหลังงานเบิก (Audit)",
 }
 export const LEVEL_LABELS: Record<Level, string> = { none: "ไม่เห็น", view: "ดูอย่างเดียว", edit: "แก้ได้" }
 
@@ -36,7 +37,8 @@ const row = (p: Partial<Access>): Access => ({ ...all("none"), ...p })
 // ── ตารางสิทธิ์ (อนุมัติ 2026-10-07) ─────────────────────────────────────────────
 const GENERAL = row({ sku: "view", pr: "edit" })
 const DISPATCH = row({ sku: "view", pr: "edit", tire: "view", repair: "view", "driver-handover": "edit" })
-const OVERSIGHT: Access = { ...all("view"), "ai-mixer": "none" }
+// store-audit ไม่ให้ตามแผนก — ผู้ดูแลกำหนดรายคนที่ /admin/users (ผู้จัดการ/บัญชี)
+const OVERSIGHT: Access = { ...all("view"), "ai-mixer": "none", "store-audit": "none" }
 
 // บัญชี / การเงิน สิทธิ์เท่ากัน (ผู้ใช้สั่ง 2026-10-07) — ปุ่มตรวจผ่าน (บัญชี) / ยืนยันจ่าย (การเงิน) ยังแยกตามเดิม (lib/roles.ts)
 const ACCOUNTING_FINANCE = row({
@@ -157,6 +159,7 @@ const PAGE_PREFIXES: [string, Section | "admin"][] = [
   ["/driver-handover", "driver-handover"],
   ["/ai-mixer-maintenance", "ai-mixer"],
   ["/store-withdraw", "store-withdraw"], ["/store-withdraw/queue", "store-queue"],
+  ["/store-withdraw/audit", "store-audit"],
   ["/admin", "admin"],
 ]
 
@@ -178,6 +181,7 @@ const API_PREFIXES: [string, Section | "admin"][] = [
   ["/api/ai-mixer-maintenance", "ai-mixer"],
   ["/api/store-withdraw", "store-withdraw"], ["/api/store-withdraw/queue", "store-queue"],
   ["/api/store-withdraw/atms-link", "store-queue"], ["/api/store-withdraw/live-stock", "store-queue"],
+  ["/api/store-withdraw/audit", "store-audit"],
   ["/api/admin", "admin"],
 ]
 
@@ -186,6 +190,9 @@ const STORE_QUEUE_API = [
   /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check|settle)$/,
   /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]
+
+/** แนบไฟล์หลักฐาน: ผู้ขอ (store-withdraw) หรือสโตร์ (store-queue แก้ได้) ก็เขียนได้ — route เช็กซ้ำว่าเป็นเจ้าของใบหรือสโตร์ */
+const ATTACH_WRITE = /^\/api\/store-withdraw\/[^/]+\/attachments\/(presign|confirm)$/
 
 /** API ที่หลายส่วนงานเรียกอ่าน (dropdown / รายชื่อ / ค้นหา) — อ่านได้ทุกคนที่ล็อกอิน การเขียนยังคุมตามเจ้าของ */
 const SHARED_READ = [
@@ -218,7 +225,9 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   const read = !api || READ_METHODS.has(p.method.toUpperCase())
   if (api && read && SHARED_READ.some((s) => under(p.pathname, s))) return { ok: true }
   // เบิกอะไหล่: คนที่เห็นคิวสโตร์อย่างเดียว (ไม่มีสิทธิ์ยื่นคำขอ) ยังต้องอ่านตัวเลือก/ค้นหา/รายละเอียดใบได้
-  if (api && read && under(p.pathname, "/api/store-withdraw") && atLeast(p.access["store-queue"], "view")) return { ok: true }
+  if (api && !read && ATTACH_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
+  // ตรวจย้อนหลัง (audit) ต้องมีสิทธิ์ store-audit เท่านั้น ไม่ผ่านทางลัดของคิวสโตร์
+  if (api && read && under(p.pathname, "/api/store-withdraw") && !under(p.pathname, "/api/store-withdraw/audit") && atLeast(p.access["store-queue"], "view")) return { ok: true }
   const need: Level = read ? "view" : "edit"
   return atLeast(p.access[section], need) ? { ok: true } : { ok: false, api, section, need }
 }

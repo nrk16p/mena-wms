@@ -25,6 +25,7 @@ const GARAGE_SYNC_API = [/^\/api\/garage-sync\/tick$/, /^\/api\/repair-external\
 // /api/store-withdraw/drift-tick = งานตั้งเวลาจาก api-ncac ใช้ x-api-key = STORE_WITHDRAW_TICK_KEY (ไม่ตั้ง = NCAC_API_KEY) อย่างเดียว (ผ่านฟังก์ชันนี้โดยไม่ต้องมี session · route ตรวจกุญแจซ้ำ)
 const STORE_WITHDRAW_SESSION_ONLY = [
   /^\/api\/store-withdraw\/(queue|atms-link|live-stock)$/,
+  /^\/api\/store-withdraw\/audit(\/.*)?$/, // ตรวจย้อนหลัง: session + สิทธิ์ store-audit เท่านั้น
   /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check|settle)$/,
   /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]

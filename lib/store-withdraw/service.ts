@@ -1,6 +1,7 @@
 // lib/store-withdraw/service.ts ตรรกะหลัง route: ตัวเลือก/ค้นหาจาก ATMS (บัญชีค้นข้อมูลของ WMS) · สร้างใบ · ขอคืน · จอคิว
 import { randomBytes } from "node:crypto"
 import { lookupCreds } from "./env"
+import { linkAttachments, resolveLinkable } from "./attachments"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, skuMasterCol, swCol, withRef, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
 import { RETURN_REASONS, docWarnings, isPendingFlow, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
 import { handedOutSort, parseDue } from "./pending"
@@ -217,6 +218,9 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
   const reason = note ? `${rr.label} — ${note}` : rr.label
   const raw = Array.isArray(body.lines) ? (body.lines as Row[]) : []
   if (raw.length === 0) throw new HttpError("เลือกรายการที่จะคืนอย่างน้อย 1 รายการ", 400)
+  // ไฟล์แนบ: ส่งเคลมต้องมีรูป/PDF อย่างน้อย 1 ไฟล์ที่ตัวเองอัปโหลดไว้ (context "return") · เหตุผลอื่นแนบเพิ่มได้ไม่บังคับ
+  const attachIds = await resolveLinkable(no, body.attachmentIds, "return", actor)
+  if (rr.code === "claim" && attachIds.length === 0) throw new HttpError("ส่งเคลมต้องแนบรูปหรือไฟล์หลักฐานอย่างน้อย 1 ไฟล์", 400)
 
   const want = new Map<number, number>()
   for (const r of raw) {
@@ -249,7 +253,8 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
     { returnDocument: "after" },
   )
   if (!after) throw new ConflictError()
-  await writeLog({ no, action: "returnRequest", from: cur.status, to: "RETURN_REQUESTED", actor: { email: actor.email, name: actor.name, via: actor.via }, note: `${rid} · ${reason}` })
+  await writeLog({ no, action: "returnRequest", from: cur.status, to: "RETURN_REQUESTED", actor: { email: actor.email, name: actor.name, via: actor.via }, note: `${rid} · ${reason}${attachIds.length ? ` · แนบ ${attachIds.length} ไฟล์` : ""}` })
+  await linkAttachments(no, attachIds, { type: "return", rid })
   return { rid }
 }
 

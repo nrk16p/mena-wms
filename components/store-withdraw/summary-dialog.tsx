@@ -7,6 +7,7 @@ import { swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DUE_MAX_DAYS, issuedOf, normPlate } from "@/lib/store-withdraw/pending"
 import type { SwLine, SwUsage } from "@/lib/store-withdraw/types"
+import { AttachPicker, doneIds, isUploading, type Picked } from "./attach-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
 
 /** field ของใบ pending หลัง JSON (วันที่เป็นสตริง) */
@@ -103,6 +104,7 @@ export function SummaryDialog({ req, onClose, onDone }: { req: { no: string; pla
   const [seq, setSeq] = useState(lineIdx.length)
   const [rows, setRows] = useState<Row[]>(() => lineIdx.map(({ i }, k) => ({ key: k, lineIndex: i, plate: req.plate, mrCode: "", mrItems: [], mrItemId: null, qty: "" })))
   const [note, setNote] = useState("")
+  const [files, setFiles] = useState<Picked[]>([])
   const [busy, setBusy] = useState(false)
 
   const patch = (key: number, p: Partial<Row>) => setRows((c) => c.map((r) => (r.key === key ? { ...r, ...p } : r)))
@@ -135,7 +137,7 @@ export function SummaryDialog({ req, onClose, onDone }: { req: { no: string; pla
         const it = r.mrItems.find((m) => m.id === r.mrItemId)!
         return { lineIndex: r.lineIndex, plate: r.plate.trim(), mrCode: r.mrCode, mrItemId: it.id, mrItemLabel: it.label, qty: Number(r.qty) }
       })
-      await post(`/api/store-withdraw/${req.no}/summary`, { usages, note: note.trim() })
+      await post(`/api/store-withdraw/${req.no}/summary`, { usages, note: note.trim(), ...(doneIds(files).length ? { attachmentIds: doneIds(files) } : {}) })
       await swalToast("success", leftTotal > 0 ? "ส่งสรุปแล้ว เอาของที่เหลือไปคืนสโตร์ด้วย" : "ส่งสรุปแล้ว รอสโตร์ตัดสต๊อก")
       onDone()
     } catch (e) {
@@ -193,10 +195,11 @@ export function SummaryDialog({ req, onClose, onDone }: { req: { no: string; pla
           })}
         </div>
         <textarea aria-label="หมายเหตุ" rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="หมายเหตุ (ไม่บังคับ)" className={inputCls} />
+        <AttachPicker no={req.no} context="summary" items={files} onChange={(f) => setFiles(f)} hint="แนบรูปงานที่ทำหรือของที่เหลือได้ (ไม่บังคับ)" />
         <p data-testid="left-total" className="text-xs text-gray-600 dark:text-gray-300">{leftTotal > 1e-9 ? `ของเหลือรวม ${num(leftTotal)} ชิ้น ต้องเอาไปคืนสโตร์` : "ใช้หมดทุกรายการ ไม่มีของคืน"}</p>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-xl border border-[#E2E8E4] px-4 py-2.5 text-sm dark:border-white/10">ปิด</button>
-          <button type="button" data-testid="summary-submit" onClick={submit} disabled={busy || !valid} className="rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">ส่งสรุป</button>
+          <button type="button" data-testid="summary-submit" onClick={submit} disabled={busy || !valid || isUploading(files)} className="rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">ส่งสรุป</button>
         </div>
       </DialogContent>
     </Dialog>

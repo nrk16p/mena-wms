@@ -149,12 +149,44 @@ export default function Page() {
           <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2610-001/returns" -d '{
   "reasonCode": "claim",                  // บังคับ · ดูรหัสด้านล่าง · ไม่ใส่/ผิดตอบ 400
   "reasonNote": "ลูกหมากไม่ตรงรุ่น",              // ไม่บังคับ (บังคับถ้า reasonCode = other) · ไม่เกิน 300 ตัวอักษร
+  "attachmentIds": ["9f3a1c0b7d2e4a55"],        // ไม่บังคับ (บังคับถ้า reasonCode = claim) · id จากขั้นตอนแนบไฟล์ด้านล่าง
   "lines": [ { "lineIndex": 0, "qty": 1 } ]     // lineIndex = ลำดับบรรทัดในใบ เริ่มที่ 0
 }'
 
 201  { "rid": "R3FA9C1" }`}</CodeBlock>
           <p><code>reasonCode</code>: <code>unused</code> ไม่ได้ใช้ · <code>claim</code> ส่งเคลม · <code>sell</code> ขายออก · <code>keep_other_truck</code> เก็บไว้ใช้คันอื่น · <code>over_order</code> เบิกเกินที่ใช้จริง · <code>job_cancelled</code> งานยกเลิก/ซ่อมเสร็จก่อน · <code>other</code> อื่นๆ (ต้องมี <code>reasonNote</code>)</p>
+          <p><b>ส่งเคลม (<code>claim</code>) ต้องแนบหลักฐานอย่างน้อย 1 ไฟล์</b> (รูปหรือ PDF ที่ตัวเองอัปโหลดไว้ในใบนี้ หัวข้อ <code>return</code> ยืนยันแล้ว และยังไม่เคยใช้กับรายการอื่น) ไม่ครบตอบ 400 · เหตุผลอื่นแนบเพิ่มได้ไม่บังคับ</p>
           <p>ขอคืนได้เมื่อสถานะ <code>ISSUED</code> หรือ <code>RECEIVED</code> · คืนเกินจำนวนที่เบิก (รวมที่รอคืนอยู่) ตอบ 409 · สโตร์ต้องเป็นคนกดรับคืนใน WMS ผลอยู่ใน <code>returns[]</code> ของใบ · ใบ <code>mobile_pm</code> ขอคืนไม่ได้ (ตอบ 409) ของเหลือให้กรอกตอนสรุปการใช้แทน</p>
+        </Section>
+
+        <Section icon={FileJson} title="แนบรูป/ไฟล์หลักฐาน">
+          <p>แนบได้ 3 ขั้น: ขอลิงก์อัปโหลด → ส่งไฟล์ขึ้นลิงก์นั้นตรง ๆ → กดยืนยัน (ระบบเช็กว่าไฟล์อยู่ในที่เก็บและขนาดตรง) · ใช้ได้กับใบของอีเมลใน <code>x-user</code> เท่านั้น ส่วนสโตร์แนบผ่านหน้าเว็บ</p>
+          <Ep verb="POST" path="/api/store-withdraw/{no}/attachments/presign" />
+          <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2610-001/attachments/presign" -d '{
+  "context": "return",              // return | reject | summary | receipt | other
+  "filename": "ลูกหมาก.jpg",
+  "contentType": "image/jpeg",      // image/jpeg, image/png, image/webp, image/heic, application/pdf
+  "size": 183204,                   // ไบต์ ไม่เกิน 10 MB
+  "sha256": "<เลขฐานสิบหก 64 ตัว>"      // ไม่บังคับ แต่ควรส่ง (เก็บเป็นหลักฐานว่าไฟล์ไม่ถูกเปลี่ยน)
+}'
+
+201  { "id": "9f3a1c0b7d2e4a55", "uploadUrl": "https://...", "key": "store-withdraw/SW-2610-001/9f3a...-ลูกหมาก.jpg" }
+
+curl -X PUT -H "Content-Type: image/jpeg" --data-binary @ลูกหมาก.jpg "<uploadUrl>"     # Content-Type ต้องตรงกับที่ขอ
+
+curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2610-001/attachments/confirm" -d '{ "id": "9f3a1c0b7d2e4a55" }'`}</CodeBlock>
+          <ul className="ml-1 space-y-2">
+            <Param name="จำนวน">ไม่เกิน 8 ไฟล์ต่อหัวข้อ (<code>context</code>) ต่อใบ · ชนิดไฟล์อื่นหรือใหญ่เกิน 10 MB ตอบ 400</Param>
+            <Param name="confirm">ตอบ 409 ถ้ายังไม่เจอไฟล์หรือขนาดไม่ตรงกับที่แจ้ง · ยืนยันได้เฉพาะคนที่ขอลิงก์ · ยืนยันแล้วระบบบันทึกใน log ของใบ</Param>
+            <Param name="ผูกกับรายการ">ส่ง <code>attachmentIds</code> ตอนขอคืน (<code>context: &quot;return&quot;</code>) · ไฟล์ที่ผูกแล้วใช้ซ้ำกับรายการอื่นไม่ได้</Param>
+            <Param name="แก้/ลบ">ทำไม่ได้ ไฟล์ที่ยืนยันแล้วเก็บไว้เป็นหลักฐาน 7 ปี</Param>
+          </ul>
+          <Ep verb="GET" path="/api/store-withdraw/{no}/attachments" />
+          <CodeBlock>{`curl ${HDR} "${API}/SW-2610-001/attachments"
+
+{ "items": [ { "id": "9f3a1c0b7d2e4a55", "context": "return", "filename": "ลูกหมาก.jpg", "contentType": "image/jpeg",
+               "size": 183204, "by": { ... }, "confirmedAt": "...", "linkedTo": { "type": "return", "rid": "R3FA9C1" },
+               "url": "https://... (ลิงก์ดาวน์โหลด หมดอายุใน 5 นาที)" } ] }`}</CodeBlock>
         </Section>
 
         <Section icon={ClipboardCheck} title="Mobile/PM: เบิกไปก่อน สรุปการใช้ทีหลัง">

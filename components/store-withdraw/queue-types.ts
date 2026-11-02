@@ -10,6 +10,7 @@ export type QItem = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "atm
   updatedAt: string
   returns: QReturn[]
   itemType: "request" | "return"
+  attachCount?: number
   return?: QReturn
 }
 export type QKeyed = { id: number | null; code: string; pick_to: string; user: string; remark: string; created_at: string; approved: boolean }

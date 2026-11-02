@@ -5,6 +5,7 @@ import { Bell, BellOff, KeyRound, Loader2, MoreVertical, RefreshCw, Store } from
 import { swalConfirm, swalError, swalTextInput, swalToast } from "@/lib/swal"
 import { AtmsLinkDialog } from "./atms-link-dialog"
 import { PrepareDialog } from "./prepare-dialog"
+import { RejectDialog } from "./reject-dialog"
 import { isPendingFlow } from "@/lib/store-withdraw/core"
 import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-types"
 import { KeyedCard, TicketCard, type BusyKind, type CardActions } from "./ticket-card"
@@ -40,6 +41,7 @@ export function QueueBoard() {
   const [now, setNow] = useState(() => new Date())
   const [busy, setBusy] = useState<Map<string, BusyKind>>(new Map())
   const [prep, setPrep] = useState<QItem | null>(null)
+  const [rej, setRej] = useState<QItem | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [soundOn, setSoundOn] = useState(false)
@@ -251,12 +253,13 @@ export function QueueBoard() {
     } finally { setBusyKey(k, null) }
   }
 
-  const reject = async (i: QItem) => {
-    const r = await swalTextInput({ title: `ปฏิเสธใบ ${i.no}`, label: "เหตุผล (ผู้ขอจะเห็นข้อความนี้)", placeholder: "เช่น ของหมด รออะไหล่เข้า", required: true, confirmText: "ปฏิเสธ", danger: true })
-    if (!r.isConfirmed || !r.value?.trim()) return
+  const reject = async (i: QItem) => { setRej(i) }
+
+  const doReject = async (i: QItem, reason: string, attachmentIds: string[]) => {
+    setRej(null)
     const k = itemKey(i)
     setBusyKey(k, "other")
-    try { await api(`/api/store-withdraw/${i.no}/reject`, { method: "POST", body: { reason: r.value.trim() } }); await load() }
+    try { await api(`/api/store-withdraw/${i.no}/reject`, { method: "POST", body: { reason, ...(attachmentIds.length ? { attachmentIds } : {}) } }); await load() }
     catch (e) { await swalToast("warning", errMsg(e, "ปฏิเสธไม่สำเร็จ")); await load() }
     finally { setBusyKey(k, null) }
   }
@@ -392,6 +395,7 @@ export function QueueBoard() {
 
       {busy.size > 0 && <span className="sr-only" aria-live="polite"><Loader2 className="animate-spin" />กำลังทำรายการ</span>}
 
+      {rej && <RejectDialog no={rej.no} onClose={() => setRej(null)} onSubmit={(reason, ids) => { void doReject(rej, reason, ids) }} />}
       {prep && <PrepareDialog item={prep} onClose={() => setPrep(null)} onReady={markReady} />}
       {linkOpen && (
         <AtmsLinkDialog

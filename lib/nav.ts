@@ -267,6 +267,8 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ยื่นคำขอเบิกอะไหล่ (สต๊อก / ตัดยอด)" },
       { href: "/store-withdraw/queue", label: "คิวงานสโตร์", icon: Inbox, exact: true, section: "store-queue", sectionMin: "edit",
         desc: "รับงาน จัดของ ส่งของ และรับคืน (เฉพาะสโตร์)" },
+      { href: "/store-withdraw/audit", label: "ตรวจสอบย้อนหลังงานเบิก", icon: ShieldCheck, exact: true, section: "store-audit", sectionMin: "view",
+        desc: "ไล่ประวัติใบเบิก หลักฐานแนบ และ Export (เฉพาะผู้ได้รับสิทธิ์)" },
     ],
   },
   {

@@ -1,6 +1,7 @@
 // GET /api/store-withdraw/queue?inv= → { columns: {NEW, PREPARING, READY, DONE_TODAY}, atmsKeyed: [] } (session เท่านั้น)
 // atmsKeyed = WD วันนี้ที่คีย์ตรงใน ATMS (แคช 3 นาที · อ่านด้วยบัญชีค้นข้อมูลของ WMS · ช้า/ล่ม = ว่าง ไม่ทำให้คิวหลักรอ) · ต้องมีสิทธิ์ store-queue แก้ได้
 import { after, NextResponse, type NextRequest } from "next/server"
+import { countAttachments } from "@/lib/store-withdraw/attachments"
 import { getStoreActor, guard, isResponse } from "@/lib/store-withdraw/http"
 import { buildQueue, listAtmsKeyed } from "@/lib/store-withdraw/service"
 
@@ -27,6 +28,9 @@ export function GET(req: NextRequest) {
       buildQueue(validInv ? inv : null),
       keyed ? withBudget(keyed) : Promise.resolve([]),
     ])
-    return NextResponse.json({ columns, atmsKeyed })
+    // จำนวนไฟล์แนบต่อใบ (ชิปบนการ์ด) — query เดียวทั้งคิว
+    const counts = await countAttachments([...new Set(Object.values(columns).flat().map((i) => i.no))])
+    const withCount = Object.fromEntries(Object.entries(columns).map(([k, list]) => [k, list.map((i) => ({ ...i, attachCount: counts.get(i.no) ?? 0 }))]))
+    return NextResponse.json({ columns: withCount, atmsKeyed })
   })
 }

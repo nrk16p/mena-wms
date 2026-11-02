@@ -9,10 +9,12 @@ import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, returnableQty, workType
 import { lateMinutes, lateText } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
+import { AttachButton, AttachChip, AttachPicker, doneIds, isUploading, type Picked } from "./attach-picker"
 import { StatusChip } from "./status-chip"
 import { ExtendDueDialog, SummaryDialog, SummaryView, type PendingReq } from "./summary-dialog"
 
 type Req = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "summaryDueAt" | "summary" | "settleGroups"> & PendingReq & {
+  attachCount?: number
   createdAt: string
   returns: { status: string; lines: { lineIndex: number; qty: number }[] }[]
 }
@@ -174,6 +176,7 @@ export function MyRequestsPage() {
                 </ul>
 
                 {r.summary && <SummaryView req={r} />}
+                <AttachChip no={r.no} count={r.attachCount ?? 0} />
 
                 {(r.status === "NEW" || r.status === "ISSUED" || canReturn || (pending && r.status === "HANDED_OUT")) && (
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -184,6 +187,7 @@ export function MyRequestsPage() {
                     {canReturn && <button type="button" disabled={busy} onClick={() => setRet(r)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><Undo2 size={14} />ขอคืน</button>}
                   </div>
                 )}
+                {r.status !== "CANCELLED" && <div className="mt-2"><AttachButton no={r.no} context={r.status === "ISSUED" ? "receipt" : "other"} onDone={load} /></div>}
               </li>
             )
           })}
@@ -204,12 +208,14 @@ function ReturnDialog({ req, onClose, onDone }: { req: Req; onClose: () => void;
   const [reasonCode, setReasonCode] = useState("")
   const [reasonNote, setReasonNote] = useState("")
   const [busy, setBusy] = useState(false)
+  const [files, setFiles] = useState<Picked[]>([])
+  const claim = reasonCode === "claim"
   const total = qty.reduce((a, b) => a + b, 0)
 
   const submit = async () => {
     setBusy(true)
     try {
-      await post(`/api/store-withdraw/${req.no}/returns`, { reasonCode, reasonNote: reasonNote.trim(), lines: qty.map((q, lineIndex) => ({ lineIndex, qty: q })).filter((x) => x.qty > 0) })
+      await post(`/api/store-withdraw/${req.no}/returns`, { reasonCode, reasonNote: reasonNote.trim(), ...(doneIds(files).length ? { attachmentIds: doneIds(files) } : {}), lines: qty.map((q, lineIndex) => ({ lineIndex, qty: q })).filter((x) => x.qty > 0) })
       await swalToast("success", "ส่งคำขอคืนแล้ว รอสโตร์รับคืน")
       onDone()
     } catch (e) {
@@ -247,9 +253,11 @@ function ReturnDialog({ req, onClose, onDone }: { req: Req; onClose: () => void;
             placeholder={reasonCode === "other" ? "พิมพ์เหตุผล (ต้องใส่)" : "หมายเหตุเพิ่มเติม (ไม่บังคับ)"}
             className="mt-2 w-full rounded-[11px] border border-[#E2E8E4] bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] dark:border-white/10 dark:bg-[#0f1117] dark:text-white" />
         </fieldset>
+        <AttachPicker no={req.no} context="return" items={files} onChange={(f) => setFiles(f)} required={claim}
+          hint={claim ? "แนบรูปของที่ชำรุดหรือไม่ตรงรุ่น หรือใบเอกสาร (รูปหรือ PDF ไม่เกิน 10 MB)" : "แนบรูปประกอบได้ถ้ามี (ไม่บังคับ)"} />
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-xl border border-[#E2E8E4] px-4 py-2.5 text-sm dark:border-white/10">ปิด</button>
-          <button type="button" onClick={submit} disabled={busy || total === 0 || !reasonCode || (reasonCode === "other" && reasonNote.trim().length < 3)} className="rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">ส่งคำขอคืน</button>
+          <button type="button" onClick={submit} disabled={busy || total === 0 || !reasonCode || isUploading(files) || (claim && doneIds(files).length === 0) || (reasonCode === "other" && reasonNote.trim().length < 3)} className="rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">ส่งคำขอคืน</button>
         </div>
       </DialogContent>
     </Dialog>
