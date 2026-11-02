@@ -27,6 +27,7 @@ const mrItemName = (label: string) => label.replace(/^\S*MR\S*\d\s+/i, "").repla
 export function RequestForm() {
   const router = useRouter()
   const [workType, setWorkType] = useState<SwWorkType>("garage_in")
+  const needMr = workType !== "mobile_pm"   // อู่ใน/อู่นอก: ใบเบิกต้องละเอียดถึง MR + ประเภทการซ่อม
   const kind = WORK_TYPE_KIND[workType]
   const [invs, setInvs] = useState<Opt[]>([])
   const [picks, setPicks] = useState<Opt[]>([])
@@ -99,10 +100,12 @@ export function RequestForm() {
 
   const submit = async () => {
     if (!plate.trim()) return swalError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ")
-    if (workType === "garage_in" && !mrCode) return swalError("งานอู่ในต้องเลือกใบแจ้งซ่อม (MR) ก่อน")
+    if (needMr && !mrCode) return swalError(`งาน${WORK_TYPE_LABEL[workType]}ต้องเลือกใบแจ้งซ่อม (MR) ก่อน`)
+    if (needMr && mrItems.length === 0) return swalError("เลือก MR จากรายการที่ค้นเจอ เพื่อเลือกประเภทการซ่อมได้")
     if (mrItems.length > 0 && !mrSel) return swalError("เลือกประเภทการซ่อมของ MR ด้วย")
     if (!inventoryId || !pickToId) return swalError("เลือกคลังกับจุดประสงค์ให้ครบ")
     if (lines.length === 0) return swalError("เพิ่มอะไหล่อย่างน้อย 1 รายการ")
+    if (needMr && lines.some((l) => !l.mrItemId)) return swalError("ทุกรายการอะไหล่ต้องระบุประเภทการซ่อม")
     if (lines.some((l) => !(Number(l.qty) > 0))) return swalError("จำนวนที่ขอต้องมากกว่า 0 ทุกรายการ")
     setBusy(true)
     try {
@@ -146,7 +149,7 @@ export function RequestForm() {
           <span className={labelCls}>ประเภทงาน</span>
           <div className="flex flex-col gap-2 sm:flex-row">
             {workBtn("garage_in", "ซ่อมในอู่ เบิกจากสต๊อก ต้องมี MR")}
-            {workBtn("garage_out", "ซื้อมาใช้เลย ตัดยอดตามใบรับของ")}
+            {workBtn("garage_out", "ซื้อมาใช้เลย ต้องมี MR ตัดยอดตามใบรับของ")}
             {workBtn("mobile_pm", "ช่างออกหน้างาน เบิกจากสต๊อก")}
           </div>
         </div>
@@ -167,8 +170,8 @@ export function RequestForm() {
             <input id="sw-plate" className={inputCls} value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="เช่น 71-1234 หรือ เบอร์ 1234" />
           </div>
           <div>
-            <span className={labelCls}>ใบแจ้งซ่อม (MR){workType === "garage_in" && <span className="text-red-600"> *ต้องเลือก</span>}</span>
-            {workType === "garage_in" && <p className="mb-1 text-xs text-gray-500">เลือก MR ของรถคันนี้</p>}
+            <span className={labelCls}>ใบแจ้งซ่อม (MR){needMr && <span className="text-red-600"> *ต้องเลือก</span>}</span>
+            {needMr && <p className="mb-1 text-xs text-gray-500">เลือก MR ของรถคันนี้ แล้วเลือกประเภทการซ่อม</p>}
             <MrPicker
               mrCode={mrCode}
               plate={plate}

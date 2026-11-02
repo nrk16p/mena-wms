@@ -61,9 +61,10 @@ export function TicketCard({ item, now, busy, actions, column }: {
       : "border-[#EEF2F0] bg-white dark:border-white/10 dark:bg-[#161922]"
 
   const lines = isReturn
-    ? ret!.lines.map((l) => ({ key: l.lineIndex, name: item.lines[l.lineIndex]?.skuName ?? "?", sub: item.lines[l.lineIndex]?.skuCode ?? "", qtyText: `คืน ${l.qty}` }))
+    ? ret!.lines.map((l) => ({ key: l.lineIndex, name: item.lines[l.lineIndex]?.skuName ?? "?", sub: item.lines[l.lineIndex]?.skuCode ?? "", mr: "", qtyText: `คืน ${l.qty}` }))
     : item.lines.map((l) => ({
         key: l.skuId, name: l.skuName, sub: l.skuCode,
+        mr: l.mrItemLabel ? l.mrItemLabel.replace(/^\S*MR\S*\d\s+/i, "").replace(/\s*:\s*\d+$/, "") : "",
         qtyText: `${l.issuedQty != null && l.issuedQty !== l.requestedQty ? `${l.issuedQty}/` : ""}${l.requestedQty}${l.short ? " (ขาด)" : ""}`,
       }))
 
@@ -95,7 +96,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
       <ul className="mt-2 divide-y divide-[#EEF2F0] text-sm dark:divide-white/10">
         {lines.slice(0, 5).map((l) => (
           <li key={l.key} className="flex items-start justify-between gap-3 py-1">
-            <span className="min-w-0"><span className="block truncate text-gray-900 dark:text-white">{l.name}</span><span className="block text-xs text-gray-500">{l.sub}</span></span>
+            <span className="min-w-0"><span className="block truncate text-gray-900 dark:text-white">{l.name}</span><span className="block text-xs text-gray-500">{l.sub}</span>{l.mr && <span data-testid="mr-type" className="block truncate text-xs text-[#1B8C4B]">{l.mr}</span>}</span>
             <span className="shrink-0 text-xs text-gray-600 dark:text-gray-300">{l.qtyText}</span>
           </li>
         ))}
