@@ -21,6 +21,8 @@ const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 const labelCls = "mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
 const LATKRABANG = 4
+// "LBMR26100001 อู่ใน-CM-ระบบไฟ : 257041" → "อู่ใน-CM-ระบบไฟ" (ตัดเลข MR หน้า กับ id ท้าย)
+const mrItemName = (label: string) => label.replace(/^\S*MR\S*\d\s+/i, "").replace(/\s*:\s*\d+$/, "")
 
 export function RequestForm() {
   const router = useRouter()
@@ -34,6 +36,7 @@ export function RequestForm() {
   const [plate, setPlate] = useState("")
   const [mrCode, setMrCode] = useState("")
   const [mrItems, setMrItems] = useState<MrItem[]>([])
+  const [mrSel, setMrSel] = useState<MrItem | null>(null)   // ประเภทการซ่อมที่เลือก (รายการใน MR) · ใช้เป็นค่าตั้งต้นของทุกบรรทัด
   const [urgent, setUrgent] = useState(false)
   const [remark, setRemark] = useState("")
   const [lines, setLines] = useState<FormLine[]>([])
@@ -58,9 +61,9 @@ export function RequestForm() {
   const addSku = useCallback((s: SkuHit) => {
     setLines((cur) => {
       if (cur.some((l) => l.skuId === s.skuId)) return cur.map((l) => (l.skuId === s.skuId ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l))
-      return [...cur, { skuId: s.skuId, skuCode: s.skuCode, skuName: s.skuName, qty: "1", stockQty: s.stockQty, mrItemId: mrItems.length === 1 ? mrItems[0].id : null, mrItemLabel: mrItems.length === 1 ? mrItems[0].label : null, remark: "" }]
+      return [...cur, { skuId: s.skuId, skuCode: s.skuCode, skuName: s.skuName, qty: "1", stockQty: s.stockQty, mrItemId: mrSel?.id ?? null, mrItemLabel: mrSel?.label ?? null, remark: "" }]
     })
-  }, [mrItems])
+  }, [mrSel])
 
   // เปลี่ยน/ล้างใบอ้างอิง หรือเปลี่ยนคลัง → ทิ้งรายการที่นำเข้าจากใบ เหลือเฉพาะที่พิมพ์เอง
   const dropFromDoc = () => setLines((c) => c.filter((l) => !l.fromDoc))
@@ -75,7 +78,7 @@ export function RequestForm() {
       for (const g of got) {
         const at = next.findIndex((l) => l.skuId === g.skuId)
         if (at >= 0) next[at].qty = String((Number(next[at].qty) || 0) + g.qty)
-        else next.push({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: g.stockQty, mrItemId: mrItems.length === 1 ? mrItems[0].id : null, mrItemLabel: mrItems.length === 1 ? mrItems[0].label : null, remark: "", fromDoc: true })
+        else next.push({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: g.stockQty, mrItemId: mrSel?.id ?? null, mrItemLabel: mrSel?.label ?? null, remark: "", fromDoc: true })
       }
       return next
     })
@@ -89,13 +92,15 @@ export function RequestForm() {
     patch(i, { mrItemId: it?.id ?? null, mrItemLabel: it?.label ?? null })
   }
   const applyAllMr = (id: string) => {
-    const it = mrItems.find((m) => String(m.id) === id)
+    const it = mrItems.find((m) => String(m.id) === id) ?? null
+    setMrSel(it)
     setLines((cur) => cur.map((l) => ({ ...l, mrItemId: it?.id ?? null, mrItemLabel: it?.label ?? null })))
   }
 
   const submit = async () => {
     if (!plate.trim()) return swalError("ใส่ทะเบียนรถ/เบอร์รถก่อนยื่นคำขอ")
     if (workType === "garage_in" && !mrCode) return swalError("งานอู่ในต้องเลือกใบแจ้งซ่อม (MR) ก่อน")
+    if (mrItems.length > 0 && !mrSel) return swalError("เลือกประเภทการซ่อมของ MR ด้วย")
     if (!inventoryId || !pickToId) return swalError("เลือกคลังกับจุดประสงค์ให้ครบ")
     if (lines.length === 0) return swalError("เพิ่มอะไหล่อย่างน้อย 1 รายการ")
     if (lines.some((l) => !(Number(l.qty) > 0))) return swalError("จำนวนที่ขอต้องมากกว่า 0 ทุกรายการ")
@@ -167,9 +172,18 @@ export function RequestForm() {
             <MrPicker
               mrCode={mrCode}
               plate={plate}
-              onPick={(code, items) => { setMrCode(code); setMrItems(items); if (items.length === 1) setLines((c) => c.map((l) => ({ ...l, mrItemId: l.mrItemId ?? items[0].id, mrItemLabel: l.mrItemLabel ?? items[0].label }))) }}
-              onClear={() => { setMrCode(""); setMrItems([]) }}
+              onPick={(code, items) => { setMrCode(code); setMrItems(items); const one = items.length === 1 ? items[0] : null; setMrSel(one); setLines((c) => c.map((l) => ({ ...l, mrItemId: one?.id ?? null, mrItemLabel: one?.label ?? null }))) }}
+              onClear={() => { setMrCode(""); setMrItems([]); setMrSel(null); setLines((c) => c.map((l) => ({ ...l, mrItemId: null, mrItemLabel: null }))) }}
             />
+            {mrItems.length > 0 && (
+              <div className="mt-2">
+                <label className={labelCls} htmlFor="sw-mritem">ประเภทการซ่อม<span className="text-red-600"> *ต้องเลือก</span></label>
+                <select id="sw-mritem" className={inputCls} value={mrSel?.id ?? ""} onChange={(e) => applyAllMr(e.target.value)}>
+                  <option value="">เลือกประเภทการซ่อม</option>
+                  {mrItems.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
@@ -195,16 +209,6 @@ export function RequestForm() {
         <h2 className="text-sm font-semibold text-[#14271C] dark:text-white">รายการอะไหล่</h2>
         <SkuPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} onPick={addSku} />
 
-        {mrItems.length > 1 && lines.length > 0 && (
-          <div>
-            <label className={labelCls}>ผูกทุกรายการกับรายการใน MR</label>
-            <select className={inputCls} defaultValue="" onChange={(e) => applyAllMr(e.target.value)}>
-              <option value="">ไม่ผูก / เลือกรายบรรทัด</option>
-              {mrItems.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-            </select>
-          </div>
-        )}
-
         {lines.length === 0 ? (
           <p className="rounded-xl border border-dashed border-[#E2E8E4] px-3 py-6 text-center text-sm text-gray-500 dark:border-white/10">ยังไม่มีรายการ ค้นอะไหล่ด้านบนแล้วกดเลือก</p>
         ) : (
@@ -224,8 +228,8 @@ export function RequestForm() {
                 </div>
                 {mrItems.length > 0 && (
                   <select aria-label="รายการใน MR" className={`${inputCls} mt-2`} value={l.mrItemId ?? ""} onChange={(e) => setMrItem(i, e.target.value)}>
-                    <option value="">ไม่ผูกรายการใน MR</option>
-                    {mrItems.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                    <option value="" disabled>เลือกประเภทการซ่อม</option>
+                    {mrItems.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
                   </select>
                 )}
                 {l.stockQty != null && Number(l.qty) > l.stockQty && kind === "stock" && (
