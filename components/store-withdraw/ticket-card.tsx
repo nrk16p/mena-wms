@@ -84,6 +84,7 @@ export function TicketCard({ item, now, busy, actions, column }: {
             {item.mrCode && ` · ${item.mrCode}`} · {item.requestedBy.name}
             {item.ref && <span data-testid="ref"> · อ้างอิง {DOC_LABEL[item.ref.type]} {item.ref.code}</span>}
           </p>
+          {isReturn && ret!.reason && <p data-testid="return-reason" className="mt-0.5 break-words text-xs text-[#6D4FC2] dark:text-violet-300">เหตุผลที่คืน: {ret!.reason}</p>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {item.urgent && !done && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">รถจอดรอ</span>}

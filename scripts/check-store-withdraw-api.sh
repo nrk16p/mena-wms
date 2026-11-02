@@ -98,8 +98,8 @@ expect "q สั้น = ว่าง" "d['results']==[]"
 code 200 "api-key lookup po" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" "$B/lookup/po?q=LBPO26"
 code 401 "lookup po ไม่ล็อกอิน" "$B/lookup/po?q=LBPO26"
 code 200 "รายการในใบ po" -H "$R" "$B/lookup/doc/po/157902?inv=4"
-expect "doc + lines (OIL-001→501 สต๊อก 12 / FLT-002→502 จากสำเนา / ค่าแรง LB00269 ไม่มีทั้งสำเนาและ ATMS ตรงเป๊ะ→null แต่ไม่ถูกกรองทิ้ง)" "d['doc']['code']=='LBPO26100704' and [l['skuId'] for l in d['lines']]==[501,501,502,None] and d['lines'][0]['stockQty']==12 and d['lines'][3]['isLabour'] is True and [l['qty'] for l in d['lines']]==[2,1,0,1]"
-expect "warnings มีค่าแรง" "'ใบนี้มีบรรทัดค่าแรง/บริการ' in d['warnings']"
+expect "doc + lines (OIL-001→501 สต๊อก 12 / FLT-002→502 จากสำเนา / ค่าแรง LB00269 ถูกตัดทิ้งที่เซิร์ฟเวอร์)" "d['doc']['code']=='LBPO26100704' and [l['skuId'] for l in d['lines']]==[501,501,502] and d['lines'][0]['stockQty']==12 and not any(l['isLabour'] for l in d['lines']) and [l['qty'] for l in d['lines']]==[2,1,0]"
+expect "warnings ข้ามค่าแรง" "'ข้ามบรรทัดค่าแรง 1 รายการ (นำเข้าเฉพาะอะไหล่)' in d['warnings']"
 code 200 "รายการในใบ dd (api-key)" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" "$B/lookup/doc/dd/157902?inv=4"
 code 404 "ใบที่ไม่พบ" -H "$R" "$B/lookup/doc/po/404404"
 code 400 "ชนิดใบผิด" -H "$R" "$B/lookup/doc/xx/1"
@@ -312,10 +312,13 @@ echo "== receive / returns / accept"
 code 403 "คนอื่นกดรับแทนไม่ได้" -H "$R2" -X POST "$B/$NO/receive"
 code 200 "receive" -H "$R" -X POST "$B/$NO/receive"
 expect "RECEIVED" "d['request']['status']=='RECEIVED'"
-code 409 "คืนเกินที่จ่าย (4)" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"lines":[{"lineIndex":0,"qty":5}]}'
-code 201 "ขอคืน 1" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"lines":[{"lineIndex":0,"qty":1}]}'
+code 400 "ขอคืนไม่ใส่เหตุผล" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"lines":[{"lineIndex":0,"qty":1}]}'
+code 400 "reasonCode ผิด" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"reasonCode":"xx","lines":[{"lineIndex":0,"qty":1}]}'
+code 400 "อื่นๆ ไม่พิมพ์เหตุผล" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"reasonCode":"other","lines":[{"lineIndex":0,"qty":1}]}'
+code 409 "คืนเกินที่จ่าย (4)" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"reasonCode":"unused","lines":[{"lineIndex":0,"qty":5}]}'
+code 201 "ขอคืน 1" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"reasonCode":"unused","lines":[{"lineIndex":0,"qty":1}]}'
 RID=$(jget "d['rid']")
-code 409 "ขอคืนซ้อนเกินคงเหลือ (3+1>4)" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"lines":[{"lineIndex":0,"qty":4}]}'
+code 409 "ขอคืนซ้อนเกินคงเหลือ (3+1>4)" -H "$R" -H "$J" -X POST "$B/$NO/returns" -d '{"reasonCode":"unused","lines":[{"lineIndex":0,"qty":4}]}'
 code 200 "queue เห็นใบคืนช่อง NEW" -H "$S" "$B/queue?inv=4"
 expect "ใบคืนอยู่ NEW และใบเดิมอยู่ DONE_TODAY" "any(r.get('itemType')=='return' for r in d['columns']['NEW']) and any(r['no']=='$NO' for r in d['columns']['DONE_TODAY'])"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" -X POST "$B/$NO/returns/$RID/accept")

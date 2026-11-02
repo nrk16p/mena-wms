@@ -73,6 +73,18 @@ export const validApiUser = (s: string): boolean => /^[^@\s]+@menatransport\.co\
 
 // ---------- ประเภทงาน (อู่ใน / อู่นอก / Mobile-PM) ----------
 
+/** เหตุผลที่ขอคืน — เลือกจากรายการ (ผู้ขอเห็น label + hint · สโตร์เห็น label) */
+export const RETURN_REASONS = [
+  { code: "unused", label: "ไม่ได้ใช้", hint: "เบิกไปแล้วไม่ได้ใช้งาน คืนเข้าสต๊อก" },
+  { code: "claim", label: "ส่งเคลม", hint: "ของไม่ตรงรุ่นหรือชำรุด ส่งเคลมกับผู้ขาย" },
+  { code: "sell", label: "ขายออก", hint: "ของที่บริษัทไม่ใช้ ขายออก" },
+  { code: "keep_other_truck", label: "เก็บไว้ใช้คันอื่น", hint: "ไม่ตรงกับรถคันนี้ แต่ใช้กับรถคันอื่นได้" },
+  { code: "over_order", label: "เบิกเกินที่ใช้จริง", hint: "เบิกมาเกินจำนวนที่ใช้" },
+  { code: "job_cancelled", label: "งานยกเลิก / ซ่อมเสร็จก่อน", hint: "ไม่ต้องใช้อะไหล่แล้ว" },
+  { code: "other", label: "อื่นๆ", hint: "ระบุเหตุผลเอง" },
+] as const
+export type ReturnReasonCode = (typeof RETURN_REASONS)[number]["code"]
+
 export const WORK_TYPES: SwWorkType[] = ["garage_in", "garage_out", "mobile_pm"]
 export const WORK_TYPE_LABEL: Record<SwWorkType, string> = { garage_in: "อู่ใน", garage_out: "อู่นอก", mobile_pm: "Mobile/PM" }
 /** ประเภทงาน → kind ที่เก็บ (อู่นอกซื้อมาใช้เลย = ตัดยอด · นอกนั้นเบิกจากสต๊อก) */

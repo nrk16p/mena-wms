@@ -40,6 +40,8 @@ export type SwReturn = {
   rid: string
   status: SwReturnStatus
   lines: { lineIndex: number; qty: number }[]
+  reasonCode?: string      // รหัสเหตุผล (RETURN_REASONS)
+  reason?: string          // เหตุผลที่ขอคืน (บังคับตอนขอ · ใบคืนเก่าก่อนมีฟีเจอร์ไม่มี)
   requestedBy: string
   acceptedBy: string | null
   atms: AtmsProgress

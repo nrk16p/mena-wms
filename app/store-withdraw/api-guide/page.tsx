@@ -144,10 +144,13 @@ export default function Page() {
 
           <Ep verb="POST" path="/api/store-withdraw/{no}/returns" />
           <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2610-001/returns" -d '{
+  "reasonCode": "claim",                  // บังคับ · ดูรหัสด้านล่าง · ไม่ใส่/ผิดตอบ 400
+  "reasonNote": "ลูกหมากไม่ตรงรุ่น",              // ไม่บังคับ (บังคับถ้า reasonCode = other) · ไม่เกิน 300 ตัวอักษร
   "lines": [ { "lineIndex": 0, "qty": 1 } ]     // lineIndex = ลำดับบรรทัดในใบ เริ่มที่ 0
 }'
 
 201  { "rid": "R3FA9C1" }`}</CodeBlock>
+          <p><code>reasonCode</code>: <code>unused</code> ไม่ได้ใช้ · <code>claim</code> ส่งเคลม · <code>sell</code> ขายออก · <code>keep_other_truck</code> เก็บไว้ใช้คันอื่น · <code>over_order</code> เบิกเกินที่ใช้จริง · <code>job_cancelled</code> งานยกเลิก/ซ่อมเสร็จก่อน · <code>other</code> อื่นๆ (ต้องมี <code>reasonNote</code>)</p>
           <p>ขอคืนได้เมื่อสถานะ <code>ISSUED</code> หรือ <code>RECEIVED</code> · คืนเกินจำนวนที่เบิก (รวมที่รอคืนอยู่) ตอบ 409 · สโตร์ต้องเป็นคนกดรับคืนใน WMS ผลอยู่ใน <code>returns[]</code> ของใบ</p>
         </Section>
 

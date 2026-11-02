@@ -2,7 +2,7 @@
 import { randomBytes } from "node:crypto"
 import { lookupCreds } from "./env"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, skuMasterCol, swCol, withRef, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
-import { docWarnings, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
+import { RETURN_REASONS, docWarnings, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
 import type { AtmsProgress, SwLine, SwRequest } from "./types"
@@ -188,6 +188,7 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
 
 // ---------- ขอคืน ----------
 
+export const MAX_REASON = 300
 const RETURN_HOLD = ["RETURN_REQUESTED", "RETURNING", "RETURN_FAILED"]
 
 export async function requestReturn(no: string, body: CreateInput, actor: Actor): Promise<{ rid: string }> {
@@ -196,6 +197,13 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
   if (!cur) throw new NotFoundError()
   if (cur.requestedBy.email.trim().toLowerCase() !== actor.email) throw new HttpError("ใบนี้ไม่ใช่ของคุณ ขอคืนได้เฉพาะใบที่ตัวเองยื่น", 403)
   if (cur.status !== "ISSUED" && cur.status !== "RECEIVED") throw new ConflictError("ใบนี้ยังไม่ได้ส่งของ ขอคืนไม่ได้")
+  const reasonCode = str(body.reasonCode)
+  const rr = RETURN_REASONS.find((x) => x.code === reasonCode)
+  if (!rr) throw new HttpError(`เลือกเหตุผลที่ขอคืนด้วย (reasonCode: ${RETURN_REASONS.map((x) => x.code).join(", ")})`, 400)
+  const note = str(body.reasonNote)
+  if (rr.code === "other" && note.length < 3) throw new HttpError("เลือก \"อื่นๆ\" ต้องพิมพ์เหตุผลด้วย (อย่างน้อย 3 ตัวอักษร)", 400)
+  if (note.length > MAX_REASON) throw new HttpError(`หมายเหตุยาวเกินไป (ไม่เกิน ${MAX_REASON} ตัวอักษร)`, 400)
+  const reason = note ? `${rr.label} — ${note}` : rr.label
   const raw = Array.isArray(body.lines) ? (body.lines as Row[]) : []
   if (raw.length === 0) throw new HttpError("เลือกรายการที่จะคืนอย่างน้อย 1 รายการ", 400)
 
@@ -220,6 +228,7 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
   const ret = {
     rid, status: "RETURN_REQUESTED" as const,
     lines: [...want].map(([lineIndex, qty]) => ({ lineIndex, qty })),
+    reasonCode, reason,
     requestedBy: actor.email, acceptedBy: null, atms: emptyAtms(), createdAt: new Date(),
   }
   // เงื่อนไขจำนวน returns เดิม ถ้ามีคนขอคืนซ้อนระหว่างนี้จะไม่ผ่าน (กันคืนเกิน)
@@ -229,7 +238,7 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
     { returnDocument: "after" },
   )
   if (!after) throw new ConflictError()
-  await writeLog({ no, action: "returnRequest", from: cur.status, to: "RETURN_REQUESTED", actor: { email: actor.email, name: actor.name, via: actor.via }, note: rid })
+  await writeLog({ no, action: "returnRequest", from: cur.status, to: "RETURN_REQUESTED", actor: { email: actor.email, name: actor.name, via: actor.via }, note: `${rid} · ${reason}` })
   return { rid }
 }
 

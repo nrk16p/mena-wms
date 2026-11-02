@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Plus, PackageMinus, RefreshCw, Undo2 } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { WORK_TYPE_LABEL, returnableQty, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { RETURN_REASONS, WORK_TYPE_LABEL, returnableQty, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
 import { StatusChip } from "./status-chip"
@@ -179,13 +179,15 @@ function ReturnDialog({ req, onClose, onDone }: { req: Req; onClose: () => void;
   const pending = pendingOf(req)
   const max = req.lines.map((l, i) => returnableQty(l, pending.get(i) ?? 0))
   const [qty, setQty] = useState<number[]>(() => req.lines.map(() => 0))
+  const [reasonCode, setReasonCode] = useState("")
+  const [reasonNote, setReasonNote] = useState("")
   const [busy, setBusy] = useState(false)
   const total = qty.reduce((a, b) => a + b, 0)
 
   const submit = async () => {
     setBusy(true)
     try {
-      await post(`/api/store-withdraw/${req.no}/returns`, { lines: qty.map((q, lineIndex) => ({ lineIndex, qty: q })).filter((x) => x.qty > 0) })
+      await post(`/api/store-withdraw/${req.no}/returns`, { reasonCode, reasonNote: reasonNote.trim(), lines: qty.map((q, lineIndex) => ({ lineIndex, qty: q })).filter((x) => x.qty > 0) })
       await swalToast("success", "ส่งคำขอคืนแล้ว รอสโตร์รับคืน")
       onDone()
     } catch (e) {
@@ -209,9 +211,23 @@ function ReturnDialog({ req, onClose, onDone }: { req: Req; onClose: () => void;
             </li>
           ))}
         </ul>
+        <fieldset>
+          <legend className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">เหตุผลที่ขอคืน<span className="text-red-600"> *ต้องเลือก</span></legend>
+          <div className="space-y-1.5">
+            {RETURN_REASONS.map((r) => (
+              <label key={r.code} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2 ${reasonCode === r.code ? "border-[#1B8C4B] bg-[#1B8C4B]/10" : "border-[#E2E8E4] dark:border-white/10"}`}>
+                <input type="radio" name="sw-return-reason" value={r.code} checked={reasonCode === r.code} onChange={() => setReasonCode(r.code)} className="mt-1 h-4 w-4 accent-[#1B8C4B]" />
+                <span className="min-w-0"><span className="block text-sm font-medium text-gray-900 dark:text-white">{r.label}</span><span className="block text-xs text-gray-500">{r.hint}</span></span>
+              </label>
+            ))}
+          </div>
+          <textarea aria-label="หมายเหตุเพิ่มเติม" rows={2} maxLength={300} value={reasonNote} onChange={(e) => setReasonNote(e.target.value)}
+            placeholder={reasonCode === "other" ? "พิมพ์เหตุผล (ต้องใส่)" : "หมายเหตุเพิ่มเติม (ไม่บังคับ)"}
+            className="mt-2 w-full rounded-[11px] border border-[#E2E8E4] bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] dark:border-white/10 dark:bg-[#0f1117] dark:text-white" />
+        </fieldset>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-xl border border-[#E2E8E4] px-4 py-2.5 text-sm dark:border-white/10">ปิด</button>
-          <button type="button" onClick={submit} disabled={busy || total === 0} className="rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">ส่งคำขอคืน</button>
+          <button type="button" onClick={submit} disabled={busy || total === 0 || !reasonCode || (reasonCode === "other" && reasonNote.trim().length < 3)} className="rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">ส่งคำขอคืน</button>
         </div>
       </DialogContent>
     </Dialog>
