@@ -59,13 +59,18 @@ export async function getOptions(): Promise<Options> {
   return data
 }
 
-const KINDS: Record<string, string> = { mr: "mr_item", mr_item: "mr_item", sku: "sku", serial: "serial", wd: "wd", po: "po", dd: "dd", pr: "pr" }
+const KINDS: Record<string, string> = { mr: "mr_item", mr_item: "mr_item", sku: "sku", serial: "serial", wd: "wd", po: "po", dd: "dd", pr: "pr", mrv: "mrv" }
 export const lookupKind = (k: string) => KINDS[k] ?? null
 
 type Row = Record<string, unknown>
 const str = (v: unknown) => (v == null ? "" : String(v).trim())
 
 export async function lookup(kind: string, q: string, limit: number, inventoryId?: number, skuId?: number): Promise<Row[]> {
+  if (kind === "mrv") {
+    // หัวใบแจ้งซ่อม (MR) ของรถ: q = ทะเบียน/เบอร์รถ · เอาแค่ 5 ใบล่าสุด (ใหม่สุดก่อน) · ส่งต่อผลตามสัญญา
+    const d = await ncacRead<{ results?: Row[] }>("/atms/withdraw/mr/search", { q, limit: Math.min(limit, MRV_LATEST_LIMIT) })
+    return d.results ?? []
+  }
   if (kind === "po" || kind === "dd" || kind === "pr") {
     // ค้นเลขใบ PO / DD ผ่าน api-ncac (อ่านอย่างเดียว) · ส่งต่อผลตามสัญญา ไม่ดัดแปลง
     // PR: q = ทะเบียน/เบอร์รถ · เอาแค่ 5 ใบล่าสุด (ใหม่สุดก่อน) พร้อม remark ให้ผู้ใช้ตรวจ
@@ -109,6 +114,7 @@ export const MAX_LINES = 50
 export const MAX_REMARK = 500
 export const MAX_PLATE = 20
 export const PR_LATEST_LIMIT = 5
+export const MRV_LATEST_LIMIT = 5
 
 function posNum(v: unknown): number | null {
   const n = typeof v === "number" ? v : Number(v)

@@ -13,3 +13,17 @@ export function parseMrRow(r: Record<string, unknown>): MrRow | null {
   const first = label.split(/\s+/)[0]
   return { id, label, mrCode: MR_TOKEN.test(first) ? first : null }
 }
+
+/** ข้อความที่พิมพ์ดูเหมือนเลข MR (มี "MR" ตามด้วยตัวเลข) → ค้นรายการแบบเดิม · ไม่ใช่ → ถือเป็นทะเบียน/เบอร์รถ */
+export const looksLikeMrCode = (t: string) => /MR\d/i.test(t)
+
+/** หัวใบแจ้งซ่อมจาก lookup/mrv: { id, code, date, plate, vehicle_no, step, driver, mechanic, ... } */
+export type MrHead = { id: number; code: string; date: string; step: string; driver: string; mechanic: string; plate: string }
+
+export function parseMrHead(r: Record<string, unknown>): MrHead | null {
+  const code = s(r.code)
+  if (!code) return null
+  const plate = s(r.plate)
+  const vno = s(r.vehicle_no)
+  return { id: Number(r.id) || 0, code, date: s(r.date), step: s(r.step), driver: s(r.driver), mechanic: s(r.mechanic), plate: plate && vno && plate !== vno ? `${plate} (${vno})` : plate || vno }
+}

@@ -147,6 +147,13 @@ async function main() {
   eq(callsTo("/atms/withdraw/doc/search")[0].query.get("limit"), "5") // ขอ 20 ก็ยัง 5
   await svc.lookup("pr", "1234", 3)
   eq(callsTo("/atms/withdraw/doc/search")[1].query.get("limit"), "3")
+  const mrvHit = { id: 9001, code: "LBMR26100001", date: "25/10/2026", plate: "71-1234", vehicle_no: "1234", step: "รออะไหล่", driver: "สมชาย", mechanic: "ช่างเอ" }
+  handler = (c) => (c.path === "/atms/withdraw/mr/search" ? { status: 200, body: { results: [mrvHit] } } : { status: 404, body: {} })
+  calls = []
+  eq(await svc.lookup("mrv", "71-1234", 20), [mrvHit])
+  eq(callsTo("/atms/withdraw/mr/search")[0].query.get("q"), "71-1234")
+  eq(callsTo("/atms/withdraw/mr/search")[0].query.get("limit"), "5") // ขอ 20 ก็ยัง 5
+  eq(svc.lookupKind("mrv"), "mrv")
   await mkReq("SW-PR1", "NEW", { type: "pr", code: "LBPR26100561", id: 777 }, [{ skuCode: "A-1", requestedQty: 3 }])
   await mkReq("SW-PR2", "NEW", { type: "po", code: "LBPR26100561", id: null }, [{ skuCode: "A-1", requestedQty: 9 }]) // คนละชนิด ไม่นับ
   handler = (c) => {

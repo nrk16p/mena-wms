@@ -46,7 +46,7 @@ export default function Page() {
 { "inventories": [ { "id": 4, "name": "ลาดกระบัง" } ],
   "pickTos":     [ { "id": 7, "name": "ซ่อมรถ" } ] }`}</CodeBlock>
           <p><code>inventoryId</code> และ <code>pickToId</code> ตอนยื่นคำขอต้องมาจากรายการนี้</p>
-          <Ep verb="GET" path="/api/store-withdraw/lookup/{mr|sku|serial|wd|po|dd}?q=&limit=&inv=&sku_id=" />
+          <Ep verb="GET" path="/api/store-withdraw/lookup/{mr|mrv|sku|serial|wd|po|dd}?q=&limit=&inv=&sku_id=" />
           <CodeBlock>{`curl ${HDR} "${API}/lookup/sku?q=น้ำมันเครื่อง&inv=4&limit=10"
 
 { "results": [ { "skuId": 501, "skuCode": "OIL-001", "skuName": "น้ำมันเครื่อง", "stockQty": 12, "raw": { ... } } ] }`}</CodeBlock>
@@ -67,6 +67,7 @@ export default function Page() {
                  "supplier": "...", "status": "ยังไม่ได้รับสินค้า", "total": 1100, "ref": "LBPR26100561" } ] }`}</CodeBlock>
           <p>ค้นเลขใบจาก ATMS (<code>q</code> อย่างน้อย 2 ตัวอักษร) · ค้นย้อนหลัง 90 วัน เรียงใหม่สุดก่อน · DD ที่ไม่มี supplier/status/total ได้ <code>null</code></p>
           <p><b>PR:</b> <code>lookup/pr?q=71-1234</code> — <code>q</code> คือ<b>ทะเบียน/เบอร์รถ</b> ได้ PR ล่าสุดของรถคันนั้นไม่เกิน 5 ใบ (ใหม่สุดก่อน) แต่ละใบมี <code>remark</code> (ข้อความหมายเหตุของ PR) ไว้ตรวจว่าตรงงาน</p>
+          <p><b>MR ของรถ:</b> <code>lookup/mrv?q=71-1234</code> — <code>q</code> คือ<b>ทะเบียน/เบอร์รถ</b> ได้หัวใบแจ้งซ่อม (MR) ล่าสุดของรถคันนั้นไม่เกิน 5 ใบ (ใหม่สุดก่อน) แต่ละใบมี <code>code, date, plate, vehicle_no, step, driver, mechanic</code> · เลือกแล้วค่อยเรียก <code>lookup/mr?q=&lt;เลข MR&gt;</code> เพื่อเอารายการในใบ</p>
           <Ep verb="GET" path="/api/store-withdraw/lookup/doc/{po|dd|pr}/{id}?inv=" />
           <CodeBlock>{`curl ${HDR} "${API}/lookup/doc/po/157902?inv=4"
 

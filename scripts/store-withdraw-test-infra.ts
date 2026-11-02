@@ -50,6 +50,10 @@ void (async () => {
         return json(res, 200, { username: user, email: user === "store1" ? "store1@menatransport.co.th" : "someone.else@menatransport.co.th", name: "สโตร์ 1", branch: "ลาดกระบัง" })
       }
       if (u.pathname === "/atms/withdraw/options") return json(res, 200, { inventories: [{ id: 4, name: "ลาดกระบัง" }], pick_tos: [{ id: 7, name: "ซ่อมรถ" }] })
+      if (u.pathname === "/atms/withdraw/mr/search") {
+        const q = u.searchParams.get("q")
+        return json(res, 200, { results: [{ id: 9001, code: "LBMR26100001", date: "25/10/2026", plate: q, vehicle_no: "1234", step: "รออะไหล่", branch: "ลาดกระบัง", project: "CM", driver: "สมชาย", mechanic: "ช่างเอ", limit: u.searchParams.get("limit") }] })
+      }
       if (u.pathname.startsWith("/atms/withdraw/lookup/")) {
         const kind = u.pathname.split("/").pop()
         if (kind === "sku") return json(res, 200, { results: [{ id: 501, code: "OIL-001", name: "น้ำมันเครื่อง" }, { id: 599, code: "NOSTOCK", name: "ไม่มีสต๊อก" }] })

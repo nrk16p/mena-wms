@@ -163,8 +163,10 @@ export function RequestForm() {
           </div>
           <div>
             <span className={labelCls}>ใบแจ้งซ่อม (MR){workType === "garage_in" && <span className="text-red-600"> *ต้องเลือก</span>}</span>
+            {workType === "garage_in" && <p className="mb-1 text-xs text-gray-500">เลือก MR ของรถคันนี้</p>}
             <MrPicker
               mrCode={mrCode}
+              plate={plate}
               onPick={(code, items) => { setMrCode(code); setMrItems(items); if (items.length === 1) setLines((c) => c.map((l) => ({ ...l, mrItemId: l.mrItemId ?? items[0].id, mrItemLabel: l.mrItemLabel ?? items[0].label }))) }}
               onClear={() => { setMrCode(""); setMrItems([]) }}
             />

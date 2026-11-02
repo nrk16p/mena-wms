@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Search, X } from "lucide-react"
-import { parseMrRow, type MrRow } from "@/lib/store-withdraw/mr-row"
+import { looksLikeMrCode, parseMrHead, parseMrRow, type MrHead, type MrRow } from "@/lib/store-withdraw/mr-row"
 import { useLookup } from "./use-lookup"
 
 export type MrItem = MrRow
@@ -13,15 +13,40 @@ const inputCls =
   "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 
 /** ค้น MR (ใบแจ้งซ่อม) แล้วเลือกรายการใน MR · onPick ส่งรายการทุกบรรทัดของ MR เดียวกับที่เลือกกลับไป */
-export function MrPicker({ mrCode, onPick, onClear }: {
+export function MrPicker({ mrCode, plate = "", onPick, onClear }: {
   mrCode: string
+  plate?: string
   onPick: (mrCode: string, items: MrItem[]) => void
   onClear: () => void
 }) {
   const [q, setQ] = useState("")
   const [open, setOpen] = useState(false)
-  const { rows, loading, error, tooShort } = useLookup<Row>("mr", q)
-  const items = rows.map(parseMrRow).filter((x): x is MrItem => x !== null)
+  const [picking, setPicking] = useState(false)
+  const [pickErr, setPickErr] = useState("")
+  const typed = q.trim()
+  const byCode = looksLikeMrCode(typed)
+  // ว่างไว้ = ใช้ทะเบียนจากช่องด้านบน · พิมพ์เลข MR = ค้นรายการแบบเดิม · พิมพ์อย่างอื่น = ทะเบียน/เบอร์รถอื่น
+  const headTerm = byCode ? "" : typed || plate.trim()
+  const item = useLookup<Row>("mr", byCode ? typed : "")
+  const head = useLookup<Row>("mrv", headTerm)
+  const { loading, error, tooShort } = byCode ? item : head
+  const items = byCode ? item.rows.map(parseMrRow).filter((x): x is MrItem => x !== null) : []
+  const heads = byCode ? [] : head.rows.map(parseMrHead).filter((x): x is MrHead => x !== null).slice(0, 5)
+
+  // เลือกหัว MR แล้วค่อยโหลดรายการในใบ ด้วยการค้นรายการเดิม (เอาเฉพาะแถวที่เลข MR ตรง)
+  async function pickHead(h: MrHead) {
+    setPicking(true); setPickErr("")
+    try {
+      const r = await fetch(`/api/store-withdraw/lookup/mr?${new URLSearchParams({ q: h.code, limit: "50" })}`)
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j.error || "โหลดรายการใน MR ไม่สำเร็จ")
+      const rows = ((j.results ?? []) as Row[]).map(parseMrRow).filter((x): x is MrItem => x !== null && x.mrCode === h.code)
+      onPick(h.code, rows)
+      setQ(""); setOpen(false)
+    } catch (e) {
+      setPickErr(e instanceof Error ? e.message : "โหลดรายการใน MR ไม่สำเร็จ")
+    } finally { setPicking(false) }
+  }
 
   if (mrCode) {
     return (
@@ -32,33 +57,44 @@ export function MrPicker({ mrCode, onPick, onClear }: {
     )
   }
 
-  const pickManual = () => { const c = q.trim(); if (c) { onPick(c, []); setQ(""); setOpen(false) } }
+  const pickManual = () => { const c = typed; if (c) { onPick(c, []); setQ(""); setOpen(false) } }
 
   return (
     <div className="relative">
       <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
       <input
         className={inputCls}
-        placeholder="ค้นเลข MR (ไม่ใส่ก็ได้)"
+        placeholder={plate.trim() ? "MR ของรถคันนี้ หรือพิมพ์ค้นเลข MR/ทะเบียนอื่น" : "ค้นเลข MR หรือทะเบียน/เบอร์รถ"}
         value={q}
-        onChange={(e) => { setQ(e.target.value); setOpen(true) }}
+        onChange={(e) => { setQ(e.target.value); setPickErr(""); setOpen(true) }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
-      {open && q.trim().length > 0 && (
+      {open && (typed.length > 0 || headTerm.length > 0) && (
         <div className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-xl border border-[#E2E8E4] bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#161922]">
           {tooShort && <p className="px-3 py-2 text-xs text-gray-500">พิมพ์อีกนิดนะ ต้อง 2 ตัวขึ้นไป</p>}
           {!tooShort && loading && <p className="px-3 py-2 text-xs text-gray-500">กำลังค้น…</p>}
           {!tooShort && !loading && error && <p className="px-3 py-2 text-xs text-red-600">{error}</p>}
-          {!tooShort && !loading && !error && items.length === 0 && <p className="px-3 py-2 text-xs text-gray-500">ไม่เจอ MR ที่ค้น</p>}
+          {!tooShort && !loading && !error && items.length === 0 && heads.length === 0 && <p className="px-3 py-2 text-xs text-gray-500">ไม่เจอ MR ที่ค้น</p>}
+          {pickErr && <p className="px-3 py-2 text-xs text-red-600">{pickErr}</p>}
+          {picking && <p className="px-3 py-2 text-xs text-gray-500">กำลังโหลดรายการใน MR…</p>}
+          {!loading && heads.map((h) => (
+            <button key={h.code} type="button" disabled={picking} onMouseDown={(e) => e.preventDefault()} onClick={() => pickHead(h)}
+              className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[#1B8C4B]/10 disabled:opacity-60">
+              <span className="block truncate font-medium text-gray-900 dark:text-white">{h.code}{h.date && <span className="font-normal text-gray-500"> · {h.date}</span>}</span>
+              <span className="block truncate text-xs text-gray-500">
+                {[h.plate, h.step, h.driver && `คนขับ ${h.driver}`, h.mechanic && `ช่าง ${h.mechanic}`].filter(Boolean).join(" · ")}
+              </span>
+            </button>
+          ))}
           {!loading && items.map((it) => (
             <button
               key={it.id}
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                const code = it.mrCode || q.trim()
-                const same = items.filter((x) => (x.mrCode || q.trim()) === code)
+                const code = it.mrCode || typed
+                const same = items.filter((x) => (x.mrCode || typed) === code)
                 onPick(code, same)
                 setQ(""); setOpen(false)
               }}
@@ -68,7 +104,7 @@ export function MrPicker({ mrCode, onPick, onClear }: {
               {it.mrCode && <span className="block text-xs text-gray-500">{it.mrCode}</span>}
             </button>
           ))}
-          {!tooShort && !loading && (
+          {typed && !tooShort && !loading && (
             <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={pickManual}
               className="mt-1 block w-full rounded-lg border-t border-[#EEF2F0] px-3 py-2 text-left text-xs text-[#1B8C4B] hover:bg-[#1B8C4B]/10 dark:border-white/10">
               ใช้เลข &quot;{q.trim()}&quot; ตามที่พิมพ์
