@@ -62,7 +62,7 @@ export function RoundsPanel({ warehouses, canRound, onChanged, compact }: { ware
 }
 
 function CreateRoundDialog({ open, warehouses, onClose, onDone }: { open: boolean; warehouses: string[]; onClose: () => void; onDone: (no: string) => void }) {
-  const [wh, setWh] = useState<string[]>(() => warehouses.slice(0, 1))
+  const [wh, setWh] = useState<string[]>(() => warehouses) // เริ่มทุกคลัง ติ๊กออกเองได้
   const [cutoff, setCutoff] = useState(todayYmd())
   const previewUrl = open && wh.length ? `/api/core-return/rounds/preview?warehouses=${encodeURIComponent(wh.join(","))}&cutoffDate=${cutoff}` : null
   const { data: pv, error: pvError } = useFetch<{ items: Row[] }>(previewUrl)
