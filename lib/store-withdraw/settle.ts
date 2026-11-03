@@ -10,6 +10,7 @@ import { MSG, STUCK_MS, callNcac, interpret, toWire } from "./issue"
 import { linkAttachments, resolveLinkable } from "./attachments"
 import { buildSettleGroups, leftoverTotal, parseDue, parseSummary, settleRemark, summaryAttachIds } from "./pending"
 import type { AtmsProgress, SwRequest, SwSettleGroup } from "./types"
+import { syncCoreRowsSafe } from "@/lib/core-return/sw-sync"
 
 const emptyAtms = (): AtmsProgress => ({
   gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null,
@@ -154,7 +155,7 @@ async function runSettle(claimed: SwRequest, actor: Actor, at: { n: number | nul
   const groups = claimed.settleGroups ?? []
   const todo = groups.filter((g) => g.status !== "DONE")
   // ใช้ 0 ทั้งใบ (คืนหมด) หรือทุกกลุ่มเสร็จแล้ว = ไม่ต้องยิง ATMS
-  if (todo.length === 0) return transition(no, "settled", actor)
+  if (todo.length === 0) return settled(no, actor)
 
   const creds = await getCreds(actor.email)
   if (!creds) {
@@ -187,5 +188,12 @@ async function runSettle(claimed: SwRequest, actor: Actor, at: { n: number | nul
     return transition(no, "settleFailed", actor)
   }
   at.n = null
-  return transition(no, "settled", actor)
+  return settled(no, actor)
+}
+
+/** SETTLING → SETTLED แล้วสร้างแถวรอคืนซากต่อแถวสรุปการใช้ (พังไม่กระทบใบ) */
+async function settled(no: string, actor: Actor): Promise<SwRequest> {
+  const after = await transition(no, "settled", actor)
+  await syncCoreRowsSafe(after, actor)
+  return after
 }

@@ -16,7 +16,7 @@
 import type { ElementType } from "react"
 import { atLeast, type Access, type Section } from "./access-policy"
 import {
-  Banknote, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
+  Banknote, Recycle, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
   Landmark, Layers, LayoutDashboard, MapPin, PackageMinus, PackageSearch, PackageX,
   Plus, PlusCircle, Scale, ShieldCheck, ShoppingCart, Shuffle, TableProperties, Truck, Users, Wrench,
@@ -269,6 +269,8 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "รับงาน จัดของ ส่งของ และรับคืน (เฉพาะสโตร์)" },
       { href: "/store-withdraw/audit", label: "ตรวจสอบย้อนหลังงานเบิก", icon: ShieldCheck, exact: true, section: "store-audit", sectionMin: "view",
         desc: "ไล่ประวัติใบเบิก หลักฐานแนบ และ Export (เฉพาะผู้ได้รับสิทธิ์)" },
+      { href: "/store-withdraw/core-return", label: "ติดตามซากอะไหล่", icon: Recycle, exact: true, section: "core-return", sectionMin: "view",
+        desc: "เบิกของใหม่แล้วต้องคืนซาก · S1 ขายซาก / Rebuild · รอบขายซาก" },
     ],
   },
   {

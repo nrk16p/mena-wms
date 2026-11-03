@@ -51,6 +51,9 @@ export function setStoreWithdrawClient(c: MongoClient | null) {
   injected = c
 }
 
+/** client ที่เทสต์ inject ไว้ (ให้โมดูลข้างเคียง เช่น core-return ใช้ Mongo ทดสอบตัวเดียวกัน) */
+export const injectedStoreWithdrawClient = () => injected
+
 export async function getDb(): Promise<Db> {
   const client = injected ?? (await (await import("../mongo")).default)
   const db = client.db(process.env.STORE_WITHDRAW_DB || "master_data")

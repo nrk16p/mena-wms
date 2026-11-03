@@ -22,7 +22,7 @@ import { UserAvatar } from "@/components/user-avatar"
 const SHORT: Record<Section, string> = {
   sku: "SKU", pr: "PR", ap: "AP", "price-compare": "เทียบราคา", vendor: "Vendor", "safety-stock": "SS",
   deadstock: "ค้างคลัง", tire: "ยาง", repair: "อู่นอก", "driver-handover": "ส่งมอบ", "ai-mixer": "AI",
-  "store-withdraw": "เบิกอะไหล่", "store-queue": "คิวสโตร์", "store-audit": "ตรวจย้อนหลัง",
+  "store-withdraw": "เบิกอะไหล่", "store-queue": "คิวสโตร์", "store-audit": "ตรวจย้อนหลัง", "core-return": "ซาก",
 }
 
 const LEVEL_STYLE: Record<Level, { fg: string; bg: string }> = {

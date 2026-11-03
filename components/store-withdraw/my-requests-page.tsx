@@ -12,6 +12,8 @@ import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
 import { AttachButton, AttachChip, AttachPicker, doneIds, isUploading, type Picked } from "./attach-picker"
 import { StatusChip } from "./status-chip"
 import { ExtendDueDialog, SummaryView, type PendingReq } from "./summary-dialog"
+import { LineCoreChips, MineCoreBanner, RequestCoreReturn, useRequestCore } from "@/components/core-return/request-core"
+import type { Row as CoreRowView } from "@/components/core-return/shared"
 
 type Req = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "summaryDueAt" | "summary" | "settleGroups"> & PendingReq & {
   attachCount?: number
@@ -59,6 +61,9 @@ export function MyRequestsPage() {
   const [deepItems, setDeepItems] = useState<Req[]>([])
   const [deepBusy, setDeepBusy] = useState(false)
   const deepRef = useRef("")
+  // ซากอะไหล่: ชิปสถานะต่อบรรทัด + ปุ่มคืนซาก (ใบที่ได้ WD แล้ว)
+  const [coreRet, setCoreRet] = useState<CoreRowView | null>(null)
+  const [coreTick, setCoreTick] = useState(0)
 
   const load = useCallback(async () => {
     inflight.current?.abort()
@@ -115,6 +120,7 @@ export function MyRequestsPage() {
     } finally { setDeepBusy(false) }
   }
 
+  const core = useRequestCore([...items, ...deepItems])
   const filtering = searchActive(q)
   const deepOn = filtering && deepQ !== "" && deepQ === q.trim()
   const shown = !filtering ? items : deepOn ? deepItems : items.filter((r) => matchesSearch(r, q))
@@ -154,6 +160,7 @@ export function MyRequestsPage() {
       </div>
 
       {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
+      <MineCoreBanner tick={coreTick} />
 
       {!loading && (items.length > 0 || q !== "") && (
         <div className="space-y-1.5">
@@ -229,7 +236,8 @@ export function MyRequestsPage() {
                 <ul className="mt-2 divide-y divide-[#EEF2F0] text-sm dark:divide-white/10">
                   {r.lines.map((l: SwLine, li) => (
                     <li key={`${l.skuId}-${li}`} className="flex items-start justify-between gap-3 py-1.5">
-                      <span className="min-w-0"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}</span><span className="block text-xs text-gray-500">{l.skuCode}</span></span>
+                      <span className="min-w-0"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}</span><span className="block text-xs text-gray-500">{l.skuCode}</span>
+                        <LineCoreChips rows={(core.byNo.get(r.no) ?? []).filter((c) => (c as { swLineIndex?: number }).swLineIndex === li)} canReturn={core.canReturn} onReturn={setCoreRet} /></span>
                       <span className="shrink-0 text-right text-xs text-gray-600 dark:text-gray-300">
                         ขอ {l.requestedQty}{l.issuedQty != null && ` · ได้ ${l.issuedQty}`}{l.short && <span className="text-amber-600"> (ไม่ครบ)</span>}
                         {l.returnedQty > 0 && <span className="block text-gray-500">คืนแล้ว {l.returnedQty}</span>}
@@ -258,6 +266,7 @@ export function MyRequestsPage() {
         </ul>
       )}
 
+      <RequestCoreReturn row={coreRet} onClose={() => setCoreRet(null)} onDone={() => { setCoreRet(null); core.refresh(); setCoreTick((t) => t + 1); void swalToast("success", "บันทึกคืนซากแล้ว") }} />
       {ret && <ReturnDialog req={ret} onClose={() => setRet(null)} onDone={() => { setRet(null); load() }} />}
       {ext && <ExtendDueDialog req={ext} onClose={() => setExt(null)} onDone={() => { setExt(null); load() }} />}
     </div>

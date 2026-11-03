@@ -5,6 +5,7 @@ import { ConflictError, NotFoundError, ddmmyyyyBkk, swCol, transition, writeLog,
 import { issueLines } from "./core"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
 import type { AtmsProgress, SwLine, SwRequest } from "./types"
+import { syncCoreRowsSafe } from "@/lib/core-return/sw-sync"
 
 export const STUCK_MS = 5 * 60_000
 
@@ -173,7 +174,11 @@ async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
   if (!r) return holdIssueUnknown(no, actor)
   const out = interpret(r.status, r.data, prev)
   if (out.kind === "ok" && !(out.atms.code && out.atms.approved)) return fail({ ...out.atms, error: MSG.noCode })
-  if (out.kind === "ok") return transition(no, "issued", actor, { atms: { ...out.atms, drift: null } }) // ส่งสำเร็จ = ล้างธงเก่า
+  if (out.kind === "ok") {
+    const after = await transition(no, "issued", actor, { atms: { ...out.atms, drift: null } }) // ส่งสำเร็จ = ล้างธงเก่า
+    await syncCoreRowsSafe(after, actor) // แถวรอคืนซาก — หลังบันทึก ISSUED แล้วเท่านั้น · พังไม่กระทบใบ
+    return after
+  }
   return fail(out.atms)
 }
 

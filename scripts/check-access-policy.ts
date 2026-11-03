@@ -2,7 +2,7 @@
 // สิทธิ์ตามแผนก (lib/access-policy.ts): ตารางสิทธิ์, override, ทางเดิน → ส่วนงาน, การตัดสินแต่ละ request
 import assert from "node:assert/strict"
 import {
-  accessFor, sectionForPage, sectionForApi, checkRequest, SECTIONS, type Access,
+  coreReturnCan, coreReturnActionForApi, accessFor, sectionForPage, sectionForApi, checkRequest, SECTIONS, type Access,
 } from "../lib/access-policy"
 import { NAV_GROUPS, sidebarGroups, homeModules } from "../lib/nav"
 import { safeCallback } from "../lib/safe-callback"
@@ -15,7 +15,7 @@ const u = (department: string | null, email = "someone@menatransport.co.th") => 
 assert.deepEqual(u("ยานยนต์"), {
   sku: "edit", pr: "edit", ap: "none", "price-compare": "view", vendor: "edit",
   "safety-stock": "view", deadstock: "edit", tire: "edit", repair: "edit", "driver-handover": "view", "ai-mixer": "none",
-  "store-withdraw": "edit", "store-queue": "none", "store-audit": "none",
+  "store-withdraw": "edit", "store-queue": "none", "store-audit": "none", "core-return": "view",
 })
 assert.equal(u("Procurement")["safety-stock"], "edit")
 assert.equal(u("Procurement").ap, "edit")
@@ -239,3 +239,73 @@ console.log("check-access-policy: ok")
   assert.equal(sidebarGroups({}).flatMap((g) => g.items).some((i) => i.href === "/store-withdraw/queue"), true)
 }
 console.log("store-withdraw access: OK")
+
+// 100. ติดตามซากอะไหล่ (core-return): ดู = เบิก/คิวสโตร์/ติดตามซาก · คืนซาก = ยานยนต์/สโตร์ · ขาย/Rebuild = สโตร์ · ตาม + รอบขาย = จัดซื้อ/สโตร์
+{
+  const run = (pathname: string, method: string, access: Access) => checkRequest({ pathname, method, access, isSuperAdmin: false }).ok
+  const veh = u("ยานยนต์")
+  const proc = u("Procurement")
+  const store = accessFor({ department: "Store", email: "s@menatransport.co.th", overrides: { "store-queue": "edit" } })
+  const queueOnly = accessFor({ department: "Accounting", email: "q@menatransport.co.th", overrides: { "store-queue": "view" } })
+  const fin = u("Finance")
+  const gen = u(null)
+  assert.equal(sectionForPage("/store-withdraw/core-return"), "core-return")
+  assert.equal(sectionForApi("/api/core-return"), "core-return")
+  assert.equal(sectionForApi("/api/core-return/abc/return"), "core-return")
+  assert.equal(sectionForApi("/api/core-return/rounds/SR-2611-01/sold"), "core-return")
+  // จัดซื้อได้ core-return แก้ได้ แต่หน้าเบิก/คิวสโตร์/audit เดิมยังปิด
+  assert.equal(proc["core-return"], "edit")
+  assert.equal(proc["store-withdraw"], "none")
+  assert.equal(proc["store-queue"], "none")
+  assert.equal(run("/store-withdraw", "GET", proc), false)
+  assert.equal(run("/store-withdraw/queue", "GET", proc), false)
+  assert.equal(run("/store-withdraw/new", "GET", proc), false)
+  assert.equal(run("/api/store-withdraw/queue", "GET", proc), false)
+  assert.equal(run("/api/store-withdraw", "GET", proc), false)
+  // อ่าน
+  for (const a of [veh, proc, store, queueOnly]) {
+    assert.equal(run("/store-withdraw/core-return", "GET", a), true)
+    assert.equal(run("/api/core-return", "GET", a), true)
+    assert.equal(run("/api/core-return/export", "GET", a), true)
+    assert.equal(run("/api/core-return/rounds/SR-2611-01/export", "GET", a), true)
+  }
+  for (const a of [fin, gen]) {
+    assert.equal(run("/store-withdraw/core-return", "GET", a), false)
+    assert.equal(run("/api/core-return", "GET", a), false)
+  }
+  // คืนซาก
+  assert.equal(run("/api/core-return/k1/return", "POST", veh), true)
+  assert.equal(run("/api/core-return/k1/return", "POST", store), true)
+  assert.equal(run("/api/core-return/k1/return", "POST", proc), false)
+  assert.equal(run("/api/core-return/k1/return", "POST", queueOnly), false)
+  // ขายแล้ว / Rebuild เสร็จ = สโตร์
+  for (const p of ["/api/core-return/k1/sold", "/api/core-return/k1/rebuilt"]) {
+    assert.equal(run(p, "POST", store), true)
+    assert.equal(run(p, "POST", veh), false)
+    assert.equal(run(p, "POST", proc), false)
+  }
+  // ตาม + รอบขาย = จัดซื้อ / สโตร์ · ยานยนต์ไม่ได้
+  for (const p of ["/api/core-return/k1/follow-up", "/api/core-return/rounds", "/api/core-return/rounds/SR-2611-01/sold", "/api/core-return/rounds/SR-2611-01/cancel"]) {
+    assert.equal(run(p, "POST", proc), true, p)
+    assert.equal(run(p, "POST", store), true, p)
+    assert.equal(run(p, "POST", veh), false, p)
+  }
+  // ทางเขียนที่ไม่รู้จัก = ปฏิเสธ แม้เป็นสโตร์
+  assert.equal(coreReturnActionForApi("/api/core-return"), null)
+  assert.equal(coreReturnActionForApi("/api/core-return/k1"), null)
+  assert.equal(coreReturnActionForApi("/api/core-return/rounds/SR-1/export"), null)
+  assert.equal(coreReturnActionForApi("/api/core-return/rounds/preview"), null)
+  assert.equal(run("/api/core-return/k1", "POST", store), false)
+  assert.equal(run("/api/core-return/k1/delete", "POST", store), false)
+  assert.equal(coreReturnCan(u("Information Technology"), "sold"), true)
+  // ผู้ตรวจสอบภายนอก (เท่าจัดซื้อแต่ดูอย่างเดียว) ไม่มีสิทธิ์ตาม/จัดรอบ
+  const ro = { ...proc, "core-return": "view" as const }
+  assert.equal(run("/api/core-return", "GET", ro), true)
+  assert.equal(run("/api/core-return/k1/follow-up", "POST", ro), false)
+  // เมนู: จัดซื้อเห็นเมนูติดตามซากเมนูเดียวในกลุ่มเบิกอะไหล่ · ยานยนต์เห็นด้วย · การเงินไม่เห็น
+  const hrefs = (a: Access) => sidebarGroups({ access: a }).flatMap((g) => g.items.map((i) => i.href)).filter((h) => h.startsWith("/store-withdraw"))
+  assert.deepEqual(hrefs(proc), ["/store-withdraw/core-return"])
+  assert.ok(hrefs(veh).includes("/store-withdraw/core-return"))
+  assert.deepEqual(hrefs(fin), [])
+}
+console.log("core-return access: OK")
