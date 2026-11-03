@@ -106,6 +106,13 @@ export function daysSince(issuedDate: string | null | undefined, now = new Date(
   return Math.max(0, Math.round(ms / 86_400_000))
 }
 export const OVERDUE_DAYS = 14
+/** ระดับสีของจำนวนวันค้าง: <=14 เทา · 15–60 เหลือง · >60 แดง (กฎ "ค้างเกิน 14 วัน" ของคิวตามงานไม่เกี่ยว) */
+export type AgingTier = "ok" | "warn" | "late"
+export const AGING_LATE_DAYS = 60
+export function agingTier(days: number | null | undefined): AgingTier {
+  if (days == null || !(days > OVERDUE_DAYS)) return "ok"
+  return days > AGING_LATE_DAYS ? "late" : "warn"
+}
 
 const str = (v: unknown, max = 500) => (typeof v === "string" ? v.trim().slice(0, max) : "")
 const num = (v: unknown): number | null => {
@@ -215,9 +222,13 @@ export type ListFilters = {
   garage?: string | null
   /** เฉพาะแถวที่คนนี้เบิก (แถวจากใบเบิก WMS เท่านั้นที่มีผู้ขอ) */
   requesterEmail?: string | null
+  /** เฉพาะแถวที่เลือก (Export ที่เลือก) · สูงสุด 200 */
+  keys?: string[] | null
   /** คิวให้จัดซื้อตาม: ยังไม่คืนซาก และ (ถึงกำหนดตาม หรือ ค้างเกิน 14 วันแต่ยังไม่เคยตาม) */
   queue?: "followup" | null
 }
+
+export const MAX_KEYS = 200
 
 export function parseFilters(sp: URLSearchParams): ListFilters {
   const status = (sp.get("status") ?? "").split(",").map((s) => s.trim()).filter(isStatus)
@@ -237,6 +248,7 @@ export function parseFilters(sp: URLSearchParams): ListFilters {
     queue: sp.get("queue") === "followup" ? "followup" : null,
     garageType: sp.get("garageType")?.trim() || null,
     garage: sp.has("garage") ? sp.get("garage") ?? "" : null,
+    keys: sp.get("keys") ? sp.get("keys")!.split("\n").map((k) => k.trim()).filter(Boolean).slice(0, MAX_KEYS) : null,
   }
 }
 
@@ -245,6 +257,7 @@ export function buildQuery(f: ListFilters, opt: { omitStatus?: boolean; now?: Da
   const and: Record<string, unknown>[] = []
   if (!opt.omitStatus && f.status?.length) and.push({ coreStatus: f.status.length === 1 ? f.status[0] : { $in: f.status } })
   if (f.warehouse) and.push({ warehouse: f.warehouse })
+  if (f.keys?.length) and.push({ row_key: { $in: f.keys } })
   if (f.requesterEmail) and.push({ "requester.email": f.requesterEmail })
   if (f.from || f.to) and.push({ issuedDate: { ...(f.from ? { $gte: f.from } : {}), ...(f.to ? { $lte: f.to } : {}) } })
   // ค่าว่าง = กลุ่มที่ไม่มีทะเบียน/เลขรถ/MR (ตรงกับ group-by ที่รวม null กับ "")
@@ -283,6 +296,14 @@ export function buildQuery(f: ListFilters, opt: { omitStatus?: boolean; now?: Da
 
 /** เรียง: ค้างนานสุดก่อน (issuedDate เก่าก่อน) แล้ว row_key ให้ลำดับนิ่งเวลาเปลี่ยนหน้า */
 export const LIST_SORT = { issuedDate: 1, row_key: 1 } as const
+export const SORTS = ["oldest", "newest", "amount"] as const
+export type SortKey = (typeof SORTS)[number]
+export const SORT_LABEL: Record<SortKey, string> = { oldest: "เก่าสุดก่อน", newest: "ใหม่สุดก่อน", amount: "ยอดเงินมากสุด" }
+export const parseSort = (v: unknown): SortKey => (SORTS as readonly string[]).includes(v as string) ? (v as SortKey) : "oldest"
+/** ลำดับเรียงฝั่งเซิร์ฟเวอร์ · ทุกแบบมี row_key กันลำดับกระโดดเวลาเปลี่ยนหน้า (newest ใช้ทิศตรงข้ามทั้งคู่ = อ่านย้อนดัชนี issuedDate+row_key) */
+export function sortSpec(s: SortKey): Record<string, 1 | -1> {
+  return s === "newest" ? { issuedDate: -1, row_key: -1 } : s === "amount" ? { amount: -1, row_key: 1 } : { ...LIST_SORT }
+}
 export const PAGE_SIZE = 50
 
 export type GroupBy = "vehicle" | "mr" | "warehouse" | "garage"

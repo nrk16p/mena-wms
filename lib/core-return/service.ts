@@ -2,9 +2,9 @@
 // ทุกการเปลี่ยนสถานะ = findOneAndUpdate({row_key, coreStatus: ที่คาดไว้}) ตัวเดียวชนะ · ตามด้วย log ต่อโซ่แฮช
 import type { Filter } from "mongodb"
 import {
-  CHOICE_TO, CORE_STATUSES, CoreHttpError, LIST_SORT, OPEN, OUTSTANDING, PAGE_SIZE, STATUS_LABEL,
-  UNCERTAIN_GARAGE_SOURCES, buildQuery, daysSince, parseFollowUp, parseRebuilt, parseReturn, parseSold,
-  type Actor, type CoreRow, type CoreStatus, type GroupBy, type ListFilters,
+  CHOICE_TO, CORE_STATUSES, CoreHttpError, MAX_KEYS, OPEN, OUTSTANDING, PAGE_SIZE, STATUS_LABEL,
+  UNCERTAIN_GARAGE_SOURCES, buildQuery, daysSince, sortSpec, parseFollowUp, parseRebuilt, parseReturn, parseSold,
+  type Actor, type CoreRow, type CoreStatus, type GroupBy, type ListFilters, type SortKey,
 } from "./core"
 import { linkCoreAttachments, resolveCoreLinkable } from "./attachments"
 import { baseCol, logCol, verifyCoreLog, writeCoreLog, type CoreLogDoc } from "./db"
@@ -30,12 +30,12 @@ export async function summary(f: ListFilters, now = new Date()): Promise<Summary
   return out
 }
 
-export async function list(f: ListFilters, page: number, now = new Date()) {
+export async function list(f: ListFilters, page: number, now = new Date(), sort: SortKey = "oldest") {
   const col = await baseCol()
   const q = buildQuery(f, { now }) as Filter<CoreRow>
   const p = Math.max(1, Math.min(Math.floor(page) || 1, 10_000))
   const [items, total] = await Promise.all([
-    col.find(q, { projection: { _id: 0 }, maxTimeMS: MAX_MS }).sort(LIST_SORT).skip((p - 1) * PAGE_SIZE).limit(PAGE_SIZE).toArray(),
+    col.find(q, { projection: { _id: 0 }, maxTimeMS: MAX_MS }).sort(sortSpec(sort)).skip((p - 1) * PAGE_SIZE).limit(PAGE_SIZE).toArray(),
     col.countDocuments(q, { maxTimeMS: MAX_MS }),
   ])
   return { items, total, page: p, pageSize: PAGE_SIZE, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)) }
@@ -181,10 +181,27 @@ export async function followUp(key: string, body: Record<string, unknown>, actor
   return after
 }
 
+/** ตามงานหลายแถว: ตรวจข้อความ/วันที่ครั้งเดียว แล้วเรียก followUp ทีละแถว (สิทธิ์เช็กที่ route · แต่ละแถว atomic แยกกัน) · แถวไหนจบแล้ว/ไม่พบ = นับเป็นล้มเหลว ไม่กระทบแถวอื่น */
+export async function followUpMany(keys: unknown, body: Record<string, unknown>, actor: Actor, now = new Date()) {
+  parseFollowUp(body, now)
+  const list = Array.isArray(keys) ? Array.from(new Set(keys.filter((k): k is string => typeof k === "string" && k.length > 0))) : []
+  if (!list.length) throw new CoreHttpError("เลือกรายการก่อน", 400)
+  if (list.length > MAX_KEYS) throw new CoreHttpError(`เลือกได้ไม่เกิน ${MAX_KEYS} รายการต่อครั้ง`, 400)
+  const ok: string[] = []
+  const failed: { key: string; error: string }[] = []
+  for (const key of list) {
+    try { await followUp(key, body, actor, now); ok.push(key) } catch (e) {
+      if (!(e instanceof CoreHttpError)) throw e
+      failed.push({ key, error: e.message })
+    }
+  }
+  return { ok, failed }
+}
+
 /** ทุกแถวตามตัวกรอง (สำหรับ Excel) — จำกัดจำนวนกันหน่วยความจำบาน */
 export async function exportRows(f: ListFilters, cap = 30_000) {
   const col = await baseCol()
-  const rows = await col.find(buildQuery(f) as Filter<CoreRow>, { projection: { _id: 0 }, maxTimeMS: 30_000 }).sort(LIST_SORT).limit(cap + 1).toArray()
+  const rows = await col.find(buildQuery(f) as Filter<CoreRow>, { projection: { _id: 0 }, maxTimeMS: 30_000 }).sort(sortSpec("oldest")).limit(cap + 1).toArray()
   return { rows: rows.slice(0, cap), truncated: rows.length > cap }
 }
 

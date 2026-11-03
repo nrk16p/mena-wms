@@ -413,6 +413,48 @@ void (async () => {
       }
     }
 
+    // ── UX: เรียง · ระดับสีค้าง · ตามหลายแถว ─────────────────────────────────────
+    {
+      // ระดับสี (ฟังก์ชันล้วน): <=14 เทา · 15–60 เหลือง · >60 แดง
+      eq([null, 0, 14, 15, 60, 61, 400].map((d) => core.agingTier(d as number | null)), ["ok", "ok", "ok", "warn", "warn", "late", "late"])
+      eq(core.parseSort("amount"), "amount"); eq(core.parseSort("bogus"), "oldest"); eq(core.parseSort(undefined), "oldest")
+      eq(core.sortSpec("oldest"), { issuedDate: 1, row_key: 1 })
+      await col.insertMany([
+        base("so1", { warehouse: "คลังเรียง", issuedDate: "2026-07-01", amount: 500 }),
+        base("so2", { warehouse: "คลังเรียง", issuedDate: "2026-09-15", amount: 90000 }),
+        base("so3", { warehouse: "คลังเรียง", issuedDate: "2026-08-10", amount: 7000 }),
+      ] as never[])
+      const keysOf = async (sort: "oldest" | "newest" | "amount") => (await svc.list({ warehouse: "คลังเรียง", status: ["pending"] }, 1, now, sort)).items.map((r) => r.row_key)
+      eq(await keysOf("oldest"), ["so1", "so3", "so2"], "เก่าสุดก่อน")
+      eq(await keysOf("newest"), ["so2", "so3", "so1"], "ใหม่สุดก่อน")
+      eq(await keysOf("amount"), ["so2", "so3", "so1"], "ยอดเงินมากสุด")
+      const idx = (await col.indexes()).map((i) => JSON.stringify(i.key))
+      assert.ok(idx.includes(JSON.stringify({ coreStatus: 1, amount: -1, row_key: 1 })), "ดัชนีเรียงยอดเงิน")
+
+      // ตามหลายแถว: ข้อความเดียวกัน · แถวที่จบแล้ว/ไม่พบ = ล้มเฉพาะแถวนั้น
+      await col.insertMany([base("bf1"), base("bf2"), base("bf3", { coreStatus: "sold" })] as never[])
+      eq(await status(svc.followUpMany(["bf1"], { note: "" }, proc, now)), 400, "ไม่มีข้อความ")
+      eq(await status(svc.followUpMany([], { note: "x" }, proc, now)), 400, "ไม่ได้เลือก")
+      eq(await status(svc.followUpMany(Array.from({ length: core.MAX_KEYS + 1 }, (_, i) => "k" + i), { note: "x" }, proc, now)), 400, "เกินเพดาน")
+      eq(await status(svc.followUpMany(["bf1"], { note: "x", nextDate: "2026-10-01" }, proc, now)), 400, "วันตามย้อนหลัง")
+      eq(((await col.findOne({ row_key: "bf1" }))?.followUp?.count ?? 0), 0, "ตรวจไม่ผ่านต้องไม่เขียนอะไร")
+      const bulk = await svc.followUpMany(["bf1", "bf2", "bf3", "nope", "bf1"], { note: "โทรตามรวด", nextDate: "2026-11-10" }, proc, now)
+      eq(bulk.ok, ["bf1", "bf2"], "สำเร็จ 2 (ซ้ำนับครั้งเดียว)")
+      eq(bulk.failed.map((x) => x.key).sort(), ["bf3", "nope"])
+      eq(bulk.failed.find((x) => x.key === "bf3")?.error, "รายการนี้จบแล้ว ไม่ต้องตามต่อ")
+      const [b1, b3] = [await col.findOne({ row_key: "bf1" }), await col.findOne({ row_key: "bf3" })]
+      eq([b1?.followUp?.count, b1?.followUp?.lastNote, b1?.followUp?.nextDate, b3?.followUp ?? null], [1, "โทรตามรวด", "2026-11-10", null])
+      const lg2 = await (await logCol()).find({ row_key: "bf2" }).toArray()
+      eq(lg2.map((l) => l.action), ["follow_up"], "ทุกแถวมี log ของตัวเอง")
+      // Export ที่เลือก: keys กรองเฉพาะแถวที่เลือก
+      const sp = new URLSearchParams({ keys: "bf1\nbf3" })
+      const ex = await svc.exportRows(core.parseFilters(sp))
+      eq(ex.rows.map((r) => r.row_key).sort(), ["bf1", "bf3"])
+      // สิทธิ์: path ตามหลายแถวต้องเป็น action follow_up (ผู้ยื่นแบบยานยนต์ล้วนโดนปฏิเสธ)
+      const pol = await import("../lib/access-policy")
+      eq(pol.coreReturnActionForApi("/api/core-return/bulk/follow-up"), "follow_up")
+    }
+
     console.log("check-core-return: OK")
   } finally {
     await client.close()

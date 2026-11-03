@@ -40,6 +40,7 @@ export async function getCoreDb(): Promise<Db> {
       base.createIndex({ coreStatus: 1, issuedDate: -1 }),
       base.createIndex({ issuedDate: 1, row_key: 1 }),
       base.createIndex({ warehouse: 1, coreStatus: 1, issuedDate: 1 }),
+      base.createIndex({ coreStatus: 1, amount: -1, row_key: 1 }), // เรียงยอดเงินมากสุด
       base.createIndex({ mrCode: 1 }),
       base.createIndex({ wdCode: 1, skuCode: 1 }), // กันซ้ำกับฐาน ATMS: แถว WMS กับแถว stockmovement ของ WD+SKU เดียวกัน
       base.createIndex({ "requester.email": 1, coreStatus: 1, issuedDate: 1 }, { sparse: true }),

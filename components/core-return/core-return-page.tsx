@@ -2,14 +2,14 @@
 
 // หน้า /store-withdraw/core-return "ติดตามซากอะไหล่" — 3 เลนตามทีม (ยานยนต์ · สโตร์ · จัดซื้อ) + ตาราง (ค้น/กรอง/Export) + ปิดแล้ว
 // มือถือ 390px: 3 เลนกลายเป็นแท็บด้านบน · ทุกปุ่มเช็กสิทธิ์ซ้ำที่ API
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronRight, Download, Paperclip, Recycle, RefreshCw, Search, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { ChevronDown, ChevronRight, Clock, Download, Paperclip, Recycle, RefreshCw, Search, X } from "lucide-react"
 import { swalToast } from "@/lib/swal"
-import { OUTSTANDING, UNCERTAIN_GARAGE_SOURCES, type CoreStatus } from "@/lib/core-return/core"
-import { DetailDrawer, FollowUpDialog, RebuiltDialog, ReturnDialog, SoldDialog } from "./dialogs"
+import { OUTSTANDING, SORTS, SORT_LABEL, UNCERTAIN_GARAGE_SOURCES, agingTier, parseSort, type CoreStatus, type SortKey } from "@/lib/core-return/core"
+import { BulkFollowDialog, DetailDrawer, FollowUpDialog, RebuiltDialog, ReturnDialog, SoldDialog, rowActions, type DrawerAct } from "./dialogs"
 import { RoundsPanel } from "./rounds"
 import {
-  CoreChip, DaysBadge, baht, btnGhost, daysFrom, download, followText, getJson, inputCls, qtyText, thDate, useFetch, useKeyed, usePerms, type Perms, type Row, type Summary,
+  CoreChip, DateInput, DaysBadge, STATUS_CLS, STATUS_SOLID, SHORT_LABEL, TIER_TEXT, baht, bahtShort, btnGhost, daysFrom, download, followText, getJson, inputCls, qtyText, thDate, useFetch, useKeyed, usePerms, type Perms, type Row, type Summary,
 } from "./shared"
 
 type View = "lanes" | "table" | "closed"
@@ -39,15 +39,29 @@ function qs(f: Filters, extra: Record<string, string | undefined> = {}) {
 const sumOf = (s: Summary | null, keys: (CoreStatus | "followQueue")[]) => keys.reduce((a, k) => ({ count: a.count + (s?.[k]?.count ?? 0), amount: a.amount + (s?.[k]?.amount ?? 0) }), { count: 0, amount: 0 })
 
 function GarageLine({ row }: { row: Row & { garageType?: string | null; garage?: string | null; garageSource?: string | null } }) {
-  if (!row.garage && !row.garageType) return null
+  // ไม่รู้ชื่ออู่ = ป้ายเทาป้ายเดียว · "ไม่แน่ใจ" ขึ้นเฉพาะตอนมีชื่ออู่แต่ที่มาไม่ชัวร์
+  if (!row.garage) return <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">{row.garageType || "อู่นอก"} (ไม่ทราบชื่อ)</span>
   const unsure = !!row.garageSource && UNCERTAIN_GARAGE_SOURCES.includes(row.garageSource)
   return (
     <span className="inline-flex max-w-full items-center gap-1 text-xs text-gray-600 dark:text-gray-300" title={row.garageSource ?? undefined}>
       <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${row.garageType === "อู่ใน" ? "bg-emerald-50 text-emerald-800" : "bg-indigo-50 text-indigo-800"}`}>{row.garageType || "อู่"}</span>
-      <span className="truncate">{row.garage || "-"}</span>
+      <span className="truncate">{row.garage}</span>
       {unsure && <span className="shrink-0 rounded bg-yellow-100 px-1 text-[10px] text-yellow-800" title={row.garageSource ?? ""}>ไม่แน่ใจ</span>}
     </span>
   )
+}
+
+const ACT_BTN: Record<DrawerAct, { label: string; cls: string }> = {
+  return: { label: "คืนซาก", cls: "bg-[#1B8C4B] text-white" },
+  sold: { label: "บันทึกขายแล้ว", cls: "bg-sky-600 text-white" },
+  rebuilt: { label: "Rebuild เสร็จ", cls: "bg-violet-600 text-white" },
+  follow: { label: "ติดตาม", cls: "border border-violet-300 text-violet-700 dark:text-violet-300" },
+}
+/** ปุ่มหลักปุ่มเดียวต่อแถว (คืนซาก > ขาย/Rebuild > ติดตาม) · ที่เหลือทำในลิ้นชักรายละเอียด */
+function PrimaryAction({ row, perms, onAct }: { row: Row; perms: Perms; onAct: (a: Act) => void }) {
+  const k = rowActions(row, perms)[0]
+  if (!k) return null
+  return <button type="button" data-act={k} onClick={(e) => { e.stopPropagation(); onAct({ kind: k, row }) }} className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium ${ACT_BTN[k].cls}`}>{ACT_BTN[k].label}</button>
 }
 
 function RowCard({ row, perms, onAct, onOpen }: { row: Row; perms: Perms; onAct: (a: Act) => void; onOpen: (k: string) => void }) {
@@ -71,12 +85,7 @@ function RowCard({ row, perms, onAct, onOpen }: { row: Row; perms: Perms; onAct:
         {row.coreStatus === "sell_waiting" && row.sale?.scrapInDate && <p className="mt-0.5 text-xs text-sky-700">เข้าคลังซาก {thDate(row.sale.scrapInDate)} · อยู่มา {daysFrom(row.sale.scrapInDate)} วัน</p>}
         {row.coreStatus === "rebuild" && <p className="mt-0.5 text-xs text-violet-700">ส่งซ่อม{row.rebuild?.vendor ? ` ${row.rebuild.vendor}` : ""}{row.rebuild?.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
       </button>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {open && perms.ret && <button type="button" data-act="return" onClick={() => onAct({ kind: "return", row })} className="rounded-lg bg-[#1B8C4B] px-3 py-1.5 text-xs font-medium text-white">คืนซาก</button>}
-        {row.coreStatus === "sell_waiting" && perms.store && !row.saleRoundNo && <button type="button" onClick={() => onAct({ kind: "sold", row })} className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white">บันทึกขายแล้ว</button>}
-        {row.coreStatus === "rebuild" && perms.store && <button type="button" onClick={() => onAct({ kind: "rebuilt", row })} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white">Rebuild เสร็จ</button>}
-        {["pending", "legacy", "sell_waiting", "rebuild"].includes(row.coreStatus) && perms.follow && <button type="button" data-act="follow" onClick={() => onAct({ kind: "follow", row })} className="rounded-lg border border-violet-300 px-3 py-1.5 text-xs font-medium text-violet-700">ติดตาม</button>}
-      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5"><PrimaryAction row={row} perms={perms} onAct={onAct} /></div>
     </li>
   )
 }
@@ -184,7 +193,7 @@ function GarageTable({ f, tick, onPick }: { f: Filters; tick: number; onPick: (g
                 <tr key={JSON.stringify(g.key)} className="cursor-pointer border-t border-[#EEF2F0] hover:bg-[#1B8C4B]/5 dark:border-white/5" onClick={() => onPick(g)}>
                   <td className="max-w-[160px] p-2"><span className="block truncate text-gray-900 dark:text-white" title={g.key.garage}><span className="text-gray-500">{g.key.garageType} · </span>{g.key.garage || "ไม่ระบุ"}</span>{g.uncertain && <span className="text-[10px] text-yellow-700">ชื่อจาก PO อาจเป็นร้านอะไหล่</span>}</td>
                   <td className="p-2 text-right">{g.count}</td><td className="p-2 text-right">{qtyText(g.pieces)}</td><td className="p-2 text-right">{baht(g.amount)}</td>
-                  <td className="p-2 text-right">{g.vehicles}</td><td className="p-2 text-right">{g.mrs}</td><td className={`p-2 text-right ${(g.days ?? 0) > 14 ? "font-semibold text-red-600" : ""}`}>{g.days ?? "-"} วัน</td>
+                  <td className="p-2 text-right">{g.vehicles}</td><td className="p-2 text-right">{g.mrs}</td><td className={`p-2 text-right ${TIER_TEXT[agingTier(g.days)]}`}>{agingTier(g.days) !== "ok" && <Clock size={11} className="mr-0.5 inline align-[-1px]" aria-hidden />}{g.days ?? "-"} วัน</td>
                 </tr>
               ))}
             </tbody>
@@ -224,47 +233,83 @@ function StoreLane({ f, tick, perms, onAct, onOpen, summary }: { f: Filters; tic
   )
 }
 
-function TableView({ f, tick, perms, onAct, onOpen, closed, mine }: { f: Filters; tick: number; perms: Perms; onAct: (a: Act) => void; onOpen: (k: string) => void; closed: boolean; mine: boolean }) {
+const EMPTY_SEL: Set<string> = new Set()
+
+function StatusChips({ chips, status, setStatus, sum }: { chips: CoreStatus[]; status: CoreStatus[]; setStatus: (f: (cur: CoreStatus[]) => CoreStatus[]) => void; sum: Summary | null }) {
+  return (
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="สถานะ" data-testid="status-chips">
+      {chips.map((s) => {
+        const on = status.includes(s)
+        const grp: CoreStatus[] = s === "pending" ? ["pending", "legacy"] : [s]
+        const count = sum ? grp.reduce((a, k) => a + (sum[k]?.count ?? 0), 0) : null
+        const amount = sum ? grp.reduce((a, k) => a + (sum[k]?.amount ?? 0), 0) : 0
+        return (
+          <button key={s} type="button" aria-pressed={on} data-status-chip={s}
+            onClick={() => setStatus((cur) => on ? cur.filter((x) => !grp.includes(x)) : [...cur.filter((x) => !grp.includes(x)), ...grp])}
+            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition ${on ? `${STATUS_SOLID[s]} ring-transparent shadow-sm` : `${STATUS_CLS[s]} hover:brightness-95`}`}>
+            {SHORT_LABEL[s]}{count != null && <span className={on ? "opacity-95" : "opacity-80"}>{count.toLocaleString()} · {bahtShort(amount)}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function TableView({ f, tick, perms, onAct, onOpen, onRefresh, closed, mine }: { f: Filters; tick: number; perms: Perms; onAct: (a: Act) => void; onOpen: (k: string) => void; onRefresh: () => void; closed: boolean; mine: boolean }) {
   const [status, setStatus] = useState<CoreStatus[]>(closed ? CLOSED : ["pending", "legacy"])
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [followed, setFollowed] = useState("")
   const [due, setDue] = useState(false)
-  const query = qs(f, { status: status.join(","), from, to, followed, due: due ? "1" : "", mine: mine ? "1" : "" })
+  const [sort, setSort] = useState<SortKey>("oldest")
+  const [bulk, setBulk] = useState<string[] | null>(null)
+  const other = { from, to, followed, due: due ? "1" : "", mine: mine ? "1" : "" }
+  const query = qs(f, { status: status.join(","), ...other, sort: sort === "oldest" ? "" : sort })
   const [page, setPage] = useKeyed(`${tick}|${query}`, 1)
+  const [sel, setSel] = useKeyed<Set<string>>(`${tick}|${query}|${page}`, EMPTY_SEL) // เลือกได้ในหน้าเดียว · เปลี่ยนหน้า/ตัวกรอง/บันทึกแล้ว = ล้าง
   const res = useFetch<ListRes>(`/api/core-return?${query}&summary=0&page=${page}`, tick).data
+  const sum = useFetch<{ summary: Summary }>(`/api/core-return?${qs(f, other)}&only=summary`, tick).data?.summary ?? null
   const chips = closed ? CLOSED : TABLE_STATUSES
+  const toggle = (k: string) => setSel((cur) => { const n = new Set(cur); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const allOn = !!res && res.items.length > 0 && res.items.every((r) => sel.has(r.row_key))
+  const picked = res ? res.items.filter((r) => sel.has(r.row_key)).map((r) => r.row_key) : []
+  const followable = res ? res.items.filter((r) => sel.has(r.row_key) && !CLOSED.includes(r.coreStatus)).map((r) => r.row_key) : []
   return (
     <div className="space-y-3" data-testid="table-view">
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="สถานะ">
-        {chips.map((s) => (
-          <button key={s} type="button" aria-pressed={status.includes(s)} onClick={() => setStatus((cur) => cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s])}
-            className={`rounded-full px-1 py-0.5 ${status.includes(s) ? "ring-2 ring-[#1B8C4B]" : "opacity-60"}`}><CoreChip status={s} /></button>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">
-        <label className="text-xs text-gray-500">เบิกตั้งแต่<input type="date" className={inputCls} value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label className="text-xs text-gray-500">ถึง<input type="date" className={inputCls} value={to} onChange={(e) => setTo(e.target.value)} /></label>
+      <StatusChips chips={chips} status={status} setStatus={setStatus} sum={sum} />
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start">
+        <label className="text-xs text-gray-500">เบิกตั้งแต่<DateInput value={from} onChange={setFrom} /></label>
+        <label className="text-xs text-gray-500">ถึง<DateInput value={to} onChange={setTo} /></label>
         <label className="text-xs text-gray-500">การตาม
           <select className={inputCls} value={followed} onChange={(e) => setFollowed(e.target.value)}><option value="">ทั้งหมด</option><option value="yes">ตามแล้ว</option><option value="no">ยังไม่เคยตาม</option></select>
         </label>
-        <label className="flex items-center gap-2 self-end rounded-xl border border-[#E2E8E4] px-3 py-2.5 text-sm dark:border-white/10"><input type="checkbox" checked={due} onChange={(e) => setDue(e.target.checked)} />ถึงกำหนดตาม</label>
-        <button type="button" onClick={() => download(`/api/core-return/export?${query}`)} className={`${btnGhost} col-span-2 self-end py-2.5`} data-testid="export"><Download size={14} />Export Excel</button>
+        <label className="text-xs text-gray-500">เรียง
+          <select className={inputCls} value={sort} data-testid="sort" onChange={(e) => setSort(parseSort(e.target.value))}>{SORTS.map((k) => <option key={k} value={k}>{SORT_LABEL[k]}</option>)}</select>
+        </label>
+        <label className="flex items-center gap-2 rounded-xl border border-[#E2E8E4] px-3 py-2.5 text-sm sm:mt-[18px] dark:border-white/10"><input type="checkbox" checked={due} onChange={(e) => setDue(e.target.checked)} />ถึงกำหนดตาม</label>
+        <button type="button" onClick={() => download(`/api/core-return/export?${query}`)} className={`${btnGhost} col-span-2 py-2.5 sm:mt-[18px]`} data-testid="export"><Download size={14} />Export Excel</button>
       </div>
       {!res ? <div className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" /> : (
         <>
-          <p className="text-xs text-gray-500">{res.total.toLocaleString()} รายการ · หน้า {res.page}/{res.pages} · เรียงจากเบิกเก่าสุด</p>
+          <p className="text-xs text-gray-500">{res.total.toLocaleString()} รายการ · หน้า {res.page}/{res.pages} · เรียง{SORT_LABEL[sort]}</p>
           <ul className="space-y-2 lg:hidden">{res.items.map((r) => <RowCard key={r.row_key} row={r} perms={perms} onAct={onAct} onOpen={onOpen} />)}</ul>
           <div className="hidden overflow-x-auto rounded-xl border border-[#E2E8E4] bg-white lg:block dark:border-white/10 dark:bg-[#0f1117]">
             <table className="w-full text-sm">
               <thead className="bg-[#F6F8F7] text-left text-xs text-gray-500 dark:bg-white/5">
-                <tr><th className="p-2">เบิก</th><th className="p-2">สถานะ</th><th className="p-2">WD / MR</th><th className="p-2">ทะเบียน</th><th className="p-2">สินค้า</th><th className="p-2">อู่</th><th className="p-2 text-right">จำนวน</th><th className="p-2 text-right">บาท</th><th className="p-2">คลัง</th><th className="p-2" /></tr>
+                <tr>
+                  <th className="w-8 p-2"><input type="checkbox" aria-label="เลือกทั้งหน้า" data-testid="select-all" checked={allOn} onChange={() => setSel(allOn ? EMPTY_SEL : new Set(res.items.map((r) => r.row_key)))} /></th>
+                  <th className="p-2">เบิก</th><th className="p-2">สถานะ</th><th className="p-2">WD / MR</th><th className="p-2">ทะเบียน</th><th className="p-2">สินค้า</th><th className="p-2">อู่</th><th className="p-2 text-right">จำนวน</th><th className="p-2 text-right">บาท</th><th className="p-2">คลัง</th><th className="p-2" />
+                </tr>
               </thead>
               <tbody>
                 {res.items.map((r) => {
                   const open = OUTSTANDING.includes(r.coreStatus)
                   return (
-                    <tr key={r.row_key} data-row={r.row_key} className="cursor-pointer border-t border-[#EEF2F0] align-top hover:bg-[#1B8C4B]/5 dark:border-white/5" onClick={() => onOpen(r.row_key)}>
+                    <tr key={r.row_key} data-row={r.row_key} tabIndex={0} aria-label={`เปิดรายละเอียด ${r.skuName ?? r.skuCode ?? ""}`}
+                      className={`group cursor-pointer border-t border-[#EEF2F0] align-top transition-colors hover:bg-[#1B8C4B]/10 focus-visible:bg-[#1B8C4B]/10 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#1B8C4B] dark:border-white/5 ${sel.has(r.row_key) ? "bg-[#1B8C4B]/5" : ""}`}
+                      onClick={() => onOpen(r.row_key)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) { e.preventDefault(); onOpen(r.row_key) } }}>
+                      <td className="p-2" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`เลือก ${r.skuCode ?? r.row_key}`} data-testid="row-select" checked={sel.has(r.row_key)} onChange={() => toggle(r.row_key)} /></td>
                       <td className="p-2 text-xs">{thDate(r.issuedDate)}{open && <div className="mt-1"><DaysBadge days={daysFrom(r.issuedDate)} /></div>}</td>
                       <td className="p-2"><CoreChip status={r.coreStatus} />{r.legacyRound && <div className="mt-1 text-[11px] text-orange-700">{r.legacyRound}</div>}{followText(r.followUp) && <div className="mt-1 text-[11px] text-violet-700">{followText(r.followUp)}</div>}{!!r.attachCount && <div data-testid="photo-chip" className="mt-1 inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800"><Paperclip size={10} />รูป {r.attachCount}</div>}</td>
                       <td className="p-2 text-xs">{r.wdCode}<br /><span className="text-gray-500">{r.mrCode}</span></td>
@@ -274,12 +319,10 @@ function TableView({ f, tick, perms, onAct, onOpen, closed, mine }: { f: Filters
                       <td className="p-2 text-right">{qtyText(r.qtyIssued)}</td>
                       <td className="p-2 text-right">{baht(r.amount)}</td>
                       <td className="p-2 text-xs">{r.warehouse}</td>
-                      <td className="p-2" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-col gap-1">
-                          {open && perms.ret && <button type="button" onClick={() => onAct({ kind: "return", row: r })} className="rounded-lg bg-[#1B8C4B] px-2.5 py-1 text-xs text-white">คืนซาก</button>}
-                          {r.coreStatus === "sell_waiting" && perms.store && !r.saleRoundNo && <button type="button" onClick={() => onAct({ kind: "sold", row: r })} className="rounded-lg bg-sky-600 px-2.5 py-1 text-xs text-white">ขายแล้ว</button>}
-                          {r.coreStatus === "rebuild" && perms.store && <button type="button" onClick={() => onAct({ kind: "rebuilt", row: r })} className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs text-white">Rebuild เสร็จ</button>}
-                          {!CLOSED.includes(r.coreStatus) && perms.follow && <button type="button" onClick={() => onAct({ kind: "follow", row: r })} className="rounded-lg border border-violet-300 px-2.5 py-1 text-xs text-violet-700">ติดตาม</button>}
+                      <td className="p-2">
+                        <div className="flex items-center justify-end gap-1">
+                          <PrimaryAction row={r} perms={perms} onAct={onAct} />
+                          <ChevronRight size={16} aria-hidden className="shrink-0 text-gray-300 transition group-hover:translate-x-0.5 group-hover:text-[#1B8C4B]" />
                         </div>
                       </td>
                     </tr>
@@ -296,14 +339,31 @@ function TableView({ f, tick, perms, onAct, onOpen, closed, mine }: { f: Filters
           </div>
         </>
       )}
+      {picked.length > 0 && (
+        <div role="region" aria-label="ทำกับรายการที่เลือก" data-testid="bulk-bar" className="sticky bottom-3 z-20 mx-auto flex max-w-xl flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#14271C] px-4 py-2.5 text-sm text-white shadow-lg">
+          <span>เลือก {picked.length} รายการ</span>
+          <span className="flex flex-wrap items-center gap-2">
+            {perms.follow && <button type="button" data-testid="bulk-follow" disabled={!followable.length} onClick={() => setBulk(followable)} className="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-[#14271C] disabled:opacity-50">ติดตามที่เลือก{followable.length !== picked.length ? ` (${followable.length})` : ""}</button>}
+            <button type="button" data-testid="bulk-export" onClick={() => download(`/api/core-return/export?${new URLSearchParams({ keys: picked.join("\n") }).toString()}`)} className="rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium hover:bg-white/25">Export ที่เลือก</button>
+            <button type="button" onClick={() => setSel(EMPTY_SEL)} className="rounded-lg px-2 py-1.5 text-xs text-white/80 hover:text-white">ล้าง</button>
+          </span>
+        </div>
+      )}
+      <BulkFollowDialog key={bulk ? "bf:" + bulk.length + bulk[0] : "bf"} keys={bulk} onClose={() => setBulk(null)} onDone={() => { setSel(EMPTY_SEL); void swalToast("success", "บันทึกการตามแล้ว"); onRefresh() }} />
     </div>
   )
 }
 
+const DESKTOP_MQ = "(min-width:1024px)"
+const subscribeDesktop = (cb: () => void) => { const m = window.matchMedia(DESKTOP_MQ); m.addEventListener("change", cb); return () => m.removeEventListener("change", cb) }
+
 /** initial มาจาก query ของหน้า (page.tsx): ?mine=1 → ตารางเฉพาะที่ฉันเบิก · ?view= / ?lane= ใช้ตอนแชร์ลิงก์ */
 export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; view?: View; lane?: 0 | 1 | 2 } }) {
   const perms = usePerms()
-  const [view, setView] = useState<View>(initial.view ?? "table")   // หน้าแรกเป็นตาราง (ผู้ใช้สั่ง 2026-11-03)
+  // จอกว้าง (>=1024) เปิดตาราง · จอเล็กเปิดเลน 3 แท็บ · ?view= ชนะเสมอ · SSR ยังไม่รู้ขนาดจอ → โชว์โครงรอก่อน (ไม่มี hydration mismatch)
+  const desktop = useSyncExternalStore(subscribeDesktop, () => window.matchMedia(DESKTOP_MQ).matches, () => null)
+  const [viewSel, setView] = useState<View | null>(initial.view ?? null)
+  const view: View | null = viewSel ?? (desktop === null ? null : desktop ? "table" : "lanes")
   const [laneSel, setLane] = useState<0 | 1 | 2 | null>(initial.lane ?? null)
   const [f, setF] = useState<Filters>({ q: "", warehouse: "", garageType: "", garage: "" })
   const [qInput, setQInput] = useState("")
@@ -393,7 +453,9 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
         </div>
       )}
 
-      {view === "lanes" ? (
+      {view === null ? (
+        <div className="h-64 animate-pulse rounded-2xl bg-white/70 dark:bg-white/5" data-testid="view-pending" />
+      ) : view === "lanes" ? (
         <>
           <div className="grid grid-cols-3 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#E2E8E4] lg:hidden dark:bg-white/5 dark:ring-white/10" role="tablist" aria-label="เลน" data-testid="lane-tabs">
             {LANES.map((l, i) => {
@@ -425,14 +487,14 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
           </div>
         </>
       ) : (
-        <TableView key={view} f={f} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} closed={view === "closed"} mine={mine} />
+        <TableView key={view} f={f} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} onRefresh={refresh} closed={view === "closed"} mine={mine} />
       )}
 
       <ReturnDialog key={"ret:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "return" ? act.row : null} onClose={() => setAct(null)} onDone={done} />
       <SoldDialog key={"sold:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "sold" ? act.row : null} onClose={() => setAct(null)} onDone={done} />
       <RebuiltDialog key={"rebuilt:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "rebuilt" ? act.row : null} onClose={() => setAct(null)} onDone={done} />
       <FollowUpDialog key={"follow:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "follow" ? act.row : null} onClose={() => setAct(null)} onDone={done} />
-      <DetailDrawer rowKey={detail} onClose={() => setDetail(null)} />
+      <DetailDrawer rowKey={detail} onClose={() => setDetail(null)} onAct={(kind, row) => { setDetail(null); setAct({ kind, row }) }} />
     </div>
   )
 }

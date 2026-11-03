@@ -5,9 +5,9 @@ import { Fragment, useState } from "react"
 import { FileText, Loader2, Paperclip, ShieldAlert, ShieldCheck, X } from "lucide-react"
 import { AttachPicker, doneIds, isUploading, type Picked } from "@/components/store-withdraw/attach-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { NO_CORE_REASONS, STATUS_LABEL, type CoreStatus } from "@/lib/core-return/core"
+import { NO_CORE_REASONS, OUTSTANDING, STATUS_LABEL, type CoreStatus } from "@/lib/core-return/core"
 import {
-  CoreChip, attachApi, baht, btnGhost, btnPrimary, followText, inputCls, useFetch, postJson, qtyText, rowUrl, thDate, thDateTime, todayYmd, usePerms, type Att, type Row,
+  CoreChip, DateInput, DaysBadge, attachApi, baht, daysFrom, btnGhost, btnPrimary, followText, inputCls, useFetch, postJson, qtyText, rowUrl, thDate, thDateTime, todayYmd, usePerms, type Att, type Row,
 } from "./shared"
 
 const settle = () => new Promise<void>((r) => setTimeout(r, 150))
@@ -117,12 +117,12 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
             )}
             {choice === "sell" && (
               <Field label="วันที่เข้าคลังซาก" hint="ซากจะรออยู่คลังซากจนถึงรอบขาย">
-                <input type="date" className={inputCls} value={scrapInDate} max={todayYmd()} onChange={(e) => setScrapInDate(e.target.value)} required aria-label="วันที่เข้าคลังซาก" />
+                <DateInput value={scrapInDate} max={todayYmd()} onChange={setScrapInDate} required aria-label="วันที่เข้าคลังซาก" />
               </Field>
             )}
             {choice === "rebuild" && (
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="วันที่ส่งซ่อม (ถ้ามี)"><input type="date" className={inputCls} value={sentDate} max={todayYmd()} onChange={(e) => setSentDate(e.target.value)} /></Field>
+                <Field label="วันที่ส่งซ่อม (ถ้ามี)"><DateInput value={sentDate} max={todayYmd()} onChange={setSentDate} /></Field>
                 <Field label="ส่งที่ไหน (ถ้ามี)"><input className={inputCls} value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="ชื่ออู่/ร้าน" /></Field>
               </div>
             )}
@@ -164,7 +164,7 @@ export function SoldDialog({ row, onClose, onDone }: { row: Row | null; onClose:
           <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void submit({ soldDate, price, buyer, note }) }}>
             <RowHead row={row} />
             <p className="text-xs text-gray-500">เข้าคลังซาก {thDate(row.sale?.scrapInDate)}</p>
-            <Field label="วันที่ขาย"><input type="date" className={inputCls} value={soldDate} max={todayYmd()} onChange={(e) => setSoldDate(e.target.value)} required /></Field>
+            <Field label="วันที่ขาย"><DateInput value={soldDate} max={todayYmd()} onChange={setSoldDate} required /></Field>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="ราคาขาย (ถ้ามี)"><input className={inputCls} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="บาท" /></Field>
               <Field label="ผู้ซื้อ (ถ้ามี)"><input className={inputCls} value={buyer} onChange={(e) => setBuyer(e.target.value)} /></Field>
@@ -190,7 +190,7 @@ export function RebuiltDialog({ row, onClose, onDone }: { row: Row | null; onClo
           <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void submit({ rebuiltDate: date, note }) }}>
             <RowHead row={row} />
             {row.rebuild?.vendor && <p className="text-xs text-gray-500">ส่งซ่อมที่ {row.rebuild.vendor}{row.rebuild.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
-            <Field label="วันที่ได้ของคืน"><input type="date" className={inputCls} value={date} max={todayYmd()} onChange={(e) => setDate(e.target.value)} required /></Field>
+            <Field label="วันที่ได้ของคืน"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
             <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น เข้าสต๊อกแล้ว" /></Field>
             <Footer busy={busy} onCancel={onClose} label="บันทึก Rebuild เสร็จ" error={error} />
           </form>
@@ -214,9 +214,47 @@ export function FollowUpDialog({ row, onClose, onDone }: { row: Row | null; onCl
             <RowHead row={row} />
             <p className="text-xs text-gray-500">{ft ?? "ยังไม่เคยตาม"}{row.followUp?.lastNote ? ` · "${row.followUp.lastNote}"` : ""}</p>
             <Field label="ตามอะไร กับใคร"><textarea className={inputCls} rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น โทรหาหัวหน้าช่าง บอกจะส่งพรุ่งนี้" required /></Field>
-            <Field label="ตามอีกครั้งวันที่ (ถ้ามี)"><input type="date" className={inputCls} value={next} min={todayYmd()} onChange={(e) => setNext(e.target.value)} /></Field>
+            <Field label="ตามอีกครั้งวันที่ (ถ้ามี)"><DateInput value={next} min={todayYmd()} onChange={setNext} /></Field>
             <Footer busy={busy} onCancel={onClose} label="บันทึกการตาม" error={error} />
           </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function BulkFollowDialog({ keys, onClose, onDone }: { keys: string[] | null; onClose: () => void; onDone: () => void }) {
+  const [note, setNote] = useState("")
+  const [next, setNext] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const [res, setRes] = useState<{ ok: string[]; failed: { key: string; error: string }[] } | null>(null)
+  const close = () => { const had = !!res?.ok.length; onClose(); if (had) onDone() }
+  return (
+    <Dialog open={!!keys} onOpenChange={(o) => !o && close()}>
+      <DialogContent className="sm:max-w-md" data-testid="bulk-follow-dialog">
+        <DialogHeader><DialogTitle>ติดตาม {keys?.length ?? 0} รายการ</DialogTitle></DialogHeader>
+        {keys && !res && (
+          <form className="space-y-3" onSubmit={async (e) => {
+            e.preventDefault(); setBusy(true); setError("")
+            try { setRes(await postJson("/api/core-return/bulk/follow-up", { keys, note, nextDate: next || null })) } catch (er) { setError(er instanceof Error ? er.message : "บันทึกไม่สำเร็จ") } finally { setBusy(false) }
+          }}>
+            <p className="text-xs text-gray-500">ข้อความและวันนัดเดียวกันจะบันทึกให้ทุกรายการที่เลือก</p>
+            <Field label="ตามอะไร กับใคร"><textarea className={inputCls} rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น โทรหาหัวหน้าช่าง บอกจะส่งพรุ่งนี้" required /></Field>
+            <Field label="ตามอีกครั้งวันที่ (ถ้ามี)"><DateInput value={next} min={todayYmd()} onChange={setNext} /></Field>
+            <Footer busy={busy} onCancel={onClose} label={`บันทึกการตาม ${keys.length} รายการ`} error={error} />
+          </form>
+        )}
+        {res && (
+          <div className="space-y-3" data-testid="bulk-result">
+            <p className="text-sm text-gray-900 dark:text-white">สำเร็จ {res.ok.length} รายการ{res.failed.length ? ` · ไม่สำเร็จ ${res.failed.length} รายการ` : ""}</p>
+            {res.failed.length > 0 && (
+              <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl bg-red-50 p-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">
+                {res.failed.map((f) => <li key={f.key}>{f.key} · {f.error}</li>)}
+              </ul>
+            )}
+            <div className="flex justify-end"><button type="button" className={btnPrimary} onClick={close}>ปิด</button></div>
+          </div>
         )}
       </DialogContent>
     </Dialog>
@@ -282,7 +320,21 @@ function AddPhotosDialog({ rowKey, onClose, onDone }: { rowKey: string; onClose:
   )
 }
 
-export function DetailDrawer({ rowKey, onClose }: { rowKey: string | null; onClose: () => void }) {
+export type DrawerAct = "return" | "sold" | "rebuilt" | "follow"
+
+/** ปุ่มที่คนนี้ทำได้กับแถวนี้ เรียงตามความสำคัญ: ตัวแรก = ปุ่มหลักในตาราง/การ์ด · ที่เหลืออยู่ในลิ้นชัก (ใช้ทั้งลิ้นชักและตาราง) · ฝั่ง API เช็กสิทธิ์ซ้ำเสมอ */
+export function rowActions(r: Pick<Row, "coreStatus" | "saleRoundNo">, p: { ret: boolean; store: boolean; follow: boolean }): DrawerAct[] {
+  const out: DrawerAct[] = []
+  if (OUTSTANDING.includes(r.coreStatus) && p.ret) out.push("return")
+  if (r.coreStatus === "sell_waiting" && p.store && !r.saleRoundNo) out.push("sold")
+  if (r.coreStatus === "rebuild" && p.store) out.push("rebuilt")
+  if (!CLOSED_SET.includes(r.coreStatus) && p.follow) out.push("follow")
+  return out
+}
+const CLOSED_SET: CoreStatus[] = ["sold", "rebuilt", "no_core"]
+const ACT_LABEL: Record<DrawerAct, string> = { return: "คืนซาก", follow: "ติดตาม", sold: "บันทึกขายแล้ว", rebuilt: "Rebuild เสร็จ" }
+
+export function DetailDrawer({ rowKey, onClose, onAct }: { rowKey: string | null; onClose: () => void; onAct?: (kind: DrawerAct, row: Row) => void }) {
   const [tick, setTick] = useState(0)
   const [adding, setAdding] = useState(false)
   const perms = usePerms()
@@ -316,14 +368,25 @@ export function DetailDrawer({ rowKey, onClose }: { rowKey: string | null; onClo
           {!data && !error && <div className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />}
           {r && (
             <>
-              <div className="flex flex-wrap items-center gap-2"><CoreChip status={r.coreStatus} />{r.legacyRound && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-800">{r.legacyRound}</span>}</div>
+              <div className="flex flex-wrap items-center gap-2"><CoreChip status={r.coreStatus} />{OUTSTANDING.includes(r.coreStatus) && <DaysBadge days={daysFrom(r.issuedDate)} />}{r.legacyRound && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-800">{r.legacyRound}</span>}</div>
+              {(() => {
+                const acts = onAct ? rowActions(r, perms) : []
+                if (!acts.length && !perms.ret) return null
+                return (
+                  <div className="flex flex-wrap gap-2" data-testid="drawer-actions">
+                    {acts.map((k, i) => (
+                      <button key={k} type="button" data-act={k} onClick={() => onAct?.(k, r)} className={i === 0 ? `${btnPrimary} min-h-9 px-3 py-1.5` : `${btnGhost} min-h-9 px-3 py-1.5`}>{ACT_LABEL[k]}</button>
+                    ))}
+                    {perms.ret && <button type="button" data-testid="add-photos" onClick={() => setAdding(true)} className={`${btnGhost} min-h-9 px-3 py-1.5`}><Paperclip size={13} />แนบรูปเพิ่ม</button>}
+                  </div>
+                )
+              })()}
               <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-sm">
                 {info.map(([k, v]) => (<Fragment key={k}><dt className="text-gray-500">{k}</dt><dd className="break-words text-gray-900 dark:text-gray-100">{v}</dd></Fragment>))}
               </dl>
               <div data-testid="drawer-photos">
                 <div className="flex items-center justify-between">
                   <h3 className="inline-flex items-center gap-1 text-sm font-semibold text-gray-800 dark:text-gray-100"><Paperclip size={13} />รูปแนบ{atts.length ? ` (${atts.length})` : ""}</h3>
-                  {perms.ret && <button type="button" data-testid="add-photos" onClick={() => setAdding(true)} className={`${btnGhost} min-h-9 px-2.5 py-1 text-xs`}>แนบรูปเพิ่ม</button>}
                 </div>
                 {files.error && <p className="mt-1 text-xs text-red-600">{files.error}</p>}
                 {!files.error && !files.data && <p className="mt-1 text-xs text-gray-500">กำลังโหลดรูป</p>}

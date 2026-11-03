@@ -5,7 +5,7 @@ import { useMemo, useState } from "react"
 import { Download, Loader2, Plus } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { swalTextInput, swalToast } from "@/lib/swal"
-import { baht, btnGhost, btnPrimary, daysFrom, download, inputCls, postJson, useFetch, useKeyed, qtyText, thDate, thDateTime, todayYmd, type Row } from "./shared"
+import { DateInput, baht, btnGhost, btnPrimary, daysFrom, download, inputCls, postJson, useFetch, useKeyed, qtyText, thDate, thDateTime, todayYmd, type Row } from "./shared"
 
 type Round = {
   roundNo: string; warehouses: string[]; cutoffDate: string; status: "open" | "sold" | "cancelled"; count: number; costAmount: number
@@ -96,7 +96,7 @@ function CreateRoundDialog({ open, warehouses, onClose, onDone }: { open: boolea
             ))}
           </div>
           <label className="block max-w-xs space-y-1 text-sm"><span className="font-medium text-gray-700 dark:text-gray-200">เอาซากที่เข้าคลังถึงวันที่</span>
-            <input type="date" className={inputCls} value={cutoff} max={todayYmd()} onChange={(e) => setCutoff(e.target.value)} />
+            <DateInput value={cutoff} max={todayYmd()} onChange={setCutoff} />
           </label>
           {!rows ? <div className="h-24 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" /> : rows.length === 0 ? (
             <p className="rounded-xl bg-gray-50 px-3 py-4 text-center text-sm text-gray-500 dark:bg-white/5">ไม่มีซากรอขายที่ยังไม่เข้ารอบ</p>
@@ -199,7 +199,7 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
             </div>
             {selling && (
               <div className="grid gap-3 rounded-xl bg-[#F6F8F7] p-3 sm:grid-cols-3 dark:bg-white/[0.04]">
-                <label className="space-y-1 text-sm"><span className="font-medium">วันที่ขาย</span><input type="date" className={inputCls} value={soldDate} max={todayYmd()} onChange={(e) => setSoldDate(e.target.value)} /></label>
+                <label className="space-y-1 text-sm"><span className="font-medium">วันที่ขาย</span><DateInput value={soldDate} max={todayYmd()} onChange={setSoldDate} /></label>
                 <label className="space-y-1 text-sm"><span className="font-medium">ผู้ซื้อ (ถ้ามี)</span><input className={inputCls} value={buyer} onChange={(e) => setBuyer(e.target.value)} /></label>
                 <label className="space-y-1 text-sm"><span className="font-medium">ราคารวม (ถ้ามี)</span><input className={inputCls} inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="ว่าง = รวมจากรายบรรทัด" /></label>
               </div>

@@ -2,9 +2,10 @@
 
 // ชิ้นส่วนที่ใช้ร่วมกันของหน้าติดตามซาก: ชนิดข้อมูลฝั่ง browser · ชิปสถานะ · รูปแบบเงิน/วันที่ · สิทธิ์จาก session
 import { useCallback, useEffect, useState } from "react"
+import { Clock } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { coreReturnCan, type Access } from "@/lib/access-policy"
-import { OVERDUE_DAYS, STATUS_LABEL, type CoreStatus } from "@/lib/core-return/core"
+import { STATUS_LABEL, agingTier, type AgingTier, type CoreStatus } from "@/lib/core-return/core"
 
 export type Row = {
   row_key: string; issuedDate: string; warehouse?: string | null; wdCode?: string | null; mrCode?: string | null; purpose?: string | null
@@ -30,6 +31,11 @@ export const STATUS_CLS: Record<CoreStatus, string> = {
   rebuilt: "bg-teal-50 text-teal-800 ring-teal-200 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-500/30",
   no_core: "bg-gray-100 text-gray-700 ring-gray-200 dark:bg-white/5 dark:text-gray-300 dark:ring-white/10",
 }
+/** ชิปตัวกรองที่เลือกอยู่ = พื้นทึบ */
+export const STATUS_SOLID: Record<CoreStatus, string> = {
+  pending: "bg-amber-600 text-white", legacy: "bg-orange-600 text-white", sell_waiting: "bg-sky-600 text-white", sold: "bg-green-700 text-white",
+  rebuild: "bg-violet-600 text-white", rebuilt: "bg-teal-700 text-white", no_core: "bg-gray-600 text-white",
+}
 /** ป้ายสั้นสำหรับชิปในหน้าใบเบิก */
 export const SHORT_LABEL: Record<CoreStatus, string> = {
   pending: "รอคืนซาก", legacy: "รอคืนซาก", sell_waiting: "อยู่คลังซากรอขาย", sold: "ขายแล้ว", rebuild: "ส่ง Rebuild", rebuilt: "Rebuild เสร็จ", no_core: "ไม่มีซากคืน",
@@ -43,17 +49,27 @@ export function CoreChip({ status, short }: { status: CoreStatus; short?: boolea
   )
 }
 
+const TIER_CLS: Record<AgingTier, string> = {
+  ok: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200",
+  warn: "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200",
+  late: "bg-red-600 text-white",
+}
+/** ค้างกี่วัน: เทา <=14 · เหลือง 15–60 · แดง >60 + ไอคอนนาฬิกา (ไม่พึ่งสีอย่างเดียว) */
 export function DaysBadge({ days }: { days: number | null }) {
   if (days == null) return null
-  const late = days > OVERDUE_DAYS
+  const tier = agingTier(days)
   return (
-    <span data-testid="days" className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${late ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200"}`}>
-      ค้าง {days} วัน
+    <span data-testid="days" data-tier={tier} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${TIER_CLS[tier]}`}>
+      <Clock size={11} aria-hidden />ค้าง {days} วัน
     </span>
   )
 }
+/** ตัวเลขวันค้างแบบข้อความล้วน (ตารางอู่) */
+export const TIER_TEXT: Record<AgingTier, string> = { ok: "", warn: "font-semibold text-amber-700 dark:text-amber-300", late: "font-semibold text-red-600" }
 
 export const baht = (n: number | null | undefined) => (n == null ? "-" : n.toLocaleString("th-TH", { maximumFractionDigits: 0 }))
+/** ยอดเงินแบบย่อ: 45.8M · 12.3K */
+export const bahtShort = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(Math.round(n)))
 export const qtyText = (n: number | null | undefined) => (n == null ? "-" : n.toLocaleString("th-TH", { maximumFractionDigits: 2 }))
 export const todayYmd = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10)
 export function daysFrom(ymd: string | null | undefined, today = todayYmd()): number | null {
@@ -66,6 +82,21 @@ export function thDate(ymd: string | null | undefined): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd)
   if (!m) return ymd
   return `${m[3]}/${m[2]}/${String(Number(m[1]) + 543).slice(2)}`
+}
+/** YYYY-MM-DD → dd/mm/yyyy (พ.ศ. เต็มปี) สำหรับข้างช่องวันที่ */
+export function thDateFull(ymd: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd ?? "")
+  return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : ""
+}
+/** ช่องวันที่ native (แสดงปีตามเครื่อง) + ข้อความ "= dd/mm/yyyy พ.ศ." ให้ตรงกับตาราง · ไม่ใช้ calendar ของ repo เพราะ locale th ของมันยังเป็น ค.ศ. */
+export function DateInput({ value, onChange, className, ...rest }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onChange"> & { value: string; onChange: (v: string) => void }) {
+  const be = thDateFull(value)
+  return (
+    <span className="block">
+      <input {...rest} type="date" value={value} onChange={(e) => onChange(e.target.value)} className={className ?? inputCls} />
+      <span data-testid="be-date" className="mt-0.5 block min-h-4 text-xs text-gray-500 dark:text-gray-400">{be ? `= ${be} (พ.ศ.)` : ""}</span>
+    </span>
+  )
 }
 export function thDateTime(iso: string | null | undefined): string {
   if (!iso) return "-"
