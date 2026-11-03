@@ -23,7 +23,7 @@ const LANES = [
   { key: 1, title: "สโตร์ · คลังซาก", short: "สโตร์", dot: "bg-sky-500" },
   { key: 2, title: "จัดซื้อ · ติดตาม & รอบขาย", short: "จัดซื้อ", dot: "bg-violet-500" },
 ] as const
-const TABLE_STATUSES: CoreStatus[] = ["pending", "legacy", "sell_waiting", "rebuild", "sold", "rebuilt", "no_core"]
+const TABLE_STATUSES: CoreStatus[] = ["pending", "sell_waiting", "rebuild", "sold", "rebuilt", "no_core"]
 const CLOSED: CoreStatus[] = ["sold", "rebuilt", "no_core"]
 const GROUP_BY = [{ k: "vehicle", t: "รถ" }, { k: "mr", t: "MR" }, { k: "garage", t: "อู่" }, { k: "warehouse", t: "คลัง" }] as const
 
