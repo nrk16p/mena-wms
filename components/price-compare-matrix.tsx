@@ -54,6 +54,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
 
   // เจ้าใหม่ที่ยังไม่ขึ้นทะเบียน: ช่องที่เปิดกล่อง "เจ้าใหม่" / ช่องที่กำลังผูกทะเบียน (null = ไม่มีกล่องเปิด)
   const [newVendorFor, setNewVendorFor] = useState<number | null>(null)
+  const [newVendorName, setNewVendorName] = useState("")   // คำที่พิมพ์ค้นไว้ในช่องเลือก Vendor → ใส่ในกล่องสร้างให้เลย
   const [linkFor, setLinkFor] = useState<number | null>(null)
   const provCount = provisionalCount(doc)
   const unlinkedAwards = unlinkedProvisionalAwards(doc)
@@ -431,10 +432,11 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
       {newVendorFor != null && (
         <NewVendorDialog
           docNo={doc.docNo}
-          onClose={() => setNewVendorFor(null)}
+          initialName={newVendorName}
+          onClose={() => { setNewVendorFor(null); setNewVendorName("") }}
           onDone={(v) => {
             patchSupplier(newVendorFor, { name: v.name, provisional: true, atmsId: undefined, garageId: undefined, ...(Object.keys(v.contact).length ? { contact: v.contact } : {}) })
-            setNewVendorFor(null)
+            setNewVendorFor(null); setNewVendorName("")
             swalToast("success", `เพิ่มชื่อชั่วคราว "${v.name}" แล้ว`)
           }}
         />
@@ -471,6 +473,8 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                         value={sp.name}
                         onChange={(v) => patchSupplier(s, { name: v?.vendor ?? "", garageId: undefined, provisional: undefined, atmsId: undefined, contact: undefined })}
                         placeholder={`Supplier ${s + 1}`}
+                        onCreate={(typed) => { setNewVendorName(typed); setNewVendorFor(s) }}
+                        createBlockedReason={provCount >= MAX_PROVISIONAL ? `Vendor ใหม่ได้ไม่เกิน ${MAX_PROVISIONAL} รายต่อใบ` : undefined}
                       />
                     )}
                   </div>

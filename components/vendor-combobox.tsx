@@ -4,7 +4,7 @@
 // ค้นหาแบบเดียวกับช่อง "ค้นหาชื่ออู่" บนหน้า /vendors: พิมพ์แล้วกรองทันที (includes ไม่สนตัวพิมพ์)
 // ใช้ในใบเทียบราคา S1–S4 (ผู้ใช้กำหนด 2026-09-10) — ชื่อที่เลือกจึงสะกดตรงกับ AVL เสมอ เทียบย้อนหลังได้
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, X, Check, Search } from "lucide-react"
+import { ChevronDown, X, Check, Search, UserPlus } from "lucide-react"
 import { inputCls } from "@/components/garage-combobox"
 
 export type VendorName = { vendor: string; status: "approved" | "rejected" | "pending"; kind: string; jobs: number; lastYm: string }
@@ -28,11 +28,15 @@ export function loadVendorNames(): Promise<VendorName[]> {
   return cache
 }
 
-export function VendorCombobox({ value, onChange, placeholder, disabled }: {
+export function VendorCombobox({ value, onChange, placeholder, disabled, onCreate, createBlockedReason }: {
   value: string
   onChange: (v: VendorName | null) => void
   placeholder?: string
   disabled?: boolean
+  /** มี = ในลิสต์มีปุ่ม "สร้าง Vendor ใหม่" (ส่งคำที่พิมพ์ค้นไว้กลับไป) · ไม่มี = เลือกได้เฉพาะรายชื่อที่มีอยู่ */
+  onCreate?: (typed: string) => void
+  /** มีข้อความ = ปุ่มสร้างกดไม่ได้ พร้อมบอกเหตุผล (เช่น ครบจำนวนชื่อชั่วคราวต่อใบแล้ว) */
+  createBlockedReason?: string
 }) {
   const [open, setOpen] = useState(false)
   const [text, setText] = useState("")
@@ -84,7 +88,7 @@ export function VendorCombobox({ value, onChange, placeholder, disabled }: {
             )}
             {err && <div className="px-3 py-2 text-xs text-red-600">{err}</div>}
             {!err && !list.length && <div className="px-3 py-2 text-xs text-gray-400">กำลังโหลดรายชื่อ…</div>}
-            {!!list.length && !filtered.length && <div className="px-3 py-2 text-xs text-gray-400">ไม่พบ “{text.trim()}” ในรายชื่ออู่ — เพิ่มได้ที่หน้า /vendors เท่านั้น</div>}
+            {!!list.length && !filtered.length && <div className="px-3 py-2 text-xs text-gray-400">ไม่พบ “{text.trim()}” ในรายชื่ออู่{onCreate ? " — สร้างเป็นเจ้าใหม่ได้ด้านล่าง" : " — เพิ่มได้ที่หน้า /vendors เท่านั้น"}</div>}
             {filtered.map((v) => (
               <button
                 key={v.vendor}
@@ -100,6 +104,17 @@ export function VendorCombobox({ value, onChange, placeholder, disabled }: {
             ))}
             {list.length > 0 && filtered.length === 80 && <div className="px-3 py-1 text-[10px] text-gray-400">แสดง 80 รายการแรก — พิมพ์เพิ่มเพื่อกรอง</div>}
           </div>
+          {onCreate && (
+            <div className="border-t border-gray-100 p-1.5 dark:border-white/10">
+              <button type="button" disabled={!!createBlockedReason} title={createBlockedReason}
+                onClick={() => { const t = text.trim(); setText(""); setOpen(false); onCreate(t) }}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium text-[#1B8C4B] hover:bg-[#F0FDF4] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5">
+                <UserPlus size={14} className="shrink-0" />
+                <span className="min-w-0 truncate">{text.trim() ? `สร้าง “${text.trim()}” เป็น Vendor ใหม่` : "สร้าง Vendor ใหม่"}</span>
+              </button>
+              {createBlockedReason && <p className="px-2.5 pb-1 text-[10px] text-amber-600">{createBlockedReason}</p>}
+            </div>
+          )}
         </div>
       )}
     </div>

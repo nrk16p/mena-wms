@@ -35,12 +35,13 @@ function Shell({ title, hint, onClose, children }: { title: string; hint?: strin
 }
 
 /** จองชื่อชั่วคราวให้ช่อง Supplier — onDone ส่งชื่อ+ผู้ติดต่อกลับไปใส่ในใบ */
-export function NewVendorDialog({ docNo, onDone, onClose }: {
+export function NewVendorDialog({ docNo, initialName = "", onDone, onClose }: {
   docNo: string
+  initialName?: string
   onDone: (v: { name: string; contact: { person?: string; phone?: string; taxId?: string } }) => void
   onClose: () => void
 }) {
-  const [name, setName] = useState("")
+  const [name, setName] = useState(initialName)
   const [kind, setKind] = useState("")
   const [person, setPerson] = useState("")
   const [phone, setPhone] = useState("")
