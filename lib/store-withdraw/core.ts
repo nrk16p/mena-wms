@@ -170,3 +170,37 @@ export function docWarnings(kind: "po" | "dd" | "pr", lines: DocLineLite[]): str
   if (lines.some((l) => l.alreadyCut > 0)) w.push("บางบรรทัดมีคำขออื่นอ้างและตัดไปแล้ว")
   return w
 }
+
+// ---------- ค้นหาใบ (หน้าผู้ขอ + คิวสโตร์) ----------
+
+/** ค้นหาต้องพิมพ์อย่างน้อยกี่ตัว (หลังตัดช่องว่าง/ขีด/จุด) — ต่ำกว่านี้ฝั่งเรียกถือว่าไม่กรอง */
+export const MIN_SEARCH_LEN = 2
+
+/** ตัวพิมพ์เล็ก · ตัดช่องว่าง ขีด จุด สแลช ออก — ใช้ทั้งฝั่งคำค้นและข้อมูล ให้ "71-0626" เจอ "สบ.71-0626" */
+export const normSearch = (s: unknown): string =>
+  String(s ?? "").normalize("NFC").toLowerCase().replace(/[\s\-_.\/\\]+/g, "")
+
+/** คำค้นยาวพอจะกรองไหม (ฝั่งเรียกใช้ตัดสินว่าจะกรองหรือแสดงทั้งหมด) */
+export const searchActive = (q: string): boolean => normSearch(q).length >= MIN_SEARCH_LEN
+
+type Searchable = {
+  no: string
+  plate?: string | null
+  mrCode?: string | null
+  ref?: { code: string } | null
+  summary?: { usages?: { plate?: string | null; mrCode?: string | null }[] } | null
+}
+
+/**
+ * ใบนี้ตรงคำค้นไหม · หลายคำ (เว้นวรรค) = ต้องตรงทุกคำ · แต่ละคำเป็น substring ของช่องใดช่องหนึ่ง
+ * ช่อง: เลขใบ · ทะเบียน/เบอร์รถ · MR · เลขอ้างอิง PR/PO/DD · ทะเบียน/MR ในสรุปการใช้ของ Mobile/PM
+ * คำค้นว่าง = true (ไม่กรอง) — ผู้เรียกเช็ก searchActive ก่อนถ้าอยากข้ามคำค้นสั้นกว่า 2 ตัว
+ */
+export function matchesSearch(req: Searchable, q: string): boolean {
+  const words = q.split(/\s+/).map(normSearch).filter(Boolean)
+  if (words.length === 0) return true
+  const hay = [req.no, req.plate, req.mrCode, req.ref?.code]
+  for (const u of req.summary?.usages ?? []) hay.push(u.plate, u.mrCode)
+  const fields = hay.map(normSearch).filter(Boolean)
+  return words.every((w) => fields.some((f) => f.includes(w)))
+}

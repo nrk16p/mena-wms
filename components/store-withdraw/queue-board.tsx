@@ -1,12 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Bell, BellOff, KeyRound, Loader2, MoreVertical, RefreshCw, Store } from "lucide-react"
+import { Bell, BellOff, KeyRound, Loader2, MoreVertical, RefreshCw, Search, Store, X } from "lucide-react"
 import { swalConfirm, swalError, swalTextInput, swalToast } from "@/lib/swal"
 import { AtmsLinkDialog } from "./atms-link-dialog"
 import { PrepareDialog } from "./prepare-dialog"
 import { RejectDialog } from "./reject-dialog"
-import { isPendingFlow } from "@/lib/store-withdraw/core"
+import { isPendingFlow, matchesSearch, normSearch, searchActive } from "@/lib/store-withdraw/core"
 import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-types"
 import { KeyedCard, TicketCard, type BusyKind, type CardActions } from "./ticket-card"
 
@@ -54,6 +54,12 @@ export function QueueBoard() {
   const audio = useRef<AudioContext | null>(null)
   const soundRef = useRef(false)
   const invRef = useRef<number | null>(null)
+  const [q, setQ] = useState("")
+  // ค้นย้อนหลัง: เก็บคำที่ส่งไปค้นใน ref ให้ poll รอบถัดไปรีเฟรชผลด้วย (พิมพ์คำใหม่/สลับคลัง = ล้างผลเก่า)
+  const [deepQ, setDeepQ] = useState("")
+  const [deepItems, setDeepItems] = useState<QItem[]>([])
+  const [deepBusy, setDeepBusy] = useState(false)
+  const deepRef = useRef<{ inv: number; q: string } | null>(null)
 
   // ---------- เสียงเตือน (WebAudio · browser บล็อก autoplay จึงต้องกดเปิดก่อน) ----------
   const ensureAudio = useCallback(() => {
@@ -157,6 +163,12 @@ export function QueueBoard() {
       if (prev && soundRef.current && [...keys].some((k) => !prev.has(k))) beep()
       prevNew.current = keys
       setData(d)
+      const dp = deepRef.current
+      if (dp && dp.inv === cur) {
+        const r2 = await fetch(`/api/store-withdraw/search?inv=${cur}&q=${encodeURIComponent(dp.q)}`, { signal: ctl.signal })
+        const j2 = await r2.json().catch(() => ({}))
+        if (r2.ok && deepRef.current === dp && !ctl.signal.aborted) setDeepItems((j2.items ?? []) as QItem[])
+      }
       setNow(new Date())
       setError("")
     } catch (e) {
@@ -321,9 +333,51 @@ export function QueueBoard() {
       .catch(() => {})
   }
 
+  const clearDeep = () => { deepRef.current = null; setDeepQ(""); setDeepItems([]) }
+  const onSearch = (v: string) => {
+    setQ(v)
+    if (deepRef.current && v.trim() !== deepRef.current.q) clearDeep()
+  }
+  const searchAll = async () => {
+    const cur = invRef.current
+    const term = q.trim()
+    if (cur == null) return
+    setDeepBusy(true)
+    try {
+      const j = await api(`/api/store-withdraw/search?inv=${cur}&q=${encodeURIComponent(term)}`)
+      deepRef.current = { inv: cur, q: term }
+      setDeepQ(term)
+      setDeepItems((j.items ?? []) as QItem[])
+    } catch (e) {
+      swalError(errMsg(e, "ค้นย้อนหลังไม่สำเร็จ"))
+    } finally { setDeepBusy(false) }
+  }
+
   const actions: CardActions = { claim, prepare: setPrep, issue, reject, closeManual, acceptReturn, settle: settleStock, open }
-  const colItems = (k: ColKey) => (data?.columns[k] ?? []) as QItem[]
+  const filtering = searchActive(q)
+  const colItems = (k: ColKey) => {
+    const all = (data?.columns[k] ?? []) as QItem[]
+    return filtering ? all.filter((i) => matchesSearch(i, q)) : all
+  }
+  // WD ที่คีย์ใน ATMS โดยตรง: ค้นได้ด้วยเลข WD / หมายเหตุ
+  const keyedItems = (k: ColKey) => {
+    if (k !== "DONE_TODAY" || !data) return []
+    if (!filtering) return data.atmsKeyed
+    const words = q.split(/\s+/).map(normSearch).filter(Boolean)
+    return data.atmsKeyed.filter((r) => words.every((w) => normSearch(`${r.code} ${r.remark}`).includes(w)))
+  }
   const total = data ? COLS.reduce((n, c) => n + colItems(c.key).length, 0) : 0
+  const deepOn = filtering && deepQ !== "" && deepQ === q.trim()
+  // ผลค้นย้อนหลัง: ใบที่จบแล้ว = อ่านอย่างเดียว (ใช้การ์ดแบบ "ส่งแล้ว" ไม่มีปุ่ม) · ใบที่ยังเปิดอยู่ใช้ปุ่มปกติ
+  const deepColumn = (i: QItem): ColKey => {
+    switch (i.status) {
+      case "NEW": case "SUMMARIZED": case "SETTLING": case "SETTLE_FAILED": return "NEW"
+      case "PREPARING": return "PREPARING"
+      case "READY": case "ISSUING": case "ISSUE_FAILED": return i.kind === "cutoff" && i.status !== "READY" ? "NEW" : "READY"
+      case "HANDED_OUT": return "HANDED_OUT"
+      default: return "DONE_TODAY"
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 p-4 sm:p-6">
@@ -336,7 +390,7 @@ export function QueueBoard() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select aria-label="คลัง" value={inv ?? ""} onChange={(e) => { invTouched.current = true; setData(null); setInv(Number(e.target.value)) }}
+          <select aria-label="คลัง" value={inv ?? ""} onChange={(e) => { invTouched.current = true; setData(null); clearDeep(); setInv(Number(e.target.value)) }}
             className="rounded-xl border border-[#E2E8E4] bg-white px-3 py-2.5 text-sm dark:border-white/10 dark:bg-[#0f1117]">
             {invs.length === 0 && inv != null && <option value={inv}>คลัง {inv}</option>}
             {invs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -358,6 +412,28 @@ export function QueueBoard() {
         </div>
       </div>
 
+      <div className="space-y-1.5">
+        <div className="relative max-w-xl">
+          <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="search" aria-label="ค้นหาใบเบิก" data-testid="search" value={q} onChange={(e) => onSearch(e.target.value)}
+            placeholder="ค้นทะเบียน / เบอร์รถ / เลข PR / เลขใบเบิก / MR"
+            className="w-full rounded-xl border border-[#E2E8E4] bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] dark:border-white/10 dark:bg-[#0f1117] dark:text-white [&::-webkit-search-cancel-button]:hidden" />
+          {q !== "" && (
+            <button type="button" aria-label="ล้างคำค้น" data-testid="search-clear" onClick={() => onSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-gray-400 hover:text-gray-700"><X size={16} /></button>
+          )}
+        </div>
+        {filtering && data && (
+          <p data-testid="search-count" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-gray-500 dark:text-gray-400">
+            <span>เจอในคิวตอนนี้ {total + keyedItems("DONE_TODAY").length} ใบ</span>
+            {!deepOn && (
+              <button type="button" data-testid="search-deep" disabled={deepBusy} onClick={searchAll} className="font-medium text-[#1B8C4B] hover:underline disabled:opacity-60">
+                {deepBusy ? "กำลังค้น..." : "ค้นย้อนหลัง 90 วัน"}
+              </button>
+            )}
+          </p>
+        )}
+      </div>
+
       {link && !link.linked && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
           <span>ยังไม่ได้ผูกบัญชี ATMS ผูกก่อนจึงจะส่งของ ตัดยอด หรือรับคืนได้</span>
@@ -372,7 +448,7 @@ export function QueueBoard() {
         <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-5" data-testid="board" data-total={total}>
           {COLS.map((c) => {
             const items = colItems(c.key)
-            const keyed = c.key === "DONE_TODAY" ? data.atmsKeyed : []
+            const keyed = keyedItems(c.key)
             return (
               <section key={c.key} data-col={c.key} className="min-w-0 rounded-2xl bg-[#F6F8F7] p-3 dark:bg-white/[0.03]">
                 <h2 className="mb-2 flex items-center gap-2 px-1 text-sm font-semibold text-gray-700 dark:text-gray-200">
@@ -391,6 +467,23 @@ export function QueueBoard() {
             )
           })}
         </div>
+      )}
+
+      {deepOn && (
+        <section data-testid="deep-results" className="rounded-2xl bg-[#F6F8F7] p-3 dark:bg-white/[0.03]">
+          <h2 className="mb-2 flex items-center gap-2 px-1 text-sm font-semibold text-gray-700 dark:text-gray-200">
+            <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />ผลค้นย้อนหลัง
+            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-white/10">{deepItems.length}</span>
+            <span className="text-xs font-normal text-gray-400">ในช่วง 90 วัน แสดงสูงสุด 50 ใบล่าสุด</span>
+          </h2>
+          {deepItems.length === 0 ? (
+            <p data-testid="deep-empty" className="rounded-xl border border-dashed border-[#E2E8E4] px-3 py-6 text-center text-xs text-gray-400 dark:border-white/10">ไม่เจอใบที่ตรงกับ &quot;{deepQ}&quot; ใน 90 วันที่ผ่านมา</p>
+          ) : (
+            <ul className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {deepItems.map((i) => <TicketCard key={`deep-${itemKey(i)}`} item={i} now={now} busy={busy.get(itemKey(i)) ?? null} actions={actions} column={deepColumn(i)} />)}
+            </ul>
+          )}
+        </section>
       )}
 
       {busy.size > 0 && <span className="sr-only" aria-live="polite"><Loader2 className="animate-spin" />กำลังทำรายการ</span>}

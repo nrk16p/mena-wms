@@ -179,7 +179,7 @@ const API_PREFIXES: [string, Section | "admin"][] = [
   ["/api/repair-history", "repair"], ["/api/vehicle-daily", "repair"],
   ["/api/driver-handover", "driver-handover"],
   ["/api/ai-mixer-maintenance", "ai-mixer"],
-  ["/api/store-withdraw", "store-withdraw"], ["/api/store-withdraw/queue", "store-queue"],
+  ["/api/store-withdraw", "store-withdraw"], ["/api/store-withdraw/queue", "store-queue"], ["/api/store-withdraw/search", "store-queue"],
   ["/api/store-withdraw/atms-link", "store-queue"], ["/api/store-withdraw/live-stock", "store-queue"],
   ["/api/store-withdraw/audit", "store-audit"],
   ["/api/admin", "admin"],

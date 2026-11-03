@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { CalendarClock, ClipboardCheck, Plus, PackageMinus, RefreshCw, Undo2 } from "lucide-react"
+import { CalendarClock, ClipboardCheck, Plus, PackageMinus, RefreshCw, Search, Undo2, X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, returnableQty, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, matchesSearch, returnableQty, searchActive, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { lateMinutes, lateText } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
@@ -54,6 +54,12 @@ export function MyRequestsPage() {
   const [now, setNow] = useState(() => new Date())
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   const inflight = useRef<AbortController | null>(null)
+  const [q, setQ] = useState("")
+  // ค้นย้อนหลัง: deepQ = คำที่ส่งไปค้นที่เซิร์ฟเวอร์ (ว่าง = ใช้รายการที่โหลดไว้) · เก็บใน ref ให้ poll รอบถัดไปรีเฟรชผลค้นด้วย
+  const [deepQ, setDeepQ] = useState("")
+  const [deepItems, setDeepItems] = useState<Req[]>([])
+  const [deepBusy, setDeepBusy] = useState(false)
+  const deepRef = useRef("")
 
   const load = useCallback(async () => {
     inflight.current?.abort()
@@ -64,6 +70,12 @@ export function MyRequestsPage() {
       const j = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(j.error || "โหลดรายการไม่สำเร็จ")
       setItems(j.items ?? [])
+      const dq = deepRef.current
+      if (dq) {
+        const r2 = await fetch(`/api/store-withdraw?mine=1&q=${encodeURIComponent(dq)}`, { signal: ctl.signal })
+        const j2 = await r2.json().catch(() => ({}))
+        if (r2.ok && deepRef.current === dq) setDeepItems(j2.items ?? [])
+      }
       setNow(new Date())
       setError("")
     } catch (e) {
@@ -83,6 +95,30 @@ export function MyRequestsPage() {
     document.addEventListener("visibilitychange", onVis)
     return () => { clearTimeout(first); stop(); inflight.current?.abort(); document.removeEventListener("visibilitychange", onVis) }
   }, [load])
+
+  const onSearch = (v: string) => {
+    setQ(v)
+    if (deepRef.current && v.trim() !== deepRef.current) { deepRef.current = ""; setDeepQ(""); setDeepItems([]) }
+  }
+
+  const searchAll = async () => {
+    const term = q.trim()
+    setDeepBusy(true)
+    try {
+      const r = await fetch(`/api/store-withdraw?mine=1&q=${encodeURIComponent(term)}`)
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j.error || "ค้นย้อนหลังไม่สำเร็จ")
+      deepRef.current = term
+      setDeepQ(term)
+      setDeepItems(j.items ?? [])
+    } catch (e) {
+      swalError(e instanceof Error ? e.message : "ค้นย้อนหลังไม่สำเร็จ")
+    } finally { setDeepBusy(false) }
+  }
+
+  const filtering = searchActive(q)
+  const deepOn = filtering && deepQ !== "" && deepQ === q.trim()
+  const shown = !filtering ? items : deepOn ? deepItems : items.filter((r) => matchesSearch(r, q))
 
   const cancel = async (r: Req) => {
     const c = await swalConfirm(`ยกเลิกใบ ${r.no}?`, "สโตร์ยังไม่ได้รับงาน ยกเลิกได้เลย")
@@ -120,15 +156,43 @@ export function MyRequestsPage() {
 
       {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
 
+      {!loading && (items.length > 0 || q !== "") && (
+        <div className="space-y-1.5">
+          <div className="relative">
+            <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input type="search" aria-label="ค้นหาใบเบิก" data-testid="search" value={q} onChange={(e) => onSearch(e.target.value)}
+              placeholder="ค้นทะเบียน / เบอร์รถ / เลข PR / เลขใบเบิก"
+              className="w-full rounded-xl border border-[#E2E8E4] bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] dark:border-white/10 dark:bg-[#0f1117] dark:text-white [&::-webkit-search-cancel-button]:hidden" />
+            {q !== "" && (
+              <button type="button" aria-label="ล้างคำค้น" data-testid="search-clear" onClick={() => onSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-gray-400 hover:text-gray-700"><X size={16} /></button>
+            )}
+          </div>
+          {filtering && (
+            <p data-testid="search-count" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-gray-500 dark:text-gray-400">
+              <span>{deepOn ? `เจอ ${shown.length} ใบ จากการค้นย้อนหลัง` : `พบ ${shown.length} จาก ${items.length} ใบ`}</span>
+              {!deepOn && (
+                <button type="button" data-testid="search-deep" disabled={deepBusy} onClick={searchAll} className="font-medium text-[#1B8C4B] hover:underline disabled:opacity-60">
+                  {deepBusy ? "กำลังค้น..." : "ค้นย้อนหลังทั้งหมด"}
+                </button>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-3" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/5" />)}</div>
       ) : items.length === 0 && !error ? (
         <div className="rounded-2xl border border-dashed border-[#E2E8E4] px-4 py-12 text-center text-sm text-gray-500 dark:border-white/10">
           ยังไม่เคยยื่นคำขอ กด &quot;ขอเบิกใหม่&quot; ได้เลย
         </div>
+      ) : filtering && shown.length === 0 ? (
+        <div data-testid="search-empty" className="rounded-2xl border border-dashed border-[#E2E8E4] px-4 py-12 text-center text-sm text-gray-500 dark:border-white/10">
+          ไม่เจอใบที่ตรงกับ &quot;{q.trim()}&quot;{!deepOn && " ลองกด ค้นย้อนหลังทั้งหมด ถ้าใบอาจเก่ากว่านี้"}
+        </div>
       ) : (
         <ul className="space-y-3">
-          {items.map((r) => {
+          {shown.map((r) => {
             const busy = busyNo === r.no
             const pending = isPendingFlow(r)
             // Mobile/PM ไม่มีขอคืน — ของเหลือกรอกตอนสรุปการใช้

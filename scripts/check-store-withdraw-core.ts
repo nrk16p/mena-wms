@@ -1,7 +1,7 @@
 // scripts/check-store-withdraw-core.ts
 // รัน: STORE_ATMS_CRED_KEY=$(openssl rand -base64 32) npx tsx scripts/check-store-withdraw-core.ts
 import assert from "node:assert/strict"
-import { nextStatus, queueSort, issueLines, allZeroIssue, clampLimit, validApiUser, validateLineEdit, returnableQty, formatNo, waitMinutes } from "../lib/store-withdraw/core"
+import { nextStatus, queueSort, issueLines, allZeroIssue, clampLimit, validApiUser, validateLineEdit, returnableQty, formatNo, waitMinutes, matchesSearch, normSearch, searchActive } from "../lib/store-withdraw/core"
 import { encryptSecret, decryptSecret } from "../lib/store-withdraw/crypto"
 import type { SwLine, SwRequest } from "../lib/store-withdraw/types"
 
@@ -108,5 +108,31 @@ assert.throws(() => decryptSecret(tokNa)) // เปลี่ยน NEXTAUTH_SECR
 process.env.STORE_ATMS_CRED_KEY = saved
 assert.throws(() => decryptSecret(tokNa)) // ตั้ง STORE_ATMS_CRED_KEY แล้ว ใช้กุญแจนั้นแทน
 if (savedNa === undefined) delete process.env.NEXTAUTH_SECRET; else process.env.NEXTAUTH_SECRET = savedNa
+
+// ---- ค้นหา ----
+{
+  const base = { ...r("SW-2611-007", false, "09:00"), plate: "สบ.71-0626", mrCode: "MR2611-0042" }
+  const withRef = { ...base, ref: { type: "pr" as const, code: "PR-2611-0099", id: 5 } }
+  const mobile = { ...base, plate: "MIX-12", summary: { usages: [{ lineIndex: 0, plate: "ชบ 80-1234", mrCode: "MR2611-0777", mrItemId: 1, mrItemLabel: "", qty: 1 }] } } as unknown as SwRequest
+  eq(normSearch(" สบ.71-0626 "), "สบ710626")
+  ok(matchesSearch(base, "71-0626"), "ทะเบียนไม่มีจังหวัด/มีขีด")
+  ok(matchesSearch(base, "710626"), "ทะเบียนไม่มีขีด")
+  ok(matchesSearch(base, "สบ 71 0626"), "เว้นวรรค")
+  ok(!matchesSearch(base, "71-0627"))
+  ok(matchesSearch({ ...base, plate: "MIX-12" }, "mix12"), "เบอร์รถ")
+  ok(matchesSearch(withRef, "pr-2611-0099") && matchesSearch(withRef, "PR26110099") && matchesSearch(withRef, "0099"), "PR ไม่สนตัวพิมพ์/ขีด")
+  ok(!matchesSearch(base, "0099"), "ไม่มี ref ไม่ตรง")
+  ok(matchesSearch({ ...base, ref: { type: "dd" as const, code: "DD-26-11/5", id: null } }, "dd2611"), "DD/สแลช")
+  ok(matchesSearch(base, "sw-2611-007") && matchesSearch(base, "sw2611007"), "เลขใบ")
+  ok(matchesSearch(base, "mr2611-0042") && matchesSearch(base, "0042"), "MR")
+  ok(matchesSearch(mobile, "80-1234") && matchesSearch(mobile, "mr26110777"), "ทะเบียน/MR ในสรุปการใช้")
+  ok(matchesSearch(mobile, "mix-12 80-1234"), "สองคำ AND ข้ามช่อง")
+  ok(!matchesSearch(mobile, "mix-12 99-9999"), "คำหนึ่งไม่ตรง = ไม่เจอ")
+  ok(matchesSearch(base, "71-0626 mr2611-0042"), "ทะเบียน + MR")
+  ok(matchesSearch(base, ""), "ว่าง = ไม่กรอง")
+  ok(matchesSearch(base, " - . "), "มีแต่ตัวคั่น = ไม่กรอง")
+  ok(!searchActive("a") && !searchActive(" - ") && searchActive("71"), "สั้นกว่า 2 ตัว = ไม่กรอง")
+  ok(!matchesSearch({ ...base, plate: "" , mrCode: null }, "xx"), "ช่องว่างไม่ทำให้ตรงมั่ว")
+}
 
 console.log("check-store-withdraw-core: all passed")

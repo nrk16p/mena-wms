@@ -121,6 +121,7 @@ export default function Page() {
 
 { "items": [ { "no": "SW-2610-001", "status": "ISSUED", "lines": [ ... ], "atms": { "code": "LBWD-9001", ... }, ... } ] }`}</CodeBlock>
           <p>ต้องใส่ <code>mine=1</code> เสมอเมื่อเรียกด้วย API key (ไม่ใส่ตอบ 403) · <code>status</code> คั่นด้วย comma · <code>limit</code> ค่าเริ่มต้น 200 สูงสุด 500 · เรียงใหม่สุดก่อน</p>
+          <p>ค้นย้อนหลัง: ใส่ <code>q=</code> เพิ่มได้ (เช่น <code>?mine=1&amp;q=71-0626</code>) ค้นจากทะเบียน/เบอร์รถ เลข PR/PO/DD เลขใบเบิก และเลข MR ในใบล่าสุด 500 ใบของคุณ ตอบกลับไม่เกิน 100 ใบ · ไม่สนตัวพิมพ์ ช่องว่าง ขีด จุด · เว้นวรรคหลายคำ = ต้องตรงทุกคำ · q สั้นกว่า 2 ตัวอักษรเท่ากับไม่ค้น (ใช้ <code>status</code>/<code>limit</code> ตามปกติเมื่อไม่ค้น)</p>
 
           <Ep verb="GET" path="/api/store-withdraw/{no}" />
           <CodeBlock>{`curl ${HDR} "${API}/SW-2610-001"

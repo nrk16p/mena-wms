@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto"
 import { lookupCreds } from "./env"
 import { linkAttachments, resolveLinkable } from "./attachments"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, skuMasterCol, swCol, withRef, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
-import { RETURN_REASONS, docWarnings, isPendingFlow, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
+import { RETURN_REASONS, docWarnings, isPendingFlow, matchesSearch, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
 import { handedOutSort, parseDue } from "./pending"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
@@ -301,6 +301,29 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
     DONE_TODAY: [...cols.DONE_TODAY].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()),
     HANDED_OUT: handedOutSort(cols.HANDED_OUT),
   }
+}
+
+// ---------- ค้นหาใบย้อนหลัง ----------
+
+export const SEARCH_SCAN = 500
+export const SEARCH_MINE_MAX = 100
+export const SEARCH_INV_MAX = 50
+export const SEARCH_DAYS_DEFAULT = 90
+export const SEARCH_DAYS_MAX = 180
+
+/** ใบของผู้ขอคนนี้: อ่านล่าสุด 500 ใบแล้วกรองในหน่วยความจำ (ใช้ index requestedBy.email ถ้ามี · เรียง createdAt) */
+export async function searchMine(email: string, q: string) {
+  const col = await swCol()
+  const docs = await col.find({ "requestedBy.email": email }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(SEARCH_SCAN).toArray()
+  return docs.filter((d) => matchesSearch(d, q)).slice(0, SEARCH_MINE_MAX)
+}
+
+/** ใบของคลังหนึ่งในช่วง days วัน (ตาม createdAt) ล่าสุด 500 ใบ → กรอง → ไม่เกิน 50 ใบ · รูปเดียวกับการ์ดในคิว */
+export async function searchInventory(inventoryId: number, q: string, days: number, now = new Date()): Promise<QueueItem[]> {
+  const col = await swCol()
+  const since = new Date(now.getTime() - days * 24 * 3600_000)
+  const docs = await col.find({ inventoryId, createdAt: { $gte: since } }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(SEARCH_SCAN).toArray()
+  return docs.filter((d) => matchesSearch(d, q)).slice(0, SEARCH_INV_MAX).map((d) => ({ ...withRef(d), itemType: "request" as const }))
 }
 
 // ---------- WD ที่คีย์ตรงใน ATMS (อ่านอย่างเดียว) ----------
