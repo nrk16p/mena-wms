@@ -84,8 +84,9 @@ void (async () => {
     const race = await Promise.allSettled([
       svc.returnCore("p3", { choice: "sell", scrapInDate: "2026-10-06" }, veh, now),
       svc.returnCore("p3", { choice: "rebuild" }, store, now),
-      svc.returnCore("p3", { choice: "no_core", noCoreReason: "ซากเสียหายทิ้ง" }, veh, now),
+      svc.returnCore("p3", { choice: "sell", scrapInDate: "2026-10-07" }, store, now),
     ])
+    // ผู้ชนะสุ่มได้ — ทุกทางเลือกในชุดนี้ต้องไม่ไปกระทบตัวนับสรุปข้างล่าง (no_core นับในสรุป จึงไม่ใส่ไว้ในการแข่ง)
     eq(race.filter((r) => r.status === "fulfilled").length, 1, "ชนะตัวเดียว")
     for (const r of race) if (r.status === "rejected") eq((r.reason as { status: number }).status, 409)
     eq(await (await logCol()).countDocuments({ row_key: "p3", action: "return" }), 1)

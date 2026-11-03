@@ -303,7 +303,7 @@ function TableView({ f, tick, perms, onAct, onOpen, closed, mine }: { f: Filters
 /** initial มาจาก query ของหน้า (page.tsx): ?mine=1 → ตารางเฉพาะที่ฉันเบิก · ?view= / ?lane= ใช้ตอนแชร์ลิงก์ */
 export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; view?: View; lane?: 0 | 1 | 2 } }) {
   const perms = usePerms()
-  const [view, setView] = useState<View>(initial.view ?? (initial.mine ? "table" : "lanes"))
+  const [view, setView] = useState<View>(initial.view ?? "table")   // หน้าแรกเป็นตาราง (ผู้ใช้สั่ง 2026-11-03)
   const [laneSel, setLane] = useState<0 | 1 | 2 | null>(initial.lane ?? null)
   const [f, setF] = useState<Filters>({ q: "", warehouse: "", garageType: "", garage: "" })
   const [qInput, setQInput] = useState("")
@@ -358,7 +358,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-xl bg-white p-1 ring-1 ring-[#E2E8E4] dark:bg-white/5 dark:ring-white/10" role="tablist" aria-label="มุมมอง">
-            {([["lanes", "3 เลน"], ["table", "ตาราง"], ["closed", `ปิดแล้ว (${closedSum.count.toLocaleString()})`]] as const).map(([k, t]) => (
+            {([["table", "ตาราง"], ["lanes", "3 เลน"], ["closed", `ปิดแล้ว (${closedSum.count.toLocaleString()})`]] as const).map(([k, t]) => (
               <button key={k} type="button" role="tab" aria-selected={view === k} data-view={k} onClick={() => setView(k)} className={`rounded-lg px-3 py-1.5 text-sm ${view === k ? "bg-[#1B8C4B] text-white" : "text-gray-600 dark:text-gray-300"}`}>{t}</button>
             ))}
           </div>
