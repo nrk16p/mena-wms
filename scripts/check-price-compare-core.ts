@@ -942,7 +942,7 @@ function secDoc(): PriceCompare {
 
   // เพดานชื่อชั่วคราวต่อใบ
   const over = uh03()
-  over.suppliers = [prov("ใหม่ 1", [1, 1, 1, 1, 1]), prov("ใหม่ 2", [2, 2, 2, 2, 2]), prov("ใหม่ 3", [3, 3, 3, 3, 3])]
+  over.suppliers = Array.from({ length: MAX_PROVISIONAL + 1 }, (_, i) => prov(`ใหม่ ${i + 1}`, [i + 1, i + 1, i + 1, i + 1, i + 1]))
   assert.ok(validateDoc(over).some((e) => e.includes(`ไม่เกิน ${MAX_PROVISIONAL}`)), "เกินเพดานต้องเตือน")
   const noName = uh03()
   noName.suppliers = [{ ...emptySupplier(5), name: "", provisional: true, prices: [1, 1, 1, 1, 1] }]
