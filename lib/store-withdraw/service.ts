@@ -153,7 +153,7 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
   if (!inv) throw new HttpError("เลือกคลังจากรายการที่มีให้", 400)
   if (!pick) throw new HttpError("เลือกจุดประสงค์การเบิกจากรายการที่มีให้", 400)
 
-  const merged = new Map<number, SwLine>()
+  const merged = new Map<string, SwLine>()
   for (const r of rawLines) {
     const skuId = Number(r.skuId)
     const qty = posNum(r.requestedQty)
@@ -162,9 +162,11 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
     if (!Number.isInteger(skuId) || skuId <= 0) throw new HttpError("รายการอะไหล่ไม่ถูกต้อง เลือกจากผลค้นหาใหม่", 400)
     if (qty == null) throw new HttpError("จำนวนที่ขอต้องมากกว่า 0", 400)
     if (!skuCode || !skuName) throw new HttpError("รายการอะไหล่ขาดรหัสหรือชื่อ เลือกจากผลค้นหาใหม่", 400)
-    const prev = merged.get(skuId)
-    if (prev) { prev.requestedQty += qty; continue } // sku ซ้ำในใบเดียว = รวมให้
-    merged.set(skuId, {
+    // sku ซ้ำในใบเดียว + ประเภทการซ่อมเดียวกัน = รวมให้ · คนละประเภทการซ่อม = แยกบรรทัด (ใบเบิกเดียวกัน หลายประเภท)
+    const key = `${skuId}:${optInt(r.mrItemId) ?? 0}`
+    const prev = merged.get(key)
+    if (prev) { prev.requestedQty += qty; continue }
+    merged.set(key, {
       skuId, skuCode, skuName, requestedQty: qty, issuedQty: null, short: false, returnedQty: 0,
       mrItemId: optInt(r.mrItemId), mrItemLabel: str(r.mrItemLabel) || null, serialNoId: optInt(r.serialNoId), remark: str(r.remark),
     })

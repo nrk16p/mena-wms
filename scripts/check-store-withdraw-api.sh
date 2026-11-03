@@ -131,6 +131,11 @@ code 201 "workType=mobile_pm (ไม่ส่ง kind)" -H "$R" -H "$J" -X POST 
 NW1=$(jget "d['no']")
 code 200 "ดู mobile_pm" -H "$R" "$B/$NW1"
 expect "mobile_pm → kind stock · ทะเบียนเป็นเบอร์รถได้" "d['request']['workType']=='mobile_pm' and d['request']['kind']=='stock' and d['request']['plate']=='เบอร์ 1234'"
+# ใบเดียว อะไหล่เดียวกัน 2 ประเภทการซ่อม = แยก 2 บรรทัด · ประเภทเดียวกันซ้ำ = รวมจำนวน
+code 201 "อะไหล่เดียวกัน คนละประเภทการซ่อม" -H "$R" -H "$J" -X POST "$B" -d '{"workType":"garage_in","inventoryId":4,"pickToId":7,"plate":"71-1234","mrCode":"LBMR26110001","lines":[{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":1,"mrItemId":11,"mrItemLabel":"LBMR26110001 CM-เครื่อง : 11"},{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":2,"mrItemId":12,"mrItemLabel":"LBMR26110001 CM-ไฟ : 12"},{"skuId":501,"skuCode":"OIL-001","skuName":"น้ำมันเครื่อง","requestedQty":3,"mrItemId":11,"mrItemLabel":"LBMR26110001 CM-เครื่อง : 11"}]}'
+NOGRP=$(jget "d['no']")
+code 200 "อ่านใบที่แยกประเภท" -H "$R" "$B/$NOGRP"
+expect "แยก 2 บรรทัด (11 รวมเป็น 4 · 12 เป็น 2)" "sorted([(l['mrItemId'], l['requestedQty']) for l in d['request']['lines']])==[(11, 4), (12, 2)]"
 code 201 "workType=garage_out" -H "$R" -H "$J" -X POST "$B" -d "{\"workType\":\"garage_out\",$WL}"
 NW2=$(jget "d['no']")
 code 200 "ดู garage_out" -H "$R" "$B/$NW2"

@@ -228,8 +228,8 @@ export function MyRequestsPage() {
                 {r.status === "SETTLE_FAILED" && <p className="mt-2 text-xs text-red-600">สโตร์กำลังตามเรื่องกับ ATMS อยู่ ไม่ต้องสรุปใหม่</p>}
 
                 <ul className="mt-2 divide-y divide-[#EEF2F0] text-sm dark:divide-white/10">
-                  {r.lines.map((l: SwLine) => (
-                    <li key={l.skuId} className="flex items-start justify-between gap-3 py-1.5">
+                  {r.lines.map((l: SwLine, li) => (
+                    <li key={`${l.skuId}-${li}`} className="flex items-start justify-between gap-3 py-1.5">
                       <span className="min-w-0"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}</span><span className="block text-xs text-gray-500">{l.skuCode}</span></span>
                       <span className="shrink-0 text-right text-xs text-gray-600 dark:text-gray-300">
                         ขอ {l.requestedQty}{l.issuedQty != null && ` · ได้ ${l.issuedQty}`}{l.short && <span className="text-amber-600"> (ไม่ครบ)</span>}
@@ -294,7 +294,7 @@ function ReturnDialog({ req, onClose, onDone }: { req: Req; onClose: () => void;
         <DialogHeader><DialogTitle>ขอคืนอะไหล่ {req.no}</DialogTitle></DialogHeader>
         <ul className="space-y-3">
           {req.lines.map((l, i) => (
-            <li key={l.skuId} className="flex items-center justify-between gap-3">
+            <li key={`${l.skuId}-${i}`} className="flex items-center justify-between gap-3">
               <span className="min-w-0 text-sm"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}</span><span className="block text-xs text-gray-500">คืนได้อีก {max[i]}</span></span>
               <select aria-label={`จำนวนคืน ${l.skuName}`} disabled={max[i] === 0} value={qty[i]} onChange={(e) => setQty((c) => c.map((v, k) => (k === i ? Number(e.target.value) : v)))}
                 className="w-24 shrink-0 rounded-[11px] border border-[#E2E8E4] bg-white px-2 py-2 text-sm dark:border-white/10 dark:bg-[#0f1117]">

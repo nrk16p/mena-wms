@@ -66,7 +66,7 @@ export function PrepareDialog({ item, onClose, onReady }: { item: QItem; onClose
           {item.lines.map((l, i) => {
             const st = stock[l.skuCode]
             return (
-              <li key={l.skuId} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+              <li key={`${l.skuId}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
                 <input type="checkbox" aria-label={`หยิบแล้ว ${l.skuName}`} checked={rows[i].checked} onChange={(e) => set(i, { checked: e.target.checked })} className="h-5 w-5 shrink-0 accent-[#1B8C4B]" />
                 <div className="min-w-0 flex-1 basis-40">
                   <p className="truncate text-sm text-gray-900 dark:text-white">{l.skuName}</p>

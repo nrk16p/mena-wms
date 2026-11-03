@@ -76,8 +76,8 @@ export function TicketCard({ item, now, busy, actions, column }: {
 
   const lines = isReturn
     ? ret!.lines.map((l) => ({ key: l.lineIndex, name: item.lines[l.lineIndex]?.skuName ?? "?", sub: item.lines[l.lineIndex]?.skuCode ?? "", mr: "", qtyText: `คืน ${l.qty}` }))
-    : item.lines.map((l) => ({
-        key: l.skuId, name: l.skuName, sub: l.skuCode,
+    : item.lines.map((l, li) => ({
+        key: `${l.skuId}-${li}`, name: l.skuName, sub: l.skuCode,
         mr: l.mrItemLabel ? l.mrItemLabel.replace(/^\S*MR\S*\d\s+/i, "").replace(/\s*:\s*\d+$/, "") : "",
         qtyText: `${l.issuedQty != null && l.issuedQty !== l.requestedQty ? `${l.issuedQty}/` : ""}${l.requestedQty}${l.short ? " (ขาด)" : ""}`,
       }))

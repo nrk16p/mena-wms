@@ -46,7 +46,9 @@ export function RequestForm() {
   const [mrItems, setMrItems] = useState<MrItem[]>([])
   const [mrSelIds, setMrSelIds] = useState<number[]>([])   // ประเภทการซ่อมที่เลือก (รายการใน MR) · 1 ใบเบิก = 1 MR แต่เลือกได้หลายประเภท
   const chosen = useMemo(() => mrItems.filter((m) => mrSelIds.includes(m.id)), [mrItems, mrSelIds])
-  const mrSel = useMemo(() => (chosen.length === 1 ? chosen[0] : null), [chosen])     // เลือกประเภทเดียว = เป็นค่าตั้งต้นของทุกบรรทัด
+  const mrSel = useMemo(() => (chosen.length === 1 ? chosen[0] : null), [chosen]) 
+  const [targetId, setTargetId] = useState<number | null>(null)   // หลายประเภท: อะไหล่ที่เพิ่ม/นำเข้าใหม่จะลงกลุ่มนี้
+  const addTo = useMemo(() => chosen.find((m) => m.id === targetId) ?? mrSel ?? chosen[0] ?? null, [chosen, targetId, mrSel])    // เลือกประเภทเดียว = เป็นค่าตั้งต้นของทุกบรรทัด
   const [urgent, setUrgent] = useState(false)
   const [remark, setRemark] = useState("")
   const [lines, setLines] = useState<FormLine[]>([])
@@ -70,10 +72,11 @@ export function RequestForm() {
 
   const addSku = useCallback((s: SkuHit) => {
     setLines((cur) => {
-      if (cur.some((l) => l.skuId === s.skuId)) return cur.map((l) => (l.skuId === s.skuId ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l))
-      return [...cur, { skuId: s.skuId, skuCode: s.skuCode, skuName: s.skuName, qty: "1", stockQty: s.stockQty, mrItemId: mrSel?.id ?? null, mrItemLabel: mrSel?.label ?? null, remark: "" }]
+      const same = (l: FormLine) => l.skuId === s.skuId && (l.mrItemId ?? null) === (addTo?.id ?? null)   // อะไหล่เดียวกัน + ประเภทเดียวกัน = รวมจำนวน
+      if (cur.some(same)) return cur.map((l) => (same(l) ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l))
+      return [...cur, { skuId: s.skuId, skuCode: s.skuCode, skuName: s.skuName, qty: "1", stockQty: s.stockQty, mrItemId: addTo?.id ?? null, mrItemLabel: addTo?.label ?? null, remark: "" }]
     })
-  }, [mrSel])
+  }, [addTo])
 
   // เปลี่ยน/ล้างใบอ้างอิง หรือเปลี่ยนคลัง → ทิ้งรายการที่นำเข้าจากใบ เหลือเฉพาะที่พิมพ์เอง
   const dropFromDoc = () => setLines((c) => c.filter((l) => !l.fromDoc))
@@ -86,9 +89,9 @@ export function RequestForm() {
     setLines((cur) => {
       const next = cur.map((l) => ({ ...l }))
       for (const g of got) {
-        const at = next.findIndex((l) => l.skuId === g.skuId)
+        const at = next.findIndex((l) => l.skuId === g.skuId && (l.mrItemId ?? null) === (addTo?.id ?? null))
         if (at >= 0) next[at].qty = String((Number(next[at].qty) || 0) + g.qty)
-        else next.push({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: g.stockQty, mrItemId: mrSel?.id ?? null, mrItemLabel: mrSel?.label ?? null, remark: "", fromDoc: true })
+        else next.push({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: g.stockQty, mrItemId: addTo?.id ?? null, mrItemLabel: addTo?.label ?? null, remark: "", fromDoc: true })
       }
       return next
     })
@@ -153,6 +156,32 @@ export function RequestForm() {
       <span className="block text-sm font-medium text-gray-900 dark:text-white">{WORK_TYPE_LABEL[w]}</span>
       <span className="block text-[11px] text-gray-500">{hint}</span>
     </button>
+  )
+
+  // หนึ่งบรรทัดอะไหล่ · หลายประเภท: เลือก "ย้ายไปประเภท" ได้ (กลุ่ม "ยังไม่ระบุ" ต้องเลือก)
+  const renderLine = (l: FormLine, i: number, needType: boolean) => (
+    <li key={`${l.skuId}-${i}`} className="rounded-xl border border-[#EEF2F0] bg-white p-3 dark:border-white/10 dark:bg-[#161922]">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{l.skuName}</p>
+          <p className="text-xs text-gray-500">{l.skuCode}{l.stockQty != null && ` · คงเหลือ ${l.stockQty.toLocaleString("th-TH")}`}{l.fromDoc && doc && ` · จาก ${DOC_LABEL[doc.kind]} ${doc.code}`}</p>
+        </div>
+        <button type="button" aria-label="ลบรายการ" onClick={() => setLines((c) => c.filter((_, k) => k !== i))} className="shrink-0 p-1 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
+      </div>
+      <div className="mt-2 grid grid-cols-[88px_1fr] gap-2">
+        <input aria-label="จำนวน" inputMode="decimal" className={inputCls} value={l.qty} onChange={(e) => patch(i, { qty: e.target.value })} />
+        <input aria-label="หมายเหตุรายการ" className={inputCls} placeholder="หมายเหตุ (ไม่ใส่ก็ได้)" value={l.remark} onChange={(e) => patch(i, { remark: e.target.value })} />
+      </div>
+      {chosen.length > 1 && (
+        <select aria-label={needType ? "เลือกประเภทการซ่อม" : "ย้ายไปประเภทการซ่อม"} className={`${inputCls} mt-2`} value={l.mrItemId ?? ""} onChange={(e) => setMrItem(i, e.target.value)}>
+          <option value="" disabled>{needType ? "เลือกประเภทการซ่อม" : "ย้ายไปประเภท…"}</option>
+          {chosen.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
+        </select>
+      )}
+      {l.stockQty != null && Number(l.qty) > l.stockQty && kind === "stock" && (
+        <p className="mt-1.5 text-xs text-amber-600">ขอเกินของที่มีในคลัง สโตร์อาจจัดให้ไม่ครบ</p>
+      )}
+    </li>
   )
 
   return (
@@ -245,35 +274,45 @@ export function RequestForm() {
         <h2 className="text-sm font-semibold text-[#14271C] dark:text-white">รายการอะไหล่</h2>
         <SkuPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} onPick={addSku} />
 
+        {chosen.length > 1 && (
+          <div>
+            <span className={labelCls}>เพิ่มอะไหล่เข้าประเภทการซ่อม</span>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="เพิ่มอะไหล่เข้าประเภทการซ่อม">
+              {chosen.map((m) => (
+                <button key={m.id} type="button" onClick={() => setTargetId(m.id)} aria-pressed={addTo?.id === m.id}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${addTo?.id === m.id ? "border-[#1B8C4B] bg-[#1B8C4B] text-white" : "border-[#E2E8E4] text-gray-700 dark:border-white/10 dark:text-gray-200"}`}>
+                  {mrItemName(m.label)}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-gray-500">อะไหล่ที่ค้นหรือนำเข้าจาก PR/PO/DD จะลงในประเภทที่เลือกไว้ เปลี่ยนประเภทของแต่ละบรรทัดทีหลังได้</p>
+          </div>
+        )}
+
         {lines.length === 0 ? (
           <p className="rounded-xl border border-dashed border-[#E2E8E4] px-3 py-6 text-center text-sm text-gray-500 dark:border-white/10">ยังไม่มีรายการ ค้นอะไหล่ด้านบนแล้วกดเลือก</p>
-        ) : (
-          <ul className="space-y-2">
-            {lines.map((l, i) => (
-              <li key={l.skuId} className="rounded-xl border border-[#EEF2F0] p-3 dark:border-white/10">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{l.skuName}</p>
-                    <p className="text-xs text-gray-500">{l.skuCode}{l.stockQty != null && ` · คงเหลือ ${l.stockQty.toLocaleString("th-TH")}`}{l.fromDoc && doc && ` · จาก ${DOC_LABEL[doc.kind]} ${doc.code}`}</p>
+        ) : chosen.length > 1 ? (
+          <div className="space-y-4">
+            {[...chosen.map((m) => ({ id: m.id as number | null, title: mrItemName(m.label) })), { id: null, title: "ยังไม่ระบุประเภทการซ่อม" }].map((g) => {
+              const rows = lines.map((l, i) => ({ l, i })).filter(({ l }) => (g.id === null ? !l.mrItemId || !chosen.some((m) => m.id === l.mrItemId) : l.mrItemId === g.id))
+              if (g.id === null && rows.length === 0) return null
+              return (
+                <section key={g.id ?? "none"} data-testid="line-group" aria-label={g.title}
+                  className={`rounded-2xl border p-2.5 ${g.id === null ? "border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-500/10" : addTo?.id === g.id ? "border-[#1B8C4B]/60 bg-[#1B8C4B]/5" : "border-[#EEF2F0] dark:border-white/10"}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                    <h3 className="min-w-0 break-words text-sm font-semibold text-gray-900 dark:text-white">{g.title} <span className="font-normal text-gray-500">· {rows.length} รายการ</span></h3>
+                    {g.id !== null && addTo?.id !== g.id && <button type="button" onClick={() => setTargetId(g.id)} className="shrink-0 rounded-lg border border-[#1B8C4B]/40 px-2.5 py-1 text-xs text-[#1B8C4B] hover:bg-[#1B8C4B]/10">เพิ่มอะไหล่ในประเภทนี้</button>}
+                    {g.id !== null && addTo?.id === g.id && <span className="shrink-0 text-xs text-[#1B8C4B]">กำลังเพิ่มเข้าประเภทนี้</span>}
                   </div>
-                  <button type="button" aria-label="ลบรายการ" onClick={() => setLines((c) => c.filter((_, k) => k !== i))} className="shrink-0 p-1 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
-                </div>
-                <div className="mt-2 grid grid-cols-[88px_1fr] gap-2">
-                  <input aria-label="จำนวน" inputMode="decimal" className={inputCls} value={l.qty} onChange={(e) => patch(i, { qty: e.target.value })} />
-                  <input aria-label="หมายเหตุรายการ" className={inputCls} placeholder="หมายเหตุ (ไม่ใส่ก็ได้)" value={l.remark} onChange={(e) => patch(i, { remark: e.target.value })} />
-                </div>
-                {chosen.length > 1 && (
-                  <select aria-label="รายการใน MR" className={`${inputCls} mt-2`} value={l.mrItemId ?? ""} onChange={(e) => setMrItem(i, e.target.value)}>
-                    <option value="" disabled>เลือกประเภทการซ่อม</option>
-                    {chosen.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
-                  </select>
-                )}
-                {l.stockQty != null && Number(l.qty) > l.stockQty && kind === "stock" && (
-                  <p className="mt-1.5 text-xs text-amber-600">ขอเกินของที่มีในคลัง สโตร์อาจจัดให้ไม่ครบ</p>
-                )}
-              </li>
-            ))}
-          </ul>
+                  {rows.length === 0
+                    ? <p className="px-1 pb-1 text-xs text-gray-500">ยังไม่มีอะไหล่ในประเภทนี้</p>
+                    : <ul className="space-y-2">{rows.map(({ l, i }) => renderLine(l, i, g.id === null))}</ul>}
+                </section>
+              )
+            })}
+          </div>
+        ) : (
+          <ul className="space-y-2">{lines.map((l, i) => renderLine(l, i, false))}</ul>
         )}
 
         <div>
