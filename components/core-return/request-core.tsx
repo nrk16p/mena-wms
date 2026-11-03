@@ -7,6 +7,7 @@ import { Recycle } from "lucide-react"
 import { OUTSTANDING } from "@/lib/core-return/core"
 import { ReturnDialog } from "./dialogs"
 import { CoreChip, baht, useFetch, usePerms, type Row } from "./shared"
+import { K } from "./tokens"
 
 const DONE = new Set(["ISSUED", "RECEIVED", "SETTLED"])
 
@@ -32,7 +33,7 @@ export function LineCoreChips({ rows, canReturn, onReturn }: { rows: Row[]; canR
           <CoreChip status={r.coreStatus} short />
           {rows.length > 1 && r.plate && <span className="text-[11px] text-gray-500">{r.plate}</span>}
           {canReturn && OUTSTANDING.includes(r.coreStatus) && (
-            <button type="button" data-act="core-return" onClick={() => onReturn(r)} className="rounded-lg bg-[#1B8C4B] px-2 py-0.5 text-[11px] font-medium text-white hover:bg-[#157a40]">คืนซาก</button>
+            <button type="button" data-act="core-return" onClick={() => onReturn(r)} className={`rounded-lg ${K["bg-primary"]} px-2 py-0.5 text-[11px] font-medium text-white ${K["hover:bg-c157A40"]}`}>คืนซาก</button>
           )}
         </span>
       ))}

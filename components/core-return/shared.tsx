@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Clock } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { coreReturnCan, type Access } from "@/lib/access-policy"
+import { TIER_PILL, STATUS_PILL, BTN, FIELD, K } from "./tokens"
 import { STATUS_LABEL, agingTier, type AgingTier, type CoreStatus } from "@/lib/core-return/core"
 
 export type Row = {
@@ -22,20 +23,7 @@ export type Row = {
 }
 export type Summary = Record<CoreStatus | "followQueue", { count: number; amount: number }>
 
-export const STATUS_CLS: Record<CoreStatus, string> = {
-  pending: "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30",
-  legacy: "bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/30",
-  sell_waiting: "bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30",
-  sold: "bg-green-50 text-green-800 ring-green-200 dark:bg-green-500/10 dark:text-green-300 dark:ring-green-500/30",
-  rebuild: "bg-violet-50 text-violet-800 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/30",
-  rebuilt: "bg-teal-50 text-teal-800 ring-teal-200 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-500/30",
-  no_core: "bg-gray-100 text-gray-700 ring-gray-200 dark:bg-white/5 dark:text-gray-300 dark:ring-white/10",
-}
-/** ชิปตัวกรองที่เลือกอยู่ = พื้นทึบ */
-export const STATUS_SOLID: Record<CoreStatus, string> = {
-  pending: "bg-amber-600 text-white", legacy: "bg-orange-600 text-white", sell_waiting: "bg-sky-600 text-white", sold: "bg-green-700 text-white",
-  rebuild: "bg-violet-600 text-white", rebuilt: "bg-teal-700 text-white", no_core: "bg-gray-600 text-white",
-}
+export const STATUS_CLS: Record<CoreStatus, string> = STATUS_PILL
 /** ป้ายสั้นสำหรับชิปในหน้าใบเบิก */
 export const SHORT_LABEL: Record<CoreStatus, string> = {
   pending: "รอคืนซาก", legacy: "รอคืนซาก", sell_waiting: "อยู่คลังซากรอขาย", sold: "ขายแล้ว", rebuild: "ส่ง Rebuild", rebuilt: "Rebuild เสร็จ", no_core: "ไม่มีซากคืน",
@@ -43,29 +31,24 @@ export const SHORT_LABEL: Record<CoreStatus, string> = {
 
 export function CoreChip({ status, short }: { status: CoreStatus; short?: boolean }) {
   return (
-    <span data-core-status={status} className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_CLS[status] ?? STATUS_CLS.no_core}`}>
+    <span data-core-status={status} className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-[3px] text-[12.5px] font-semibold ${STATUS_CLS[status] ?? STATUS_CLS.no_core}`}>
       {short ? SHORT_LABEL[status] : STATUS_LABEL[status] ?? status}
     </span>
   )
 }
 
-const TIER_CLS: Record<AgingTier, string> = {
-  ok: "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200",
-  warn: "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200",
-  late: "bg-red-600 text-white",
-}
-/** ค้างกี่วัน: เทา <=14 · เหลือง 15–60 · แดง >60 + ไอคอนนาฬิกา (ไม่พึ่งสีอย่างเดียว) */
+/** ค้างกี่วัน: เทา <=14 · ส้ม 15–60 · แดง >60 + ไอคอนนาฬิกา (ไม่พึ่งสีอย่างเดียว) */
 export function DaysBadge({ days }: { days: number | null }) {
   if (days == null) return null
   const tier = agingTier(days)
   return (
-    <span data-testid="days" data-tier={tier} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${TIER_CLS[tier]}`}>
-      <Clock size={11} aria-hidden />ค้าง {days} วัน
+    <span data-testid="days" data-tier={tier} title={`ค้าง ${days} วัน`} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${TIER_PILL[tier]}`}>
+      <Clock size={12} strokeWidth={2.4} aria-hidden /><span className="sr-only">ค้าง </span>{days} วัน
     </span>
   )
 }
-/** ตัวเลขวันค้างแบบข้อความล้วน (ตารางอู่) */
-export const TIER_TEXT: Record<AgingTier, string> = { ok: "", warn: "font-semibold text-amber-700 dark:text-amber-300", late: "font-semibold text-red-600" }
+/** ตัวเลขวันค้างแบบข้อความล้วน */
+export const TIER_TEXT: Record<AgingTier, string> = { ok: "", warn: `font-semibold ${K["text-c8A4B06"]}`, late: `font-semibold ${K["text-c9F1D12"]}` }
 
 export const baht = (n: number | null | undefined) => (n == null ? "-" : n.toLocaleString("th-TH", { maximumFractionDigits: 0 }))
 /** ยอดเงินแบบย่อ: 45.8M · 12.3K */
@@ -94,7 +77,7 @@ export function DateInput({ value, onChange, className, ...rest }: Omit<React.In
   return (
     <span className="block">
       <input {...rest} type="date" value={value} onChange={(e) => onChange(e.target.value)} className={className ?? inputCls} />
-      <span data-testid="be-date" className="mt-0.5 block min-h-4 text-xs text-gray-500 dark:text-gray-400">{be ? `= ${be} (พ.ศ.)` : ""}</span>
+      <span data-testid="be-date" className={`mt-1 block min-h-4 text-xs font-normal ${K["text-muted"]}`}>{be ? `= ${be}` : ""}</span>
     </span>
   )
 }
@@ -136,9 +119,9 @@ export function usePerms(): Perms {
   return { read: coreReturnCan(a, "read"), ret, store, follow, round: coreReturnCan(a, "round"), vehicleTeam: ret && !store && !follow, ready: true }
 }
 
-export const inputCls = "w-full rounded-xl border border-[#E2E8E4] bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] dark:border-white/10 dark:bg-[#0f1117] dark:text-white"
-export const btnPrimary = "inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-60"
-export const btnGhost = "inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3 py-2 text-sm text-gray-700 hover:border-[#1B8C4B] hover:text-[#1B8C4B] dark:border-white/10 dark:text-gray-200"
+export const inputCls = FIELD.input
+export const btnPrimary = `${BTN.base} ${BTN.md} ${BTN.primary}`
+export const btnGhost = `${BTN.base} ${BTN.md} ${BTN.secondary}`
 
 /** โหลด JSON ตาม url (null = ไม่โหลด) · ผลผูกกับ url+tick ที่ขอ → เปลี่ยน url แล้วได้ null ทันที ไม่โชว์ของเก่า */
 export function useFetch<T>(url: string | null, tick = 0): { data: T | null; error: string } {

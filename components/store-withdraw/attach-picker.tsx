@@ -32,12 +32,14 @@ async function postJson(url: string, body: unknown) {
 /** ไฟล์ที่อัปโหลดเสร็จแล้ว (id ที่ใช้ส่งเป็น attachmentIds) */
 export const doneIds = (items: Picked[]) => items.filter((x) => x.state === "done" && x.id).map((x) => x.id as string)
 
-export function AttachPicker({ no, context, items, onChange, required = false, hint, max = MAX_FILES, label = "แนบรูป/ไฟล์", apiBase }: {
+export function AttachPicker({ no, context, items, onChange, required = false, hint, max = MAX_FILES, label = "แนบรูป/ไฟล์", apiBase, variant = "list" }: {
   no: string; context: AttachContext; items: Picked[]; onChange: (f: (cur: Picked[]) => Picked[]) => void; required?: boolean; hint?: string
   /** จำนวนไฟล์สูงสุดในช่องนี้ (ค่าเริ่มต้น 8) */ max?: number
   label?: string
   /** ฐาน URL ของ API ไฟล์แนบ (ค่าเริ่มต้น = ใบเบิก /api/store-withdraw/<no>/attachments) · งานซากส่ง /api/core-return/<key>/attachments */
   apiBase?: string
+  /** "tiles" = ช่องรูปสี่เหลี่ยม 64px + ช่อง "+ แนบ" (หน้าติดตามซาก) · ค่าเริ่มต้น = รายการไฟล์เดิม */
+  variant?: "list" | "tiles"
 }) {
   const input = useRef<HTMLInputElement>(null)
   const urls = useRef<string[]>([])
@@ -83,6 +85,32 @@ export function AttachPicker({ no, context, items, onChange, required = false, h
   }
 
   const doneCount = items.filter((x) => x.state === "done").length
+  if (variant === "tiles") {
+    return (
+      <div data-testid="attach-picker" className="space-y-1.5">
+        <span className="text-[13px] font-semibold text-[#14271C]">{label}</span>
+        <div className="flex flex-wrap gap-2">
+          {items.map((x) => (
+            <div key={x.key} data-state={x.state} title={x.state === "error" ? x.error : x.name} className={`relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[10px] bg-[#DCE5DF] text-[11px] text-[#566A5E] ${x.state === "error" ? "ring-2 ring-[#B42318]" : ""}`}>
+              {x.preview
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={x.preview} alt={x.name} className="h-full w-full object-cover" />
+                : <FileText size={22} aria-hidden />}
+              {x.state === "uploading" && <span className="absolute inset-0 flex items-center justify-center bg-white/60"><Loader2 size={18} className="animate-spin" aria-label="กำลังอัปโหลด" /></span>}
+              {x.state !== "uploading" && (
+                <button type="button" aria-label={`เอา ${x.name} ออกจากรายการ`} onClick={() => onChange((cur) => cur.filter((y) => y.key !== x.key))} className="absolute right-0.5 top-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-[#566A5E] hover:text-[#B42318]"><X size={12} aria-hidden /></button>
+              )}
+            </div>
+          ))}
+          <button type="button" onClick={() => input.current?.click()} disabled={items.length >= max} aria-label={`${label} เพิ่มไฟล์`}
+            className="flex h-16 w-16 items-center justify-center rounded-[10px] border border-dashed border-[#A9B8AF] bg-white text-xs font-semibold text-[#566A5E] hover:border-[#1B8C4B] hover:text-[#146C3A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8C4B] disabled:opacity-50">+ แนบ</button>
+          <input ref={input} type="file" multiple hidden data-testid="attach-input" accept="image/jpeg,image/png,image/webp,image/heic,.heic,.heif,application/pdf" onChange={(e) => pick(e.target.files)} />
+        </div>
+        {items.filter((x) => x.state === "error").map((x) => <p key={x.key} role="alert" className="text-xs text-[#B42318]">{x.name}: {x.error}</p>)}
+        <span className="block text-xs text-[#566A5E]">{hint ?? `รูปหรือ PDF ไม่เกิน 10 MB ไฟล์ละ แนบได้สูงสุด ${max} ไฟล์`}</span>
+      </div>
+    )
+  }
   return (
     <div data-testid="attach-picker" className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
