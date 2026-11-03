@@ -91,7 +91,9 @@ export function canImportPayment(
 // ไม่มีฟิลด์ระดับตำแหน่งที่เชื่อถือได้ จึงจับคำจากช่อง position (และ position_level) ที่ HR ส่งมา
 // ผู้ช่วยผู้จัดการ / Assistant ... Manager ไม่นับ (ต่ำกว่าระดับผู้จัดการ) — ถ้าตำแหน่งใครพิมพ์แปลกจนหลุด
 // ให้ใส่อีเมลใน MANAGER_EMAILS
-export const MANAGER_EMAILS = new Set<string>([])
+export const MANAGER_EMAILS = new Set<string>([
+  "suthipong.p@menatransport.co.th", // ผู้ใช้สั่งเพิ่มเฉพาะราย 2026-11-03 — อนุมัติ SKU ที่ /sku/pending
+])
 
 const MANAGER_RE = /ผู้จัดการ|ผจก\.?|ผู้อำนวยการ|ผอ\.|กรรมการ|ประธาน|manager|director|\bvp\b|vice\s*president|president|chief|\bc[a-z]o\b|\bhead\b/i
 const ASSISTANT_RE = /ผู้ช่วย|ผช\.|assistant|asst/i
