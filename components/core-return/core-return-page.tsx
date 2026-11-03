@@ -3,7 +3,7 @@
 // หน้า /store-withdraw/core-return "ติดตามซากอะไหล่" — 3 เลนตามทีม (ยานยนต์ · สโตร์ · จัดซื้อ) + ตาราง (ค้น/กรอง/Export) + ปิดแล้ว
 // มือถือ 390px: 3 เลนกลายเป็นแท็บด้านบน · ทุกปุ่มเช็กสิทธิ์ซ้ำที่ API
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronRight, Download, Recycle, RefreshCw, Search, X } from "lucide-react"
+import { ChevronDown, ChevronRight, Download, Paperclip, Recycle, RefreshCw, Search, X } from "lucide-react"
 import { swalToast } from "@/lib/swal"
 import { OUTSTANDING, UNCERTAIN_GARAGE_SOURCES, type CoreStatus } from "@/lib/core-return/core"
 import { DetailDrawer, FollowUpDialog, RebuiltDialog, ReturnDialog, SoldDialog } from "./dialogs"
@@ -61,6 +61,7 @@ function RowCard({ row, perms, onAct, onOpen }: { row: Row; perms: Perms; onAct:
           {row.coreStatus === "legacy" && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-800" title={row.legacyNote ?? undefined}>ไฟล์เดิม {row.legacyRound ?? ""}</span>}
           {row.saleRoundNo && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800">{row.saleRoundNo}</span>}
           {ft && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-800">{ft}</span>}
+          {!!row.attachCount && <span data-testid="photo-chip" className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-800"><Paperclip size={11} />รูป {row.attachCount}</span>}
         </div>
         <p className="mt-1.5 line-clamp-2 text-sm font-medium text-gray-900 dark:text-white">{row.skuName || row.skuCode}</p>
         <p className="text-xs text-gray-500 dark:text-gray-400">{row.skuCode} · {qtyText(row.qtyIssued)} ชิ้น · {baht(row.amount)} บาท</p>
@@ -265,7 +266,7 @@ function TableView({ f, tick, perms, onAct, onOpen, closed, mine }: { f: Filters
                   return (
                     <tr key={r.row_key} data-row={r.row_key} className="cursor-pointer border-t border-[#EEF2F0] align-top hover:bg-[#1B8C4B]/5 dark:border-white/5" onClick={() => onOpen(r.row_key)}>
                       <td className="p-2 text-xs">{thDate(r.issuedDate)}{open && <div className="mt-1"><DaysBadge days={daysFrom(r.issuedDate)} /></div>}</td>
-                      <td className="p-2"><CoreChip status={r.coreStatus} />{r.legacyRound && <div className="mt-1 text-[11px] text-orange-700">{r.legacyRound}</div>}{followText(r.followUp) && <div className="mt-1 text-[11px] text-violet-700">{followText(r.followUp)}</div>}</td>
+                      <td className="p-2"><CoreChip status={r.coreStatus} />{r.legacyRound && <div className="mt-1 text-[11px] text-orange-700">{r.legacyRound}</div>}{followText(r.followUp) && <div className="mt-1 text-[11px] text-violet-700">{followText(r.followUp)}</div>}{!!r.attachCount && <div data-testid="photo-chip" className="mt-1 inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800"><Paperclip size={10} />รูป {r.attachCount}</div>}</td>
                       <td className="p-2 text-xs">{r.wdCode}<br /><span className="text-gray-500">{r.mrCode}</span></td>
                       <td className="p-2 text-xs">{r.plate}<br /><span className="text-gray-500">{r.vehicleNo}</span></td>
                       <td className="max-w-[260px] p-2"><span className="line-clamp-2">{r.skuName}</span><span className="text-xs text-gray-500">{r.skuCode}</span></td>

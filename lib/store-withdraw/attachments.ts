@@ -47,7 +47,7 @@ export function safeName(raw: string): string {
   return (name || "file").slice(-100)
 }
 
-const keyName = (name: string) => name.replace(/[^\w.\-฀-๿]+/g, "_")
+export const keyName = (name: string) => name.replace(/[^\w.\-฀-๿]+/g, "_")
 
 export const isImageType = (t: string) => (IMAGE_TYPES as readonly string[]).includes(t)
 

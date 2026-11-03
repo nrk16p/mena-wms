@@ -6,6 +6,7 @@ import {
   UNCERTAIN_GARAGE_SOURCES, buildQuery, daysSince, parseFollowUp, parseRebuilt, parseReturn, parseSold,
   type Actor, type CoreRow, type CoreStatus, type GroupBy, type ListFilters,
 } from "./core"
+import { linkCoreAttachments, resolveCoreLinkable } from "./attachments"
 import { baseCol, logCol, verifyCoreLog, writeCoreLog, type CoreLogDoc } from "./db"
 
 const MAX_MS = 10_000
@@ -122,16 +123,19 @@ export async function returnCore(key: string, body: Record<string, unknown>, act
   const row = await loadOrThrow(key)
   if (!OUTSTANDING.includes(row.coreStatus)) throw new CoreHttpError(`รายการนี้ "${STATUS_LABEL[row.coreStatus] ?? row.coreStatus}" แล้ว คืนซากซ้ำไม่ได้`, 409)
   const v = parseReturn(body, row, now)
+  const attachmentIds = await resolveCoreLinkable(key, body.attachmentIds, actor)
   const to = CHOICE_TO[v.choice]
-  const ret = { choice: v.choice, qty: v.qty, shortReason: v.shortReason, note: v.note, at: now, by: who(actor) }
+  const ret = { choice: v.choice, qty: v.qty, shortReason: v.shortReason, note: v.note, at: now, by: who(actor), ...(attachmentIds.length ? { attachmentIds } : {}) }
   const set: Record<string, unknown> = { ret, coreQtyReturned: v.qty }
   if (v.choice === "sell") set.sale = { scrapInDate: v.scrapInDate, soldDate: null, price: null, buyer: null, note: "", soldAt: null, soldBy: null }
   if (v.choice === "rebuild") set.rebuild = { sentDate: v.rebuildSentDate, vendor: v.rebuildVendor, doneDate: null, note: "", doneAt: null, doneBy: null }
   if (v.choice === "no_core") set.noCore = { reason: v.noCoreReason, note: v.note }
-  return move(row, to, set, {
+  const after = await move(row, to, set, {
     action: "return", actor: { ...who(actor), via: actor.via }, note: v.note || undefined,
-    data: { choice: v.choice, qty: v.qty, shortReason: v.shortReason, scrapInDate: v.scrapInDate, rebuildSentDate: v.rebuildSentDate, rebuildVendor: v.rebuildVendor, noCoreReason: v.noCoreReason },
+    data: { choice: v.choice, qty: v.qty, shortReason: v.shortReason, scrapInDate: v.scrapInDate, rebuildSentDate: v.rebuildSentDate, rebuildVendor: v.rebuildVendor, noCoreReason: v.noCoreReason, ...(attachmentIds.length ? { attachmentIds } : {}) },
   })
+  await linkCoreAttachments(key, attachmentIds)
+  return after
 }
 
 /** ขายซากแล้ว: sell_waiting → sold */

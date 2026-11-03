@@ -7,7 +7,7 @@ import type { CoreRow, CoreStatus } from "./core"
 
 export type CoreLogDoc = {
   row_key: string
-  action: "return" | "sold" | "rebuilt" | "follow_up" | "create" | "round_add" | "round_cancel"
+  action: "return" | "attach" | "sold" | "rebuilt" | "follow_up" | "create" | "round_add" | "round_cancel"
   from: CoreStatus | null
   to: CoreStatus | null
   actor: { email: string; name: string; via: string }
@@ -51,6 +51,7 @@ export async function getCoreDb(): Promise<Db> {
       db.collection("core_sale_rounds").createIndex({ createdAt: -1 }),
       db.collection("core_return_log").createIndex({ row_key: 1, seq: 1 }, { unique: true }),
       db.collection("core_return_log").createIndex({ at: -1 }),
+      db.collection("core_return_attachments").createIndex({ rowKey: 1, confirmedAt: 1 }),
     ])
     indexed.add(db)
   }

@@ -136,6 +136,7 @@ void (async () => {
     NEXTAUTH_URL: `http://localhost:${PORT}`, NEXTAUTH_SECRET: SECRET,
     // ปิดทางออกไปข้างนอก: api-ncac/ATMS/Spaces ชี้ที่อยู่ที่ไม่มีจริง
     NCAC_BASE: "http://127.0.0.1:9", NCAC_API_KEY: "local-only", DO_SPACES_ENDPOINT: "https://spaces.invalid", DO_SPACES_KEY: "x", DO_SPACES_SECRET: "x", DO_SPACES_BUCKET: "x",
+    CORE_RETURN_DEV_LOCAL_STORAGE: "1", // รูปแนบเก็บบนดิสก์ในเครื่อง (dev-only · ปิดอัตโนมัติใน production build)
     GOOGLE_CLIENT_ID: "local-only", GOOGLE_CLIENT_SECRET: "local-only", NEXT_TELEMETRY_DISABLED: "1",
   }
   const next = spawn(path.join(ROOT, "node_modules/.bin/next"), ["dev", "--webpack", "-p", String(PORT)], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] })

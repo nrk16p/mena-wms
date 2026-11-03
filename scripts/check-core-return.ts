@@ -313,6 +313,105 @@ void (async () => {
     eq(sync.garageOf({ workType: "mobile_pm", kind: "stock", inventoryName: "สระบุรี", ref: null } as never).garageType, "Mobile/PM")
     eq((await col.findOne({ row_key: "sw:SW-2611-001:0" }))?.garageType, "อู่ใน", "sw-sync ใส่อู่ให้")
 
+
+    // ── รูปแนบ (ที่เก็บปลอม) ────────────────────────────────────────────
+    {
+      const att = await import("../lib/core-return/attachments")
+      const { setAttachStorage } = await import("../lib/store-withdraw/storage")
+      const blobs = new Map<string, { size: number; contentType: string }>()
+      setAttachStorage({
+        async presignPut(key) { return `https://fake.test/put/${key}` },
+        async headObject(key) { return blobs.get(key) ?? null },
+        async presignGet(key) { return `https://fake.test/get/${key}?exp=300` },
+      })
+      await col.insertMany([base("a1"), base("a2"), base("a3"), base("a4")] as never[])
+      const up = async (rk: string, who: typeof veh, context: "return" | "other", o: { size?: number; type?: string; put?: boolean } = {}) => {
+        const size = o.size ?? 1000
+        const p = await att.presignCoreAttachment(rk, { context, filename: "ซาก 1.jpg", contentType: o.type ?? "image/jpeg", size }, who)
+        if (o.put !== false) blobs.set(p.key, { size, contentType: o.type ?? "image/jpeg" })
+        return p
+      }
+      // presign: ตรวจชนิด/ขนาด/context
+      eq(await status(att.presignCoreAttachment("a1", { context: "return", filename: "x.exe", contentType: "application/x-msdownload", size: 10 }, veh)), 400, "ชนิดไฟล์")
+      eq(await status(att.presignCoreAttachment("a1", { context: "return", filename: "x.jpg", contentType: "image/jpeg", size: 10 * 1024 * 1024 + 1 }, veh)), 400, "ใหญ่เกิน 10 MB")
+      eq(await status(att.presignCoreAttachment("a1", { context: "return", filename: "x.jpg", contentType: "image/jpeg", size: 0 }, veh)), 400, "ขนาด 0")
+      eq(await status(att.presignCoreAttachment("a1", { context: "reject", filename: "x.jpg", contentType: "image/jpeg", size: 5 }, veh)), 400, "context ไม่รู้จัก")
+      eq(await status(att.presignCoreAttachment("nope", { context: "return", filename: "x.jpg", contentType: "image/jpeg", size: 5 }, veh)), 404)
+      // presign แล้วยังไม่ PUT → confirm ไม่ได้ (409) · PUT ขนาดไม่ตรง → 409
+      const pend = await up("a1", veh, "return", { put: false })
+      assert.match(pend.key, /^core-return\/a1\/[0-9a-f]{16}-/)
+      eq(await status(att.confirmCoreAttachment("a1", pend.id, veh)), 409, "ยังไม่อัปโหลด")
+      blobs.set(pend.key, { size: 999, contentType: "image/jpeg" })
+      eq(await status(att.confirmCoreAttachment("a1", pend.id, veh)), 409, "ขนาดไม่ตรง")
+      eq(await status(att.confirmCoreAttachment("a1", "nope", veh)), 404)
+      blobs.set(pend.key, { size: 1000, contentType: "image/jpeg" })
+      eq(await status(att.confirmCoreAttachment("a1", pend.id, store)), 403, "คนอื่นยืนยันแทนไม่ได้")
+      await att.confirmCoreAttachment("a1", pend.id, veh)
+      await att.confirmCoreAttachment("a1", pend.id, veh) // ซ้ำ = ไม่เพิ่มนับ/ประวัติ
+      eq((await col.findOne({ row_key: "a1" }))?.attachCount, 1, "นับครั้งเดียว")
+      eq((await (await logCol()).find({ row_key: "a1", action: "attach" }).toArray()).length, 1)
+      // list: ลิงก์ดู + เฉพาะที่ยืนยันแล้ว
+      await up("a1", veh, "return", { put: false }) // ค้างไม่ยืนยัน
+      const li = await att.listCoreAttachments("a1")
+      eq(li.map((x) => [x.id, x.context, x.linked]), [[pend.id, "return", false]])
+      assert.match(li[0].url, /^https:\/\/fake\.test\/get\/core-return\/a1\//)
+      // ผูกกับใบคืน: ไฟล์ของคนอื่น / ยังไม่ยืนยัน / แถวอื่น → 400 และสถานะแถวไม่เปลี่ยน
+      const mine = await up("a2", veh, "return"); await att.confirmCoreAttachment("a2", mine.id, veh)
+      const unconf = await up("a2", veh, "return")
+      const foreign = await up("a2", store, "return"); await att.confirmCoreAttachment("a2", foreign.id, store)
+      const ret = { choice: "sell", qty: 2, scrapInDate: "2026-10-05" }
+      eq(await status(svc.returnCore("a2", { ...ret, attachmentIds: [unconf.id] }, veh, now)), 400, "ยังไม่ยืนยัน")
+      eq(await status(svc.returnCore("a2", { ...ret, attachmentIds: [foreign.id] }, veh, now)), 400, "คนอื่นอัปโหลด")
+      eq(await status(svc.returnCore("a2", { ...ret, attachmentIds: [pend.id] }, veh, now)), 400, "ของแถวอื่น")
+      eq(await status(svc.returnCore("a2", { ...ret, attachmentIds: "x" }, veh, now)), 400, "ไม่ใช่รายการ")
+      eq((await col.findOne({ row_key: "a2" }))?.coreStatus, "pending", "ผูกไม่ผ่าน = ไม่เปลี่ยนสถานะ")
+      const done = await svc.returnCore("a2", { ...ret, attachmentIds: [mine.id, mine.id] }, veh, now)
+      eq(done?.ret?.attachmentIds, [mine.id], "ซ้ำ id นับครั้งเดียว")
+      eq((await (await logCol()).findOne({ row_key: "a2", action: "return" }))?.data?.attachmentIds, [mine.id], "บันทึก id ในประวัติ")
+      eq((await att.listCoreAttachments("a2")).find((x) => x.id === mine.id)?.linked, true)
+      eq((await (await att.coreAttachCol()).findOne({ _id: mine.id }))?.linkedTo, { type: "return" })
+      // ผูกซ้ำกับใบอื่นไม่ได้ (ใช้ id เดิมกับแถวเดียวกันที่ผูกแล้ว)
+      eq(await status(att.resolveCoreLinkable("a2", [mine.id], veh).then(() => null)), 400, "ผูกแล้วใช้ซ้ำไม่ได้")
+      // ไม่แนบ = เหมือนเดิม · คืนไปแล้ว context return ไม่ได้ แต่ other ได้
+      eq((await svc.returnCore("a3", ret, veh, now))?.ret?.attachmentIds, undefined)
+      eq(await status(att.presignCoreAttachment("a3", { context: "return", filename: "x.jpg", contentType: "image/jpeg", size: 5 }, veh)), 409)
+      const later = await up("a3", veh, "other", { type: "application/pdf" }); await att.confirmCoreAttachment("a3", later.id, veh)
+      eq((await att.listCoreAttachments("a3")).map((x) => [x.context, x.contentType]), [["other", "application/pdf"]])
+      // เพดาน 8 ต่อแถว (นับทุก context รวมที่ค้างยังไม่ยืนยัน)
+      for (let i = 0; i < 8; i++) await up("a4", veh, "return", { put: false })
+      eq(await status(up("a4", veh, "return", { put: false })), 400, "เกิน 8")
+      // ไม่มีเส้นทางลบ/แก้ใน module
+      assert.deepEqual(Object.keys(att).filter((k) => /delete|remove|update/i.test(k)), [])
+      setAttachStorage(null)
+
+      // ที่เก็บในเครื่อง (เดโม): ปิดเมื่อ production · เปิดเมื่อ dev + แฟลก · แฟลกใน production = ล้ม
+      const loc = await import("../lib/store-withdraw/storage-local")
+      eq(loc.devLocalStorageEnabled({ NODE_ENV: "production", CORE_RETURN_DEV_LOCAL_STORAGE: "1" }), false, "production ห้ามเปิด")
+      eq(loc.devLocalStorageEnabled({ NODE_ENV: "development" }), false, "ไม่มีแฟลก = ปิด")
+      eq(loc.devLocalStorageEnabled({ NODE_ENV: "development", CORE_RETURN_DEV_LOCAL_STORAGE: "true" }), false, "ค่าต้องเป็น 1")
+      eq(loc.devLocalStorageEnabled({ NODE_ENV: "development", CORE_RETURN_DEV_LOCAL_STORAGE: "1" }), true)
+      assert.throws(() => loc.assertDevLocalSafe({ NODE_ENV: "production", CORE_RETURN_DEV_LOCAL_STORAGE: "1" }), /production/)
+      const env = process.env as Record<string, string | undefined>
+      const was = { n: env.NODE_ENV, f: env.CORE_RETURN_DEV_LOCAL_STORAGE, d: env.CORE_RETURN_DEV_STORAGE_DIR }
+      const { attachStorage } = await import("../lib/store-withdraw/storage")
+      try {
+        env.CORE_RETURN_DEV_LOCAL_STORAGE = "1"
+        env.NODE_ENV = "production"
+        assert.throws(() => attachStorage(), /production/, "attachStorage ใน production ที่ตั้งแฟลก = ล้ม")
+        assert.throws(() => loc.devPutFile("core-return/x/y", "image/png", Buffer.from("x")), /ปิดอยู่/)
+        env.NODE_ENV = "development"
+        env.CORE_RETURN_DEV_STORAGE_DIR = (await import("node:fs")).mkdtempSync((await import("node:path")).join((await import("node:os")).tmpdir(), "cr-dev-"))
+        const st = attachStorage()
+        eq(await st.headObject("core-return/x/y"), null)
+        loc.devPutFile("core-return/x/y", "image/png", Buffer.from("abc"))
+        eq(await st.headObject("core-return/x/y"), { size: 3, contentType: "image/png" })
+        assert.match(await st.presignPut("core-return/x/y", "image/png"), /^\/api\/dev-storage\?key=core-return%2Fx%2Fy$/)
+        eq(loc.devReadFile("core-return/x/y")?.body.toString(), "abc")
+      } finally {
+        for (const [k, v] of [["NODE_ENV", was.n], ["CORE_RETURN_DEV_LOCAL_STORAGE", was.f], ["CORE_RETURN_DEV_STORAGE_DIR", was.d]] as const) { if (v === undefined) delete env[k]; else env[k] = v }
+      }
+    }
+
     console.log("check-core-return: OK")
   } finally {
     await client.close()

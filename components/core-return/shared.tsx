@@ -10,10 +10,10 @@ export type Row = {
   row_key: string; issuedDate: string; warehouse?: string | null; wdCode?: string | null; mrCode?: string | null; purpose?: string | null
   skuCode?: string | null; skuName?: string | null; productGroup?: string | null; vehicleNo?: string | null; plate?: string | null; driver?: string | null
   qtyIssued?: number | null; amount?: number | null; source?: string | null; legacyRound?: string | null; legacyNote?: string | null
-  coreStatus: CoreStatus; coreQtyReturned?: number; saleRoundNo?: string | null; mrItemLabel?: string | null; swNo?: string
+  coreStatus: CoreStatus; coreQtyReturned?: number; attachCount?: number; saleRoundNo?: string | null; mrItemLabel?: string | null; swNo?: string
   requester?: { email: string; name: string } | null
   garageType?: string | null; garage?: string | null; garageSource?: string | null
-  ret?: { choice: string; qty: number; shortReason: string | null; note: string; at: string; by: { name: string } } | null
+  ret?: { choice: string; qty: number; shortReason: string | null; note: string; at: string; by: { name: string }; attachmentIds?: string[] } | null
   sale?: { scrapInDate: string | null; soldDate: string | null; price: number | null; buyer: string | null; roundNo?: string | null } | null
   rebuild?: { sentDate: string | null; vendor: string | null; doneDate: string | null; note: string } | null
   noCore?: { reason: string; note: string } | null
@@ -134,3 +134,6 @@ export function useKeyed<T>(key: string, initial: T): [T, (v: T | ((cur: T) => T
 }
 
 export const download = (url: string) => { window.location.href = url }
+
+export type Att = { id: string; context: string; filename: string; contentType: string; size: number; by: { name: string; email: string }; confirmedAt: string; url: string }
+export const attachApi = (key: string) => rowUrl(key, "attachments")

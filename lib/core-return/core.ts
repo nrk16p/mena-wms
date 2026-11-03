@@ -59,7 +59,9 @@ export type CoreRow = {
   createdAt?: Date
   loadedAt?: Date
   // ── ระบบนี้เพิ่ม ──
-  ret?: { choice: ReturnChoice; qty: number; shortReason: string | null; note: string; at: Date; by: { email: string; name: string } } | null
+  ret?: { choice: ReturnChoice; qty: number; shortReason: string | null; note: string; at: Date; by: { email: string; name: string }; attachmentIds?: string[] } | null
+  /** จำนวนไฟล์แนบที่ยืนยันแล้ว (นับตอน confirm) */
+  attachCount?: number
   sale?: { scrapInDate: string | null; soldDate: string | null; roundNo?: string | null; price: number | null; buyer: string | null; note: string; soldAt: Date | null; soldBy: { email: string; name: string } | null } | null
   rebuild?: { sentDate: string | null; vendor: string | null; doneDate: string | null; note: string; doneAt: Date | null; doneBy: { email: string; name: string } | null } | null
   noCore?: { reason: string; note: string } | null

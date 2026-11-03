@@ -2,11 +2,12 @@
 
 // กล่องโต้ตอบของงานซาก: คืนซาก · บันทึกขายแล้ว · Rebuild เสร็จ · ติดตาม · รายละเอียด+ประวัติ
 import { Fragment, useState } from "react"
-import { Loader2, ShieldAlert, ShieldCheck, X } from "lucide-react"
+import { FileText, Loader2, Paperclip, ShieldAlert, ShieldCheck, X } from "lucide-react"
+import { AttachPicker, doneIds, isUploading, type Picked } from "@/components/store-withdraw/attach-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { NO_CORE_REASONS, STATUS_LABEL, type CoreStatus } from "@/lib/core-return/core"
 import {
-  CoreChip, baht, btnGhost, btnPrimary, followText, inputCls, useFetch, postJson, qtyText, rowUrl, thDate, thDateTime, todayYmd, type Row,
+  CoreChip, attachApi, baht, btnGhost, btnPrimary, followText, inputCls, useFetch, postJson, qtyText, rowUrl, thDate, thDateTime, todayYmd, usePerms, type Att, type Row,
 } from "./shared"
 
 const settle = () => new Promise<void>((r) => setTimeout(r, 150))
@@ -78,7 +79,9 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
   const [vendor, setVendor] = useState("")
   const [reason, setReason] = useState<string>(NO_CORE_REASONS[0])
   const [note, setNote] = useState("")
+  const [files, setFiles] = useState<Picked[]>([])
   const { busy, error, submit } = useSubmit(row ? rowUrl(row.row_key, "return") : "", onDone, onClose)
+  const uploading = isUploading(files)
   const short = row?.qtyIssued != null && Number(qty) > 0 && Number(qty) < row.qtyIssued
   return (
     <Dialog open={!!row} onOpenChange={(o) => !o && onClose()}>
@@ -87,7 +90,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
         {row && (
           <form className="space-y-4" onSubmit={(e) => {
             e.preventDefault()
-            void submit({ choice, qty: choice === "no_core" ? undefined : qty, shortReason, scrapInDate: choice === "sell" ? scrapInDate : undefined, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note })
+            void submit({ choice, qty: choice === "no_core" ? undefined : qty, shortReason, scrapInDate: choice === "sell" ? scrapInDate : undefined, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note, attachmentIds: doneIds(files) })
           }}>
             <RowHead row={row} />
             <fieldset>
@@ -135,7 +138,11 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
                 <textarea className={inputCls} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
               </Field>
             )}
-            <Footer busy={busy} onCancel={onClose} label="บันทึกคืนซาก" error={error || ""} />
+            <div className="space-y-1" data-testid="return-attach">
+              <AttachPicker no={row.row_key} apiBase={attachApi(row.row_key)} context="return" items={files} onChange={(f) => setFiles(f)} label="แนบรูป (ถ้ามี)" hint="รูปซากที่คืน ไม่เกิน 10 MB ต่อรูป ได้สูงสุด 8 รูป" />
+              {files.length > 0 && <p className="text-xs text-gray-500">รูปที่แนบแล้วลบไม่ได้ ดูให้ตรงก่อนกดบันทึก</p>}
+            </div>
+            <Footer busy={busy || uploading} onCancel={onClose} label={uploading ? "รอรูปอัปโหลด" : "บันทึกคืนซาก"} error={error || ""} />
           </form>
         )}
       </DialogContent>
@@ -217,7 +224,7 @@ export function FollowUpDialog({ row, onClose, onDone }: { row: Row | null; onCl
 }
 
 type Hist = { seq: number; action: string; from: CoreStatus | null; to: CoreStatus | null; actor: { name: string; email: string }; at: string; note?: string; data?: Record<string, unknown> }
-const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", sold: "ขายแล้ว", rebuilt: "Rebuild เสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย" }
+const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", sold: "ขายแล้ว", rebuilt: "Rebuild เสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", attach: "แนบรูป" }
 const CHOICE_TH: Record<string, string> = { sell: "S1 ขายซาก", rebuild: "Rebuild ซ่อม", no_core: "ไม่มีซากคืน" }
 
 function histDetail(h: Hist): string {
@@ -231,6 +238,7 @@ function histDetail(h: Hist): string {
     if (d.noCoreReason) parts.push(String(d.noCoreReason))
     if (d.shortReason) parts.push(`คืนไม่ครบ: ${d.shortReason}`)
   }
+  if (h.action === "attach" && d.filename) parts.push(String(d.filename))
   if (h.action === "sold") { if (d.soldDate) parts.push(thDate(String(d.soldDate))); if (d.price != null) parts.push(`${baht(Number(d.price))} บาท`); if (d.roundNo) parts.push(String(d.roundNo)) }
   if (h.action === "follow_up" && d.nextDate) parts.push(`ตามอีก ${thDate(String(d.nextDate))}`)
   if ((h.action === "round_add" || h.action === "round_cancel") && d.roundNo) parts.push(String(d.roundNo))
@@ -239,9 +247,50 @@ function histDetail(h: Hist): string {
   return parts.join(" · ")
 }
 
+const isImg = (a: Att) => a.contentType.startsWith("image/") && a.contentType !== "image/heic"
+
+function Thumbs({ items }: { items: Att[] }) {
+  return (
+    <ul className="mt-1 flex flex-wrap gap-1.5">
+      {items.map((a) => (
+        <li key={a.id}>
+          <a href={a.url} target="_blank" rel="noopener noreferrer" title={`${a.filename} · ${a.by.name}`} data-testid="photo" className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-[#E2E8E4] bg-gray-50 text-gray-500 dark:border-white/10 dark:bg-white/5">
+            {isImg(a)
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={a.url} alt={a.filename} className="h-full w-full object-cover" />
+              : <span className="flex flex-col items-center text-[10px]"><FileText size={20} />{a.filename.split(".").pop()}</span>}
+          </a>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function AddPhotosDialog({ rowKey, onClose, onDone }: { rowKey: string; onClose: () => void; onDone: () => void }) {
+  const [files, setFiles] = useState<Picked[]>([])
+  const uploading = isUploading(files)
+  const finish = () => { if (uploading) return; if (doneIds(files).length) onDone(); onClose() }
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) finish() }}>
+      <DialogContent className="max-h-[90vh] overflow-auto sm:max-w-md" data-testid="add-photos-dialog">
+        <DialogHeader><DialogTitle>แนบรูปเพิ่ม</DialogTitle></DialogHeader>
+        <p className="text-xs text-gray-500">รูปที่แนบแล้วลบหรือแก้ไม่ได้ ดูให้ตรงก่อนแนบ</p>
+        <AttachPicker no={rowKey} apiBase={attachApi(rowKey)} context="other" items={files} onChange={(f) => setFiles(f)} label="เลือกรูป" />
+        <div className="flex justify-end"><button type="button" disabled={uploading} onClick={finish} className={btnPrimary}>เสร็จแล้ว</button></div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function DetailDrawer({ rowKey, onClose }: { rowKey: string | null; onClose: () => void }) {
-  const { data, error } = useFetch<{ row: Row; history: Hist[]; chain: { ok: boolean; brokenAt?: number } }>(rowKey ? rowUrl(rowKey) : null)
+  const [tick, setTick] = useState(0)
+  const [adding, setAdding] = useState(false)
+  const perms = usePerms()
+  const { data, error } = useFetch<{ row: Row; history: Hist[]; chain: { ok: boolean; brokenAt?: number } }>(rowKey ? rowUrl(rowKey) : null, tick)
+  const files = useFetch<{ items: Att[] }>(rowKey ? attachApi(rowKey) : null, tick)
   if (!rowKey) return null
+  const atts = files.data?.items ?? []
+  const byId = new Map(atts.map((a) => [a.id, a]))
   const r = data?.row
   const info: [string, React.ReactNode][] = r ? [
     ["วันที่เบิก", thDate(r.issuedDate)], ["คลัง", r.warehouse ?? "-"], ["WD", r.wdCode ?? "-"], ["MR", r.mrCode ?? "-"],
@@ -271,6 +320,15 @@ export function DetailDrawer({ rowKey, onClose }: { rowKey: string | null; onClo
               <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-sm">
                 {info.map(([k, v]) => (<Fragment key={k}><dt className="text-gray-500">{k}</dt><dd className="break-words text-gray-900 dark:text-gray-100">{v}</dd></Fragment>))}
               </dl>
+              <div data-testid="drawer-photos">
+                <div className="flex items-center justify-between">
+                  <h3 className="inline-flex items-center gap-1 text-sm font-semibold text-gray-800 dark:text-gray-100"><Paperclip size={13} />รูปแนบ{atts.length ? ` (${atts.length})` : ""}</h3>
+                  {perms.ret && <button type="button" data-testid="add-photos" onClick={() => setAdding(true)} className={`${btnGhost} min-h-9 px-2.5 py-1 text-xs`}>แนบรูปเพิ่ม</button>}
+                </div>
+                {files.error && <p className="mt-1 text-xs text-red-600">{files.error}</p>}
+                {!files.error && !files.data && <p className="mt-1 text-xs text-gray-500">กำลังโหลดรูป</p>}
+                {files.data && (atts.length ? <Thumbs items={atts} /> : <p className="mt-1 text-xs text-gray-500">ยังไม่มีรูปแนบ</p>)}
+              </div>
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">ประวัติ</h3>
@@ -285,6 +343,10 @@ export function DetailDrawer({ rowKey, onClose }: { rowKey: string | null; onClo
                         <p className="font-medium text-gray-900 dark:text-white">{ACTION[h.action] ?? h.action}{h.to && h.from !== h.to ? ` → ${STATUS_LABEL[h.to]}` : ""}</p>
                         <p className="text-xs text-gray-500">{thDateTime(h.at)} · {h.actor.name}</p>
                         {histDetail(h) && <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">{histDetail(h)}</p>}
+                        {h.action === "return" && Array.isArray(h.data?.attachmentIds) && (() => {
+                          const mine = (h.data!.attachmentIds as string[]).map((id) => byId.get(id)).filter((x): x is Att => !!x)
+                          return mine.length ? <Thumbs items={mine} /> : null
+                        })()}
                       </li>
                     ))}
                   </ol>
@@ -294,6 +356,7 @@ export function DetailDrawer({ rowKey, onClose }: { rowKey: string | null; onClo
           )}
         </div>
       </aside>
+      {adding && <AddPhotosDialog rowKey={rowKey} onClose={() => setAdding(false)} onDone={() => setTick((t) => t + 1)} />}
     </div>
   )
 }

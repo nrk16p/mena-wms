@@ -32,10 +32,12 @@ async function postJson(url: string, body: unknown) {
 /** ไฟล์ที่อัปโหลดเสร็จแล้ว (id ที่ใช้ส่งเป็น attachmentIds) */
 export const doneIds = (items: Picked[]) => items.filter((x) => x.state === "done" && x.id).map((x) => x.id as string)
 
-export function AttachPicker({ no, context, items, onChange, required = false, hint, max = MAX_FILES, label = "แนบรูป/ไฟล์" }: {
+export function AttachPicker({ no, context, items, onChange, required = false, hint, max = MAX_FILES, label = "แนบรูป/ไฟล์", apiBase }: {
   no: string; context: AttachContext; items: Picked[]; onChange: (f: (cur: Picked[]) => Picked[]) => void; required?: boolean; hint?: string
   /** จำนวนไฟล์สูงสุดในช่องนี้ (ค่าเริ่มต้น 8) */ max?: number
   label?: string
+  /** ฐาน URL ของ API ไฟล์แนบ (ค่าเริ่มต้น = ใบเบิก /api/store-withdraw/<no>/attachments) · งานซากส่ง /api/core-return/<key>/attachments */
+  apiBase?: string
 }) {
   const input = useRef<HTMLInputElement>(null)
   const urls = useRef<string[]>([])
@@ -46,7 +48,7 @@ export function AttachPicker({ no, context, items, onChange, required = false, h
   const upload = async (f: File, key: string, type: string) => {
     try {
       const sha256 = await sha256Hex(f)
-      const base = `/api/store-withdraw/${encodeURIComponent(no)}/attachments`
+      const base = apiBase ?? `/api/store-withdraw/${encodeURIComponent(no)}/attachments`
       const p = await postJson(`${base}/presign`, { context, filename: f.name, contentType: type, size: f.size, sha256 })
       const put = await fetch(p.uploadUrl, { method: "PUT", headers: { "Content-Type": type }, body: f })
       if (!put.ok) throw new Error("ส่งไฟล์ขึ้นที่เก็บไม่สำเร็จ ลองใหม่อีกครั้ง")

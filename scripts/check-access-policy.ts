@@ -290,6 +290,17 @@ console.log("store-withdraw access: OK")
     assert.equal(run(p, "POST", store), true, p)
     assert.equal(run(p, "POST", veh), false, p)
   }
+  // แนบรูป: presign/confirm = สิทธิ์คืนซาก (ยานยนต์/สโตร์ได้ · จัดซื้ออย่างเดียวไม่ได้) · ดูรายการรูป = อ่าน
+  for (const p of ["/api/core-return/k1/attachments/presign", "/api/core-return/k1/attachments/confirm"]) {
+    assert.equal(coreReturnActionForApi(p), "return", p)
+    assert.equal(run(p, "POST", veh), true, p)
+    assert.equal(run(p, "POST", store), true, p)
+    assert.equal(run(p, "POST", proc), false, p)
+  }
+  assert.equal(run("/api/core-return/k1/attachments", "GET", proc), true)
+  assert.equal(run("/api/core-return/k1/attachments", "POST", store), false, "POST ที่ root ของ attachments ไม่มี")
+  assert.equal(coreReturnActionForApi("/api/core-return/k1/attachments/delete"), null)
+  assert.equal(coreReturnActionForApi("/api/core-return/k1/attachments/presign/x"), null)
   // ทางเขียนที่ไม่รู้จัก = ปฏิเสธ แม้เป็นสโตร์
   assert.equal(coreReturnActionForApi("/api/core-return"), null)
   assert.equal(coreReturnActionForApi("/api/core-return/k1"), null)

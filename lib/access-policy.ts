@@ -264,10 +264,11 @@ export function coreReturnCan(a: Access, action: CoreReturnAction): boolean {
   }
 }
 
-/** POST /api/core-return/rounds[/:no/(sold|cancel)] → round · POST /api/core-return/:key/(return|sold|rebuilt|follow-up) → action · ทางเขียนอื่นใต้ /api/core-return = ไม่มี (ปฏิเสธ) */
+/** POST /api/core-return/rounds[/:no/(sold|cancel)] → round · POST /api/core-return/:key/(return|sold|rebuilt|follow-up) → action · POST /api/core-return/:key/attachments/(presign|confirm) → return · ทางเขียนอื่นใต้ /api/core-return = ไม่มี (ปฏิเสธ) */
 export function coreReturnActionForApi(pathname: string): CoreReturnAction | null {
   if (/^\/api\/core-return\/rounds(\/[^/]+\/(sold|cancel))?$/.test(pathname)) return "round"
   if (pathname.startsWith("/api/core-return/rounds/")) return null
+  if (/^\/api\/core-return\/[^/]+\/attachments\/(presign|confirm)$/.test(pathname)) return "return"
   const m = /^\/api\/core-return\/[^/]+\/(return|sold|rebuilt|follow-up)$/.exec(pathname)
   return m ? (m[1] === "follow-up" ? "follow_up" : (m[1] as CoreReturnAction)) : null
 }
