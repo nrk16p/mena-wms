@@ -5,6 +5,8 @@ import { Plus, Trash2, ArrowUp, ArrowDown, ExternalLink, UserPlus, Link2, AlertT
 import { VendorCombobox } from "@/components/vendor-combobox"
 import { NewVendorDialog, LinkAtmsDialog } from "@/components/pc-provisional-vendor"
 import { SkuPicker, type SkuHit } from "@/components/sku-picker"
+import { DecimalInput } from "@/components/decimal-input"
+import { formatQty } from "@/lib/decimal-input"
 import { benchmarkUrl } from "@/lib/intel-links"
 import { swalConfirm, swalToast } from "@/lib/swal"
 import {
@@ -24,7 +26,6 @@ type Props = {
 
 const cellInput = "w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-right tabular-nums focus:border-[#1B8C4B] focus:bg-white dark:focus:bg-[#0f1117] focus:outline-none"
 const textInput = "w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm focus:border-[#1B8C4B] focus:bg-white dark:focus:bg-[#0f1117] focus:outline-none"
-const numOrNull = (v: string): number | null => { if (v.trim() === "") return null; const n = parseFloat(v.replace(/,/g, "")); return isFinite(n) ? n : null }
 
 export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
   const { items, suppliers, lineSupplier } = doc
@@ -202,7 +203,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
             title={picked ? "กดซ้ำเพื่อล้างการเลือกของรายการนี้" : gradeMode && (groupOfRow[r]?.rows.length ?? 1) > 1 ? "ใช้เกรดนี้จาก supplier นี้ (เลือกได้ 1 ช่องต่อรายการ)" : "ใช้ supplier นี้สำหรับรายการนี้ (ผสมข้าม supplier)"}
             className="h-3.5 w-3.5 shrink-0 accent-[#1B8C4B]" />
           <span aria-hidden className={`w-2.5 shrink-0 text-center text-xs font-bold ${picked ? "text-emerald-700 dark:text-emerald-300" : "text-transparent"}`}>✓</span>
-          <input inputMode="decimal" value={p ?? ""} disabled={readOnly} onChange={(e) => setPrice(s, r, numOrNull(e.target.value))} placeholder="—" className={cellInput} />
+          <DecimalInput ariaLabel="ราคาต่อหน่วย" value={p ?? null} disabled={readOnly} onValue={(n) => setPrice(s, r, n)} placeholder="—" className={cellInput} />
           <span className={`w-24 shrink-0 text-right text-xs tabular-nums ${best ? "font-semibold text-emerald-700" : "text-gray-500"}`}>{p != null ? fmtMoney(lineTotal(it, p)) : ""}</span>
         </div>
       </td>
@@ -261,7 +262,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
             )}
           </div>
         </td>
-        <td className={td}><input type="number" min={0} step="any" value={it.qty} disabled={readOnly} onChange={(e) => patchRows(g.rows, { qty: parseFloat(e.target.value) || 0 })} className={cellInput} /></td>
+        <td className={td}><DecimalInput ariaLabel="จำนวน" value={it.qty} emptyAs={0} format={formatQty} disabled={readOnly} onValue={(n) => patchRows(g.rows, { qty: n ?? 0 })} className={cellInput} /></td>
         <td className={td}><input value={it.unit} disabled={readOnly} onChange={(e) => patchRows(g.rows, { unit: e.target.value })} placeholder="หน่วย" className={textInput} /></td>
       </>
     )
@@ -315,7 +316,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                     className={`${textInput} ${!readOnly && !(it.grade ?? "").trim() ? "ring-1 ring-inset ring-amber-300" : ""}`} />
                 </div>
               </td>
-              <td className={`${td} px-2 text-right text-xs tabular-nums text-gray-400`}>{it.qty}</td>
+              <td className={`${td} px-2 text-right text-xs tabular-nums text-gray-400`}>{formatQty(it.qty)}</td>
               <td className={`${td} px-2 text-xs text-gray-400`}>{it.unit}</td>
               {priceCells(r, radioName, ` ${head.name || `รายการ ${gi + 1}`} เกรด ${gradeLabel}`)}
               {!readOnly && (
@@ -562,7 +563,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
               {suppliers.map((sp, s) => (
                 <td key={s} colSpan={2} className={`${td} text-right tabular-nums ${key === "net" && s === lowNet ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20" : ""}`}>
                   {key === "discount" && !readOnly
-                    ? <input inputMode="decimal" value={sp.discount || ""} onChange={(e) => patchSupplier(s, { discount: numOrNull(e.target.value) ?? 0 })} placeholder="0.00" className={cellInput} />
+                    ? <DecimalInput ariaLabel="ส่วนลด" value={sp.discount || null} onValue={(n) => patchSupplier(s, { discount: n ?? 0 })} placeholder="0.00" className={cellInput} />
                     : key !== "discount" && !covers[s]
                     ? <span title="ยังคิดยอดตามเกรดที่เลือกไม่ได้ — ยังไม่เลือกเกรดครบทุกรายการ หรือเจ้านี้ไม่ได้เสนอราคาเกรดที่เลือก" className="px-2 text-xs font-normal text-amber-700 dark:text-amber-400">ไม่ครบ</span>
                     : key === "vat" && sp.vatMode !== "excl"
