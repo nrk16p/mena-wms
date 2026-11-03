@@ -40,7 +40,8 @@ const sumOf = (s: Summary | null, keys: (CoreStatus | "followQueue")[]) => keys.
 
 function GarageLine({ row }: { row: Row & { garageType?: string | null; garage?: string | null; garageSource?: string | null } }) {
   // ไม่รู้ชื่ออู่ = ป้ายเทาป้ายเดียว · "ไม่แน่ใจ" ขึ้นเฉพาะตอนมีชื่ออู่แต่ที่มาไม่ชัวร์
-  if (!row.garage) return <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">{row.garageType || "อู่นอก"} (ไม่ทราบชื่อ)</span>
+  // ข้อมูลฐานเก็บ "ไม่ทราบชื่ออู่" เป็นข้อความ (report_unreturned.py) — นับเป็นไม่รู้ชื่อเหมือนค่าว่าง
+  if (!row.garage || row.garage === "ไม่ทราบชื่ออู่") return <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">{row.garageType || "อู่นอก"} (ไม่ทราบชื่อ)</span>
   const unsure = !!row.garageSource && UNCERTAIN_GARAGE_SOURCES.includes(row.garageSource)
   return (
     <span className="inline-flex max-w-full items-center gap-1 text-xs text-gray-600 dark:text-gray-300" title={row.garageSource ?? undefined}>
