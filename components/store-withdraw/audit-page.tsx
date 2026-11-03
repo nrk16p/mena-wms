@@ -20,6 +20,11 @@ type Detail = {
   atms: { type: string; code: string; label: string; url: string | null }[]
   timeline: { seq: number | null; action: string; from: string | null; to: string | null; actor: string; via: string; at: string; note: string | null }[]
   attachments: { id: string; context: string; filename: string; size: number; by: { name: string }; confirmedAt: string; url: string; linkedTo?: { type: string; rid?: string } }[]
+  summary?: {
+    by: { name: string; email: string }; at: string; note: string
+    usages: { lineIndex: number; skuCode: string; skuName: string; plate: string; mrCode: string; mrItemLabel: string; qty: number; attachments: { id: string; filename: string; url: string }[] }[]
+    returns: { lineIndex: number; skuName: string; qty: number }[]
+  } | null
   chain: { ok: boolean; checked: number; brokenAt?: number }
 }
 
@@ -207,6 +212,28 @@ function DetailDialog({ no, onClose }: { no: string; onClose: () => void }) {
                     <li key={r.rid} className="text-xs text-gray-700 dark:text-gray-200">{r.rid} · {r.status} · {r.reason ?? "ไม่ระบุเหตุผล"} · คืน {r.lines.map((l) => `#${l.lineIndex + 1}×${l.qty}`).join(", ")}{r.code && ` · DD ${r.code}`}</li>
                   ))}
                 </ul></section>
+            )}
+
+            {d.summary && (
+              <section data-testid="audit-summary"><h3 className="mb-1 text-xs font-semibold text-gray-500">สรุปการใช้ (โดย {d.summary.by.name || d.summary.by.email} · {fmt(d.summary.at)})</h3>
+                {d.summary.usages.length === 0 && <p className="text-xs text-gray-600 dark:text-gray-300">ไม่ได้ใช้เลย คืนสโตร์ทั้งหมด</p>}
+                <ul className="space-y-1.5">
+                  {d.summary.usages.map((u, i) => (
+                    <li key={i} className="text-xs">
+                      <span className="font-semibold text-gray-800 dark:text-gray-100">{u.plate}</span>
+                      <span className="text-gray-600 dark:text-gray-300"> · {u.skuName} ใช้ {u.qty}</span>
+                      <span className="block text-gray-500">{u.mrCode} · {u.mrItemLabel}</span>
+                      {u.attachments.length > 0 ? (
+                        <span className="flex flex-wrap gap-x-2">
+                          {u.attachments.map((a) => <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" className="break-all font-medium text-[#1B8C4B] underline">{a.filename}</a>)}
+                        </span>
+                      ) : <span className="block text-gray-400">ไม่มีรูปผูกกับแถวนี้</span>}
+                    </li>
+                  ))}
+                </ul>
+                {d.summary.returns.length > 0 && <p className="mt-1 text-xs text-[#6D4FC2] dark:text-violet-300">คืนสโตร์: {d.summary.returns.map((x) => `${x.skuName} ${x.qty}`).join(" · ")}</p>}
+                {d.summary.note && <p className="mt-1 text-xs text-gray-500">หมายเหตุ: {d.summary.note}</p>}
+              </section>
             )}
 
             <section><h3 className="mb-1 text-xs font-semibold text-gray-500">ประวัติทุกขั้น</h3>

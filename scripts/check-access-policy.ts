@@ -5,6 +5,7 @@ import {
   accessFor, sectionForPage, sectionForApi, checkRequest, SECTIONS, type Access,
 } from "../lib/access-policy"
 import { NAV_GROUPS, sidebarGroups, homeModules } from "../lib/nav"
+import { safeCallback } from "../lib/safe-callback"
 
 const SUPER = "narongkorn.a@menatransport.co.th"
 const ADMIN = "bunphak.p@menatransport.co.th"
@@ -159,6 +160,15 @@ assert.ok(home.includes("ap") && !home.includes("tire"))
 // ไม่ส่ง access (ยังโหลด session ไม่เสร็จ) → เหมือนเดิม ไม่ซ่อน
 assert.ok(sidebarGroups({ email: "x" }).some((g) => g.key === "sku"))
 
+// login แล้วกลับหน้าเดิม: callbackUrl รับเฉพาะ path ในเว็บนี้
+{
+  assert.equal(safeCallback("/store-withdraw/SW-2611-001/summary"), "/store-withdraw/SW-2611-001/summary")
+  assert.equal(safeCallback("/repair-external?q=TH1099"), "/repair-external?q=TH1099")
+  for (const bad of [null, "", "https://evil.example/x", "//evil.example", "/\\evil.example", "javascript:alert(1)", "/login?callbackUrl=/x", "/a\nb"]) {
+    assert.equal(safeCallback(bad), "/", String(bad))
+  }
+}
+
 console.log("check-access-policy: ok")
 
 // 99. เบิกอะไหล่หน้าร้านคลัง (store-withdraw): ผู้ขอ = ยานยนต์ · สโตร์ = override รายคน · IT ได้ทั้งคู่
@@ -202,6 +212,12 @@ console.log("check-access-policy: ok")
   assert.equal(sectionForApi("/api/store-withdraw/lookup/sku"), "store-withdraw")
   assert.equal(sectionForPage("/store-withdraw"), "store-withdraw")
   assert.equal(sectionForPage("/store-withdraw/queue"), "store-queue")
+  // หน้าสรุปการใช้รายคัน (ลิงก์มือถือ) = ฝั่งผู้ขอ · ไม่ชนกับ /queue /audit /new
+  assert.equal(sectionForPage("/store-withdraw/SW-2611-001/summary"), "store-withdraw")
+  assert.equal(sectionForPage("/store-withdraw/new"), "store-withdraw")
+  assert.equal(sectionForPage("/store-withdraw/audit"), "store-audit")
+  assert.equal(run("/store-withdraw/SW-2611-001/summary", "GET", veh).ok, true)
+  assert.equal(run("/store-withdraw/SW-2611-001/summary", "GET", u("Procurement")).ok, false)
   assert.equal(run("/api/store-withdraw/SW-2610-001/issue", "POST", veh).ok, false)
   assert.equal(run("/api/store-withdraw/SW-2610-001/issue", "POST", storePerson).ok, true)
   assert.equal(run("/api/store-withdraw", "POST", veh).ok, true)

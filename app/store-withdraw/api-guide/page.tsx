@@ -177,9 +177,9 @@ curl -X PUT -H "Content-Type: image/jpeg" --data-binary @ลูกหมาก.j
 
 curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2610-001/attachments/confirm" -d '{ "id": "9f3a1c0b7d2e4a55" }'`}</CodeBlock>
           <ul className="ml-1 space-y-2">
-            <Param name="จำนวน">ไม่เกิน 8 ไฟล์ต่อหัวข้อ (<code>context</code>) ต่อใบ · ชนิดไฟล์อื่นหรือใหญ่เกิน 10 MB ตอบ 400</Param>
+            <Param name="จำนวน">ไม่เกิน 8 ไฟล์ต่อหัวข้อ (<code>context</code>) ต่อใบ ยกเว้น <code>summary</code> ได้ 40 ไฟล์ (สรุปหลายคัน) · ชนิดไฟล์อื่นหรือใหญ่เกิน 10 MB ตอบ 400</Param>
             <Param name="confirm">ตอบ 409 ถ้ายังไม่เจอไฟล์หรือขนาดไม่ตรงกับที่แจ้ง · ยืนยันได้เฉพาะคนที่ขอลิงก์ · ยืนยันแล้วระบบบันทึกใน log ของใบ</Param>
-            <Param name="ผูกกับรายการ">ส่ง <code>attachmentIds</code> ตอนขอคืน (<code>context: &quot;return&quot;</code>) · ไฟล์ที่ผูกแล้วใช้ซ้ำกับรายการอื่นไม่ได้</Param>
+            <Param name="ผูกกับรายการ">ส่ง <code>attachmentIds</code> ตอนขอคืน (<code>context: &quot;return&quot;</code>) หรือในแต่ละแถวของสรุปการใช้ (<code>context: &quot;summary&quot;</code>) · ไฟล์ที่ผูกแล้วใช้ซ้ำกับรายการอื่นไม่ได้</Param>
             <Param name="แก้/ลบ">ทำไม่ได้ ไฟล์ที่ยืนยันแล้วเก็บไว้เป็นหลักฐาน 7 ปี</Param>
           </ul>
           <Ep verb="GET" path="/api/store-withdraw/{no}/attachments" />
@@ -197,8 +197,12 @@ curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2610-001/atta
           <Ep verb="POST" path="/api/store-withdraw/{no}/summary" />
           <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2611-001/summary" -d '{
   "usages": [
-    { "lineIndex": 0, "plate": "70-1234", "mrCode": "LBMR26110001", "mrItemId": 257041, "mrItemLabel": "LBMR26110001 PM-ระบบไฟ : 257041", "qty": 2 },
-    { "lineIndex": 0, "plate": "71-5678", "mrCode": "LBMR26110002", "mrItemId": 257100, "mrItemLabel": "LBMR26110002 PM-ระบบเบรค : 257100", "qty": 1 }
+    { "lineIndex": 0, "plate": "70-1234", "mrCode": "LBMR26110001", "mrItemId": 257041, "mrItemLabel": "LBMR26110001 PM-ระบบไฟ : 257041", "qty": 2,
+      "attachmentIds": ["a1b2c3d4e5f60718"] },
+    { "lineIndex": 1, "plate": "70-1234", "mrCode": "LBMR26110001", "mrItemId": 257041, "mrItemLabel": "LBMR26110001 PM-ระบบไฟ : 257041", "qty": 1,
+      "attachmentIds": ["a1b2c3d4e5f60718", "0f9e8d7c6b5a4932"] },   // รูปรถคันเดียวกันใช้ได้หลายแถว + รูปเฉพาะชิ้น
+    { "lineIndex": 0, "plate": "71-5678", "mrCode": "LBMR26110002", "mrItemId": 257100, "mrItemLabel": "LBMR26110002 PM-ระบบเบรค : 257100", "qty": 1,
+      "attachmentIds": ["5e4d3c2b1a090807"] }
   ],
   "note": ""                     // ไม่บังคับ
 }'
@@ -207,9 +211,11 @@ curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2610-001/atta
                "summary": { "usages": [ ... ], "returns": [ { "lineIndex": 0, "qty": 1 } ], "note": "", "by": { ... }, "at": "..." } } }`}</CodeBlock>
           <ul className="ml-1 space-y-2">
             <Param name="usages">หนึ่งแถว = ใช้บรรทัดไหน (<code>lineIndex</code> เริ่ม 0) กับรถคันไหน MR ไหน ประเภทการซ่อมไหน (<code>mrItemId</code> + <code>mrItemLabel</code> จาก <code>lookup/mr</code>) กี่ชิ้น · ทุก field บังคับ · <code>qty</code> &gt; 0 · ใช้หลายคันก็ส่งหลายแถว</Param>
+            <Param name="attachmentIds">บังคับทุกแถว อย่างน้อย 1 id · เป็นไฟล์หัวข้อ <code>summary</code> ของใบนี้ ที่คนสรุปอัปโหลดเองและยืนยันแล้ว ยังไม่เคยผูกกับรายการอื่น · ไม่มี/ใช้ไม่ได้ตอบ 400 · id เดียวกันใส่ได้หลายแถว (รูปรถทั้งคัน) · ส่งสำเร็จแล้วไฟล์ถูกผูกกับสรุป (<code>{`linkedTo: { "type": "summary" }`}</code>) ครั้งเดียว · id เก็บไว้ใน <code>summary.usages[].attachmentIds</code> (ใบที่สรุปก่อนมีฟีเจอร์นี้ไม่มี field นี้)</Param>
             <Param name="ของเหลือ">ระบบคิดให้เอง = จ่ายไป − ใช้รวม ต่อบรรทัด (ได้ใน <code>summary.returns</code>) · ใช้รวมเกินที่จ่ายตอบ 400 · ไม่ได้ใช้เลยส่ง <code>usages: []</code> ได้ (คืนทั้งหมด)</Param>
           </ul>
           <p>ได้เฉพาะเจ้าของใบ (403) และเฉพาะสถานะ <code>HANDED_OUT</code> (409) · สรุปแล้วแก้ไม่ได้</p>
+          <p>คนใช้เว็บสรุปได้ที่ลิงก์ <code>/store-withdraw/{`{no}`}/summary</code> (เปิดบนมือถือ แยกเป็นคัน แนบรูปในหน้าเดียว) ต้องล็อกอินด้วยบัญชีคนยื่นใบ</p>
 
           <Ep verb="POST" path="/api/store-withdraw/{no}/extend" />
           <CodeBlock>{`curl -X POST ${HDR} -H "Content-Type: application/json" "${API}/SW-2611-001/extend" -d '{ "summaryDueAt": "2026-11-08T17:00:00+07:00" }'

@@ -78,7 +78,7 @@ async function main() {
   // parseSummary
   const L = (p: Partial<SwRequest["lines"][number]> = {}) => ({ skuId: 501, skuCode: "OIL-001", skuName: "น้ำมันเครื่อง", requestedQty: 4, issuedQty: null, short: false, returnedQty: 0, mrItemId: null, mrItemLabel: null, serialNoId: null, remark: "", ...p })
   const lines = [L(), L({ skuId: 502, skuCode: "FLT-002", skuName: "ไส้กรอง", requestedQty: 3, issuedQty: 2, short: true })]
-  const U = (p: Json = {}) => ({ lineIndex: 0, plate: "70-1234", mrCode: "MR-1", mrItemId: 11, mrItemLabel: "MR-1 PM-ไฟ : 11", qty: 1, ...p })
+  const U = (p: Json = {}) => ({ lineIndex: 0, plate: "70-1234", mrCode: "MR-1", mrItemId: 11, mrItemLabel: "MR-1 PM-ไฟ : 11", qty: 1, attachmentIds: ["a1"], ...p })
   const ok = P.parseSummary(lines, { usages: [U({ qty: 3 }), U({ qty: 1, plate: "71-5678", mrCode: "MR-2", mrItemId: 22, mrItemLabel: "MR-2 PM-เบรค : 22" }), U({ lineIndex: 1, qty: 1.5 })] })
   assert.ok(!("error" in ok))
   eq((ok as P.ParsedSummary).returns, [{ lineIndex: 1, qty: 0.5 }]) // บรรทัด 0 ใช้ครบ 4 · บรรทัด 1 จ่าย 2 ใช้ 1.5
@@ -94,6 +94,100 @@ async function main() {
   assert.match((P.parseSummary(lines, { usages: [U({ qty: -1 })] }) as { error: string }).error, /มากกว่า 0/)
   assert.match((P.parseSummary(lines, { usages: [U({ lineIndex: 9 })] }) as { error: string }).error, /ไม่พบรายการ/)
   assert.ok("error" in P.parseSummary(lines, { usages: "x" }))
+  // รูปหลักฐาน: ทุกแถวต้องมี ≥1 id · รูปแบบผิด = 400 · id ซ้ำในแถวเดียวกันรวมให้
+  for (const bad of [[], null, undefined]) assert.match((P.parseSummary(lines, { usages: [U({ attachmentIds: bad })] }) as { error: string }).error, /แถวที่ 1: แนบรูปหลักฐาน/)
+  for (const bad of ["a1", [""], [1], ["x".repeat(65)]]) assert.match((P.parseSummary(lines, { usages: [U({ attachmentIds: bad })] }) as { error: string }).error, /attachmentIds ต้องเป็นรายการ/)
+  assert.match((P.parseSummary(lines, { usages: [U(), U({ lineIndex: 1, attachmentIds: [] })] }) as { error: string }).error, /แถวที่ 2: แนบรูป/)
+  assert.match((P.parseSummary(lines, { usages: [U({ attachmentIds: Array.from({ length: 41 }, (_, i) => `f${i}`) })] }) as { error: string }).error, /ไม่เกิน 40/)
+  eq((P.parseSummary(lines, { usages: [U({ attachmentIds: ["a1", " a1 ", "b2"] })] }) as P.ParsedSummary).usages[0].attachmentIds, ["a1", "b2"])
+  eq((ok as P.ParsedSummary).usages.map((u) => u.attachmentIds), [["a1"], ["a1"], ["a1"]])
+  // id รวมทั้งใบ: ไม่ซ้ำ · รวม attachmentIds ระดับใบ · เกิน 40 = error · ระดับใบผิดรูปแบบ = error
+  const us = (P.parseSummary(lines, { usages: [U({ attachmentIds: ["v1", "x1"] }), U({ lineIndex: 1, attachmentIds: ["v1"] })] }) as P.ParsedSummary).usages
+  eq(P.summaryAttachIds(us, undefined), ["v1", "x1"])
+  eq(P.summaryAttachIds(us, ["top", "v1"]), ["top", "v1", "x1"])
+  assert.ok("error" in (P.summaryAttachIds(us, "top") as object))
+  assert.match((P.summaryAttachIds(us, Array.from({ length: 39 }, (_, i) => `t${i}`)) as { error: string }).error, /ไม่เกิน 40/)
+  eq((P.summaryAttachIds(us, Array.from({ length: 38 }, (_, i) => `t${i}`)) as string[]).length, 40)
+  eq(P.summaryAttachIds([{ lineIndex: 0, plate: "x", mrCode: "m", mrItemId: 1, mrItemLabel: "l", qty: 1 }], undefined), []) // ใบเก่าไม่มี attachmentIds
+
+  // ================= หน้าสรุปรายคัน (lib/store-withdraw/summary-draft.ts) =================
+  const D = await import("../lib/store-withdraw/summary-draft")
+  const f = (id: string) => ({ id, name: `${id}.jpg`, type: "image/jpeg" })
+  const items = [{ id: 11, label: "MR-1 PM-ไฟ : 11" }, { id: 12, label: "MR-1 PM-เบรค : 12" }]
+  const V = (p: Partial<import("../lib/store-withdraw/summary-draft").DraftVehicle> = {}) => ({ ...D.emptyVehicle("v1", "70-1234"), mrCode: "MR-1", mrItems: items, mrItemId: 11, files: [f("v1a")], ...p })
+  // บรรทัด 0 จ่าย 4 · บรรทัด 1 จ่าย 2 (ขอ 3) · บรรทัด 2 จ่าย 0 = ไม่โชว์/เพิ่มไม่ได้
+  const dl = [...lines, L({ skuId: 503, skuName: "สายพาน", requestedQty: 1, issuedQty: 0, short: true })]
+  const two = [
+    V({ parts: [{ key: "p1", lineIndex: 0, qty: 3, files: [] }, { key: "p2", lineIndex: 1, qty: 0.5, files: [f("x1")] }] }),
+    V({ key: "v2", plate: "71-5678", mrCode: "MR-2", mrItems: [{ id: 22, label: "MR-2 PM-เบรค : 22" }], mrItemId: 22, files: [f("v2a")], parts: [{ key: "p3", lineIndex: 0, qty: 1, files: [] }] }),
+  ]
+  eq(D.partCounters(dl, two), [{ lineIndex: 0, issued: 4, used: 4, left: 0 }, { lineIndex: 1, issued: 2, used: 0.5, left: 1.5 }])
+  eq(D.maxForPart(dl, two, "v1", "p1", 0), 3) // 4 − ที่คันที่ 2 ใช้ 1
+  eq(D.maxForPart(dl, two, "v2", "p3", 0), 1)
+  eq(D.maxForPart(dl, two, "v2", "new", 1), 1.5)
+  eq(D.maxForPart(dl, two, "v1", "p1", 9), 0)
+  eq(D.addableLines(dl, two, "v2"), [1]) // บรรทัด 0 แบ่งหมดแล้ว · บรรทัด 2 จ่าย 0
+  eq(D.addableLines(dl, two, "v1"), []) // บรรทัด 1 อยู่ในบล็อกแล้ว
+  eq([D.clampQty(5, 3), D.clampQty(-1, 3), D.clampQty("abc", 3), D.clampQty("1,5", 3), D.clampQty(2, -1), D.clampQty(0.1 + 0.2, 3)], [3, 0, 0, 1.5, 0, 0.3])
+  eq(D.rowAttachIds(two[0], two[0].parts[1]), ["v1a", "x1"])
+  eq(D.vehicleProblem(two[0]), null)
+  eq(D.draftProblems(dl, { vehicles: two }), [])
+  eq(D.draftTotals(dl, { vehicles: two }), { used: 4.5, left: 1.5, vehicles: 2, leftover: [{ lineIndex: 1, qty: 1.5 }] })
+  eq(D.toUsages({ vehicles: two }), [
+    { lineIndex: 0, plate: "70-1234", mrCode: "MR-1", mrItemId: 11, mrItemLabel: "MR-1 PM-ไฟ : 11", qty: 3, attachmentIds: ["v1a"] },
+    { lineIndex: 1, plate: "70-1234", mrCode: "MR-1", mrItemId: 11, mrItemLabel: "MR-1 PM-ไฟ : 11", qty: 0.5, attachmentIds: ["v1a", "x1"] },
+    { lineIndex: 0, plate: "71-5678", mrCode: "MR-2", mrItemId: 22, mrItemLabel: "MR-2 PM-เบรค : 22", qty: 1, attachmentIds: ["v2a"] },
+  ])
+  // ผลของหน้า = ผ่าน parseSummary ฝั่งเซิร์ฟเวอร์ และของเหลือตรงกัน
+  eq((P.parseSummary(dl, { usages: D.toUsages({ vehicles: two }) }) as P.ParsedSummary).returns, [{ lineIndex: 1, qty: 1.5 }])
+  // บล็อกที่ยังไม่ครบ: ข้อความทีละเรื่อง
+  assert.match(String(D.vehicleProblem(V({ plate: " " }))), /ทะเบียน/)
+  assert.match(String(D.vehicleProblem(V({ mrCode: "" }))), /MR/)
+  assert.match(String(D.vehicleProblem(V({ mrItemId: null }))), /ประเภทการซ่อม/)
+  assert.match(String(D.vehicleProblem(V({ mrItemId: 99 }))), /ประเภทการซ่อม/)
+  assert.match(String(D.vehicleProblem(V({ mrItems: [], mrItemId: null }))), /เลือก MR จากรายการ/)
+  assert.match(String(D.vehicleProblem(V())), /เพิ่มอะไหล่/)
+  assert.match(String(D.vehicleProblem(V({ parts: [{ key: "p", lineIndex: 0, qty: 0, files: [] }] }))), /จำนวน/)
+  assert.match(String(D.vehicleProblem(V({ files: [], parts: [{ key: "p", lineIndex: 0, qty: 1, files: [] }] }))), /แนบรูป/)
+  eq(D.vehicleProblem(V({ files: [], parts: [{ key: "p", lineIndex: 0, qty: 1, files: [f("only")] }] })), null) // รูปรายชิ้นแทนรูปทั้งคันได้
+  const over = [V({ parts: [{ key: "p1", lineIndex: 0, qty: 3, files: [] }] }), V({ key: "v2", parts: [{ key: "p2", lineIndex: 0, qty: 2, files: [] }] })]
+  eq(D.draftProblems(dl, { vehicles: over }), ["น้ำมันเครื่อง: ใช้เกินที่เบิกไป 1"])
+  assert.match(D.draftProblems(dl, { vehicles: [V({ parts: [{ key: "p", lineIndex: 0, qty: 1, files: [] }] }), V({ key: "v2", plate: "" })] })[0], /^คันที่ 2: ใส่ทะเบียน/)
+  const many = [V({ files: Array.from({ length: 41 }, (_, i) => f(`m${i}`)), parts: [{ key: "p", lineIndex: 0, qty: 1, files: [] }] })]
+  assert.match(D.draftProblems(dl, { vehicles: many }).join(), /ไม่เกิน 40/)
+  eq(D.draftProblems(dl, { vehicles: [] }), []) // ไม่ได้ใช้เลย = คืนหมด ส่งได้
+  eq(D.draftTotals(dl, { vehicles: [] }).left, 6)
+  // ร่าง: เก็บ → กู้ได้เหมือนเดิม · คนละใบ/รุ่น/อ่านไม่ออก = null · บรรทัดผิด/จ่าย 0 ถูกตัด · จำนวนเกินถูกตัดให้พอดี
+  eq(D.draftKey("SW-2611-009"), "sw-summary-draft:SW-2611-009")
+  const saved: import("../lib/store-withdraw/summary-draft").Draft = { v: 1, no: "SW-2611-009", vehicles: two, note: "งาน PM", savedAt: 123 }
+  eq(D.parseDraft(JSON.stringify(saved), "SW-2611-009", dl), saved)
+  eq(D.parseDraft(JSON.stringify(saved), "SW-2611-010", dl), null)
+  eq(D.parseDraft(JSON.stringify({ ...saved, v: 2 }), "SW-2611-009", dl), null)
+  for (const bad of [null, "", "{", "[]", JSON.stringify({ v: 1, no: "SW-2611-009" })]) eq(D.parseDraft(bad, "SW-2611-009", dl), null)
+  const messy = { v: 1, no: "X", note: 5, vehicles: [
+    { key: "a", plate: "70-1", mrCode: "M", mrItems: [{ id: 1, label: "M t : 1" }, { id: "x" }, null], mrItemId: 7, files: [f("k"), f("k"), { id: 3 }],
+      parts: [{ key: "q", lineIndex: 0, qty: 9, files: "no" }, { key: "q", lineIndex: 0, qty: 1 }, { lineIndex: 2, qty: 1 }, { lineIndex: 7, qty: 1 }, { lineIndex: 1, qty: "1" }] },
+    { key: "a", plate: 123, parts: [{ lineIndex: 0, qty: 2 }] }, "junk",
+  ] }
+  const md = D.parseDraft(JSON.stringify(messy), "X", dl)!
+  eq(md.note, "")
+  eq(md.vehicles.map((v) => v.key), ["a", "a_"])
+  eq(md.vehicles[0].mrItems, [{ id: 1, label: "M t : 1" }]); eq(md.vehicles[0].mrItemId, null) // mrItemId ที่ไม่อยู่ในรายการถูกล้าง
+  eq(md.vehicles[0].files, [f("k")])
+  eq(md.vehicles[0].parts.map((p) => [p.key, p.lineIndex, p.qty]), [["q", 0, 4], ["p4", 1, 1]]) // 9 → 4 (จ่าย 4) · ซ้ำบรรทัด/จ่าย 0/ไม่มีบรรทัด ถูกตัด
+  eq(md.vehicles[1].plate, ""); eq(md.vehicles[1].parts.map((p) => [p.lineIndex, p.qty]), [[0, 0]]) // บรรทัด 0 ถูกคันแรกใช้หมดแล้ว = เหลือแถวจำนวน 0 ให้แก้เอง
+  eq(D.draftIsEmpty({ vehicles: [D.emptyVehicle("v", "70-1")], note: "" }), true)
+  eq(D.draftIsEmpty({ vehicles: [D.emptyVehicle("v")], note: "x" }), false)
+  eq(D.draftIsEmpty(saved), false)
+
+  // ข้อมูลเก่า (usages ไม่มี attachmentIds) ยังแสดงได้: summaryWithFiles ให้รายการรูปว่าง
+  const { summaryWithFiles } = await import("../lib/store-withdraw/audit")
+  const oldShape = { lines, summary: { usages: [{ lineIndex: 0, plate: "70-1234", mrCode: "MR-1", mrItemId: 11, mrItemLabel: "MR-1 PM-ไฟ : 11", qty: 2 }], returns: [{ lineIndex: 0, qty: 2 }], note: "", by: { email: "a", name: "ก" }, at: now } }
+  eq(summaryWithFiles(oldShape, [])!.usages[0].attachments, [])
+  eq(summaryWithFiles(oldShape, [])!.returns, [{ lineIndex: 0, skuName: "น้ำมันเครื่อง", qty: 2 }])
+  eq(summaryWithFiles({ lines, summary: null }, []), null)
+  const withIds = { lines, summary: { ...oldShape.summary, usages: [{ ...oldShape.summary.usages[0], attachmentIds: ["a", "gone"] }] } }
+  eq(summaryWithFiles(withIds, [{ id: "a", filename: "a.jpg", url: "u" }])!.usages[0].attachments, [{ id: "a", filename: "a.jpg", url: "u" }])
 
   // buildSettleGroups: ต่อทะเบียน (normalize) · เรียงทะเบียน · token · รวมบรรทัดซ้ำ · ใช้ 0 = ไม่มีกลุ่ม
   const ea = () => ({ gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null })
@@ -130,6 +224,27 @@ async function main() {
   const { driftTick, checkDriftDetailed } = await import("../lib/store-withdraw/drift")
   await saveCreds(store.email, "store1", "pw-store", { username: "store1", branch: "ลาดกระบัง" })
   const get = async (no: string) => (await (await swCol()).findOne({ no }))!
+  // ที่เก็บไฟล์ปลอม (ไม่แตะ Spaces) · ev() = อัปโหลด+ยืนยันไฟล์หัวข้อ summary ของใบนั้นจริงตามขั้นตอน presign → PUT → confirm
+  const objects = new Map<string, { size: number; contentType: string }>()
+  const { setAttachStorage } = await import("../lib/store-withdraw/storage")
+  setAttachStorage({
+    async presignPut(key: string) { return `https://fake.test/put/${key}` },
+    async headObject(key: string) { return objects.get(key) ?? null },
+    async presignGet(key: string, filename: string) { return `https://fake.test/get/${key}?n=${encodeURIComponent(filename)}` },
+  })
+  const A = await import("../lib/store-withdraw/attachments")
+  const asWho = (actor: typeof req1, isStore = false) => ({ actor, isStore, storeView: isStore })
+  const presign = async (no: string, actor = req1, context = "summary", isStore = false) => {
+    const p = await A.presignAttachment(no, { context, filename: "work.jpg", contentType: "image/jpeg", size: 100 }, asWho(actor, isStore))
+    objects.set(p.key, { size: 100, contentType: "image/jpeg" })
+    return p.id
+  }
+  const ev = async (no: string, actor = req1, context = "summary", isStore = false) => {
+    const id = await presign(no, actor, context, isStore)
+    await A.confirmAttachment(no, id, asWho(actor, isStore))
+    return id
+  }
+  const linked = async (id: string) => (await (await A.attachCol()).findOne({ _id: id }))?.linkedTo ?? null
 
   const ncacOptions = (c: Call) => (c.path === "/atms/withdraw/options" ? { status: 200, body: { inventories: [{ id: 4, name: "ลาดกระบัง" }], pick_tos: [{ id: 7, name: "PM" }] } } : null)
   handler = (c) => ncacOptions(c) ?? { status: 404, body: {} }
@@ -191,19 +306,49 @@ async function main() {
   // ---- สรุปการใช้ ----
   await rejects(S.submitSummary(m.no, { usages: [] }, req2), "HttpError", /ไม่ใช่ของคุณ/, 403)
   await rejects(S.submitSummary(g0.no, { usages: [] }, req1), "ConflictError") // ใบอู่ใน
-  const mk = (p: Json) => ({ lineIndex: 0, plate: "71-5678", mrCode: "LBMR26110002", mrItemId: 22, mrItemLabel: "LBMR26110002 PM-เบรค : 22", qty: 1, ...p })
+  const mk = (p: Json) => ({ lineIndex: 0, plate: "71-5678", mrCode: "LBMR26110002", mrItemId: 22, mrItemLabel: "LBMR26110002 PM-เบรค : 22", qty: 1, attachmentIds: ["ไม่มีจริง"], ...p })
   await rejects(S.submitSummary(m.no, { usages: [mk({ lineIndex: 1, qty: 3 })] }, req1), "HttpError", /เกินที่เบิกไป 2/, 400)
   await rejects(S.submitSummary(m.no, { usages: [mk({ mrItemId: 0 })] }, req1), "HttpError", /ประเภทการซ่อม/, 400)
   eq((await get(m.no)).status, "HANDED_OUT")
+
+  // ---- รูปหลักฐานต่อแถว: ไม่มี / ไม่มีจริง / คนอื่นอัปโหลด / ยังไม่ยืนยัน / หัวข้ออื่น / ใบอื่น = 400 ทั้งหมด ไม่มีอะไรถูกผูก ----
+  const vA = await ev(m.no)              // รูปรถคัน 70-1234 (ใช้กับทุกแถวของคันนี้)
+  const vB = await ev(m.no)              // รูปรถคัน 71-5678
+  const xA = await ev(m.no)              // รูปเพิ่มเฉพาะชิ้นไส้กรอง
+  const byStore = await ev(m.no, store, "summary", true)
+  const unconfirmed = await presign(m.no)
+  const otherCtx = await ev(m.no, req1, "other")
+  const otherReq = await ev(late.no, req2)
+  await rejects(S.submitSummary(m.no, { usages: [mk({ attachmentIds: [] })] }, req1), "HttpError", /แนบรูปหลักฐาน/, 400)
+  await rejects(S.submitSummary(m.no, { usages: [mk({ attachmentIds: [vA] }), mk({ plate: "70-1234", attachmentIds: undefined })] }, req1), "HttpError", /แถวที่ 2: แนบรูป/, 400)
+  for (const [bad, why] of [["ไม่มีจริง", "ไม่มีจริง"], [byStore, "คนอื่นอัปโหลด"], [unconfirmed, "ยังไม่ยืนยัน"], [otherCtx, "หัวข้ออื่น"], [otherReq, "ใบอื่น"]] as const) {
+    await rejects(S.submitSummary(m.no, { usages: [mk({ attachmentIds: [vB] }), mk({ plate: "70-1234", attachmentIds: [vA, bad] })] }, req1), "HttpError", /ไฟล์แนบบางไฟล์ใช้ไม่ได้/, 400)
+    eq((await get(m.no)).status, "HANDED_OUT", why)
+  }
+  await rejects(S.submitSummary(m.no, { usages: [mk({ attachmentIds: [vB] })], attachmentIds: [otherCtx] }, req1), "HttpError", /ไฟล์แนบบางไฟล์/, 400) // ระดับใบก็ตรวจ
+  await rejects(S.submitSummary(m.no, { usages: [mk({ attachmentIds: [vB] })] }, req2), "HttpError", /ไม่ใช่ของคุณ/, 403) // คนอื่นสรุปไม่ได้ แม้ id ถูก
+  for (const id of [vA, vB, xA, byStore, otherCtx, otherReq]) eq(await linked(id), null)
+
   const sm = await S.submitSummary(m.no, {
     usages: [
-      mk({ qty: 1 }),                                                                                  // 71-5678 น้ำมัน 1
-      mk({ plate: "70-1234", mrCode: "LBMR26110001", mrItemId: 11, mrItemLabel: "LBMR26110001 PM-ไฟ : 11", qty: 2 }), // 70-1234 น้ำมัน 2
-      mk({ plate: "70-1234", mrCode: "LBMR26110001", mrItemId: 11, mrItemLabel: "LBMR26110001 PM-ไฟ : 11", lineIndex: 1, qty: 1 }), // 70-1234 ไส้กรอง 1
+      mk({ qty: 1, attachmentIds: [vB] }),                                                                                  // 71-5678 น้ำมัน 1
+      mk({ plate: "70-1234", mrCode: "LBMR26110001", mrItemId: 11, mrItemLabel: "LBMR26110001 PM-ไฟ : 11", qty: 2, attachmentIds: [vA] }), // 70-1234 น้ำมัน 2
+      mk({ plate: "70-1234", mrCode: "LBMR26110001", mrItemId: 11, mrItemLabel: "LBMR26110001 PM-ไฟ : 11", lineIndex: 1, qty: 1, attachmentIds: [vA, xA, vA] }), // 70-1234 ไส้กรอง 1
     ],
     note: "ใช้สองคัน",
   }, req1)
   eq(sm.status, "SUMMARIZED")
+  eq(sm.summary!.usages.map((u) => u.attachmentIds), [[vB], [vA], [vA, xA]]) // เก็บ id ต่อแถว (ซ้ำในแถวรวมให้ · id เดียวอยู่หลายแถวได้)
+  eq((await get(m.no)).summary!.usages[2].attachmentIds, [vA, xA])
+  for (const id of [vA, vB, xA]) eq(await linked(id), { type: "summary" })
+  for (const id of [byStore, unconfirmed, otherCtx, otherReq]) eq(await linked(id), null)
+  await A.linkAttachments(m.no, [vA], { type: "return", rid: "R9" }) // ผูกแล้วผูกซ้ำไม่ได้ (append-only)
+  eq(await linked(vA), { type: "summary" })
+  // ไทม์ไลน์ตรวจสอบ: สรุปรายแถวพร้อมลิงก์รูป
+  const { auditDetail } = await import("../lib/store-withdraw/audit")
+  const ad = await auditDetail(m.no)
+  eq(ad.summary!.usages.map((u) => [u.plate, u.skuName, u.qty, u.attachments.map((a) => a.id)]), [["71-5678", "น้ำมันเครื่อง", 1, [vB]], ["70-1234", "น้ำมันเครื่อง", 2, [vA]], ["70-1234", "ไส้กรอง", 1, [vA, xA]]])
+  assert.ok(ad.summary!.usages[2].attachments[1].url.startsWith("https://fake.test/get/"))
   eq(sm.summary!.returns, [{ lineIndex: 0, qty: 1 }, { lineIndex: 1, qty: 1 }]) // น้ำมัน 4−3 · ไส้กรอง 2−1
   eq(sm.summary!.by.email, req1.email); eq(sm.summary!.note, "ใช้สองคัน")
   await rejects(S.submitSummary(m.no, { usages: [] }, req1), "ConflictError") // สรุปซ้ำไม่ได้
@@ -281,7 +426,8 @@ async function main() {
   // ใช้ครบทุกชิ้น = ไม่มีของเหลือ ไม่ต้องติ๊ก
   const full = await createRequest({ ...base, workType: "mobile_pm", summaryDueAt: dueIso }, req1)
   await toReady(full.no, [1, 1]); await S.handOut(full.no, store)
-  await S.submitSummary(full.no, { usages: [mk({ qty: 1 }), mk({ lineIndex: 1, qty: 1 })] }, req1)
+  const fe = [await ev(full.no)]
+  await S.submitSummary(full.no, { usages: [mk({ qty: 1, attachmentIds: fe }), mk({ lineIndex: 1, qty: 1, attachmentIds: fe })] }, req1)
   handler = () => ({ status: 200, body: { progress: { gm_id: 9100, done: [0, 1], approved: true, code: "LBWD-9100" } } })
   calls = []
   const fu = await S.settleRequest(full.no, undefined, store)
@@ -290,7 +436,8 @@ async function main() {
   // ---- ยังไม่ได้ผูกบัญชี ATMS ----
   const nc = await createRequest({ ...base, workType: "mobile_pm", summaryDueAt: dueIso }, req1)
   await toReady(nc.no); await S.handOut(nc.no, store)
-  await S.submitSummary(nc.no, { usages: [mk({ qty: 4 }), mk({ lineIndex: 1, qty: 3 })] }, req1)
+  const ne = [await ev(nc.no)]
+  await S.submitSummary(nc.no, { usages: [mk({ qty: 4, attachmentIds: ne }), mk({ lineIndex: 1, qty: 3, attachmentIds: ne })] }, req1)
   calls = []
   const ncr = await S.settleRequest(nc.no, undefined, req2)
   eq(ncr.status, "SETTLE_FAILED"); eq(ncr.settleGroups![0].atms.needCreds, true); eq(calls.length, 0)
@@ -314,7 +461,8 @@ async function main() {
   // แข่งกันกดตัด: ATMS ถูกยิงครั้งเดียว
   const rc = await createRequest({ ...base, workType: "mobile_pm", summaryDueAt: dueIso }, req1)
   await toReady(rc.no); await S.handOut(rc.no, store)
-  await S.submitSummary(rc.no, { usages: [mk({ qty: 4 }), mk({ lineIndex: 1, qty: 3 })] }, req1)
+  const re = [await ev(rc.no)]
+  await S.submitSummary(rc.no, { usages: [mk({ qty: 4, attachmentIds: re }), mk({ lineIndex: 1, qty: 3, attachmentIds: re })] }, req1)
   handler = async () => { await new Promise((r) => setTimeout(r, 60)); return { status: 200, body: { progress: { gm_id: 9300, done: [0], approved: true, code: "LBWD-9300" } } } }
   calls = []
   const both = await Promise.allSettled([S.settleRequest(rc.no, undefined, store), S.settleRequest(rc.no, undefined, store)])
@@ -367,6 +515,45 @@ async function main() {
   await rejects(S.handOut(g0.no, store), "ConflictError")
   const gi = await issueRequest(g0.no, store)
   eq(gi.status, "ISSUED"); eq(issues().length, 1); eq(issues()[0].body!.remark_token, g0.no)
+
+  // ---- เพดานไฟล์: summary 40 ต่อใบ · หัวข้ออื่นยัง 8 ----
+  const cap = await createRequest({ ...base, workType: "mobile_pm", summaryDueAt: dueIso }, req1)
+  for (let i = 0; i < 40; i++) await presign(cap.no)
+  await rejects(presign(cap.no), "HttpError", /ไม่เกิน 40/, 400)
+  for (let i = 0; i < 8; i++) await presign(cap.no, req1, "other")
+  await rejects(presign(cap.no, req1, "other"), "HttpError", /ไม่เกิน 8/, 400)
+  await rejects(A.resolveLinkable(cap.no, Array.from({ length: 41 }, (_, i) => `z${i}`), "summary", req1), "HttpError", /ไม่เกิน 40/, 400)
+  await rejects(A.resolveLinkable(cap.no, Array.from({ length: 9 }, (_, i) => `z${i}`), "return", req1), "HttpError", /ไม่เกิน 8/, 400)
+  eq(A.attachCap("summary"), 40); eq(A.attachCap("return"), 8); eq(A.MAX_ATTACH_SUMMARY, P.MAX_SUMMARY_ATTACH)
+  // 40 รูปในสรุปเดียวส่งได้
+  await toReady(cap.no); await S.handOut(cap.no, store)
+  const capIds = (await (await A.attachCol()).find({ no: cap.no, context: "summary" }).toArray()).map((d) => d._id)
+  for (const k of capIds) objects.set(`store-withdraw/${cap.no}/${k}-work.jpg`, { size: 100, contentType: "image/jpeg" })
+  for (const k of capIds) await A.confirmAttachment(cap.no, k, asWho(req1))
+  const cs = await S.submitSummary(cap.no, { usages: [mk({ qty: 1, attachmentIds: capIds.slice(0, 20) }), mk({ plate: "70-1", lineIndex: 1, qty: 1, attachmentIds: capIds.slice(20) })] }, req1)
+  eq(cs.status, "SUMMARIZED"); eq(cs.summary!.usages.flatMap((u) => u.attachmentIds ?? []).length, 40)
+
+  // ---- ใบเก่า (usages ไม่มี attachmentIds): ไทม์ไลน์/ตัดสต๊อกยังทำงาน ----
+  const old = await createRequest({ ...base, workType: "mobile_pm", summaryDueAt: dueIso }, req1)
+  await toReady(old.no); await S.handOut(old.no, store)
+  await (await swCol()).updateOne({ no: old.no }, { $set: { status: "SUMMARIZED", summary: {
+    usages: [{ lineIndex: 0, plate: "70-1234", mrCode: "LBMR26110001", mrItemId: 11, mrItemLabel: "LBMR26110001 PM-ไฟ : 11", qty: 4 }, { lineIndex: 1, plate: "70-1234", mrCode: "LBMR26110001", mrItemId: 11, mrItemLabel: "LBMR26110001 PM-ไฟ : 11", qty: 3 }],
+    returns: [], note: "", by: { email: req1.email, name: req1.name }, at: new Date() } } })
+  const od = await auditDetail(old.no)
+  eq(od.summary!.usages.map((u) => u.attachments), [[], []])
+  handler = () => ({ status: 200, body: { progress: { gm_id: 9400, done: [0, 1], approved: true, code: "LBWD-9400" } } })
+  eq((await S.settleRequest(old.no, undefined, store)).status, "SETTLED")
+
+  // ---- การ์ดสรุป (SummaryView) แสดงได้ทั้งข้อมูลเก่าและใหม่ (render ฝั่งเซิร์ฟเวอร์ ไม่ต้องมีเบราว์เซอร์) ----
+  const { renderToStaticMarkup } = await import("react-dom/server")
+  const { createElement } = await import("react")
+  const { SummaryView } = await import("../components/store-withdraw/summary-dialog")
+  const toJson = <T,>(x: T) => JSON.parse(JSON.stringify(x))
+  const htmlOld = renderToStaticMarkup(createElement(SummaryView, { req: toJson(await get(old.no)) }))
+  assert.match(htmlOld, /data-plate="70-1234"/); assert.ok(!htmlOld.includes("usage-files"))
+  const htmlNew = renderToStaticMarkup(createElement(SummaryView, { req: toJson(await get(m.no)) }))
+  eq((htmlNew.match(/data-testid="usage-files"/g) ?? []).length, 3)
+  assert.match(htmlNew, /data-count="2"/)
 
   await client.close(); await mongod.stop()
   console.log("check-store-withdraw-pending: OK")

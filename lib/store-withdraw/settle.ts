@@ -7,7 +7,8 @@ import { ConflictError, NotFoundError, ddmmyyyyBkk, swCol, transition, writeLog,
 import { isPendingFlow } from "./core"
 import { HttpError } from "./http"
 import { MSG, STUCK_MS, callNcac, interpret, toWire } from "./issue"
-import { buildSettleGroups, leftoverTotal, parseDue, parseSummary, settleRemark } from "./pending"
+import { linkAttachments, resolveLinkable } from "./attachments"
+import { buildSettleGroups, leftoverTotal, parseDue, parseSummary, settleRemark, summaryAttachIds } from "./pending"
 import type { AtmsProgress, SwRequest, SwSettleGroup } from "./types"
 
 const emptyAtms = (): AtmsProgress => ({
@@ -38,8 +39,15 @@ export async function submitSummary(no: string, body: Record<string, unknown>, a
   if (cur.status !== "HANDED_OUT") throw new ConflictError("สรุปได้เฉพาะใบที่สโตร์ส่งของแล้วและยังไม่ได้สรุป รีเฟรชดูสถานะ")
   const p = parseSummary(cur.lines, body)
   if ("error" in p) throw new HttpError(p.error, 400)
+  const all = summaryAttachIds(p.usages, body.attachmentIds)
+  if ("error" in all) throw new HttpError(all.error, 400)
+  // ทุก id ต้องเป็นไฟล์ของใบนี้ หัวข้อ summary ที่ผู้สรุปอัปโหลดเอง ยืนยันแล้ว และยังไม่ถูกผูก — ไม่ผ่านสักตัว = 400
+  const ids = await resolveLinkable(no, all, "summary", actor)
   const summary = { ...p, by: { email: actor.email, name: actor.name }, at: new Date() }
-  return transition(no, "summarize", actor, { summary })
+  const after = await transition(no, "summarize", actor, { summary })
+  // ผูกครั้งเดียว (ไฟล์ที่ผูกแล้วไม่ถูกแตะ) · id เดียวอยู่หลายแถวได้ ผูกครั้งเดียวพอ
+  await linkAttachments(no, ids, { type: "summary" })
+  return after
 }
 
 // ---------- เลื่อนกำหนดสรุป (ผู้ขอ) ----------

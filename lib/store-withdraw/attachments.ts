@@ -13,6 +13,9 @@ export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic
 export const ATTACH_TYPES: string[] = [...IMAGE_TYPES, "application/pdf"]
 export const MAX_ATTACH_BYTES = 10 * 1024 * 1024
 export const MAX_ATTACH_PER_CONTEXT = 8
+/** สรุปการใช้แยกรายคัน มีรูปหลายคันต่อใบ จึงให้ 40 ไฟล์ · หัวข้ออื่น 8 เท่าเดิม */
+export const MAX_ATTACH_SUMMARY = 40
+export const attachCap = (context: AttachContext) => (context === "summary" ? MAX_ATTACH_SUMMARY : MAX_ATTACH_PER_CONTEXT)
 const PENDING_WINDOW_MS = 60 * 60_000
 
 export type LinkTarget = { type: "return" | "reject" | "summary"; rid?: string }
@@ -78,7 +81,7 @@ export async function presignAttachment(no: string, body: Record<string, unknown
     no, context,
     $or: [{ confirmedAt: { $ne: null } }, { at: { $gte: new Date(Date.now() - PENDING_WINDOW_MS) } }],
   })
-  if (used >= MAX_ATTACH_PER_CONTEXT) throw new HttpError(`แนบได้ไม่เกิน ${MAX_ATTACH_PER_CONTEXT} ไฟล์ต่อหัวข้อ`, 400)
+  if (used >= attachCap(context)) throw new HttpError(`แนบได้ไม่เกิน ${attachCap(context)} ไฟล์ต่อหัวข้อ`, 400)
 
   const id = randomBytes(8).toString("hex")
   const key = `store-withdraw/${no}/${id}-${keyName(filename)}`
@@ -160,7 +163,7 @@ export async function resolveLinkable(no: string, raw: unknown, context: AttachC
   if (!Array.isArray(raw)) throw new HttpError("attachmentIds ต้องเป็นรายการ", 400)
   const ids = [...new Set(raw.map((x) => String(x)))]
   if (ids.length === 0) return []
-  if (ids.length > MAX_ATTACH_PER_CONTEXT) throw new HttpError(`แนบได้ไม่เกิน ${MAX_ATTACH_PER_CONTEXT} ไฟล์`, 400)
+  if (ids.length > attachCap(context)) throw new HttpError(`แนบได้ไม่เกิน ${attachCap(context)} ไฟล์`, 400)
   const docs = await (await attachCol()).find({ _id: { $in: ids }, no, context, "by.email": actor.email, confirmedAt: { $ne: null }, linkedTo: { $exists: false } }).toArray()
   if (docs.length !== ids.length || docs.some((d) => !ATTACH_TYPES.includes(d.contentType))) {
     throw new HttpError("ไฟล์แนบบางไฟล์ใช้ไม่ได้ (ไม่ใช่ของคุณ ไม่ใช่ใบนี้ ยังอัปโหลดไม่เสร็จ หรือถูกใช้กับรายการอื่นแล้ว) แนบใหม่แล้วลองอีกครั้ง", 400)

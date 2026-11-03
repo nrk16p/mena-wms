@@ -8,6 +8,9 @@ export const MAX_NOTE = 500
 export const MAX_USAGE_PLATE = 20
 export const MAX_MR_CODE = 40
 export const MAX_MR_LABEL = 200
+/** ไฟล์แนบหัวข้อสรุปการใช้ได้สูงสุดต่อใบ (หัวข้ออื่น 8) — ต้องตรงกับ attachCap ใน attachments.ts */
+export const MAX_SUMMARY_ATTACH = 40
+const MAX_ID_LEN = 64
 const DAY = 86_400_000
 const EPS = 1e-9
 
@@ -33,7 +36,7 @@ const str = (v: unknown) => (v == null ? "" : String(v).trim())
 export type ParsedSummary = { usages: SwUsage[]; returns: { lineIndex: number; qty: number }[]; note: string }
 
 /**
- * ตรวจสรุปการใช้: ทุกแถวต้องมีทะเบียน MR ประเภทการซ่อม และจำนวน > 0 · ใช้รวมต่อบรรทัดต้องไม่เกินที่จ่าย
+ * ตรวจสรุปการใช้: ทุกแถวต้องมีทะเบียน MR ประเภทการซ่อม จำนวน > 0 และรูปหลักฐาน ≥1 (attachmentIds) · ใช้รวมต่อบรรทัดต้องไม่เกินที่จ่าย
  * ของเหลือ (จ่าย − ใช้) = คืนสโตร์ คำนวณให้ · ไม่ใช้เลย (คืนหมด) ก็ส่งได้
  */
 export function parseSummary(lines: SwLine[], body: Record<string, unknown>): ParsedSummary | { error: string } {
@@ -63,8 +66,12 @@ export function parseSummary(lines: SwLine[], body: Record<string, unknown>): Pa
     if (mrItemLabel.length > MAX_MR_LABEL) return { error: `${at}: ชื่อประเภทการซ่อมยาวเกินไป` }
     const qty = typeof r.qty === "number" ? r.qty : Number(r.qty)
     if (!Number.isFinite(qty) || qty <= 0) return { error: `${at}: จำนวนที่ใช้ต้องมากกว่า 0` }
+    const ids = parseIds(r.attachmentIds)
+    if (ids === null) return { error: `${at}: attachmentIds ต้องเป็นรายการ id ไฟล์แนบ` }
+    if (ids.length === 0) return { error: `${at}: แนบรูปหลักฐานของรถคันนี้อย่างน้อย 1 รูป` }
+    if (ids.length > MAX_SUMMARY_ATTACH) return { error: `${at}: แนบได้ไม่เกิน ${MAX_SUMMARY_ATTACH} ไฟล์` }
     used.set(lineIndex, (used.get(lineIndex) ?? 0) + qty)
-    usages.push({ lineIndex, plate, mrCode, mrItemId, mrItemLabel, qty })
+    usages.push({ lineIndex, plate, mrCode, mrItemId, mrItemLabel, qty, attachmentIds: ids })
   }
 
   const returns: { lineIndex: number; qty: number }[] = []
@@ -80,6 +87,31 @@ export function parseSummary(lines: SwLine[], body: Record<string, unknown>): Pa
 
 const round = (n: number) => Math.round(n * 1e6) / 1e6
 const fmt = (n: number) => String(round(n))
+
+/** id ไฟล์แนบ: รายการสตริงไม่ว่าง ไม่ซ้ำ · null = รูปแบบผิด */
+function parseIds(raw: unknown): string[] | null {
+  if (raw == null) return []
+  if (!Array.isArray(raw)) return null
+  const out: string[] = []
+  for (const x of raw) {
+    if (typeof x !== "string" || !x.trim() || x.length > MAX_ID_LEN) return null
+    if (!out.includes(x.trim())) out.push(x.trim())
+  }
+  return out
+}
+
+/**
+ * id ไฟล์แนบทั้งหมดที่ต้องผูกกับสรุป (ทุกแถว + attachmentIds ระดับใบที่ไม่บังคับ) ไม่ซ้ำ
+ * id เดียวใช้ได้หลายแถว (รูปของรถทั้งคันครอบทุกอะไหล่ในคันนั้น) · error = รูปแบบผิด/เกินจำนวน
+ */
+export function summaryAttachIds(usages: SwUsage[], extra: unknown): string[] | { error: string } {
+  const top = parseIds(extra)
+  if (top === null) return { error: "attachmentIds ต้องเป็นรายการ id ไฟล์แนบ" }
+  const all = new Set<string>(top)
+  for (const u of usages) for (const id of u.attachmentIds ?? []) all.add(id)
+  if (all.size > MAX_SUMMARY_ATTACH) return { error: `แนบรูปสรุปการใช้ได้ไม่เกิน ${MAX_SUMMARY_ATTACH} ไฟล์ต่อใบ` }
+  return [...all]
+}
 
 /** ของเหลือรวมทั้งใบ (> 0 = สโตร์ต้องยืนยันว่ารับคืนแล้ว) */
 export const leftoverTotal = (s: { returns: { qty: number }[] } | null | undefined) => (s?.returns ?? []).reduce((a, r) => a + r.qty, 0)

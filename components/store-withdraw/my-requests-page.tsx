@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { CalendarClock, ClipboardCheck, Plus, PackageMinus, RefreshCw, Search, Undo2, X } from "lucide-react"
+import { CalendarClock, ClipboardCheck, Copy, MessageCircle, Plus, PackageMinus, RefreshCw, Search, Undo2, X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, matchesSearch, returnableQty, searchActive, workTypeFromKind } from "@/lib/store-withdraw/core"
@@ -11,7 +11,7 @@ import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
 import { AttachButton, AttachChip, AttachPicker, doneIds, isUploading, type Picked } from "./attach-picker"
 import { StatusChip } from "./status-chip"
-import { ExtendDueDialog, SummaryDialog, SummaryView, type PendingReq } from "./summary-dialog"
+import { ExtendDueDialog, SummaryView, type PendingReq } from "./summary-dialog"
 
 type Req = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "summaryDueAt" | "summary" | "settleGroups"> & PendingReq & {
   attachCount?: number
@@ -49,7 +49,6 @@ export function MyRequestsPage() {
   const [error, setError] = useState("")
   const [busyNo, setBusyNo] = useState("")
   const [ret, setRet] = useState<Req | null>(null)
-  const [sum, setSum] = useState<Req | null>(null)
   const [ext, setExt] = useState<Req | null>(null)
   const [now, setNow] = useState(() => new Date())
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -244,8 +243,9 @@ export function MyRequestsPage() {
 
                 {(r.status === "NEW" || r.status === "ISSUED" || canReturn || (pending && r.status === "HANDED_OUT")) && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {pending && r.status === "HANDED_OUT" && <button type="button" data-testid="summary-btn" disabled={busy} onClick={() => setSum(r)} className="inline-flex items-center gap-1.5 rounded-xl bg-[#1B8C4B] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-60"><ClipboardCheck size={14} />สรุปการใช้</button>}
-                    {pending && r.status === "HANDED_OUT" && <button type="button" data-testid="extend-btn" disabled={busy} onClick={() => setExt(r)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><CalendarClock size={14} />เลื่อนกำหนด</button>}
+                    {pending && r.status === "HANDED_OUT" && <Link href={summaryPath(r.no)} data-testid="summary-btn" className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#1B8C4B] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#157a40]"><ClipboardCheck size={14} />สรุปการใช้</Link>}
+                    {pending && r.status === "HANDED_OUT" && <button type="button" data-testid="extend-btn" disabled={busy} onClick={() => setExt(r)} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><CalendarClock size={14} />เลื่อนกำหนด</button>}
+                    {pending && r.status === "HANDED_OUT" && <ShareLink no={r.no} />}
                     {r.status === "NEW" && <button type="button" disabled={busy} onClick={() => cancel(r)} className="rounded-xl border border-red-200 px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-500/30 dark:hover:bg-red-500/10">ยกเลิก</button>}
                     {r.status === "ISSUED" && r.kind === "stock" && <button type="button" disabled={busy} onClick={() => receive(r)} className="rounded-xl bg-[#1B8C4B] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-60">รับแล้ว</button>}
                     {canReturn && <button type="button" disabled={busy} onClick={() => setRet(r)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><Undo2 size={14} />ขอคืน</button>}
@@ -259,9 +259,35 @@ export function MyRequestsPage() {
       )}
 
       {ret && <ReturnDialog req={ret} onClose={() => setRet(null)} onDone={() => { setRet(null); load() }} />}
-      {sum && <SummaryDialog req={sum} onClose={() => setSum(null)} onDone={() => { setSum(null); load() }} />}
       {ext && <ExtendDueDialog req={ext} onClose={() => setExt(null)} onDone={() => { setExt(null); load() }} />}
     </div>
+  )
+}
+
+const summaryPath = (no: string) => `/store-withdraw/${encodeURIComponent(no)}/summary`
+
+/** ลิงก์หน้าสรุปการใช้ (เปิดบนมือถือ) · คัดลอก หรือส่งเข้าไลน์ตัวเอง/กลุ่ม แล้วกดเปิดจากมือถือ */
+function ShareLink({ no }: { no: string }) {
+  const [copied, setCopied] = useState(false)
+  const abs = () => `${window.location.origin}${summaryPath(no)}`
+  const copy = async () => {
+    const url = abs()
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      window.prompt("คัดลอกลิงก์นี้", url)
+    }
+  }
+  const cls = "inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] dark:border-white/10 dark:text-gray-200"
+  return (
+    <>
+      <button type="button" data-testid="copy-link" onClick={copy} className={cls}><Copy size={14} />{copied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}</button>
+      <a data-testid="line-link" href="#" onClick={(e) => { e.preventDefault(); window.open(`https://line.me/R/msg/text/?${encodeURIComponent(abs())}`, "_blank", "noopener,noreferrer") }} className={cls}>
+        <MessageCircle size={14} />ส่งลิงก์เข้าไลน์
+      </a>
+    </>
   )
 }
 

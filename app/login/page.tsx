@@ -3,6 +3,7 @@
 import { signIn, useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, Suspense } from "react"
+import { safeCallback } from "@/lib/safe-callback"
 
 const bgStyle: React.CSSProperties = {
   backgroundImage: "url('/mena-login.png')",
@@ -17,10 +18,12 @@ function LoginContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const error = searchParams.get("error")
+  // middleware ส่ง callbackUrl มา (เช่นลิงก์สรุปการใช้ที่เปิดจากไลน์) — login แล้วกลับไปหน้านั้น
+  const callbackUrl = safeCallback(searchParams.get("callbackUrl"))
 
   useEffect(() => {
-    if (status === "authenticated") router.replace("/")
-  }, [status, router])
+    if (status === "authenticated") router.replace(callbackUrl)
+  }, [status, router, callbackUrl])
 
   if (status === "loading") {
     return (
@@ -68,7 +71,7 @@ function LoginContent() {
           <button
             onClick={() => {
               localStorage.setItem("mena_pending_welcome", "1")
-              signIn("google", { callbackUrl: "/" })
+              signIn("google", { callbackUrl })
             }}
             className="flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-xl bg-white px-4 py-2.5 text-[13px] font-medium text-gray-700 hover:bg-white/90 transition-colors"
           >

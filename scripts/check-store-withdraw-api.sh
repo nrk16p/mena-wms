@@ -29,6 +29,21 @@ expect() { # expect <label> <python-expr over d>
   if [ "$(jget "$2")" = "True" ]; then ok "$1"; else bad "$1: $(head -c 300 "$TMP/last.json")"; fi
 }
 
+# seed_att <no> <email> <context> [confirmed=1] — ใส่ไฟล์แนบที่ "ยืนยันแล้ว" ลง Mongo ทดสอบตรง ๆ (dev server ไม่มีที่เก็บไฟล์จริงให้ presign/confirm) · พิมพ์ id
+seed_att() {
+  MONGO_URI="$MONGO_URI" node -e '
+    const { MongoClient } = require("mongodb")
+    const [no, email, context, conf] = process.argv.slice(1)
+    const id = require("crypto").randomBytes(8).toString("hex")
+    ;(async () => {
+      const c = new MongoClient(process.env.MONGO_URI); await c.connect()
+      await c.db("sw_api_test").collection("store_withdraw_attachments").insertOne({ _id: id, no, context, key: `store-withdraw/${no}/${id}-a.jpg`, filename: "a.jpg", contentType: "image/jpeg", size: 10, sha256: null, by: { email, name: email }, at: new Date(), confirmedAt: conf === "0" ? null : new Date() })
+      await c.close(); console.log(id)
+    })().catch((e) => { console.error(e); process.exit(1) })' "$1" "$2" "$3" "${4:-1}"
+}
+
+# ที่เก็บไฟล์: ใส่ค่าปลอม (ทับ .env) — ลิงก์ดาวน์โหลดแค่เซ็นในเครื่อง ไม่มีการเรียก Spaces จริง
+
 # ── .env ชั่วคราว (mint-session-token.ts อ่านจากไฟล์นี้ · ลบตอนจบ) ──
 SECRET=testsecret-store-withdraw-0123456789
 if [ ! -f .env ]; then
@@ -51,6 +66,7 @@ echo "== เปิด next dev :$PORT"
 MONGO_URI="$MONGO_URI" MONGO_DB=master_data STORE_WITHDRAW_DB=sw_api_test NCAC_BASE="$NCAC_BASE" NCAC_API_KEY=k-test \
   ATMS_LOOKUP_USERNAME=svc ATMS_LOOKUP_PASSWORD=svcpw STORE_ATMS_CRED_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())") \
   STORE_WITHDRAW_API_KEYS="key-one,key-two" STORE_WITHDRAW_TICK_KEY="tick-key-1" NEXTAUTH_URL="http://localhost:$PORT" NEXTAUTH_SECRET="$SECRET" \
+  DO_SPACES_ENDPOINT="https://sgp1.spaces.invalid" DO_SPACES_KEY=test-key DO_SPACES_SECRET=test-secret DO_SPACES_BUCKET=test-bucket \
   npx next dev -p $PORT > "$TMP/dev.out" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 90); do curl -s -o /dev/null "http://localhost:$PORT/login" && break; sleep 1; done
@@ -397,18 +413,41 @@ code 403 "คนอื่นเลื่อนกำหนดไม่ได้"
 code 400 "เลื่อนไปอดีตไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/extend" -d "{\"summaryDueAt\":\"$PAST\"}"
 code 200 "เลื่อนกำหนด" -H "$R" -H "$J" -X POST "$B/$NP/extend" -d "{\"summaryDueAt\":\"$DUE2\"}"
 expect "summaryExtensions = 1" "d['request']['summaryExtensions']==1 and d['request']['status']=='HANDED_OUT'"
-U1='{"lineIndex":0,"plate":"70-2222","mrCode":"LBMR26110002","mrItemId":22,"mrItemLabel":"LBMR26110002 PM-เบรค : 22","qty":1}'
-U2='{"lineIndex":0,"plate":"70-1111","mrCode":"LBMR26110001","mrItemId":11,"mrItemLabel":"LBMR26110001 PM-ไฟ : 11","qty":1}'
-U3='{"lineIndex":1,"plate":"70-1111","mrCode":"LBMR26110001","mrItemId":11,"mrItemLabel":"LBMR26110001 PM-ไฟ : 11","qty":1}'
+# หน้าสรุปรายคัน (ลิงก์มือถือ): ไม่ล็อกอิน → login พร้อม callbackUrl · คนอื่นเห็นว่าไม่ใช่ของเขา · เจ้าของเห็นฟอร์ม
+SP="http://localhost:$PORT/store-withdraw/$NP/summary"
+CODE=$(curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "$SP")
+case "$CODE" in "307 "*"/login?callbackUrl=%2Fstore-withdraw%2F$NP%2Fsummary") ok "หน้าสรุป ไม่ล็อกอิน → login + callbackUrl";; *) bad "หน้าสรุป ไม่ล็อกอิน: $CODE";; esac
+curl -s -H "$R2" "$SP" > "$TMP/page.html"; grep -q "ใบนี้ไม่ใช่ของคุณ" "$TMP/page.html" && ! grep -q 'data-testid="vehicle-block"' "$TMP/page.html" && ok "หน้าสรุป คนอื่นเปิด = ใบนี้ไม่ใช่ของคุณ" || bad "หน้าสรุป คนอื่นเปิดเห็นฟอร์ม"
+curl -s -H "$R" "$SP" > "$TMP/page.html"; grep -q 'data-testid="vehicle-block"' "$TMP/page.html" && grep -q 'data-testid="part-counter"' "$TMP/page.html" && ok "หน้าสรุป เจ้าของเห็นบล็อกรถ + ตัวนับอะไหล่" || bad "หน้าสรุป เจ้าของ: $(head -c 300 "$TMP/page.html")"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "$S" "$SP"); [ "$CODE" = 307 ] && ok "หน้าสรุป สโตร์ (ไม่มีสิทธิ์ยื่นคำขอ) ถูกส่งไปหน้าไม่มีสิทธิ์" || bad "หน้าสรุป สโตร์ได้ $CODE"
+curl -s -H "$R" "http://localhost:$PORT/store-withdraw/SW-0000-404/summary" | grep -q "ไม่พบใบเบิกนี้" && ok "หน้าสรุป ใบที่ไม่มี" || bad "หน้าสรุป ใบที่ไม่มี"
+A1=$(seed_att "$NP" req1@menatransport.co.th summary)
+A2=$(seed_att "$NP" req1@menatransport.co.th summary)
+AX=$(seed_att "$NP" req2@menatransport.co.th summary)   # คนอื่นอัปโหลด
+AU0=$(seed_att "$NP" req1@menatransport.co.th summary 0) # ยังไม่ยืนยัน
+AO=$(seed_att "$NP" req1@menatransport.co.th other)     # หัวข้ออื่น
+U1='{"lineIndex":0,"plate":"70-2222","mrCode":"LBMR26110002","mrItemId":22,"mrItemLabel":"LBMR26110002 PM-เบรค : 22","qty":1,"attachmentIds":["'$A2'"]}'
+U2='{"lineIndex":0,"plate":"70-1111","mrCode":"LBMR26110001","mrItemId":11,"mrItemLabel":"LBMR26110001 PM-ไฟ : 11","qty":1,"attachmentIds":["'$A1'"]}'
+U3='{"lineIndex":1,"plate":"70-1111","mrCode":"LBMR26110001","mrItemId":11,"mrItemLabel":"LBMR26110001 PM-ไฟ : 11","qty":1,"attachmentIds":["'$A1'"]}'
+UN='{"lineIndex":1,"plate":"70-1111","mrCode":"LBMR26110001","mrItemId":11,"mrItemLabel":"LBMR26110001 PM-ไฟ : 11","qty":1}'
+code 400 "สรุปแถวไม่มีรูป" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d "{\"usages\":[$U1,$UN]}"
+expect "ข้อความบอกให้แนบรูป" "'แนบรูปหลักฐาน' in d['error']"
+for BADID in "$AX" "$AU0" "$AO" "ไม่มีจริง"; do
+  code 400 "สรุปแนบ id ที่ใช้ไม่ได้ ($BADID)" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[{"lineIndex":0,"plate":"70-1111","mrCode":"M","mrItemId":1,"mrItemLabel":"x","qty":1,"attachmentIds":["'$A1'","'$BADID'"]}]}'
+done
 code 403 "คนอื่นสรุปไม่ได้" -H "$R2" -H "$J" -X POST "$B/$NP/summary" -d "{\"usages\":[$U1]}"
-code 400 "สรุปเกินที่เบิก" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[{"lineIndex":1,"plate":"70-1111","mrCode":"M","mrItemId":1,"mrItemLabel":"x","qty":2}]}'
-code 400 "สรุปไม่มี MR" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[{"lineIndex":0,"plate":"70-1111","mrCode":"","mrItemId":1,"mrItemLabel":"x","qty":1}]}'
+code 400 "สรุปเกินที่เบิก" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[{"lineIndex":1,"plate":"70-1111","mrCode":"M","mrItemId":1,"mrItemLabel":"x","qty":2,"attachmentIds":["'$A1'"]}]}'
+code 400 "สรุปไม่มี MR" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[{"lineIndex":0,"plate":"70-1111","mrCode":"","mrItemId":1,"mrItemLabel":"x","qty":1,"attachmentIds":["'$A1'"]}]}'
 code 403 "ผู้ขอตัดสต๊อกเองไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}'
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "x-api-key: key-one" -H "x-user: ext.user@menatransport.co.th" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}')
 if [ "$CODE" = 401 ] || [ "$CODE" = 403 ]; then ok "api-key settle ถูกปฏิเสธ ($CODE)"; else bad "api-key settle ได้ $CODE"; fi
 code 409 "ตัดก่อนสรุปไม่ได้" -H "$S" -H "$J" -X POST "$B/$NP/settle" -d '{"returnConfirmed":true}'
 code 200 "สรุปการใช้ 2 คัน" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d "{\"usages\":[$U1,$U2,$U3],\"note\":\"ใช้สองคัน\"}"
 expect "SUMMARIZED + ของเหลือ OIL 1 (คิดให้)" "d['request']['status']=='SUMMARIZED' and d['request']['summary']['returns']==[{'lineIndex':0,'qty':1}]"
+expect "เก็บ attachmentIds ต่อแถว" "[u['attachmentIds'] for u in d['request']['summary']['usages']]==[['$A2'],['$A1'],['$A1']]"
+curl -s -H "$R" "$SP" | grep -q 'data-testid="summary-readonly"' && ok "หน้าสรุป หลังส่งแล้ว = ดูอย่างเดียว" || bad "หน้าสรุป หลังส่งยังแก้ได้"
+code 200 "สโตร์ดูไฟล์แนบของใบสรุป" -H "$S" "$B/$NP/attachments"
+expect "รูปที่ใช้ในสรุปผูกกับ summary · ไฟล์ที่ไม่ได้ใช้ไม่ถูกผูก" "{x['id']:(x.get('linkedTo') or {}).get('type') for x in d['items']}=={'$A1':'summary','$A2':'summary','$AX':None,'$AO':None} and all(x['url'].startswith('https://') for x in d['items'])"
 code 409 "สรุปซ้ำไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/summary" -d '{"usages":[]}'
 code 409 "เลื่อนหลังสรุปไม่ได้" -H "$R" -H "$J" -X POST "$B/$NP/extend" -d "{\"summaryDueAt\":\"$DUE2\"}"
 code 200 "queue หลังสรุป" -H "$S" "$B/queue?inv=4"
@@ -474,6 +513,8 @@ code 200 "audit กรองด้วยเลขใบ" -H "$AU" "$AUD?from=$TO
 expect "เหลือใบเดียว" "[r['no'] for r in d['rows']]==['$NO']"
 code 200 "audit รายใบ" -H "$AU" "$AUD/$NO"
 expect "ไทม์ไลน์ + โซ่ log ผ่าน + ลิงก์ ATMS" "len(d['timeline'])>=5 and d['chain']['ok'] and d['atms'][0]['url'].startswith('https://www.mena-atms.com/inv/withdraw/view/id/')"
+code 200 "audit ใบ Mobile/PM" -H "$AU" "$AUD/$NP"
+expect "สรุปการใช้รายแถว + ลิงก์รูป" "[(u['plate'],[a['id'] for a in u['attachments']]) for u in d['summary']['usages']]==[('70-2222',['$A2']),('70-1111',['$A1']),('70-1111',['$A1'])]"
 code 404 "audit รายใบที่ไม่มี" -H "$AU" "$AUD/SW-0000-404"
 CODE=$(curl -s -o "$TMP/audit.xlsx" -w "%{http_code} %{content_type}" -H "$AU" "$AUD/export?from=$TODAY&to=$TODAY")
 case "$CODE" in "200 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") ok "audit export xlsx";; *) bad "audit export: $CODE";; esac

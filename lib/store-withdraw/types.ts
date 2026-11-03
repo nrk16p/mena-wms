@@ -51,7 +51,11 @@ export type SwReturn = {
 }
 
 /** ช่างสรุปว่าใช้ของบรรทัดไหนกับรถคันไหน · MR ไหน · ประเภทการซ่อมไหน */
-export type SwUsage = { lineIndex: number; plate: string; mrCode: string; mrItemId: number; mrItemLabel: string; qty: number }
+export type SwUsage = {
+  lineIndex: number; plate: string; mrCode: string; mrItemId: number; mrItemLabel: string; qty: number
+  /** id ไฟล์แนบ (context summary) ที่เป็นหลักฐานของแถวนี้ · บังคับ ≥1 ตั้งแต่มีหน้าสรุปรายคัน · ใบเก่าไม่มี field นี้ */
+  attachmentIds?: string[]
+}
 
 /** สรุปการใช้ของใบ Mobile/PM · returns = ของเหลือต่อบรรทัด (เบิก − ใช้) คำนวณให้ ไม่ต้องกรอก */
 export type SwSummary = {

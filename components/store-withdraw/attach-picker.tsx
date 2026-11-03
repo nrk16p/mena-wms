@@ -32,8 +32,10 @@ async function postJson(url: string, body: unknown) {
 /** ไฟล์ที่อัปโหลดเสร็จแล้ว (id ที่ใช้ส่งเป็น attachmentIds) */
 export const doneIds = (items: Picked[]) => items.filter((x) => x.state === "done" && x.id).map((x) => x.id as string)
 
-export function AttachPicker({ no, context, items, onChange, required = false, hint }: {
+export function AttachPicker({ no, context, items, onChange, required = false, hint, max = MAX_FILES, label = "แนบรูป/ไฟล์" }: {
   no: string; context: AttachContext; items: Picked[]; onChange: (f: (cur: Picked[]) => Picked[]) => void; required?: boolean; hint?: string
+  /** จำนวนไฟล์สูงสุดในช่องนี้ (ค่าเริ่มต้น 8) */ max?: number
+  label?: string
 }) {
   const input = useRef<HTMLInputElement>(null)
   const urls = useRef<string[]>([])
@@ -57,7 +59,7 @@ export function AttachPicker({ no, context, items, onChange, required = false, h
 
   const pick = (files: FileList | null) => {
     if (!files) return
-    const room = MAX_FILES - items.length
+    const room = max - items.length
     const add: Picked[] = []
     const jobs: [File, string, string][] = []
     ;[...files].slice(0, Math.max(0, room)).forEach((f, n) => {
@@ -82,11 +84,11 @@ export function AttachPicker({ no, context, items, onChange, required = false, h
   return (
     <div data-testid="attach-picker" className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => input.current?.click()} disabled={items.length >= MAX_FILES}
-          className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-50 dark:border-white/10 dark:text-gray-200">
-          <Paperclip size={14} />แนบรูป/ไฟล์{required && <span className="text-red-600"> *ต้องแนบ</span>}
+        <button type="button" onClick={() => input.current?.click()} disabled={items.length >= max}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-50 dark:border-white/10 dark:text-gray-200">
+          <Paperclip size={14} />{label}{required && <span className="text-red-600"> *ต้องแนบ</span>}
         </button>
-        <span className="text-xs text-gray-500">{hint ?? "รูปหรือ PDF ไม่เกิน 10 MB ไฟล์ละ แนบได้สูงสุด 8 ไฟล์"}</span>
+        <span className="text-xs text-gray-500">{hint ?? `รูปหรือ PDF ไม่เกิน 10 MB ไฟล์ละ แนบได้สูงสุด ${max} ไฟล์`}</span>
         <input ref={input} type="file" multiple hidden data-testid="attach-input" accept="image/jpeg,image/png,image/webp,image/heic,.heic,.heif,application/pdf" onChange={(e) => pick(e.target.files)} />
       </div>
       {required && doneCount === 0 && <p className="text-xs text-amber-700">ส่งเคลมต้องมีรูปหรือไฟล์หลักฐาน เช่น รูปของที่ชำรุดหรือป้ายรุ่น</p>}
@@ -184,5 +186,54 @@ export function AttachButton({ no, context = "other", onDone }: { no: string; co
         </Dialog>
       )}
     </>
+  )
+}
+
+// ---------- รูปหลักฐานของแถวสรุปการใช้ (โหลดลิงก์ตอนกดดู · แชร์ผลโหลดต่อใบ 4 นาที เพราะลิงก์หมดอายุใน 5 นาที) ----------
+
+const filesCache = new Map<string, { at: number; p: Promise<Att[]> }>()
+function loadFiles(no: string): Promise<Att[]> {
+  const hit = filesCache.get(no)
+  if (hit && Date.now() - hit.at < 4 * 60_000) return hit.p
+  const p = fetch(`/api/store-withdraw/${encodeURIComponent(no)}/attachments`).then(async (r) => {
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(j.error || "โหลดไฟล์แนบไม่สำเร็จ")
+    return j.items as Att[]
+  })
+  filesCache.set(no, { at: Date.now(), p })
+  p.catch(() => filesCache.delete(no))
+  return p
+}
+
+export function UsageFiles({ no, ids }: { no: string; ids?: string[] }) {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<Att[] | null>(null)
+  const [err, setErr] = useState("")
+  if (!ids || ids.length === 0) return null
+  const toggle = async () => {
+    const next = !open
+    setOpen(next)
+    if (!next) return
+    setErr("")
+    try { setItems(await loadFiles(no)) } catch (e) { setErr(e instanceof Error ? e.message : "โหลดไฟล์แนบไม่สำเร็จ") }
+  }
+  const mine = items?.filter((a) => ids.includes(a.id)) ?? []
+  return (
+    <span className="block">
+      <button type="button" data-testid="usage-files" data-count={ids.length} onClick={toggle} aria-expanded={open}
+        className="mt-0.5 inline-flex min-h-11 items-center gap-1 rounded-full bg-sky-50 px-3 py-0.5 sm:min-h-8 sm:px-2 text-[11px] font-medium text-sky-800 dark:bg-sky-500/10 dark:text-sky-300">
+        <Paperclip size={11} />รูป {ids.length}
+      </button>
+      {open && (
+        <span className="mt-1 block space-y-0.5">
+          {err && <span className="block text-red-600">{err}</span>}
+          {!items && !err && <span className="block text-gray-500">กำลังโหลด</span>}
+          {items && mine.length === 0 && <span className="block text-gray-500">ไม่เจอไฟล์</span>}
+          {mine.map((a) => (
+            <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" className="block break-all font-medium text-[#1B8C4B] underline">{a.filename}</a>
+          ))}
+        </span>
+      )}
+    </span>
   )
 }

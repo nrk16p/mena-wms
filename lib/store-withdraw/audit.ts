@@ -115,7 +115,32 @@ export type AuditDetail = {
   atms: { type: "WD" | "DD"; code: string; label: string; url: string | null }[]
   timeline: { seq: number | null; action: string; from: string | null; to: string | null; actor: string; via: string; at: Date; note: string | null }[]
   attachments: AttachItem[]
+  /** Mobile/PM: สรุปการใช้รายคัน + ลิงก์รูปหลักฐานของแต่ละแถว (ใบเก่าที่ไม่มี attachmentIds = รายการว่าง) */
+  summary: AuditSummary | null
   chain: ChainResult
+}
+
+export type AuditSummary = {
+  by: { email: string; name: string }; at: Date; note: string
+  usages: { lineIndex: number; skuCode: string; skuName: string; plate: string; mrCode: string; mrItemLabel: string; qty: number; attachments: { id: string; filename: string; url: string }[] }[]
+  returns: { lineIndex: number; skuName: string; qty: number }[]
+}
+
+/** แปลงสรุปการใช้ของใบให้มีชื่ออะไหล่ + ลิงก์ไฟล์ต่อแถว (id ที่ไม่เจอในไฟล์ที่ยืนยันแล้ว = ข้าม) */
+export function summaryWithFiles(r: Pick<SwRequest, "lines" | "summary">, att: Pick<AttachItem, "id" | "filename" | "url">[]): AuditSummary | null {
+  const s = r.summary
+  if (!s) return null
+  const byId = new Map(att.map((a) => [a.id, a]))
+  const name = (i: number) => r.lines[i]?.skuName ?? "?"
+  return {
+    by: s.by, at: s.at, note: s.note ?? "",
+    usages: (s.usages ?? []).map((u) => ({
+      lineIndex: u.lineIndex, skuCode: r.lines[u.lineIndex]?.skuCode ?? "", skuName: name(u.lineIndex),
+      plate: u.plate, mrCode: u.mrCode, mrItemLabel: u.mrItemLabel, qty: u.qty,
+      attachments: (u.attachmentIds ?? []).flatMap((id) => { const a = byId.get(id); return a ? [{ id, filename: a.filename, url: a.url }] : [] }),
+    })),
+    returns: (s.returns ?? []).map((x) => ({ lineIndex: x.lineIndex, skuName: name(x.lineIndex), qty: x.qty })),
+  }
 }
 
 export async function auditDetail(no: string): Promise<AuditDetail> {
@@ -139,6 +164,7 @@ export async function auditDetail(no: string): Promise<AuditDetail> {
     atms,
     timeline: logs.map((l) => ({ seq: l.seq ?? null, action: l.action, from: l.from, to: l.to, actor: l.actor.name || l.actor.email, via: l.actor.via, at: l.at, note: l.note ?? null })),
     attachments: att,
+    summary: summaryWithFiles(r, att),
     chain: verifyEntries(logs as never),
   }
 }
