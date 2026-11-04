@@ -3,7 +3,7 @@
 // ฐานข้อมูลมาจาก core-return-base/load_base.py (master_data.core_return_base) — โค้ดนี้อ่าน/เขียนรูปแบบนั้นตรง ๆ
 // ฟิลด์ที่ระบบนี้เพิ่มเอง (ret / sale / rebuild / noCore / followUp / coreUpdatedAt) loader ไม่แตะ เพราะ loader $set เฉพาะฟิลด์ฐาน
 
-export const CORE_STATUSES = ["pending", "legacy", "sell_waiting", "sold", "rebuild", "rebuilt", "no_core"] as const
+export const CORE_STATUSES = ["pending", "legacy", "sell_waiting", "sold", "rebuild", "rebuilt", "no_core", "missing"] as const
 export type CoreStatus = (typeof CORE_STATUSES)[number]
 
 export const STATUS_LABEL: Record<CoreStatus, string> = {
@@ -14,6 +14,7 @@ export const STATUS_LABEL: Record<CoreStatus, string> = {
   rebuild: "A2 ส่งรีบิ้ว",
   rebuilt: "A2 รีบิ้วเสร็จ",
   no_core: "S2 ซากไม่มีมูลค่า",
+  missing: "ไม่มีซากคืน",
 }
 
 /** ยังไม่คืนซาก (legacy ทำงานเหมือน pending) */
@@ -23,9 +24,11 @@ export const OPEN: CoreStatus[] = ["pending", "legacy", "sell_waiting", "rebuild
 
 export const isStatus = (v: unknown): v is CoreStatus => (CORE_STATUSES as readonly string[]).includes(v as string)
 
-export type ReturnChoice = "sell" | "rebuild" | "no_core"
-export const CHOICE_TO: Record<ReturnChoice, CoreStatus> = { sell: "sell_waiting", rebuild: "rebuild", no_core: "no_core" }
+export type ReturnChoice = "sell" | "rebuild" | "no_core" | "missing"
+export const CHOICE_TO: Record<ReturnChoice, CoreStatus> = { sell: "sell_waiting", rebuild: "rebuild", no_core: "no_core", missing: "missing" }
 export const NO_CORE_REASONS = ["ของสิ้นเปลือง", "ซากเสียหายทิ้ง", "อื่นๆ"] as const
+/** ไม่มีซากกลับมาเลย (ต่างจาก S2 ที่ซากกลับมาแต่ขายไม่ได้) */
+export const MISSING_REASONS = ["อู่ไม่คืนซาก", "ซากหาย", "อื่นๆ"] as const
 
 export type Actor = { email: string; name: string; via: "web" | "api" }
 
@@ -140,13 +143,13 @@ export type ReturnInput = {
 /** ตรวจค่าคืนซาก · qty ค่าเริ่มต้น = จำนวนที่เบิก · คืนไม่ครบต้องบอกเหตุผล · S1 ต้องมีวันที่เข้าคลังซาก */
 export function parseReturn(body: Record<string, unknown>, row: Pick<CoreRow, "qtyIssued" | "issuedDate">, now = new Date()): ReturnInput {
   const choice = body.choice
-  if (choice !== "sell" && choice !== "rebuild" && choice !== "no_core") throw bad("เลือกก่อนว่า S1 ซากมีมูลค่า / S2 ซากไม่มีมูลค่า / A2 ของรีบิ้ว")
+  if (choice !== "sell" && choice !== "rebuild" && choice !== "no_core" && choice !== "missing") throw bad("เลือกก่อนว่า S1 ซากมีมูลค่า / S2 ซากไม่มีมูลค่า / A2 ของรีบิ้ว / ไม่มีซากคืน")
   const today = todayBkk(now)
   const issued = typeof row.qtyIssued === "number" && row.qtyIssued > 0 ? row.qtyIssued : null
   const note = str(body.note)
-  if (choice === "no_core") {
+  if (choice === "no_core" || choice === "missing") {
     const reason = str(body.noCoreReason, 100)
-    if (!reason) throw bad("บอกเหตุผลที่ซากไม่มีมูลค่า")
+    if (!reason) throw bad(choice === "missing" ? "บอกเหตุผลที่ไม่มีซากคืน" : "บอกเหตุผลที่ซากไม่มีมูลค่า")
     if (reason === "อื่นๆ" && !note) throw bad("เลือก อื่นๆ ต้องเขียนหมายเหตุด้วย")
     return { choice, qty: 0, shortReason: null, note, scrapInDate: null, rebuildSentDate: null, rebuildVendor: null, noCoreReason: reason }
   }

@@ -43,6 +43,7 @@ export const STATUS_PILL = {
   rebuild: "bg-[#F0EAFB] text-[#5B21B6]",
   rebuilt: "bg-[#E4F4EA] text-[#156C3A]",
   no_core: "bg-[#EEF1EF] text-[#4A5A50]",
+  missing: "bg-[#FBE9E7] text-[#9A2A1C]",
 } as const
 
 /** ป้ายเล็ก */

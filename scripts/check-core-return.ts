@@ -54,6 +54,16 @@ void (async () => {
     eq(await status(svc.returnCore("p1", { choice: "no_core" }, veh, now)), 400, "ไม่มีซากต้องมีเหตุผล")
     eq(await status(svc.returnCore("p1", { choice: "no_core", noCoreReason: "อื่นๆ" }, veh, now)), 400, "อื่นๆ ต้องมีหมายเหตุ")
     eq(await status(svc.returnCore("nope", { choice: "rebuild" }, veh, now)), 404)
+    // ไม่มีซากคืน (missing): ต้องมีเหตุผล · ไม่มีจำนวน · เก็บเหตุผลใน noCore เหมือน S2
+    {
+      const core = await import("../lib/core-return/core")
+      const rowP = { qtyIssued: 2, issuedDate: "2026-10-01" }
+      assert.throws(() => core.parseReturn({ choice: "missing" }, rowP, now), /ไม่มีซากคืน/)
+      assert.throws(() => core.parseReturn({ choice: "missing", noCoreReason: "อื่นๆ" }, rowP, now), /หมายเหตุ/)
+      eq(core.parseReturn({ choice: "missing", noCoreReason: "อู่ไม่คืนซาก" }, rowP, now).qty, 0)
+      eq(core.CHOICE_TO.missing, "missing")
+      eq(core.isStatus("missing"), true)
+    }
     // sold/rebuilt จากสถานะผิด
     eq(await status(svc.markSold("p1", { soldDate: "2026-11-01" }, store, now)), 409, "sold ได้จาก sell_waiting เท่านั้น")
     eq(await status(svc.markRebuilt("p1", { rebuiltDate: "2026-11-01" }, store, now)), 409, "rebuilt ได้จาก rebuild เท่านั้น")

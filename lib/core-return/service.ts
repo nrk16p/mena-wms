@@ -118,7 +118,7 @@ async function move(row: CoreRow, to: CoreStatus, set: Record<string, unknown>, 
   return after
 }
 
-/** คืนซาก: pending|legacy → sell_waiting | rebuild | no_core */
+/** คืนซาก: pending|legacy → sell_waiting | rebuild | no_core | missing */
 export async function returnCore(key: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
   const row = await loadOrThrow(key)
   if (!OUTSTANDING.includes(row.coreStatus)) throw new CoreHttpError(`รายการนี้ "${STATUS_LABEL[row.coreStatus] ?? row.coreStatus}" แล้ว คืนซากซ้ำไม่ได้`, 409)
@@ -129,7 +129,7 @@ export async function returnCore(key: string, body: Record<string, unknown>, act
   const set: Record<string, unknown> = { ret, coreQtyReturned: v.qty }
   if (v.choice === "sell") set.sale = { scrapInDate: v.scrapInDate, soldDate: null, price: null, buyer: null, note: "", soldAt: null, soldBy: null }
   if (v.choice === "rebuild") set.rebuild = { sentDate: v.rebuildSentDate, vendor: v.rebuildVendor, doneDate: null, note: "", doneAt: null, doneBy: null }
-  if (v.choice === "no_core") set.noCore = { reason: v.noCoreReason, note: v.note }
+  if (v.choice === "no_core" || v.choice === "missing") set.noCore = { reason: v.noCoreReason, note: v.note }
   const after = await move(row, to, set, {
     action: "return", actor: { ...who(actor), via: actor.via }, note: v.note || undefined,
     data: { choice: v.choice, qty: v.qty, shortReason: v.shortReason, scrapInDate: v.scrapInDate, rebuildSentDate: v.rebuildSentDate, rebuildVendor: v.rebuildVendor, noCoreReason: v.noCoreReason, ...(attachmentIds.length ? { attachmentIds } : {}) },

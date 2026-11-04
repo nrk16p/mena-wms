@@ -3,7 +3,7 @@ import type { Worksheet } from "exceljs"
 import { STATUS_LABEL, daysSince, todayBkk, type CoreRow } from "./core"
 import type { SaleRound } from "./db"
 
-const CHOICE: Record<string, string> = { sell: "S1 ซากมีมูลค่า", rebuild: "A2 ของรีบิ้ว", no_core: "S2 ซากไม่มีมูลค่า" }
+const CHOICE: Record<string, string> = { sell: "S1 ซากมีมูลค่า", rebuild: "A2 ของรีบิ้ว", no_core: "S2 ซากไม่มีมูลค่า", missing: "ไม่มีซากคืน" }
 const MONEY = "#,##0.00"
 const bkkDate = (d: Date | string | null | undefined) => (d ? todayBkk(new Date(d)) : "")
 
@@ -32,7 +32,7 @@ export async function buildListWorkbook(rows: CoreRow[], opt: { truncated?: bool
     { header: "รหัสสินค้า", key: "sku", width: 16 }, { header: "ชื่อสินค้า", key: "nm", width: 40 }, { header: "กลุ่มสินค้า", key: "pg", width: 18 },
     { header: "จำนวนเบิก", key: "qty", width: 10 }, { header: "คืนแล้ว", key: "rq", width: 9 }, { header: "ยอดเงิน", key: "amt", width: 14 },
     { header: "คืนแบบ", key: "ch", width: 14 }, { header: "เข้าคลังซาก", key: "si", width: 12 }, { header: "รอบขาย", key: "rd", width: 12 },
-    { header: "วันที่ขาย", key: "sd", width: 12 }, { header: "รีบิ้วเสร็จ", key: "rb", width: 12 }, { header: "S2 เพราะ", key: "nc", width: 18 },
+    { header: "วันที่ขาย", key: "sd", width: 12 }, { header: "รีบิ้วเสร็จ", key: "rb", width: 12 }, { header: "S2 / ไม่มีซาก เพราะ", key: "nc", width: 18 },
     { header: "ตามแล้ว (ครั้ง)", key: "fc", width: 10 }, { header: "ตามล่าสุด", key: "fa", width: 12 }, { header: "โน้ตการตามล่าสุด", key: "fn", width: 40 },
     { header: "ตามครั้งถัดไป", key: "fx", width: 12 }, { header: "รอบไฟล์เดิม", key: "lr", width: 22 }, { header: "row_key", key: "k", width: 36 },
   ]

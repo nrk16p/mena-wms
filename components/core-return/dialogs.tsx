@@ -4,7 +4,7 @@
 import { Fragment, useEffect, useState } from "react"
 import { FileText, Paperclip, ShieldAlert, X } from "lucide-react"
 import { AttachPicker, doneIds, isUploading, type Picked } from "@/components/store-withdraw/attach-picker"
-import { NO_CORE_REASONS, OUTSTANDING, STATUS_LABEL, type CoreStatus } from "@/lib/core-return/core"
+import { MISSING_REASONS, NO_CORE_REASONS, OUTSTANDING, STATUS_LABEL, type CoreStatus } from "@/lib/core-return/core"
 import {
   CoreChip, DateInput, DaysBadge, attachApi, baht, daysFrom, followText, inputCls, useFetch, postJson, qtyText, rowUrl, thDate, thDateTime, todayYmd, usePerms, type Att, type Row,
 } from "./shared"
@@ -66,14 +66,16 @@ function useSubmit(url: string, onDone: Done, onClose: () => void) {
   return { busy, error, submit }
 }
 
-const CHOICES: { key: "sell" | "rebuild" | "no_core"; title: string; desc: string }[] = [
+type Choice = "sell" | "rebuild" | "no_core" | "missing"
+const CHOICES: { key: Choice; title: string; desc: string }[] = [
   { key: "sell", title: "S1 ซากมีมูลค่า", desc: "เข้าคลังซาก รอขาย" },
+  { key: "no_core", title: "S2 ซากไม่มีมูลค่า", desc: "ซากกลับมา แต่ขายไม่ได้" },
   { key: "rebuild", title: "A2 ของรีบิ้ว", desc: "ส่งรีบิ้ว กลับมาใช้ใหม่" },
-  { key: "no_core", title: "S2 ซากไม่มีมูลค่า", desc: "ขายไม่ได้ / ของสิ้นเปลือง / เสียทิ้ง" },
+  { key: "missing", title: "ไม่มีซากคืน", desc: "ซากไม่ได้กลับมา เช่น อู่ไม่คืน" },
 ]
 
 export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClose: () => void; onDone: Done }) {
-  const [choice, setChoice] = useState<"sell" | "rebuild" | "no_core" | null>(null)
+  const [choice, setChoice] = useState<Choice | null>(null)
   const [qty, setQty] = useState(String(row?.qtyIssued ?? 1))
   const [shortReason, setShortReason] = useState("")
   const [scrapInDate, setScrapInDate] = useState(todayYmd())
@@ -86,29 +88,33 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
   const uploading = isUploading(files)
   const short = row?.qtyIssued != null && Number(qty) > 0 && Number(qty) < row.qtyIssued
   const over = row?.qtyIssued != null && Number(qty) > row.qtyIssued
+  // S2 กับ ไม่มีซากคืน ไม่ต้องใส่จำนวน แต่ต้องเลือกเหตุผล (คนละชุด)
+  const noQty = choice === "no_core" || choice === "missing"
+  const reasons: readonly string[] = choice === "missing" ? MISSING_REASONS : NO_CORE_REASONS
+  const pick = (c: Choice) => { setChoice(c); setReason((c === "missing" ? MISSING_REASONS : NO_CORE_REASONS)[0]) }
   return (
     <Modal open={!!row} onClose={onClose} title="คืนซาก" testid="return-dialog">
         {row && (
           <form className="flex flex-col gap-3.5" onSubmit={(e) => {
             e.preventDefault()
-            void submit({ choice, qty: choice === "no_core" ? undefined : qty, shortReason, scrapInDate: choice === "sell" ? scrapInDate : undefined, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note, attachmentIds: doneIds(files) })
+            void submit({ choice, qty: noQty ? undefined : qty, shortReason, scrapInDate: choice === "sell" ? scrapInDate : undefined, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note, attachmentIds: doneIds(files) })
           }}>
             <RowHead row={row} />
             <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
               <legend className={`mb-1.5 ${FIELD.label}`}>ซากนี้จะไปทางไหน</legend>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup">
                 {CHOICES.map((c) => (
                   <label key={c.key} data-choice={c.key}
                     className={`flex cursor-pointer flex-col gap-0.5 rounded-xl p-3 transition-colors focus-within:ring-2 ${K["focus-within:ring-primary"]} focus-within:ring-offset-2 ${choice === c.key ? `border-2 ${K["border-primary"]} ${K["bg-cF2FAF5"]}` : `border ${BORDER} bg-white ${K["hover:border-primary"]}`}`}>
                     <span className={`flex items-center gap-2 text-sm font-bold ${K["text-ink"]}`}>
-                      <input type="radio" name="core-choice" value={c.key} checked={choice === c.key} onChange={() => setChoice(c.key)} className={`h-4 w-4 ${K["accent-primary"]}`} />{c.title}
+                      <input type="radio" name="core-choice" value={c.key} checked={choice === c.key} onChange={() => pick(c.key)} className={`h-4 w-4 ${K["accent-primary"]}`} />{c.title}
                     </span>
                     <span className={`pl-6 text-xs ${TXT.muted}`}>{c.desc}</span>
                   </label>
                 ))}
               </div>
             </fieldset>
-            {choice && choice !== "no_core" && (
+            {choice && !noQty && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="จำนวนที่คืน" hint={`เบิกไป ${qtyText(row.qtyIssued)}`} error={over ? `เกินที่เบิก (เบิกไป ${qtyText(row.qtyIssued)})` : undefined}>
                   <input className={inputCls} inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} aria-invalid={over || undefined} />
@@ -122,7 +128,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
               </div>
             )}
             {choice === "sell" && <p className={`-mt-1.5 text-xs ${TXT.muted}`}>ซากจะรออยู่คลังซากจนถึงรอบขาย</p>}
-            {choice && choice !== "no_core" && short && (
+            {choice && !noQty && short && (
               <Field label="คืนไม่ครบ เพราะอะไร">
                 <input className={inputCls} value={shortReason} onChange={(e) => setShortReason(e.target.value)} placeholder="เช่น อีกตัวแตก ทิ้งที่อู่" />
               </Field>
@@ -130,15 +136,15 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
             {choice === "rebuild" && (
               <Field label="ส่งที่ไหน (ถ้ามี)"><input className={inputCls} value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="ชื่ออู่/ร้าน" /></Field>
             )}
-            {choice === "no_core" && (
-              <Field label="ทำไมไม่มีมูลค่า">
+            {noQty && (
+              <Field label={choice === "missing" ? "ทำไมไม่มีซากคืน" : "ทำไมไม่มีมูลค่า"}>
                 <select className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)}>
-                  {NO_CORE_REASONS.map((r) => <option key={r}>{r}</option>)}
+                  {reasons.map((r) => <option key={r}>{r}</option>)}
                 </select>
               </Field>
             )}
             {choice && (
-              <Field label={choice === "no_core" && reason === "อื่นๆ" ? "หมายเหตุ (ต้องใส่)" : "หมายเหตุ (ถ้ามี)"}>
+              <Field label={noQty && reason === "อื่นๆ" ? "หมายเหตุ (ต้องใส่)" : "หมายเหตุ (ถ้ามี)"}>
                 <textarea className={FIELD.area} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
               </Field>
             )}
@@ -254,7 +260,7 @@ export function BulkFollowDialog({ keys, onClose, onDone }: { keys: string[] | n
 
 type Hist = { seq: number; action: string; from: CoreStatus | null; to: CoreStatus | null; actor: { name: string; email: string }; at: string; note?: string; data?: Record<string, unknown> }
 const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", sold: "ขายแล้ว", rebuilt: "รีบิ้วเสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", attach: "แนบรูป" }
-const CHOICE_TH: Record<string, string> = { sell: "S1 ซากมีมูลค่า", rebuild: "A2 ของรีบิ้ว", no_core: "S2 ซากไม่มีมูลค่า" }
+const CHOICE_TH: Record<string, string> = { sell: "S1 ซากมีมูลค่า", rebuild: "A2 ของรีบิ้ว", no_core: "S2 ซากไม่มีมูลค่า", missing: "ไม่มีซากคืน" }
 
 function histDetail(h: Hist): string {
   const d = h.data ?? {}
@@ -319,7 +325,7 @@ export function rowActions(r: Pick<Row, "coreStatus" | "saleRoundNo">, p: { ret:
   if (!CLOSED_SET.includes(r.coreStatus) && p.follow) out.push("follow")
   return out
 }
-const CLOSED_SET: CoreStatus[] = ["sold", "rebuilt", "no_core"]
+const CLOSED_SET: CoreStatus[] = ["sold", "rebuilt", "no_core", "missing"]
 export const ACT_LABEL: Record<DrawerAct, string> = { return: "คืนซาก", follow: "ติดตาม", sold: "บันทึกขายแล้ว", rebuilt: "รีบิ้วเสร็จ" }
 /** สีปุ่มหลักตามทีมที่ทำ: ยานยนต์เขียว · สโตร์ฟ้า · จัดซื้อม่วง */
 export const ACT_VARIANT: Record<DrawerAct, "primary" | "store" | "procure"> = { return: "primary", sold: "store", rebuilt: "store", follow: "procure" }

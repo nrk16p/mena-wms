@@ -270,7 +270,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/store-withdraw/audit", label: "ตรวจสอบย้อนหลังงานเบิก", icon: ShieldCheck, exact: true, section: "store-audit", sectionMin: "view",
         desc: "ไล่ประวัติใบเบิก หลักฐานแนบ และ Export (เฉพาะผู้ได้รับสิทธิ์)" },
       { href: "/store-withdraw/core-return", label: "ติดตามซากอะไหล่", icon: Recycle, exact: true, section: "core-return", sectionMin: "view",
-        desc: "เบิกของใหม่แล้วต้องคืนซาก · S1 ซากมีมูลค่า / S2 ไม่มีมูลค่า / A2 รีบิ้ว · รอบขายซาก" },
+        desc: "เบิกของใหม่แล้วต้องคืนซาก · S1 มีมูลค่า / S2 ไม่มีมูลค่า / A2 รีบิ้ว / ไม่มีซากคืน · รอบขายซาก" },
     ],
   },
   {

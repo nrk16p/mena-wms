@@ -27,8 +27,8 @@ const LANES = [
   { key: 2, title: "ติดตาม & รอบขาย", role: "จัดซื้อ", short: "จัดซื้อ", tone: "procure" },
 ] as const
 const LANE_ACTIVE_TXT = { vehicle: TXT.warn, store: TXT.storeDeep, procure: TXT.procure } as const
-const TABLE_STATUSES: CoreStatus[] = ["pending", "sell_waiting", "rebuild", "sold", "rebuilt", "no_core"]
-const CLOSED: CoreStatus[] = ["sold", "rebuilt", "no_core"]
+const TABLE_STATUSES: CoreStatus[] = ["pending", "sell_waiting", "rebuild", "sold", "rebuilt", "no_core", "missing"]
+const CLOSED: CoreStatus[] = ["sold", "rebuilt", "no_core", "missing"]
 const GROUP_BY = [{ k: "vehicle", t: "รถ" }, { k: "mr", t: "MR" }, { k: "garage", t: "อู่" }, { k: "warehouse", t: "คลัง" }] as const
 const DAY_MS = 86_400_000
 
@@ -533,7 +533,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
   }
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   const doneWith = (kind: NonNullable<Act>["kind"]) => (row: Row) => {
-    const msg = kind === "return" ? `บันทึกคืนซากแล้ว${row?.coreStatus === "sell_waiting" ? " · S1 เข้าคลังซาก" : row?.coreStatus === "rebuild" ? " · A2 ส่งรีบิ้ว" : row?.coreStatus === "no_core" ? " · S2 ไม่มีมูลค่า" : ""}`
+    const msg = kind === "return" ? `บันทึกคืนซากแล้ว${row?.coreStatus === "sell_waiting" ? " · S1 เข้าคลังซาก" : row?.coreStatus === "rebuild" ? " · A2 ส่งรีบิ้ว" : row?.coreStatus === "no_core" ? " · S2 ไม่มีมูลค่า" : row?.coreStatus === "missing" ? " · ไม่มีซากคืน" : ""}`
       : kind === "sold" ? "บันทึกขายแล้ว" : kind === "rebuilt" ? "บันทึกรีบิ้วเสร็จแล้ว" : "บันทึกการตามแล้ว"
     toast("success", msg); refresh()
   }
@@ -596,7 +596,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
               <h1 className={`m-0 text-xl font-bold ${K["text-ink"]} lg:text-[26px]`}>ติดตามซากอะไหล่</h1>
               <p className={`m-0 text-[12.5px] lg:mt-0.5 lg:text-sm ${TXT.muted}`}>
                 <span className="lg:hidden">{mineOpen.count > 0 ? `ของฉันยังไม่คืนซาก ${mineOpen.count.toLocaleString()} รายการ · ${baht(mineOpen.amount)} บาท` : "เบิกของใหม่แล้วต้องคืนซาก"}</span>
-                <span className="hidden lg:inline">เบิกของใหม่แล้วต้องคืนซาก · S1 ซากมีมูลค่า · S2 ซากไม่มีมูลค่า · A2 ของรีบิ้ว</span>
+                <span className="hidden lg:inline">เบิกของใหม่แล้วต้องคืนซาก · S1 ซากมีมูลค่า · S2 ซากไม่มีมูลค่า · A2 ของรีบิ้ว · ไม่มีซากคืน</span>
               </p>
             </div>
           </div>
