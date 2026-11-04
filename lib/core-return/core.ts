@@ -9,11 +9,11 @@ export type CoreStatus = (typeof CORE_STATUSES)[number]
 export const STATUS_LABEL: Record<CoreStatus, string> = {
   pending: "รอคืนซาก",
   legacy: "มีในไฟล์ติดตามเดิม",
-  sell_waiting: "S1 ขายซาก · อยู่คลังซากรอขาย",
+  sell_waiting: "S1 ซากมีมูลค่า · อยู่คลังซากรอขาย",
   sold: "ขายซากแล้ว",
-  rebuild: "Rebuild ส่งซ่อม",
-  rebuilt: "Rebuild เสร็จ",
-  no_core: "ไม่มีซากคืน",
+  rebuild: "A2 ส่งรีบิ้ว",
+  rebuilt: "A2 รีบิ้วเสร็จ",
+  no_core: "S2 ซากไม่มีมูลค่า",
 }
 
 /** ยังไม่คืนซาก (legacy ทำงานเหมือน pending) */
@@ -140,13 +140,13 @@ export type ReturnInput = {
 /** ตรวจค่าคืนซาก · qty ค่าเริ่มต้น = จำนวนที่เบิก · คืนไม่ครบต้องบอกเหตุผล · S1 ต้องมีวันที่เข้าคลังซาก */
 export function parseReturn(body: Record<string, unknown>, row: Pick<CoreRow, "qtyIssued" | "issuedDate">, now = new Date()): ReturnInput {
   const choice = body.choice
-  if (choice !== "sell" && choice !== "rebuild" && choice !== "no_core") throw bad("เลือกก่อนว่า S1 ขายซาก / Rebuild ซ่อม / ไม่มีซากคืน")
+  if (choice !== "sell" && choice !== "rebuild" && choice !== "no_core") throw bad("เลือกก่อนว่า S1 ซากมีมูลค่า / S2 ซากไม่มีมูลค่า / A2 ของรีบิ้ว")
   const today = todayBkk(now)
   const issued = typeof row.qtyIssued === "number" && row.qtyIssued > 0 ? row.qtyIssued : null
   const note = str(body.note)
   if (choice === "no_core") {
     const reason = str(body.noCoreReason, 100)
-    if (!reason) throw bad("บอกเหตุผลที่ไม่มีซากคืน")
+    if (!reason) throw bad("บอกเหตุผลที่ซากไม่มีมูลค่า")
     if (reason === "อื่นๆ" && !note) throw bad("เลือก อื่นๆ ต้องเขียนหมายเหตุด้วย")
     return { choice, qty: 0, shortReason: null, note, scrapInDate: null, rebuildSentDate: null, rebuildVendor: null, noCoreReason: reason }
   }
@@ -175,7 +175,7 @@ export function parseSold(body: Record<string, unknown>, row: Pick<CoreRow, "sal
 
 export function parseRebuilt(body: Record<string, unknown>, row: Pick<CoreRow, "rebuild" | "issuedDate">, now = new Date()) {
   const today = todayBkk(now)
-  const doneDate = dateField(body.rebuiltDate, "วันที่ Rebuild เสร็จ", { required: true, today, min: row.rebuild?.sentDate ?? row.issuedDate, minLabel: row.rebuild?.sentDate ? "วันที่ส่งซ่อม" : "วันที่เบิก" })!
+  const doneDate = dateField(body.rebuiltDate, "วันที่รีบิ้วเสร็จ", { required: true, today, min: row.rebuild?.sentDate ?? row.issuedDate, minLabel: row.rebuild?.sentDate ? "วันที่ส่งรีบิ้ว" : "วันที่เบิก" })!
   return { doneDate, note: str(body.note) }
 }
 

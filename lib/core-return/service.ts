@@ -151,7 +151,7 @@ export async function markSold(key: string, body: Record<string, unknown>, actor
 /** Rebuild เสร็จ: rebuild → rebuilt */
 export async function markRebuilt(key: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
   const row = await loadOrThrow(key)
-  if (row.coreStatus !== "rebuild") throw new CoreHttpError("บันทึก Rebuild เสร็จได้เฉพาะรายการที่ส่งซ่อมอยู่", 409)
+  if (row.coreStatus !== "rebuild") throw new CoreHttpError("บันทึกรีบิ้วเสร็จได้เฉพาะรายการที่ส่งรีบิ้วอยู่", 409)
   const v = parseRebuilt(body, row, now)
   const rebuild = { ...(row.rebuild ?? { sentDate: null, vendor: null }), doneDate: v.doneDate, note: v.note, doneAt: now, doneBy: who(actor) }
   return move(row, "rebuilt", { rebuild }, { action: "rebuilt", actor: { ...who(actor), via: actor.via }, note: v.note || undefined, data: { rebuiltDate: v.doneDate } })

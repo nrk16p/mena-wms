@@ -58,7 +58,7 @@ function GarageLine({ row }: { row: Row & { garageType?: string | null; garage?:
   )
 }
 
-/** ปุ่มหลักปุ่มเดียวต่อแถว (คืนซาก > ขาย/Rebuild > ติดตาม) · ที่เหลือทำในลิ้นชักรายละเอียด */
+/** ปุ่มหลักปุ่มเดียวต่อแถว (คืนซาก > ขาย/รีบิ้ว > ติดตาม) · ที่เหลือทำในลิ้นชักรายละเอียด */
 function PrimaryAction({ row, perms, onAct, block }: { row: Row; perms: Perms; onAct: (a: Act) => void; block?: boolean }) {
   const k = rowActions(row, perms)[0]
   if (!k) return null
@@ -293,7 +293,7 @@ function StoreLane({ f, tick, perms, onAct, onOpen, summary }: { f: Filters; tic
   return (
     <div className="flex flex-col gap-2.5">
       <div className={`${SEG.wrap} w-full`} role="group" aria-label="คลังซาก">
-        {([["sell_waiting", "S1 รอขาย"], ["rebuild", "Rebuild ส่งซ่อม"]] as const).map(([k, t]) => (
+        {([["sell_waiting", "S1 รอขาย"], ["rebuild", "A2 ส่งรีบิ้ว"]] as const).map(([k, t]) => (
           <button key={k} type="button" aria-pressed={sub === k} onClick={() => setSub(k)} className={`${SEG.base} flex-1 text-[13px] ${sub === k ? SEG.onStore : SEG.off}`}>
             {t} {(summary?.[k]?.count ?? 0).toLocaleString()}
           </button>
@@ -533,8 +533,8 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
   }
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   const doneWith = (kind: NonNullable<Act>["kind"]) => (row: Row) => {
-    const msg = kind === "return" ? `บันทึกคืนซากแล้ว${row?.coreStatus === "sell_waiting" ? " · S1 เข้าคลังซาก" : row?.coreStatus === "rebuild" ? " · ส่ง Rebuild" : row?.coreStatus === "no_core" ? " · ไม่มีซากคืน" : ""}`
-      : kind === "sold" ? "บันทึกขายแล้ว" : kind === "rebuilt" ? "บันทึก Rebuild เสร็จแล้ว" : "บันทึกการตามแล้ว"
+    const msg = kind === "return" ? `บันทึกคืนซากแล้ว${row?.coreStatus === "sell_waiting" ? " · S1 เข้าคลังซาก" : row?.coreStatus === "rebuild" ? " · A2 ส่งรีบิ้ว" : row?.coreStatus === "no_core" ? " · S2 ไม่มีมูลค่า" : ""}`
+      : kind === "sold" ? "บันทึกขายแล้ว" : kind === "rebuilt" ? "บันทึกรีบิ้วเสร็จแล้ว" : "บันทึกการตามแล้ว"
     toast("success", msg); refresh()
   }
   const pickGarage = (g: Group) => { setF((cur) => ({ ...cur, garage: g.key.garage ?? "", garageType: g.key.garageType ?? "" })); setView("table") }
@@ -596,7 +596,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
               <h1 className={`m-0 text-xl font-bold ${K["text-ink"]} lg:text-[26px]`}>ติดตามซากอะไหล่</h1>
               <p className={`m-0 text-[12.5px] lg:mt-0.5 lg:text-sm ${TXT.muted}`}>
                 <span className="lg:hidden">{mineOpen.count > 0 ? `ของฉันยังไม่คืนซาก ${mineOpen.count.toLocaleString()} รายการ · ${baht(mineOpen.amount)} บาท` : "เบิกของใหม่แล้วต้องคืนซาก"}</span>
-                <span className="hidden lg:inline">เบิกของใหม่แล้วต้องคืนซาก · S1 ขายซาก หรือ Rebuild ซ่อม</span>
+                <span className="hidden lg:inline">เบิกของใหม่แล้วต้องคืนซาก · S1 ซากมีมูลค่า · S2 ซากไม่มีมูลค่า · A2 ของรีบิ้ว</span>
               </p>
             </div>
           </div>
@@ -653,7 +653,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
           <Kpi strong label="ยังไม่คืนซาก" count={summary ? l1.count : null} amount={l1.amount} note={oldest != null ? `ค้างนานสุด ${oldest.toLocaleString()} วัน` : "ยังไม่คืนซาก"} tone={`${K["text-ink"]}`} />
           <Kpi label="ค้างเกิน 60 วัน" count={lateSum ? lates.count : null} amount={lates.amount} note="ต้องตามด่วน" tone={TXT.late} />
           <Kpi label="อยู่คลังซากรอขาย (S1)" count={summary ? (summary.sell_waiting?.count ?? 0) : null} amount={summary?.sell_waiting?.amount ?? 0} note="พร้อมเข้ารอบขาย" tone={TXT.store} />
-          <Kpi label="ส่ง Rebuild" count={summary ? (summary.rebuild?.count ?? 0) : null} amount={summary?.rebuild?.amount ?? 0} note="รอซ่อมเสร็จ" tone={TXT.procure} />
+          <Kpi label="A2 ส่งรีบิ้ว" count={summary ? (summary.rebuild?.count ?? 0) : null} amount={summary?.rebuild?.amount ?? 0} note="รอซ่อมเสร็จ" tone={TXT.procure} />
         </div>
       )}
 

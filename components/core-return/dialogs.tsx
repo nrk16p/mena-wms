@@ -67,9 +67,9 @@ function useSubmit(url: string, onDone: Done, onClose: () => void) {
 }
 
 const CHOICES: { key: "sell" | "rebuild" | "no_core"; title: string; desc: string }[] = [
-  { key: "sell", title: "S1 ขายซาก", desc: "เอาเข้าคลังซาก รอขาย" },
-  { key: "rebuild", title: "Rebuild ซ่อม", desc: "ส่งซ่อมกลับมาใช้ใหม่" },
-  { key: "no_core", title: "ไม่มีซากคืน", desc: "ของสิ้นเปลือง / ซากเสียทิ้ง" },
+  { key: "sell", title: "S1 ซากมีมูลค่า", desc: "เข้าคลังซาก รอขาย" },
+  { key: "rebuild", title: "A2 ของรีบิ้ว", desc: "ส่งรีบิ้ว กลับมาใช้ใหม่" },
+  { key: "no_core", title: "S2 ซากไม่มีมูลค่า", desc: "ขายไม่ได้ / ของสิ้นเปลือง / เสียทิ้ง" },
 ]
 
 export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClose: () => void; onDone: Done }) {
@@ -118,7 +118,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
                     <DateInput value={scrapInDate} max={todayYmd()} onChange={setScrapInDate} required />
                   </Field>
                 )}
-                {choice === "rebuild" && <Field label="วันที่ส่งซ่อม (ถ้ามี)"><DateInput value={sentDate} max={todayYmd()} onChange={setSentDate} /></Field>}
+                {choice === "rebuild" && <Field label="วันที่ส่งรีบิ้ว (ถ้ามี)"><DateInput value={sentDate} max={todayYmd()} onChange={setSentDate} /></Field>}
               </div>
             )}
             {choice === "sell" && <p className={`-mt-1.5 text-xs ${TXT.muted}`}>ซากจะรออยู่คลังซากจนถึงรอบขาย</p>}
@@ -131,7 +131,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
               <Field label="ส่งที่ไหน (ถ้ามี)"><input className={inputCls} value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="ชื่ออู่/ร้าน" /></Field>
             )}
             {choice === "no_core" && (
-              <Field label="ทำไมไม่มีซาก">
+              <Field label="ทำไมไม่มีมูลค่า">
                 <select className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)}>
                   {NO_CORE_REASONS.map((r) => <option key={r}>{r}</option>)}
                 </select>
@@ -183,14 +183,14 @@ export function RebuiltDialog({ row, onClose, onDone }: { row: Row | null; onClo
   const [note, setNote] = useState("")
   const { busy, error, submit } = useSubmit(row ? rowUrl(row.row_key, "rebuilt") : "", onDone, onClose)
   return (
-    <Modal open={!!row} onClose={onClose} title="Rebuild เสร็จ">
+    <Modal open={!!row} onClose={onClose} title="A2 รีบิ้วเสร็จ">
         {row && (
           <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ rebuiltDate: date, note }) }}>
             <RowHead row={row} />
             {row.rebuild?.vendor && <p className={`text-xs ${K["text-muted"]}`}>ส่งซ่อมที่ {row.rebuild.vendor}{row.rebuild.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
             <Field label="วันที่ได้ของคืน"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
             <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น เข้าสต๊อกแล้ว" /></Field>
-            <Footer busy={busy} onCancel={onClose} label="บันทึก Rebuild เสร็จ" error={error} />
+            <Footer busy={busy} onCancel={onClose} label="บันทึกรีบิ้วเสร็จ" error={error} />
           </form>
         )}
     </Modal>
@@ -253,8 +253,8 @@ export function BulkFollowDialog({ keys, onClose, onDone }: { keys: string[] | n
 }
 
 type Hist = { seq: number; action: string; from: CoreStatus | null; to: CoreStatus | null; actor: { name: string; email: string }; at: string; note?: string; data?: Record<string, unknown> }
-const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", sold: "ขายแล้ว", rebuilt: "Rebuild เสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", attach: "แนบรูป" }
-const CHOICE_TH: Record<string, string> = { sell: "S1 ขายซาก", rebuild: "Rebuild ซ่อม", no_core: "ไม่มีซากคืน" }
+const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", sold: "ขายแล้ว", rebuilt: "รีบิ้วเสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", attach: "แนบรูป" }
+const CHOICE_TH: Record<string, string> = { sell: "S1 ซากมีมูลค่า", rebuild: "A2 ของรีบิ้ว", no_core: "S2 ซากไม่มีมูลค่า" }
 
 function histDetail(h: Hist): string {
   const d = h.data ?? {}
@@ -320,7 +320,7 @@ export function rowActions(r: Pick<Row, "coreStatus" | "saleRoundNo">, p: { ret:
   return out
 }
 const CLOSED_SET: CoreStatus[] = ["sold", "rebuilt", "no_core"]
-export const ACT_LABEL: Record<DrawerAct, string> = { return: "คืนซาก", follow: "ติดตาม", sold: "บันทึกขายแล้ว", rebuilt: "Rebuild เสร็จ" }
+export const ACT_LABEL: Record<DrawerAct, string> = { return: "คืนซาก", follow: "ติดตาม", sold: "บันทึกขายแล้ว", rebuilt: "รีบิ้วเสร็จ" }
 /** สีปุ่มหลักตามทีมที่ทำ: ยานยนต์เขียว · สโตร์ฟ้า · จัดซื้อม่วง */
 export const ACT_VARIANT: Record<DrawerAct, "primary" | "store" | "procure"> = { return: "primary", sold: "store", rebuilt: "store", follow: "procure" }
 

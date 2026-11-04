@@ -26,7 +26,7 @@ export type Summary = Record<CoreStatus | "followQueue", { count: number; amount
 export const STATUS_CLS: Record<CoreStatus, string> = STATUS_PILL
 /** ป้ายสั้นสำหรับชิปในหน้าใบเบิก */
 export const SHORT_LABEL: Record<CoreStatus, string> = {
-  pending: "รอคืนซาก", legacy: "รอคืนซาก", sell_waiting: "อยู่คลังซากรอขาย", sold: "ขายแล้ว", rebuild: "ส่ง Rebuild", rebuilt: "Rebuild เสร็จ", no_core: "ไม่มีซากคืน",
+  pending: "รอคืนซาก", legacy: "รอคืนซาก", sell_waiting: "S1 อยู่คลังซากรอขาย", sold: "S1 ขายแล้ว", rebuild: "A2 ส่งรีบิ้ว", rebuilt: "A2 รีบิ้วเสร็จ", no_core: "S2 ไม่มีมูลค่า",
 }
 
 export function CoreChip({ status, short }: { status: CoreStatus; short?: boolean }) {
