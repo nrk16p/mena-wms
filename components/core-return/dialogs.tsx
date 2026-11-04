@@ -187,7 +187,7 @@ export function RebuiltDialog({ row, onClose, onDone }: { row: Row | null; onClo
         {row && (
           <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ rebuiltDate: date, note }) }}>
             <RowHead row={row} />
-            {row.rebuild?.vendor && <p className={`text-xs ${K["text-muted"]}`}>ส่งซ่อมที่ {row.rebuild.vendor}{row.rebuild.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
+            {row.rebuild?.vendor && <p className={`text-xs ${K["text-muted"]}`}>ส่งรีบิ้วที่ {row.rebuild.vendor}{row.rebuild.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
             <Field label="วันที่ได้ของคืน"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
             <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น เข้าสต๊อกแล้ว" /></Field>
             <Footer busy={busy} onCancel={onClose} label="บันทึกรีบิ้วเสร็จ" error={error} />

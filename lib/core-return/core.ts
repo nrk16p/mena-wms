@@ -161,7 +161,7 @@ export function parseReturn(body: Record<string, unknown>, row: Pick<CoreRow, "q
     const scrapInDate = dateField(body.scrapInDate, "วันที่เข้าคลังซาก", { required: true, today, min: row.issuedDate })
     return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate, rebuildSentDate: null, rebuildVendor: null, noCoreReason: null }
   }
-  const rebuildSentDate = dateField(body.rebuildSentDate, "วันที่ส่งซ่อม", { required: false, today, min: row.issuedDate })
+  const rebuildSentDate = dateField(body.rebuildSentDate, "วันที่ส่งรีบิ้ว", { required: false, today, min: row.issuedDate })
   return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate: null, rebuildSentDate, rebuildVendor: str(body.rebuildVendor, 200) || null, noCoreReason: null }
 }
 

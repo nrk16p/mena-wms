@@ -101,7 +101,7 @@ function RowCard({ row, perms, onAct, onOpen, variant = "card" }: { row: Row; pe
           </span>
           <span className={`text-xs ${TXT.muted}`}>{row.skuCode} · {qtyText(row.qtyIssued)} ชิ้น · {baht(row.amount)} บาท · {row.plate || "-"}</span>
           {row.coreStatus === "sell_waiting" && row.sale?.scrapInDate && <span className={`text-[13px] ${TXT.storeDeep}`}>อยู่คลังซาก {daysFrom(row.sale.scrapInDate)} วัน</span>}
-          {row.coreStatus === "rebuild" && <span className={`text-[13px] ${K["text-c5B21B6"]}`}>ส่งซ่อม{row.rebuild?.vendor ? ` ${row.rebuild.vendor}` : ""}{row.rebuild?.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</span>}
+          {row.coreStatus === "rebuild" && <span className={`text-[13px] ${K["text-c5B21B6"]}`}>ส่งรีบิ้ว{row.rebuild?.vendor ? ` ${row.rebuild.vendor}` : ""}{row.rebuild?.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</span>}
         </button>
         {hasAct && <div>{act}</div>}
       </li>
@@ -141,7 +141,7 @@ function RowCard({ row, perms, onAct, onOpen, variant = "card" }: { row: Row; pe
           {!!row.attachCount && <span data-testid="photo-chip" className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${TAG.photo}`}><Paperclip size={11} aria-hidden />รูป {row.attachCount}</span>}
         </div>
         {row.coreStatus === "sell_waiting" && row.sale?.scrapInDate && <p className={`mt-1 text-xs ${TXT.storeDeep}`}>เข้าคลังซาก {thDate(row.sale.scrapInDate)} · อยู่มา {daysFrom(row.sale.scrapInDate)} วัน</p>}
-        {row.coreStatus === "rebuild" && <p className={`mt-1 text-xs ${K["text-c5B21B6"]}`}>ส่งซ่อม{row.rebuild?.vendor ? ` ${row.rebuild.vendor}` : ""}{row.rebuild?.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
+        {row.coreStatus === "rebuild" && <p className={`mt-1 text-xs ${K["text-c5B21B6"]}`}>ส่งรีบิ้ว{row.rebuild?.vendor ? ` ${row.rebuild.vendor}` : ""}{row.rebuild?.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
       </button>
       {hasAct && <div className="mt-2.5">{act}</div>}
     </li>
@@ -299,7 +299,7 @@ function StoreLane({ f, tick, perms, onAct, onOpen, summary }: { f: Filters; tic
           </button>
         ))}
       </div>
-      <RowList query={qs(f, { status: sub })} tick={tick} perms={perms} onAct={onAct} onOpen={onOpen} empty={sub === "sell_waiting" ? "คลังซากว่าง" : "ไม่มีของส่งซ่อมค้าง"} variant="store" />
+      <RowList query={qs(f, { status: sub })} tick={tick} perms={perms} onAct={onAct} onOpen={onOpen} empty={sub === "sell_waiting" ? "คลังซากว่าง" : "ไม่มีของส่งรีบิ้วค้าง"} variant="store" />
     </div>
   )
 }
@@ -653,7 +653,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
           <Kpi strong label="ยังไม่คืนซาก" count={summary ? l1.count : null} amount={l1.amount} note={oldest != null ? `ค้างนานสุด ${oldest.toLocaleString()} วัน` : "ยังไม่คืนซาก"} tone={`${K["text-ink"]}`} />
           <Kpi label="ค้างเกิน 60 วัน" count={lateSum ? lates.count : null} amount={lates.amount} note="ต้องตามด่วน" tone={TXT.late} />
           <Kpi label="อยู่คลังซากรอขาย (S1)" count={summary ? (summary.sell_waiting?.count ?? 0) : null} amount={summary?.sell_waiting?.amount ?? 0} note="พร้อมเข้ารอบขาย" tone={TXT.store} />
-          <Kpi label="A2 ส่งรีบิ้ว" count={summary ? (summary.rebuild?.count ?? 0) : null} amount={summary?.rebuild?.amount ?? 0} note="รอซ่อมเสร็จ" tone={TXT.procure} />
+          <Kpi label="A2 ส่งรีบิ้ว" count={summary ? (summary.rebuild?.count ?? 0) : null} amount={summary?.rebuild?.amount ?? 0} note="รอรีบิ้วเสร็จ" tone={TXT.procure} />
         </div>
       )}
 
