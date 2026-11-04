@@ -9,13 +9,33 @@ import { OUTSTANDING, SORTS, SORT_LABEL, UNCERTAIN_GARAGE_SOURCES, parseSort, ty
 import { ACT_LABEL, ACT_VARIANT, BulkFollowDialog, DetailDrawer, FollowUpDialog, RebuiltDialog, ReturnDialog, SoldDialog, rowActions } from "./dialogs"
 import { RoundsPanel } from "./rounds"
 import {
-  CoreChip, DateInput, DaysBadge, SHORT_LABEL, baht, bahtShort, daysFrom, download, followText, getJson, inputCls, qtyText, thDate, todayYmd, useFetch, useKeyed, usePerms, type Perms, type Row, type Summary,
+  CoreChip, DaysBadge, SHORT_LABEL, baht, bahtShort, daysFrom, download, followText, getJson, inputCls, qtyText, thDate, todayYmd, useFetch, useKeyed, usePerms, type Perms, type Row, type Summary,
 } from "./shared"
 import { CARD, CARD_SM, CHIP, FIELD, GROUND, LANE_BG, LANE_DOT, ROW, SEG, TAG, TIER_TXT, TXT, K } from "./tokens"
 import { Button, EmptyState, SkeletonCards, SkeletonRows, ToastHost, toast } from "./ui"
 
 type View = "lanes" | "table" | "closed"
-type Filters = { q: string; warehouse: string; garageType: string; garage: string }
+type Filters = { q: string; warehouse: string; garageType: string; garage: string; range: RangeKey; from: string; to: string }
+const NO_FILTER: Filters = { q: "", warehouse: "", garageType: "", garage: "", range: "", from: "", to: "" }
+
+/** ช่วงเวลา = วันที่เบิก · ช่วงสำเร็จรูปคิดจากวันนี้ (เวลาไทย) · "กำหนดเอง" ให้เลือกวันเริ่ม/วันสุดท้ายเอง */
+type RangeKey = "" | "30" | "90" | "month" | "lastmonth" | "year" | "custom"
+const RANGES: [RangeKey, string][] = [["", "ทุกช่วงเวลา"], ["30", "30 วันล่าสุด"], ["90", "90 วันล่าสุด"], ["month", "เดือนนี้"], ["lastmonth", "เดือนที่แล้ว"], ["year", "ปีนี้"], ["custom", "กำหนดเอง…"]]
+function rangeDates(k: RangeKey, today = todayYmd()): { from: string; to: string } {
+  const [y, m] = today.split("-").map(Number)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const back = (days: number) => new Date(Date.parse(today) - days * 86_400_000).toISOString().slice(0, 10)
+  if (k === "30") return { from: back(29), to: today }
+  if (k === "90") return { from: back(89), to: today }
+  if (k === "month") return { from: `${y}-${pad(m)}-01`, to: today }
+  if (k === "lastmonth") {
+    const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1
+    const last = new Date(Date.UTC(py, pm, 0)).getUTCDate()
+    return { from: `${py}-${pad(pm)}-01`, to: `${py}-${pad(pm)}-${pad(last)}` }
+  }
+  if (k === "year") return { from: `${y}-01-01`, to: today }
+  return { from: "", to: "" }
+}
 type ListRes = { items: Row[]; total: number; page: number; pages: number; summary: Summary | null; warehouses: string[] | null; garages: { garageType: string; garage: string }[] | null }
 type Group = { key: Record<string, string>; count: number; pieces: number; amount: number; vehicles: number; mrs: number; oldest: string; days: number | null; plates?: string[]; uncertain?: boolean }
 type Act = { kind: "return" | "sold" | "rebuilt" | "follow"; row: Row } | null
@@ -38,6 +58,8 @@ function qs(f: Filters, extra: Record<string, string | undefined> = {}) {
   if (f.warehouse) p.set("warehouse", f.warehouse)
   if (f.garageType) p.set("garageType", f.garageType)
   if (f.garage) p.set("garage", f.garage)
+  if (f.from) p.set("from", f.from)
+  if (f.to) p.set("to", f.to)
   for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== "") p.set(k, v)
   return p.toString()
 }
@@ -334,14 +356,12 @@ function TableView({ f, tick, perms, onAct, onOpen, onRefresh, closed, mine, fie
   fields: React.ReactNode; garageField: React.ReactNode; chips: React.ReactNode; garageActive: boolean; onClear: () => void; exportSlot: HTMLElement | null
 }) {
   const [status, setStatus] = useState<CoreStatus[]>(closed ? CLOSED : ["pending", "legacy"])
-  const [from, setFrom] = useState("")
-  const [to, setTo] = useState("")
   const [followed, setFollowed] = useState("")
   const [due, setDue] = useState(false)
   const [sort, setSort] = useState<SortKey>("oldest")
   const [bulk, setBulk] = useState<string[] | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
-  const other = { from, to, followed, due: due ? "1" : "", mine: mine ? "1" : "" }
+  const other = { followed, due: due ? "1" : "", mine: mine ? "1" : "" }
   const query = qs(f, { status: status.join(","), ...other, sort: sort === "oldest" ? "" : sort })
   const [page, setPage] = useKeyed(`${tick}|${query}`, 1)
   const [sel, setSel] = useKeyed<Set<string>>(`${tick}|${query}|${page}`, EMPTY_SEL) // เลือกได้ในหน้าเดียว · เปลี่ยนหน้า/ตัวกรอง/บันทึกแล้ว = ล้าง
@@ -354,7 +374,7 @@ function TableView({ f, tick, perms, onAct, onOpen, onRefresh, closed, mine, fie
   const picked = pickedRows.map((r) => r.row_key)
   const pickedAmount = pickedRows.reduce((a, r) => a + (r.amount ?? 0), 0)
   const followable = pickedRows.filter((r) => !CLOSED.includes(r.coreStatus)).map((r) => r.row_key)
-  const moreCount = [from, to, followed, due, garageActive].filter(Boolean).length
+  const moreCount = [followed, due, garageActive].filter(Boolean).length
   return (
     <div className="flex flex-col gap-4" data-testid="table-view">
       {exportSlot && createPortal(<Button variant="secondary" size="lg" onClick={() => download(`/api/core-return/export?${query}`)} data-testid="export"><Download size={16} aria-hidden />Export Excel</Button>, exportSlot)}
@@ -367,9 +387,7 @@ function TableView({ f, tick, perms, onAct, onOpen, onRefresh, closed, mine, fie
           </Button>
         </div>
         {moreOpen && (
-          <div id="core-more-filters" role="group" aria-label="ตัวกรองเพิ่ม" className={`grid grid-cols-1 gap-3 rounded-xl ${K["bg-ground"]} p-3 sm:grid-cols-2 lg:grid-cols-5`}>
-            <label className="flex flex-col gap-1.5"><span className={FIELD.label}>เบิกตั้งแต่</span><DateInput value={from} onChange={setFrom} /></label>
-            <label className="flex flex-col gap-1.5"><span className={FIELD.label}>ถึง</span><DateInput value={to} onChange={setTo} /></label>
+          <div id="core-more-filters" role="group" aria-label="ตัวกรองเพิ่ม" className={`grid grid-cols-1 gap-3 rounded-xl ${K["bg-ground"]} p-3 sm:grid-cols-2 lg:grid-cols-3`}>
             <label className="flex flex-col gap-1.5"><span className={FIELD.label}>การตาม</span>
               <select className={inputCls} value={followed} onChange={(e) => setFollowed(e.target.value)}><option value="">ทั้งหมด</option><option value="yes">ตามแล้ว</option><option value="no">ยังไม่เคยตาม</option></select>
             </label>
@@ -493,7 +511,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
   const [viewSel, setView] = useState<View | null>(initial.view ?? null)
   const view: View | null = viewSel ?? (desktop === null ? null : desktop ? "table" : "lanes")
   const [laneSel, setLane] = useState<0 | 1 | 2 | null>(initial.lane ?? null)
-  const [f, setF] = useState<Filters>({ q: "", warehouse: "", garageType: "", garage: "" })
+  const [f, setF] = useState<Filters>(NO_FILTER)
   const [qInput, setQInput] = useState("")
   const [mine, setMine] = useState(!!initial.mine)
   const [meta, setMeta] = useState<{ warehouses: string[]; garages: { garageType: string; garage: string }[] }>({ warehouses: [], garages: [] })
@@ -523,7 +541,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
 
   // การ์ด "ค้างเกิน 60 วัน": ใช้การ์ดสรุปเดิม + ตัวกรองวันที่เบิก (to) ไม่มี API ใหม่
   const lateTo = new Date(Date.parse(todayYmd()) - 61 * DAY_MS).toISOString().slice(0, 10)
-  const lateSum = useFetch<{ summary: Summary }>(view === "table" ? `/api/core-return?${qs(f, { to: lateTo, mine: mine ? "1" : "" })}&only=summary` : null, tick).data?.summary ?? null
+  const lateSum = useFetch<{ summary: Summary }>(view === "table" ? `/api/core-return?${qs(f, { to: f.to && f.to < lateTo ? f.to : lateTo, mine: mine ? "1" : "" })}&only=summary` : null, tick).data?.summary ?? null
   const mineSum = useFetch<{ summary: Summary }>(perms.read && desktop === false ? "/api/core-return?mine=1&only=summary" : null, tick).data?.summary ?? null
 
   const onSearch = (v: string) => {
@@ -538,7 +556,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
     toast("success", msg); refresh()
   }
   const pickGarage = (g: Group) => { setF((cur) => ({ ...cur, garage: g.key.garage ?? "", garageType: g.key.garageType ?? "" })); setView("table") }
-  const clearAll = () => { setF({ q: "", warehouse: "", garageType: "", garage: "" }); setQInput(""); setMine(false) }
+  const clearAll = () => { setF(NO_FILTER); setQInput(""); setMine(false) }
 
   const l1 = sumOf(summary, ["pending", "legacy"])
   const l2 = sumOf(summary, ["sell_waiting", "rebuild"])
@@ -547,7 +565,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
   const closedSum = sumOf(summary, CLOSED)
   const mineOpen = sumOf(mineSum, ["pending", "legacy"])
   const garageOptions = useMemo(() => meta.garages.filter((g) => !f.garageType || g.garageType === f.garageType), [meta.garages, f.garageType])
-  const anyFilter = f.q || f.warehouse || f.garageType || f.garage || mine
+  const anyFilter = f.q || f.warehouse || f.garageType || f.garage || f.from || f.to || mine
 
   if (perms.ready && !perms.read) return <p className={`p-6 text-sm ${K["text-c33433A"]}`}>ยังไม่มีสิทธิ์ดูหน้านี้ ขอสิทธิ์จากผู้ดูแลระบบ</p>
 
@@ -566,6 +584,19 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
       <select aria-label="อู่ใน/อู่นอก" className={`${inputCls} !w-auto`} value={f.garageType} onChange={(e) => setF((c) => ({ ...c, garageType: e.target.value, garage: "" }))}>
         <option value="">อู่ใน + อู่นอก</option><option>อู่ใน</option><option>อู่นอก</option><option>Mobile/PM</option>
       </select>
+      <select aria-label="ช่วงเวลาที่เบิก" data-testid="range" className={`${inputCls} !w-auto`} value={f.range}
+        onChange={(e) => { const k = e.target.value as RangeKey; setF((c) => (k === "custom" ? { ...c, range: k, from: c.from, to: c.to || todayYmd() } : { ...c, range: k, ...rangeDates(k) })) }}>
+        {RANGES.map(([k, t]) => <option key={k} value={k}>{k === "" ? t : `เบิก: ${t}`}</option>)}
+      </select>
+      {f.range === "custom" && (
+        <span className="flex items-center gap-1.5" role="group" aria-label="กำหนดช่วงวันที่เบิก">
+          <input type="date" aria-label="เบิกตั้งแต่" data-testid="range-from" className={`${inputCls} !w-auto`} value={f.from} max={f.to || todayYmd()}
+            title={f.from ? thDate(f.from) : undefined} onChange={(e) => { const v = e.target.value; setF((c) => ({ ...c, from: v })) }} />
+          <span className={TXT.muted}>ถึง</span>
+          <input type="date" aria-label="ถึงวันที่" data-testid="range-to" className={`${inputCls} !w-auto`} value={f.to} min={f.from || undefined} max={todayYmd()}
+            title={f.to ? thDate(f.to) : undefined} onChange={(e) => { const v = e.target.value; setF((c) => ({ ...c, to: v })) }} />
+        </span>
+      )}
     </>
   )
   const garageField = (
@@ -579,6 +610,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
     <div className="flex flex-wrap items-center gap-2 text-xs">
       {mine && <span className={`rounded-full ${K["bg-cE4F4EA"]} px-2.5 py-1 font-semibold ${K["text-c156C3A"]}`}>เฉพาะที่ฉันเบิก (ใบเบิก WMS)</span>}
       {f.garage && <span className={`rounded-full px-2.5 py-1 font-semibold ${TAG.outside}`}>อู่: {f.garage}</span>}
+      {(f.from || f.to) && <span className={`rounded-full ${K["bg-cE4F4EA"]} px-2.5 py-1 font-semibold ${K["text-c156C3A"]}`} data-testid="range-chip">เบิก {f.from ? thDate(f.from) : "…"} – {f.to ? thDate(f.to) : "วันนี้"}</span>}
       <button type="button" className={`min-h-11 text-[13px] font-semibold ${K["text-primary"]} ${K["hover:text-primaryHover"]} hover:underline lg:min-h-8`} onClick={clearAll}>ล้างตัวกรอง</button>
     </div>
   ) : null
