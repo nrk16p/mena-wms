@@ -81,6 +81,8 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
   const [sentDate, setSentDate] = useState("")
   const [vendor, setVendor] = useState("")
   const [reason, setReason] = useState<string>(NO_CORE_REASONS[0])
+  // อู่นอก: ติ๊กให้จัดซื้อไปรับซากจากอู่ได้ (ค่าเริ่มต้นติ๊กไว้) · อู่ใน/อื่น ๆ ไม่ติ๊ก = ยานยนต์นำส่งบัญชีเอง
+  const [needPickup, setNeedPickup] = useState(row?.garageType === "อู่นอก")
   const [note, setNote] = useState("")
   const [files, setFiles] = useState<Picked[]>([])
   const { busy, error, submit } = useSubmit(row ? rowUrl(row.row_key, "return") : "", onDone, onClose)
@@ -96,7 +98,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
         {row && (
           <form className="flex flex-col gap-3.5" onSubmit={(e) => {
             e.preventDefault()
-            void submit({ choice, qty: noQty ? undefined : qty, shortReason, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note, attachmentIds: doneIds(files) })
+            void submit({ choice, needPickup: choice === "sell" ? needPickup : undefined, qty: noQty ? undefined : qty, shortReason, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note, attachmentIds: doneIds(files) })
           }}>
             <RowHead row={row} />
             <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
@@ -121,11 +123,20 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
                 {choice === "rebuild" && <Field label="วันที่ส่งรีบิ้ว (ถ้ามี)"><DateInput value={sentDate} max={todayYmd()} onChange={setSentDate} /></Field>}
               </div>
             )}
+            {choice === "sell" && row.garageType !== "อู่ใน" && (
+              <label data-testid="need-pickup" className={`flex cursor-pointer items-start gap-2 rounded-xl border ${BORDER} bg-white p-3 text-sm ${K["text-ink"]}`}>
+                <input type="checkbox" checked={needPickup} onChange={(e) => setNeedPickup(e.target.checked)} className={`mt-0.5 h-4 w-4 ${K["accent-primary"]}`} />
+                <span>
+                  <b>ให้จัดซื้อไปรับซากจากอู่{row.garage && row.garage !== "ไม่ทราบชื่ออู่" ? ` (${row.garage})` : ""}</b>
+                  <span className={`block text-xs ${TXT.muted}`}>จัดซื้อบันทึกวันที่รับกลับและส่งมอบให้ยานยนต์ ก่อนส่งต่อบัญชีรับเข้าคลังซาก</span>
+                </span>
+              </label>
+            )}
             {choice === "sell" && (
               <p data-testid="sell-next" className={`-mt-1.5 text-xs ${TXT.muted}`}>
-                {row.garageType === "อู่นอก"
-                  ? "ซากอยู่ที่อู่นอก ระบบจะแจ้งจัดซื้อให้ไปรับกลับ เมื่อรับกลับแล้ว ยานยนต์ยืนยันส่งต่อ และฝ่ายบัญชีบันทึกรับเข้าคลังซาก"
-                  : "นำส่งซากให้ฝ่ายบัญชี เพื่อบันทึกรับเข้าคลังซากและยืนยันจำนวน"}
+                {needPickup && row.garageType !== "อู่ใน"
+                  ? "ขั้นต่อไป: จัดซื้อไปรับซากจากอู่ → ส่งมอบให้ยานยนต์ยืนยัน → ฝ่ายบัญชีบันทึกรับเข้าคลังซาก"
+                  : "ขั้นต่อไป: นำส่งซากให้ฝ่ายบัญชี เพื่อบันทึกรับเข้าคลังซากและยืนยันจำนวน"}
               </p>
             )}
             {choice && !noQty && short && (
@@ -152,7 +163,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
               <AttachPicker variant="tiles" no={row.row_key} apiBase={attachApi(row.row_key)} context="return" items={files} onChange={(f) => setFiles(f)} label="รูปซาก (ถ้ามี)" hint="ไม่เกิน 8 รูป · รูปละไม่เกิน 10 MB" />
               {files.length > 0 && <p className={`text-xs ${TXT.muted}`}>รูปที่แนบแล้วลบไม่ได้ ดูให้ตรงก่อนกดบันทึก</p>}
             </div>
-            <Footer busy={busy} wait={uploading} onCancel={onClose} label={uploading ? "รอรูปอัปโหลด" : choice === "sell" ? (row.garageType === "อู่นอก" ? "บันทึกคืนซาก · แจ้งจัดซื้อ" : "บันทึกคืนซาก · นำส่งบัญชี") : "บันทึกคืนซาก"} error={error || ""} />
+            <Footer busy={busy} wait={uploading} onCancel={onClose} label={uploading ? "รอรูปอัปโหลด" : choice === "sell" ? (needPickup && row.garageType !== "อู่ใน" ? "บันทึกคืนซาก · แจ้งจัดซื้อ" : "บันทึกคืนซาก · นำส่งบัญชี") : "บันทึกคืนซาก"} error={error || ""} />
           </form>
         )}
     </Modal>
@@ -207,17 +218,21 @@ export function RebuiltDialog({ row, onClose, onDone }: { row: Row | null; onClo
 export function PickupDialog({ row, onClose, onDone }: { row: Row | null; onClose: () => void; onDone: Done }) {
   const [date, setDate] = useState(todayYmd())
   const [note, setNote] = useState("")
+  const [handedTo, setHandedTo] = useState("")
   const { busy, error, submit } = useSubmit(row ? rowUrl(row.row_key, "pickup") : "", onDone, onClose)
   return (
-    <Modal open={!!row} onClose={onClose} title="บันทึกรับซากกลับจากอู่นอก" testid="pickup-dialog">
+    <Modal open={!!row} onClose={onClose} title="บันทึกรับซากจากอู่ · ส่งมอบยานยนต์" testid="pickup-dialog">
         {row && (
-          <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ pickupDate: date, note }) }}>
+          <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ pickupDate: date, handedTo, note }) }}>
             <RowHead row={row} />
             <p className={`text-xs ${K["text-muted"]}`}>อู่: {row.garage || "ไม่ทราบชื่อ"} · ยานยนต์คืน {qtyText(row.ret?.qty ?? row.qtyIssued)} ชิ้น</p>
-            <Field label="วันที่รับซากกลับถึงคลัง"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="วันที่ไปรับซากจากอู่"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
+              <Field label="ส่งมอบให้ (ยานยนต์)"><input className={inputCls} value={handedTo} onChange={(e) => setHandedTo(e.target.value)} placeholder="ชื่อผู้รับมอบ" required /></Field>
+            </div>
             <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ผู้รับ ทะเบียนรถที่ไปรับ" /></Field>
             <p className={`-mt-1.5 text-xs ${TXT.muted}`}>บันทึกแล้วระบบส่งให้ยานยนต์ตรวจและยืนยันก่อนส่งต่อฝ่ายบัญชี</p>
-            <Footer busy={busy} onCancel={onClose} label="บันทึกรับซากกลับ" error={error} />
+            <Footer busy={busy} onCancel={onClose} label="บันทึกรับซากและส่งมอบ" error={error} />
           </form>
         )}
     </Modal>
@@ -233,7 +248,7 @@ export function ConfirmDialog({ row, onClose, onDone }: { row: Row | null; onClo
         {row && (
           <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ note }) }}>
             <RowHead row={row} />
-            <p className={`text-xs ${K["text-muted"]}`}>จัดซื้อรับซากกลับ {thDate(row.pickup?.date)}{row.pickup?.by ? ` · ${row.pickup.by.name}` : ""} · ยานยนต์คืน {qtyText(row.ret?.qty ?? row.qtyIssued)} ชิ้น</p>
+            <p className={`text-xs ${K["text-muted"]}`}>จัดซื้อรับซากกลับ {thDate(row.pickup?.date)}{row.pickup?.by ? ` · ${row.pickup.by.name}` : ""}{row.pickup?.handedTo ? ` · ส่งมอบให้ ${row.pickup.handedTo}` : ""} · ยานยนต์คืน {qtyText(row.ret?.qty ?? row.qtyIssued)} ชิ้น</p>
             <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ตรวจแล้วตรงรุ่น ครบจำนวน" /></Field>
             <Footer busy={busy} onCancel={onClose} label="ยืนยันและส่งต่อบัญชี" error={error} />
           </form>
@@ -351,7 +366,8 @@ function histDetail(h: Hist): string {
     if (d.noCoreReason) parts.push(String(d.noCoreReason))
     if (d.shortReason) parts.push(`คืนไม่ครบ: ${d.shortReason}`)
   }
-  if (h.action === "pickup" && d.pickupDate) parts.push(`รับกลับ ${thDate(String(d.pickupDate))}`)
+  if (h.action === "pickup") { if (d.pickupDate) parts.push(`รับกลับ ${thDate(String(d.pickupDate))}`); if (d.handedTo) parts.push(`ส่งมอบให้ ${d.handedTo}`) }
+  if (h.action === "return" && d.needPickup) parts.push("ให้จัดซื้อไปรับ")
   if (h.action === "receive") {
     if (d.receivedDate) parts.push(`รับเข้า ${thDate(String(d.receivedDate))}`)
     if (d.qty) parts.push(`${d.qty} ชิ้น`)
@@ -448,7 +464,7 @@ export function DetailDrawer({ rowKey, onClose, onAct }: { rowKey: string | null
     ...(r.requester ? [["ผู้เบิก (WMS)", `${r.requester.name}${r.swNo ? ` · ${r.swNo}` : ""}`] as [string, string]] : []),
     ...(r.mrItemLabel ? [["ประเภทการซ่อม", r.mrItemLabel] as [string, string]] : []),
     ...(r.legacyRound ? [["ไฟล์ติดตามเดิม", `${r.legacyRound}${r.legacyNote ? ` · ${r.legacyNote}` : ""}`] as [string, string]] : []),
-    ...(r.pickup ? [["จัดซื้อรับซากกลับ", `${thDate(r.pickup.date)} · ${r.pickup.by.name}`] as [string, string]] : []),
+    ...(r.pickup ? [["จัดซื้อรับซากกลับ", `${thDate(r.pickup.date)} · ${r.pickup.by.name}${r.pickup.handedTo ? ` · ส่งมอบให้ ${r.pickup.handedTo}` : ""}`] as [string, string]] : []),
     ...(r.handover ? [["ยานยนต์ยืนยันส่งต่อ", `${thDateTime(r.handover.at)} · ${r.handover.by.name}`] as [string, string]] : []),
     ...(r.receive ? [["บัญชีรับเข้าคลังซาก", `${thDate(r.receive.date)} · ${qtyText(r.receive.qty)} ชิ้น · ${r.receive.by.name}${r.receive.shortReason ? ` · รับไม่ครบ: ${r.receive.shortReason}` : ""}`] as [string, string]] : []),
     ...(r.sale?.scrapInDate ? [["เข้าคลังซาก", thDate(r.sale.scrapInDate)] as [string, string]] : []),

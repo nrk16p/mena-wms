@@ -124,15 +124,16 @@ export async function returnCore(key: string, body: Record<string, unknown>, act
   if (!OUTSTANDING.includes(row.coreStatus)) throw new CoreHttpError(`รายการนี้ "${STATUS_LABEL[row.coreStatus] ?? row.coreStatus}" แล้ว คืนซากซ้ำไม่ได้`, 409)
   const v = parseReturn(body, row, now)
   const attachmentIds = await resolveCoreLinkable(key, body.attachmentIds, actor)
-  const to = returnTarget(v.choice, row.garageType)
-  const ret = { choice: v.choice, qty: v.qty, shortReason: v.shortReason, note: v.note, at: now, by: who(actor), ...(attachmentIds.length ? { attachmentIds } : {}) }
+  const to = returnTarget(v.choice, row.garageType, v.needPickup)
+  const needPickup = to === "await_pickup"
+  const ret = { choice: v.choice, ...(v.choice === "sell" ? { needPickup } : {}), qty: v.qty, shortReason: v.shortReason, note: v.note, at: now, by: who(actor), ...(attachmentIds.length ? { attachmentIds } : {}) }
   const set: Record<string, unknown> = { ret, coreQtyReturned: v.qty }
   if (v.choice === "sell") set.sale = { scrapInDate: v.scrapInDate, soldDate: null, price: null, buyer: null, note: "", soldAt: null, soldBy: null }
   if (v.choice === "rebuild") set.rebuild = { sentDate: v.rebuildSentDate, vendor: v.rebuildVendor, doneDate: null, note: "", doneAt: null, doneBy: null }
   if (v.choice === "no_core" || v.choice === "missing") set.noCore = { reason: v.noCoreReason, note: v.note }
   const after = await move(row, to, set, {
     action: "return", actor: { ...who(actor), via: actor.via }, note: v.note || undefined,
-    data: { choice: v.choice, qty: v.qty, shortReason: v.shortReason, scrapInDate: v.scrapInDate, rebuildSentDate: v.rebuildSentDate, rebuildVendor: v.rebuildVendor, noCoreReason: v.noCoreReason, ...(attachmentIds.length ? { attachmentIds } : {}) },
+    data: { choice: v.choice, ...(v.choice === "sell" ? { needPickup } : {}), qty: v.qty, shortReason: v.shortReason, scrapInDate: v.scrapInDate, rebuildSentDate: v.rebuildSentDate, rebuildVendor: v.rebuildVendor, noCoreReason: v.noCoreReason, ...(attachmentIds.length ? { attachmentIds } : {}) },
   })
   await linkCoreAttachments(key, attachmentIds)
   return after
@@ -143,8 +144,8 @@ export async function markPickedUp(key: string, body: Record<string, unknown>, a
   const row = await loadOrThrow(key)
   if (row.coreStatus !== "await_pickup") throw new CoreHttpError("บันทึกรับซากกลับได้เฉพาะรายการที่รอจัดซื้อรับซาก", 409)
   const v = parsePickup(body, row, now)
-  const pickup = { date: v.date, note: v.note, at: now, by: who(actor) }
-  return move(row, "picked_up", { pickup }, { action: "pickup", actor: { ...who(actor), via: actor.via }, note: v.note || undefined, data: { pickupDate: v.date } })
+  const pickup = { date: v.date, handedTo: v.handedTo, note: v.note, at: now, by: who(actor) }
+  return move(row, "picked_up", { pickup }, { action: "pickup", actor: { ...who(actor), via: actor.via }, note: v.note || undefined, data: { pickupDate: v.date, handedTo: v.handedTo } })
 }
 
 /** ยานยนต์ยืนยันซากที่จัดซื้อรับกลับมา แล้วส่งต่อให้บัญชี: picked_up → await_receive */

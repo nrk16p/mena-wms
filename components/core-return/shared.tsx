@@ -20,7 +20,7 @@ export type Row = {
   sale?: { scrapInDate: string | null; soldDate: string | null; price: number | null; buyer: string | null; roundNo?: string | null } | null
   rebuild?: { sentDate: string | null; vendor: string | null; doneDate: string | null; note: string } | null
   noCore?: { reason: string; note: string } | null
-  pickup?: { date: string; note: string; at: string; by: { name: string } } | null
+  pickup?: { date: string; handedTo?: string; note: string; at: string; by: { name: string } } | null
   handover?: { note: string; at: string; by: { name: string } } | null
   receive?: { date: string; qty: number; shortReason: string | null; note: string; at: string; by: { name: string } } | null
   followUp?: { count: number; lastAt: string; lastNote: string; lastBy: { name: string }; nextDate: string | null } | null

@@ -162,6 +162,7 @@ function RowCard({ row, perms, onAct, onOpen, variant = "card" }: { row: Row; pe
           {ft && <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TAG.follow}`}>{ft}</span>}
           {!!row.attachCount && <span data-testid="photo-chip" className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${TAG.photo}`}><Paperclip size={11} aria-hidden />รูป {row.attachCount}</span>}
         </div>
+        {row.pickup && (row.coreStatus === "picked_up" || row.coreStatus === "await_receive") && <p className={`mt-1 text-xs ${TXT.procure}`}>จัดซื้อรับกลับ {thDate(row.pickup.date)}{row.pickup.handedTo ? ` · ส่งมอบให้ ${row.pickup.handedTo}` : ""}</p>}
         {row.coreStatus === "sell_waiting" && row.sale?.scrapInDate && <p className={`mt-1 text-xs ${TXT.storeDeep}`}>เข้าคลังซาก {thDate(row.sale.scrapInDate)} · อยู่มา {daysFrom(row.sale.scrapInDate)} วัน</p>}
         {row.coreStatus === "rebuild" && <p className={`mt-1 text-xs ${K["text-c5B21B6"]}`}>ส่งรีบิ้ว{row.rebuild?.vendor ? ` ${row.rebuild.vendor}` : ""}{row.rebuild?.sentDate ? ` · ${thDate(row.rebuild.sentDate)}` : ""}</p>}
       </button>
@@ -719,6 +720,11 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
             <SectionCard title={`รอรับซากจากอู่นอก (${(summary?.await_pickup?.count ?? 0).toLocaleString()})`} hint="ยานยนต์แจ้งคืนซากแล้ว นัดไปรับและนำกลับคลัง" testid="lane-pickup">
               <RowList query={qs(f, { status: "await_pickup" })} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} empty="ไม่มีซากรอรับจากอู่นอก" variant="follow" />
             </SectionCard>
+            {(summary?.picked_up?.count ?? 0) > 0 && (
+              <SectionCard title={`รับกลับแล้ว · ส่งมอบยานยนต์ รอยืนยัน (${(summary?.picked_up?.count ?? 0).toLocaleString()})`} hint="สรุปทั้งหมด: Export Excel คอลัมน์จัดซื้อรับกลับ / ส่งมอบให้" testid="lane-picked">
+                <RowList query={qs(f, { status: "picked_up" })} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} empty="ไม่มีรายการ" variant="follow" />
+              </SectionCard>
+            )}
             <SectionCard title="ต้องตามวันนี้" hint="ค้าง > 14 วัน ยังไม่เคยตาม / ถึงวันนัด">
               <RowList query={qs(f, { queue: "followup" })} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} empty="ไม่มีรายการที่ต้องตาม" variant="follow" />
             </SectionCard>

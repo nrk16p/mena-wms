@@ -87,7 +87,7 @@ void (async () => {
   // S1 ต้องผ่านบัญชีรับเข้าคลังซาก (อู่นอก: จัดซื้อรับกลับ + ยานยนต์ยืนยันก่อน) — เดินครบทุกขั้นผ่าน service จริง
   const intoScrap = async (r: { row_key: string; garageType?: string | null }, si: string, body: Record<string, unknown> = {}) => {
     const after = await svc.returnCore(r.row_key, { choice: "sell", ...body }, mech, now)
-    if (after?.coreStatus === "await_pickup") { await svc.markPickedUp(r.row_key, { pickupDate: si }, buyer, now); await svc.confirmHandover(r.row_key, {}, mech, now) }
+    if (after?.coreStatus === "await_pickup") { await svc.markPickedUp(r.row_key, { pickupDate: si, handedTo: "หัวหน้าช่างเดโม" }, buyer, now); await svc.confirmHandover(r.row_key, {}, mech, now) }
     await svc.receiveIntoScrap(r.row_key, { receivedDate: si, qty: body.qty }, acc, now)
   }
   for (const r of take(35)) await intoScrap(r, scrapIn(r.issuedDate), { note: "นำส่งบัญชี" })
@@ -97,7 +97,7 @@ void (async () => {
   for (const [i, row] of take(14).entries()) {
     if (row.garageType !== "อู่นอก") await col.updateOne({ row_key: row.row_key }, { $set: { garageType: "อู่นอก", garage: "อู่ช่างเอกการช่าง (เดโม)" } })
     await svc.returnCore(row.row_key, { choice: "sell" }, mech, now)
-    if (i % 2 === 0) await svc.markPickedUp(row.row_key, { pickupDate: today, note: "รถกระบะไปรับ" }, buyer, now)
+    if (i % 2 === 0) await svc.markPickedUp(row.row_key, { pickupDate: today, handedTo: "หัวหน้าช่างเดโม", note: "รถกระบะไปรับ" }, buyer, now)
   }
   for (const r of take(30)) {
     const si = scrapIn(r.issuedDate)

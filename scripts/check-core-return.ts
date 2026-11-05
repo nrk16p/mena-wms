@@ -41,6 +41,8 @@ void (async () => {
       base("lg1", { coreStatus: "legacy", legacySheet: "อะไหล่อู่นอก", legacyRound: "อู่นอกรอบ26.02-04.03.25", legacyNote: "เดิม" }),
       base("s1", { warehouse: "คลังสระบุรี", plate: "70-1234", vehicleNo: "ME243", wdCode: "SRWD26100099", mrCode: "SRMR26100001", skuCode: "SR01X", skuName: "ไดชาร์จ", issuedDate: "2026-09-01", amount: 1500 }),
       base("old", { issuedDate: "2026-08-01", amount: 100 }),
+      base("o2", { garageType: "อู่นอก", garage: "อู่ช่างเอก", issuedDate: "2026-11-01", yearMonth: "2026-11", plate: "กท.99-0002", vehicleNo: "OX02", wdCode: "LBWD26119998", mrCode: "LBMR26119998", skuCode: "LBOX2", skuName: "ปั๊มลม" }),
+      base("i1", { garageType: "อู่ใน", issuedDate: "2026-11-01", yearMonth: "2026-11", plate: "กท.99-0003", vehicleNo: "OX03", wdCode: "LBWD26119997", mrCode: "LBMR26119997", skuCode: "LBOX3", skuName: "ปั๊มลม" }),
       base("o1", { garageType: "อู่นอก", garage: "อู่ช่างเอก", issuedDate: "2026-11-01", yearMonth: "2026-11", plate: "กท.99-0001", vehicleNo: "OX01", wdCode: "LBWD26119999", mrCode: "LBMR26119999", skuCode: "LBOX1", skuName: "ปั๊มลม" }),
     ] as never[])
     const now = new Date("2026-11-03T05:00:00Z")
@@ -86,9 +88,13 @@ void (async () => {
     eq([o1?.coreStatus, o1?.coreQtyReturned], ["await_pickup", 2])
     eq(await status(svc.confirmHandover("o1", {}, veh, now)), 409, "ยังไม่รับกลับ ยืนยันไม่ได้")
     eq(await status(svc.receiveIntoScrap("o1", { receivedDate: "2026-11-02" }, acc, now)), 409, "ยังไม่ถึงบัญชี")
-    eq(await status(svc.markPickedUp("o1", { pickupDate: "2026-10-31" }, proc, now)), 400, "รับกลับก่อนวันที่เบิก")
-    const o1p = await svc.markPickedUp("o1", { pickupDate: "2026-11-02", note: "รถกระบะไปรับ" }, proc, now)
-    eq([o1p?.coreStatus, o1p?.pickup?.date, o1p?.pickup?.by.email], ["picked_up", "2026-11-02", proc.email])
+    eq(await status(svc.markPickedUp("o1", { pickupDate: "2026-10-31", handedTo: "ช่างเอ" }, proc, now)), 400, "รับกลับก่อนวันที่เบิก")
+    eq(await status(svc.markPickedUp("o1", { pickupDate: "2026-11-02" }, proc, now)), 400, "ต้องระบุผู้รับมอบฝั่งยานยนต์")
+    const o1p = await svc.markPickedUp("o1", { pickupDate: "2026-11-02", handedTo: "ช่างเอ", note: "รถกระบะไปรับ" }, proc, now)
+    eq([o1p?.coreStatus, o1p?.pickup?.date, o1p?.pickup?.by.email, o1p?.pickup?.handedTo, o1p?.ret?.needPickup], ["picked_up", "2026-11-02", proc.email, "ช่างเอ", true])
+    // ติ๊กเองได้: อู่นอกไม่ติ๊ก = ยานยนต์นำส่งบัญชีเอง · อู่ในติ๊ก = ให้จัดซื้อไปรับ
+    eq((await svc.returnCore("o2", { choice: "sell", needPickup: false }, veh, now))?.coreStatus, "await_receive")
+    eq((await svc.returnCore("i1", { choice: "sell", needPickup: true }, veh, now))?.coreStatus, "await_pickup")
     const o1h = await svc.confirmHandover("o1", { note: "ตรวจแล้วครบ" }, veh, now)
     eq([o1h?.coreStatus, o1h?.handover?.note], ["await_receive", "ตรวจแล้วครบ"])
     eq(await status(svc.receiveIntoScrap("o1", { receivedDate: "2026-11-01" }, acc, now)), 400, "รับเข้าก่อนวันที่จัดซื้อรับกลับ")

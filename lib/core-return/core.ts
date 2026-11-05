@@ -33,9 +33,10 @@ export const IN_TRANSIT: CoreStatus[] = ["await_pickup", "picked_up", "await_rec
 export const isStatus = (v: unknown): v is CoreStatus => (CORE_STATUSES as readonly string[]).includes(v as string)
 
 export type ReturnChoice = "sell" | "rebuild" | "no_core" | "missing"
-/** สถานะหลังคืนซาก · S1 อู่นอกต้องให้จัดซื้อไปรับก่อน · S1 อื่น ๆ (อู่ใน/Mobile/ไม่ทราบ) ยานยนต์นำส่งให้บัญชีรับเข้าเลย */
-export function returnTarget(choice: ReturnChoice, garageType: string | null | undefined): CoreStatus {
-  if (choice === "sell") return garageType === "อู่นอก" ? "await_pickup" : "await_receive"
+/** สถานะหลังคืนซาก · S1 ที่ติ๊ก "ให้จัดซื้อไปรับซาก" → รอจัดซื้อรับ · ไม่ติ๊ก (ยานยนต์นำส่งเอง) → รอบัญชีรับเข้า
+ *  needPickup ไม่ส่งมา (API เก่า) = อู่นอกให้จัดซื้อรับ · อื่น ๆ นำส่งเอง */
+export function returnTarget(choice: ReturnChoice, garageType: string | null | undefined, needPickup?: boolean | null): CoreStatus {
+  if (choice === "sell") return (needPickup ?? garageType === "อู่นอก") ? "await_pickup" : "await_receive"
   return choice
 }
 export const NO_CORE_REASONS = ["ของสิ้นเปลือง", "ซากเสียหายทิ้ง", "อื่นๆ"] as const
@@ -74,14 +75,14 @@ export type CoreRow = {
   createdAt?: Date
   loadedAt?: Date
   // ── ระบบนี้เพิ่ม ──
-  ret?: { choice: ReturnChoice; qty: number; shortReason: string | null; note: string; at: Date; by: { email: string; name: string }; attachmentIds?: string[] } | null
+  ret?: { choice: ReturnChoice; needPickup?: boolean; qty: number; shortReason: string | null; note: string; at: Date; by: { email: string; name: string }; attachmentIds?: string[] } | null
   /** จำนวนไฟล์แนบที่ยืนยันแล้ว (นับตอน confirm) */
   attachCount?: number
   sale?: { scrapInDate: string | null; soldDate: string | null; roundNo?: string | null; price: number | null; buyer: string | null; note: string; soldAt: Date | null; soldBy: { email: string; name: string } | null } | null
   rebuild?: { sentDate: string | null; vendor: string | null; doneDate: string | null; note: string; doneAt: Date | null; doneBy: { email: string; name: string } | null } | null
   noCore?: { reason: string; note: string } | null
   /** จัดซื้อรับซากกลับจากอู่นอก */
-  pickup?: { date: string; note: string; at: Date; by: { email: string; name: string } } | null
+  pickup?: { date: string; handedTo: string; note: string; at: Date; by: { email: string; name: string } } | null
   /** ยานยนต์ยืนยันซากที่จัดซื้อรับกลับมา แล้วส่งต่อให้บัญชี */
   handover?: { note: string; at: Date; by: { email: string; name: string } } | null
   /** บัญชีบันทึกรับเข้าคลังซาก (ยืนยันของจริง) */
@@ -156,6 +157,8 @@ function dateField(v: unknown, label: string, opt: { required: boolean; today: s
 export type ReturnInput = {
   choice: ReturnChoice; qty: number; shortReason: string | null; note: string
   scrapInDate: string | null; rebuildSentDate: string | null; rebuildVendor: string | null; noCoreReason: string | null
+  /** S1: ติ๊กให้จัดซื้อไปรับซากจากอู่ · null = ไม่ระบุ (ใช้ค่าตามชนิดอู่) */
+  needPickup?: boolean | null
 }
 
 /** ตรวจค่าคืนซาก · qty ค่าเริ่มต้น = จำนวนที่เบิก · คืนไม่ครบต้องบอกเหตุผล · S1 ไม่ลงวันที่เข้าคลัง (บัญชีลงตอนรับเข้า) */
@@ -179,16 +182,19 @@ export function parseReturn(body: Record<string, unknown>, row: Pick<CoreRow, "q
   const shortReason = short ? str(body.shortReason, 300) : ""
   if (short && !shortReason) throw bad("คืนไม่ครบ บอกเหตุผลด้วย")
   if (choice === "sell") {
-    return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate: null, rebuildSentDate: null, rebuildVendor: null, noCoreReason: null }
+    const needPickup = typeof body.needPickup === "boolean" ? body.needPickup : null
+    return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate: null, rebuildSentDate: null, rebuildVendor: null, noCoreReason: null, needPickup }
   }
   const rebuildSentDate = dateField(body.rebuildSentDate, "วันที่ส่งรีบิ้ว", { required: false, today, min: row.issuedDate })
   return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate: null, rebuildSentDate, rebuildVendor: str(body.rebuildVendor, 200) || null, noCoreReason: null }
 }
 
-/** จัดซื้อรับซากกลับจากอู่นอก: วันที่รับ (ไม่ก่อนวันที่เบิก ไม่เกินวันนี้) */
+/** จัดซื้อรับซากกลับจากอู่: วันที่รับ (ไม่ก่อนวันที่เบิก ไม่เกินวันนี้) + ส่งมอบให้ใครในทีมยานยนต์ */
 export function parsePickup(body: Record<string, unknown>, row: Pick<CoreRow, "issuedDate">, now = new Date()) {
   const date = dateField(body.pickupDate, "วันที่รับซากกลับ", { required: true, today: todayBkk(now), min: row.issuedDate })!
-  return { date, note: str(body.note) }
+  const handedTo = str(body.handedTo, 120)
+  if (!handedTo) throw bad("กรุณาระบุผู้รับมอบซากฝั่งยานยนต์")
+  return { date, handedTo, note: str(body.note) }
 }
 
 /** บัญชีรับเข้าคลังซาก: วันที่รับเข้า + จำนวนที่รับจริง (ไม่เกินที่ยานยนต์คืน · ขาดต้องบอกเหตุผล) */
