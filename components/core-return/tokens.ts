@@ -38,6 +38,9 @@ export const TIER_TXT: Record<AgingTier, string> = { ok: "text-[#4A5A50]", warn:
 export const STATUS_PILL = {
   pending: "bg-[#FDF0DE] text-[#8A4B06]",
   legacy: "bg-[#FDF0DE] text-[#8A4B06]",
+  await_pickup: "bg-[#F0EAFB] text-[#5B21B6]",
+  picked_up: "bg-[#FDF0DE] text-[#8A4B06]",
+  await_receive: "bg-[#E6F1F8] text-[#0B5A85]",
   sell_waiting: "bg-[#E6F1F8] text-[#0B5A85]",
   sold: "bg-[#E4F4EA] text-[#156C3A]",
   rebuild: "bg-[#F0EAFB] text-[#5B21B6]",

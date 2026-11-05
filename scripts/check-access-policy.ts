@@ -269,7 +269,9 @@ console.log("store-withdraw access: OK")
     assert.equal(run("/api/core-return/export", "GET", a), true)
     assert.equal(run("/api/core-return/rounds/SR-2611-01/export", "GET", a), true)
   }
-  for (const a of [fin, gen]) {
+  // บัญชี/การเงิน ดูหน้าติดตามซากได้ (2026-11-05 บัญชีรับเข้าคลังซาก)
+  assert.equal(run("/store-withdraw/core-return", "GET", fin), true)
+  for (const a of [gen]) {
     assert.equal(run("/store-withdraw/core-return", "GET", a), false)
     assert.equal(run("/api/core-return", "GET", a), false)
   }
@@ -284,6 +286,25 @@ console.log("store-withdraw access: OK")
     assert.equal(run(p, "POST", veh), false)
     assert.equal(run(p, "POST", proc), false)
   }
+  // S1 ขั้นส่งต่อ (2026-11-05): รับซากกลับ = จัดซื้อ/สโตร์ · ยืนยันส่งต่อ = ยานยนต์/สโตร์ · รับเข้าคลังซาก + ขาย + รอบขาย = บัญชี/สโตร์
+  const runAcc = (pathname: string, method: string, access: Access, accounting: boolean) => checkRequest({ pathname, method, access, isSuperAdmin: false, accounting }).ok
+  for (const [p, action] of [["/api/core-return/k1/pickup", "pickup"], ["/api/core-return/k1/confirm", "confirm"], ["/api/core-return/k1/receive", "receive"]] as const)
+    assert.equal(coreReturnActionForApi(p), action, p)
+  assert.equal(run("/api/core-return/k1/pickup", "POST", proc), true)
+  assert.equal(run("/api/core-return/k1/pickup", "POST", store), true)
+  assert.equal(run("/api/core-return/k1/pickup", "POST", veh), false)
+  assert.equal(run("/api/core-return/k1/confirm", "POST", veh), true)
+  assert.equal(run("/api/core-return/k1/confirm", "POST", store), true)
+  assert.equal(run("/api/core-return/k1/confirm", "POST", proc), false)
+  assert.equal(run("/api/core-return/k1/receive", "POST", store), true)
+  for (const a of [veh, proc, fin]) assert.equal(run("/api/core-return/k1/receive", "POST", a), false)
+  for (const p of ["/api/core-return/k1/receive", "/api/core-return/k1/sold", "/api/core-return/rounds", "/api/core-return/rounds/SR-2611-01/sold"]) {
+    assert.equal(runAcc(p, "POST", fin, true), true, `บัญชี ${p}`)
+    assert.equal(runAcc(p, "POST", fin, false), false, `การเงิน (ไม่ใช่บัญชี) ${p}`)
+  }
+  for (const p of ["/api/core-return/k1/rebuilt", "/api/core-return/k1/return", "/api/core-return/k1/pickup", "/api/core-return/k1/confirm"])
+    assert.equal(runAcc(p, "POST", fin, true), false, `บัญชีทำ ${p} ไม่ได้`)
+  assert.equal(runAcc("/store-withdraw/core-return", "GET", gen, true), true, "บัญชีที่แผนกไม่ตรงโปรไฟล์ ยังเปิดหน้าได้")
   // ตาม + รอบขาย = จัดซื้อ / สโตร์ · ยานยนต์ไม่ได้
   for (const p of ["/api/core-return/k1/follow-up", "/api/core-return/rounds", "/api/core-return/rounds/SR-2611-01/sold", "/api/core-return/rounds/SR-2611-01/cancel"]) {
     assert.equal(run(p, "POST", proc), true, p)
@@ -313,10 +334,10 @@ console.log("store-withdraw access: OK")
   const ro = { ...proc, "core-return": "view" as const }
   assert.equal(run("/api/core-return", "GET", ro), true)
   assert.equal(run("/api/core-return/k1/follow-up", "POST", ro), false)
-  // เมนู: จัดซื้อเห็นเมนูติดตามซากเมนูเดียวในกลุ่มเบิกอะไหล่ · ยานยนต์เห็นด้วย · การเงินไม่เห็น
+  // เมนู: จัดซื้อเห็นเมนูติดตามซากเมนูเดียวในกลุ่มเบิกอะไหล่ · ยานยนต์เห็นด้วย · บัญชี/การเงินเห็นเมนูนี้เมนูเดียว (2026-11-05)
   const hrefs = (a: Access) => sidebarGroups({ access: a }).flatMap((g) => g.items.map((i) => i.href)).filter((h) => h.startsWith("/store-withdraw"))
   assert.deepEqual(hrefs(proc), ["/store-withdraw/core-return"])
   assert.ok(hrefs(veh).includes("/store-withdraw/core-return"))
-  assert.deepEqual(hrefs(fin), [])
+  assert.deepEqual(hrefs(fin), ["/store-withdraw/core-return"])
 }
 console.log("core-return access: OK")

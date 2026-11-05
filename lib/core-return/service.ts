@@ -2,7 +2,7 @@
 // ทุกการเปลี่ยนสถานะ = findOneAndUpdate({row_key, coreStatus: ที่คาดไว้}) ตัวเดียวชนะ · ตามด้วย log ต่อโซ่แฮช
 import type { Filter } from "mongodb"
 import {
-  CHOICE_TO, CORE_STATUSES, CoreHttpError, MAX_KEYS, OPEN, OUTSTANDING, PAGE_SIZE, STATUS_LABEL,
+  CORE_STATUSES, returnTarget, parsePickup, parseReceive, CoreHttpError, MAX_KEYS, OPEN, OUTSTANDING, PAGE_SIZE, STATUS_LABEL,
   UNCERTAIN_GARAGE_SOURCES, buildQuery, daysSince, sortSpec, parseFollowUp, parseRebuilt, parseReturn, parseSold,
   type Actor, type CoreRow, type CoreStatus, type GroupBy, type ListFilters, type SortKey,
 } from "./core"
@@ -118,13 +118,13 @@ async function move(row: CoreRow, to: CoreStatus, set: Record<string, unknown>, 
   return after
 }
 
-/** คืนซาก: pending|legacy → sell_waiting | rebuild | no_core | missing */
+/** คืนซาก: pending|legacy → await_pickup (S1 อู่นอก) | await_receive (S1 อื่น ๆ) | rebuild | no_core | missing */
 export async function returnCore(key: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
   const row = await loadOrThrow(key)
   if (!OUTSTANDING.includes(row.coreStatus)) throw new CoreHttpError(`รายการนี้ "${STATUS_LABEL[row.coreStatus] ?? row.coreStatus}" แล้ว คืนซากซ้ำไม่ได้`, 409)
   const v = parseReturn(body, row, now)
   const attachmentIds = await resolveCoreLinkable(key, body.attachmentIds, actor)
-  const to = CHOICE_TO[v.choice]
+  const to = returnTarget(v.choice, row.garageType)
   const ret = { choice: v.choice, qty: v.qty, shortReason: v.shortReason, note: v.note, at: now, by: who(actor), ...(attachmentIds.length ? { attachmentIds } : {}) }
   const set: Record<string, unknown> = { ret, coreQtyReturned: v.qty }
   if (v.choice === "sell") set.sale = { scrapInDate: v.scrapInDate, soldDate: null, price: null, buyer: null, note: "", soldAt: null, soldBy: null }
@@ -136,6 +136,37 @@ export async function returnCore(key: string, body: Record<string, unknown>, act
   })
   await linkCoreAttachments(key, attachmentIds)
   return after
+}
+
+/** จัดซื้อรับซากกลับจากอู่นอกแล้ว: await_pickup → picked_up */
+export async function markPickedUp(key: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
+  const row = await loadOrThrow(key)
+  if (row.coreStatus !== "await_pickup") throw new CoreHttpError("บันทึกรับซากกลับได้เฉพาะรายการที่รอจัดซื้อรับซาก", 409)
+  const v = parsePickup(body, row, now)
+  const pickup = { date: v.date, note: v.note, at: now, by: who(actor) }
+  return move(row, "picked_up", { pickup }, { action: "pickup", actor: { ...who(actor), via: actor.via }, note: v.note || undefined, data: { pickupDate: v.date } })
+}
+
+/** ยานยนต์ยืนยันซากที่จัดซื้อรับกลับมา แล้วส่งต่อให้บัญชี: picked_up → await_receive */
+export async function confirmHandover(key: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
+  const row = await loadOrThrow(key)
+  if (row.coreStatus !== "picked_up") throw new CoreHttpError("ยืนยันส่งต่อได้เฉพาะรายการที่จัดซื้อรับซากกลับมาแล้ว", 409)
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : ""
+  const handover = { note, at: now, by: who(actor) }
+  return move(row, "await_receive", { handover }, { action: "handover", actor: { ...who(actor), via: actor.via }, note: note || undefined })
+}
+
+/** บัญชีบันทึกรับเข้าคลังซาก (ยืนยัน): await_receive → sell_waiting · วันที่รับเข้า = วันที่เข้าคลังซาก (ใช้คิดอายุซาก/รอบขาย) */
+export async function receiveIntoScrap(key: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
+  const row = await loadOrThrow(key)
+  if (row.coreStatus !== "await_receive") throw new CoreHttpError("บันทึกรับเข้าคลังซากได้เฉพาะรายการที่รอบัญชีรับเข้า", 409)
+  const v = parseReceive(body, row, now)
+  const receive = { date: v.date, qty: v.qty, shortReason: v.shortReason, note: v.note, at: now, by: who(actor) }
+  const sale = { ...(row.sale ?? { soldDate: null, price: null, buyer: null, note: "", soldAt: null, soldBy: null }), scrapInDate: v.date }
+  return move(row, "sell_waiting", { receive, sale, coreQtyReturned: v.qty }, {
+    action: "receive", actor: { ...who(actor), via: actor.via }, note: v.note || undefined,
+    data: { receivedDate: v.date, qty: v.qty, shortReason: v.shortReason },
+  })
 }
 
 /** ขายซากแล้ว: sell_waiting → sold */

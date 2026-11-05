@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Clock } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { coreReturnCan, type Access } from "@/lib/access-policy"
+import { isAccounting } from "@/lib/roles"
 import { TIER_PILL, STATUS_PILL, BTN, FIELD, K } from "./tokens"
 import { STATUS_LABEL, agingTier, type AgingTier, type CoreStatus } from "@/lib/core-return/core"
 
@@ -19,6 +20,9 @@ export type Row = {
   sale?: { scrapInDate: string | null; soldDate: string | null; price: number | null; buyer: string | null; roundNo?: string | null } | null
   rebuild?: { sentDate: string | null; vendor: string | null; doneDate: string | null; note: string } | null
   noCore?: { reason: string; note: string } | null
+  pickup?: { date: string; note: string; at: string; by: { name: string } } | null
+  handover?: { note: string; at: string; by: { name: string } } | null
+  receive?: { date: string; qty: number; shortReason: string | null; note: string; at: string; by: { name: string } } | null
   followUp?: { count: number; lastAt: string; lastNote: string; lastBy: { name: string }; nextDate: string | null } | null
 }
 export type Summary = Record<CoreStatus | "followQueue", { count: number; amount: number }>
@@ -26,7 +30,7 @@ export type Summary = Record<CoreStatus | "followQueue", { count: number; amount
 export const STATUS_CLS: Record<CoreStatus, string> = STATUS_PILL
 /** ป้ายสั้นสำหรับชิปในหน้าใบเบิก */
 export const SHORT_LABEL: Record<CoreStatus, string> = {
-  pending: "รอคืนซาก", legacy: "รอคืนซาก", sell_waiting: "S1 อยู่คลังซากรอขาย", sold: "S1 ขายแล้ว", rebuild: "A2 ส่งรีบิ้ว", rebuilt: "A2 รีบิ้วเสร็จ", no_core: "S2 ไม่มีมูลค่า", missing: "ไม่มีซากคืน",
+  pending: "รอคืนซาก", legacy: "รอคืนซาก", await_pickup: "S1 รอจัดซื้อรับซาก", picked_up: "S1 รอยานยนต์ยืนยัน", await_receive: "S1 รอบัญชีรับเข้า", sell_waiting: "S1 อยู่คลังซากรอขาย", sold: "S1 ขายแล้ว", rebuild: "A2 ส่งรีบิ้ว", rebuilt: "A2 รีบิ้วเสร็จ", no_core: "S2 ไม่มีมูลค่า", missing: "ไม่มีซากคืน",
 }
 
 export function CoreChip({ status, short }: { status: CoreStatus; short?: boolean }) {
@@ -106,17 +110,28 @@ export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> 
 }
 export const rowUrl = (key: string, sub = "") => `/api/core-return/${encodeURIComponent(key)}${sub ? "/" + sub : ""}`
 
-export type Perms = { read: boolean; ret: boolean; store: boolean; follow: boolean; round: boolean; vehicleTeam: boolean; ready: boolean }
+export type Perms = {
+  read: boolean; ret: boolean; store: boolean; follow: boolean; round: boolean; vehicleTeam: boolean; ready: boolean
+  /** S1 ขั้นส่งต่อ: จัดซื้อรับซากกลับ · ยานยนต์ยืนยันส่งต่อ · บัญชีรับเข้าคลังซาก · บันทึกขาย */
+  pickup: boolean; confirm: boolean; receive: boolean; sold: boolean; accounting: boolean
+}
+const NO_PERMS = { read: false, ret: false, store: false, follow: false, round: false, vehicleTeam: false, pickup: false, confirm: false, receive: false, sold: false, accounting: false }
 
-/** สิทธิ์ของคนที่ล็อกอิน (ฝั่ง API เช็กซ้ำเสมอ) · vehicleTeam = ยานยนต์ (คืนซากได้ แต่ไม่ใช่สโตร์/จัดซื้อ) */
+/** สิทธิ์ของคนที่ล็อกอิน (ฝั่ง API เช็กซ้ำเสมอ) · vehicleTeam = ยานยนต์ (คืนซากได้ แต่ไม่ใช่สโตร์/จัดซื้อ) · store = สโตร์ (คิวสโตร์แก้ได้) */
 export function usePerms(): Perms {
   const { data, status } = useSession()
-  const a = (data?.user as { access?: Access } | undefined)?.access
-  if (!a) return { read: false, ret: false, store: false, follow: false, round: false, vehicleTeam: false, ready: status !== "loading" }
-  const store = coreReturnCan(a, "sold")
+  const u = data?.user as { access?: Access; email?: string | null; employee?: { department?: string | null } } | undefined
+  const a = u?.access
+  if (!a) return { ...NO_PERMS, ready: status !== "loading" }
+  const accounting = isAccounting(u?.email, u?.employee?.department)
+  const ctx = { accounting }
+  const store = coreReturnCan(a, "rebuilt")
   const follow = coreReturnCan(a, "follow_up")
   const ret = coreReturnCan(a, "return")
-  return { read: coreReturnCan(a, "read"), ret, store, follow, round: coreReturnCan(a, "round"), vehicleTeam: ret && !store && !follow, ready: true }
+  return {
+    read: coreReturnCan(a, "read", ctx), ret, store, follow, round: coreReturnCan(a, "round", ctx), vehicleTeam: ret && !store && !follow, ready: true,
+    pickup: coreReturnCan(a, "pickup", ctx), confirm: coreReturnCan(a, "confirm", ctx), receive: coreReturnCan(a, "receive", ctx), sold: coreReturnCan(a, "sold", ctx), accounting,
+  }
 }
 
 export const inputCls = FIELD.input

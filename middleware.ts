@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { getToken } from "next-auth/jwt"
 import { accessFor, checkRequest, SECTION_LABELS, type Overrides, type Section } from "./lib/access-policy"
-import { isSuperAdmin } from "./lib/roles"
+import { isAccounting, isSuperAdmin } from "./lib/roles"
 import { signInAllowed } from "./lib/external-auditors"
 import { requesterKeys, tickKeys } from "./lib/store-withdraw/env"
 
@@ -226,7 +226,7 @@ export async function middleware(request: NextRequest) {
 
   // สิทธิ์ตามแผนก (lib/access-policy.ts): ไม่เห็น → บล็อกหน้า + API · ดูอย่างเดียว → บล็อก API ที่เขียนข้อมูล
   const access = accessFor({ department: token.employee?.department, departmentId: token.employee?.department_id, email: token.email, overrides: token.accessOverrides as Overrides })
-  const decision = checkRequest({ pathname, method: request.method, access, isSuperAdmin: isSuperAdmin(token.email) })
+  const decision = checkRequest({ pathname, method: request.method, access, isSuperAdmin: isSuperAdmin(token.email), accounting: isAccounting(token.email, token.employee?.department) })
   if (!decision.ok) {
     const label = decision.section === "admin" ? "ผู้ดูแลระบบ" : SECTION_LABELS[decision.section as Section]
     if (decision.api) {

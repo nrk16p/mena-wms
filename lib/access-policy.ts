@@ -45,6 +45,8 @@ const OVERSIGHT: Access = { ...all("view"), "ai-mixer": "none", "store-audit": "
 const ACCOUNTING_FINANCE = row({
   sku: "view", pr: "view", ap: "edit", "price-compare": "view", vendor: "view", "safety-stock": "view",
   deadstock: "view", repair: "view",
+  // ติดตามซาก: บัญชีรับเข้าคลังซาก + รอบขาย/บันทึกขาย (ปุ่มเขียนเช็ก isAccounting ใน coreReturnCan) · การเงินดูอย่างเดียว (2026-11-05)
+  "core-return": "view",
 })
 
 const VEHICLE = row({
@@ -224,14 +226,14 @@ const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 export type Decision = { ok: true } | { ok: false; api: boolean; section: Section | "admin"; need: Level | "superadmin" }
 
 /** ตัดสิน request ที่ล็อกอินแล้ว (เส้นทาง public / cron / x-api-key ถูกปล่อยผ่านก่อนถึงตรงนี้) */
-export function checkRequest(p: { pathname: string; method: string; access: Access; isSuperAdmin: boolean }): Decision {
+export function checkRequest(p: { pathname: string; method: string; access: Access; isSuperAdmin: boolean; accounting?: boolean }): Decision {
   const api = p.pathname.startsWith("/api/")
   const section = api ? sectionForApi(p.pathname) : sectionForPage(p.pathname)
   if (!section) return { ok: true }
   if (section === "core-return") {
     const read = !api || READ_METHODS.has(p.method.toUpperCase())
     const action = read ? "read" : coreReturnActionForApi(p.pathname)
-    if (action && coreReturnCan(p.access, action)) return { ok: true }
+    if (action && coreReturnCan(p.access, action, { accounting: p.accounting })) return { ok: true }
     return { ok: false, api, section, need: read ? "view" : "edit" }
   }
   if (section === "admin") return p.isSuperAdmin ? { ok: true } : { ok: false, api, section, need: "superadmin" }
@@ -250,17 +252,23 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
 //   คืนซาก (return) = ผู้ขอเบิก (store-withdraw แก้ได้) หรือสโตร์ (store-queue แก้ได้)
 //   ขายแล้ว / Rebuild เสร็จ = สโตร์เท่านั้น · ตามงาน (follow_up) = จัดซื้อ (core-return แก้ได้) หรือสโตร์
 //   รอบขายซาก (round: สร้าง / ขายทั้งรอบ / ยกเลิก) = สโตร์ หรือจัดซื้อ
-export type CoreReturnAction = "read" | "return" | "sold" | "rebuilt" | "follow_up" | "round"
+//   (2026-11-05) S1 ต้องผ่านบัญชีรับเข้าคลังซาก: รับซากกลับจากอู่นอก (pickup) = จัดซื้อ/สโตร์ · ยืนยันส่งต่อ (confirm) = ยานยนต์/สโตร์
+//   รับเข้าคลังซาก (receive) / บันทึกขาย / รอบขาย = บัญชี (isAccounting: แผนก HR หรือรายชื่อ) · สโตร์ทำแทนได้ · จัดซื้อยังจัดรอบได้
+export type CoreReturnAction = "read" | "return" | "pickup" | "confirm" | "receive" | "sold" | "rebuilt" | "follow_up" | "round"
 
-export function coreReturnCan(a: Access, action: CoreReturnAction): boolean {
+export function coreReturnCan(a: Access, action: CoreReturnAction, ctx: { accounting?: boolean } = {}): boolean {
   const store = atLeast(a["store-queue"], "edit")
+  const acc = !!ctx.accounting
   switch (action) {
-    case "read": return atLeast(a["store-withdraw"], "view") || atLeast(a["store-queue"], "view") || atLeast(a["core-return"], "view")
-    case "return": return store || atLeast(a["store-withdraw"], "edit")
-    case "sold":
+    case "read": return acc || atLeast(a["store-withdraw"], "view") || atLeast(a["store-queue"], "view") || atLeast(a["core-return"], "view")
+    case "return":
+    case "confirm": return store || atLeast(a["store-withdraw"], "edit")
+    case "pickup": return store || atLeast(a["core-return"], "edit")
+    case "receive":
+    case "sold": return store || acc
     case "rebuilt": return store
     case "follow_up":
-    case "round": return store || atLeast(a["core-return"], "edit")
+    case "round": return store || acc || atLeast(a["core-return"], "edit")
   }
 }
 
@@ -269,6 +277,6 @@ export function coreReturnActionForApi(pathname: string): CoreReturnAction | nul
   if (/^\/api\/core-return\/rounds(\/[^/]+\/(sold|cancel))?$/.test(pathname)) return "round"
   if (pathname.startsWith("/api/core-return/rounds/")) return null
   if (/^\/api\/core-return\/[^/]+\/attachments\/(presign|confirm)$/.test(pathname)) return "return"
-  const m = /^\/api\/core-return\/[^/]+\/(return|sold|rebuilt|follow-up)$/.exec(pathname)
+  const m = /^\/api\/core-return\/[^/]+\/(return|pickup|confirm|receive|sold|rebuilt|follow-up)$/.exec(pathname)
   return m ? (m[1] === "follow-up" ? "follow_up" : (m[1] as CoreReturnAction)) : null
 }

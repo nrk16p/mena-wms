@@ -12,6 +12,7 @@ const status = async (p: Promise<unknown>) => p.then(() => 0, (e: { status?: num
 const veh = { email: "mech@menatransport.co.th", name: "ช่างยานยนต์", via: "web" as const }
 const store = { email: "store@menatransport.co.th", name: "สโตร์", via: "web" as const }
 const proc = { email: "buyer@menatransport.co.th", name: "จัดซื้อ", via: "web" as const }
+const acc = { email: "acc@menatransport.co.th", name: "บัญชี", via: "web" as const }
 
 // แถวรูปเดียวกับ load_base.py
 const base = (row_key: string, o: Record<string, unknown> = {}) => ({
@@ -40,16 +41,14 @@ void (async () => {
       base("lg1", { coreStatus: "legacy", legacySheet: "อะไหล่อู่นอก", legacyRound: "อู่นอกรอบ26.02-04.03.25", legacyNote: "เดิม" }),
       base("s1", { warehouse: "คลังสระบุรี", plate: "70-1234", vehicleNo: "ME243", wdCode: "SRWD26100099", mrCode: "SRMR26100001", skuCode: "SR01X", skuName: "ไดชาร์จ", issuedDate: "2026-09-01", amount: 1500 }),
       base("old", { issuedDate: "2026-08-01", amount: 100 }),
+      base("o1", { garageType: "อู่นอก", garage: "อู่ช่างเอก", issuedDate: "2026-11-01", yearMonth: "2026-11", plate: "กท.99-0001", vehicleNo: "OX01", wdCode: "LBWD26119999", mrCode: "LBMR26119999", skuCode: "LBOX1", skuName: "ปั๊มลม" }),
     ] as never[])
     const now = new Date("2026-11-03T05:00:00Z")
 
     // ── 1. คืนซาก: ตัวกัน ───────────────────────────────────────────────
-    eq(await status(svc.returnCore("p1", { choice: "sell", qty: 2 }, veh, now)), 400, "S1 ไม่มีวันที่เข้าคลังซาก")
     eq(await status(svc.returnCore("p1", { choice: "sell", qty: 3, scrapInDate: "2026-10-05" }, veh, now)), 400, "qty > ที่เบิก")
     eq(await status(svc.returnCore("p1", { choice: "sell", qty: 0, scrapInDate: "2026-10-05" }, veh, now)), 400, "qty 0")
     eq(await status(svc.returnCore("p1", { choice: "sell", qty: 1, scrapInDate: "2026-10-05" }, veh, now)), 400, "คืนไม่ครบต้องมีเหตุผล")
-    eq(await status(svc.returnCore("p1", { choice: "sell", qty: 2, scrapInDate: "2026-12-01" }, veh, now)), 400, "วันที่ในอนาคต")
-    eq(await status(svc.returnCore("p1", { choice: "sell", qty: 2, scrapInDate: "2026-09-01" }, veh, now)), 400, "ก่อนวันที่เบิก")
     eq(await status(svc.returnCore("p1", { choice: "bogus" }, veh, now)), 400)
     eq(await status(svc.returnCore("p1", { choice: "no_core" }, veh, now)), 400, "ไม่มีซากต้องมีเหตุผล")
     eq(await status(svc.returnCore("p1", { choice: "no_core", noCoreReason: "อื่นๆ" }, veh, now)), 400, "อื่นๆ ต้องมีหมายเหตุ")
@@ -61,17 +60,42 @@ void (async () => {
       assert.throws(() => core.parseReturn({ choice: "missing" }, rowP, now), /ไม่มีซากคืน/)
       assert.throws(() => core.parseReturn({ choice: "missing", noCoreReason: "อื่นๆ" }, rowP, now), /หมายเหตุ/)
       eq(core.parseReturn({ choice: "missing", noCoreReason: "อู่ไม่คืนซาก" }, rowP, now).qty, 0)
-      eq(core.CHOICE_TO.missing, "missing")
+      eq(core.returnTarget("missing", "อู่นอก"), "missing")
       eq(core.isStatus("missing"), true)
     }
     // sold/rebuilt จากสถานะผิด
     eq(await status(svc.markSold("p1", { soldDate: "2026-11-01" }, store, now)), 409, "sold ได้จาก sell_waiting เท่านั้น")
     eq(await status(svc.markRebuilt("p1", { rebuiltDate: "2026-11-01" }, store, now)), 409, "rebuilt ได้จาก rebuild เท่านั้น")
 
-    // คืนไม่ครบ + เหตุผล → sell_waiting
+    // คืนไม่ครบ + เหตุผล → S1 อู่ใน (ไม่ระบุอู่) = รอบัญชีรับเข้า · ยังไม่มีวันที่เข้าคลังซาก
     const r1 = await svc.returnCore("p1", { choice: "sell", qty: 1, shortReason: "อีกลูกแตก ทิ้งที่อู่", scrapInDate: "2026-10-05", note: "เข้าคลังซากหลังร้าน" }, veh, now)
-    eq([r1?.coreStatus, r1?.coreQtyReturned, r1?.sale?.scrapInDate, r1?.ret?.shortReason], ["sell_waiting", 1, "2026-10-05", "อีกลูกแตก ทิ้งที่อู่"])
+    eq([r1?.coreStatus, r1?.coreQtyReturned, r1?.sale?.scrapInDate, r1?.ret?.shortReason], ["await_receive", 1, null, "อีกลูกแตก ทิ้งที่อู่"])
     eq(await status(svc.returnCore("p1", { choice: "rebuild" }, veh, now)), 409, "คืนซ้ำ")
+    eq(await status(svc.markSold("p1", { soldDate: "2026-11-01" }, store, now)), 409, "ยังไม่รับเข้าคลัง ขายไม่ได้")
+    eq(await status(svc.markPickedUp("p1", { pickupDate: "2026-10-05" }, proc, now)), 409, "อู่ในไม่มีขั้นจัดซื้อรับซาก")
+    eq(await status(svc.receiveIntoScrap("p1", {}, acc, now)), 400, "ต้องมีวันที่รับเข้า")
+    eq(await status(svc.receiveIntoScrap("p1", { receivedDate: "2026-09-01" }, acc, now)), 400, "ก่อนวันที่เบิก")
+    eq(await status(svc.receiveIntoScrap("p1", { receivedDate: "2026-12-01" }, acc, now)), 400, "วันที่ในอนาคต")
+    eq(await status(svc.receiveIntoScrap("p1", { receivedDate: "2026-10-05", qty: 2 }, acc, now)), 400, "รับเกินที่นำส่ง")
+    const rc1 = await svc.receiveIntoScrap("p1", { receivedDate: "2026-10-05" }, acc, now)
+    eq([rc1?.coreStatus, rc1?.sale?.scrapInDate, rc1?.receive?.qty, rc1?.receive?.by.email, rc1?.coreQtyReturned], ["sell_waiting", "2026-10-05", 1, acc.email, 1])
+    eq(await status(svc.receiveIntoScrap("p1", { receivedDate: "2026-10-05" }, acc, now)), 409, "รับเข้าซ้ำ")
+
+    // S1 อู่นอก: คืนซาก → รอจัดซื้อรับ → รับกลับ → ยานยนต์ยืนยัน → บัญชีรับเข้า
+    const o1 = await svc.returnCore("o1", { choice: "sell" }, veh, now)
+    eq([o1?.coreStatus, o1?.coreQtyReturned], ["await_pickup", 2])
+    eq(await status(svc.confirmHandover("o1", {}, veh, now)), 409, "ยังไม่รับกลับ ยืนยันไม่ได้")
+    eq(await status(svc.receiveIntoScrap("o1", { receivedDate: "2026-11-02" }, acc, now)), 409, "ยังไม่ถึงบัญชี")
+    eq(await status(svc.markPickedUp("o1", { pickupDate: "2026-10-31" }, proc, now)), 400, "รับกลับก่อนวันที่เบิก")
+    const o1p = await svc.markPickedUp("o1", { pickupDate: "2026-11-02", note: "รถกระบะไปรับ" }, proc, now)
+    eq([o1p?.coreStatus, o1p?.pickup?.date, o1p?.pickup?.by.email], ["picked_up", "2026-11-02", proc.email])
+    const o1h = await svc.confirmHandover("o1", { note: "ตรวจแล้วครบ" }, veh, now)
+    eq([o1h?.coreStatus, o1h?.handover?.note], ["await_receive", "ตรวจแล้วครบ"])
+    eq(await status(svc.receiveIntoScrap("o1", { receivedDate: "2026-11-01" }, acc, now)), 400, "รับเข้าก่อนวันที่จัดซื้อรับกลับ")
+    eq(await status(svc.receiveIntoScrap("o1", { receivedDate: "2026-11-03", qty: 1 }, acc, now)), 400, "รับไม่ครบต้องมีเหตุผล")
+    const o1r = await svc.receiveIntoScrap("o1", { receivedDate: "2026-11-03", qty: 1, shortReason: "ได้มาชิ้นเดียว" }, acc, now)
+    eq([o1r?.coreStatus, o1r?.coreQtyReturned, o1r?.receive?.shortReason, o1r?.sale?.scrapInDate], ["sell_waiting", 1, "ได้มาชิ้นเดียว", "2026-11-03"])
+    eq((await (await logCol()).find({ row_key: "o1" }).sort({ seq: 1 }).toArray()).map((h) => h.action), ["return", "pickup", "handover", "receive"])
     eq(await status(svc.markRebuilt("p1", { rebuiltDate: "2026-11-01" }, store, now)), 409)
     eq(await status(svc.markSold("p1", { soldDate: "2026-10-01" }, store, now)), 400, "ขายก่อนเข้าคลังซาก")
     const sold = await svc.markSold("p1", { soldDate: "2026-11-01", price: "350", buyer: "ร้านรับซื้อของเก่า" }, store, now)
@@ -112,8 +136,8 @@ void (async () => {
 
     // ── 4. โซ่ประวัติ ────────────────────────────────────────────────────
     const d1 = await svc.getRow("p1")
-    eq(d1.history.map((h) => h.action), ["return", "sold"])
-    eq([d1.chain.ok, d1.chain.checked], [true, 2])
+    eq(d1.history.map((h) => h.action), ["return", "receive", "sold"])
+    eq([d1.chain.ok, d1.chain.checked], [true, 3])
     const ds = await svc.getRow("s1")
     eq(ds.history.map((h) => [h.action, h.seq]), [["follow_up", 1], ["follow_up", 2]])
     eq(ds.chain.ok, true)
@@ -160,8 +184,9 @@ void (async () => {
 
     // ── 6. รอบขายซาก ─────────────────────────────────────────────────────
     const W = "คลัง DIST"
-    for (const k of ["bulk000", "bulk001", "bulk002", "bulk003"]) await svc.returnCore(k, { choice: "sell", scrapInDate: "2026-10-20" }, veh, now)
-    await svc.returnCore("bulk004", { choice: "sell", scrapInDate: "2026-11-02" }, veh, now)
+    const intoScrap = async (k: string, d: string) => { await svc.returnCore(k, { choice: "sell" }, veh, now); await svc.receiveIntoScrap(k, { receivedDate: d }, acc, now) }
+    for (const k of ["bulk000", "bulk001", "bulk002", "bulk003"]) await intoScrap(k, "2026-10-20")
+    await intoScrap("bulk004", "2026-11-02")
     eq(await status(rounds.createRound({ warehouses: [], cutoffDate: "2026-10-31" }, store, now)), 400)
     eq(await status(rounds.createRound({ warehouses: [W] }, store, now)), 400)
     const pv = await rounds.previewRound({ warehouses: W, cutoffDate: "2026-10-31" })
@@ -190,7 +215,7 @@ void (async () => {
     eq(await col.countDocuments({ row_key: { $in: aKeys }, coreStatus: "sell_waiting", saleRoundNo: null }), aKeys.length)
     eq(await status(rounds.cancelRound(roundA, { reason: "ซ้ำ" }, store, now)), 409)
     eq(await status(rounds.sellRound(roundA, { soldDate: "2026-11-02" }, store, now)), 409, "ขายรอบที่ยกเลิกไม่ได้")
-    eq((await svc.getRow(aKeys[0])).history.map((h) => h.action), ["return", "round_add", "round_cancel"])
+    eq((await svc.getRow(aKeys[0])).history.map((h) => h.action), ["return", "receive", "round_add", "round_cancel"])
     // รอบใหม่ทั้งหมดที่เหลือ แล้วขายทั้งรอบ
     const rc = await rounds.createRound({ warehouses: [W], cutoffDate: "2026-11-03" }, proc, now)
     const rcRound = await rounds.getRound(rc.roundNo)

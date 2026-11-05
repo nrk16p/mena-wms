@@ -12,7 +12,8 @@ export function ViewOnlyBanner() {
   const { data: session } = useSession()
   const section = sectionForPage(pathname)
   const access = session?.user?.access
-  if (!section || section === "admin" || !access || access[section as Section] !== "view") return null
+  // ติดตามซากใช้สิทธิ์ข้ามส่วนงาน (coreReturnCan): ยานยนต์/บัญชีมีแค่ "ดู" แต่ทำบางขั้นได้ — หน้าโชว์เฉพาะปุ่มที่ทำได้อยู่แล้ว
+  if (!section || section === "admin" || section === "core-return" || !access || access[section as Section] !== "view") return null
   return (
     <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
       <Eye className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />

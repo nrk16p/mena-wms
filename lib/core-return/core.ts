@@ -3,12 +3,18 @@
 // ฐานข้อมูลมาจาก core-return-base/load_base.py (master_data.core_return_base) — โค้ดนี้อ่าน/เขียนรูปแบบนั้นตรง ๆ
 // ฟิลด์ที่ระบบนี้เพิ่มเอง (ret / sale / rebuild / noCore / followUp / coreUpdatedAt) loader ไม่แตะ เพราะ loader $set เฉพาะฟิลด์ฐาน
 
-export const CORE_STATUSES = ["pending", "legacy", "sell_waiting", "sold", "rebuild", "rebuilt", "no_core", "missing"] as const
+// S1 ไม่เข้าคลังซากทันทีอีกแล้ว (ผู้ใช้กำหนด 2026-11-05): บัญชีต้องบันทึกรับเข้าคลังซากเพื่อยืนยันก่อน
+//   อู่ใน (และ Mobile/PM/ไม่ทราบ): คืนซาก → await_receive → (บัญชีรับเข้า) → sell_waiting
+//   อู่นอก: คืนซาก → await_pickup → (จัดซื้อรับซากกลับ) → picked_up → (ยานยนต์ยืนยันส่งต่อ) → await_receive → sell_waiting
+export const CORE_STATUSES = ["pending", "legacy", "await_pickup", "picked_up", "await_receive", "sell_waiting", "sold", "rebuild", "rebuilt", "no_core", "missing"] as const
 export type CoreStatus = (typeof CORE_STATUSES)[number]
 
 export const STATUS_LABEL: Record<CoreStatus, string> = {
   pending: "รอคืนซาก",
   legacy: "มีในไฟล์ติดตามเดิม",
+  await_pickup: "S1 รอจัดซื้อรับซากจากอู่นอก",
+  picked_up: "S1 รับซากกลับแล้ว · รอยานยนต์ยืนยัน",
+  await_receive: "S1 นำส่งแล้ว · รอบัญชีรับเข้าคลังซาก",
   sell_waiting: "S1 ซากมีมูลค่า · อยู่คลังซากรอขาย",
   sold: "ขายซากแล้ว",
   rebuild: "A2 ส่งรีบิ้ว",
@@ -20,12 +26,18 @@ export const STATUS_LABEL: Record<CoreStatus, string> = {
 /** ยังไม่คืนซาก (legacy ทำงานเหมือน pending) */
 export const OUTSTANDING: CoreStatus[] = ["pending", "legacy"]
 /** ยังไม่จบ — ตามงานได้ */
-export const OPEN: CoreStatus[] = ["pending", "legacy", "sell_waiting", "rebuild"]
+export const OPEN: CoreStatus[] = ["pending", "legacy", "await_pickup", "picked_up", "await_receive", "sell_waiting", "rebuild"]
+/** S1 ที่คืนแล้วแต่ยังไม่ถึงคลังซาก (ขั้นส่งต่อ) */
+export const IN_TRANSIT: CoreStatus[] = ["await_pickup", "picked_up", "await_receive"]
 
 export const isStatus = (v: unknown): v is CoreStatus => (CORE_STATUSES as readonly string[]).includes(v as string)
 
 export type ReturnChoice = "sell" | "rebuild" | "no_core" | "missing"
-export const CHOICE_TO: Record<ReturnChoice, CoreStatus> = { sell: "sell_waiting", rebuild: "rebuild", no_core: "no_core", missing: "missing" }
+/** สถานะหลังคืนซาก · S1 อู่นอกต้องให้จัดซื้อไปรับก่อน · S1 อื่น ๆ (อู่ใน/Mobile/ไม่ทราบ) ยานยนต์นำส่งให้บัญชีรับเข้าเลย */
+export function returnTarget(choice: ReturnChoice, garageType: string | null | undefined): CoreStatus {
+  if (choice === "sell") return garageType === "อู่นอก" ? "await_pickup" : "await_receive"
+  return choice
+}
 export const NO_CORE_REASONS = ["ของสิ้นเปลือง", "ซากเสียหายทิ้ง", "อื่นๆ"] as const
 /** ไม่มีซากกลับมาเลย (ต่างจาก S2 ที่ซากกลับมาแต่ขายไม่ได้) */
 export const MISSING_REASONS = ["อู่ไม่คืนซาก", "ซากหาย", "อื่นๆ"] as const
@@ -68,6 +80,12 @@ export type CoreRow = {
   sale?: { scrapInDate: string | null; soldDate: string | null; roundNo?: string | null; price: number | null; buyer: string | null; note: string; soldAt: Date | null; soldBy: { email: string; name: string } | null } | null
   rebuild?: { sentDate: string | null; vendor: string | null; doneDate: string | null; note: string; doneAt: Date | null; doneBy: { email: string; name: string } | null } | null
   noCore?: { reason: string; note: string } | null
+  /** จัดซื้อรับซากกลับจากอู่นอก */
+  pickup?: { date: string; note: string; at: Date; by: { email: string; name: string } } | null
+  /** ยานยนต์ยืนยันซากที่จัดซื้อรับกลับมา แล้วส่งต่อให้บัญชี */
+  handover?: { note: string; at: Date; by: { email: string; name: string } } | null
+  /** บัญชีบันทึกรับเข้าคลังซาก (ยืนยันของจริง) */
+  receive?: { date: string; qty: number; shortReason: string | null; note: string; at: Date; by: { email: string; name: string } } | null
   followUp?: { count: number; lastAt: Date; lastNote: string; lastBy: { email: string; name: string }; nextDate: string | null } | null
   /** อู่ที่ซากน่าจะอยู่ (load_base.py / ใบเบิก WMS): อู่ใน | อู่นอก | Mobile/PM · garage = ชื่ออู่ (หลายเจ้าคั่นด้วย " / ") */
   garageType?: string | null
@@ -140,7 +158,7 @@ export type ReturnInput = {
   scrapInDate: string | null; rebuildSentDate: string | null; rebuildVendor: string | null; noCoreReason: string | null
 }
 
-/** ตรวจค่าคืนซาก · qty ค่าเริ่มต้น = จำนวนที่เบิก · คืนไม่ครบต้องบอกเหตุผล · S1 ต้องมีวันที่เข้าคลังซาก */
+/** ตรวจค่าคืนซาก · qty ค่าเริ่มต้น = จำนวนที่เบิก · คืนไม่ครบต้องบอกเหตุผล · S1 ไม่ลงวันที่เข้าคลัง (บัญชีลงตอนรับเข้า) */
 export function parseReturn(body: Record<string, unknown>, row: Pick<CoreRow, "qtyIssued" | "issuedDate">, now = new Date()): ReturnInput {
   const choice = body.choice
   if (choice !== "sell" && choice !== "rebuild" && choice !== "no_core" && choice !== "missing") throw bad("เลือกก่อนว่า S1 ซากมีมูลค่า / S2 ซากไม่มีมูลค่า / A2 ของรีบิ้ว / ไม่มีซากคืน")
@@ -161,11 +179,31 @@ export function parseReturn(body: Record<string, unknown>, row: Pick<CoreRow, "q
   const shortReason = short ? str(body.shortReason, 300) : ""
   if (short && !shortReason) throw bad("คืนไม่ครบ บอกเหตุผลด้วย")
   if (choice === "sell") {
-    const scrapInDate = dateField(body.scrapInDate, "วันที่เข้าคลังซาก", { required: true, today, min: row.issuedDate })
-    return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate, rebuildSentDate: null, rebuildVendor: null, noCoreReason: null }
+    return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate: null, rebuildSentDate: null, rebuildVendor: null, noCoreReason: null }
   }
   const rebuildSentDate = dateField(body.rebuildSentDate, "วันที่ส่งรีบิ้ว", { required: false, today, min: row.issuedDate })
   return { choice, qty, shortReason: short ? shortReason : null, note, scrapInDate: null, rebuildSentDate, rebuildVendor: str(body.rebuildVendor, 200) || null, noCoreReason: null }
+}
+
+/** จัดซื้อรับซากกลับจากอู่นอก: วันที่รับ (ไม่ก่อนวันที่เบิก ไม่เกินวันนี้) */
+export function parsePickup(body: Record<string, unknown>, row: Pick<CoreRow, "issuedDate">, now = new Date()) {
+  const date = dateField(body.pickupDate, "วันที่รับซากกลับ", { required: true, today: todayBkk(now), min: row.issuedDate })!
+  return { date, note: str(body.note) }
+}
+
+/** บัญชีรับเข้าคลังซาก: วันที่รับเข้า + จำนวนที่รับจริง (ไม่เกินที่ยานยนต์คืน · ขาดต้องบอกเหตุผล) */
+export function parseReceive(body: Record<string, unknown>, row: Pick<CoreRow, "issuedDate" | "ret" | "pickup">, now = new Date()) {
+  const min = row.pickup?.date ?? row.issuedDate
+  const date = dateField(body.receivedDate, "วันที่รับเข้าคลังซาก", { required: true, today: todayBkk(now), min, minLabel: row.pickup?.date ? "วันที่รับซากกลับ" : "วันที่เบิก" })!
+  const declared = typeof row.ret?.qty === "number" && row.ret.qty > 0 ? row.ret.qty : null
+  const raw = num(body.qty)
+  const qty = raw === null ? declared ?? 1 : raw
+  if (!(qty > 0)) throw bad("จำนวนที่รับเข้าต้องมากกว่า 0")
+  if (declared !== null && qty > declared) throw bad(`รับเข้าได้ไม่เกิน ${declared} ตามที่ยานยนต์นำส่ง`)
+  const short = declared !== null && qty < declared
+  const shortReason = short ? str(body.shortReason, 300) : ""
+  if (short && !shortReason) throw bad("จำนวนที่รับเข้าน้อยกว่าที่นำส่ง กรุณาระบุเหตุผล")
+  return { date, qty, shortReason: short ? shortReason : null, note: str(body.note) }
 }
 
 export function parseSold(body: Record<string, unknown>, row: Pick<CoreRow, "sale" | "issuedDate">, now = new Date()) {

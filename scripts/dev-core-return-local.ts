@@ -33,6 +33,7 @@ const PERSONAS: Record<string, { email: string; name: string; employee: Record<s
   vehicle: { email: "demo.mech@menatransport.co.th", name: "ช่างเดโม (ยานยนต์)", employee: { username: "demo.mech", department: "ยานยนต์", department_id: 3, position: "ช่าง" } },
   store: { email: "demo.store@menatransport.co.th", name: "สโตร์เดโม", employee: { username: "demo.store", department: "Store", department_id: 31, position: "สโตร์" }, accessOverrides: { "store-queue": "edit" } },
   procurement: { email: "demo.buyer@menatransport.co.th", name: "จัดซื้อเดโม", employee: { username: "demo.buyer", department: "Procurement", department_id: 5, position: "จัดซื้อ" } },
+  accounting: { email: "demo.acc@menatransport.co.th", name: "บัญชีเดโม", employee: { username: "demo.acc", department: "Accounting", department_id: 6, position: "บัญชี" } },
 }
 
 // สุ่มแบบคงที่ (รันซ้ำได้ภาพเดิม)
@@ -75,17 +76,32 @@ void (async () => {
   const mech = { email: PERSONAS.vehicle.email, name: PERSONAS.vehicle.name, via: "web" as const }
   const store = { email: PERSONAS.store.email, name: PERSONAS.store.name, via: "web" as const }
   const buyer = { email: PERSONAS.procurement.email, name: PERSONAS.procurement.name, via: "web" as const }
+  const acc = { email: PERSONAS.accounting.email, name: PERSONAS.accounting.name, via: "web" as const }
 
   // ── สถานะตัวอย่าง (ผ่าน service จริง = ประวัติ + โซ่แฮชครบ) ──
-  const pool = (await col.find({ coreStatus: { $in: ["pending", "legacy"] }, issuedDate: { $lte: addDays(today, -25) } }, { projection: { row_key: 1, issuedDate: 1, qtyIssued: 1 } }).toArray())
+  const pool = (await col.find({ coreStatus: { $in: ["pending", "legacy"] }, issuedDate: { $lte: addDays(today, -25) } }, { projection: { row_key: 1, issuedDate: 1, qtyIssued: 1, garageType: 1 } }).toArray())
     .sort(() => rnd() - 0.5)
   let k = 0
   const take = (n: number) => pool.slice(k, (k += n))
   const scrapIn = (d: string) => minYmd(addDays(d, 1 + Math.floor(rnd() * 10)), today)
-  for (const r of take(35)) await svc.returnCore(r.row_key, { choice: "sell", scrapInDate: scrapIn(r.issuedDate), note: "เข้าคลังซากหลังร้าน" }, mech, now)
+  // S1 ต้องผ่านบัญชีรับเข้าคลังซาก (อู่นอก: จัดซื้อรับกลับ + ยานยนต์ยืนยันก่อน) — เดินครบทุกขั้นผ่าน service จริง
+  const intoScrap = async (r: { row_key: string; garageType?: string | null }, si: string, body: Record<string, unknown> = {}) => {
+    const after = await svc.returnCore(r.row_key, { choice: "sell", ...body }, mech, now)
+    if (after?.coreStatus === "await_pickup") { await svc.markPickedUp(r.row_key, { pickupDate: si }, buyer, now); await svc.confirmHandover(r.row_key, {}, mech, now) }
+    await svc.receiveIntoScrap(r.row_key, { receivedDate: si, qty: body.qty }, acc, now)
+  }
+  for (const r of take(35)) await intoScrap(r, scrapIn(r.issuedDate), { note: "นำส่งบัญชี" })
+  // ขั้นส่งต่อ: รอบัญชีรับเข้า / รอจัดซื้อรับซากอู่นอก / รอยานยนต์ยืนยัน
+  for (const r of take(12)) await svc.returnCore(r.row_key, { choice: "sell", note: "นำส่งบัญชีแล้ว" }, mech, now)
+  // ไฟล์ฐานบางชุดไม่มีชนิดอู่ — ตั้งเป็นอู่นอกให้แถวเดโมกลุ่มนี้
+  for (const [i, row] of take(14).entries()) {
+    if (row.garageType !== "อู่นอก") await col.updateOne({ row_key: row.row_key }, { $set: { garageType: "อู่นอก", garage: "อู่ช่างเอกการช่าง (เดโม)" } })
+    await svc.returnCore(row.row_key, { choice: "sell" }, mech, now)
+    if (i % 2 === 0) await svc.markPickedUp(row.row_key, { pickupDate: today, note: "รถกระบะไปรับ" }, buyer, now)
+  }
   for (const r of take(30)) {
     const si = scrapIn(r.issuedDate)
-    await svc.returnCore(r.row_key, { choice: "sell", scrapInDate: si }, mech, now)
+    await intoScrap(r, si)
     await svc.markSold(r.row_key, { soldDate: minYmd(addDays(si, 5 + Math.floor(rnd() * 30)), today), price: Math.round(50 + rnd() * 900), buyer: "ร้านรับซื้อของเก่า ส.เจริญ" }, store, now)
   }
   for (const r of take(30)) await svc.returnCore(r.row_key, { choice: "rebuild", rebuildSentDate: scrapIn(r.issuedDate), rebuildVendor: rnd() > 0.5 ? "อู่ศรีสมบูรณ์ไดนาโม" : "ร้านปั๊มหัวฉีดบางนา" }, mech, now)
@@ -97,7 +113,7 @@ void (async () => {
   const reasons = ["ของสิ้นเปลือง", "ซากเสียหายทิ้ง", "อื่นๆ"]
   for (const r of take(30)) { const reason = reasons[Math.floor(rnd() * 3)]; await svc.returnCore(r.row_key, { choice: "no_core", noCoreReason: reason, note: reason === "อื่นๆ" ? "อู่นอกไม่คืนซาก" : "" }, mech, now) }
   // คืนไม่ครบ 3 แถว
-  for (const r of take(3)) if ((r.qtyIssued ?? 1) > 1) await svc.returnCore(r.row_key, { choice: "sell", qty: 1, shortReason: "อีกชิ้นแตก ทิ้งที่อู่", scrapInDate: scrapIn(r.issuedDate) }, mech, now)
+  for (const r of take(3)) if ((r.qtyIssued ?? 1) > 1) await intoScrap(r, scrapIn(r.issuedDate), { qty: 1, shortReason: "อีกชิ้นแตก ทิ้งที่อู่" })
   // การตาม: บางแถวถึงกำหนดวันนี้
   for (const [i, r] of take(25).entries()) {
     await svc.followUp(r.row_key, { note: i % 2 ? "โทรตามหัวหน้าช่าง บอกจะส่งพรุ่งนี้" : "ไลน์กลุ่มอู่นอกแล้ว รอคำตอบ", nextDate: i % 3 === 0 ? today : addDays(today, 3) }, buyer, now)

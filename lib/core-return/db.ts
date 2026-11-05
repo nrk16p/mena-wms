@@ -7,7 +7,7 @@ import type { CoreRow, CoreStatus } from "./core"
 
 export type CoreLogDoc = {
   row_key: string
-  action: "return" | "attach" | "sold" | "rebuilt" | "follow_up" | "create" | "round_add" | "round_cancel"
+  action: "return" | "attach" | "pickup" | "handover" | "receive" | "sold" | "rebuilt" | "follow_up" | "create" | "round_add" | "round_cancel"
   from: CoreStatus | null
   to: CoreStatus | null
   actor: { email: string; name: string; via: string }

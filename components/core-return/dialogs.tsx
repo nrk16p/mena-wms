@@ -78,7 +78,6 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
   const [choice, setChoice] = useState<Choice | null>(null)
   const [qty, setQty] = useState(String(row?.qtyIssued ?? 1))
   const [shortReason, setShortReason] = useState("")
-  const [scrapInDate, setScrapInDate] = useState(todayYmd())
   const [sentDate, setSentDate] = useState("")
   const [vendor, setVendor] = useState("")
   const [reason, setReason] = useState<string>(NO_CORE_REASONS[0])
@@ -97,7 +96,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
         {row && (
           <form className="flex flex-col gap-3.5" onSubmit={(e) => {
             e.preventDefault()
-            void submit({ choice, qty: noQty ? undefined : qty, shortReason, scrapInDate: choice === "sell" ? scrapInDate : undefined, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note, attachmentIds: doneIds(files) })
+            void submit({ choice, qty: noQty ? undefined : qty, shortReason, rebuildSentDate: sentDate || undefined, rebuildVendor: vendor, noCoreReason: reason, note, attachmentIds: doneIds(files) })
           }}>
             <RowHead row={row} />
             <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
@@ -119,15 +118,16 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
                 <Field label="จำนวนที่คืน" hint={`เบิกไป ${qtyText(row.qtyIssued)}`} error={over ? `เกินที่เบิก (เบิกไป ${qtyText(row.qtyIssued)})` : undefined}>
                   <input className={inputCls} inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} aria-invalid={over || undefined} />
                 </Field>
-                {choice === "sell" && (
-                  <Field label="วันที่เข้าคลังซาก">
-                    <DateInput value={scrapInDate} max={todayYmd()} onChange={setScrapInDate} required />
-                  </Field>
-                )}
                 {choice === "rebuild" && <Field label="วันที่ส่งรีบิ้ว (ถ้ามี)"><DateInput value={sentDate} max={todayYmd()} onChange={setSentDate} /></Field>}
               </div>
             )}
-            {choice === "sell" && <p className={`-mt-1.5 text-xs ${TXT.muted}`}>ซากจะรออยู่คลังซากจนถึงรอบขาย</p>}
+            {choice === "sell" && (
+              <p data-testid="sell-next" className={`-mt-1.5 text-xs ${TXT.muted}`}>
+                {row.garageType === "อู่นอก"
+                  ? "ซากอยู่ที่อู่นอก ระบบจะแจ้งจัดซื้อให้ไปรับกลับ เมื่อรับกลับแล้ว ยานยนต์ยืนยันส่งต่อ และฝ่ายบัญชีบันทึกรับเข้าคลังซาก"
+                  : "นำส่งซากให้ฝ่ายบัญชี เพื่อบันทึกรับเข้าคลังซากและยืนยันจำนวน"}
+              </p>
+            )}
             {choice && !noQty && short && (
               <Field label="คืนไม่ครบ เพราะอะไร">
                 <input className={inputCls} value={shortReason} onChange={(e) => setShortReason(e.target.value)} placeholder="เช่น อีกตัวแตก ทิ้งที่อู่" />
@@ -152,7 +152,7 @@ export function ReturnDialog({ row, onClose, onDone }: { row: Row | null; onClos
               <AttachPicker variant="tiles" no={row.row_key} apiBase={attachApi(row.row_key)} context="return" items={files} onChange={(f) => setFiles(f)} label="รูปซาก (ถ้ามี)" hint="ไม่เกิน 8 รูป · รูปละไม่เกิน 10 MB" />
               {files.length > 0 && <p className={`text-xs ${TXT.muted}`}>รูปที่แนบแล้วลบไม่ได้ ดูให้ตรงก่อนกดบันทึก</p>}
             </div>
-            <Footer busy={busy} wait={uploading} onCancel={onClose} label={uploading ? "รอรูปอัปโหลด" : "บันทึกคืนซาก"} error={error || ""} />
+            <Footer busy={busy} wait={uploading} onCancel={onClose} label={uploading ? "รอรูปอัปโหลด" : choice === "sell" ? (row.garageType === "อู่นอก" ? "บันทึกคืนซาก · แจ้งจัดซื้อ" : "บันทึกคืนซาก · นำส่งบัญชี") : "บันทึกคืนซาก"} error={error || ""} />
           </form>
         )}
     </Modal>
@@ -197,6 +197,84 @@ export function RebuiltDialog({ row, onClose, onDone }: { row: Row | null; onClo
             <Field label="วันที่ได้ของคืน"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
             <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น เข้าสต๊อกแล้ว" /></Field>
             <Footer busy={busy} onCancel={onClose} label="บันทึกรีบิ้วเสร็จ" error={error} />
+          </form>
+        )}
+    </Modal>
+  )
+}
+
+/** จัดซื้อ: รับซากกลับจากอู่นอกถึงคลังแล้ว */
+export function PickupDialog({ row, onClose, onDone }: { row: Row | null; onClose: () => void; onDone: Done }) {
+  const [date, setDate] = useState(todayYmd())
+  const [note, setNote] = useState("")
+  const { busy, error, submit } = useSubmit(row ? rowUrl(row.row_key, "pickup") : "", onDone, onClose)
+  return (
+    <Modal open={!!row} onClose={onClose} title="บันทึกรับซากกลับจากอู่นอก" testid="pickup-dialog">
+        {row && (
+          <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ pickupDate: date, note }) }}>
+            <RowHead row={row} />
+            <p className={`text-xs ${K["text-muted"]}`}>อู่: {row.garage || "ไม่ทราบชื่อ"} · ยานยนต์คืน {qtyText(row.ret?.qty ?? row.qtyIssued)} ชิ้น</p>
+            <Field label="วันที่รับซากกลับถึงคลัง"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
+            <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ผู้รับ ทะเบียนรถที่ไปรับ" /></Field>
+            <p className={`-mt-1.5 text-xs ${TXT.muted}`}>บันทึกแล้วระบบส่งให้ยานยนต์ตรวจและยืนยันก่อนส่งต่อฝ่ายบัญชี</p>
+            <Footer busy={busy} onCancel={onClose} label="บันทึกรับซากกลับ" error={error} />
+          </form>
+        )}
+    </Modal>
+  )
+}
+
+/** ยานยนต์: ตรวจซากที่จัดซื้อรับกลับมา แล้วยืนยันส่งต่อให้บัญชี */
+export function ConfirmDialog({ row, onClose, onDone }: { row: Row | null; onClose: () => void; onDone: Done }) {
+  const [note, setNote] = useState("")
+  const { busy, error, submit } = useSubmit(row ? rowUrl(row.row_key, "confirm") : "", onDone, onClose)
+  return (
+    <Modal open={!!row} onClose={onClose} title="ยืนยันซากและส่งต่อฝ่ายบัญชี" testid="confirm-dialog">
+        {row && (
+          <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ note }) }}>
+            <RowHead row={row} />
+            <p className={`text-xs ${K["text-muted"]}`}>จัดซื้อรับซากกลับ {thDate(row.pickup?.date)}{row.pickup?.by ? ` · ${row.pickup.by.name}` : ""} · ยานยนต์คืน {qtyText(row.ret?.qty ?? row.qtyIssued)} ชิ้น</p>
+            <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ตรวจแล้วตรงรุ่น ครบจำนวน" /></Field>
+            <Footer busy={busy} onCancel={onClose} label="ยืนยันและส่งต่อบัญชี" error={error} />
+          </form>
+        )}
+    </Modal>
+  )
+}
+
+/** บัญชี: บันทึกรับซากเข้าคลังซาก (ยืนยันจำนวนจริง) → พร้อมเข้ารอบขาย */
+export function ReceiveDialog({ row, onClose, onDone }: { row: Row | null; onClose: () => void; onDone: Done }) {
+  const declared = row?.ret?.qty ?? row?.qtyIssued ?? 1
+  const [date, setDate] = useState(todayYmd())
+  const [qty, setQty] = useState(String(declared))
+  const [shortReason, setShortReason] = useState("")
+  const [note, setNote] = useState("")
+  const { busy, error, submit } = useSubmit(row ? rowUrl(row.row_key, "receive") : "", onDone, onClose)
+  const n = Number(qty)
+  const short = n > 0 && n < declared
+  const over = n > declared
+  return (
+    <Modal open={!!row} onClose={onClose} title="บันทึกรับเข้าคลังซาก" testid="receive-dialog">
+        {row && (
+          <form className="flex flex-col gap-3.5" onSubmit={(e) => { e.preventDefault(); void submit({ receivedDate: date, qty, shortReason, note }) }}>
+            <RowHead row={row} />
+            <p className={`text-xs ${K["text-muted"]}`}>
+              นำส่งโดย {row.handover?.by.name ?? row.ret?.by.name ?? "-"} · {qtyText(declared)} ชิ้น{row.pickup?.date ? ` · จัดซื้อรับกลับจากอู่นอก ${thDate(row.pickup.date)}` : ""}
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="วันที่รับเข้าคลังซาก"><DateInput value={date} max={todayYmd()} onChange={setDate} required /></Field>
+              <Field label="จำนวนที่รับจริง" hint={`นำส่ง ${qtyText(declared)} ชิ้น`} error={over ? `เกินที่นำส่ง (${qtyText(declared)} ชิ้น)` : undefined}>
+                <input className={inputCls} inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} aria-invalid={over || undefined} />
+              </Field>
+            </div>
+            {short && (
+              <Field label="เหตุผลที่รับน้อยกว่าที่นำส่ง">
+                <input className={inputCls} value={shortReason} onChange={(e) => setShortReason(e.target.value)} placeholder="เช่น ได้รับซาก 1 ชิ้น อีกชิ้นยังไม่ส่ง" />
+              </Field>
+            )}
+            <Field label="หมายเหตุ (ถ้ามี)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+            <p className={`-mt-1.5 text-xs ${TXT.muted}`}>รับเข้าแล้วซากจะอยู่คลังซากรอขาย และนำเข้ารอบขายได้</p>
+            <Footer busy={busy} onCancel={onClose} label="บันทึกรับเข้าคลังซาก" error={error} />
           </form>
         )}
     </Modal>
@@ -259,7 +337,7 @@ export function BulkFollowDialog({ keys, onClose, onDone }: { keys: string[] | n
 }
 
 type Hist = { seq: number; action: string; from: CoreStatus | null; to: CoreStatus | null; actor: { name: string; email: string }; at: string; note?: string; data?: Record<string, unknown> }
-const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", sold: "ขายแล้ว", rebuilt: "รีบิ้วเสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", attach: "แนบรูป" }
+const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", pickup: "จัดซื้อรับซากกลับ", handover: "ยานยนต์ยืนยันส่งต่อบัญชี", receive: "บัญชีรับเข้าคลังซาก", sold: "ขายแล้ว", rebuilt: "รีบิ้วเสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", attach: "แนบรูป" }
 const CHOICE_TH: Record<string, string> = { sell: "S1 ซากมีมูลค่า", rebuild: "A2 ของรีบิ้ว", no_core: "S2 ซากไม่มีมูลค่า", missing: "ไม่มีซากคืน" }
 
 function histDetail(h: Hist): string {
@@ -272,6 +350,12 @@ function histDetail(h: Hist): string {
     if (d.rebuildVendor) parts.push(`ส่ง ${d.rebuildVendor}`)
     if (d.noCoreReason) parts.push(String(d.noCoreReason))
     if (d.shortReason) parts.push(`คืนไม่ครบ: ${d.shortReason}`)
+  }
+  if (h.action === "pickup" && d.pickupDate) parts.push(`รับกลับ ${thDate(String(d.pickupDate))}`)
+  if (h.action === "receive") {
+    if (d.receivedDate) parts.push(`รับเข้า ${thDate(String(d.receivedDate))}`)
+    if (d.qty) parts.push(`${d.qty} ชิ้น`)
+    if (d.shortReason) parts.push(`รับไม่ครบ: ${d.shortReason}`)
   }
   if (h.action === "attach" && d.filename) parts.push(String(d.filename))
   if (h.action === "sold") { if (d.soldDate) parts.push(thDate(String(d.soldDate))); if (d.price != null) parts.push(`${baht(Number(d.price))} บาท`); if (d.roundNo) parts.push(String(d.roundNo)) }
@@ -314,24 +398,27 @@ function AddPhotosDialog({ rowKey, onClose, onDone }: { rowKey: string; onClose:
   )
 }
 
-export type DrawerAct = "return" | "sold" | "rebuilt" | "follow"
+export type DrawerAct = "return" | "pickup" | "confirm" | "receive" | "sold" | "rebuilt" | "follow"
 
 /** ปุ่มที่คนนี้ทำได้กับแถวนี้ เรียงตามความสำคัญ: ตัวแรก = ปุ่มหลักในตาราง/การ์ด · ที่เหลืออยู่ในลิ้นชัก (ใช้ทั้งลิ้นชักและตาราง) · ฝั่ง API เช็กสิทธิ์ซ้ำเสมอ */
-export function rowActions(r: Pick<Row, "coreStatus" | "saleRoundNo">, p: { ret: boolean; store: boolean; follow: boolean }): DrawerAct[] {
+export function rowActions(r: Pick<Row, "coreStatus" | "saleRoundNo">, p: { ret: boolean; store: boolean; follow: boolean; pickup?: boolean; confirm?: boolean; receive?: boolean; sold?: boolean }): DrawerAct[] {
   const out: DrawerAct[] = []
   if (OUTSTANDING.includes(r.coreStatus) && p.ret) out.push("return")
-  if (r.coreStatus === "sell_waiting" && p.store && !r.saleRoundNo) out.push("sold")
+  if (r.coreStatus === "await_pickup" && p.pickup) out.push("pickup")
+  if (r.coreStatus === "picked_up" && p.confirm) out.push("confirm")
+  if (r.coreStatus === "await_receive" && p.receive) out.push("receive")
+  if (r.coreStatus === "sell_waiting" && (p.sold ?? p.store) && !r.saleRoundNo) out.push("sold")
   if (r.coreStatus === "rebuild" && p.store) out.push("rebuilt")
   if (!CLOSED_SET.includes(r.coreStatus) && p.follow) out.push("follow")
   return out
 }
 const CLOSED_SET: CoreStatus[] = ["sold", "rebuilt", "no_core", "missing"]
-export const ACT_LABEL: Record<DrawerAct, string> = { return: "คืนซาก", follow: "ติดตาม", sold: "บันทึกขายแล้ว", rebuilt: "รีบิ้วเสร็จ" }
+export const ACT_LABEL: Record<DrawerAct, string> = { return: "คืนซาก", pickup: "รับซากกลับแล้ว", confirm: "ยืนยันส่งต่อบัญชี", receive: "รับเข้าคลังซาก", follow: "ติดตาม", sold: "บันทึกขายแล้ว", rebuilt: "รีบิ้วเสร็จ" }
 /** สีปุ่มหลักตามทีมที่ทำ: ยานยนต์เขียว · สโตร์ฟ้า · จัดซื้อม่วง */
-export const ACT_VARIANT: Record<DrawerAct, "primary" | "store" | "procure"> = { return: "primary", sold: "store", rebuilt: "store", follow: "procure" }
+export const ACT_VARIANT: Record<DrawerAct, "primary" | "store" | "procure"> = { return: "primary", pickup: "procure", confirm: "primary", receive: "store", sold: "store", rebuilt: "store", follow: "procure" }
 
 const DOT: Record<string, string> = {
-  create: `${K["bg-primary"]}`, return: `${K["bg-vehicle"]}`, sold: `${K["bg-store"]}`, rebuilt: `${K["bg-c156C3A"]}`, follow_up: `${K["bg-procure"]}`, round_add: `${K["bg-store"]}`, round_cancel: `${K["bg-danger"]}`, attach: `${K["bg-muted"]}`,
+  create: `${K["bg-primary"]}`, return: `${K["bg-vehicle"]}`, pickup: `${K["bg-procure"]}`, handover: `${K["bg-vehicle"]}`, receive: `${K["bg-store"]}`, sold: `${K["bg-store"]}`, rebuilt: `${K["bg-c156C3A"]}`, follow_up: `${K["bg-procure"]}`, round_add: `${K["bg-store"]}`, round_cancel: `${K["bg-danger"]}`, attach: `${K["bg-muted"]}`,
 }
 
 export function DetailDrawer({ rowKey, onClose, onAct }: { rowKey: string | null; onClose: () => void; onAct?: (kind: DrawerAct, row: Row) => void }) {
@@ -361,6 +448,9 @@ export function DetailDrawer({ rowKey, onClose, onAct }: { rowKey: string | null
     ...(r.requester ? [["ผู้เบิก (WMS)", `${r.requester.name}${r.swNo ? ` · ${r.swNo}` : ""}`] as [string, string]] : []),
     ...(r.mrItemLabel ? [["ประเภทการซ่อม", r.mrItemLabel] as [string, string]] : []),
     ...(r.legacyRound ? [["ไฟล์ติดตามเดิม", `${r.legacyRound}${r.legacyNote ? ` · ${r.legacyNote}` : ""}`] as [string, string]] : []),
+    ...(r.pickup ? [["จัดซื้อรับซากกลับ", `${thDate(r.pickup.date)} · ${r.pickup.by.name}`] as [string, string]] : []),
+    ...(r.handover ? [["ยานยนต์ยืนยันส่งต่อ", `${thDateTime(r.handover.at)} · ${r.handover.by.name}`] as [string, string]] : []),
+    ...(r.receive ? [["บัญชีรับเข้าคลังซาก", `${thDate(r.receive.date)} · ${qtyText(r.receive.qty)} ชิ้น · ${r.receive.by.name}${r.receive.shortReason ? ` · รับไม่ครบ: ${r.receive.shortReason}` : ""}`] as [string, string]] : []),
     ...(r.sale?.scrapInDate ? [["เข้าคลังซาก", thDate(r.sale.scrapInDate)] as [string, string]] : []),
     ...(r.saleRoundNo ? [["รอบขาย", r.saleRoundNo] as [string, string]] : []),
     ...(r.followUp?.count ? [["การตาม", `${followText(r.followUp)}${r.followUp.nextDate ? ` · ตามอีก ${thDate(r.followUp.nextDate)}` : ""}`] as [string, string]] : []),

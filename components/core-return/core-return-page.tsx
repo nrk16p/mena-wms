@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from "react-dom"
 import { ChevronDown, ChevronRight, Download, Paperclip, Recycle, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react"
 import { OUTSTANDING, SORTS, SORT_LABEL, UNCERTAIN_GARAGE_SOURCES, parseSort, type CoreStatus, type SortKey } from "@/lib/core-return/core"
-import { ACT_LABEL, ACT_VARIANT, BulkFollowDialog, DetailDrawer, FollowUpDialog, RebuiltDialog, ReturnDialog, SoldDialog, rowActions } from "./dialogs"
+import { ACT_LABEL, ACT_VARIANT, BulkFollowDialog, ConfirmDialog, DetailDrawer, FollowUpDialog, PickupDialog, RebuiltDialog, ReceiveDialog, ReturnDialog, SoldDialog, rowActions, type DrawerAct } from "./dialogs"
 import { RoundsPanel } from "./rounds"
 import {
   CoreChip, DaysBadge, SHORT_LABEL, baht, bahtShort, daysFrom, download, followText, getJson, inputCls, qtyText, thDate, todayYmd, useFetch, useKeyed, usePerms, type Perms, type Row, type Summary,
@@ -38,16 +38,16 @@ function rangeDates(k: RangeKey, today = todayYmd()): { from: string; to: string
 }
 type ListRes = { items: Row[]; total: number; page: number; pages: number; summary: Summary | null; warehouses: string[] | null; garages: { garageType: string; garage: string }[] | null }
 type Group = { key: Record<string, string>; count: number; pieces: number; amount: number; vehicles: number; mrs: number; oldest: string; days: number | null; plates?: string[]; uncertain?: boolean }
-type Act = { kind: "return" | "sold" | "rebuilt" | "follow"; row: Row } | null
+type Act = { kind: DrawerAct; row: Row } | null
 type GroupBy = "vehicle" | "mr" | "garage" | "warehouse" | "oldest" | "mine"
 
 const LANES = [
   { key: 0, title: "ยังไม่คืนซาก", role: "ยานยนต์", short: "ยานยนต์", tone: "vehicle" },
-  { key: 1, title: "คลังซาก", role: "สโตร์", short: "สโตร์", tone: "store" },
-  { key: 2, title: "ติดตาม & รอบขาย", role: "จัดซื้อ", short: "จัดซื้อ", tone: "procure" },
+  { key: 1, title: "รับเข้า & คลังซาก", role: "บัญชี / สโตร์", short: "บัญชี", tone: "store" },
+  { key: 2, title: "รับซากอู่นอก & ติดตาม", role: "จัดซื้อ", short: "จัดซื้อ", tone: "procure" },
 ] as const
 const LANE_ACTIVE_TXT = { vehicle: TXT.warn, store: TXT.storeDeep, procure: TXT.procure } as const
-const TABLE_STATUSES: CoreStatus[] = ["pending", "sell_waiting", "rebuild", "sold", "rebuilt", "no_core", "missing"]
+const TABLE_STATUSES: CoreStatus[] = ["pending", "await_pickup", "picked_up", "await_receive", "sell_waiting", "rebuild", "sold", "rebuilt", "no_core", "missing"]
 const CLOSED: CoreStatus[] = ["sold", "rebuilt", "no_core", "missing"]
 const GROUP_BY = [{ k: "vehicle", t: "รถ" }, { k: "mr", t: "MR" }, { k: "garage", t: "อู่" }, { k: "warehouse", t: "คลัง" }] as const
 const DAY_MS = 86_400_000
@@ -311,17 +311,17 @@ function Lane({ tone, title, role, count, amount, children, hidden }: { tone: "v
 }
 
 function StoreLane({ f, tick, perms, onAct, onOpen, summary }: { f: Filters; tick: number; perms: Perms; onAct: (a: Act) => void; onOpen: (k: string) => void; summary: Summary | null }) {
-  const [sub, setSub] = useState<"sell_waiting" | "rebuild">("sell_waiting")
+  const [sub, setSub] = useState<"await_receive" | "sell_waiting" | "rebuild">("await_receive")
   return (
     <div className="flex flex-col gap-2.5">
       <div className={`${SEG.wrap} w-full`} role="group" aria-label="คลังซาก">
-        {([["sell_waiting", "S1 รอขาย"], ["rebuild", "A2 ส่งรีบิ้ว"]] as const).map(([k, t]) => (
+        {([["await_receive", "รอรับเข้า"], ["sell_waiting", "S1 รอขาย"], ["rebuild", "A2 ส่งรีบิ้ว"]] as const).map(([k, t]) => (
           <button key={k} type="button" aria-pressed={sub === k} onClick={() => setSub(k)} className={`${SEG.base} flex-1 text-[13px] ${sub === k ? SEG.onStore : SEG.off}`}>
             {t} {(summary?.[k]?.count ?? 0).toLocaleString()}
           </button>
         ))}
       </div>
-      <RowList query={qs(f, { status: sub })} tick={tick} perms={perms} onAct={onAct} onOpen={onOpen} empty={sub === "sell_waiting" ? "คลังซากว่าง" : "ไม่มีของส่งรีบิ้วค้าง"} variant="store" />
+      <RowList query={qs(f, { status: sub })} tick={tick} perms={perms} onAct={onAct} onOpen={onOpen} empty={sub === "await_receive" ? "ไม่มีซากรอรับเข้าคลัง" : sub === "sell_waiting" ? "คลังซากว่าง" : "ไม่มีของส่งรีบิ้วค้าง"} variant="store" />
     </div>
   )
 }
@@ -526,7 +526,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // มือถือเปิดเลนของทีมตัวเองก่อน: ยานยนต์ → เลน 1 · สโตร์ → เลน 2 · จัดซื้อ → เลน 3
-  const lane: 0 | 1 | 2 = laneSel ?? (perms.vehicleTeam ? 0 : perms.store ? 1 : perms.follow ? 2 : 0)
+  const lane: 0 | 1 | 2 = laneSel ?? (perms.vehicleTeam ? 0 : perms.store || perms.accounting ? 1 : perms.follow ? 2 : 0)
 
   const sumQuery = qs(f, { meta: "1", mine: mine ? "1" : "" })
   useEffect(() => {
@@ -551,7 +551,10 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
   }
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   const doneWith = (kind: NonNullable<Act>["kind"]) => (row: Row) => {
-    const msg = kind === "return" ? `บันทึกคืนซากแล้ว${row?.coreStatus === "sell_waiting" ? " · S1 เข้าคลังซาก" : row?.coreStatus === "rebuild" ? " · A2 ส่งรีบิ้ว" : row?.coreStatus === "no_core" ? " · S2 ไม่มีมูลค่า" : row?.coreStatus === "missing" ? " · ไม่มีซากคืน" : ""}`
+    const msg = kind === "return" ? `บันทึกคืนซากแล้ว${row?.coreStatus === "await_pickup" ? " · แจ้งจัดซื้อรับซากจากอู่นอกแล้ว" : row?.coreStatus === "await_receive" ? " · ส่งต่อฝ่ายบัญชีรับเข้าคลังซากแล้ว" : row?.coreStatus === "rebuild" ? " · A2 ส่งรีบิ้ว" : row?.coreStatus === "no_core" ? " · S2 ไม่มีมูลค่า" : row?.coreStatus === "missing" ? " · ไม่มีซากคืน" : ""}`
+      : kind === "pickup" ? "บันทึกรับซากกลับแล้ว · รอยานยนต์ยืนยัน"
+      : kind === "confirm" ? "ยืนยันแล้ว · ส่งต่อฝ่ายบัญชีรับเข้าคลังซาก"
+      : kind === "receive" ? "รับเข้าคลังซากแล้ว · พร้อมเข้ารอบขาย"
       : kind === "sold" ? "บันทึกขายแล้ว" : kind === "rebuilt" ? "บันทึกรีบิ้วเสร็จแล้ว" : "บันทึกการตามแล้ว"
     toast("success", msg); refresh()
   }
@@ -559,8 +562,9 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
   const clearAll = () => { setF(NO_FILTER); setQInput(""); setMine(false) }
 
   const l1 = sumOf(summary, ["pending", "legacy"])
-  const l2 = sumOf(summary, ["sell_waiting", "rebuild"])
-  const l3 = sumOf(summary, ["followQueue"])
+  const l2 = sumOf(summary, ["await_receive", "sell_waiting", "rebuild"])
+  const l3 = sumOf(summary, ["followQueue", "await_pickup"])
+  const lPicked = sumOf(summary, ["picked_up"])
   const lates = sumOf(lateSum, ["pending", "legacy"])
   const closedSum = sumOf(summary, CLOSED)
   const mineOpen = sumOf(mineSum, ["pending", "legacy"])
@@ -681,9 +685,11 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
       </div>
 
       {view === "table" && (
-        <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4" data-testid="kpi-strip">
+        <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-5" data-testid="kpi-strip">
           <Kpi strong label="ยังไม่คืนซาก" count={summary ? l1.count : null} amount={l1.amount} note={oldest != null ? `ค้างนานสุด ${oldest.toLocaleString()} วัน` : "ยังไม่คืนซาก"} tone={`${K["text-ink"]}`} />
           <Kpi label="ค้างเกิน 60 วัน" count={lateSum ? lates.count : null} amount={lates.amount} note="ต้องตามด่วน" tone={TXT.late} />
+          <Kpi label="S1 ระหว่างส่งต่อ" count={summary ? sumOf(summary, ["await_pickup", "picked_up", "await_receive"]).count : null} amount={sumOf(summary, ["await_pickup", "picked_up", "await_receive"]).amount}
+            note={summary ? `รอบัญชีรับเข้า ${(summary.await_receive?.count ?? 0).toLocaleString()} · รอรับจากอู่นอก ${(summary.await_pickup?.count ?? 0).toLocaleString()}` : "รอรับเข้าคลังซาก"} tone={TXT.procure} />
           <Kpi label="อยู่คลังซากรอขาย (S1)" count={summary ? (summary.sell_waiting?.count ?? 0) : null} amount={summary?.sell_waiting?.amount ?? 0} note="พร้อมเข้ารอบขาย" tone={TXT.store} />
           <Kpi label="A2 ส่งรีบิ้ว" count={summary ? (summary.rebuild?.count ?? 0) : null} amount={summary?.rebuild?.amount ?? 0} note="รอรีบิ้วเสร็จ" tone={TXT.procure} />
         </div>
@@ -698,12 +704,20 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
               <span className={`text-xs ${TXT.muted}`}>จัดกลุ่มตาม</span>
               {GROUP_BY.map((g) => <PillChip key={g.k} on={vehBy === g.k} data-groupby={g.k} onClick={() => setVehBy(g.k)}>{g.t}</PillChip>)}
             </div>
+            {lPicked.count > 0 && (
+              <SectionCard title={`ซากที่จัดซื้อรับกลับแล้ว รอยืนยัน (${lPicked.count.toLocaleString()})`} hint="ตรวจของแล้วกดยืนยันส่งต่อฝ่ายบัญชี" testid="lane-confirm">
+                <RowList query={qs(f, { status: "picked_up" })} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} empty="ไม่มีรายการรอยืนยัน" variant="vehicle" />
+              </SectionCard>
+            )}
             <GroupedOutstanding f={f} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} by={vehBy} />
           </Lane>
           <Lane tone="store" title={LANES[1].title} role={LANES[1].role} count={l2.count} amount={l2.amount} hidden={lane !== 1}>
             <StoreLane f={f} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} summary={summary} />
           </Lane>
           <Lane tone="procure" title={LANES[2].title} role={LANES[2].role} count={l3.count} amount={l3.amount} hidden={lane !== 2}>
+            <SectionCard title={`รอรับซากจากอู่นอก (${(summary?.await_pickup?.count ?? 0).toLocaleString()})`} hint="ยานยนต์แจ้งคืนซากแล้ว นัดไปรับและนำกลับคลัง" testid="lane-pickup">
+              <RowList query={qs(f, { status: "await_pickup" })} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} empty="ไม่มีซากรอรับจากอู่นอก" variant="follow" />
+            </SectionCard>
             <SectionCard title="ต้องตามวันนี้" hint="ค้าง > 14 วัน ยังไม่เคยตาม / ถึงวันนัด">
               <RowList query={qs(f, { queue: "followup" })} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} empty="ไม่มีรายการที่ต้องตาม" variant="follow" />
             </SectionCard>
@@ -719,6 +733,9 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
       <ReturnDialog key={"ret:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "return" ? act.row : null} onClose={() => setAct(null)} onDone={doneWith("return")} />
       <SoldDialog key={"sold:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "sold" ? act.row : null} onClose={() => setAct(null)} onDone={doneWith("sold")} />
       <RebuiltDialog key={"rebuilt:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "rebuilt" ? act.row : null} onClose={() => setAct(null)} onDone={doneWith("rebuilt")} />
+      <PickupDialog key={"pickup:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "pickup" ? act.row : null} onClose={() => setAct(null)} onDone={doneWith("pickup")} />
+      <ConfirmDialog key={"confirm:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "confirm" ? act.row : null} onClose={() => setAct(null)} onDone={doneWith("confirm")} />
+      <ReceiveDialog key={"receive:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "receive" ? act.row : null} onClose={() => setAct(null)} onDone={doneWith("receive")} />
       <FollowUpDialog key={"follow:" + (act ? act.kind + act.row.row_key : "")} row={act?.kind === "follow" ? act.row : null} onClose={() => setAct(null)} onDone={doneWith("follow")} />
       <DetailDrawer rowKey={detail} onClose={() => setDetail(null)} onAct={(kind, row) => { setDetail(null); setAct({ kind, row }) }} />
       <ToastHost />

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { coreReturnCan, type Access, type CoreReturnAction } from "@/lib/access-policy"
+import { isAccounting } from "@/lib/roles"
 import { CoreHttpError, type Actor } from "./core"
 
 export const err = (message: string, status: number) => NextResponse.json({ error: message }, { status })
@@ -10,10 +11,13 @@ export const err = (message: string, status: number) => NextResponse.json({ erro
 const DENY: Record<CoreReturnAction, string> = {
   read: "ยังไม่มีสิทธิ์ดูหน้าติดตามซาก ขอสิทธิ์จากผู้ดูแลระบบ",
   return: "คืนซากได้เฉพาะทีมยานยนต์ที่เบิก หรือสโตร์",
-  sold: "บันทึกขายได้เฉพาะสโตร์",
+  pickup: "บันทึกรับซากกลับจากอู่นอกได้เฉพาะจัดซื้อ หรือสโตร์",
+  confirm: "ยืนยันส่งต่อซากได้เฉพาะทีมยานยนต์ หรือสโตร์",
+  receive: "บันทึกรับเข้าคลังซากได้เฉพาะฝ่ายบัญชี หรือสโตร์",
+  sold: "บันทึกขายได้เฉพาะฝ่ายบัญชี หรือสโตร์",
   rebuilt: "บันทึกรีบิ้วเสร็จได้เฉพาะสโตร์",
   follow_up: "บันทึกการตามได้เฉพาะจัดซื้อ หรือสโตร์",
-  round: "จัดรอบขายซากได้เฉพาะสโตร์ หรือจัดซื้อ",
+  round: "จัดรอบขายซากได้เฉพาะฝ่ายบัญชี สโตร์ หรือจัดซื้อ",
 }
 
 export type CoreCtx = { actor: Actor; access: Access }
@@ -23,7 +27,8 @@ export async function getCoreActor(_req: NextRequest, action: CoreReturnAction):
   const email = session?.user?.email?.trim().toLowerCase()
   if (!email) return err("ยังไม่ได้ล็อกอิน เข้าสู่ระบบแล้วลองใหม่", 401)
   const access = (session?.user as { access?: Access } | undefined)?.access
-  if (!access || !coreReturnCan(access, action)) return err(DENY[action], 403)
+  const accounting = isAccounting(email, (session?.user as { employee?: { department?: string | null } } | undefined)?.employee?.department)
+  if (!access || !coreReturnCan(access, action, { accounting })) return err(DENY[action], 403)
   return { actor: { email, name: session!.user!.name || email, via: "web" }, access }
 }
 
