@@ -11,10 +11,11 @@
 //   - ใบอู่: ระยะ/เวลาตัวใหญ่สุด ปุ่มโทรเต็มแถวอยู่ที่เดิมทุกใบ ป้ายบอกความน่าเชื่อถือแค่ 3 แบบ
 //   - โชว์อู่ทุกแหล่งที่มี (AVL + ชีตยานยนต์ + หมุด My Map) ผู้ใช้สั่ง "โชว์ให้มากที่สุดก่อน ค่อยคลีน"
 // สีชุด menaIT V.2 (ฟ้า #1c6ef2 · มินต์ = เชื่อได้ · ส้ม = ต้องโทรถามก่อน)
+// 05/11/2569 เพิ่มช่อง "ไปอู่ไหน?" เลือกปลายทางจากอู่ที่มี → วาดเส้นทาง + ระยะ/เวลา · แชร์ลิงก์ได้ด้วย ?to=<ชื่ออู่>
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import {
-  Check, ChevronDown, Copy, Crosshair, Factory, Fuel, History, Layers, Loader2, LocateFixed,
+  Check, ChevronDown, Copy, Crosshair, Factory, Flag, Fuel, History, Layers, Loader2, LocateFixed,
   MapPin, MoreHorizontal, Phone, Route, Search, ShieldCheck, TriangleAlert, Wrench, X,
 } from "lucide-react"
 import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline, LayerGroup as LeafletLayerGroup } from "leaflet"
@@ -108,6 +109,13 @@ export function GarageMapPage() {
   const routeRef = useRef<LeafletPolyline | null>(null)
   const [route, setRoute] = useState<{ vendor: string; km: number; min: number } | null>(null)
   const [routing, setRouting] = useState("")
+  // ปลายทาง = ชื่ออู่ที่ผู้ใช้เลือกในช่อง "ไปอู่ไหน?" · เส้นทางไปอู่นี้วาดใหม่เองทุกครั้งที่จุดรถเสียเปลี่ยน
+  const [dest, setDest] = useState<string | null>(null)
+  const destRef = useRef<string | null>(null)
+  useEffect(() => { destRef.current = dest }, [dest])
+  const destMarkerRef = useRef<LeafletMarker | null>(null)
+  // ตัววาดหมุดเรียกวาดเส้นไปปลายทางผ่าน ref (ประกาศก่อน effect ที่ใช้ — ฟังก์ชันจริงผูกด้านล่าง)
+  const drawRouteRef = useRef<((g: GarageHit, quiet?: boolean) => Promise<void>) | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const shownRef = useRef<GarageHit[]>([])
 
@@ -177,7 +185,10 @@ export function GarageMapPage() {
 
   // เปิดจากหน้าสรุปรายจังหวัด (?area=จังหวัด) → ตั้งพื้นที่ให้เลย ไม่ต้องพิมพ์ซ้ำ
   useEffect(() => {
-    const area = new URLSearchParams(window.location.search).get("area")
+    const qs = new URLSearchParams(window.location.search)
+    const to = qs.get("to")
+    if (to) setDest(to)
+    const area = qs.get("area")
     if (area) void choosePlaceRef.current({ kind: "area", label: `จ.${area}`, province: area, district: "" })
     else void search("", [])
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
@@ -280,6 +291,9 @@ export function GarageMapPage() {
         // โหมดรถซ่อมอยู่: ซูมให้เห็นทุกอู่ที่มีรถ (บางอู่อยู่ต่างจังหวัด)
         map.fitBounds(L.latLngBounds(shownRef.current.map((g) => [g.geo!.lat, g.geo!.lng] as [number, number])).pad(0.15), { maxZoom: 12 })
       }
+      // วาดหมุดใหม่ล้างเส้นทางทิ้งทุกครั้ง — ถ้าเลือกปลายทางไว้ วาดเส้นไปอู่นั้นกลับมาให้เอง
+      const d = destRef.current && res.items.find((g) => g.name === destRef.current)
+      if (d && d.geo && res.origin) void drawRouteRef.current?.(d, true)
     })()
   }, [res, items, carsBy, repairOnly])
 
@@ -293,14 +307,10 @@ export function GarageMapPage() {
     })()
   }, [active, carsBy])
 
-  /** วาดเส้นทางขับจริงจากจุดรถเสียไปอู่ที่กด — กดเจ้าเดิมซ้ำคือเอาเส้นออก */
-  const showRoute = useCallback(async (g: GarageHit) => {
+  /** วาดเส้นทางขับจริงจากจุดรถเสียไปอู่ g · quiet = วาดเองอัตโนมัติ (ปลายทาง) ไม่เด้ง error */
+  const drawRoute = useCallback(async (g: GarageHit, quiet = false) => {
     const map = mapRef.current
     if (!map || !g.geo || !res?.origin) return
-    if (route?.vendor === g.name) {
-      routeRef.current?.remove(); routeRef.current = null; setRoute(null)
-      return
-    }
     setRouting(g.name)
     try {
       const qs = new URLSearchParams({
@@ -316,11 +326,52 @@ export function GarageMapPage() {
       map.fitBounds(routeRef.current.getBounds().pad(0.15))
       setRoute({ vendor: g.name, km: j.km, min: j.min })
     } catch (e) {
-      void swalError(e instanceof Error ? e.message : String(e))
+      if (!quiet) void swalError(e instanceof Error ? e.message : String(e))
     } finally {
       setRouting("")
     }
-  }, [res, route])
+  }, [res])
+  useEffect(() => { drawRouteRef.current = drawRoute }, [drawRoute])
+  const clearRoute = () => { routeRef.current?.remove(); routeRef.current = null; setRoute(null) }
+
+  /** ปุ่มในใบอู่ — กดเจ้าเดิมซ้ำคือเอาเส้นออก */
+  const showRoute = useCallback(async (g: GarageHit) => {
+    if (route?.vendor === g.name) { clearRoute(); return }
+    await drawRoute(g)
+  }, [route, drawRoute])
+
+  // ── ปลายทาง: หมุดธง + เส้นทาง (มีจุดรถเสีย) หรือเลื่อนแผนที่ไปที่อู่ (ยังไม่มีจุด)
+  const destGarage = useMemo(() => (dest ? res?.items.find((g) => g.name === dest) ?? null : null), [dest, res])
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    void (async () => {
+      const L = (await import("leaflet")).default
+      destMarkerRef.current?.remove(); destMarkerRef.current = null
+      if (!destGarage?.geo) return
+      destMarkerRef.current = L.marker([destGarage.geo.lat, destGarage.geo.lng], {
+        zIndexOffset: 3000,
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="transform:translate(-50%,-100%);display:inline-flex;align-items:center;gap:4px;white-space:nowrap;background:${C.navy};color:#fff;border:2px solid #fff;border-radius:999px;padding:3px 10px 3px 8px;font:600 12px ${DISPLAY};box-shadow:0 4px 12px rgba(0,0,0,.3)">🏁 ปลายทาง</div>`,
+          iconSize: [0, 0], iconAnchor: [0, 0],
+        }),
+      }).addTo(map).bindTooltip(destGarage.name, { direction: "top", offset: [0, -30] })
+    })()
+  }, [destGarage])
+
+  const chooseDest = (g: GarageHit) => {
+    setDest(g.name); setActive(g.name)
+    const url = new URL(window.location.href); url.searchParams.set("to", g.name); window.history.replaceState(null, "", url)
+    document.getElementById(`g-${encodeURIComponent(g.name)}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+    if (res?.origin) void drawRoute(g)
+    else if (g.geo) mapRef.current?.setView([g.geo.lat, g.geo.lng], Math.max(mapRef.current.getZoom(), 13))
+  }
+  const clearDest = () => {
+    if (route?.vendor === dest) clearRoute()
+    setDest(null)
+    const url = new URL(window.location.href); url.searchParams.delete("to"); window.history.replaceState(null, "", url)
+  }
 
   // ── เลเยอร์อ้างอิง: แพล้นท์ (ป้ายลูกค้า เปิดทีละเจ้าได้) · ปั๊มน้ำมัน (จุดเทาเล็ก)
   useEffect(() => {
@@ -377,6 +428,9 @@ export function GarageMapPage() {
             </button>
           </div>
           <SmartSearch addr={addr} place={place} onPick={(p) => void choosePlace(p)} onClear={clearPlace} />
+          <DestPicker garages={res?.items ?? []} dest={dest} destGarage={destGarage} hasOrigin={!!res?.origin}
+            route={route?.vendor === dest ? route : null} routing={!!dest && routing === dest}
+            onPick={chooseDest} onClear={clearDest} />
         </div>
 
         {/* ส่วนที่ 2: ต้องซ่อมอะไร */}
@@ -808,6 +862,123 @@ function LayerSwitch({ on, onClick, icon, children }: { on: boolean; onClick: ()
  * หรือวางลิงก์ Google Maps / พิกัด แล้วกด Enter ก็ได้ — ระบบดูเองว่าเป็นอะไร
  * ↑↓ เลื่อน · Enter เลือก · Esc ปิด
  */
+/** ช่อง "ไปอู่ไหน?" — เลือกปลายทางจากอู่ที่มีในระบบ (ทุกแหล่ง) · ค้นชื่อ เบอร์ จังหวัด อำเภอ หรือโซน
+ *  อู่ที่ยังไม่มีพิกัดโชว์เป็นสีเทา เลือกไม่ได้ (วาดเส้นทางไม่ได้) */
+function DestPicker({ garages, dest, destGarage, hasOrigin, route, routing, onPick, onClear }: {
+  garages: GarageHit[]; dest: string | null; destGarage: GarageHit | null; hasOrigin: boolean
+  route: { km: number; min: number } | null; routing: boolean
+  onPick: (g: GarageHit) => void; onClear: () => void
+}) {
+  const [q, setQ] = useState("")
+  const [open, setOpen] = useState(false)
+  const [cursor, setCursor] = useState(0)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  const hits = useMemo(() => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const hay = (g: GarageHit) => `${g.name} ${g.phone} ${g.address?.province ?? ""} ${g.address?.district ?? ""} ${g.zone}`.toLowerCase()
+    const list = words.length ? garages.filter((g) => words.every((w) => hay(g).includes(w))) : garages
+    // มีพิกัดก่อน (เรียงใกล้→ไกลตามที่ API จัดมาแล้ว) ไม่มีพิกัดต่อท้าย
+    return [...list.filter((g) => g.geo), ...list.filter((g) => !g.geo)].slice(0, 40)
+  }, [q, garages])
+  const pickable = (i: number) => !!hits[i]?.geo
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [])
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-i="${cursor}"]`)?.scrollIntoView({ block: "nearest" })
+  }, [cursor])
+
+  const choose = (i: number) => {
+    if (!pickable(i)) return
+    onPick(hits[i]); setOpen(false); setQ("")
+  }
+  const move = (step: 1 | -1) => setCursor((c) => {
+    let n = c
+    for (let k = 0; k < hits.length; k++) { n = Math.min(Math.max(n + step, 0), hits.length - 1); if (pickable(n)) return n }
+    return c
+  })
+
+  const label = <div style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 600, marginTop: 12 }}>ไปอู่ไหน? <span style={{ fontFamily: BODY, fontWeight: 400, fontSize: 12, color: C.muted }}>ไม่บังคับ · เลือกปลายทางจากอู่ที่มี</span></div>
+
+  if (dest && !open) {
+    return (
+      <>
+        {label}
+        <div style={{ marginTop: 8, padding: "9px 12px", borderRadius: 14, background: "#f3f6fb", border: `1.5px solid ${C.line}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Flag size={16} color={C.navy} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dest}</span>
+            <button onClick={() => { setOpen(true); setQ("") }} style={{ border: 0, background: "none", color: C.brand, cursor: "pointer", fontSize: 12.5 }}>เปลี่ยน</button>
+            <button onClick={onClear} aria-label="ล้างปลายทาง" style={{ border: 0, background: "none", color: C.muted, cursor: "pointer", display: "flex", padding: 0 }}><X size={15} /></button>
+          </div>
+          <div style={{ marginTop: 4, paddingLeft: 24, fontSize: 12.5, color: C.muted }}>
+            {!destGarage ? "ไม่พบอู่นี้ในรายชื่อ อาจถูกเปลี่ยนชื่อ ลองเลือกใหม่"
+              : !destGarage.geo ? "อู่นี้ยังไม่มีพิกัด วาดเส้นทางไม่ได้"
+              : !hasOrigin ? "เลือกจุดรถเสียด้านบน แล้วจะเห็นเส้นทางและระยะทาง"
+              : routing ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Loader2 size={12} className="animate-spin" /> กำลังหาเส้นทาง…</span>
+              : route ? <b style={{ fontFamily: DISPLAY, color: C.brand }}>{fmtKm(route.km)} กม. · ~{route.min} นาที</b>
+              : destGarage.distanceKm !== null ? `ระยะเส้นตรง ~${fmtKm(destGarage.distanceKm)} กม. (หาเส้นทางขับไม่ได้ตอนนี้)` : ""}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: "relative" }}>
+      {label}
+      <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, border: `1.5px solid ${open ? C.brand : C.line}`, borderRadius: 14, padding: "9px 12px", background: "#fff", boxShadow: open ? "0 0 0 4px rgba(61,165,255,.18)" : "none" }}>
+        <Flag size={16} color={C.muted} />
+        <input autoFocus={!!dest}
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setCursor(0); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") { e.preventDefault(); move(1) }
+            if (e.key === "ArrowUp") { e.preventDefault(); move(-1) }
+            if (e.key === "Enter") { e.preventDefault(); choose(cursor) }
+            if (e.key === "Escape") setOpen(false)
+          }}
+          placeholder="พิมพ์ชื่ออู่ เบอร์โทร หรือจังหวัด"
+          style={{ flex: 1, minWidth: 0, border: 0, outline: "none", fontSize: 14, color: C.ink, background: "transparent", fontFamily: BODY }}
+        />
+        {dest && <button onClick={() => setOpen(false)} style={{ border: 0, background: "none", color: C.muted, cursor: "pointer", fontSize: 12.5 }}>ยกเลิก</button>}
+      </div>
+      {open && (
+        <div ref={listRef}
+          style={{ position: "absolute", zIndex: 600, top: "calc(100% + 6px)", left: 0, right: 0, maxHeight: 320, overflowY: "auto", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: "0 16px 32px -14px rgba(15,39,72,.4)", padding: 4 }}>
+          {!q.trim() && <div style={{ padding: "6px 10px 4px", fontSize: 11.5, color: C.muted }}>{hasOrigin ? "เรียงจากใกล้จุดรถเสียไปไกล" : "อู่ทั้งหมด"} · พิมพ์เพื่อค้นจาก {garages.length} อู่</div>}
+          {hits.length === 0
+            ? <div style={{ padding: "10px 12px", fontSize: 13, color: C.muted }}>ไม่เจออู่ “{q}” ลองพิมพ์สั้นลง</div>
+            : hits.map((g, i) => {
+                const ok = !!g.geo
+                const where = [g.address?.district && `อ.${g.address.district}`, g.address?.province && `จ.${g.address.province}`].filter(Boolean).join(" ")
+                return (
+                  <button key={g.name} data-i={i} disabled={!ok} onMouseEnter={() => ok && setCursor(i)} onClick={() => choose(i)}
+                    title={ok ? undefined : "อู่นี้ยังไม่มีพิกัด"}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: 0, cursor: ok ? "pointer" : "not-allowed", padding: "8px 10px", borderRadius: 10, fontSize: 13.5, color: ok ? C.ink : C.muted, background: ok && i === cursor ? C.brandSoft : "#fff", fontFamily: BODY, opacity: ok ? 1 : .6 }}>
+                    <Wrench size={14} color={ok ? C.brand : C.muted} />
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
+                      {where && <span style={{ display: "block", fontSize: 11.5, color: C.muted }}>{where}</span>}
+                    </span>
+                    <span style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>
+                      {!ok ? "ยังไม่มีพิกัด" : g.roadKm !== null ? `${fmtKm(g.roadKm)} กม.` : g.distanceKm !== null ? `~${fmtKm(g.distanceKm)} กม.` : ""}
+                    </span>
+                  </button>
+                )
+              })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SmartSearch({ addr, place, onPick, onClear }: {
   addr: ProvinceNode[]; place: Place | null
   onPick: (p: Place) => void; onClear: () => void
