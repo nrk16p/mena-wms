@@ -1,7 +1,7 @@
 // lib/rfq-import.ts — ตรรกะล้วนของ "กรอกผ่าน Excel" (ผู้ใช้ขอ 2026-09-21)
 // ไฟล์นี้ไม่แตะ exceljs/xlsx และไม่แตะ DB — รับตารางเซลล์ดิบ (unknown[][]) ที่ตัวอ่านไฟล์แปลงมาให้
 // เลย์เอาต์เทมเพลตอยู่ที่นี่ที่เดียว ทั้งฝั่งสร้างไฟล์ (lib/rfq-template-xlsx) และฝั่งอ่านไฟล์ใช้ชุดเดียวกัน
-import { MAX_HOURS, partKey, type RfqJob, type RfqPart } from "@/lib/rfq-core"
+import { LUMP_TIERS, MAX_HOURS, partKey, type RfqJob, type RfqPart } from "@/lib/rfq-core"
 
 export const META_SHEET = "_meta"
 export const SEC_LABOUR = "ส่วนที่ 1 · ค่าแรง"
@@ -11,7 +11,10 @@ export const RATE_ONSITE_LABEL = "ค่าแรงนอกสถานที�
 export const HOW_TO = "วิธีกรอก: เติมเฉพาะช่องสีเหลือง · ห้ามแก้รหัสงาน/รหัสอะไหล่ · ช่องที่เว้นว่างจะไม่ถูกแก้ในเว็บ"
 
 /** หัวตาราง — ลำดับคอลัมน์ตอนสร้างไฟล์ · ตอนอ่านหาตำแหน่งจากชื่อหัวคอลัมน์ ไม่ยึดตำแหน่งตายตัว */
-export const JOB_COLS = ["ลำดับ", "รหัสงาน", "ชื่องาน", "ขอบเขตงานที่รวมในราคา", "ชม.อ้างอิง L", "ชม.อ้างอิง S", "ชม. Mixer L", "ชม. Mixer S", "รับประกัน (เดือน)", "ไม่รับงาน (x)", "หมายเหตุ"] as const
+/** หัวคอลัมน์ราคาเหมา เช่น "เหมาเบา L (฿)" — เพิ่ม 2026-11-05 · ไฟล์เทมเพลตเก่าที่ไม่มีคอลัมน์นี้ยังอ่านได้ (หาตามชื่อหัว) */
+export const lumpCol = (t: string, side: "L" | "S") => `เหมา${t} ${side} (฿)`
+const LUMP_COLS = [...LUMP_TIERS.map(([, t]) => lumpCol(t, "L")), ...LUMP_TIERS.map(([, t]) => lumpCol(t, "S"))]
+export const JOB_COLS = ["ลำดับ", "รหัสงาน", "ชื่องาน", "ขอบเขตงานที่รวมในราคา", "ชม.อ้างอิง L", "ชม.อ้างอิง S", "ชม. Mixer L", "ชม. Mixer S", ...LUMP_COLS, "รับประกัน (เดือน)", "ไม่รับงาน (x)", "หมายเหตุ"] as const
 export const PART_COLS = ["ลำดับ", "รหัสอะไหล่", "รายการอะไหล่", "ใช้กับ", "หน่วย", "฿ Mixer L", "฿ Mixer S", "ยี่ห้อ/สเปกที่เสนอ", "รับประกัน (เดือน)", "ส่งมอบ (วัน)", "ไม่มีจำหน่าย (x)", "หมายเหตุ"] as const
 
 export type ImportRate = { sheet: string; normal?: unknown; onsite?: unknown }
@@ -67,15 +70,29 @@ export function parseSheet(sheet: string, rows: unknown[][], jobs: RfqJob[], par
       if (!jobOk.has(code)) { out.problems.push(`${sheet}: ไม่มีรหัสงาน ${code} ในใบนี้ (ข้าม)`); continue }
       const skip = marked(row[head["ไม่รับงาน (x)"]])
       const hL = row[head["ชม. Mixer L"]], hS = row[head["ชม. Mixer S"]]
-      if (!skip && !has(hL) && !has(hS)) { out.counts.skipped++; continue }   // เว้นว่าง = ไม่แตะของเดิม
+      const hd = head
+      const cell = (label: string) => (label in hd ? row[hd[label]] : undefined)
+      const lumpL = LUMP_TIERS.map(([k, t]) => [k, cell(lumpCol(t, "L"))] as const)
+      const lumpS = LUMP_TIERS.map(([k, t]) => [k, cell(lumpCol(t, "S"))] as const)
+      const anyLump = [...lumpL, ...lumpS].some(([, v]) => has(v))
+      if (!skip && !has(hL) && !has(hS) && !anyLump) { out.counts.skipped++; continue }   // เว้นว่าง = ไม่แตะของเดิม
       for (const [label, v] of [["ชม. Mixer L", hL], ["ชม. Mixer S", hS]] as const) {
         const n = Number(s(v).replace(/,/g, ""))
         if (has(v) && (!Number.isFinite(n) || n < 0)) out.problems.push(`${sheet} ${code}: ${label} ไม่ใช่ตัวเลข (${s(v)})`)
         else if (has(v) && n > MAX_HOURS) out.problems.push(`${sheet} ${code}: ${label} = ${n} เกิน ${MAX_HOURS} ชม. (ช่องนี้กรอกชั่วโมง ไม่ใช่ราคา)`)
       }
+      for (const [side, list] of [["L", lumpL], ["S", lumpS]] as const) for (const [k, v] of list) {
+        const n = Number(s(v).replace(/,/g, ""))
+        if (has(v) && (!Number.isFinite(n) || n < 0)) out.problems.push(`${sheet} ${code}: ${lumpCol(LUMP_TIERS.find(([x]) => x === k)![1], side)} ไม่ใช่ตัวเลข (${s(v)})`)
+      }
+      // S เว้นว่าง = ใช้ค่าเดียวกับ L (ทั้งชั่วโมงและเหมา)
+      const sideL: Record<string, unknown> = { hours: has(hL) ? hL : undefined }
+      const sideS: Record<string, unknown> = { hours: has(hS) ? hS : hL }
+      lumpL.forEach(([k, v], i) => { sideL[k] = has(v) ? v : undefined; sideS[k] = has(lumpS[i][1]) ? lumpS[i][1] : sideL[k] })
+      const sameAsL = (!has(hS) || s(hS) === s(hL)) && lumpS.every(([, v], i) => !has(v) || s(v) === s(lumpL[i][1]))
       out.items[code] = skip
         ? { mode: "skip", L: {}, S: {}, sameAsL: true, note: s(row[head["หมายเหตุ"]]) }
-        : { mode: "hours", L: { hours: has(hL) ? hL : undefined }, S: { hours: has(hS) ? hS : hL }, sameAsL: !has(hS) || s(hS) === s(hL),
+        : { mode: "hours", L: sideL, S: sideS, sameAsL,
             warrantyMonths: has(row[head["รับประกัน (เดือน)"]]) ? row[head["รับประกัน (เดือน)"]] : undefined, note: s(row[head["หมายเหตุ"]]) }
       out.counts.items++
     } else {

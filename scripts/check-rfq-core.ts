@@ -101,7 +101,7 @@ assert.deepEqual(a.S, { hours: 3 })
 const b = applySameAsL({ mode: "hours", L: { hours: 3 }, S: { hours: 2 }, sameAsL: false, note: "", at: "" })
 assert.deepEqual(b.S, { hours: 2 })
 
-// validateAnswer — ตัดเหมาออก (2026-09-18) เหลือ ชั่วโมง/ไม่รับงาน
+// validateAnswer — mode เหลือ ชั่วโมง/ไม่รับงาน · ราคาเหมา เบา/กลาง/หนัก อยู่ใน L/S (เอากลับ 2026-11-05)
 assert.equal(typeof validateAnswer({ mode: "bogus" }), "string")
 assert.equal(typeof validateAnswer({ mode: "lump", L: { light: 1000 } }), "string", "เหมาไม่รับแล้ว")
 assert.equal(typeof validateAnswer({ mode: "hourly", L: { rate: 450, hours: 2 } }), "string", "รายชั่วโมงแบบเดิม (มี rate ต่องาน) ไม่รับแล้ว")
@@ -110,12 +110,23 @@ assert.equal(typeof validateAnswer({ mode: "hours", L: { hours: MAX_HOURS + 1 } 
 const ok = validateAnswer({ mode: "hours", L: { hours: "2.5", rate: 999, light: 5 }, S: {}, sameAsL: true, warrantyMonths: "3", note: " x ".repeat(300) })
 assert.notEqual(typeof ok, "string")
 if (typeof ok !== "string") {
-  assert.deepEqual(ok.L, { hours: 2.5 }, "string ตัวเลข → number · ฟิลด์เดิม rate/light ถูกทิ้ง")
-  assert.deepEqual(ok.S, { hours: 2.5 }, "sameAsL ถูก apply ตอน validate")
+  assert.deepEqual(ok.L, { hours: 2.5, light: 5 }, "string ตัวเลข → number · rate ต่องานแบบเดิมถูกทิ้ง · เหมาเก็บไว้")
+  assert.deepEqual(ok.S, { hours: 2.5, light: 5 }, "sameAsL ถูก apply ตอน validate (รวมเหมา)")
   assert.equal(ok.warrantyMonths, 3)
   assert.ok(ok.note.length <= 500)
   assert.ok(ok.at)
 }
+const lump = validateAnswer({ mode: "hours", L: { light: "1,500", mid: 3000, heavy: "" }, S: { light: 1200 }, sameAsL: false })
+assert.notEqual(typeof lump, "string")
+if (typeof lump !== "string") {
+  assert.deepEqual(lump.L, { light: 1500, mid: 3000 }, "เหมาอย่างเดียว ไม่มีชั่วโมง · ช่องว่างไม่มี key")
+  assert.deepEqual(lump.S, { light: 1200 })
+  assert.equal(isAnswered(lump), true, "เหมาอย่างเดียวนับว่ากรอกแล้ว")
+}
+assert.equal(typeof validateAnswer({ mode: "hours", L: { heavy: -1 } }), "string", "เหมาติดลบไม่รับ")
+assert.equal(typeof validateAnswer({ mode: "hours", L: { mid: "abc" } }), "string", "เหมาไม่ใช่ตัวเลข")
+const big = validateAnswer({ mode: "hours", L: { heavy: 85000 } })
+assert.ok(typeof big !== "string" && big.L.heavy === 85000, "เหมาไม่ติดเพดานชั่วโมง 500")
 const sk = validateAnswer({ mode: "skip", L: { hours: 4 }, S: {}, sameAsL: false })
 if (typeof sk !== "string") assert.equal(sk.mode, "skip")
 

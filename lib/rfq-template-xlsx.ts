@@ -1,7 +1,7 @@
 // lib/rfq-template-xlsx.ts — เทมเพลต Excel ให้อู่กรอกออฟไลน์แล้วอัปโหลดกลับ (ผู้ใช้ขอ 2026-09-21)
 // เลย์เอาต์/ชื่อหัวคอลัมน์มาจาก lib/rfq-import (ที่เดียว) · ช่องกรอกเป็นพื้นเหลือง · ค่าที่กรอกในเว็บแล้วจะเติมมาให้แก้ต่อ
 // เฉพาะฝั่ง server · โหลด exceljs ตอนเรียกเท่านั้น
-import { SHEET_ORDER, isAnswered, partKey, type RfqInvite, type RfqJob, type RfqPart } from "@/lib/rfq-core"
+import { SHEET_ORDER, LUMP_TIERS, isAnswered, partKey, type RfqInvite, type RfqJob, type RfqPart } from "@/lib/rfq-core"
 import { HOW_TO, JOB_COLS, META_SHEET, PART_COLS, RATE_LABEL, RATE_ONSITE_LABEL, SEC_LABOUR, SEC_PARTS } from "@/lib/rfq-import"
 
 const FONT = "Tahoma"
@@ -39,12 +39,16 @@ export async function buildRfqTemplate(inv: RfqInvite, jobs: RfqJob[], parts: Rf
       for (const j of js) {
         const raw = inv.items[j.jobCode]; const a = isAnswered(raw) ? raw : undefined
         const skip = a?.mode === "skip"
+        const sideS = a?.sameAsL ? a?.L : a?.S
         ws.getRow(row).values = [j.seq, j.jobCode, j.name, j.scope, j.refHoursL ?? "", j.refHoursS ?? "",
-          skip ? "" : a?.L.hours ?? "", skip ? "" : (a?.sameAsL ? a?.L.hours : a?.S.hours) ?? "",
+          skip ? "" : a?.L.hours ?? "", skip ? "" : sideS?.hours ?? "",
+          ...LUMP_TIERS.map(([k]) => (skip ? "" : a?.L[k] ?? "")), ...LUMP_TIERS.map(([k]) => (skip ? "" : sideS?.[k] ?? "")),
           a?.warrantyMonths ?? "", skip ? "x" : "", a?.note ?? ""]
+        // ช่องกรอก = ตั้งแต่ "ชม. Mixer L" ถึง "หมายเหตุ" · ตัวเลข = ถึง "รับประกัน (เดือน)" (หาตำแหน่งจากชื่อหัว ไม่ฮาร์ดโค้ด)
+        const first = JOB_COLS.indexOf("ชม. Mixer L") + 1, lastNum = JOB_COLS.indexOf("รับประกัน (เดือน)") + 1
         ws.getRow(row).eachCell({ includeEmpty: true }, (c, col) => {
           c.font = { name: FONT, size: 10 }; c.border = border; c.alignment = { vertical: "top", wrapText: col === 3 || col === 4 }
-          if (col >= 7 && col <= 11) { c.fill = fill(FILLIN); if (col === 7 || col === 8 || col === 9) c.numFmt = "#,##0.##" }
+          if (col >= first && col <= JOB_COLS.length) { c.fill = fill(FILLIN); if (col <= lastNum) c.numFmt = "#,##0.##" }
         })
         row++
       }
@@ -67,7 +71,8 @@ export async function buildRfqTemplate(inv: RfqInvite, jobs: RfqJob[], parts: Rf
         row++
       }
     }
-    ws.columns = [6, 16, 34, 40, 10, 10, 12, 12, 12, 12, 26].map((w) => ({ width: w }))
+    // งานค่าแรงมี 17 คอลัมน์ (เพิ่มเหมา 6 ช่อง) · ส่วนอะไหล่ใช้ 12 คอลัมน์แรก
+    ws.columns = [6, 16, 34, 40, 10, 10, 12, 12, 11, 11, 11, 11, 11, 11, 12, 12, 26].map((w) => ({ width: w }))
     ws.views = [{ state: "frozen", ySplit: js.length ? 8 : 6 }]
   }
 

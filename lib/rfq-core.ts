@@ -18,8 +18,14 @@ export type RfqPart = {
   sheet: string; sheetTitle: string; seq: number; sku: string; name: string
   useWith: string; unit: string; version: number; active: boolean
 }
-/** ชั่วโมงที่อู่เสนอต่องาน — ตัดค่าแรงเหมา/อัตราต่องานออก (ผู้ใช้ขอ 2026-09-18) ราคาคิดจากอัตราของชีต × ชั่วโมง */
-export type JobHours = { hours?: number }
+/** ที่อู่เสนอต่องาน: ชั่วโมง (ราคา = อัตราของชีต × ชั่วโมง) และ/หรือ ราคาเหมา เบา/กลาง/หนัก (บาท)
+ *  เหมาถูกตัดไป 2026-09-18 แล้วเอากลับมาเป็นช่องเสริม 2026-11-05 (ผู้ใช้ขอ) — กรอกอย่างใดอย่างหนึ่งก็นับว่ากรอกแล้ว */
+export type JobHours = { hours?: number; light?: number; mid?: number; heavy?: number }
+export const LUMP_TIERS = [["light", "เบา"], ["mid", "กลาง"], ["heavy", "หนัก"]] as const
+export type LumpTier = (typeof LUMP_TIERS)[number][0]
+const filled = (n: number | undefined | null) => n !== undefined && n !== null
+/** มีราคาเหมาอย่างน้อย 1 ระดับ */
+export const hasLump = (t: JobHours | undefined | null) => !!t && LUMP_TIERS.some(([k]) => filled(t[k]))
 export type RfqAnswer = {
   mode: "hours" | "skip"; L: JobHours; S: JobHours; sameAsL: boolean
   warrantyMonths?: number; note: string; at: string
@@ -203,12 +209,12 @@ export function partsForInvite(inv: Pick<RfqInvite, "sheets" | "sections">, part
 
 // ── ความคืบหน้า ──────────────────────────────────────────────────────────────
 
-/** งานนี้กรอกแล้วหรือยัง: ไม่รับงาน หรือ ใส่ชั่วโมง Mixer L แล้ว
- *  คำตอบรูปแบบเก่า (เหมา / รายชั่วโมงที่มีอัตราต่องาน) ถือว่ายังไม่กรอก — ผู้ใช้ยืนยันว่ายังไม่มีใบจริง */
+/** งานนี้กรอกแล้วหรือยัง: ไม่รับงาน หรือ ใส่ชั่วโมง/ราคาเหมาของ Mixer L แล้ว
+ *  คำตอบรูปแบบเก่า (mode "lump" / "hourly" ก่อน 2026-09-18) ถือว่ายังไม่กรอก — ผู้ใช้ยืนยันว่ายังไม่มีใบจริง */
 export function isAnswered(a: RfqAnswer | undefined | null): a is RfqAnswer {
   if (!a) return false
   if (a.mode === "skip") return true
-  return a.mode === "hours" && a.L?.hours !== undefined && a.L?.hours !== null
+  return a.mode === "hours" && (filled(a.L?.hours) || hasLump(a.L))
 }
 
 /** ชีตที่ต้องกรอกอัตราค่าแรง = ชีตที่ใบนี้มีงานค่าแรงให้เสนออย่างน้อย 1 งาน (เรียงตาม SHEET_ORDER) */
@@ -258,12 +264,17 @@ const num = (v: unknown): number | undefined | string => {
 const str = (v: unknown, max = NOTE_MAX) => String(v ?? "").trim().slice(0, max)
 const nowIso = () => new Date().toISOString()
 
-/** รับเฉพาะ hours — ฟิลด์เดิม (rate/light/mid/heavy) ถูกทิ้งเงียบ ๆ */
+/** รับ hours + ราคาเหมา light/mid/heavy · ฟิลด์อื่น (เช่น rate ต่องานแบบเดิม) ถูกทิ้งเงียบ ๆ · ช่องว่าง = ไม่มี key */
 function jobHours(x: unknown): JobHours | string {
   const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>
   const n = num(o.hours); if (typeof n === "string") return `ชั่วโมง: ${n}`
   if (n !== undefined && n > MAX_HOURS) return `ชั่วโมงเกิน ${MAX_HOURS} — ช่องนี้กรอกจำนวนชั่วโมง ไม่ใช่ราคา`
-  return n === undefined ? {} : { hours: n }
+  const out: JobHours = n === undefined ? {} : { hours: n }
+  for (const [k, label] of LUMP_TIERS) {
+    const v = num(o[k]); if (typeof v === "string") return `ราคาเหมา${label}: ${v}`
+    if (v !== undefined) out[k] = v
+  }
+  return out
 }
 
 export function applySameAsL(a: RfqAnswer): RfqAnswer {

@@ -7,7 +7,7 @@ import { Download } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { canApproveVendor } from "@/lib/roles"
 import { bkkToday } from "@/lib/bkk-time"
-import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, isCustomJob, isAnswered, jobCost, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
+import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, isCustomJob, isAnswered, jobCost, LUMP_TIERS, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
 import { mitr } from "@/components/vendor-shared"
 import { thDate, thDateTime } from "@/components/rfq-vendor-shared"
 import { RfqExcelBox } from "@/components/rfq-excel-box"
@@ -112,22 +112,25 @@ export function RfqReviewPage({ id }: { id: string }) {
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr><th style={th} colSpan={2}></th><th style={{ ...th, textAlign: "center" }} colSpan={2}>ชั่วโมง</th><th style={{ ...th, textAlign: "center" }} colSpan={2}>ค่าแรงปกติ (฿)</th><th style={{ ...th, textAlign: "center" }} colSpan={2}>นอกสถานที่ (฿)</th><th style={th} colSpan={2}></th></tr>
-                <tr>{["#", "งาน", "L", "S", "L", "S", "L", "S", "ประกัน", "หมายเหตุ"].map((h, i) => <th key={i} style={th}>{h}</th>)}</tr>
+                <tr><th style={th} colSpan={2}></th><th style={{ ...th, textAlign: "center" }} colSpan={2}>ชั่วโมง</th><th style={{ ...th, textAlign: "center" }} colSpan={2}>ค่าแรงปกติ (฿)</th><th style={{ ...th, textAlign: "center" }} colSpan={2}>นอกสถานที่ (฿)</th><th style={{ ...th, textAlign: "center" }} colSpan={3}>เหมา L (฿)</th><th style={{ ...th, textAlign: "center" }} colSpan={3}>เหมา S (฿)</th><th style={th} colSpan={2}></th></tr>
+                <tr>{["#", "งาน", "L", "S", "L", "S", "L", "S", ...LUMP_TIERS.map(([, t]) => t), ...LUMP_TIERS.map(([, t]) => t), "ประกัน", "หมายเหตุ"].map((h, i) => <th key={i} style={th}>{h}</th>)}</tr>
               </thead>
               <tbody>{list.map((j) => {
                 const raw = inv.items[j.jobCode]; const a = isAnswered(raw) ? raw : undefined
                 const skip = a?.mode === "skip"; const c = jobCost(a, rate)
                 const hS = a && !skip ? (a.sameAsL ? a.L.hours : a.S.hours) : undefined
+                const lumpS = a && !skip ? (a.sameAsL ? a.L : a.S) : undefined
                 return (
                 <tr key={j.jobCode} style={{ background: !a ? "#FFFBEB" : skip ? "#FAFAFA" : "#fff" }}>
                   <td style={td}>{j.seq}</td><td style={{ ...td, minWidth: 200 }}>{j.name}<div style={{ fontSize: 11, color: isCustomJob(j.jobCode) ? "#B45309" : "#9AA8A0" }}>{isCustomJob(j.jobCode) ? "หัวข้อเพิ่มเอง" : `${j.jobCode} · อ้างอิง L ${j.refHoursL ?? "—"} / S ${j.refHoursS ?? "—"} ชม.`}</div></td>
-                  {!a ? <td style={td} colSpan={6}><span style={{ color: "#92400E" }}>ไม่กรอก</span></td>
-                    : skip ? <td style={td} colSpan={6}>ไม่รับงาน</td>
+                  {!a ? <td style={td} colSpan={12}><span style={{ color: "#92400E" }}>ไม่กรอก</span></td>
+                    : skip ? <td style={td} colSpan={12}>ไม่รับงาน</td>
                     : <>
                       <td style={td}>{fmt(a.L.hours)}</td><td style={td}>{fmt(hS)}</td>
                       <td style={td}>{fmt(c?.L.normal)}</td><td style={td}>{fmt(c?.S.normal)}</td>
                       <td style={td}>{fmt(c?.L.onsite)}</td><td style={td}>{fmt(c?.S.onsite)}</td>
+                      {LUMP_TIERS.map(([k]) => <td key={`L${k}`} style={td}>{fmt(a.L[k])}</td>)}
+                      {LUMP_TIERS.map(([k]) => <td key={`S${k}`} style={td}>{fmt(lumpS?.[k])}</td>)}
                     </>}
                   <td style={td}>{fmt(a?.warrantyMonths)}</td><td style={{ ...td, minWidth: 140 }}>{a?.note}</td>
                 </tr>) })}</tbody>

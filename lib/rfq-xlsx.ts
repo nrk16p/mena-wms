@@ -1,6 +1,6 @@
 // lib/rfq-xlsx.ts — ใบเสนอราคาอู่ → Excel เลย์เอาต์เดียวกับฟอร์มต้นฉบับ (1 ชีตต่อระบบ)
 // เฉพาะฝั่ง server (route) · โหลด exceljs ตอนเรียกเท่านั้น
-import { SHEET_ORDER, partKey, isAnswered, jobCost, type RfqInvite, type RfqJob, type RfqPart } from "@/lib/rfq-core"
+import { SHEET_ORDER, LUMP_TIERS, partKey, isAnswered, jobCost, type RfqInvite, type RfqJob, type RfqPart } from "@/lib/rfq-core"
 
 const FONT = "Tahoma"
 const HEAD = "FF1B8C4B", BAND_L = "FFE4EFE8", BAND_S = "FFDBEAFE", YELLOW = "FFFFF9C4", GRID = "FFE4EEE8"
@@ -21,8 +21,8 @@ export async function buildRfqWorkbook(inv: RfqInvite, jobs: RfqJob[], parts: Rf
     ws.getCell("A2").value = `ผู้เสนอราคา (อู่/ร้าน): ${inv.vendor}   ผู้ติดต่อ: ${inv.contact?.name ?? "—"} ${inv.contact?.phone ?? ""} ${inv.contact?.email ?? ""}`
     ws.getCell("A3").value = `รอบ: ${inv.title}   สถานะ: ${inv.status}   ส่งเมื่อ: ${inv.submittedAt ?? "—"}` + (inv.confirm ? `   ราคามีผล ${inv.confirm.validFrom} – ${inv.confirm.validTo}` : "")
     ;[2, 3].forEach((r) => { ws.getCell(`A${r}`).font = { name: FONT, size: 10 } })
-    ws.getCell("A5").value = "ส่วนที่ 1 · ค่าแรง — อัตราต่อชั่วโมง × ชั่วโมงต่องาน"; ws.getCell("A5").font = { name: FONT, bold: true, size: 12 }
-    // แถว 6 อัตราค่าแรงของชีต · แถว 7 กลุ่มคอลัมน์ · แถว 8 ชื่อคอลัมน์ (14 คอลัมน์ — ตัดเหมา เบา/กลาง/หนัก ออก 2026-09-18)
+    ws.getCell("A5").value = "ส่วนที่ 1 · ค่าแรง — อัตราต่อชั่วโมง × ชั่วโมงต่องาน และราคาเหมา เบา/กลาง/หนัก"; ws.getCell("A5").font = { name: FONT, bold: true, size: 12 }
+    // แถว 6 อัตราค่าแรงของชีต · แถว 7 กลุ่มคอลัมน์ · แถว 8 ชื่อคอลัมน์ (20 คอลัมน์ — เหมา เบา/กลาง/หนัก ตัด 2026-09-18 · เอากลับ 2026-11-05 ที่คอลัมน์ M–R)
     const rate = inv.rates?.[sheet]
     const rateTxt = (n: number | undefined) => (n === undefined || n === null ? null : `${n.toLocaleString("th-TH")} บาท/ชม.`)
     ws.getCell("A6").value = !js.length ? "ไม่มีงานค่าแรงในชีตนี้"
@@ -31,21 +31,26 @@ export async function buildRfqWorkbook(inv: RfqInvite, jobs: RfqJob[], parts: Rf
     ws.mergeCells("G7:H7"); ws.getCell("G7").value = "ชั่วโมงที่เสนอ"
     ws.mergeCells("I7:J7"); ws.getCell("I7").value = "ค่าแรงปกติ (บาท)"; ws.getCell("I7").fill = fill(BAND_L)
     ws.mergeCells("K7:L7"); ws.getCell("K7").value = "ค่าแรงนอกสถานที่ (บาท)"; ws.getCell("K7").fill = fill(BAND_S)
-    const H = ["ลำดับ", "รหัสงาน", "ชื่องาน", "ขอบเขตงานที่รวมในราคา", "ชม.อ้างอิง L", "ชม.อ้างอิง S", "ชม. Mixer L", "ชม. Mixer S", "Mixer L", "Mixer S", "Mixer L", "Mixer S", "รับประกัน (เดือน)", "หมายเหตุ"]
+    ws.mergeCells("M7:O7"); ws.getCell("M7").value = "ราคาเหมา Mixer L (บาท)"; ws.getCell("M7").fill = fill(BAND_L)
+    ws.mergeCells("P7:R7"); ws.getCell("P7").value = "ราคาเหมา Mixer S (บาท)"; ws.getCell("P7").fill = fill(BAND_S)
+    const tiers = LUMP_TIERS.map(([, t]) => t)
+    const H = ["ลำดับ", "รหัสงาน", "ชื่องาน", "ขอบเขตงานที่รวมในราคา", "ชม.อ้างอิง L", "ชม.อ้างอิง S", "ชม. Mixer L", "ชม. Mixer S", "Mixer L", "Mixer S", "Mixer L", "Mixer S", ...tiers, ...tiers, "รับประกัน (เดือน)", "หมายเหตุ"]
     ws.getRow(8).values = H
     for (let r = 7; r <= 8; r++) ws.getRow(r).eachCell((c) => { c.font = { name: FONT, bold: true, size: 10, color: r === 8 ? { argb: "FFFFFFFF" } : undefined }; if (r === 8) c.fill = fill(HEAD); c.alignment = { horizontal: "center", vertical: "middle", wrapText: true }; c.border = border })
-    ws.columns = [6, 14, 30, 40, 10, 10, 10, 10, 11, 11, 11, 11, 10, 24].map((w) => ({ width: w }))
+    ws.columns = [6, 14, 30, 40, 10, 10, 10, 10, 11, 11, 11, 11, 10, 10, 10, 10, 10, 10, 10, 24].map((w) => ({ width: w }))
     let row = 9
     for (const j of js) {
       const raw = inv.items[j.jobCode]; const a = isAnswered(raw) ? raw : undefined   // คำตอบรูปแบบเก่า (เหมา) = ไม่กรอก
       const skip = a?.mode === "skip"
       const c = jobCost(a, rate)
       const hS = a && !skip ? (a.sameAsL ? a.L.hours : a.S.hours) : undefined
+      const lumpS = a && !skip ? (a.sameAsL ? a.L : a.S) : undefined
       ws.getRow(row).values = [j.seq, j.jobCode, j.name, j.scope, j.refHoursL ?? "", j.refHoursS ?? "",
         skip ? "" : (a?.L.hours ?? ""), hS ?? "",
         c?.L.normal ?? "", c?.S.normal ?? "", c?.L.onsite ?? "", c?.S.onsite ?? "",
+        ...LUMP_TIERS.map(([k]) => (skip ? "" : a?.L[k] ?? "")), ...LUMP_TIERS.map(([k]) => lumpS?.[k] ?? ""),
         a?.warrantyMonths ?? "", skip ? `ไม่รับงาน${a?.note ? " · " + a.note : ""}` : (a?.note ?? "")]
-      ws.getRow(row).eachCell({ includeEmpty: true }, (cell, col) => { cell.font = { name: FONT, size: 10 }; cell.border = border; cell.alignment = { vertical: "top", wrapText: col >= 3 && col <= 4 }; if (col >= 7 && col <= 13) { cell.numFmt = "#,##0.##"; if (!a) cell.fill = fill(YELLOW) } })
+      ws.getRow(row).eachCell({ includeEmpty: true }, (cell, col) => { cell.font = { name: FONT, size: 10 }; cell.border = border; cell.alignment = { vertical: "top", wrapText: col >= 3 && col <= 4 }; if (col >= 7 && col <= 19) { cell.numFmt = "#,##0.##"; if (!a) cell.fill = fill(YELLOW) } })
       row++
     }
     if (ps.length) {

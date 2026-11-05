@@ -11,7 +11,7 @@ const J = (sheet: string, jobCode: string, seq: number, name: string): RfqJob =>
   ({ sheet, sheetTitle: "ระบบโม่ผสม (Mixer)", seq, jobCode, name, scope: "ขอบเขต…", tierCriteria: "", refHoursL: 2, refHoursS: 1.5, version: 2, active: true })
 const P = (sheet: string, sku: string, seq: number): RfqPart =>
   ({ sheet, sheetTitle: "ระบบโม่ผสม (Mixer)", seq, sku, name: `อะไหล่ ${sku}`, useWith: "L+S", unit: "ชิ้น", version: 2, active: true })
-const jobs = [J("S45", "MXS-A", 1, "งาน A"), J("S45", "MXS-B", 2, "งาน B"), J("S45", "MXS-C", 3, "งาน C")]
+const jobs = [J("S45", "MXS-A", 1, "งาน A"), J("S45", "MXS-B", 2, "งาน B"), J("S45", "MXS-C", 3, "งาน C"), J("S45", "MXS-D", 4, "งาน D")]
 const parts = [P("S45", "LB01", 1), P("S45", "LB02", 2)]
 const now = new Date().toISOString()
 const invite = (over: Partial<RfqInvite> = {}): RfqInvite => ({
@@ -28,7 +28,7 @@ void (async () => {
     rates: { S45: { normal: 450, onsite: 600, at: now } },
     items: {
       "MXS-A": { mode: "hours", L: { hours: 2 }, S: { hours: 2 }, sameAsL: true, warrantyMonths: 3, note: "ทดสอบ", at: now },
-      "MXS-B": { mode: "hours", L: { hours: 4 }, S: { hours: 2.5 }, sameAsL: false, note: "", at: now },
+      "MXS-B": { mode: "hours", L: { hours: 4, mid: 2500 }, S: { hours: 2.5, mid: 2000 }, sameAsL: false, note: "", at: now },
       "MXS-C": { mode: "skip", L: {}, S: {}, sameAsL: true, note: "ไม่มีเครื่องมือ", at: now },
     },
     parts: { [partKey("S45", "LB01")]: { skip: false, priceL: 1200, priceS: 900, sameAsL: false, brand: "OEM", warrantyMonths: 6, leadDays: 7, note: "", at: now } },
@@ -44,7 +44,7 @@ void (async () => {
     assert.notEqual(typeof a, "string", String(a))
     if (typeof a !== "string") { assert.equal(a.L.hours, 2); assert.equal(a.S.hours, 2); assert.equal(a.sameAsL, true); assert.equal(a.warrantyMonths, 3); assert.equal(a.note, "ทดสอบ") }
     const b = validateAnswer(back.items["MXS-B"])
-    if (typeof b !== "string") { assert.equal(b.L.hours, 4); assert.equal(b.S.hours, 2.5); assert.equal(b.sameAsL, false, "S ต่างจาก L → ไม่ใช่ราคาเดียวกัน") }
+    if (typeof b !== "string") { assert.equal(b.L.hours, 4); assert.equal(b.S.hours, 2.5); assert.equal(b.sameAsL, false, "S ต่างจาก L → ไม่ใช่ราคาเดียวกัน"); assert.equal(b.L.mid, 2500, "เหมากลาง L ไปกลับผ่านไฟล์"); assert.equal(b.S.mid, 2000) }
     const c = validateAnswer(back.items["MXS-C"])
     if (typeof c !== "string") assert.equal(c.mode, "skip", "ติ๊ก x = ไม่รับงาน")
     assert.equal((back.parts[partKey("S45", "LB01")] as { priceL: unknown }).priceL, 1200)
@@ -67,6 +67,7 @@ void (async () => {
       rowOf(H, { "รหัสงาน": "MXS-A", "ชม. Mixer L": "3" }),                                  // S ว่าง = เท่ากับ L
       rowOf(H, { "รหัสงาน": "MXS-B" }),                                                        // ว่างทั้งแถว = ไม่แตะของเดิม
       rowOf(H, { "รหัสงาน": "MXS-C", "ชม. Mixer L": "9999" }),                                 // เกินเพดาน
+      rowOf(H, { "รหัสงาน": "MXS-D", "เหมาเบา L (฿)": "1,500", "เหมาหนัก S (฿)": "9000" }),     // เหมาอย่างเดียว · S ว่างบางช่อง = เท่ากับ L
       rowOf(H, { "รหัสงาน": "ไม่มีรหัสนี้", "ชม. Mixer L": "1" }),
       [], [SEC_PARTS], PH,
       rowOf(PH, { "รหัสอะไหล่": "LB01", "฿ Mixer L": "1,250", "ยี่ห้อ/สเปกที่เสนอ": "NOK" }),   // มีลูกน้ำ
@@ -81,6 +82,9 @@ void (async () => {
     assert.deepEqual(validateRate(m.rates.S45).valueOf() && { normal: (validateRate(m.rates.S45) as { normal?: number }).normal, onsite: (validateRate(m.rates.S45) as { onsite?: number }).onsite }, { normal: 500, onsite: undefined }, "นอกสถานที่ว่าง = ไม่รับงานนอกสถานที่")
     const a = validateAnswer(m.items["MXS-A"])
     if (typeof a !== "string") { assert.equal(a.L.hours, 3); assert.equal(a.S.hours, 3); assert.equal(a.sameAsL, true, "S ว่าง = เท่ากับ L") }
+    const d = validateAnswer(m.items["MXS-D"])
+    assert.notEqual(typeof d, "string", String(d))
+    if (typeof d !== "string") { assert.deepEqual(d.L, { light: 1500 }); assert.deepEqual(d.S, { light: 1500, heavy: 9000 }); assert.equal(d.sameAsL, false) }
     assert.equal("MXS-B" in m.items, false, "แถวที่เว้นว่าง ไม่ถูกส่งไปเขียนทับ")
     assert.equal(m.counts.skipped, 1)
     assert.equal(typeof validateAnswer(m.items["MXS-C"]), "string", "9999 ชม. ต้องไม่ผ่าน validator")

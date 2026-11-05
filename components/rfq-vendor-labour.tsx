@@ -1,8 +1,9 @@
 "use client"
 // หน้าค่าแรง: ชีตละขั้น · บนสุดของชีต = อัตราค่าแรง ฿/ชม. (ปกติ / นอกสถานที่) ใช้ทั้ง L และ S
-// การ์ดละงาน = ชั่วโมง Mixer L แล้ว S (+ "S เท่ากับ L") หรือ ไม่รับงาน · ตัดค่าแรงเหมาออกแล้ว (ผู้ใช้ขอ 2026-09-18)
+// การ์ดละงาน = ชั่วโมง Mixer L แล้ว S (+ "S เท่ากับ L") และ/หรือ ราคาเหมา เบา/กลาง/หนัก หรือ ไม่รับงาน
+// (เหมาถูกตัด 2026-09-18 · เอากลับมาเป็นช่องเสริม 2026-11-05 ผู้ใช้ขอ)
 import { useEffect, useMemo, useRef, useState } from "react"
-import { SHEET_ORDER, isCustomJob, isAnswered, jobCost, type RfqAnswer, type RfqJob, type RfqRate, type JobHours } from "@/lib/rfq-core"
+import { SHEET_ORDER, LUMP_TIERS, isCustomJob, isAnswered, jobCost, type RfqAnswer, type RfqJob, type RfqRate, type JobHours, type LumpTier } from "@/lib/rfq-core"
 import { useInvite, useAutosave, V, VendorHeader, StatusNotice, SaveBadge, NeedContact, toNum, scrollToTop } from "@/components/rfq-vendor-shared"
 
 const EMPTY: RfqAnswer = { mode: "hours", L: {}, S: {}, sameAsL: true, note: "", at: "" }
@@ -54,7 +55,7 @@ export function RfqVendorLabour({ token }: { token: string }) {
 
   return (
     <div style={V.page}>
-      <VendorHeader invite={invite} subtitle="ค่าแรง — อัตราต่อชั่วโมง + ชั่วโมงต่องาน" backHref={`/q/${token}`} />
+      <VendorHeader invite={invite} subtitle="ค่าแรง — ชั่วโมงต่องาน หรือราคาเหมา เบา/กลาง/หนัก" backHref={`/q/${token}`} />
       <StatusNotice invite={invite} />
       {/* แถบชีต เลื่อนแนวนอน · จุดส้ม = ยังไม่ใส่อัตราค่าแรงของชีต */}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 8 }}>
@@ -86,7 +87,7 @@ export function RfqVendorLabour({ token }: { token: string }) {
             {job.scope && <button onClick={() => setOpenScope((o) => ({ ...o, [job.jobCode]: !so }))} style={{ ...V.btn, minHeight: 32, padding: "4px 10px", fontSize: 12.5, marginTop: 8, background: "#F3F4F5" }}>{so ? "ซ่อน" : "ดู"}ขอบเขตงาน</button>}
             {so && <div style={{ fontSize: 13, color: "#343A40", marginTop: 8, whiteSpace: "pre-wrap", background: "#F3F4F5", borderRadius: 6, padding: 10 }}><b>ขอบเขต:</b> {job.scope}</div>}
             <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-              {([["hours", "เสนอชั่วโมง"], ["skip", "ไม่รับงานนี้"]] as const).map(([m, label]) => {
+              {([["hours", "เสนอราคา"], ["skip", "ไม่รับงานนี้"]] as const).map(([m, label]) => {
                 const on = m === "skip" ? skip : !skip
                 return <button key={m} disabled={ro} onClick={() => update(job, { mode: m })} style={{ ...V.btn, flex: 1, padding: "8px 4px", fontSize: 13.5, background: on ? (m === "skip" ? "#52525B" : "#046132") : "#fff", color: on ? "#fff" : "#212529", borderColor: on ? "transparent" : "#CED4DA" }}>{label}</button>
               })}
@@ -96,11 +97,13 @@ export function RfqVendorLabour({ token }: { token: string }) {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
                   <HoursField title="Mixer L (10 ล้อ)" color="#046132" value={a?.L.hours} ro={ro} onBlur={(hours) => update(job, { mode: "hours", Lp: { hours } })} />
                   {sameAsL
-                    ? <div style={{ padding: 10, borderRadius: 6, background: "#1D4ED80D", border: "1px dashed #1D4ED833" }}><div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8" }}>Mixer S (6 ล้อ)</div><div style={{ ...V.muted, marginTop: 6 }}>ชั่วโมงเท่ากับ L</div></div>
+                    ? <div style={{ padding: 10, borderRadius: 6, background: "#1D4ED80D", border: "1px dashed #1D4ED833" }}><div style={{ fontSize: 13, fontWeight: 600, color: "#1D4ED8" }}>Mixer S (6 ล้อ)</div><div style={{ ...V.muted, marginTop: 6 }}>ใช้ค่าเท่ากับ L</div></div>
                     : <HoursField title="Mixer S (6 ล้อ)" color="#1D4ED8" value={a?.S.hours} ro={ro} onBlur={(hours) => update(job, { mode: "hours", Sp: { hours } })} />}
                 </div>
+                <LumpBlock title="ราคาเหมา Mixer L (10 ล้อ)" color="#046132" value={a?.L} ro={ro} onBlur={(k, v) => update(job, { mode: "hours", Lp: { [k]: v } })} />
+                {!sameAsL && <LumpBlock title="ราคาเหมา Mixer S (6 ล้อ)" color="#1D4ED8" value={a?.S} ro={ro} onBlur={(k, v) => update(job, { mode: "hours", Sp: { [k]: v } })} />}
                 <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "10px 0 4px", fontSize: 13.5 }}>
-                  <input type="checkbox" checked={sameAsL} disabled={ro} onChange={(e) => update(job, { mode: "hours", sameAsL: e.target.checked })} style={{ width: 18, height: 18 }} /> Mixer S ใช้ชั่วโมงเท่ากับ L
+                  <input type="checkbox" checked={sameAsL} disabled={ro} onChange={(e) => update(job, { mode: "hours", sameAsL: e.target.checked })} style={{ width: 18, height: 18 }} /> Mixer S ใช้ชั่วโมงและราคาเหมาเท่ากับ L
                 </label>
                 {cost && <CostLine cost={cost} sameAsL={sameAsL} />}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8, marginTop: 10 }}>
@@ -149,6 +152,23 @@ function HoursField({ title, color, value, ro, onBlur }: { title: string; color:
     <div style={{ padding: 10, borderRadius: 6, background: color + "0D", border: `1px solid ${color}33` }}>
       <label style={{ ...V.label, color, fontSize: 13, fontWeight: 600 }}>{title}<span style={{ display: "block", fontWeight: 400, color: "#6C757D", fontSize: 11.5 }}>จำนวนชั่วโมงที่ใช้ซ่อม</span></label>
       <input style={V.input} inputMode="decimal" disabled={ro} defaultValue={value ?? ""} placeholder="ชม." onBlur={(e) => onBlur(toNum(e.target.value))} />
+    </div>
+  )
+}
+
+/** ราคาเหมาต่องาน แยกระดับ เบา/กลาง/หนัก (บาท) — ไม่บังคับ กรอกแทนหรือคู่กับชั่วโมงก็ได้ */
+function LumpBlock({ title, color, value, ro, onBlur }: { title: string; color: string; value: JobHours | undefined; ro: boolean; onBlur: (k: LumpTier, v: number | undefined) => void }) {
+  return (
+    <div style={{ marginTop: 8, padding: 10, borderRadius: 6, background: color + "08", border: `1px dashed ${color}40` }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color }}>{title}<span style={{ fontWeight: 400, color: "#6C757D", fontSize: 11.5 }}> · บาท/งาน ไม่บังคับ</span></div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 6 }}>
+        {LUMP_TIERS.map(([k, label]) => (
+          <div key={k}>
+            <label style={{ ...V.label, fontSize: 12 }}>งาน{label}</label>
+            <input style={V.input} inputMode="decimal" disabled={ro} defaultValue={value?.[k] ?? ""} placeholder="฿" onBlur={(e) => onBlur(k, toNum(e.target.value))} />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
