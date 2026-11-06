@@ -1,6 +1,6 @@
 "use client"
 
-// หน้า /store-withdraw/core-return "ติดตามซากอะไหล่" — 3 เลนตามทีม (ยานยนต์ · สโตร์ · จัดซื้อ) + ตาราง (ค้น/กรอง/Export) + ปิดแล้ว
+// หน้า /store-withdraw/core-return "ติดตามซากอะไหล่" — 3 เลนตามทีม (ยานยนต์ · บัญชี/สโตร์: รับเข้า คลังซาก รอบขาย · จัดซื้อ: รับซากอู่นอก ติดตาม) + ตาราง (ค้น/กรอง/Export) + ปิดแล้ว
 // มือถือ 390px: 3 เลนกลายเป็นแท็บด้านบน · ทุกปุ่มเช็กสิทธิ์ซ้ำที่ API · สี/ขนาดทั้งหมดมาจาก tokens.ts
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom"
@@ -43,7 +43,7 @@ type GroupBy = "vehicle" | "mr" | "garage" | "warehouse" | "oldest" | "mine"
 
 const LANES = [
   { key: 0, title: "ยังไม่คืนซาก", role: "ยานยนต์", short: "ยานยนต์", tone: "vehicle" },
-  { key: 1, title: "รับเข้า & คลังซาก", role: "บัญชี / สโตร์", short: "บัญชี", tone: "store" },
+  { key: 1, title: "รับเข้า · คลังซาก · รอบขาย", role: "บัญชี / สโตร์", short: "บัญชี", tone: "store" },
   { key: 2, title: "รับซากอู่นอก & ติดตาม", role: "จัดซื้อ", short: "จัดซื้อ", tone: "procure" },
 ] as const
 const LANE_ACTIVE_TXT = { vehicle: TXT.warn, store: TXT.storeDeep, procure: TXT.procure } as const
@@ -713,6 +713,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
           </Lane>
           <Lane tone="store" title={LANES[1].title} role={LANES[1].role} count={l2.count} amount={l2.amount} hidden={lane !== 1}>
             <StoreLane f={f} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} summary={summary} />
+            <RoundsPanel warehouses={meta.warehouses} canRound={perms.round} onChanged={refresh} compact />
           </Lane>
           <Lane tone="procure" title={LANES[2].title} role={LANES[2].role} count={l3.count} amount={l3.amount} hidden={lane !== 2}>
             <SectionCard title={`รอรับซากจากอู่นอก (${(summary?.await_pickup?.count ?? 0).toLocaleString()})`} hint="ยานยนต์แจ้งคืนซากแล้ว นัดไปรับและนำกลับคลัง" testid="lane-pickup">
@@ -722,7 +723,6 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
               <RowList query={qs(f, { queue: "followup" })} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} empty="ไม่มีรายการที่ต้องตาม" variant="follow" />
             </SectionCard>
             <GarageTable f={f} tick={tick} onPick={pickGarage} />
-            <RoundsPanel warehouses={meta.warehouses} canRound={perms.round} onChanged={refresh} compact />
           </Lane>
         </div>
       ) : (
