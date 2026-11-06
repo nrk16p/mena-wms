@@ -18,16 +18,18 @@ const v = parseApVoucherSheet([
   // เลขเพี้ยน (7/9 หลัก, DDD, KDD) → ไม่เดาแก้ ไปกอง "อ่านไม่ได้"
   ["2026-01-19", "LAPO26010838", "x", "ศลบ/LBDD2010581/PM", "อาทิติยา มะยัง"],
   ["2026-05-01", "LAPO26050001", "x", "LBDDD26050033 / KDD26050009 / LBDD260403533", "วราพร ชูชาวนา"],
+  // กนกวรรณ (เพิ่ม 06/11/2026) → เอา
+  ["2026-06-01", "LAPO26060001", "x", "KKDD26060011", "กนกวรรณ สวนมาลา"],
   // คนอื่นตั้งหนี้ → ไม่เอา
   ["2026-01-02", "LAPO26010002", "x", "LBDD26019999", "ธนพร สิตวงษ์"],
   // ไม่มีเลข DD เลย (ค่ายาง/อุปกรณ์สำนักงาน)
   ["2026-01-03", "LAPO26010003", "x", "สสบ./อุปกรณ์สำนักงาน/01/2026", "อาทิติยา มะยัง"],
 ])
 assert.deepEqual(v.errors, [])
-assert.equal(v.stats.rows, 7)
-assert.equal(v.stats.kept, 6, "กรองเฉพาะ อาทิติยา/วราพร")
+assert.equal(v.stats.rows, 8)
+assert.equal(v.stats.kept, 7, "กรองเฉพาะ อาทิติยา/วราพร/กนกวรรณ")
 assert.equal(v.stats.noDd, 1)
-assert.deepEqual(v.dds.map((d) => d.depositCode).sort(), ["KKDD26020007", "LBDD26010075", "SBDD26020173"])
+assert.deepEqual(v.dds.map((d) => d.depositCode).sort(), ["KKDD26020007", "KKDD26060011", "LBDD26010075", "SBDD26020173"])
 const d75 = v.dds.find((d) => d.depositCode === "LBDD26010075")!
 assert.deepEqual(d75.vouchers, ["LAPO26010745", "LAPO26030001"])
 assert.equal(d75.docDate, "2026-03-01")
