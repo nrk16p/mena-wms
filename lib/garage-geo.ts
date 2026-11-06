@@ -97,6 +97,8 @@ export function inThailand(p: { lat: number; lng: number }): boolean {
 export function parseLatLng(input: string): { lat: number; lng: number } | null {
   const s = (input || "").trim()
   if (!s) return null
+  const dms = parseDms(s)
+  if (dms) return dms
   const pats = [
     /[@!](-?\d{1,2}\.\d{3,}),(-?\d{2,3}\.\d{3,})/,
     /[?&]q=(-?\d{1,2}\.\d+),(-?\d{2,3}\.\d+)/,
@@ -112,6 +114,33 @@ export function parseLatLng(input: string): { lat: number; lng: number } | null 
     }
   }
   return null
+}
+
+/**
+ * พิกัดแบบองศา-ลิปดา-ฟิลิปดา ที่ Google Maps โชว์ตอนแตะหมุด เช่น
+ *   16°51'08.4"N 102°49'58.1"E      (ตัวอักษรทิศอยู่ท้าย)
+ *   N16°51'08.4" E102°49'58.1"      (ตัวอักษรทิศอยู่หน้า)
+ *   16°51.14'N, 102°49.968'E        (ไม่มีฟิลิปดา)
+ * รับเครื่องหมาย ′ ″ ’ ” ที่มาจากการคัดลอกบนมือถือด้วย ไม่มีตัวอักษรทิศ = ตัวแรกเป็น lat
+ */
+function parseDms(s: string): { lat: number; lng: number } | null {
+  if (!/[°º˚]/.test(s)) return null
+  const t = s.toUpperCase().replace(/[′’‘`´]/g, "'").replace(/[″”“]|''/g, '"')
+  const num = String.raw`(\d{1,3}(?:\.\d+)?)\s*[°º˚]\s*(?:(\d{1,2}(?:\.\d+)?)\s*'\s*)?(?:(\d{1,2}(?:\.\d+)?)\s*"\s*)?`
+  const leading = /^[NSEW]/.test(t)
+  const re = leading ? new RegExp(String.raw`([NSEW])\s*` + num, "g") : new RegExp(num + String.raw`([NSEW])?`, "g")
+  const parts: { v: number; h: string }[] = []
+  for (const m of t.matchAll(re)) {
+    const [d, mi, se, h] = leading ? [m[2], m[3], m[4], m[1]] : [m[1], m[2], m[3], m[4]]
+    const v = Number(d) + Number(mi || 0) / 60 + Number(se || 0) / 3600
+    if (Number(mi || 0) >= 60 || Number(se || 0) >= 60) return null
+    parts.push({ v: h === "S" || h === "W" ? -v : v, h: h || "" })
+  }
+  if (parts.length !== 2) return null
+  const latPart = parts.find((p) => p.h === "N" || p.h === "S") ?? parts[0]
+  const lngPart = parts.find((p) => p !== latPart)!
+  const p = { lat: +latPart.v.toFixed(6), lng: +lngPart.v.toFixed(6) }
+  return inThailand(p) ? p : null
 }
 
 /** true = เป็นลิงก์ย่อที่ต้องยิงตามไปหาพิกัด */
