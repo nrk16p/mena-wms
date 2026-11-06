@@ -4,12 +4,12 @@
  * ตารางแก้ได้แบบชีต — ใช้ร่วมกันทุกแท็บของทะเบียนยางสระบุรี (เตรียมข้อมูล / 11R22.5 / 1000-20 / จัดเก็บ / ขายเหมา)
  * พิมพ์ทับในช่องแล้วออกจากช่อง = บันทึกทันที (เหมือนชีต) · ช่องสีเทา = ระบบคิดให้ แก้ไม่ได้
  */
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { RefreshCw, Plus, Trash2, Send, DatabaseZap, Search, ChevronLeft, ChevronRight, Download } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { RefreshCw, Plus, Trash2, Send, DatabaseZap, Search, ChevronLeft, ChevronRight, Download, ClipboardPaste } from "lucide-react"
 import * as XLSX from "xlsx"
 import { swalToast, swalDeleteConfirm } from "@/lib/swal"
 import {
-  KIND_COLS, atmsFill, atmsHints, fmtDate, toNum, sizeFromText,
+  KIND_COLS, atmsFill, atmsHints, fmtDate, toNum, sizeFromText, parsePastedRows,
   type AnyRow, type SheetCol, type SheetKind, type SheetOptions, type AtmsSnapshot,
 } from "@/lib/tyre-sheet"
 
@@ -162,6 +162,46 @@ export function SheetGrid({ kind, stage, size: sizeProp, sizeFilter = false, opt
     } finally { setBusy("") }
   }
 
+  /** วางแถวที่ copy จาก Excel / Google Sheet (ลำดับคอลัมน์แท็บเตรียมข้อมูล หรือแท็บยางนอก) → แถวใหม่ */
+  const pasteRows = async (text: string) => {
+    const list = parsePastedRows(text)
+    if (!list.length) { swalToast("warning", "อ่านแถวที่วางไม่ได้ · copy ทั้งแถวจากแท็บเตรียมข้อมูลในชีต (ต้องมีทะเบียน MR หรือเบอร์ยาง)"); return }
+    setBusy("paste")
+    try {
+      for (let i = 0; i < list.length; i += 100) {
+        await api(`/api/tyre-sheet/rows`, { method: "POST", body: JSON.stringify({ rows: list.slice(i, i + 100) }) })
+      }
+      swalToast("success", `วางแล้ว ${list.length} แถว · ตรวจแล้วติ๊กส่งข้อมูลได้เลย`)
+      await load()
+    } catch (e) {
+      swalToast("error", (e as Error).message)
+    } finally { setBusy("") }
+  }
+  const pasteRef = useRef(pasteRows)
+  useEffect(() => { pasteRef.current = pasteRows })
+
+  // Ctrl+V ที่ไหนก็ได้ในแท็บเตรียมข้อมูล: ถ้าที่ copy มามีหลายช่อง (มี tab) = วางเป็นแถวใหม่ · ค่าเดียว = วางในช่องตามปกติ
+  useEffect(() => {
+    if (!isPrep) return
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text/plain") ?? ""
+      if (!text.includes("\t")) return
+      e.preventDefault()
+      pasteRef.current(text)
+    }
+    document.addEventListener("paste", onPaste)
+    return () => document.removeEventListener("paste", onPaste)
+  }, [isPrep])
+
+  const pasteFromButton = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      await pasteRows(text)
+    } catch {
+      swalToast("info", "เบราว์เซอร์ไม่ให้อ่านคลิปบอร์ด · กด Ctrl+V (Mac: ⌘V) ที่หน้านี้แทน")
+    }
+  }
+
   const sendSelected = async () => {
     const ids = [...selected]
     if (!ids.length) { swalToast("warning", "ติ๊กเลือกแถวที่จะส่งก่อน"); return }
@@ -247,6 +287,12 @@ export function SheetGrid({ kind, stage, size: sizeProp, sizeFilter = false, opt
             </button>
           </form>
         )}
+        {isPrep && (
+          <button onClick={pasteFromButton} disabled={busy === "paste"} title="copy แถวจาก Excel / Google Sheet แล้วกดปุ่มนี้ หรือกด Ctrl+V ที่หน้านี้"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-white/15 hover:bg-gray-50 dark:hover:bg-white/10 disabled:opacity-50">
+            <ClipboardPaste className="w-4 h-4" /> {busy === "paste" ? "กำลังวาง…" : "วางจาก Excel"}
+          </button>
+        )}
         {(isPrep || kind !== "rows") && (
           <button onClick={addRow} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-white/15 hover:bg-gray-50 dark:hover:bg-white/10">
             <Plus className="w-4 h-4" /> เพิ่มแถวว่าง
@@ -262,6 +308,7 @@ export function SheetGrid({ kind, stage, size: sizeProp, sizeFilter = false, opt
 
       <div className="text-xs text-gray-500 dark:text-gray-400">
         {total.toLocaleString("th-TH")} แถว · พิมพ์ทับแล้วกดออกจากช่องเพื่อบันทึก · ช่องสีเทาระบบคิดให้
+        {isPrep && " · copy แถวจาก Excel แล้วกด Ctrl+V ที่หน้านี้ = เพิ่มเป็นแถวใหม่"}
         {isPrep && " · ปุ่ม ATMS เติมเฉพาะช่องที่ยังว่าง ช่องที่กรอกแล้วไม่ตรงจะขึ้นตัวสีส้มให้ดู"}
       </div>
 

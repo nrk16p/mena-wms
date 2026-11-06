@@ -9,7 +9,7 @@
  */
 import * as XLSX from "xlsx"
 import {
-  ROW_COLS, STORAGE_COLS, SALES_COLS, EMPTY_OPTIONS, sizeFromText, parseDate, isoDate, ageYmd, toNum,
+  ROW_COLS, STORAGE_COLS, SALES_COLS, EMPTY_OPTIONS, prepFields, sizeFromText, parseDate, isoDate, ageYmd, toNum,
   type AnyRow, type SheetCol, type SheetOptions, type TyreSize,
 } from "@/lib/tyre-sheet"
 
@@ -204,27 +204,11 @@ function masterRow(r: Cell[], size: TyreSize, stats: ImportResult["stats"]): Any
 
 /** แถวในแท็บเตรียมข้อมูล → คอลัมน์ชุดหลัก (ตาม mapRow ของ Apps Script เดิม) */
 function prepRow(r: Cell[]): AnyRow | null {
-  const get = (i: number) => r[i]
   const doc: AnyRow = {
     stage: "prep",
-    size: sizeFromText(get(8)) ?? null,
+    size: sizeFromText(r[8]) ?? null,
     seq: null,
-    bookingDate: cellDate(get(1)),
-    driver: String(get(2) ?? "").trim(),
-    plate: String(get(3) ?? "").trim(),
-    position: String(get(4) ?? "").trim(),
-    installDate: cellDate(get(5)),
-    mrNo: String(get(6) ?? "").trim(),
-    oldSerial: String(get(7) ?? "").trim(),
-    tyreType: String(get(8) ?? "").trim(),
-    mileagePrev: toNum(get(9)),
-    mileageBooking: toNum(get(10)),
-    depthBooking: toNum(get(12)),
-    note: String(get(16) ?? "").trim(),
-    price: toNum(get(17)),
-    fullDepth: toNum(get(19)),
-    ratedKm: toNum(get(20)),
-    pr: String(get(24) ?? "").trim(),
+    ...prepFields((i) => r[i], (v) => cellDate(v as Cell)),
     newSerial: "",
   }
   if (!doc.mrNo && !doc.oldSerial && !doc.plate) return null

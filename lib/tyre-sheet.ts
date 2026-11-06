@@ -218,6 +218,61 @@ export function parseDate(v: unknown): string | null {
   return null
 }
 
+/**
+ * แถวตามลำดับคอลัมน์แท็บ "เตรียมข้อมูล" ของชีต (ตาม mapRow ใน Apps Script) → ฟิลด์ของแถว
+ * ใช้ทั้งตอนนำเข้าไฟล์ชีต และตอนวาง (Ctrl+V) แถวที่ copy จาก Excel / Google Sheet
+ * ช่องที่ชีตคิดเอง (ผลต่าง อายุ บาท/กม. ฯลฯ) ไม่อ่าน ระบบคิดใหม่
+ */
+export function prepFields(get: (i: number) => unknown, date: (v: unknown) => string | null = parseDate): AnyRow {
+  const str = (i: number) => String(get(i) ?? "").trim()
+  return {
+    bookingDate: date(get(1)),
+    driver: str(2),
+    plate: str(3),
+    position: str(4),
+    installDate: date(get(5)),
+    mrNo: str(6),
+    oldSerial: str(7),
+    tyreType: str(8),
+    mileagePrev: toNum(get(9)),
+    mileageBooking: toNum(get(10)),
+    depthBooking: toNum(get(12)),
+    note: str(16),
+    price: toNum(get(17)),
+    fullDepth: toNum(get(19)),
+    ratedKm: toNum(get(20)),
+    pr: str(24),
+  }
+}
+
+/**
+ * ข้อความที่ copy จาก Excel / Google Sheet (แยกช่องด้วย tab แยกแถวด้วยขึ้นบรรทัด) → แถวใหม่
+ *   ≥ 30 ช่อง = ลำดับแท็บยางนอก (A–AN ตรงกับ ROW_COLS) · น้อยกว่านั้น = ลำดับแท็บเตรียมข้อมูล
+ * ข้ามแถวหัวตาราง และแถวที่ไม่มีทั้งทะเบียน MR และเบอร์ยาง
+ */
+export function parsePastedRows(text: string): AnyRow[] {
+  const out: AnyRow[] = []
+  for (const line of text.replace(/\r/g, "").split("\n")) {
+    if (!line.trim()) continue
+    const cells = line.split("\t").map((c) => c.replace(/^"|"$/g, "").trim())
+    if (cells.some((c) => c.includes("วันที่จอง"))) continue
+    let doc: AnyRow
+    if (cells.length >= 30) {
+      doc = {}
+      ROW_COLS.forEach((c, i) => {
+        if (c.computed) return
+        const v = cells[i] ?? ""
+        doc[c.key] = c.type === "num" ? toNum(v) : c.type === "date" ? parseDate(v) : v
+      })
+    } else {
+      doc = prepFields((i) => cells[i] ?? "")
+    }
+    if (!doc.plate && !doc.mrNo && !doc.oldSerial) continue
+    out.push(doc)
+  }
+  return out
+}
+
 /** "YYYY-MM-DD" → "DD/MM/YYYY" (แบบที่ชีตโชว์) */
 export function fmtDate(iso: unknown): string {
   const s = String(iso ?? "")
