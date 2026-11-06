@@ -15,7 +15,7 @@ const TABS = [
   { key: "tyres", label: "ยางนอก" },
   { key: "rounds", label: "รอบอนุมัติ / PDF" },
   { key: "storage", label: "บันทึกการจัดเก็บยาง" },
-  { key: "sales", label: "ขายเหมา (Sheet16)" },
+  { key: "sales", label: "ขายเหมา" },
   { key: "import", label: "นำเข้าจากชีต" },
 ] as const
 type TabKey = (typeof TABS)[number]["key"]
