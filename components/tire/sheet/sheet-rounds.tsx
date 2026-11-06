@@ -7,6 +7,7 @@ import { swalToast, swalDeleteConfirm } from "@/lib/swal"
 import { fmtDate } from "@/lib/tyre-sheet"
 
 type Round = { _id: string; fromDate: string; toDate: string; pr: string; preparer: string; approver1: string; approver2: string; count: number }
+type PrHint = { pr: string; count: number; from: string; to: string; sizes: string[]; hasRound: boolean }
 const EMPTY = { fromDate: "", toDate: "", pr: "", preparer: "", approver1: "", approver2: "" }
 
 export function SheetRounds() {
@@ -14,6 +15,8 @@ export function SheetRounds() {
   const [form, setForm] = useState<typeof EMPTY>(EMPTY)
   const [editId, setEditId] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [prHints, setPrHints] = useState<PrHint[]>([])
+  const [prFallback, setPrFallback] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch("/api/tyre-sheet/rounds")
@@ -21,6 +24,27 @@ export function SheetRounds() {
   }, [])
   // เรียกผ่าน setTimeout(0) ตาม lint rule ของ repo: react-hooks/set-state-in-effect
   useEffect(() => { const t = setTimeout(load, 0); return () => clearTimeout(t) }, [load])
+
+  // เลข PR ในข้อมูลช่วงวันที่ที่เลือก — กดเลือกได้ ไม่ต้องไปเปิดชีตหา
+  useEffect(() => {
+    if (!open) return
+    const sp = new URLSearchParams({ from: form.fromDate, to: form.toDate })
+    const get = (q: string): Promise<PrHint[]> => fetch(`/api/tyre-sheet/rounds/prs?${q}`).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+    const t = setTimeout(async () => {
+      let list = await get(sp.toString())
+      // ช่วงที่เลือกไม่มี PR เลย → โชว์ PR ล่าสุดแทน
+      const fallback = !list.length && !!(form.fromDate || form.toDate)
+      if (fallback) list = await get("")
+      setPrHints(list); setPrFallback(fallback)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [open, form.fromDate, form.toDate])
+
+  // ยังไม่ได้เลือกวันที่ หรือช่วงที่เลือกไม่มี PR นี้ → ใช้ช่วงวันที่จองของ PR นั้น
+  const pickPr = (h: PrHint) => setForm((f) => {
+    const keep = !prFallback && f.fromDate && f.toDate
+    return { ...f, pr: h.pr, fromDate: keep ? f.fromDate : h.from, toDate: keep ? f.toDate : h.to }
+  })
 
   const startNew = () => {
     const last = rounds[0]
@@ -79,6 +103,22 @@ export function SheetRounds() {
             {field("preparer", "ผู้จัดทำ")}
             {field("approver1", "ผู้อนุมัติ_1")}
             {field("approver2", "ผู้อนุมัติ_2")}
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {prFallback ? "ช่วงวันที่นี้ไม่มี PR ในข้อมูล · PR ล่าสุด" : form.fromDate || form.toDate ? "PR ที่มีในข้อมูลช่วงวันที่นี้" : "PR ล่าสุดในข้อมูล"} · กดเพื่อใช้เลขนั้น
+              {prFallback && " (กดแล้วจะเปลี่ยนวันที่เป็นช่วงของ PR นั้น)"}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {prHints.map((h) => (
+                <button key={h.pr} type="button" onClick={() => pickPr(h)}
+                  className={`text-left px-2 py-1 rounded-md border text-xs ${form.pr === h.pr ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-gray-300 dark:border-white/15 hover:bg-gray-50 dark:hover:bg-white/10"}`}>
+                  <div className="font-semibold">{h.pr}{h.hasRound && <span className="ml-1 font-normal text-amber-600">(มีรอบแล้ว)</span>}</div>
+                  <div className="text-gray-500 dark:text-gray-400">{h.count} เส้น · {h.sizes.join(", ") || "-"} · {fmtDate(h.from)}–{fmtDate(h.to)}</div>
+                </button>
+              ))}
+              {!prHints.length && <span className="text-xs text-gray-400">ไม่มี PR ในข้อมูลช่วงนี้</span>}
+            </div>
           </div>
           <button onClick={save} className="px-4 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700">บันทึก</button>
         </div>

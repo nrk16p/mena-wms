@@ -2,7 +2,7 @@
 
 /**
  * ทะเบียนยางสระบุรี (แบบชีต) — แท็บเหมือน Google Sheet เดิม
- * เตรียมข้อมูล → ส่งข้อมูล → ตาราง 11R22.5 / 1000-20 → รอบอนุมัติ + PDF · บันทึกการจัดเก็บ · ขายเหมา · นำเข้าจากชีต
+ * เตรียมข้อมูล → ส่งข้อมูล → ตารางยางนอก (กรองตามประเภทยาง) → รอบอนุมัติ + PDF · บันทึกการจัดเก็บ · ขายเหมา · นำเข้าจากชีต
  */
 import { useEffect, useState } from "react"
 import { SheetGrid } from "./sheet-grid"
@@ -12,8 +12,7 @@ import { EMPTY_OPTIONS, type SheetOptions } from "@/lib/tyre-sheet"
 
 const TABS = [
   { key: "prep", label: "เตรียมข้อมูล" },
-  { key: "11R22.5", label: "ยางนอก 11R22.5" },
-  { key: "1000-20", label: "ยางนอก 1000-20" },
+  { key: "tyres", label: "ยางนอก" },
   { key: "rounds", label: "รอบอนุมัติ / PDF" },
   { key: "storage", label: "บันทึกการจัดเก็บยาง" },
   { key: "sales", label: "ขายเหมา (Sheet16)" },
@@ -35,6 +34,7 @@ export function TyreSheetPage() {
     const id = requestAnimationFrame(() => {
       const h = window.location.hash.replace("#", "")
       if (TABS.some((t) => t.key === h)) setTab(h as TabKey)
+      else if (h === "11R22.5" || h === "1000-20") setTab("tyres") // ลิงก์เก่า
     })
     return () => cancelAnimationFrame(id)
   }, [])
@@ -56,8 +56,7 @@ export function TyreSheetPage() {
       </div>
       <div key={`${tab}-${reloadKey}`}>
         {tab === "prep" && <SheetGrid kind="rows" stage="prep" options={options} title="เตรียมข้อมูล" />}
-        {tab === "11R22.5" && <SheetGrid kind="rows" stage="sent" size="11R22.5" options={options} title="[2026]ยางนอก 11R22.5" />}
-        {tab === "1000-20" && <SheetGrid kind="rows" stage="sent" size="1000-20" options={options} title="[2026]ยางนอก 1000-20" />}
+        {tab === "tyres" && <SheetGrid kind="rows" stage="sent" sizeFilter options={options} title="[2026]ยางนอก" />}
         {tab === "rounds" && <SheetRounds />}
         {tab === "storage" && <SheetGrid kind="storage" options={options} title="บันทึกการจัดเก็บยาง" />}
         {tab === "sales" && <SheetGrid kind="sales" options={options} title="ขายเหมา" />}

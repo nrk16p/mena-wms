@@ -31,7 +31,8 @@ export async function GET(req: NextRequest, { params }: Params) {
       const re = new RegExp(escapeRe(q), "i")
       filter.$or = [{ plate: re }, { mrNo: re }, { oldSerial: re }, { newSerial: re }, { driver: re }, { pr: re }]
     }
-    sort = stage === "prep" ? { createdAt: 1, _id: 1 } : { seq: -1, _id: -1 }
+    // รวมทุกประเภท: เลขลำดับแยกตามไซซ์ เลยเรียงตามวันที่จองแทน
+    sort = stage === "prep" ? { createdAt: 1, _id: 1 } : filter.size ? { seq: -1, _id: -1 } : { bookingDate: -1, seq: -1, _id: -1 }
   } else if (q) {
     const re = new RegExp(escapeRe(q), "i")
     filter.$or = kind === "storage" ? [{ serial: re }, { note: re }, { status: re }] : [{ item: re }]

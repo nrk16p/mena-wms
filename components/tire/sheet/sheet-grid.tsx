@@ -9,7 +9,7 @@ import { RefreshCw, Plus, Trash2, Send, DatabaseZap, Search, ChevronLeft, Chevro
 import * as XLSX from "xlsx"
 import { swalToast, swalDeleteConfirm } from "@/lib/swal"
 import {
-  KIND_COLS, atmsFill, atmsHints, fmtDate, toNum,
+  KIND_COLS, atmsFill, atmsHints, fmtDate, toNum, sizeFromText,
   type AnyRow, type SheetCol, type SheetKind, type SheetOptions, type AtmsSnapshot,
 } from "@/lib/tyre-sheet"
 
@@ -17,6 +17,8 @@ type Props = {
   kind: SheetKind
   stage?: "prep" | "sent"
   size?: string
+  /** ตารางยางนอกรวม: มีปุ่มกรองตามประเภทยาง */
+  sizeFilter?: boolean
   options: SheetOptions
   title: string
 }
@@ -48,7 +50,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-export function SheetGrid({ kind, stage, size, options, title }: Props) {
+export function SheetGrid({ kind, stage, size: sizeProp, sizeFilter = false, options, title }: Props) {
   const cols = KIND_COLS[kind]
   const [rows, setRows] = useState<AnyRow[]>([])
   const [total, setTotal] = useState(0)
@@ -61,6 +63,7 @@ export function SheetGrid({ kind, stage, size, options, title }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [mrInput, setMrInput] = useState("")
   const [busy, setBusy] = useState("")
+  const [size, setSize] = useState(sizeProp ?? "")
 
   const isPrep = kind === "rows" && stage === "prep"
   const isRows = kind === "rows"
@@ -183,7 +186,7 @@ export function SheetGrid({ kind, stage, size, options, title }: Props) {
     }))]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "data")
-    XLSX.writeFile(wb, `${title.replace(/[\\/:*?"<>|]/g, "-")}.xlsx`)
+    XLSX.writeFile(wb, `${(size ? `${title} ${size}` : title).replace(/[\\/:*?"<>|]/g, "-")}.xlsx`)
   }
 
   const allChecked = rows.length > 0 && rows.every((r) => selected.has(String(r._id)))
@@ -211,6 +214,16 @@ export function SheetGrid({ kind, stage, size, options, title }: Props) {
               className="pl-7 pr-2 py-1.5 text-sm rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-white/5 w-72" />
           </div>
         </form>
+        {sizeFilter && (
+          <div className="inline-flex rounded-md border border-gray-300 dark:border-white/15 overflow-hidden text-sm">
+            {["", ...options.tyreTypes.map((t) => sizeFromText(t)).filter((s, i, a): s is NonNullable<typeof s> => !!s && a.indexOf(s) === i).sort((x, y) => (x === "11R22.5" ? -1 : y === "11R22.5" ? 1 : 0))].map((s) => (
+              <button key={s || "all"} onClick={() => { setSize(s); setPage(1) }}
+                className={`px-3 py-1.5 ${size === s ? "bg-blue-600 text-white" : "hover:bg-gray-50 dark:hover:bg-white/10"}`}>
+                {s || "ทุกประเภท"}
+              </button>
+            ))}
+          </div>
+        )}
         {isRows && !isPrep && (
           <label className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300">
             เดือนที่จอง
