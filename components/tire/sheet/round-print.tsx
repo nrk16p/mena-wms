@@ -91,41 +91,58 @@ function DocControl({ pr, approvedBy, printed }: { pr: string; approvedBy: strin
   )
 }
 
-/** กล่องใต้แถว: ทุกรอบที่ยางเส้นนี้เคยใช้ + บาท/กม. รวมเทียบมาตรฐาน */
+/** ตารางเล็กใต้แถว: ทุกรอบที่ยางเส้นนี้เคยใช้ + สูตรบาท/กม. รวมทุกรอบเทียบมาตรฐาน */
 function LivesBlock({ s }: { s: LifeSummary }) {
+  const price = s.price ?? 0
   const worse = s.cpkTotal !== null && s.cpkStandard !== null ? s.cpkTotal > s.cpkStandard : null
   const pctDiff = s.cpkTotal !== null && s.cpkStandard ? Math.abs(s.cpkTotal / s.cpkStandard - 1) * 100 : null
+  const rated = s.ratedKm
+  const th = { color: TEAL, fontWeight: 600, padding: "1px 6px", textAlign: "left" as const, borderBottom: `1px solid ${LINE}` }
+  const td = { padding: "1px 6px", verticalAlign: "top" as const }
   return (
-    <div className="grid px-2.5 py-1.5" style={{ gridTemplateColumns: "minmax(0,1fr) 140px", columnGap: 12, background: MINT, borderLeft: `3px solid ${TEAL}` }}>
-      <div className="flex flex-col gap-0.5">
-        <div className="text-[10.5px] font-bold" style={{ color: TEAL }}>
-          เส้นนี้ใช้มาแล้ว {s.lives.length} รอบ · รวม {int(s.totalKm)} กม.
-          {s.pctOfRated !== null ? ` (${(s.pctOfRated * 100).toFixed(0)}% ของระยะกำหนด)` : ""}
-          {s.depthUsedTotal !== null ? ` · ดอกใช้ไป ${s.depthUsedTotal}${s.fullDepth ? `/${s.fullDepth}` : ""} มม.` : ""}
-        </div>
-        <div className="grid text-[10.5px]" style={{ gridTemplateColumns: "auto 62px minmax(0,1fr) auto auto", columnGap: 8 }}>
+    <div className="px-2.5 py-1.5 text-[10px]" style={{ background: MINT, borderLeft: `3px solid ${TEAL}` }}>
+      <div className="mb-0.5 text-[10.5px] font-bold" style={{ color: TEAL }}>ยางเส้นนี้เคยใช้มาแล้ว {s.lives.length} รอบ</div>
+      <table className="w-full table-fixed border-collapse">
+        <colgroup>
+          {[15, 11, 17, 15, 24, 10, 8].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
+        </colgroup>
+        <thead>
+          <tr>
+            <th style={th}>รอบ</th><th style={th}>วันที่จอง</th><th style={th}>รถ / ตำแหน่ง</th><th style={th}>ใบแจ้งซ่อม</th>
+            <th style={th}>อาการ</th><th style={{ ...th, textAlign: "right" }}>ระยะใช้ (กม.)</th><th style={{ ...th, textAlign: "right" }}>ดอก</th>
+          </tr>
+        </thead>
+        <tbody>
           {s.lives.map((l, i) => {
             const pos = splitPosition(l.position)
-            const extra = [l.mrNo, l.symptom, l.spare].filter(Boolean).join(" · ")
-            return [
-              <span key={`a${i}`} className={l.isCurrent ? "font-bold" : "font-semibold"}>รอบที่ {i + 1}{l.isCurrent ? " · ครั้งนี้" : ""}</span>,
-              <span key={`b${i}`}>{fmtDate(l.bookingDate) || "-"}</span>,
-              <span key={`c${i}`} className="break-words">{l.plate} {pos.code || l.position}{extra ? ` · ${extra}` : ""}</span>,
-              <span key={`d${i}`} className="text-right">{int(l.km)} กม.</span>,
-              <span key={`e${i}`} className="text-right">{l.depthFrom !== null && l.depthTo !== null ? `ดอก ${l.depthFrom}→${l.depthTo}` : ""}</span>,
-            ]
+            return (
+              <tr key={i} className={l.isCurrent ? "font-semibold" : ""}>
+                <td style={td}>รอบที่ {i + 1}{l.isCurrent ? " ครั้งนี้" : ""}</td>
+                <td style={td}>{fmtDate(l.bookingDate) || "-"}</td>
+                <td style={td}>{l.plate} {pos.code || l.position}</td>
+                <td style={td}>{l.mrNo || "-"}</td>
+                <td style={td} className="break-words">{[l.symptom, l.spare].filter(Boolean).join(" · ") || "-"}</td>
+                <td style={{ ...td, textAlign: "right" }}>{int(l.km)}</td>
+                <td style={{ ...td, textAlign: "right" }}>{l.depthFrom !== null && l.depthTo !== null ? `${l.depthFrom}→${l.depthTo}` : ""}</td>
+              </tr>
+            )
           })}
-        </div>
-      </div>
-      <div className="flex flex-col justify-center gap-0.5 pl-3 text-[10px]" style={{ borderLeft: `1px solid ${LINE}` }}>
-        <div style={{ color: MUTED }}>บาท/กม. รวมทุกรอบ</div>
-        <div>
-          <span className="text-[16px] font-bold" style={{ color: worse === null ? INK : worse ? WORSE : BETTER }}>{cpk(s.cpkTotal)}</span>{" "}
-          <span style={{ color: MUTED }}>เทียบ {cpk(s.cpkStandard)}</span>
-        </div>
-        {worse !== null && pctDiff !== null && (
-          <div className="font-semibold" style={{ color: worse ? WORSE : BETTER }}>{worse ? "แพงกว่า" : "ถูกกว่า"}มาตรฐาน {pctDiff.toFixed(0)}%</div>
-        )}
+          <tr className="font-bold" style={{ borderTop: `1px solid ${LINE}` }}>
+            <td style={td} colSpan={5}>รวม {s.lives.length} รอบ</td>
+            <td style={{ ...td, textAlign: "right" }}>{int(s.totalKm)} กม.</td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+      <div className="mt-1 grid gap-x-2 text-[10.5px]" style={{ gridTemplateColumns: "auto auto 1fr" }}>
+        <span style={{ color: MUTED }}>ค่ายางจริง</span>
+        <span>{money(price)} ÷ {int(s.totalKm)} กม. = <b style={{ color: worse === null ? INK : worse ? WORSE : BETTER }}>{cpk(s.cpkTotal)}</b> บาท/กม.</span>
+        <span />
+        <span style={{ color: MUTED }}>มาตรฐาน</span>
+        <span>{money(price)} ÷ {int(rated)} กม. = <b>{cpk(s.cpkStandard)}</b> บาท/กม.</span>
+        <span className="font-semibold" style={{ color: worse ? WORSE : BETTER }}>
+          {worse !== null && pctDiff !== null ? `→ ${worse ? "แพงกว่า" : "ถูกกว่า"}มาตรฐาน ${pctDiff.toFixed(0)}%` : ""}
+        </span>
       </div>
     </div>
   )
