@@ -125,6 +125,8 @@ export const NAV_GROUPS: NavGroup[] = [
         desc: "ภาพรวมยางทุกคัน ทุกสาขา" },
       { href: "/tire/master", label: "สเปคยาง (Master)", icon: Database, exact: true,
         desc: "ขนาด / ยี่ห้อ / รุ่นยาง" },
+      { href: "/tire/saraburi/sheet", label: "ทะเบียนยางสระบุรี (แบบชีต)", icon: ClipboardList, branch: "saraburi",
+        desc: "เตรียมข้อมูล · ตารางยาง · รอบอนุมัติ + PDF แทน Google Sheet" },
       { href: "#stock", label: "สต็อกยาง", icon: MapPin, subheader: true, hideOnHome: true },
       { href: "/tire/latkrabang/stock-tire", label: "ลาดกระบัง", icon: Disc3, indent: true, branch: "latkrabang",
         homeLabel: "สต็อกยาง ลาดกระบัง", desc: "คลังยางสาขา ศลบ" },

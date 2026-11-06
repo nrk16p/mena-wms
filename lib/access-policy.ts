@@ -183,6 +183,7 @@ const API_PREFIXES: [string, Section | "admin"][] = [
   ["/api/tire-change", "tire"], ["/api/tire-change-request", "tire"], ["/api/tire-due", "tire"],
   ["/api/tire-fleet", "tire"], ["/api/tire-master", "tire"], ["/api/tire-mr", "tire"],
   ["/api/tire-spec-master", "tire"], ["/api/tire-stock", "tire"], ["/api/tire-distance", "tire"],
+  ["/api/tyre-sheet", "tire"],
   ["/api/repair-external", "repair"], ["/api/garage-master", "repair"], ["/api/garages", "repair"], ["/api/repair-plans", "repair"],
   ["/api/repair-history", "repair"], ["/api/vehicle-daily", "repair"],
   ["/api/driver-handover", "driver-handover"],
