@@ -87,11 +87,14 @@ export function approvalRoundText(fromIso: string, toIso: string): string {
 
 const num = (v: unknown) => toNum(v) ?? 0
 
-/** แถวก่อนหน้าอยู่ "ที่เดิม" ไหม (ทะเบียนเดียวกัน + รหัสตำแหน่งเดียวกัน) */
+/**
+ * แถวก่อนหน้าอยู่รถคันเดิมไหม — รถคันเดิม (ตำแหน่งไหนก็ได้) + เบอร์เดิม = คนกรอกคัดลอกเบอร์ยางมา ไม่ใช่ยางเส้นเดิม
+ * หลักฐานจากข้อมูลจริง: แถวพวกนี้ดอกยางเริ่มที่ 14 ใหม่ทุกรอบ (ยางที่สึกแล้วดอกงอกคืนไม่ได้)
+ * ยางที่ใช้ซ้ำจริงจะย้ายไปรถคันอื่น และดอกเริ่มต่อจากชีวิตก่อน เช่น L4212A3094 (14→3 แล้ว 3→1)
+ */
 function samePlacePrev(h: AnyRow, cur: AnyRow): boolean {
   const plate = (x: AnyRow) => String(x.plate ?? "").replace(/\s+/g, "")
-  const pos = (x: AnyRow) => splitPosition(String(x.position ?? "")).code || String(x.position ?? "").replace(/\s+/g, "")
-  return plate(h) === plate(cur) && pos(h) === pos(cur)
+  return plate(h) !== "" && plate(h) === plate(cur)
 }
 
 export async function buildRoundReport(round: Round) {
@@ -151,11 +154,11 @@ export async function buildRoundReport(round: Round) {
     const others = (key.length >= 5 ? byKey.get(key) ?? [] : [])
       .filter((h) => String(h._id) !== String(raw._id))
       .filter((h) => (h.bookingDate ?? "") < (raw.bookingDate ?? "") || ((h.bookingDate ?? "") === (raw.bookingDate ?? "") && num(h.seq) < num(raw.seq)))
-      // รถคันเดิม ตำแหน่งเดิม เบอร์เดิม = ชีตไม่มีช่องจดยางเส้นใหม่ คนกรอกเลยใช้เบอร์เก่าซ้ำ (240 จาก 280 เบอร์ที่ซ้ำ)
-      // ไม่ใช่ยางเส้นเดียวกันจริง → ไม่นับเป็นชีวิตก่อนหน้า นับเฉพาะเส้นที่ย้ายรถหรือย้ายตำแหน่ง (เช่น L4212A3094)
+      // รถคันเดิม เบอร์เดิม = ชีตไม่มีช่องจดยางเส้นใหม่ คนกรอกเลยใช้เบอร์เก่าซ้ำ → ไม่นับเป็นชีวิตก่อนหน้า
+      // นับเฉพาะเส้นที่ย้ายไปรถคันอื่น (เช่น L4212A3094)
       .filter((h) => samePlacePrev(h, raw) === false)
       .sort((a, b) => String(a.bookingDate ?? "").localeCompare(String(b.bookingDate ?? "")) || num(a.seq) - num(b.seq))
-    // ชีวิตที่ติดกันแล้วอยู่ที่เดิม (ทะเบียน+ตำแหน่งเดียวกัน) = เบอร์ถูกกรอกซ้ำ เก็บแค่อันหลังสุด
+    // ชีวิตที่ติดกันแล้วอยู่รถคันเดิม = เบอร์ถูกกรอกซ้ำ เก็บแค่อันหลังสุด
     const chain: AnyRow[] = [...others, raw]
     const kept = chain.filter((h, i) => i === chain.length - 1 || !samePlacePrev(h, chain[i + 1]))
     const lives = summarizeLives(kept.map((h) => toLife(h, h === raw)))
