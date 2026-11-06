@@ -341,3 +341,24 @@ console.log("store-withdraw access: OK")
   assert.deepEqual(hrefs(fin), ["/store-withdraw/core-return"])
 }
 console.log("core-return access: OK")
+
+// ติดตามคำขอเปิด PO: ทุกคนเปิดเรื่องใหม่ได้ (2026-11-06) — แต่แก้ / ลบ / รับเรื่อง ยังต้องมีสิทธิ์ pr แก้ได้
+{
+  const none = { ...acc("Accounting"), pr: "none" as const }
+  const go = (pathname: string, method: string, access: Access) => checkRequest({ pathname, method, access, isSuperAdmin: false }).ok
+  for (const a of [acc("Accounting"), acc("Chief-Level"), none]) {
+    assert.ok(go("/order-tracking", "GET", a))
+    assert.ok(go("/order-tracking/guide", "GET", a))
+    assert.ok(go("/api/order-tracking", "GET", a))
+    assert.ok(go("/api/order-tracking", "POST", a))
+    assert.ok(go("/api/order-tracking/pr-lookup", "GET", a))
+    assert.equal(go("/api/order-tracking/abc123", "PUT", a), false)
+    assert.equal(go("/api/order-tracking/abc123", "DELETE", a), false)
+    assert.equal(go("/api/order-tracking/abc123/comment", "POST", a), false)
+    assert.equal(go("/pr", "GET", none), false)
+  }
+  const hrefs = sidebarGroups({ access: none, email: "x@menatransport.co.th" }).flatMap((g) => g.items.map((i) => i.href))
+  assert.ok(hrefs.includes("/order-tracking"))
+  assert.ok(!hrefs.includes("/pr"))
+}
+console.log("order-tracking open to all: OK")

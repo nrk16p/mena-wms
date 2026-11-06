@@ -210,6 +210,15 @@ const SHARED_READ = [
   "/api/repair-history", "/api/sku",
 ]
 
+/** ติดตามคำขอเปิด PO: ทุกคนที่ล็อกอินเปิดเรื่องใหม่ได้ (ผู้ใช้สั่ง 2026-11-06)
+ *  เปิดให้แค่ หน้า + อ่านรายการ (API กรองตามแผนกอยู่แล้ว) + ค้น PR + POST สร้างเรื่อง
+ *  แก้ไข / ลบ / รับเรื่อง / ความคิดเห็น ยังคุมด้วยสิทธิ์ pr ตามเดิม */
+function orderTrackingOpen(pathname: string, api: boolean, read: boolean): boolean {
+  if (!api) return pathname === "/order-tracking" || pathname === "/order-tracking/guide"
+  if (pathname === "/api/order-tracking") return true // GET รายการ + POST เปิดเรื่องใหม่
+  return read && pathname === "/api/order-tracking/pr-lookup"
+}
+
 const under = (path: string, prefix: string) => path === prefix || path.startsWith(prefix + "/")
 
 function longest(path: string, table: [string, Section | "admin"][]): Section | "admin" | null {
@@ -239,6 +248,7 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   }
   if (section === "admin") return p.isSuperAdmin ? { ok: true } : { ok: false, api, section, need: "superadmin" }
   const read = !api || READ_METHODS.has(p.method.toUpperCase())
+  if (orderTrackingOpen(p.pathname, api, read)) return { ok: true }
   if (api && read && SHARED_READ.some((s) => under(p.pathname, s))) return { ok: true }
   // เบิกอะไหล่: คนที่เห็นคิวสโตร์อย่างเดียว (ไม่มีสิทธิ์ยื่นคำขอ) ยังต้องอ่านตัวเลือก/ค้นหา/รายละเอียดใบได้
   if (api && !read && ATTACH_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }

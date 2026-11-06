@@ -46,6 +46,8 @@ export type NavItem = {
   section?: Section
   /** ระดับต่ำสุดของ section ที่ต้องมี (ไม่ระบุ = ดู) · คิวสโตร์ใช้ "edit" ให้ตรงกับ route ที่ปฏิเสธคนดูอย่างเดียว */
   sectionMin?: "view" | "edit"
+  /** ทุกคนที่ล็อกอินเห็นเมนูนี้ ไม่ดูสิทธิ์ส่วนงาน (ต้องตรงกับทางที่ access-policy เปิดให้ทุกคน) */
+  everyone?: boolean
 }
 
 export type NavGroup = {
@@ -144,13 +146,13 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/pr", label: "ติดตาม PR / รับสินค้า", icon: FileText, exact: true,
         desc: "PR อนุมัติแล้ว รอเปิด PO / รอรับของ" },
-      { href: "/order-tracking", label: "ติดตามคำขอเปิด PO", icon: ClipboardList, exact: true,
+      { href: "/order-tracking", label: "ติดตามคำขอเปิด PO", icon: ClipboardList, exact: true, everyone: true,
         desc: "แจ้งขอซื้อ · จัดซื้อรับเรื่อง · ปิดจบอัตโนมัติ" },
       { href: "/po", label: "ใบสั่งซื้อ (PO) · Excel", icon: ShoppingCart, exact: true,
         desc: "กรองตามวันที่ ดาวน์โหลดหัวใบ + รายการสินค้า" },
       { href: "/pr/guide", label: "คู่มือติดตาม PR", icon: BookOpen,
         desc: "วิธีอ่านสถานะและตัวกรอง" },
-      { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen,
+      { href: "/order-tracking/guide", label: "คู่มือติดตามคำขอเปิด PO", icon: BookOpen, everyone: true,
         desc: "ขั้นตอนแจ้งเรื่อง-รับเรื่อง-ปิดงาน" },
     ],
   },
@@ -332,12 +334,13 @@ function groupVisible(group: NavGroup, viewer: Viewer) {
   if (group.superadminOnly && !viewer.isSuperAdmin) return false
   // กลุ่มที่ไม่มีสิทธิ์ แต่มีเมนูที่ผูกสิทธิ์ส่วนงานอื่นและผู้ใช้เห็นอยู่ (เช่น สโตร์ที่เห็นแต่คิว) = ยังแสดงกลุ่ม
   if (viewer.access && (viewer.access as Record<string, string>)[group.key] === "none"
-    && !group.items.some((i) => i.section && sectionOk(i, viewer))) return false
+    && !group.items.some((i) => i.everyone || (i.section && sectionOk(i, viewer)))) return false
   return !group.visibleToEmails || group.visibleToEmails.includes(viewer.email ?? "")
 }
 
 function itemVisible(item: NavItem, viewer: Viewer, group?: NavGroup) {
   if (item.hidden) return false
+  if (item.everyone) return true
   if (!sectionOk(item, viewer)) return false
   // เมนูที่ไม่ผูก section ใช้สิทธิ์ของกลุ่ม: กลุ่มเป็น none = ซ่อน
   if (group && !item.section && viewer.access && (viewer.access as Record<string, string>)[group.key] === "none") return false
