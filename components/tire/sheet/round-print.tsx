@@ -12,7 +12,7 @@ import { fmtDate, type LifeSummary } from "@/lib/tyre-sheet"
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Report = Record<string, any>
 
-const LOGO = "https://www.menatransport.co.th/wp-content/uploads/2022/10/LogoMT-Have-Text-Blue-01-1-1.png"
+const LOGO = "/brand/mena-logo.svg"
 const money = (n: number) => (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const int = (n: number | null | undefined) => (n === null || n === undefined ? "-" : Math.round(n).toLocaleString("th-TH"))
 
@@ -85,6 +85,14 @@ function LivesBlock({ s }: { s: LifeSummary }) {
 export function RoundPrint({ id }: { id: string }) {
   const [data, setData] = useState<Report | null>(null)
   const [err, setErr] = useState("")
+
+  // หน้าพิมพ์ต้องพื้นขาวเสมอ — ธีมมืดของ WMS บังคับ bg-white เป็นสีเข้ม (!important)
+  useEffect(() => {
+    const html = document.documentElement
+    const wasDark = html.classList.contains("dark")
+    html.classList.remove("dark")
+    return () => { if (wasDark) html.classList.add("dark") }
+  }, [])
 
   useEffect(() => {
     fetch(`/api/tyre-sheet/rounds/${id}/report`)
