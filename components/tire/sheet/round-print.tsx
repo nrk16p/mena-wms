@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from "react"
 import { Printer } from "lucide-react"
-import { fmtDate, type LifeSummary } from "@/lib/tyre-sheet"
+import { type LifeSummary } from "@/lib/tyre-sheet"
 import { splitPosition } from "@/lib/tire"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -91,59 +91,45 @@ function DocControl({ pr, approvedBy, printed }: { pr: string; approvedBy: strin
   )
 }
 
-/** ตารางเล็กใต้แถว: ทุกรอบที่ยางเส้นนี้เคยใช้ + สูตรบาท/กม. รวมทุกรอบเทียบมาตรฐาน */
+/**
+ * กล่องใต้แถว สำหรับยางที่เคยใช้มาก่อน — เขียนให้คนไม่รู้เรื่องยางอ่านเข้าใจ:
+ * ใช้กับรถคันไหน วิ่งได้เท่าไร แถบเทียบกับระยะที่ยางควรวิ่งได้ แล้วตกกิโลละกี่บาท
+ */
 function LivesBlock({ s }: { s: LifeSummary }) {
   const price = s.price ?? 0
   const worse = s.cpkTotal !== null && s.cpkStandard !== null ? s.cpkTotal > s.cpkStandard : null
   const pctDiff = s.cpkTotal !== null && s.cpkStandard ? Math.abs(s.cpkTotal / s.cpkStandard - 1) * 100 : null
-  const rated = s.ratedKm
-  const th = { color: TEAL, fontWeight: 600, padding: "1px 6px", textAlign: "left" as const, borderBottom: `1px solid ${LINE}` }
-  const td = { padding: "1px 6px", verticalAlign: "top" as const }
+  const rated = s.ratedKm ?? 0
+  const scale = Math.max(rated, s.totalKm ?? 0) || 1
+  const shades = [TEAL, "#3E8F8A", "#7DB8B2", "#A9D1CC"]
   return (
-    <div className="px-2.5 py-1.5 text-[10px]" style={{ background: MINT, borderLeft: `3px solid ${TEAL}` }}>
-      <div className="mb-0.5 text-[10.5px] font-bold" style={{ color: TEAL }}>ยางเส้นนี้เคยใช้มาแล้ว {s.lives.length} รอบ</div>
-      <table className="w-full table-fixed border-collapse">
-        <colgroup>
-          {[15, 11, 17, 15, 24, 10, 8].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
-        </colgroup>
-        <thead>
-          <tr>
-            <th style={th}>รอบ</th><th style={th}>วันที่จอง</th><th style={th}>รถ / ตำแหน่ง</th><th style={th}>ใบแจ้งซ่อม</th>
-            <th style={th}>อาการ</th><th style={{ ...th, textAlign: "right" }}>ระยะใช้ (กม.)</th><th style={{ ...th, textAlign: "right" }}>ดอก</th>
-          </tr>
-        </thead>
-        <tbody>
-          {s.lives.map((l, i) => {
-            const pos = splitPosition(l.position)
-            return (
-              <tr key={i} className={l.isCurrent ? "font-semibold" : ""}>
-                <td style={td}>รอบที่ {i + 1}{l.isCurrent ? " ครั้งนี้" : ""}</td>
-                <td style={td}>{fmtDate(l.bookingDate) || "-"}</td>
-                <td style={td}>{l.plate} {pos.code || l.position}</td>
-                <td style={td}>{l.mrNo || "-"}</td>
-                <td style={td} className="break-words">{[l.symptom, l.spare].filter(Boolean).join(" · ") || "-"}</td>
-                <td style={{ ...td, textAlign: "right" }}>{int(l.km)}</td>
-                <td style={{ ...td, textAlign: "right" }}>{l.depthFrom !== null && l.depthTo !== null ? `${l.depthFrom}→${l.depthTo}` : ""}</td>
-              </tr>
-            )
-          })}
-          <tr className="font-bold" style={{ borderTop: `1px solid ${LINE}` }}>
-            <td style={td} colSpan={5}>รวม {s.lives.length} รอบ</td>
-            <td style={{ ...td, textAlign: "right" }}>{int(s.totalKm)} กม.</td>
-            <td />
-          </tr>
-        </tbody>
-      </table>
-      <div className="mt-1 grid gap-x-2 text-[10.5px]" style={{ gridTemplateColumns: "auto auto 1fr" }}>
-        <span style={{ color: MUTED }}>ค่ายางจริง</span>
-        <span>{money(price)} ÷ {int(s.totalKm)} กม. = <b style={{ color: worse === null ? INK : worse ? WORSE : BETTER }}>{cpk(s.cpkTotal)}</b> บาท/กม.</span>
-        <span />
-        <span style={{ color: MUTED }}>มาตรฐาน</span>
-        <span>{money(price)} ÷ {int(rated)} กม. = <b>{cpk(s.cpkStandard)}</b> บาท/กม.</span>
-        <span className="font-semibold" style={{ color: worse ? WORSE : BETTER }}>
-          {worse !== null && pctDiff !== null ? `→ ${worse ? "แพงกว่า" : "ถูกกว่า"}มาตรฐาน ${pctDiff.toFixed(0)}%` : ""}
-        </span>
+    <div className="flex flex-col gap-1 px-3 py-2 text-[11px]" style={{ background: MINT, borderLeft: `3px solid ${TEAL}` }}>
+      <div className="font-bold" style={{ color: TEAL }}>ยางเส้นนี้ไม่ใช่ยางใหม่ · เคยใช้มาแล้ว {s.lives.length} รอบ</div>
+      {s.lives.map((l, i) => (
+        <div key={i} className={`flex items-center gap-2 ${l.isCurrent ? "font-semibold" : ""}`}>
+          <span className="inline-block h-2.5 w-2.5 flex-none rounded-sm" style={{ background: shades[i % shades.length] }} />
+          <span className="w-[86px]">รอบที่ {i + 1}{l.isCurrent ? " (ครั้งนี้)" : ""}</span>
+          <span className="w-[150px]">ใส่รถ {l.plate || "-"}</span>
+          <span>วิ่งได้ {int(l.km)} กม.</span>
+        </div>
+      ))}
+      <div className="mt-0.5 flex h-3 w-full overflow-hidden rounded-sm bg-white" style={{ border: `1px solid ${LINE}` }}>
+        {s.lives.map((l, i) => (
+          <div key={i} style={{ width: `${((l.km ?? 0) / scale) * 100}%`, background: shades[i % shades.length] }} />
+        ))}
       </div>
+      <div>
+        รวมวิ่งได้ <b>{int(s.totalKm)} กม.</b>{rated ? <> จากที่ยางเส้นหนึ่งควรวิ่งได้ <b>{int(rated)} กม.</b></> : null}
+      </div>
+      {s.cpkTotal !== null && (
+        <div>
+          ยางราคา {money(price)} บาท · ใช้จริงตกกิโลละ <b style={{ color: worse ? WORSE : BETTER }}>{cpk(s.cpkTotal)} บาท</b>
+          {s.cpkStandard !== null && <> · ถ้าวิ่งครบตามที่ควร จะตกกิโลละ {cpk(s.cpkStandard)} บาท</>}
+          {worse !== null && pctDiff !== null && (
+            <b style={{ color: worse ? WORSE : BETTER }}> → {worse ? "แพงกว่าที่ควร" : "ถูกกว่าที่ควร"} {pctDiff.toFixed(0)}%</b>
+          )}
+        </div>
+      )}
     </div>
   )
 }
