@@ -83,7 +83,7 @@ export function SheetRounds() {
     <div className="space-y-4">
       <p className="text-sm text-gray-600 dark:text-gray-300 max-w-3xl">
         เหมือนแท็บ template เดิม: รอบหนึ่งดึงยางที่ <b>วันที่จอง</b> อยู่ในช่วงวันที่ และ <b>PR</b> ตรงกับเลขที่ใส่
-        กดปุ่ม PDF เพื่อเปิดใบขออนุมัติ แล้วสั่งพิมพ์หรือบันทึกเป็น PDF จากหน้านั้น ยางที่เคยใช้มาก่อนจะขึ้นทุกชีวิตในใบด้วย
+        กดปุ่ม PDF เพื่อเปิดใบขออนุมัติ แล้วสั่งพิมพ์หรือบันทึกเป็น PDF จากหน้านั้น ยางที่เคยใช้มาก่อนจะขึ้นทุกรอบที่เคยใช้ไว้ในใบด้วย
       </p>
       {!open && (
         <button onClick={startNew} className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700">

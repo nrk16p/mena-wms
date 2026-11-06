@@ -1,9 +1,10 @@
 "use client"
 
 /**
- * ใบขอความเห็นชอบอนุมัติเปลี่ยนยาง — หน้ารายรถ (แบบ A) + หน้าสรุปพร้อมช่องลงนาม (แบบ C)
- * แบบร่างอยู่ใน Claude Design: https://claude.ai/artifact/UvuyyMedGbimB2FEittm1r
- * ยางที่เคยใช้มาก่อน ขึ้นทุกชีวิตใต้แถวนั้นเสมอ พร้อมบาท/กม. รวมทุกชีวิตเทียบมาตรฐาน
+ * ใบขอความเห็นชอบอนุมัติเปลี่ยนยาง — หน้ารายรถ + หน้าสรุปพร้อมช่องลงนาม
+ * หน้าตาเดียวกับเอกสารพิมพ์ของ menait-service (lib/finance/printShared.ts): แถบเขียวน้ำทะเล หัวเอกสาร + กล่องเลขที่
+ * หัวข้อมีเลข ตารางหัวเขียวอ่อน ตารางลงนาม และ Document Control ท้ายหน้า
+ * ยางที่เคยใช้มาก่อน ขึ้นทุกรอบที่เคยใช้ใต้แถวนั้นเสมอ พร้อมบาท/กม. รวมทุกรอบเทียบมาตรฐาน
  * พิมพ์ / บันทึก PDF ด้วยปุ่มพิมพ์ของเบราว์เซอร์ (A4)
  */
 import { useEffect, useState } from "react"
@@ -15,9 +16,15 @@ import { splitPosition } from "@/lib/tire"
 type Report = Record<string, any>
 
 const LOGO = "/brand/mena-logo.svg"
-const ACCENT = "#1e3a8a"
+const INK = "#17272B"
+const TEAL = "#055058"
+const MINT = "#EAF4F1"
+const LINE = "#C7D3D0"
+const MUTED = "#5E6E71"
 const WORSE = "#b45309" // ส้ม = แย่กว่าเกณฑ์
-const BETTER = "#1d4ed8" // น้ำเงิน = ดีกว่าเกณฑ์ (ต่างกันทั้งสีและความเข้ม พิมพ์ขาวดำยังแยกได้)
+const BETTER = "#0B6E75" // เขียวน้ำทะเล = ดีกว่าเกณฑ์
+const DOC_NAME = "ใบขอความเห็นชอบอนุมัติเปลี่ยนยาง"
+const DOC_OWNER = "ฝ่ายยานยนต์ · แผนกยาง สระบุรี"
 
 const money = (n: number) => (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const int = (n: number | null | undefined) => (n === null || n === undefined ? "-" : Math.round(n).toLocaleString("th-TH"))
@@ -26,91 +33,106 @@ const cpk = (n: number | null | undefined) => (n === null || n === undefined || 
 const shortAge = (s: string) =>
   String(s ?? "").replace(/^0 ปี\s*/, "").replace(/ ปี/g, " ป.").replace(/ เดือน/g, " ด.").replace(/ วัน/g, " ว.").trim() || "-"
 
-function Header() {
+function DocHead({ title, sub, pr, round, page, pages }: { title: string; sub: string; pr: string; round: string; page: number; pages: number }) {
   return (
-    <header className="flex items-center justify-between pb-2.5" style={{ borderBottom: `2px solid ${ACCENT}` }}>
+    <header className="grid items-center gap-3.5" style={{ gridTemplateColumns: "auto 1fr auto" }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={LOGO} alt="Mena Transport" className="h-[46px] w-auto" />
-      <div className="text-right">
-        <div className="text-[15px] font-bold" style={{ color: ACCENT }}>บริษัท มีนาทรานสปอร์ต จำกัด (มหาชน)</div>
-        <div className="text-[12px] text-[#4b5563]">MEENA TRANSPORT PUBLIC COMPANY LIMITED · ฝ่ายยานยนต์ แผนกยาง</div>
+      <img src={LOGO} alt="Mena Transport" className="h-[44px] w-auto" />
+      <div>
+        <div className="text-[21px] font-bold leading-tight" style={{ color: TEAL }}>{title}</div>
+        <div className="text-[12px] font-semibold" style={{ color: MUTED }}>{sub}</div>
+      </div>
+      <div className="min-w-[58mm] rounded-[3px] text-[10.5px]" style={{ border: `1px solid ${TEAL}` }}>
+        {[["เลขที่ PR", pr || "-"], ["รอบอนุมัติ", round || "-"], ["หน้า", `${page} / ${pages}`]].map(([k, v], i) => (
+          <div key={k} className="flex justify-between gap-3 px-2 py-[3px]" style={i ? { borderTop: `1px solid ${LINE}` } : undefined}>
+            <span style={{ color: MUTED }}>{k}</span><b className="font-semibold">{v}</b>
+          </div>
+        ))}
       </div>
     </header>
   )
 }
 
-function TitleRow({ title, pr, round, page, pages }: { title: string; pr: string; round: string; page: number; pages: number }) {
+function Sec({ n, title, en }: { n: number; title: string; en?: string }) {
   return (
-    <div className="flex items-end justify-between">
-      <div>
-        <h1 className="m-0 text-[21px] font-bold" style={{ color: ACCENT }}>{title}</h1>
-        <div className="text-[13px] text-[#374151]">เลขที่ PR <b>{pr || "-"}</b> · รอบอนุมัติ {round || "-"}</div>
-      </div>
-      <div className="text-[13px] text-[#374151]">หน้า <b>{page}</b> / {pages}</div>
+    <div className="mb-1.5 mt-1 flex items-center gap-2">
+      <span className="grid h-[19px] w-[19px] flex-none place-items-center rounded-[3px] text-[11px] font-bold text-white" style={{ background: TEAL }}>{n}</span>
+      <h2 className="m-0 whitespace-nowrap text-[13px] font-bold">{title}</h2>
+      {en && <small className="whitespace-nowrap text-[10px] font-medium" style={{ color: MUTED }}>{en}</small>}
+      <span className="ml-1 flex-1" style={{ borderTop: `1px solid ${LINE}` }} />
     </div>
   )
 }
 
-function Footer({ at }: { at: string }) {
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <footer className="mt-auto flex justify-between border-t border-[#d1d5db] pt-2 text-[#4b5563]">
-      <span>พิมพ์จากระบบ WMS · ทะเบียนยางสระบุรี</span>
-      <span>สร้างเมื่อ {at}</span>
+    <div className="min-w-0 pb-0.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+      <span className="block text-[9.5px]" style={{ color: MUTED }}>{label}</span>
+      <span className="block min-h-[18px] truncate text-[12.5px] font-medium">{value || "-"}</span>
+    </div>
+  )
+}
+
+/** Document Control & Revision History แบบเดียวกับ menait-service */
+function DocControl({ pr, approvedBy, printed }: { pr: string; approvedBy: string; printed: string }) {
+  const td = { border: `1px solid ${LINE}`, padding: "2px 6px" }
+  const lb = { ...td, background: MINT, color: TEAL, fontWeight: 600 }
+  return (
+    <footer className="mt-auto pt-3">
+      <table className="w-full border-collapse text-left text-[8.5px] leading-[1.3]">
+        <thead><tr><th colSpan={6} className="text-center font-semibold text-white" style={{ ...td, background: TEAL }}>Document Control &amp; Revision History</th></tr></thead>
+        <tbody>
+          <tr><td style={{ ...lb, width: "15%" }}>Document Ref</td><td style={{ ...td, width: "33%" }}>{pr || " "}</td><td style={{ ...lb, width: "15%" }}>Document Name</td><td colSpan={3} style={td}>{DOC_NAME}</td></tr>
+          <tr><td style={lb}>Document Owner</td><td style={td}>{DOC_OWNER}</td><td style={lb}>Version No</td><td style={{ ...td, width: "8%" }}>01</td><td style={{ ...lb, width: "14%" }}>Revision Date</td><td style={{ ...td, width: "13%" }}> </td></tr>
+          <tr><td style={lb}>Approved By</td><td style={td}>{approvedBy || " "}</td><td style={lb}>Approved Date</td><td style={td}> </td><td style={lb}>Printed</td><td style={td}>{printed}</td></tr>
+        </tbody>
+      </table>
     </footer>
   )
 }
 
-function Field({ label, value, big = false }: { label: string; value: React.ReactNode; big?: boolean }) {
-  return (
-    <div>
-      <div className="text-[#4b5563]">{label}</div>
-      <div className={big ? "text-[14px] font-bold" : "text-[13px] font-semibold"}>{value || "-"}</div>
-    </div>
-  )
-}
-
-/** กล่องเหลืองใต้แถว: ทุกชีวิตของยางเส้นนี้ + บาท/กม. รวมเทียบมาตรฐาน */
+/** กล่องใต้แถว: ทุกรอบที่ยางเส้นนี้เคยใช้ + บาท/กม. รวมเทียบมาตรฐาน */
 function LivesBlock({ s }: { s: LifeSummary }) {
   const worse = s.cpkTotal !== null && s.cpkStandard !== null ? s.cpkTotal > s.cpkStandard : null
   const pctDiff = s.cpkTotal !== null && s.cpkStandard ? Math.abs(s.cpkTotal / s.cpkStandard - 1) * 100 : null
   return (
-    <div className="grid rounded-md border border-[#f59e0b] bg-[#fffbeb] px-2.5 py-2" style={{ gridTemplateColumns: "minmax(0,1fr) 150px", columnGap: 12 }}>
-      <div className="flex flex-col gap-1">
-        <div className="font-bold text-[#78350f]">
-          เส้นนี้ใช้มาแล้ว {s.lives.length} ชีวิต · รวม {int(s.totalKm)} กม.
+    <div className="grid px-2.5 py-1.5" style={{ gridTemplateColumns: "minmax(0,1fr) 140px", columnGap: 12, background: MINT, borderLeft: `3px solid ${TEAL}` }}>
+      <div className="flex flex-col gap-0.5">
+        <div className="text-[10.5px] font-bold" style={{ color: TEAL }}>
+          เส้นนี้ใช้มาแล้ว {s.lives.length} รอบ · รวม {int(s.totalKm)} กม.
           {s.pctOfRated !== null ? ` (${(s.pctOfRated * 100).toFixed(0)}% ของระยะกำหนด)` : ""}
           {s.depthUsedTotal !== null ? ` · ดอกใช้ไป ${s.depthUsedTotal}${s.fullDepth ? `/${s.fullDepth}` : ""} มม.` : ""}
         </div>
-        <div className="grid text-[#451a03]" style={{ gridTemplateColumns: "auto 66px minmax(0,1fr) auto auto", columnGap: 8 }}>
+        <div className="grid text-[10.5px]" style={{ gridTemplateColumns: "auto 62px minmax(0,1fr) auto auto", columnGap: 8 }}>
           {s.lives.map((l, i) => {
             const pos = splitPosition(l.position)
             const extra = [l.mrNo, l.symptom, l.spare].filter(Boolean).join(" · ")
             return [
-              <span key={`a${i}`} className={l.isCurrent ? "font-bold" : "font-semibold"}>ชีวิตที่ {i + 1}{l.isCurrent ? " · รอบนี้" : ""}</span>,
+              <span key={`a${i}`} className={l.isCurrent ? "font-bold" : "font-semibold"}>รอบที่ {i + 1}{l.isCurrent ? " · ครั้งนี้" : ""}</span>,
               <span key={`b${i}`}>{fmtDate(l.bookingDate) || "-"}</span>,
-              <span key={`c${i}`}>{l.plate} {pos.code || l.position}{extra ? ` · ${extra}` : ""}</span>,
+              <span key={`c${i}`} className="break-words">{l.plate} {pos.code || l.position}{extra ? ` · ${extra}` : ""}</span>,
               <span key={`d${i}`} className="text-right">{int(l.km)} กม.</span>,
               <span key={`e${i}`} className="text-right">{l.depthFrom !== null && l.depthTo !== null ? `ดอก ${l.depthFrom}→${l.depthTo}` : ""}</span>,
             ]
           })}
         </div>
       </div>
-      <div className="flex flex-col justify-center gap-0.5 border-l border-[#fcd34d] pl-3">
-        <div className="text-[#78350f]">บาท/กม. รวมทุกชีวิต</div>
+      <div className="flex flex-col justify-center gap-0.5 pl-3 text-[10px]" style={{ borderLeft: `1px solid ${LINE}` }}>
+        <div style={{ color: MUTED }}>บาท/กม. รวมทุกรอบ</div>
         <div>
-          <span className="text-[18px] font-bold" style={{ color: worse === null ? "#111827" : worse ? WORSE : BETTER }}>{cpk(s.cpkTotal)}</span>{" "}
-          <span className="text-[#451a03]">เทียบ {cpk(s.cpkStandard)}</span>
+          <span className="text-[16px] font-bold" style={{ color: worse === null ? INK : worse ? WORSE : BETTER }}>{cpk(s.cpkTotal)}</span>{" "}
+          <span style={{ color: MUTED }}>เทียบ {cpk(s.cpkStandard)}</span>
         </div>
         {worse !== null && pctDiff !== null && (
-          <div className="text-[#78350f]">{worse ? "แพงกว่า" : "ถูกกว่า"}มาตรฐาน {pctDiff.toFixed(0)}%</div>
+          <div className="font-semibold" style={{ color: worse ? WORSE : BETTER }}>{worse ? "แพงกว่า" : "ถูกกว่า"}มาตรฐาน {pctDiff.toFixed(0)}%</div>
         )}
       </div>
     </div>
   )
 }
 
-const TH = "px-1 py-1.5 font-semibold"
-const TD = "px-1 py-[7px] align-top"
+const TH = "tp-th"
+const TD = "tp-td"
 
 export function RoundPrint({ id }: { id: string }) {
   const [data, setData] = useState<Report | null>(null)
@@ -142,18 +164,26 @@ export function RoundPrint({ id }: { id: string }) {
   const good = vehicles.reduce((a, v) => a + (v.tiregood || 0), 0)
   const bad = vehicles.reduce((a, v) => a + (v.tiredefect || 0), 0)
   const dash = (n: number, f: (n: number) => string) => (n ? f(n) : "–")
+  const pageCls = "pdf-page relative mx-auto mb-8 flex flex-col gap-2.5 bg-white px-[14mm] pb-[8mm] pt-[11mm] shadow"
+  const pageStyle = { width: "210mm", minHeight: "297mm" }
+  const band = <div className="absolute inset-x-0 top-0 h-[5mm]" style={{ background: TEAL }} />
+  const sumRow = { background: MINT, borderTop: `1.5px solid ${TEAL}` }
 
   return (
-    <div className="tyre-print min-h-full bg-[#e5e7eb] py-6 text-[#111827]" style={{ fontFamily: "'Sarabun', 'TH Sarabun New', Arial, sans-serif" }}>
+    <div className="tyre-print min-h-full bg-[#e5e7eb] py-6" style={{ color: INK, fontFamily: "'IBM Plex Sans Thai', 'Noto Sans Thai', sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
-        @page { size: A4; margin: 10mm; }
-        .tyre-print .pdf-page { font-size: 12px; line-height: 1.45; }
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap');
+        @page { size: A4 portrait; margin: 0; }
+        .tyre-print .pdf-page { font-size: 11.5px; line-height: 1.42; font-variant-numeric: tabular-nums; }
+        .tyre-print table.tp { width: 100%; border-collapse: collapse; }
+        .tyre-print .tp-th { background: ${MINT}; color: ${TEAL}; font-size: 9.5px; font-weight: 600; line-height: 1.25; padding: 3px 4px; border: 1px solid ${LINE}; vertical-align: middle; }
+        .tyre-print .tp-td { border-left: 1px solid ${LINE}; border-right: 1px solid ${LINE}; border-bottom: 1px dotted #A9B8B5; padding: 3px 4px; font-size: 10.5px; line-height: 1.3; vertical-align: top; }
+        .tyre-print .tp-sum td { border: 1px solid ${LINE}; font-weight: 700; padding: 4px; font-size: 10.5px; }
         @media print {
           html, body { background: #fff !important; height: auto !important; overflow: visible !important; }
           .tyre-print { background: #fff !important; padding: 0 !important; }
           .no-print { display: none !important; }
-          .pdf-page { box-shadow: none !important; margin: 0 !important; width: auto !important; min-height: 277mm !important; padding: 0 !important; break-after: page; }
+          .pdf-page { box-shadow: none !important; margin: 0 !important; height: 297mm !important; min-height: 297mm !important; overflow: hidden; break-after: page; }
           .pdf-page:last-child { break-after: auto; }
           tr { break-inside: avoid; }
           * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
@@ -162,7 +192,7 @@ export function RoundPrint({ id }: { id: string }) {
 
       <div className="no-print fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
         <div className="rounded bg-white px-3 py-2 text-xs text-gray-600 shadow">ปลายทางเลือก “บันทึกเป็น PDF” · กระดาษ A4 · เปิด “กราฟิกพื้นหลัง”</div>
-        <button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg bg-green-600 px-6 py-3 font-semibold text-white shadow-lg hover:bg-green-700">
+        <button onClick={() => window.print()} className="flex items-center gap-2 rounded-lg px-6 py-3 font-semibold text-white shadow-lg" style={{ background: TEAL }}>
           <Printer className="h-5 w-5" /> พิมพ์ / บันทึก PDF
         </button>
       </div>
@@ -174,49 +204,52 @@ export function RoundPrint({ id }: { id: string }) {
         const avgBpk = summary.count ? summary.totalBpk / summary.count : 0
         const truck = items.find((x) => x.typeTruck)?.typeTruck
         return (
-          <div key={`${header.docNo}-${index}`} className="pdf-page mx-auto mb-8 flex flex-col gap-3.5 bg-white px-10 pb-8 pt-10 shadow" style={{ width: "210mm", minHeight: "297mm" }}>
-            <Header />
-            <TitleRow title="ใบขอความเห็นชอบอนุมัติเปลี่ยนยาง" pr={data.docPR} round={data.approvalRound} page={index + 1} pages={pages} />
+          <div key={`${header.docNo}-${index}`} className={pageCls} style={pageStyle}>
+            {band}
+            <DocHead title={DOC_NAME} sub="(Tyre Replacement Approval Request)" pr={data.docPR} round={data.approvalRound} page={index + 1} pages={pages} />
 
-            <section className="grid grid-cols-3 gap-x-5 gap-y-2 rounded-md bg-[#f3f4f6] px-3.5 py-3">
-              <Field big label="ทะเบียนรถ" value={<>{header.plate || "-"}{truck && <span className="font-medium text-[#374151]"> ({truck})</span>}</>} />
-              <Field big label="ใบแจ้งซ่อม" value={header.docNo} />
-              <Field big label="วันที่จอง" value={header.bookingDate} />
-              <Field label="ลูกค้า" value={header.customer} />
-              <Field label="พนักงานขับรถ" value={header.employee} />
-              <Field label="ผู้ขออนุมัติ" value={data.approver1} />
-            </section>
+            <div>
+              <Sec n={1} title="ข้อมูลรถ" en="Vehicle" />
+              <div className="grid grid-cols-3 gap-x-5 gap-y-1.5">
+                <Field label="ทะเบียนรถ" value={<>{header.plate || "-"}{truck && <span style={{ color: MUTED }}> ({truck})</span>}</>} />
+                <Field label="ใบแจ้งซ่อม" value={header.docNo} />
+                <Field label="วันที่จอง" value={header.bookingDate} />
+                <Field label="ลูกค้า" value={header.customer} />
+                <Field label="พนักงานขับรถ" value={header.employee} />
+                <Field label="ผู้ขออนุมัติ" value={data.approver1} />
+              </div>
+            </div>
 
-            <section className="flex flex-col gap-1.5">
-              <h2 className="m-0 text-[14px] font-bold">รายการยางที่ขออนุมัติเปลี่ยน · {items.length} เส้น</h2>
-              <table className="w-full table-fixed border-collapse text-[12px]">
+            <div>
+              <Sec n={2} title={`รายการยางที่ขออนุมัติเปลี่ยน · ${items.length} เส้น`} en="Tyres" />
+              <table className="tp table-fixed">
                 <colgroup>
-                  {[3, 14, 17, 11, 14, 7, 9, 11, 14].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
+                  {[4, 13, 17, 11, 14, 7, 9, 11, 14].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
                 </colgroup>
                 <thead>
-                  <tr className="text-left text-white" style={{ background: ACCENT }}>
+                  <tr>
                     <th className={`${TH} text-center`}>#</th>
-                    <th className={TH}>ตำแหน่ง</th>
-                    <th className={TH}>ยี่ห้อ / เบอร์ยาง</th>
-                    <th className={TH}>ใส่เมื่อ · อายุ</th>
+                    <th className={`${TH} text-left`}>ตำแหน่ง</th>
+                    <th className={`${TH} text-left`}>ยี่ห้อ / เบอร์ยาง</th>
+                    <th className={`${TH} text-left`}>ใส่เมื่อ · อายุ</th>
                     <th className={`${TH} text-right`}>ระยะใช้ / กำหนด (กม.)</th>
                     <th className={`${TH} text-right`}>ดอก (มม.)</th>
                     <th className={`${TH} text-right`}>ราคา (บ.)</th>
                     <th className={`${TH} text-right`}>บาท/กม. จริง / มาตรฐาน</th>
-                    <th className={TH}>อาการ · ยางสำรอง</th>
+                    <th className={`${TH} text-left`}>อาการ · ยางสำรอง</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item, i) => {
                     const pos = splitPosition(item.position || "")
                     const mDiff = item.mileageDiff || 0
-                    const mColor = mDiff > 0 ? BETTER : mDiff < 0 ? WORSE : "#374151"
+                    const mColor = mDiff > 0 ? BETTER : mDiff < 0 ? WORSE : MUTED
                     const dDiff = item.depthDiff || 0
                     const bpkWorse = (item.bpk || 0) > (item.bline || 0)
                     const multi = (item.lives?.lives?.length ?? 0) > 1
                     const [brand, ...rest] = [item.brand, ...String(item.tireCode || "-").split(" ")]
                     return [
-                      <tr key={item.id} className="border-t border-[#9ca3af]">
+                      <tr key={item.id}>
                         <td className={`${TD} text-center font-bold`}>{i + 1}</td>
                         <td className={TD}><b>{pos.code || "-"}</b><br />{pos.name || item.position || ""}</td>
                         <td className={`${TD} break-words`}>{brand || "-"}<br /><b>{rest[0]}</b> {rest.slice(1).join(" ")}</td>
@@ -232,71 +265,74 @@ export function RoundPrint({ id }: { id: string }) {
                         <td className={`${TD} text-right`}>{money(item.price)}</td>
                         <td className={`${TD} text-right`}>
                           <span className="font-bold" style={{ color: bpkWorse ? WORSE : BETTER }}>{cpk(item.bpk)}</span> / {cpk(item.bline)}
-                          {multi && <><br /><span className="text-[#4b5563]">เฉพาะรอบนี้</span></>}
+                          {multi && <><br /><span style={{ color: MUTED }}>เฉพาะครั้งนี้</span></>}
                         </td>
-                        <td className={TD}>{item.status || "-"}<br /><span className="text-[#4b5563]">สำรอง: {item.spare || "–"}</span></td>
+                        <td className={TD}>{item.status || "-"}<br /><span style={{ color: MUTED }}>สำรอง: {item.spare || "–"}</span></td>
                       </tr>,
                       multi ? (
                         <tr key={`${item.id}-lives`}>
-                          <td colSpan={9} className="px-1 pb-2"><LivesBlock s={item.lives} /></td>
+                          <td colSpan={9} className={TD} style={{ padding: "2px 4px 4px" }}><LivesBlock s={item.lives} /></td>
                         </tr>
                       ) : null,
                     ]
                   })}
-                  <tr className="bg-[#eff6ff] font-bold" style={{ borderTop: `2px solid ${ACCENT}` }}>
-                    <td colSpan={6} className="px-1 py-[7px] text-right">รวม {items.length} เส้น</td>
-                    <td className="px-1 py-[7px] text-right">{money(summary.totalPrice)}</td>
-                    <td className="px-1 py-[7px] text-right">เฉลี่ย {cpk(avgBpk)}</td>
+                  <tr className="tp-sum" style={sumRow}>
+                    <td colSpan={6} className="text-right" style={{ color: TEAL }}>รวม {items.length} เส้น</td>
+                    <td className="text-right">{money(summary.totalPrice)}</td>
+                    <td className="text-right">เฉลี่ย {cpk(avgBpk)}</td>
                     <td />
                   </tr>
                 </tbody>
               </table>
-            </section>
+            </div>
 
-            <section className="flex flex-col gap-1.5">
-              <h2 className="m-0 text-[14px] font-bold">หมายเหตุ</h2>
-              <div className="h-16 rounded-md border border-[#9ca3af]" />
-              <div className="text-[#4b5563]">
-                บาท/กม. รวมทุกชีวิต = ราคา ÷ ระยะรวมทุกชีวิต · มาตรฐาน = ราคา ÷ ระยะกำหนด · สีส้ม = แย่กว่าเกณฑ์ สีน้ำเงิน = ดีกว่าเกณฑ์ · เอกสารมีผลเมื่ออนุมัติครบทุกลำดับ
+            <div style={{ breakInside: "avoid" }}>
+              <Sec n={3} title="หมายเหตุ" en="Remarks" />
+              <div className="h-14 rounded-[3px]" style={{ border: `1px solid ${LINE}` }} />
+              <div className="mt-1 text-[9.5px]" style={{ color: MUTED }}>
+                บาท/กม. รวมทุกรอบ = ราคา ÷ ระยะรวมทุกรอบที่ใช้ · มาตรฐาน = ราคา ÷ ระยะกำหนด · สีส้ม = แย่กว่าเกณฑ์ สีเขียว = ดีกว่าเกณฑ์ · เอกสารมีผลเมื่ออนุมัติครบทุกลำดับ
               </div>
-            </section>
+            </div>
 
-            <Footer at={at} />
+            <DocControl pr={data.docPR} approvedBy={data.approver3} printed={at} />
           </div>
         )
       })}
 
-      {/* หน้าสรุป (แบบ C) */}
-      <div className="pdf-page mx-auto mb-8 flex flex-col gap-3.5 bg-white px-10 pb-8 pt-10 shadow" style={{ width: "210mm", minHeight: "297mm" }}>
-        <Header />
-        <TitleRow title="สรุปการขออนุมัติเปลี่ยนยาง" pr={data.docPR} round={data.approvalRound} page={pages} pages={pages} />
+      {/* หน้าสรุป + ลงนาม */}
+      <div className={pageCls} style={pageStyle}>
+        {band}
+        <DocHead title="สรุปการขออนุมัติเปลี่ยนยาง" sub="(Approval Summary)" pr={data.docPR} round={data.approvalRound} page={pages} pages={pages} />
 
-        <section className="grid grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-4 gap-2.5">
           {[
             ["รถ (ใบแจ้งซ่อม)", int(overall.totalDocs || 0), "คัน", ""],
-            ["ยางที่ขอเปลี่ยน", int(overall.totalTires || 0), "เส้น", overall.multiLifeTires ? `ใช้หลายชีวิต ${overall.multiLifeTires} เส้น` : ""],
-            ["มูลค่ารวม", money(overall.totalPrice), "", "บาท"],
-            ["บาท/กม. เฉลี่ย", cpk(overall.avgBpk || 0), "", "ทั้งรอบ"],
+            ["ยางที่ขอเปลี่ยน", int(overall.totalTires || 0), "เส้น", overall.multiLifeTires ? `ใช้มาหลายรอบ ${overall.multiLifeTires} เส้น` : ""],
+            ["บาท/กม. เฉลี่ย", cpk(overall.avgBpk || 0), "", "ทั้งรอบอนุมัติ"],
           ].map(([k, v, u, sub]) => (
-            <div key={k} className="rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2.5">
-              <div className="text-[#374151]">{k}</div>
-              <div className="text-[24px] font-bold leading-tight" style={{ color: ACCENT }}>{v} {u && <span className="text-[13px] font-medium">{u}</span>}</div>
-              {sub && <div className="text-[#374151]">{sub}</div>}
+            <div key={k} className="rounded-[3px] px-3 py-2" style={{ border: `1px solid ${TEAL}` }}>
+              <div className="text-[10px]" style={{ color: MUTED }}>{k}</div>
+              <div className="text-[22px] font-bold leading-tight" style={{ color: TEAL }}>{v} {u && <span className="text-[11px] font-medium">{u}</span>}</div>
+              {sub && <div className="text-[10px]" style={{ color: MUTED }}>{sub}</div>}
             </div>
           ))}
-        </section>
+          <div className="rounded-[3px] px-3 py-2 text-white" style={{ background: TEAL }}>
+            <div className="text-[10px] opacity-85">มูลค่ารวม</div>
+            <div className="text-right text-[22px] font-bold leading-tight">{money(overall.totalPrice)}<span className="ml-1 text-[11px] font-medium">บาท</span></div>
+          </div>
+        </div>
 
         {t && (
-          <section className="flex flex-col gap-1.5">
-            <h2 className="m-0 text-[14px] font-bold">แยกตามชนิดยาง</h2>
-            <table className="w-full border-collapse text-[12px]">
+          <div>
+            <Sec n={1} title="แยกตามชนิดยาง" en="By tyre type" />
+            <table className="tp">
               <thead>
-                <tr className="text-white" style={{ background: ACCENT }}>
-                  <th className="px-2 py-1.5 text-left font-semibold">ตำแหน่ง</th>
-                  <th className="px-2 py-1.5 text-left font-semibold">ชนิดยาง</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">จำนวน (เส้น)</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">มูลค่า (บาท)</th>
-                  <th className="px-2 py-1.5 text-right font-semibold">บาท/กม. เฉลี่ย</th>
+                <tr>
+                  <th className={`${TH} text-left`}>ตำแหน่ง</th>
+                  <th className={`${TH} text-left`}>ชนิดยาง</th>
+                  <th className={`${TH} text-right`}>จำนวน (เส้น)</th>
+                  <th className={`${TH} text-right`}>มูลค่า (บาท)</th>
+                  <th className={`${TH} text-right`}>บาท/กม. เฉลี่ย</th>
                 </tr>
               </thead>
               <tbody>
@@ -304,81 +340,91 @@ export function RoundPrint({ id }: { id: string }) {
                   (["typeI", "typeII"] as const).map((k) => {
                     const p = t[part]?.[k] ?? { countTire: 0, cost: 0, avgBpk: 0 }
                     return (
-                      <tr key={`${part}-${k}`} className={`border-b border-[#d1d5db] ${p.countTire ? "" : "text-[#4b5563]"}`}>
-                        <td className="px-2 py-1.5 font-semibold">{part === "head" ? "หัว" : "หาง"}</td>
-                        <td className="px-2 py-1.5">{k === "typeI" ? "ยางนอก 11R22.5" : "ยางนอก 1000-20"}</td>
-                        <td className="px-2 py-1.5 text-right">{dash(p.countTire, (n) => n.toLocaleString("th-TH"))}</td>
-                        <td className="px-2 py-1.5 text-right">{dash(p.cost, money)}</td>
-                        <td className="px-2 py-1.5 text-right">{dash(p.avgBpk, (n) => n.toFixed(3))}</td>
+                      <tr key={`${part}-${k}`} style={p.countTire ? undefined : { color: MUTED }}>
+                        <td className={`${TD} font-semibold`}>{part === "head" ? "หัว" : "หาง"}</td>
+                        <td className={TD}>{k === "typeI" ? "ยางนอก 11R22.5" : "ยางนอก 1000-20"}</td>
+                        <td className={`${TD} text-right`}>{dash(p.countTire, (n) => n.toLocaleString("th-TH"))}</td>
+                        <td className={`${TD} text-right`}>{dash(p.cost, money)}</td>
+                        <td className={`${TD} text-right`}>{dash(p.avgBpk, (n) => n.toFixed(3))}</td>
                       </tr>
                     )
                   }),
                 )}
               </tbody>
             </table>
-          </section>
+          </div>
         )}
 
-        <section className="flex flex-col gap-1.5">
-          <h2 className="m-0 text-[14px] font-bold">แยกตามรถ</h2>
-          <table className="w-full table-fixed border-collapse text-[12px]">
+        <div>
+          <Sec n={2} title="แยกตามรถ" en="By vehicle" />
+          <table className="tp table-fixed">
             <colgroup>
               {[4, 11, 15, 11, 19, 6, 12, 12, 10].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
             </colgroup>
             <thead>
-              <tr className="text-left text-white" style={{ background: ACCENT }}>
-                <th className="px-1 py-1.5 text-center font-semibold">#</th>
-                <th className="px-1 py-1.5 font-semibold">ทะเบียน</th>
-                <th className="px-1 py-1.5 font-semibold">ใบแจ้งซ่อม</th>
-                <th className="px-1 py-1.5 font-semibold">วันที่จอง</th>
-                <th className="px-1 py-1.5 font-semibold">พนักงานขับรถ</th>
-                <th className="px-1 py-1.5 text-right font-semibold">เส้น</th>
-                <th className="px-1 py-1.5 font-semibold">ปกติ / ไม่ปกติ</th>
-                <th className="px-1 py-1.5 text-right font-semibold">มูลค่า (บ.)</th>
-                <th className="px-1 py-1.5 text-right font-semibold">บาท/กม.</th>
+              <tr>
+                <th className={`${TH} text-center`}>#</th>
+                <th className={`${TH} text-left`}>ทะเบียน</th>
+                <th className={`${TH} text-left`}>ใบแจ้งซ่อม</th>
+                <th className={`${TH} text-left`}>วันที่จอง</th>
+                <th className={`${TH} text-left`}>พนักงานขับรถ</th>
+                <th className={`${TH} text-right`}>เส้น</th>
+                <th className={`${TH} text-left`}>ปกติ / ไม่ปกติ</th>
+                <th className={`${TH} text-right`}>มูลค่า (บ.)</th>
+                <th className={`${TH} text-right`}>บาท/กม.</th>
               </tr>
             </thead>
             <tbody>
               {vehicles.map((v, i) => (
-                <tr key={`${v.docNo}-${i}`} className={`border-b border-[#e5e7eb] ${i % 2 ? "bg-[#f9fafb]" : ""}`}>
-                  <td className="p-1 text-center">{i + 1}</td>
-                  <td className="p-1">{v.plate || "-"}</td>
-                  <td className="p-1">{v.docNo || "-"}</td>
-                  <td className="p-1">{v.bookingDate || "-"}</td>
-                  <td className="p-1">{v.employee || "-"}</td>
-                  <td className="p-1 text-right">{v.count || 0}</td>
-                  <td className="p-1">{v.tiregood || 0} / {v.tiredefect ? <b style={{ color: WORSE }}>{v.tiredefect}</b> : 0}</td>
-                  <td className="p-1 text-right">{money(v.totalPrice)}</td>
-                  <td className="p-1 text-right">{cpk(v.avgBpk)}</td>
+                <tr key={`${v.docNo}-${i}`}>
+                  <td className={`${TD} text-center`}>{i + 1}</td>
+                  <td className={TD}>{v.plate || "-"}</td>
+                  <td className={TD}>{v.docNo || "-"}</td>
+                  <td className={TD}>{v.bookingDate || "-"}</td>
+                  <td className={`${TD} truncate`}>{v.employee || "-"}</td>
+                  <td className={`${TD} text-right`}>{v.count || 0}</td>
+                  <td className={TD}>{v.tiregood || 0} / {v.tiredefect ? <b style={{ color: WORSE }}>{v.tiredefect}</b> : 0}</td>
+                  <td className={`${TD} text-right`}>{money(v.totalPrice)}</td>
+                  <td className={`${TD} text-right`}>{cpk(v.avgBpk)}</td>
                 </tr>
               ))}
-              {!vehicles.length && <tr><td colSpan={9} className="py-4 text-center text-[#4b5563]">ไม่มีรถในรอบนี้</td></tr>}
-              <tr className="bg-[#eff6ff] font-bold" style={{ borderTop: `2px solid ${ACCENT}` }}>
-                <td colSpan={5} className="px-1 py-1.5 text-right">รวมทั้งหมด</td>
-                <td className="px-1 py-1.5 text-right">{overall.totalTires || 0}</td>
-                <td className="px-1 py-1.5">{good} / {bad}</td>
-                <td className="px-1 py-1.5 text-right">{money(overall.totalPrice)}</td>
-                <td className="px-1 py-1.5 text-right">{cpk(overall.avgBpk || 0)}</td>
+              {!vehicles.length && <tr><td colSpan={9} className={`${TD} py-4 text-center`} style={{ color: MUTED }}>ไม่มีรถในรอบนี้</td></tr>}
+              <tr className="tp-sum" style={sumRow}>
+                <td colSpan={5} className="text-right" style={{ color: TEAL }}>รวมทั้งหมด</td>
+                <td className="text-right">{overall.totalTires || 0}</td>
+                <td>{good} / {bad}</td>
+                <td className="text-right">{money(overall.totalPrice)}</td>
+                <td className="text-right">{cpk(overall.avgBpk || 0)}</td>
               </tr>
             </tbody>
           </table>
-        </section>
+        </div>
 
-        <section className="flex flex-col gap-2" style={{ breakInside: "avoid" }}>
-          <h2 className="m-0 text-[14px] font-bold">ลงนามอนุมัติ</h2>
-          <div className="grid grid-cols-3 gap-3.5">
-            {[["ผู้จัดทำ", data.approver1], ["ผู้อนุมัติ 1", data.approver2], ["ผู้อนุมัติ 2", data.approver3]].map(([role, name]) => (
-              <div key={role} className="flex flex-col gap-1.5 rounded-md border border-[#9ca3af] px-3 py-2.5 text-center">
-                <div className="text-[#374151]">{role}</div>
-                <div className="h-[54px] border-b border-[#6b7280]" />
-                <div className="text-[13px] font-bold">( {name || "........................................"} )</div>
-                <div className="text-[#374151]">วันที่ ......./......./...........</div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <div style={{ breakInside: "avoid" }}>
+          <Sec n={3} title="ลงนามอนุมัติ" en="Signatures" />
+          <table className="w-full table-fixed border-collapse">
+            <thead>
+              <tr>
+                {["ผู้จัดทำ", "ผู้อนุมัติ 1", "ผู้อนุมัติ 2"].map((r) => (
+                  <th key={r} className="p-[5px] text-[11px] font-semibold" style={{ background: MINT, color: TEAL, border: `1px solid ${LINE}` }}>{r}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {[data.approver1, data.approver2, data.approver3].map((name, i) => (
+                  <td key={i} className="px-2 pb-2 align-bottom" style={{ border: `1px solid ${LINE}` }}>
+                    <div className="h-[17mm]" />
+                    <div className="flex gap-1.5 text-[10px]" style={{ borderTop: `1px dotted ${MUTED}` }}><span style={{ color: MUTED }}>ชื่อ</span><i className="not-italic text-[11px] font-semibold">{name || ""}</i></div>
+                    <div className="mt-1 flex gap-1.5 text-[10px]"><span style={{ color: MUTED }}>วันที่</span><span>......./......./...........</span></div>
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-        <Footer at={at} />
+        <DocControl pr={data.docPR} approvedBy={data.approver3} printed={at} />
       </div>
     </div>
   )
