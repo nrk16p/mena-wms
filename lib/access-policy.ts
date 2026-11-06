@@ -166,6 +166,7 @@ const PAGE_PREFIXES: [string, Section | "admin"][] = [
   ["/driver-handover", "driver-handover"],
   ["/ai-mixer-maintenance", "ai-mixer"],
   ["/store-withdraw", "store-withdraw"], ["/store-withdraw/queue", "store-queue"],
+  ["/store-withdraw-link", "store-withdraw"], ["/store-withdraw-link/queue", "store-queue"], // ลิงก์แยก ไม่มี sidebar — สิทธิ์เดียวกับหน้าเดิม
   ["/store-withdraw/audit", "store-audit"],
   ["/store-withdraw/core-return", "core-return"],
   ["/admin", "admin"],

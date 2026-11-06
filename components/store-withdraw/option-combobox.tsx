@@ -70,7 +70,7 @@ export function OptionCombobox({
   }
 
   const inputCls =
-    "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] py-2.5 pl-3.5 pr-16 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
+    "w-full rounded-md border border-[#D5DCD8] dark:border-white/10 bg-white dark:bg-[#0f1117] py-2.5 pl-3.5 pr-16 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 
   return (
     <div ref={boxRef} className={`relative ${className}`}>
@@ -104,7 +104,7 @@ export function OptionCombobox({
 
       {open && (
         <ul id={listId} ref={listRef} role="listbox"
-          className="absolute left-0 right-0 z-30 mt-1 max-h-64 overflow-y-auto rounded-xl border border-gray-200/80 bg-white py-1 text-sm shadow-lg dark:border-white/10 dark:bg-[#1b202b]">
+          className="absolute left-0 right-0 z-30 mt-1 max-h-64 overflow-y-auto rounded-md border border-gray-200/80 bg-white py-1 text-sm shadow-lg dark:border-white/10 dark:bg-[#1b202b]">
           {filtered.map((o, i) => {
             const isSel = o.id === value
             return (

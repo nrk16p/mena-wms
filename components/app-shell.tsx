@@ -24,8 +24,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isVendorPage       = pathname.startsWith("/q/") || pathname === "/form-vendor"
     || pathname === "/vendor-portal" || pathname.startsWith("/vendor-portal/")
 
+  // เบิกอะไหล่แบบลิงก์แยก (/store-withdraw-link, /store-withdraw-link/queue) — ไม่มี sidebar/navbar แต่ยังต้อง login (เฝ้า session ด้วย)
+  const isStandaloneWithdraw = pathname === "/store-withdraw-link" || pathname.startsWith("/store-withdraw-link/")
+
   if (isLoginPage || isPresentationPage || isVendorPage) {
     return <div className="w-full h-full">{children}</div>
+  }
+
+  if (isStandaloneWithdraw) {
+    return (
+      <>
+        <SessionGuard />
+        <div className="main-canvas w-full h-full overflow-y-auto">{children}</div>
+      </>
+    )
   }
 
   if (isPrdPage || isPrintPage) {

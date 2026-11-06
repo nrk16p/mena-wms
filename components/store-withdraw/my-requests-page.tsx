@@ -4,13 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { CalendarClock, ClipboardCheck, Copy, MessageCircle, Plus, PackageMinus, RefreshCw, Search, Undo2, X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, matchesSearch, returnableQty, searchActive, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { lateMinutes, lateText } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
 import { AttachButton, AttachChip, AttachPicker, doneIds, isUploading, type Picked } from "./attach-picker"
 import { StatusChip } from "./status-chip"
+import { RequestForm } from "./request-form"
 import { ExtendDueDialog, SummaryView, type PendingReq } from "./summary-dialog"
 import { LineCoreChips, MineCoreBanner, RequestCoreReturn, useRequestCore } from "@/components/core-return/request-core"
 import type { Row as CoreRowView } from "@/components/core-return/shared"
@@ -64,6 +65,8 @@ export function MyRequestsPage() {
   // ซากอะไหล่: ชิปสถานะต่อบรรทัด + ปุ่มคืนซาก (ใบที่ได้ WD แล้ว)
   const [coreRet, setCoreRet] = useState<CoreRowView | null>(null)
   const [coreTick, setCoreTick] = useState(0)
+  const [creating, setCreating] = useState(false)
+  // ฟอร์มขอเบิกใหม่ (Dialog) · ฟอร์ม mount ใหม่ทุกครั้งที่เปิด = เริ่มจากค่าว่าง
 
   const load = useCallback(async () => {
     inflight.current?.abort()
@@ -155,7 +158,7 @@ export function MyRequestsPage() {
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={load} aria-label="โหลดใหม่" className="rounded-xl border border-[#E2E8E4] p-2.5 text-gray-600 hover:text-[#1B8C4B] dark:border-white/10"><RefreshCw size={16} /></button>
-          <Link href="/store-withdraw/new" className="inline-flex items-center gap-1.5 rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#157a40]"><Plus size={16} />ขอเบิกใหม่</Link>
+          <button type="button" data-testid="new-request" onClick={() => setCreating(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#157a40]"><Plus size={16} />ขอเบิกใหม่</button>
         </div>
       </div>
 
@@ -268,6 +271,17 @@ export function MyRequestsPage() {
 
       <RequestCoreReturn row={coreRet} onClose={() => setCoreRet(null)} onDone={() => { setCoreRet(null); core.refresh(); setCoreTick((t) => t + 1); void swalToast("success", "บันทึกคืนซากแล้ว") }} />
       {ret && <ReturnDialog req={ret} onClose={() => setRet(null)} onDone={() => { setRet(null); load() }} />}
+      <Dialog open={creating} onOpenChange={(o) => { if (!o) setCreating(false) }}>
+        {/* ฟอร์มมี combobox/ป๊อปอัปค้นหา + swal เด้งทับ — กันคลิกนอกกรอบ/โฟกัสหลุดแล้ว dialog ปิดเอง (ข้อมูลที่กรอกจะหาย) */}
+        {/* หัว/ท้ายนิ่ง เลื่อนเฉพาะเนื้อหาฟอร์ม → ปุ่มปิด (X) กับปุ่มยื่นอยู่ในจอเสมอ */}
+        <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl" onInteractOutside={(e) => e.preventDefault()}>
+          <DialogHeader className="shrink-0 border-b border-gray-200 bg-white px-4 py-4 pr-12 text-left sm:px-6 dark:border-white/10 dark:bg-[#161922]">
+            <DialogTitle>ขอเบิกอะไหล่</DialogTitle>
+            <DialogDescription className="text-xs">ช่องที่มีเครื่องหมาย <span className="text-red-600">*</span> ต้องกรอก</DialogDescription>
+          </DialogHeader>
+          {creating && <RequestForm onDone={() => { setCreating(false); load() }} onCancel={() => setCreating(false)} />}
+        </DialogContent>
+      </Dialog>
       {ext && <ExtendDueDialog req={ext} onClose={() => setExt(null)} onDone={() => { setExt(null); load() }} />}
     </div>
   )

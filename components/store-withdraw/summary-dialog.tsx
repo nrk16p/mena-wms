@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { DUE_MAX_DAYS, normPlate } from "@/lib/store-withdraw/pending"
 import type { SwLine, SwUsage } from "@/lib/store-withdraw/types"
 import { UsageFiles } from "./attach-picker"
+import { DuePicker, dueError, toLocalInput } from "./due-picker"
 
 /** field ของใบ pending หลัง JSON (วันที่เป็นสตริง) */
 export type PendingReq = {
@@ -17,13 +18,9 @@ export type PendingReq = {
   settleGroups?: { n: number; plate: string; token: string; mrCodes: string[]; lines: { lineIndex: number; mrItemId: number; qty: number }[]; status: "PENDING" | "DONE"; atms: { gmId: number | null; code: string | null; error: string | null; needCreds: boolean; drift: string | null } }[]
 }
 
-const inputCls =
-  "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 // "LBMR26100001 อู่ใน-CM-ระบบไฟ : 257041" → "อู่ใน-CM-ระบบไฟ"
 export const mrTypeName = (label: string) => label.replace(/^\S*MR\S*\d\s+/i, "").replace(/\s*:\s*\d+$/, "")
 const num = (n: number) => String(Math.round(n * 1e6) / 1e6)
-const pad = (n: number) => String(n).padStart(2, "0")
-const toLocalInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 
 async function post(url: string, body: unknown) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -100,10 +97,11 @@ export function SummaryView({ req, compact = false }: { req: { no: string; lines
 export function ExtendDueDialog({ req, onClose, onDone }: { req: { no: string } & PendingReq; onClose: () => void; onDone: () => void }) {
   const [due, setDue] = useState(() => (req.summaryDueAt ? toLocalInput(new Date(req.summaryDueAt)) : ""))
   const [busy, setBusy] = useState(false)
-  const [limits] = useState(() => ({ min: toLocalInput(new Date()), max: toLocalInput(new Date(Date.now() + DUE_MAX_DAYS * 86_400_000)) }))
   const submit = async () => {
     const d = new Date(due)
     if (!due || isNaN(d.getTime())) return swalError("เลือกวันและเวลาใหม่ก่อน")
+    const err = dueError(due)
+    if (err) return swalError(err)
     setBusy(true)
     try {
       await post(`/api/store-withdraw/${req.no}/extend`, { summaryDueAt: d.toISOString() })
@@ -118,8 +116,10 @@ export function ExtendDueDialog({ req, onClose, onDone }: { req: { no: string } 
     <Dialog open onOpenChange={(o) => { if (!o && !busy) onClose() }}>
       <DialogContent>
         <DialogHeader><DialogTitle>เลื่อนกำหนดสรุป {req.no}</DialogTitle></DialogHeader>
-        <label className="block text-xs font-medium text-gray-500" htmlFor="sw-extend">กำหนดสรุปใหม่ (ไม่เกิน {DUE_MAX_DAYS} วันจากวันนี้)</label>
-        <input id="sw-extend" type="datetime-local" className={inputCls} value={due} min={limits.min} max={limits.max} onChange={(e) => setDue(e.target.value)} />
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500" htmlFor="sw-extend">กำหนดสรุปใหม่ (ไม่เกิน {DUE_MAX_DAYS} วันจากวันนี้)</label>
+          <DuePicker id="sw-extend" value={due} onChange={setDue} />
+        </div>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="rounded-xl border border-[#E2E8E4] px-4 py-2.5 text-sm dark:border-white/10">ปิด</button>
           <button type="button" onClick={submit} disabled={busy || !due} className="rounded-xl bg-[#1B8C4B] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">บันทึก</button>

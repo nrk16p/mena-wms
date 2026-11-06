@@ -8,7 +8,7 @@ import { useLookup } from "./use-lookup"
 import { DOC_LABEL, type DocHit, type DocKind } from "./doc-ref-types"
 
 const inputCls =
-  "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
+  "w-full rounded-md border border-[#D5DCD8] dark:border-white/10 bg-white dark:bg-[#0f1117] pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 
 const money = (n: number | null) => (n == null ? "" : n.toLocaleString("th-TH", { maximumFractionDigits: 2 }))
 
@@ -40,7 +40,7 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
   return (
     <div className="space-y-2">
       <div className="flex flex-col gap-2 sm:flex-row">
-        <div role="group" aria-label="ชนิดใบอ้างอิง" className="flex shrink-0 rounded-xl border border-[#E2E8E4] p-0.5 dark:border-white/10 sm:w-48">
+        <div role="group" aria-label="ชนิดใบอ้างอิง" className="flex shrink-0 rounded-md border border-[#D5DCD8] p-0.5 dark:border-white/10 sm:w-48">
           {(["pr", "po", "dd"] as DocKind[]).map(seg)}
         </div>
         <div className="relative min-w-0 flex-1">
@@ -55,7 +55,7 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
             onBlur={() => setTimeout(() => setOpen(false), 150)}
           />
           {!isPr && open && q.trim().length > 0 && (
-            <div className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-[#E2E8E4] bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#161922]">
+            <div className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-md border border-[#D5DCD8] bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#161922]">
               {tooShort && <p className="px-3 py-2 text-xs text-gray-500">พิมพ์อีกนิดนะ ต้อง 2 ตัวขึ้นไป</p>}
               {!tooShort && loading && <p className="px-3 py-2 text-xs text-gray-500">กำลังค้น…</p>}
               {!tooShort && !loading && error && <p className="px-3 py-2 text-xs text-red-600">{error}</p>}
@@ -87,7 +87,7 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
           {!tooShort && !loading && rows.length > 0 && <p className="text-xs text-gray-500">PR ล่าสุดของ {term} {rows.length} ใบ ดูหมายเหตุให้ตรงงานแล้วกดเลือก</p>}
           {!tooShort && !loading && rows.map((r) => (
             <button key={r.id} type="button" data-testid="docref-option" onClick={() => { onPick(r); setQ("") }}
-              className="block w-full rounded-[11px] border border-[#E2E8E4] px-3 py-2 text-left text-sm hover:border-[#1B8C4B] hover:bg-[#1B8C4B]/5 dark:border-white/10">
+              className="block w-full rounded-md border border-[#D5DCD8] px-3 py-2 text-left text-sm hover:border-[#1B8C4B] hover:bg-[#1B8C4B]/5 dark:border-white/10">
               <span className="flex items-baseline justify-between gap-2">
                 <span className="font-medium text-gray-900 dark:text-white">{r.code}</span>
                 <span className="shrink-0 text-xs text-gray-500">{[r.date, r.status].filter(Boolean).join(" · ")}</span>
@@ -99,7 +99,7 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
       )}
 
       {picked && (
-        <div data-testid="docref-chip" className="flex items-start justify-between gap-2 rounded-[11px] border border-[#1B8C4B]/40 bg-[#1B8C4B]/5 px-3.5 py-2.5 text-sm">
+        <div data-testid="docref-chip" className="flex items-start justify-between gap-2 rounded-md border border-[#1B8C4B]/40 bg-[#1B8C4B]/5 px-3.5 py-2.5 text-sm">
           <div className="min-w-0">
             <p className="font-medium text-[#14271C] dark:text-white">{DOC_LABEL[picked.kind]} {picked.code}</p>
             <p className="truncate text-xs text-gray-500">{[picked.date, picked.supplier, picked.status, picked.total != null ? `฿${money(picked.total)}` : null].filter(Boolean).join(" · ")}</p>

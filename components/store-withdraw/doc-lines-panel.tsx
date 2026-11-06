@@ -32,10 +32,10 @@ export function DocLinesPanel({ doc, inventoryId, onImport }: {
   }, [doc.kind, doc.id, inventoryId, key])
 
   const fresh = done?.key === key ? done : null
-  if (!fresh) return <p className="flex items-center gap-2 rounded-xl border border-dashed border-[#E2E8E4] px-3 py-5 text-sm text-gray-500 dark:border-white/10"><Loader2 size={15} className="animate-spin" />กำลังเปิดรายการในใบ…</p>
+  if (!fresh) return <p className="flex items-center gap-2 rounded-md border border-dashed border-[#D5DCD8] px-3 py-5 text-sm text-gray-500 dark:border-white/10"><Loader2 size={15} className="animate-spin" />กำลังเปิดรายการในใบ…</p>
   if (!fresh.data) {
     return (
-      <div role="alert" className="flex items-center justify-between gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
+      <div role="alert" className="flex items-center justify-between gap-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
         <span>{fresh.error}</span>
         <button type="button" onClick={() => setRetry((n) => n + 1)} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium underline"><RefreshCw size={13} />ลองใหม่</button>
       </div>
@@ -67,7 +67,7 @@ function Lines({ data, onImport }: { data: DocDetailResp; onImport: (l: ImportLi
   }
 
   return (
-    <div data-testid="doclines" className="space-y-2.5 rounded-xl border border-[#E2E8E4] p-3 dark:border-white/10">
+    <div data-testid="doclines" className="space-y-2.5 rounded-md border border-[#D5DCD8] p-3 dark:border-white/10">
       {warnings.length > 0 && (
         <ul className="space-y-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
           {warnings.map((w) => <li key={w} className="flex items-start gap-1.5"><AlertTriangle size={13} className="mt-px shrink-0" />{w}</li>)}
@@ -101,7 +101,7 @@ function Lines({ data, onImport }: { data: DocDetailResp; onImport: (l: ImportLi
                   </div>
                   <input aria-label={`จำนวน ${l.skuCode}`} inputMode="decimal" disabled={noSku} value={qty[i]}
                     onChange={(e) => setQty((c) => c.map((v, k) => (k === i ? e.target.value : v)))}
-                    className="w-20 shrink-0 rounded-[11px] border border-[#E2E8E4] bg-white px-2.5 py-2 text-right text-sm text-gray-900 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] disabled:bg-gray-50 dark:border-white/10 dark:bg-[#0f1117] dark:text-white" />
+                    className="w-20 shrink-0 rounded-md border border-[#D5DCD8] bg-white px-2.5 py-2 text-right text-sm text-gray-900 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B] disabled:bg-gray-50 dark:border-white/10 dark:bg-[#0f1117] dark:text-white" />
                 </div>
                 {!noSku && over && (
                   <p data-testid="docline-over" className="ml-[26px] mt-1 text-xs text-orange-600 dark:text-orange-400">เกินจำนวน{isPr ? "ที่ขอ" : "ที่รับ"} ({num(limitQty)}) ใส่ต่อได้ แต่ตรวจอีกทีนะ</p>
@@ -114,7 +114,7 @@ function Lines({ data, onImport }: { data: DocDetailResp; onImport: (l: ImportLi
       <div className="flex items-center justify-between gap-2 pt-1">
         <span className="text-xs text-gray-500">เลือกอยู่ {picked} รายการ</span>
         <button type="button" onClick={doImport} disabled={picked === 0}
-          className="rounded-xl bg-[#1B8C4B] px-4 py-2 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-50">
+          className="rounded-md bg-[#1B8C4B] px-4 py-2 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-50">
           นำเข้ารายการที่เลือก
         </button>
       </div>

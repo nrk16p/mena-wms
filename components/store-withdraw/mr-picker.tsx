@@ -10,7 +10,7 @@ export type MrItem = MrRow
 type Row = Record<string, unknown>
 
 const inputCls =
-  "w-full rounded-[11px] border border-[#E2E8E4] dark:border-white/10 bg-white dark:bg-[#0f1117] pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
+  "w-full rounded-md border border-[#D5DCD8] dark:border-white/10 bg-white dark:bg-[#0f1117] pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
 
 /** ค้น MR (ใบแจ้งซ่อม) แล้วเลือกรายการใน MR · onPick ส่งรายการทุกบรรทัดของ MR เดียวกับที่เลือกกลับไป */
 export function MrPicker({ mrCode, plate = "", onPick, onClear }: {
@@ -50,7 +50,7 @@ export function MrPicker({ mrCode, plate = "", onPick, onClear }: {
 
   if (mrCode) {
     return (
-      <div className="flex items-center justify-between gap-2 rounded-[11px] border border-[#1B8C4B]/40 bg-[#1B8C4B]/5 px-3.5 py-2.5 text-sm">
+      <div className="flex items-center justify-between gap-2 rounded-md border border-[#1B8C4B]/40 bg-[#1B8C4B]/5 px-3.5 py-2.5 text-sm">
         <span className="font-medium text-[#14271C] dark:text-white">{mrCode}</span>
         <button type="button" onClick={onClear} aria-label="ล้าง MR" className="text-gray-500 hover:text-red-600"><X size={16} /></button>
       </div>
@@ -64,14 +64,14 @@ export function MrPicker({ mrCode, plate = "", onPick, onClear }: {
       <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
       <input
         className={inputCls}
-        placeholder={plate.trim() ? "MR ของรถคันนี้ หรือพิมพ์ค้นเลข MR/ทะเบียนอื่น" : "ค้นเลข MR หรือทะเบียน/เบอร์รถ"}
+        placeholder={plate.trim() ? "เลือก MR ของรถคันนี้" : "ค้นเลข MR หรือทะเบียนรถ"}
         value={q}
         onChange={(e) => { setQ(e.target.value); setPickErr(""); setOpen(true) }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {open && (typed.length > 0 || headTerm.length > 0) && (
-        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-xl border border-[#E2E8E4] bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#161922]">
+        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-md border border-[#D5DCD8] bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#161922]">
           {tooShort && <p className="px-3 py-2 text-xs text-gray-500">พิมพ์อีกนิดนะ ต้อง 2 ตัวขึ้นไป</p>}
           {!tooShort && loading && <p className="px-3 py-2 text-xs text-gray-500">กำลังค้น…</p>}
           {!tooShort && !loading && error && <p className="px-3 py-2 text-xs text-red-600">{error}</p>}
