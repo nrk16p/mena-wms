@@ -8,14 +8,14 @@
 // เพื่อสั่งซื้อ/นัดเข้าอู่ทัน ไม่ใช่รอให้คนขับแจ้งตอนยางระเบิด
 //
 // ตัวเลขทั้งหน้ามาจาก snapshot `tire_distance` ที่คำนวณรอบกลางคืน (ดู lib/tire-distance.ts)
-// ไม่ได้คำนวณสดตอนเปิดหน้า — ปุ่ม "คำนวณใหม่" มีไว้สำหรับตอนเพิ่งแก้ระยะกำหนดที่ /tire/master
+// ไม่ได้คำนวณสดตอนเปิดหน้า — ปุ่ม "คำนวณระยะทาง GPS ใหม่" มีไว้สำหรับตอนเพิ่งแก้ระยะกำหนดที่ /tire/master
 
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
 import {
-  AlertTriangle, BellOff, BellRing, CheckCircle2, ChevronDown, ChevronRight, FileSpreadsheet,
-  LayoutDashboard, RefreshCw, Search, Settings2, Truck, Undo2,
+  ArrowUpRight, BellOff, BellRing, CheckCircle2, ChevronDown, CloudDownload, ChevronRight, ChevronsUpDown,
+  FileSpreadsheet, LayoutDashboard, RefreshCw, Search, Settings2, Truck, Undo2,
 } from "lucide-react"
 import { bkkToday } from "@/lib/bkk-time"
 import {
@@ -28,8 +28,8 @@ import {
   type DistanceSource, type DueLevel,
 } from "@/lib/tire-due"
 import {
-  StatCard, branchChipCls, branchLabel, btnSmall, card,
-  fmtDateOnly, fmtNum, fontThai, inp, tdCls, thCls, theadCls,
+  FreshnessBar, IconAction, RowMenu, oldestTime, branchChipCls, branchLabel, branchesFor, btnSmall, card,
+  fmtDateOnly, fmtNum, fontHead, fontThai, freshBtn, inp, tdCls, thCls, theadCls,
 } from "@/components/tire/shared"
 import {
   ColHead, useColFilter, type ColHeadCtx, type FacetDef, type SortDef,
@@ -115,9 +115,9 @@ type Vehicles = { over: number; due: number; warn: number; alert: number }
 
 // กลุ่มที่กดดูได้ — 3 กลุ่มแรกคือของที่ต้องลงมือ ที่เหลือเป็นของที่ยังใช้ไม่ได้/ไม่เกี่ยว
 const GROUPS = [
-  { key: "over",       label: "เกินกำหนด",          tone: "red"    as const, hint: "ใช้ระยะครบแล้ว ควรเปลี่ยนทันที" },
-  { key: "due",        label: "ถึงกำหนดเปลี่ยน",     tone: "orange" as const, hint: "ใช้ไปแล้ว 90% ขึ้นไป วางแผนเปลี่ยนได้" },
-  { key: "warn",       label: "เฝ้าระวัง",           tone: "amber"  as const, hint: "ใช้ไปแล้ว 80% ขึ้นไป" },
+  { key: "over",       label: "เกินกำหนด",          hint: "ใช้ระยะครบแล้ว ควรเปลี่ยนทันที" },
+  { key: "due",        label: "ถึงกำหนดเปลี่ยน",     hint: "ใช้ไปแล้ว 90% ขึ้นไป วางแผนเปลี่ยนได้" },
+  { key: "warn",       label: "เฝ้าระวัง",           hint: "ใช้ไปแล้ว 80% ขึ้นไป" },
 ]
 
 const OTHER_GROUPS = [
@@ -178,9 +178,12 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   const [rows, setRows]       = useState<DueRow[]>([])
   const [summary, setSummary] = useState<Summary>({})
   const [vehicles, setVehicles] = useState<Vehicles>({ over: 0, due: 0, warn: 0, alert: 0 })
-  const [meta, setMeta]       = useState<{ computedAt: string | null; dataThrough: string | null }>({ computedAt: null, dataThrough: null })
+  const [meta, setMeta]       = useState<{
+    computedAt: string | null; dataThrough: string | null; atms: { branch: string; syncedAt: string | null }[]
+  }>({ computedAt: null, dataThrough: null, atms: [] })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy]       = useState(false)
+  const [syncing, setSyncing] = useState<string | null>(null)
   const [group, setGroup]     = useState("alert")
   const [unit, setUnit]       = useState<"head" | "trailer" | "all">("all")
   const [q, setQ]             = useState("")
@@ -202,7 +205,7 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       setRows(Array.isArray(d.items) ? d.items : [])
       setSummary(d.summary ?? {})
       setVehicles(d.vehicles ?? { over: 0, due: 0, warn: 0, alert: 0 })
-      setMeta({ computedAt: d.computedAt ?? null, dataThrough: d.dataThrough ?? null })
+      setMeta({ computedAt: d.computedAt ?? null, dataThrough: d.dataThrough ?? null, atms: Array.isArray(d.atms) ? d.atms : [] })
     } catch {
       setRows([])
     } finally {
@@ -229,6 +232,55 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
       swalError((e as Error).message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  // ดึงประวัติเปลี่ยนยางล่าสุดจาก ATMS ทีละสาขา แล้วคำนวณระยะใหม่ครั้งเดียวตอนสาขาสุดท้าย
+  // ไม่งั้นเปลี่ยนยางเสร็จแล้วแท็บนี้ยังค้างยางชุดเก่าจนถึง cron รอบถัดไป
+  async function syncAtms() {
+    const branches = branchesFor(branchFilter)
+    const { isConfirmed } = await swalConfirm(
+      "ดึงข้อมูลจาก ATMS?",
+      `อัปเดตประวัติเปลี่ยนยาง${branches.map(branchLabel).join(" + ")} แล้วคำนวณระยะใหม่ทั้งฟลีต ใช้เวลาราว 1–2 นาที`,
+    )
+    if (!isConfirmed) return
+    let phpsessid: string | undefined
+    let count = 0
+    try {
+      for (let i = 0; i < branches.length; i++) {
+        const b = branches[i]
+        setSyncing(b)
+        const post = () => fetch("/api/tire-change/sync", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ branch: b, rebuild: i === branches.length - 1, ...(phpsessid ? { phpsessid } : {}) }),
+        })
+        let res = await post()
+        if (res.status === 401) {
+          const { value, isConfirmed: ok } = await Swal.fire<string>({
+            title: "Session หมดอายุ",
+            text: "วาง PHPSESSID ใหม่จาก mena-atms.com (DevTools → Cookies)",
+            input: "text",
+            inputPlaceholder: "PHPSESSID",
+            showCancelButton: true,
+            confirmButtonText: "Sync",
+            cancelButtonText: "ยกเลิก",
+            reverseButtons: true,
+          })
+          if (!ok || !value?.trim()) return
+          phpsessid = value.trim()
+          res = await post()
+        }
+        const d = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(`${branchLabel(b)}: ${d.error ?? "Sync ไม่สำเร็จ"}`)
+        count += d.count ?? 0
+      }
+      swalToast("success", `ดึงข้อมูล ATMS สำเร็จ ${fmtNum(count)} รายการ`)
+      await load()
+    } catch (e) {
+      swalError((e as Error).message)
+    } finally {
+      setSyncing(null)
     }
   }
 
@@ -406,31 +458,34 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
   return (
     <div>
       {/* แถบบอกความสดของข้อมูล — ตัวเลขทั้งหน้ามาจาก snapshot ต้องรู้ว่าเก่าแค่ไหน */}
-      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-[#6B7C72] dark:text-gray-400" style={fontThai}>
-        <span className="inline-flex items-center gap-1.5">
-          <AlertTriangle size={13} className="text-[#E8A317]" />
-          ระยะทางจาก GPS ก่อน ถ้าไม่มีใช้ค่าเที่ยว — เทียบกับระยะที่กำหนดของรุ่นยาง
-        </span>
-        {meta.dataThrough && <span>ข้อมูลระยะถึง {fmtDateOnly(meta.dataThrough)}</span>}
-        {meta.computedAt  && <span>คำนวณล่าสุด {fmtDateOnly(meta.computedAt)}</span>}
-        <button type="button" onClick={recalc} disabled={busy}
-          className={btnSmall + " ml-auto inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10 text-[#14271C] dark:text-white disabled:opacity-50"}>
-          <RefreshCw size={11} className={busy ? "animate-spin" : ""} />
-          {busy ? "กำลังคำนวณ..." : "คำนวณใหม่"}
-        </button>
-      </div>
+      <FreshnessBar
+        loading={loading && !meta.computedAt}
+        items={[
+          { label: "ข้อมูลจาก ATMS ล่าสุด",        at: oldestTime(meta.atms.map((a) => a.syncedAt)) },
+          { label: "ข้อมูลระยะทาง GPS ล่าสุด",     at: meta.computedAt },
+        ]}
+        actions={<>
+          <button type="button" onClick={syncAtms} disabled={busy || syncing !== null} className={freshBtn} style={fontThai}>
+            <CloudDownload size={13} className={"text-[#1B8C4B] " + (syncing ? "animate-pulse" : "")} />
+            {syncing ? `กำลังดึง ${branchLabel(syncing)}...` : "ดึงข้อมูล ATMS"}
+          </button>
+          <button type="button" onClick={recalc} disabled={busy || syncing !== null} className={freshBtn} style={fontThai}>
+            <RefreshCw size={13} className={"text-[#1B8C4B] " + (busy ? "animate-spin" : "")} />
+            {busy ? "กำลังคำนวณ..." : "คำนวณระยะ GPS ใหม่"}
+          </button>
+        </>}
+      />
 
       {/* การ์ดสรุป — คลิกเพื่อกรอง */}
-      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <StatCard
-          label="ต้องจัดการ" value={fmtNum(alertTotal)} tone="red"
-          caption={`เส้น · ${fmtNum(vehicles.alert)} คัน`} sub="เกิน + ถึงกำหนด"
+      <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <DueStatCard
+          label="ต้องจัดการ" tone="total" value={alertTotal} vehicles={vehicles.alert} hint="เกินกำหนด + ถึงกำหนดเปลี่ยน"
           active={group === "alert"} onClick={() => setGroup("alert")}
         />
         {GROUPS.map((g) => (
-          <StatCard
-            key={g.key} label={g.label} value={fmtNum(summary[g.key] ?? 0)} tone={g.tone}
-            caption={`เส้น · ${fmtNum(vehicles[g.key as keyof Vehicles] ?? 0)} คัน`} sub={g.hint}
+          <DueStatCard
+            key={g.key} label={g.label} tone={g.key as DueTone} value={summary[g.key] ?? 0}
+            vehicles={vehicles[g.key as keyof Vehicles] ?? 0} hint={g.hint}
             active={group === g.key} onClick={() => setGroup(g.key)}
           />
         ))}
@@ -551,6 +606,68 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
 }
 
 
+// คอลัมน์ "จัดการ" ติดขวาเสมอ — ตารางกว้างเลื่อนแนวนอนแล้วปุ่มยังอยู่ในจอ
+const actTh = thCls + " sticky right-0 z-20 w-[1%] bg-[#F6FAF7] text-right dark:bg-[#151a10]"
+const actTd = (bg = "bg-white dark:bg-[#151a10]") =>
+  "sticky right-0 z-[1] w-[1%] whitespace-nowrap px-3 py-1.5 text-right shadow-[-10px_0_10px_-10px_rgba(20,39,28,.18)] " +
+  bg + " group-hover:bg-[#F6FAF7] dark:group-hover:bg-[#1a2015]"
+
+// ── การ์ดสรุปตามระดับ — สีไล่ตามความหนัก แดง > ส้ม > เหลือง ──────────────────
+// "ต้องจัดการ" เป็นยอดรวม ไม่ใช่ระดับ จึงใช้โทนกลาง (เดิมแดงซ้ำกับ "เกินกำหนด" อ่านแยกไม่ออก)
+type DueTone = "total" | "over" | "due" | "warn"
+
+const DUE_TONE: Record<DueTone, { dot: string; num: string; active: string }> = {
+  total: {
+    dot: "bg-[#1B8C4B]", num: "text-[#14271C] dark:text-white",
+    active: "border-[#1B8C4B] bg-[#F4FAF6] shadow-[inset_0_0_0_1px_#1B8C4B] dark:border-green-400/60 dark:bg-green-500/5 dark:shadow-none",
+  },
+  over: {
+    dot: "bg-red-500", num: "text-red-700 dark:text-red-400",
+    active: "border-red-400 bg-red-50/60 shadow-[inset_0_0_0_1px_#f87171] dark:border-red-400/60 dark:bg-red-500/5 dark:shadow-none",
+  },
+  due: {
+    dot: "bg-orange-500", num: "text-orange-700 dark:text-orange-400",
+    active: "border-orange-400 bg-orange-50/60 shadow-[inset_0_0_0_1px_#fb923c] dark:border-orange-400/60 dark:bg-orange-500/5 dark:shadow-none",
+  },
+  warn: {
+    dot: "bg-amber-400", num: "text-amber-700 dark:text-amber-400",
+    active: "border-amber-400 bg-amber-50/60 shadow-[inset_0_0_0_1px_#fbbf24] dark:border-amber-400/60 dark:bg-amber-500/5 dark:shadow-none",
+  },
+}
+
+function DueStatCard({ label, tone, value, vehicles, hint, active, onClick }: {
+  label:    string
+  tone:     DueTone
+  value:    number
+  vehicles: number
+  hint:     string
+  active:   boolean
+  onClick:  () => void
+}) {
+  const t = DUE_TONE[tone]
+  return (
+    <button type="button" onClick={onClick} aria-pressed={active}
+      className={[
+        "flex flex-col rounded-[14px] border px-4 py-3 text-left transition-colors",
+        active ? t.active : "border-[#E3E9E5] bg-white hover:border-[#C5CFC9] hover:bg-[#FAFCFB] dark:border-white/8 dark:bg-[#151a10] dark:hover:border-white/20",
+      ].join(" ")}
+      style={fontThai}>
+      <span className="flex items-center gap-1.5">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${t.dot}`} />
+        <span className="truncate text-[12px] font-medium text-[#3D4F44] dark:text-gray-300">{label}</span>
+        <span className="ml-auto shrink-0 text-[11px] tabular-nums text-[#6B7C72] dark:text-gray-400">{fmtNum(vehicles)} คัน</span>
+      </span>
+      <span className="mt-2 flex items-baseline gap-1.5">
+        <span className={`text-[26px] leading-none tabular-nums ${value === 0 ? "text-[#C5CFC9] dark:text-gray-600" : t.num}`} style={fontHead}>
+          {fmtNum(value)}
+        </span>
+        <span className="text-[11px] text-[#9AA8A0]">เส้น</span>
+      </span>
+      <span className="mt-1.5 truncate text-[10.5px] text-[#9AA8A0]">{hint}</span>
+    </button>
+  )
+}
+
 // ── ตาราง "รายเส้น" — 1 แถว = ยาง 1 เส้น ────────────────────────────────────
 function TireTable({ rows, ctx, filtered, showPct, loading, onOpenVehicle, onSnooze }: {
   rows:          DueRow[]
@@ -584,7 +701,7 @@ function TireTable({ rows, ctx, filtered, showPct, loading, onOpenVehicle, onSno
                         sortKey="pct" sortLabels={["น้อย → มาก", "มาก → น้อย"]} facetKey="level" />
                     )}
                     <ColHead ctx={ctx} className={thCls} label="แหล่ง" facetKey="source" />
-                    <th className={thCls}></th>
+                    <th className={actTh}>จัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#EEF2F0] dark:divide-white/8">
@@ -597,16 +714,18 @@ function TireTable({ rows, ctx, filtered, showPct, loading, onOpenVehicle, onSno
                   ) : rows.map((r) => {
                     const snoozedOn = !!r.snoozedUntil && new Date(r.snoozedUntil) > new Date()
                     return (
-                      <tr key={r._id} className={"hover:bg-[#F6FAF7] dark:hover:bg-white/5" + (snoozedOn ? " opacity-55" : "")}>
+                      <tr key={r._id} className={"group hover:bg-[#F6FAF7] dark:hover:bg-[#1a2015]" + (snoozedOn ? " [&>td:not(:last-child)]:opacity-55" : "")}>
                         <td className={tdCls}>
-                          <button type="button" onClick={() => onOpenVehicle({ branch: r.branch, plate: r.plate })}
-                            className="inline-flex items-center gap-1.5 font-semibold text-[#14271C] dark:text-white hover:text-[#1B8C4B]">
-                            <Truck size={12} className="text-[#9AA8A0]" />
-                            {r.plate}
-                          </button>
-                          <span className={`ml-1.5 rounded px-1 py-0.5 text-[9.5px] ${branchChipCls(r.branch)}`} style={fontThai}>
-                            {branchLabel(r.branch)}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button type="button" onClick={() => onOpenVehicle({ branch: r.branch, plate: r.plate })}
+                              className="inline-flex items-center gap-1.5 font-semibold text-[#14271C] dark:text-white hover:text-[#1B8C4B]">
+                              <Truck size={12} className="text-[#9AA8A0]" />
+                              {r.plate}
+                            </button>
+                            <span className={`rounded px-1.5 py-px text-[10px] leading-4 ${branchChipCls(r.branch)}`} style={fontThai}>
+                              {branchLabel(r.branch)}
+                            </span>
+                          </div>
                         </td>
                         <td className={tdCls} style={fontThai}>{r.tirePosition || "—"}</td>
                         <td className={tdCls + " max-w-[240px] truncate"} style={fontThai} title={`${r.product}${r.serialNo ? ` · ${r.serialNo}` : ""}`}>
@@ -635,18 +754,15 @@ function TireTable({ rows, ctx, filtered, showPct, loading, onOpenVehicle, onSno
                           {/* ยางที่ใส่ก่อนวันที่ต้นทางเริ่มเก็บข้อมูล = ระยะที่ได้ต่ำกว่าจริง ต้องบอกไว้ */}
                           {r.partial && <span className="ml-1 text-[10px] text-[#E8A317]" title="ยางใส่ก่อนช่วงที่มีข้อมูล — ระยะจริงมากกว่านี้">(ไม่ครบ)</span>}
                         </td>
-                        <td className={tdCls + " text-right"}>
-                          <div className="flex items-center justify-end gap-1">
-                            <button type="button" onClick={() => onSnooze(r, !snoozedOn)}
-                              title={snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : "พักการแจ้งเตือน"}
-                              className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}>
-                              {snoozedOn ? <BellRing size={11} /> : <BellOff size={11} />}
-                            </button>
-                            <button type="button" onClick={() => onOpenVehicle({ branch: r.branch, plate: r.plate })}
-                              className={btnSmall + " inline-flex items-center gap-0.5 border border-[#EEF2F0] dark:border-white/10 text-[#1B8C4B]"}
-                              style={fontThai}>
-                              เปิดหน้ารถ <ChevronRight size={11} />
-                            </button>
+                        <td className={actTd()}>
+                          <div className="inline-flex items-center gap-1">
+                            <IconAction icon={ArrowUpRight} label={`เปิดหน้ารถ ${r.plate}`} tone="primary"
+                              onClick={() => onOpenVehicle({ branch: r.branch, plate: r.plate })} />
+                            <RowMenu label={`จัดการ ${r.plate} · ${r.tirePosition}`} items={[
+                              { label: "เปิดหน้ารถ", icon: Truck, onSelect: () => onOpenVehicle({ branch: r.branch, plate: r.plate }) },
+                              { label: snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : "พักการแจ้งเตือนเส้นนี้", icon: snoozedOn ? BellRing : BellOff,
+                                onSelect: () => onSnooze(r, !snoozedOn), divider: true },
+                            ]} />
                           </div>
                         </td>
                       </tr>
@@ -696,7 +812,7 @@ function VehicleTable({ groups, ctx, filtered, opened, onToggle, loading, onOpen
                 sortKey="maxPct" sortLabels={["น้อย → มาก", "มาก → น้อย"]} />
               <ColHead ctx={ctx} className={thCls} label="รับเรื่อง"
                 sortKey="accept" sortLabels={["ยังไม่รับก่อน", "รับล่าสุดก่อน"]} facetKey="accept" />
-              <th className={thCls}></th>
+              <th className={actTh}>จัดการ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#EEF2F0] dark:divide-white/8">
@@ -712,15 +828,15 @@ function VehicleTable({ groups, ctx, filtered, opened, onToggle, loading, onOpen
               const level  = vehicleLevel(g)
               return (
                 <React.Fragment key={key}>
-                  <tr className="cursor-pointer hover:bg-[#F6FAF7] dark:hover:bg-white/5" onClick={() => onToggle(key)}>
+                  <tr className={"group cursor-pointer hover:bg-[#F6FAF7] dark:hover:bg-[#1a2015]" + (isOpen ? " bg-[#F6FAF7] dark:bg-[#1a2015]" : "")} onClick={() => onToggle(key)}>
                     <td className={tdCls}>
-                      <span className="inline-flex items-center gap-1.5 font-semibold text-[#14271C] dark:text-white">
+                      <div className="flex items-center gap-1.5">
                         {isOpen ? <ChevronDown size={13} className="text-[#9AA8A0]" /> : <ChevronRight size={13} className="text-[#9AA8A0]" />}
-                        {g.plate}
-                      </span>
-                      <span className={`ml-1.5 rounded px-1 py-0.5 text-[9.5px] ${branchChipCls(g.branch)}`} style={fontThai}>
-                        {branchLabel(g.branch)}
-                      </span>
+                        <span className="font-semibold text-[#14271C] dark:text-white">{g.plate}</span>
+                        <span className={`rounded px-1.5 py-px text-[10px] leading-4 ${branchChipCls(g.branch)}`} style={fontThai}>
+                          {branchLabel(g.branch)}
+                        </span>
+                      </div>
                     </td>
                     <td className={tdCls + " font-mono text-[#14271C] dark:text-white"}>{g.fleetNo || "—"}</td>
                     <td className={tdCls + " whitespace-nowrap"} style={fontThai}>{g.fleet || "—"}</td>
@@ -753,34 +869,28 @@ function VehicleTable({ groups, ctx, filtered, opened, onToggle, loading, onOpen
                           <span className="text-[10px] text-[#9AA8A0]">{fmtDateOnly(g.acceptedAt)}</span>
                         </span>
                       ) : (
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onAcceptVehicle(g, true) }}
-                          className={btnSmall + " inline-flex items-center gap-1 border border-[#1B8C4B]/30 text-[#1B8C4B] hover:bg-[#F0FDF4]"}
-                          style={fontThai}>
-                          <CheckCircle2 size={11} /> รับเรื่อง
-                        </button>
+                        <span className="inline-flex items-center gap-1.5 text-[11.5px] text-[#9AA8A0]" style={fontThai}>
+                          <span className="h-1.5 w-1.5 rounded-full bg-[#C5CFC9]" /> ยังไม่รับเรื่อง
+                        </span>
                       )}
                     </td>
-                    <td className={tdCls + " text-right"}>
-                      <div className="flex items-center justify-end gap-1">
-                        {g.acceptedAt && (
-                          <button type="button" onClick={(e) => { e.stopPropagation(); onAcceptVehicle(g, false) }}
-                            title="ยกเลิกรับเรื่อง"
-                            className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}>
-                            <Undo2 size={11} />
-                          </button>
-                        )}
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onSnoozeVehicle(g, !snoozedView) }}
-                          title={snoozedView ? "เปิดการแจ้งเตือนทั้งคัน" : "พักการแจ้งเตือนทั้งคัน"}
-                          className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}
-                          style={fontThai}>
-                          {snoozedView ? <BellRing size={11} /> : <BellOff size={11} />}
-                          {snoozedView ? "เปิดเตือน" : "พักทั้งคัน"}
-                        </button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onOpenVehicle({ branch: g.branch, plate: g.plate }) }}
-                          className={btnSmall + " inline-flex items-center gap-0.5 border border-[#EEF2F0] dark:border-white/10 text-[#1B8C4B]"}
-                          style={fontThai}>
-                          เปิดหน้ารถ <ChevronRight size={11} />
-                        </button>
+                    <td className={actTd(isOpen ? "bg-[#F6FAF7] dark:bg-[#1a2015]" : undefined)}>
+                      <div className="inline-flex items-center gap-1">
+                        {/* ช่องแรกเว้นไว้เท่ากันทุกแถว — ปุ่มเปิดหน้ารถ/เมนูจะได้ตรงแนวเดียวกัน */}
+                        {g.acceptedAt
+                          ? <span className="inline-block w-7" aria-hidden />
+                          : <IconAction icon={CheckCircle2} label={`รับเรื่อง ${g.plate}`} onClick={() => onAcceptVehicle(g, true)} />}
+                        <IconAction icon={ArrowUpRight} label={`เปิดหน้ารถ ${g.plate}`} tone="primary"
+                          onClick={() => onOpenVehicle({ branch: g.branch, plate: g.plate })} />
+                        <RowMenu label={`จัดการ ${g.plate}`} items={[
+                          { label: "รับเรื่อง", icon: CheckCircle2, hidden: !!g.acceptedAt, onSelect: () => onAcceptVehicle(g, true) },
+                          { label: "ยกเลิกรับเรื่อง", icon: Undo2, hidden: !g.acceptedAt, onSelect: () => onAcceptVehicle(g, false) },
+                          { label: snoozedView ? "เปิดการแจ้งเตือนทั้งคัน" : "พักการแจ้งเตือนทั้งคัน", icon: snoozedView ? BellRing : BellOff,
+                            onSelect: () => onSnoozeVehicle(g, !snoozedView) },
+                          { label: isOpen ? "ซ่อนยางรายเส้น" : `ดูยางรายเส้น (${g.rows.length})`, icon: ChevronsUpDown,
+                            onSelect: () => onToggle(key), divider: true },
+                          { label: "เปิดหน้ารถ", icon: Truck, onSelect: () => onOpenVehicle({ branch: g.branch, plate: g.plate }) },
+                        ]} />
                       </div>
                     </td>
                   </tr>
@@ -788,7 +898,7 @@ function VehicleTable({ groups, ctx, filtered, opened, onToggle, loading, onOpen
                   {isOpen && g.rows.map((r) => {
                     const snoozedOn = !!r.snoozedUntil && new Date(r.snoozedUntil) > new Date()
                     return (
-                      <tr key={r._id} className={"bg-[#FAFCFB] dark:bg-white/[0.02]" + (snoozedOn ? " opacity-55" : "")}>
+                      <tr key={r._id} className={"group bg-[#FAFCFB] dark:bg-[#171d12]" + (snoozedOn ? " [&>td:not(:last-child)]:opacity-55" : "")}>
                         <td className={tdCls + " pl-8"} style={fontThai}>{r.tirePosition || "—"}</td>
                         <td className={tdCls + " max-w-[200px] truncate"} style={fontThai} title={`${r.product} ${r.serialNo}`} colSpan={4}>
                           {r.product || "—"}
@@ -804,12 +914,17 @@ function VehicleTable({ groups, ctx, filtered, opened, onToggle, loading, onOpen
                             <span className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold ${dueChipCls[r.level]}`}>{r.usedPct}%</span>
                           )}
                         </td>
-                        <td className={tdCls + " text-right"} colSpan={2}>
-                          <button type="button" onClick={() => onSnooze(r, !snoozedOn)}
-                            title={snoozedOn ? "เปิดการแจ้งเตือนอีกครั้ง" : "พักการแจ้งเตือน"}
-                            className={btnSmall + " inline-flex items-center gap-1 border border-[#EEF2F0] dark:border-white/10"}>
-                            {snoozedOn ? <BellRing size={11} /> : <BellOff size={11} />}
-                          </button>
+                        <td className={tdCls} style={fontThai}>
+                          {snoozedOn && <span className="text-[10.5px] text-[#9AA8A0]">พักถึง {fmtDateOnly(r.snoozedUntil)}</span>}
+                        </td>
+                        <td className={actTd("bg-[#FAFCFB] dark:bg-[#171d12]")}>
+                          <div className="inline-flex items-center gap-1">
+                            <span className="inline-block w-7" aria-hidden />
+                            <IconAction icon={snoozedOn ? BellRing : BellOff}
+                              label={snoozedOn ? `เปิดการแจ้งเตือน ${r.tirePosition}` : `พักการแจ้งเตือน ${r.tirePosition}`}
+                              onClick={() => onSnooze(r, !snoozedOn)} />
+                            <span className="inline-block w-7" aria-hidden />
+                          </div>
                         </td>
                       </tr>
                     )

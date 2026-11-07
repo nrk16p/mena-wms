@@ -4,6 +4,7 @@ import clientPromise from "@/lib/mongo"
 import { sharedCache, invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { rebuildTireDistance } from "@/lib/tire-distance"
 import { tireDueKey, nextSnoozeEnd, type TireDueParams } from "@/lib/tire-due-cache"
+import { tireFreshness } from "@/lib/tire-freshness"
 import { DUE_LABEL, snoozeDays, SOURCE_LABEL, positionOrder, type DueLevel, type DistanceSource } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
@@ -139,7 +140,10 @@ export async function GET(req: NextRequest) {
     maxStaleMs: CACHE_MAX_STALE_MS,
     load: () => listView(col, { branch, unit, q, group, includeSnoozed, countsOnly }, now),
   })
-  return NextResponse.json(payload)
+  if (countsOnly) return NextResponse.json(payload)
+  // เวลาดึง ATMS รายสาขา — คิวรีเล็ก (findOne ต่อสาขา) ไม่ต้องแคช ให้แถบความสดของข้อมูลตรงเสมอ
+  const { atms } = await tireFreshness(client.db(DB), branch)
+  return NextResponse.json({ ...payload, atms })
 }
 
 // รายการฝั่งแอดมิน — now = เวลาของ request (ใช้ตัดสินเส้นที่พักไว้ ทุกคิวรีใช้ค่าเดียวกัน)

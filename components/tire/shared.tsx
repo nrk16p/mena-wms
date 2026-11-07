@@ -5,8 +5,10 @@
 // และแท็บ "คำขอ / อนุมัติ V.2" (1 แถว = 1 ยาง 1 รายการ) — ถ้าปล่อยให้ต่างฝ่ายนิยามเอง
 // สี/ป้ายสถานะจะเริ่มเพี้ยนกันเมื่อมีการแก้ข้างเดียว
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
+import { MoreHorizontal, type LucideIcon } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Calendar } from "@/components/ui/calendar"
 import { BRANCHES } from "@/lib/branch-scope"
@@ -21,7 +23,8 @@ export const branchLabel = (b: string) => BRANCHES.find((x) => x.value === b)?.l
 export const branchChipCls = (b: string) =>
   b === "saraburi"
     ? "bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300"
-    : "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+    // ไม่ใช้ส้ม — ส้ม/แดง/เหลืองสงวนไว้บอกระดับยาง (ถึงกำหนด/เกิน/เฝ้าระวัง) ป้ายสาขาจะได้ไม่ถูกอ่านเป็นคำเตือน
+    : "bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300"
 
 // fetch ทั้ง 2 สาขาแล้ว merge (หรือสาขาเดียวตาม filter)
 // allowed = สาขาที่ผู้ใช้เห็นได้ (useBranchScope) — กันไม่ให้ filter ว่างไปดึงสาขาที่ไม่มีสิทธิ์
@@ -377,5 +380,165 @@ export function AppointmentDialog({ target, onClose, onConfirm }: {
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ── ความสดของข้อมูล — แถบบอก "ตัวเลขบนหน้านี้อัปเดตเมื่อไหร่" ─────────────────
+// ข้อมูลยางถ่ายมาเป็นรอบ ไม่ใช่ข้อมูลสด — บอกแค่ 2 อย่างที่คนดูต้องรู้:
+// ดึงจาก ATMS ล่าสุดเมื่อไหร่ และคำนวณระยะ GPS ล่าสุดเมื่อไหร่
+
+const TZ = "Asia/Bangkok"
+
+const bkkDayKey = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: TZ })
+
+/** "วันนี้ 11:02 น." / "เมื่อวาน 11:02 น." / "5 พ.ย. 69 · 11:02 น." */
+export function fmtStamp(s?: string | null): string {
+  if (!s) return "—"
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return "—"
+  const time = d.toLocaleTimeString("th-TH", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }) + " น."
+  const now = new Date()
+  const key = bkkDayKey(d)
+  if (key === bkkDayKey(now)) return `วันนี้ ${time}`
+  if (key === bkkDayKey(new Date(now.getTime() - 86400000))) return `เมื่อวาน ${time}`
+  return `${d.toLocaleDateString("th-TH", { timeZone: TZ, day: "numeric", month: "short", year: "2-digit" })} · ${time}`
+}
+
+/** "เมื่อสักครู่" / "25 นาทีที่แล้ว" / "3 ชม. ที่แล้ว" / "2 วันที่แล้ว" */
+export function fmtAgo(s: string | null | undefined, nowMs: number): string {
+  if (!s) return ""
+  const ms = nowMs - new Date(s).getTime()
+  if (isNaN(ms)) return ""
+  const min = Math.floor(ms / 60000)
+  if (min < 1)  return "เมื่อสักครู่"
+  if (min < 60) return `${min} นาทีที่แล้ว`
+  const hr = Math.floor(min / 60)
+  if (hr < 24)  return `${hr} ชม. ที่แล้ว`
+  return `${Math.floor(hr / 24)} วันที่แล้ว`
+}
+
+/** นาฬิกาที่เดินทุกนาที — ให้ "กี่นาทีที่แล้ว" ขยับเองโดยไม่ต้องรีโหลดข้อมูล */
+function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+  return now
+}
+
+/** เวลาที่เก่าสุดในชุด — ถ้าสาขาไหนยังไม่เคยดึงเลย (null) ถือว่าไม่มีข้อมูล */
+export function oldestTime(times: (string | null | undefined)[]): string | null {
+  if (times.length === 0 || times.some((t) => !t)) return null
+  return times.reduce((a, b) => (new Date(b!) < new Date(a!) ? b : a)) ?? null
+}
+
+/** แถบเวลาอัปเดต: "ข้อมูลจาก ATMS ล่าสุด: …" / "ข้อมูลระยะทาง GPS ล่าสุด: …" + ปุ่มด้านขวา */
+export function FreshnessBar({ items, actions, loading }: {
+  items:    { label: string; at: string | null }[]
+  actions?: React.ReactNode
+  loading?: boolean
+}) {
+  const now = useMinuteClock()
+  return (
+    <div className={card + " mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5"} style={fontThai}>
+      <dl className="flex flex-1 flex-wrap items-center gap-x-6 gap-y-1.5 text-[13px]">
+        {items.map((it, i) => {
+          // เกิน 1 วัน = ตัวเลขบนหน้าน่าจะไม่ตรงแล้ว ขึ้นสีแดงให้เห็น
+          const stale = !!it.at && now - new Date(it.at).getTime() >= 86400000
+          return (
+            <div key={it.label} className={"flex items-baseline gap-1.5" + (i > 0 ? " sm:border-l sm:border-[#EEF2F0] sm:pl-6 dark:sm:border-white/10" : "")}>
+              <dt className="text-[#6B7C72] dark:text-gray-400">{it.label}:</dt>
+              <dd className={`font-semibold tabular-nums ${stale ? "text-red-600 dark:text-red-400" : "text-[#14271C] dark:text-white"}`}>
+                {loading ? "—" : fmtStamp(it.at)}
+              </dd>
+              {!loading && it.at && <dd className="text-[11.5px] text-[#9AA8A0]">({fmtAgo(it.at, now)})</dd>}
+            </div>
+          )
+        })}
+      </dl>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div>}
+    </div>
+  )
+}
+
+/** ปุ่มบนแถบความสดของข้อมูล — ขอบบาง ตัวอักษรเข้ม เท่ากันทุกปุ่ม */
+export const freshBtn =
+  "inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-[#E3E9E5] dark:border-white/10 bg-white dark:bg-[#151a10] px-3 " +
+  "text-[12px] font-medium text-[#14271C] dark:text-white transition-colors hover:border-[#1B8C4B]/40 hover:bg-[#F0FDF4] dark:hover:bg-white/5 " +
+  "disabled:cursor-not-allowed disabled:opacity-50"
+
+// ── ปุ่มจัดการท้ายแถวตาราง — ปุ่มไอคอนขนาดเดียวกัน + เมนู "⋯" รวมคำสั่งรอง ──────
+
+export const iconBtn =
+  "inline-flex h-7 w-7 items-center justify-center rounded-[8px] border border-[#E3E9E5] dark:border-white/10 bg-white dark:bg-[#151a10] " +
+  "text-[#6B7C72] dark:text-gray-300 transition-colors hover:border-[#1B8C4B]/40 hover:bg-[#F0FDF4] hover:text-[#17793F] " +
+  "dark:hover:bg-white/5 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B8C4B]/40"
+
+export function IconAction({ icon: Icon, label, onClick, tone = "default" }: {
+  icon:    LucideIcon
+  label:   string
+  onClick: () => void
+  tone?:   "default" | "primary"
+}) {
+  return (
+    <button
+      type="button" title={label} aria-label={label}
+      onClick={(e) => { e.stopPropagation(); onClick() }}
+      className={iconBtn + (tone === "primary" ? " border-[#1B8C4B]/35 text-[#17793F] dark:text-green-400" : "")}
+    >
+      <Icon size={13} />
+    </button>
+  )
+}
+
+export type RowMenuItem = {
+  label:    string
+  icon?:    LucideIcon
+  onSelect: () => void
+  danger?:  boolean
+  hidden?:  boolean
+  /** เส้นคั่นก่อนรายการนี้ */
+  divider?: boolean
+}
+
+export function RowMenu({ items, label = "จัดการ" }: { items: RowMenuItem[]; label?: string }) {
+  const [open, setOpen] = useState(false)
+  const shown = items.filter((i) => !i.hidden)
+  if (shown.length === 0) return null
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" title={label} aria-label={label} onClick={(e) => e.stopPropagation()}
+          className={iconBtn + (open ? " border-[#1B8C4B]/40 bg-[#F0FDF4] text-[#17793F]" : "")}>
+          <MoreHorizontal size={14} />
+        </button>
+      </PopoverTrigger>
+      {/* portal ยังส่ง event กลับขึ้น React tree — กันคลิกในเมนูไปกาง/หุบแถวข้างหลัง */}
+      <PopoverContent align="end" sideOffset={4} onClick={(e) => e.stopPropagation()}
+        className="w-auto min-w-[188px] rounded-[12px] border border-[#EEF2F0] bg-white p-1 shadow-[0_8px_24px_-8px_rgba(20,39,28,.25)] dark:border-white/10 dark:bg-[#151a10]">
+        <div role="menu" style={fontThai}>
+          {shown.map((it) => {
+            const Icon = it.icon
+            return (
+              <React.Fragment key={it.label}>
+                {it.divider && <div className="my-1 h-px bg-[#EEF2F0] dark:bg-white/10" />}
+                <button type="button" role="menuitem"
+                  onClick={() => { setOpen(false); it.onSelect() }}
+                  className={[
+                    "flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left text-[12.5px] outline-none transition-colors focus-visible:bg-[#F0FDF4] dark:focus-visible:bg-white/5",
+                    it.danger
+                      ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                      : "text-[#14271C] hover:bg-[#F6FAF7] dark:text-gray-200 dark:hover:bg-white/5",
+                  ].join(" ")}>
+                  {Icon && <Icon size={13} className={it.danger ? "" : "text-[#9AA8A0]"} />}
+                  {it.label}
+                </button>
+              </React.Fragment>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }

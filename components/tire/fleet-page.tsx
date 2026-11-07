@@ -11,9 +11,9 @@ import { swalToast, swalError } from "@/lib/swal"
 import { MR_LABEL, type MrStatus, type MrSummary } from "@/lib/tire-mr"
 import { DUE_LABEL, DUE_WHEEL, dueChipCls, dueGradientCls, dueHex, type DueLevel } from "@/lib/tire-due"
 import {
-  AppointmentDialog, BRANCHES, STATUS_LABEL,
+  AppointmentDialog, BRANCHES, FreshnessBar, STATUS_LABEL, oldestTime,
   branchChipCls, branchLabel, branchesFor, btnPrimary, btnSmall, card,
-  fmtDate, fmtDateOnly, fmtNum, fontHead, fontThai, inp, statusChip,
+  fmtDate, fmtDateOnly, fmtNum, fmtStamp, fontHead, fontThai, freshBtn, inp, statusChip,
   tdCls, thCls, theadCls,
   type AppointmentTarget,
 } from "@/components/tire/shared"
@@ -40,6 +40,12 @@ type FleetVehicle = {
   oldestAgeText:  string | null
   due:            { over: number; due: number; warn: number; ok: number; unknown: number; maxPct: number } | null
   activeRequests: number
+}
+
+type Freshness = {
+  atms:        { branch: string; syncedAt: string | null }[]
+  computedAt:  string | null
+  dataThrough: string | null
 }
 
 // สถานะรอบเปลี่ยนรายเส้น — ตัวเลขชุดเดียวกับที่แอปคนขับ (mena-go-lb / mena-go-srb) แสดง
@@ -323,7 +329,9 @@ function FleetGrid({ branchFilter, onSelect }: {
   onSelect: (v: { branch: string; plate: string }) => void
 }) {
   const [items, setItems]   = useState<FleetVehicle[]>([])
+  const [fresh, setFresh]   = useState<Freshness | null>(null)
   const [loading, setLoading] = useState(true)
+  const [reloadKey, setReloadKey] = useState(0)
   const [q, setQ] = useState("")
   // กรองทะเบียน: หัว (รถ) / หาง (พ่วง) — default หัว
   const [unitFilter, setUnitFilter] = useState<"head" | "trailer" | "all">("head")
@@ -336,11 +344,17 @@ function FleetGrid({ branchFilter, onSelect }: {
     if (q) qs.set("q", q)
     fetch(`/api/tire-fleet?${qs}`)
       .then((r) => r.json())
-      .then((d) => { if (!cancelled) setItems(Array.isArray(d.items) ? d.items : []) })
+      .then((d) => {
+        if (cancelled) return
+        setItems(Array.isArray(d.items) ? d.items : [])
+        setFresh(d.freshness ?? null)
+      })
       .catch(() => { if (!cancelled) setItems([]) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [branchFilter, q])
+  }, [branchFilter, q, reloadKey])
+
+
 
   const headCount    = useMemo(() => items.filter((v) => v.unit === "head").length, [items])
   const trailerCount = items.length - headCount
@@ -351,6 +365,21 @@ function FleetGrid({ branchFilter, onSelect }: {
 
   return (
     <div>
+      {/* หลายสาขา = ใช้สาขาที่ดึงไว้เก่าสุด จะได้ไม่อวดว่าใหม่เกินจริง */}
+      <FreshnessBar
+        loading={loading && !fresh}
+        items={[
+          { label: "ข้อมูลจาก ATMS ล่าสุด",    at: oldestTime((fresh?.atms ?? []).map((a) => a.syncedAt)) },
+          { label: "ข้อมูลระยะทาง GPS ล่าสุด", at: fresh?.computedAt ?? null },
+        ]}
+        actions={
+          <button type="button" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} className={freshBtn} style={fontThai}>
+            <RefreshCw size={13} className={"text-[#1B8C4B] " + (loading ? "animate-spin" : "")} />
+            รีเฟรช
+          </button>
+        }
+      />
+
       {/* unit filter + search */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         {/* กรองทะเบียน หัว / หาง */}
@@ -412,51 +441,61 @@ function FleetGrid({ branchFilter, onSelect }: {
                   { cls: "bg-red-500",   n: v.danger },
                 ]
             const barTotal = bars.reduce((a, b) => a + b.n, 0)
-            const alertCount = d ? d.over + d.due : v.danger
+            // สถานะทั้งคัน = เส้นที่หนักที่สุด ตกไปที่อายุยางเมื่อยังไม่มีข้อมูลระยะ
+            const level: DueLevel | null = dueKnown > 0
+              ? d!.over > 0 ? "over" : d!.due > 0 ? "due" : d!.warn > 0 ? "warn" : "ok"
+              : v.danger > 0 ? "over" : v.warn > 0 ? "warn" : v.normal > 0 ? "ok" : null
+            const levelCount = !level ? 0
+              : dueKnown > 0 ? (level === "ok" ? d!.ok : d![level as "over" | "due" | "warn"])
+              : level === "over" ? v.danger : level === "warn" ? v.warn : v.normal
             return (
               <button
                 key={`${v.branch}|${v.plate}`}
                 onClick={() => onSelect({ branch: v.branch, plate: v.plate })}
-                className={card + " p-4 text-left transition-all hover:border-[#1B8C4B]/40 hover:shadow-[0_4px_14px_-6px_rgba(27,140,75,.35)] active:scale-[0.99]"}
+                className={card + " group flex flex-col p-4 text-left transition-all hover:border-[#1B8C4B]/45 hover:shadow-[0_6px_18px_-10px_rgba(20,39,28,.35)] active:scale-[0.99]"}
               >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="font-mono text-[15px] font-bold text-[#14271C] dark:text-white truncate">{v.plate}</span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${v.unit === "trailer" ? "bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300"}`} style={fontThai}>
-                      {v.unit === "trailer" ? "หาง" : "หัว"}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="block truncate font-mono text-[15px] font-bold text-[#14271C] dark:text-white">{v.plate}</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-[#9AA8A0]" style={fontThai}>
+                      {v.vehicleType || "ไม่ระบุประเภท"}{v.fleet ? ` · ${v.fleet}` : ""}
                     </span>
-                    <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${branchChipCls(v.branch)}`} style={fontThai}>
-                      {branchLabel(v.branch)}
+                  </div>
+                  {level && (
+                    <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold ${dueChipCls[level]}`} style={fontThai}>
+                      {level === "ok" ? "ปกติ" : `${dueKnown > 0 ? DUE_LABEL[level] : level === "over" ? "ยางอายุเกิน" : "ยางอายุมาก"} ${levelCount}`}
                     </span>
-                  </span>
+                  )}
                 </div>
-                <p className="text-[11px] text-[#9AA8A0] truncate mb-3" style={fontThai}>
-                  {v.vehicleType || "ไม่ระบุประเภท"}{v.fleet ? ` · ${v.fleet}` : ""}
-                </p>
+
+                <div className="mt-2.5 flex flex-wrap items-center gap-1" style={fontThai}>
+                  <span className="rounded-md border border-[#E3E9E5] px-1.5 py-px text-[10px] font-medium text-[#6B7C72] dark:border-white/10 dark:text-gray-400">
+                    {v.unit === "trailer" ? "หาง" : "หัว"}
+                  </span>
+                  <span className={`rounded-md px-1.5 py-px text-[10px] font-medium ${branchChipCls(v.branch)}`}>{branchLabel(v.branch)}</span>
+                  {v.activeRequests > 0 && (
+                    <span className="rounded-md bg-blue-50 px-1.5 py-px text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                      คำขอค้าง {v.activeRequests}
+                    </span>
+                  )}
+                </div>
 
                 {/* health bar — สัดส่วนยางตามรอบเปลี่ยน ปกติ/เฝ้าระวัง/ถึงกำหนด/เกินกำหนด */}
-                <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-white/10 mb-2">
+                <div className="mt-3 flex h-2 w-full gap-px overflow-hidden rounded-full bg-[#EEF2F0] dark:bg-white/10">
                   {barTotal > 0 && bars.map((b) => (
                     b.n > 0 ? <div key={b.cls} className={b.cls} style={{ width: `${(b.n / barTotal) * 100}%` }} /> : null
                   ))}
                 </div>
 
-                <div className="flex items-center justify-between text-[11px]" style={fontThai}>
+                <div className="mt-2 flex items-center justify-between gap-2 text-[11px] tabular-nums" style={fontThai}>
+                  <span className="text-[#6B7C72] dark:text-gray-400">ยาง {v.tireCount} เส้น</span>
                   <span className="text-[#6B7C72] dark:text-gray-400">
-                    ยาง {v.tireCount} เส้น
-                    {d && d.maxPct > 0 ? ` · ใช้ไปสูงสุด ${d.maxPct}%` : v.oldestAgeText ? ` · เก่าสุด ${v.oldestAgeText}` : ""}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    {alertCount > 0 && <span className="font-bold text-red-600 dark:text-red-400">⚠ {alertCount}</span>}
-                    {v.activeRequests > 0 && (
-                      <span className="rounded-md bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
-                        คำขอ {v.activeRequests}
-                      </span>
-                    )}
+                    {d && d.maxPct > 0
+                      ? <>ใช้ไปสูงสุด <b className="font-semibold text-[#14271C] dark:text-white">{d.maxPct}%</b></>
+                      : v.oldestAgeText ? `เก่าสุด ${v.oldestAgeText}` : "—"}
                   </span>
                 </div>
-              </button>
-            )
+              </button>            )
           })}
         </div>
       )}
@@ -889,7 +928,7 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
                   <InfoRow label="แหล่งข้อมูลระยะ">
                     <span className="text-[#14271C] dark:text-white" style={fontThai}>
                       {selectedTire.due?.source ?? "—"}
-                      {selectedTire.due?.computedAt && <span className="ml-1 text-[11px] text-[#9AA8A0]">· อัปเดต {fmtDateOnly(selectedTire.due.computedAt)}</span>}
+                      {selectedTire.due?.computedAt && <span className="ml-1 text-[11px] text-[#9AA8A0]">· คำนวณ {fmtStamp(selectedTire.due.computedAt)}</span>}
                     </span>
                   </InfoRow>
                   {/* เลขไมล์รถ ÷ ระยะของล็อตที่ซื้อ — ใช้คุมต้นทุน ไม่ได้ใช้ตัดสินรอบเปลี่ยน */}

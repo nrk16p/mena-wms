@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
 import { sharedCache, CACHE_TAGS } from "@/lib/shared-cache"
+import { tireFreshness } from "@/lib/tire-freshness"
 import { buildFleetBase, fleetPlates, finishFleet, tireFleetKey } from "@/lib/tire-fleet-summary"
 
 const DB = process.env.MONGO_DB ?? "master_data"
@@ -61,12 +62,16 @@ export async function GET(req: NextRequest) {
 
   // vehicle master join (type / fleet)
   const plates = fleetPlates(base)
-  const masters = plates.length > 0
-    ? await db.collection("vehicle_master")
-        .find({ plate: { $in: plates } })
-        .project({ plate: 1, vehicleType: 1, fleet: 1, plant: 1 })
-        .toArray()
-    : []
+  const [masters, freshness] = await Promise.all([
+    plates.length > 0
+      ? db.collection("vehicle_master")
+          .find({ plate: { $in: plates } })
+          .project({ plate: 1, vehicleType: 1, fleet: 1, plant: 1 })
+          .toArray()
+      : [],
+    // รายการรถมาจาก ATMS ส่วนสีสุขภาพยางมาจากรอบคำนวณระยะ — บอกเวลาทั้งสองแหล่ง
+    tireFreshness(db, branch),
+  ])
 
-  return NextResponse.json(finishFleet(base, masters))
+  return NextResponse.json({ ...finishFleet(base, masters), freshness })
 }
