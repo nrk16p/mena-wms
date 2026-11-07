@@ -302,52 +302,59 @@ export function RoundPrint({ id }: { id: string }) {
         )
       })}
 
-      {/* หน้าสรุป + ลงนาม */}
+      {/* หน้าสรุป + ลงนาม · แบบตารางภาษาง่าย */}
       <div className={pageCls} style={pageStyle}>
         {band}
-        <DocHead title="สรุปการขออนุมัติเปลี่ยนยาง" sub="(Approval Summary)" pr={data.docPR} round={data.approvalRound} page={pages} pages={pages} />
+        <DocHead title="สรุปการขออนุมัติเปลี่ยนยาง" sub={`ทั้งรอบนี้ รวม ${int(overall.totalDocs || 0)} คัน ${int(overall.totalTires || 0)} เส้น`} pr={data.docPR} round={data.approvalRound} page={pages} pages={pages} />
 
-        <div className="grid grid-cols-4 gap-2.5">
-          {[
-            ["รถ (ใบแจ้งซ่อม)", int(overall.totalDocs || 0), "คัน", ""],
-            ["ยางที่ขอเปลี่ยน", int(overall.totalTires || 0), "เส้น", overall.multiLifeTires ? `ใช้มาหลายรอบ ${overall.multiLifeTires} เส้น` : ""],
-            ["บาท/กม. เฉลี่ย", cpk(overall.avgBpk || 0), "", "ทั้งรอบอนุมัติ"],
-          ].map(([k, v, u, sub]) => (
-            <div key={k} className="rounded-[3px] px-3 py-2" style={{ border: `1px solid ${TEAL}` }}>
-              <div className="text-[10px]" style={{ color: MUTED }}>{k}</div>
-              <div className="text-[22px] font-bold leading-tight" style={{ color: TEAL }}>{v} {u && <span className="text-[11px] font-medium">{u}</span>}</div>
-              {sub && <div className="text-[10px]" style={{ color: MUTED }}>{sub}</div>}
-            </div>
-          ))}
-          <div className="rounded-[3px] px-3 py-2 text-white" style={{ background: TEAL }}>
-            <div className="text-[10px] opacity-85">มูลค่ารวม</div>
-            <div className="text-right text-[22px] font-bold leading-tight">{money(overall.totalPrice)}<span className="ml-1 text-[11px] font-medium">บาท</span></div>
-          </div>
+        <div>
+          <Sec n={1} title="ภาพรวมรอบนี้" en="สรุปสั้น ๆ" />
+          <table className="tp table-fixed">
+            <colgroup><col style={{ width: "30%" }} /><col /></colgroup>
+            <tbody>
+              {[
+                ["จำนวนรถ", <>{int(overall.totalDocs || 0)} คัน</>],
+                ["จำนวนยางที่ขอเปลี่ยน", <>{int(overall.totalTires || 0)} เส้น{overall.multiLifeTires ? <span className="ml-2 text-[10px]" style={{ color: MUTED }}>(เป็นยางที่เคยใช้มาหลายรอบ {overall.multiLifeTires} เส้น)</span> : null}</>],
+                ["ยางที่มีอาการผิดปกติ", <>{bad} เส้น<span className="ml-2 text-[10px]" style={{ color: MUTED }}>(ปกติ {good} เส้น)</span></>],
+                ["ค่ายางต่อ 1 กม. เฉลี่ย", <>{cpk(overall.avgBpk || 0)} บาท</>],
+              ].map(([k, v], i) => (
+                <tr key={i}>
+                  <td className={`${TD} font-semibold`} style={{ background: MINT, color: TEAL }}>{k}</td>
+                  <td className={TD}>{v}</td>
+                </tr>
+              ))}
+              <tr style={{ background: MINT }}>
+                <td className={`${TD} text-[12px] font-bold`} style={{ color: TEAL }}>มูลค่ารวมที่ขออนุมัติ</td>
+                <td className={`${TD} text-[15px] font-bold`} style={{ color: TEAL }}>{money(overall.totalPrice)} บาท</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         {t && (
           <div>
-            <Sec n={1} title="แยกตามชนิดยาง" en="By tyre type" />
+            <Sec n={2} title="แยกตามชนิดยาง" en="เฉพาะชนิดที่มีในรอบนี้" />
             <table className="tp">
               <thead>
                 <tr>
-                  <th className={`${TH} text-left`}>ตำแหน่ง</th>
+                  <th className={`${TH} text-left`}>ใช้กับ</th>
                   <th className={`${TH} text-left`}>ชนิดยาง</th>
                   <th className={`${TH} text-right`}>จำนวน (เส้น)</th>
-                  <th className={`${TH} text-right`}>มูลค่า (บาท)</th>
-                  <th className={`${TH} text-right`}>บาท/กม. เฉลี่ย</th>
+                  <th className={`${TH} text-right`}>เป็นเงิน (บาท)</th>
+                  <th className={`${TH} text-right`}>ค่ายางต่อ กม. เฉลี่ย</th>
                 </tr>
               </thead>
               <tbody>
                 {(["head", "tail"] as const).flatMap((part) =>
                   (["typeI", "typeII"] as const).map((k) => {
                     const p = t[part]?.[k] ?? { countTire: 0, cost: 0, avgBpk: 0 }
+                    if (!p.countTire) return null
                     return (
-                      <tr key={`${part}-${k}`} style={p.countTire ? undefined : { color: MUTED }}>
-                        <td className={`${TD} font-semibold`}>{part === "head" ? "หัว" : "หาง"}</td>
+                      <tr key={`${part}-${k}`}>
+                        <td className={TD}>{part === "head" ? "หัวลาก" : "หางพ่วง"}</td>
                         <td className={TD}>{k === "typeI" ? "ยางนอก 11R22.5" : "ยางนอก 1000-20"}</td>
-                        <td className={`${TD} text-right`}>{dash(p.countTire, (n) => n.toLocaleString("th-TH"))}</td>
-                        <td className={`${TD} text-right`}>{dash(p.cost, money)}</td>
+                        <td className={`${TD} text-right`}>{p.countTire.toLocaleString("th-TH")}</td>
+                        <td className={`${TD} text-right`}>{money(p.cost)}</td>
                         <td className={`${TD} text-right`}>{dash(p.avgBpk, (n) => n.toFixed(3))}</td>
                       </tr>
                     )
@@ -359,43 +366,45 @@ export function RoundPrint({ id }: { id: string }) {
         )}
 
         <div>
-          <Sec n={2} title="แยกตามรถ" en="By vehicle" />
+          <Sec n={3} title="แยกตามรถ" en="คันไหนเปลี่ยนกี่เส้น" />
           <table className="tp table-fixed">
             <colgroup>
-              {[4, 11, 15, 11, 19, 6, 12, 12, 10].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
+              {[5, 12, 16, 22, 9, 10, 14, 12].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
             </colgroup>
             <thead>
               <tr>
-                <th className={`${TH} text-center`}>#</th>
+                <th className={`${TH} text-center`}>คันที่</th>
                 <th className={`${TH} text-left`}>ทะเบียน</th>
-                <th className={`${TH} text-left`}>ใบแจ้งซ่อม</th>
-                <th className={`${TH} text-left`}>วันที่จอง</th>
-                <th className={`${TH} text-left`}>พนักงานขับรถ</th>
-                <th className={`${TH} text-right`}>เส้น</th>
-                <th className={`${TH} text-left`}>ปกติ / ไม่ปกติ</th>
-                <th className={`${TH} text-right`}>มูลค่า (บ.)</th>
-                <th className={`${TH} text-right`}>บาท/กม.</th>
+                <th className={`${TH} text-left`}>เลขใบแจ้งซ่อม</th>
+                <th className={`${TH} text-left`}>คนขับ</th>
+                <th className={`${TH} text-right`}>ยาง (เส้น)</th>
+                <th className={`${TH} text-right`}>ผิดปกติ (เส้น)</th>
+                <th className={`${TH} text-right`}>เป็นเงิน (บาท)</th>
+                <th className={`${TH} text-right`}>ค่ายาง/กม.</th>
               </tr>
             </thead>
             <tbody>
-              {vehicles.map((v, i) => (
-                <tr key={`${v.docNo}-${i}`}>
-                  <td className={`${TD} text-center`}>{i + 1}</td>
-                  <td className={TD}>{v.plate || "-"}</td>
-                  <td className={TD}>{v.docNo || "-"}</td>
-                  <td className={TD}>{v.bookingDate || "-"}</td>
-                  <td className={`${TD} truncate`}>{v.employee || "-"}</td>
-                  <td className={`${TD} text-right`}>{v.count || 0}</td>
-                  <td className={TD}>{v.tiregood || 0} / {v.tiredefect ? <b style={{ color: WORSE }}>{v.tiredefect}</b> : 0}</td>
-                  <td className={`${TD} text-right`}>{money(v.totalPrice)}</td>
-                  <td className={`${TD} text-right`}>{cpk(v.avgBpk)}</td>
-                </tr>
-              ))}
-              {!vehicles.length && <tr><td colSpan={9} className={`${TD} py-4 text-center`} style={{ color: MUTED }}>ไม่มีรถในรอบนี้</td></tr>}
+              {vehicles.map((v, i) => {
+                // แพงเกิน 2 เท่าของค่าเฉลี่ยทั้งรอบ → ไฮไลต์ให้ผู้อนุมัติเห็น
+                const hot = (overall.avgBpk || 0) > 0 && (v.avgBpk || 0) >= 2 * overall.avgBpk
+                return (
+                  <tr key={`${v.docNo}-${i}`} style={hot ? { background: "#FDF3E7" } : undefined}>
+                    <td className={`${TD} text-center`}>{i + 1}</td>
+                    <td className={TD}>{v.plate || "-"}</td>
+                    <td className={TD}>{v.docNo || "-"}</td>
+                    <td className={`${TD} truncate`}>{v.employee || "-"}</td>
+                    <td className={`${TD} text-right`}>{v.count || 0}</td>
+                    <td className={`${TD} text-right`}>{v.tiredefect ? <b style={{ color: WORSE }}>{v.tiredefect}</b> : "–"}</td>
+                    <td className={`${TD} text-right`}>{money(v.totalPrice)}</td>
+                    <td className={`${TD} text-right`} style={hot ? { color: WORSE, fontWeight: 700 } : undefined}>{cpk(v.avgBpk)}</td>
+                  </tr>
+                )
+              })}
+              {!vehicles.length && <tr><td colSpan={8} className={`${TD} py-4 text-center`} style={{ color: MUTED }}>ไม่มีรถในรอบนี้</td></tr>}
               <tr className="tp-sum" style={sumRow}>
-                <td colSpan={5} className="text-right" style={{ color: TEAL }}>รวมทั้งหมด</td>
+                <td colSpan={4} className="text-right" style={{ color: TEAL }}>รวมทั้งหมด</td>
                 <td className="text-right">{overall.totalTires || 0}</td>
-                <td>{good} / {bad}</td>
+                <td className="text-right">{bad}</td>
                 <td className="text-right">{money(overall.totalPrice)}</td>
                 <td className="text-right">{cpk(overall.avgBpk || 0)}</td>
               </tr>
@@ -404,7 +413,7 @@ export function RoundPrint({ id }: { id: string }) {
         </div>
 
         <div style={{ breakInside: "avoid" }}>
-          <Sec n={3} title="ลงนามอนุมัติ" en="Signatures" />
+          <Sec n={4} title="ลงชื่ออนุมัติ" en="ลายเซ็น" />
           <table className="w-full table-fixed border-collapse">
             <thead>
               <tr>
