@@ -1,6 +1,6 @@
 "use client"
 
-// รอบขายซาก: รายการรอบ · สร้างรอบ (เลือกคลัง + วันตัดรอบ → ติ๊กซาก) · เปิดรอบดูรายการ · Export · ขายทั้งรอบ · ยกเลิกรอบ
+// รอบขายซาก: รายการรอบ · สร้างรอบ (เลือกคลัง + วันตัดรอบ → ติ๊กซาก) · เปิดรอบดูรายการ · Export · บัญชีนับซากออก → ขายทั้งรอบ · ยกเลิกรอบ
 import { useMemo, useState } from "react"
 import { Download, Loader2, Plus } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -12,6 +12,7 @@ import { DateInput, baht, btnGhost, btnPrimary, daysFrom, download, inputCls, po
 type Round = {
   roundNo: string; warehouses: string[]; cutoffDate: string; status: "open" | "sold" | "cancelled"; count: number; costAmount: number
   createdBy: { name: string }; createdAt: string; soldDate?: string | null; buyer?: string | null; totalPrice?: number | null; note?: string; cancelReason?: string
+  checkedOutAt?: string | null; checkedOutBy?: { name: string } | null; checkoutNote?: string; missingKeys?: string[]
 }
 const ROUND_ST: Record<Round["status"], { label: string; cls: string }> = {
   open: { label: "รอขาย", cls: "bg-sky-50 text-sky-800 ring-sky-200" },
@@ -33,7 +34,7 @@ export function RoundsPanel({ warehouses, canRound, onChanged, compact }: { ware
     <section data-testid="rounds" className={`flex flex-col gap-2 rounded-[14px] border ${K["border-line"]} bg-white px-3.5 py-3`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className={`m-0 text-sm font-bold ${K["text-ink"]}`}>รอบขายซาก</h3>
-        {canRound && <Button variant="procure" size="sm" onClick={() => setCreating(true)} data-testid="round-new"><Plus size={14} aria-hidden />สร้างรอบ</Button>}
+        {canRound && <Button variant="store" size="sm" onClick={() => setCreating(true)} data-testid="round-new"><Plus size={14} aria-hidden />สร้างรอบ</Button>}
       </div>
       {error && <p role="alert" className={`rounded-xl ${K["bg-cFBE4E2"]} px-3 py-2.5 text-sm font-semibold ${K["text-c9F1D12"]}`}>{error}</p>}
       {!items ? <SkeletonCards n={2} /> : shown.length === 0 ? (
@@ -43,7 +44,7 @@ export function RoundsPanel({ warehouses, canRound, onChanged, compact }: { ware
           {shown.map((r) => (
             <li key={r.roundNo} className={`flex items-center justify-between gap-2 border-t ${K["border-cEEF2F0"]} py-1 text-[13px]`}>
               <button type="button" onClick={() => setOpen(r.roundNo)} data-round={r.roundNo} className={`min-h-11 min-w-0 flex-1 rounded text-left ${K["hover:text-primaryHover"]} focus-visible:outline-none focus-visible:ring-2 ${K["focus-visible:ring-primary"]} lg:min-h-9`}>
-                <b>{r.roundNo}</b> · {r.status === "open" ? "เปิดอยู่" : r.status === "sold" ? `ขายแล้ว ${thDate(r.soldDate)}` : "ยกเลิก"} · {r.count} รายการ
+                <b>{r.roundNo}</b> · {r.status === "open" ? (r.checkedOutAt ? "นับออกแล้ว รอขาย" : "เปิดอยู่ รอนับซากออก") : r.status === "sold" ? `ขายแล้ว ${thDate(r.soldDate)}` : "ยกเลิก"} · {r.count} รายการ
               </button>
               {r.status === "open"
                 ? <button type="button" onClick={() => download(`/api/core-return/rounds/${encodeURIComponent(r.roundNo)}/export`)} className={`min-h-11 shrink-0 rounded px-1 font-semibold ${K["text-primary"]} ${K["hover:text-primaryHover"]} hover:underline focus-visible:outline-none focus-visible:ring-2 ${K["focus-visible:ring-primary"]} lg:min-h-9`}>Export Excel</button>
@@ -135,6 +136,9 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
   const [tick, setTick] = useState(0)
   const { data } = useFetch<{ round: Round; items: Row[] }>(roundNo ? `/api/core-return/rounds/${encodeURIComponent(roundNo)}` : null, tick)
   const [selling, setSelling] = useState(false)
+  const [counting, setCounting] = useState(false)
+  const [notFound, setNotFound] = useState<Set<string>>(EMPTY)
+  const [countNote, setCountNote] = useState("")
   const [soldDate, setSoldDate] = useState(todayYmd())
   const [buyer, setBuyer] = useState("")
   const [total, setTotal] = useState("")
@@ -150,6 +154,16 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
       setSelling(false); setTick((t) => t + 1); onChanged()
     } catch (e) { setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ") } finally { setBusy(false) }
   }
+  const checkout = async () => {
+    if (!roundNo) return
+    setBusy(true); setError("")
+    try {
+      const j = await postJson(`/api/core-return/rounds/${encodeURIComponent(roundNo)}/checkout`, { missingKeys: [...notFound], note: countNote })
+      toast("success", j.released ? `นับซากออกแล้ว ${j.counted} รายการ · ${j.released} รายการกลับไปรอขาย` : `นับซากออกแล้ว ครบ ${j.counted} รายการ`)
+      setCounting(false); setNotFound(EMPTY); setTick((t) => t + 1); onChanged()
+    } catch (e) { setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ") } finally { setBusy(false) }
+  }
+  const toggleFound = (k: string) => setNotFound((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
   const cancel = async () => {
     if (!roundNo) return
     onClose(); await settle()
@@ -162,6 +176,8 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
     } catch (e) { toast("error", e instanceof Error ? e.message : "ยกเลิกไม่สำเร็จ") }
   }
   const rd = data?.round
+  const counted = !!rd?.checkedOutAt
+  const idle = !selling && !counting
   return (
     <Dialog open={!!roundNo} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl" data-testid="round-dialog">
@@ -175,14 +191,19 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
             <p className="text-xs text-gray-500">สร้างโดย {rd!.createdBy.name} · {thDateTime(rd!.createdAt)}
               {rd!.status === "sold" ? ` · ขาย ${thDate(rd!.soldDate)}${rd!.buyer ? ` ให้ ${rd!.buyer}` : ""}${rd!.totalPrice != null ? ` · ${baht(rd!.totalPrice)} บาท` : ""}` : ""}
               {rd!.status === "cancelled" ? ` · ยกเลิก: ${rd!.cancelReason ?? ""}` : ""}</p>
+            {rd!.status === "open" && (counted
+              ? <p className="rounded-xl bg-green-50 px-3 py-2 text-sm text-green-800" data-testid="round-counted">บัญชีนับซากออกแล้ว โดย {rd!.checkedOutBy?.name ?? "-"} · {thDateTime(rd!.checkedOutAt)}{rd!.missingKeys?.length ? ` · ไม่เจอ ${rd!.missingKeys.length} ชิ้น กลับไปรอขาย` : ""}{rd!.checkoutNote ? ` · ${rd!.checkoutNote}` : ""}</p>
+              : <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">ก่อนส่งมอบผู้ซื้อ บัญชีต้องนับซากออกจากคลังซากก่อน ถึงจะบันทึกขายได้</p>)}
+            {counting && <p className="text-sm text-gray-600 dark:text-gray-300">นับของจริงเทียบรายการ ชิ้นไหนไม่เจอให้เอาติ๊กออก ชิ้นนั้นจะกลับไปรอขาย ไม่ขายไปกับรอบนี้</p>}
             <div className={`max-h-[42vh] overflow-y-auto rounded-xl border ${K["border-cE2E8E4"]} dark:border-white/10`}>
               <table className="w-full text-sm">
                 <thead className={`sticky top-0 ${K["bg-cF6F8F7"]} text-left text-xs text-gray-500 ${K["dark:bg-c161922"]}`}>
-                  <tr><th className="p-2">#</th><th className="p-2">สินค้า</th><th className="p-2">WD / ทะเบียน</th><th className="p-2">ในคลังซาก</th><th className="p-2 text-right">ทุนเดิม</th>{(selling || rd!.status === "sold") && <th className="p-2 text-right">ราคาขาย</th>}</tr>
+                  <tr>{counting && <th className="p-2">เจอ</th>}<th className="p-2">#</th><th className="p-2">สินค้า</th><th className="p-2">WD / ทะเบียน</th><th className="p-2">ในคลังซาก</th><th className="p-2 text-right">ทุนเดิม</th>{(selling || rd!.status === "sold") && <th className="p-2 text-right">ราคาขาย</th>}</tr>
                 </thead>
                 <tbody>
                   {data.items.map((r, i) => (
                     <tr key={r.row_key} className={`border-t ${K["border-cEEF2F0"]} dark:border-white/5`}>
+                      {counting && <td className="p-2"><input type="checkbox" className="size-5" aria-label={`นับเจอ ${r.skuName}`} checked={!notFound.has(r.row_key)} onChange={() => toggleFound(r.row_key)} /></td>}
                       <td className="p-2 text-xs text-gray-500">{i + 1}</td>
                       <td className="p-2"><span className="block max-w-[240px] truncate">{r.skuName}</span><span className="text-xs text-gray-500">{r.skuCode} · {qtyText(r.coreQtyReturned || r.qtyIssued)} ชิ้น</span></td>
                       <td className="p-2 text-xs">{r.wdCode}<br />{r.plate}</td>
@@ -202,11 +223,20 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
                 <label className="space-y-1 text-sm"><span className="font-medium">ราคารวม (ถ้ามี)</span><input className={inputCls} inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="ว่าง = รวมจากรายบรรทัด" /></label>
               </div>
             )}
+            {counting && (
+              <div className={`grid gap-3 rounded-xl ${K["bg-cF6F8F7"]} p-3 sm:grid-cols-[auto_1fr] sm:items-end dark:bg-white/[0.04]`}>
+                <p className="m-0 text-sm font-medium">เจอ {data.items.length - notFound.size} / {data.items.length} ชิ้น</p>
+                <label className="space-y-1 text-sm"><span className="font-medium">หมายเหตุ{notFound.size ? " (ต้องใส่ เพราะมีชิ้นที่ไม่เจอ)" : " (ถ้ามี)"}</span><input className={inputCls} value={countNote} onChange={(e) => setCountNote(e.target.value)} placeholder="เช่น หาไม่เจอในคลังซาก" /></label>
+              </div>
+            )}
             {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => download(`/api/core-return/rounds/${encodeURIComponent(roundNo!)}/export`)} className={btnGhost} data-testid="round-export"><Download size={14} />Export Excel รอบนี้</button>
-              {canRound && rd!.status === "open" && !selling && <Button variant="danger" onClick={cancel}>ยกเลิกรอบ</Button>}
-              {canRound && rd!.status === "open" && !selling && <button type="button" className={btnPrimary} onClick={() => setSelling(true)}>บันทึกขายแล้วทั้งรอบ</button>}
+              {canRound && rd!.status === "open" && idle && <Button variant="danger" onClick={cancel}>ยกเลิกรอบ</Button>}
+              {canRound && rd!.status === "open" && idle && !counted && <button type="button" className={btnPrimary} onClick={() => setCounting(true)} data-testid="round-checkout">นับตรวจซากออก</button>}
+              {canRound && rd!.status === "open" && idle && counted && <button type="button" className={btnPrimary} onClick={() => setSelling(true)}>บันทึกขายแล้วทั้งรอบ</button>}
+              {counting && <button type="button" className={btnGhost} onClick={() => { setCounting(false); setNotFound(EMPTY) }}>ยังไม่บันทึก</button>}
+              {counting && <button type="button" className={btnPrimary} disabled={busy || notFound.size >= data.items.length || (notFound.size > 0 && !countNote.trim())} onClick={checkout}>{busy && <Loader2 size={16} className="animate-spin" />}ยืนยันนับซากออก</button>}
               {selling && <button type="button" className={btnGhost} onClick={() => setSelling(false)}>ยังไม่บันทึก</button>}
               {selling && <button type="button" className={btnPrimary} disabled={busy} onClick={sell}>{busy && <Loader2 size={16} className="animate-spin" />}ยืนยันขายทั้งรอบ</button>}
             </div>

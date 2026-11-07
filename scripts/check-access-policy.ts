@@ -305,10 +305,16 @@ console.log("store-withdraw access: OK")
   for (const p of ["/api/core-return/k1/rebuilt", "/api/core-return/k1/return", "/api/core-return/k1/pickup", "/api/core-return/k1/confirm"])
     assert.equal(runAcc(p, "POST", fin, true), false, `บัญชีทำ ${p} ไม่ได้`)
   assert.equal(runAcc("/store-withdraw/core-return", "GET", gen, true), true, "บัญชีที่แผนกไม่ตรงโปรไฟล์ ยังเปิดหน้าได้")
-  // ตาม + รอบขาย = จัดซื้อ / สโตร์ · ยานยนต์ไม่ได้
-  for (const p of ["/api/core-return/k1/follow-up", "/api/core-return/rounds", "/api/core-return/rounds/SR-2611-01/sold", "/api/core-return/rounds/SR-2611-01/cancel"]) {
-    assert.equal(run(p, "POST", proc), true, p)
+  // ตามงาน = จัดซื้อ / สโตร์ · ยานยนต์ไม่ได้
+  assert.equal(run("/api/core-return/k1/follow-up", "POST", proc), true)
+  assert.equal(run("/api/core-return/k1/follow-up", "POST", store), true)
+  assert.equal(run("/api/core-return/k1/follow-up", "POST", veh), false)
+  // รอบขาย (สร้าง / นับซากออก / ขายทั้งรอบ / ยกเลิก) = บัญชี / สโตร์ เท่านั้น (2026-11-07) · จัดซื้อ ยานยนต์ไม่ได้
+  assert.equal(coreReturnActionForApi("/api/core-return/rounds/SR-2611-01/checkout"), "round")
+  for (const p of ["/api/core-return/rounds", "/api/core-return/rounds/SR-2611-01/checkout", "/api/core-return/rounds/SR-2611-01/sold", "/api/core-return/rounds/SR-2611-01/cancel"]) {
     assert.equal(run(p, "POST", store), true, p)
+    assert.equal(runAcc(p, "POST", fin, true), true, `บัญชี ${p}`)
+    assert.equal(run(p, "POST", proc), false, `จัดซื้อ ${p}`)
     assert.equal(run(p, "POST", veh), false, p)
   }
   // แนบรูป: presign/confirm = สิทธิ์คืนซาก (ยานยนต์/สโตร์ได้ · จัดซื้ออย่างเดียวไม่ได้) · ดูรายการรูป = อ่าน

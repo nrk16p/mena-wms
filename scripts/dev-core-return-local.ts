@@ -123,9 +123,10 @@ void (async () => {
   const whs = ["คลังลาดกระบัง", "คลังสระบุรี"]
   const pv = await rounds.previewRound({ warehouses: whs, cutoffDate: today })
   if (pv.items.length >= 6) {
-    const r1 = await rounds.createRound({ warehouses: whs, cutoffDate: today, keys: pv.items.slice(0, 6).map((x) => x.row_key), note: "รอบต้นเดือน" }, buyer, now)
-    await rounds.sellRound(r1.roundNo, { soldDate: today, buyer: "หจก.รีไซเคิลเหล็กไทย", totalPrice: 4200 }, store, now)
-    await rounds.createRound({ warehouses: whs, cutoffDate: today, keys: pv.items.slice(6, 14).map((x) => x.row_key), note: "รอผู้ซื้อเสนอราคา" }, buyer, now)
+    const r1 = await rounds.createRound({ warehouses: whs, cutoffDate: today, keys: pv.items.slice(0, 6).map((x) => x.row_key), note: "รอบต้นเดือน" }, acc, now)
+    await rounds.checkoutRound(r1.roundNo, {}, acc, now)
+    await rounds.sellRound(r1.roundNo, { soldDate: today, buyer: "หจก.รีไซเคิลเหล็กไทย", totalPrice: 4200 }, acc, now)
+    await rounds.createRound({ warehouses: whs, cutoffDate: today, keys: pv.items.slice(6, 14).map((x) => x.row_key), note: "รอผู้ซื้อเสนอราคา" }, acc, now)
   }
 
   // ── ใบเบิก WMS ของผู้ใช้เดโม (ISSUED มี WD) → แถวซากผ่าน sw-sync จริง ──

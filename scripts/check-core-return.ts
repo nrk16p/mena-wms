@@ -221,11 +221,28 @@ void (async () => {
     const rcRound = await rounds.getRound(rc.roundNo)
     eq(rcRound.items.length, rc.count)
     const xRound = await excel.buildRoundWorkbook(rcRound.round, rcRound.items, now)
+    // บัญชีนับซากออกก่อนขาย (2026-11-07)
+    eq(await status(rounds.sellRound(rc.roundNo, { soldDate: "2026-11-03" }, store, now)), 409, "ยังไม่นับซากออก ขายไม่ได้")
+    assert.ok(rcRound.items.length >= 4, `รอบทดสอบต้องมีอย่างน้อย 4 ชิ้น (ได้ ${rcRound.items.length})`)
+    const lost = rcRound.items[2].row_key // ไม่ใช่ชิ้นที่มีราคารายบรรทัด และไม่ใช่ชิ้นที่เข้าคลังซากล่าสุด
+    eq(await status(rounds.checkoutRound(rc.roundNo, { missingKeys: ["ไม่มีในรอบ"] }, acc, now)), 400)
+    eq(await status(rounds.checkoutRound(rc.roundNo, { missingKeys: rcRound.items.map((r) => r.row_key), note: "x" }, acc, now)), 400, "ไม่เจอทุกชิ้น = ให้ยกเลิกรอบ")
+    eq(await status(rounds.checkoutRound(rc.roundNo, { missingKeys: [lost] }, acc, now)), 400, "ไม่เจอต้องมีเหตุผล")
+    const [co1, co2] = await Promise.all([
+      rounds.checkoutRound(rc.roundNo, { missingKeys: [lost], note: "หาไม่เจอในคลังซาก" }, acc, now),
+      rounds.checkoutRound(rc.roundNo, {}, acc, now).catch((e) => e),
+    ])
+    eq([co1.counted, co1.released, await status(Promise.reject(co2))], [rcRound.items.length - 1, 1, 409], "นับได้ครั้งเดียว")
+    const lostRow = await col.findOne({ row_key: lost })
+    eq([lostRow?.coreStatus, lostRow?.saleRoundNo], ["sell_waiting", null], "ชิ้นที่ไม่เจอกลับไปรอขาย")
+    eq((await svc.getRow(lost)).history.map((h) => h.action).slice(-1), ["round_missing"])
+    const rcAfterCount = await rounds.getRound(rc.roundNo)
+    eq([rcAfterCount.round.count, rcAfterCount.items.length, !!rcAfterCount.round.checkedOutAt, rcAfterCount.round.checkedOutBy?.email], [co1.counted, co1.counted, true, acc.email])
     eq(await status(rounds.sellRound(rc.roundNo, {}, store, now)), 400, "ต้องมีวันที่ขาย")
     eq(await status(rounds.sellRound(rc.roundNo, { soldDate: "2026-10-25" }, store, now)), 400, "ขายก่อนซากเข้าคลัง")
     const linePrices = { [rcRound.items[0].row_key]: 120, [rcRound.items[1].row_key]: 80 }
     const sr = await rounds.sellRound(rc.roundNo, { soldDate: "2026-11-03", buyer: "ร้านรับซื้อของเก่า", linePrices }, store, now)
-    eq(sr.sold, rc.count)
+    eq(sr.sold, rc.count - 1, "ชิ้นที่นับไม่เจอไม่ถูกขาย")
     const afterSold = await rounds.getRound(rc.roundNo)
     eq([afterSold.round.status, afterSold.round.totalPrice, afterSold.round.buyer], ["sold", 200, "ร้านรับซื้อของเก่า"])
     for (const r of afterSold.items) eq([r.coreStatus, r.sale?.soldDate, r.sale?.roundNo, r.saleRoundNo], ["sold", "2026-11-03", rc.roundNo, rc.roundNo])

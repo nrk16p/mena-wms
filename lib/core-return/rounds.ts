@@ -1,5 +1,6 @@
 // lib/core-return/rounds.ts — รอบขายซาก (SR-YYMM-NN): รวมซากที่อยู่คลังซากรอขาย → ขายทีเดียวทั้งรอบ
 // แถวหนึ่งอยู่ได้รอบเดียว: ผูกด้วย updateOne({row_key, coreStatus: sell_waiting, saleRoundNo: null}) ตัวที่มาก่อนได้
+// บัญชีนับตรวจซากออก (checkoutRound) ก่อนขายทั้งรอบเสมอ · ชิ้นที่นับไม่เจอ = ปล่อยกลับไปรอขาย ไม่ขายไปกับรอบ
 // ยกเลิกรอบ = ปล่อยแถวกลับไปรอขาย · ขายทั้งรอบ = ทุกแถวในรอบเป็น "ขายซากแล้ว" · ทุกแถวที่ขยับมีประวัติใน core_return_log
 import type { Filter } from "mongodb"
 import { CoreHttpError, isYmd, todayBkk, type Actor, type CoreRow } from "./core"
@@ -104,6 +105,7 @@ export async function sellRound(roundNo: string, body: Record<string, unknown>, 
   const cur = await rounds.findOne({ roundNo })
   if (!cur) throw new CoreHttpError("ไม่พบรอบขายนี้", 404)
   if (cur.status === "cancelled") throw new CoreHttpError("รอบนี้ยกเลิกไปแล้ว", 409)
+  if (cur.status === "open" && !cur.checkedOutAt) throw new CoreHttpError("บัญชียังไม่ได้นับตรวจซากออก กดนับซากออกก่อน", 409)
   const latestScrap = (await (await baseCol()).find({ row_key: { $in: cur.keys } }, { projection: { "sale.scrapInDate": 1 } }).sort({ "sale.scrapInDate": -1 }).limit(1).next())?.sale?.scrapInDate
   if (latestScrap && soldDate < latestScrap) throw bad("วันที่ขายต้องไม่ก่อนวันที่ซากเข้าคลังซาก")
   const sumLines = Object.values(linePrices).reduce((a, b) => a + b, 0)
@@ -126,6 +128,41 @@ export async function sellRound(roundNo: string, body: Record<string, unknown>, 
     await writeCoreLog({ row_key: k, action: "sold", from: "sell_waiting", to: "sold", actor: { ...who(actor), via: actor.via }, note: note || undefined, data: { roundNo, soldDate: sale.soldDate, price, buyer: sale.buyer } }, now)
   }
   return { roundNo, sold }
+}
+
+/**
+ * บัญชีนับตรวจซากออกจากคลังซาก (ก่อนส่งมอบผู้ซื้อ) · ทำได้ครั้งเดียวต่อรอบ ตอนรอบยังเปิดอยู่
+ * missingKeys = ชิ้นที่นับแล้วไม่เจอ → ออกจากรอบ กลับไปรอขาย (ต้องเหลืออย่างน้อย 1 ชิ้น ไม่งั้นให้ยกเลิกรอบแทน)
+ */
+export async function checkoutRound(roundNo: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
+  const missing = [...new Set(strArr(body.missingKeys))]
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : ""
+  const rounds = await roundCol()
+  const cur = await rounds.findOne({ roundNo })
+  if (!cur) throw new CoreHttpError("ไม่พบรอบขายนี้", 404)
+  if (cur.status !== "open") throw new CoreHttpError(cur.status === "sold" ? "รอบนี้ขายไปแล้ว" : "รอบนี้ยกเลิกไปแล้ว", 409)
+  if (cur.checkedOutAt) throw new CoreHttpError("รอบนี้นับซากออกไปแล้ว", 409)
+  if (missing.some((k) => !cur.keys.includes(k))) throw bad("มีรายการที่ไม่อยู่ในรอบนี้")
+  if (missing.length >= cur.keys.length) throw bad("นับไม่เจอทุกชิ้น ให้ยกเลิกรอบแทน")
+  if (missing.length && !note) throw bad("มีชิ้นที่นับไม่เจอ บอกเหตุผลสั้น ๆ ด้วย")
+  const claimed = await rounds.findOneAndUpdate({ roundNo, status: "open", checkedOutAt: { $in: [null] } } as Filter<SaleRound>,
+    { $set: { checkedOutAt: now, checkedOutBy: who(actor), checkoutNote: note, missingKeys: missing } }, { returnDocument: "after" })
+  if (!claimed) throw new CoreHttpError("รอบนี้มีคนนับไปก่อนแล้ว ลองรีเฟรช", 409)
+  const base = await baseCol()
+  const by = { ...who(actor), via: actor.via }
+  let released = 0
+  for (const k of missing) {
+    const r = await base.updateOne({ row_key: k, coreStatus: "sell_waiting", saleRoundNo: roundNo }, { $set: { saleRoundNo: null, coreUpdatedAt: now } })
+    if (!r.modifiedCount) continue
+    released++
+    await writeCoreLog({ row_key: k, action: "round_missing", from: "sell_waiting", to: "sell_waiting", actor: by, note, data: { roundNo } }, now)
+  }
+  const keep = cur.keys.filter((k) => !missing.includes(k))
+  const kept = await base.find({ row_key: { $in: keep } }, { projection: { amount: 1 } }).toArray()
+  const cost = round2(kept.reduce((a, r) => a + (r.amount ?? 0), 0))
+  await rounds.updateOne({ roundNo }, { $set: { keys: keep, count: keep.length, costAmount: cost } })
+  for (const k of keep) await writeCoreLog({ row_key: k, action: "round_checkout", from: "sell_waiting", to: "sell_waiting", actor: by, note: note || undefined, data: { roundNo } }, now)
+  return { roundNo, counted: keep.length, released, costAmount: cost }
 }
 
 export async function cancelRound(roundNo: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {

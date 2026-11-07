@@ -265,7 +265,8 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
 //   ขายแล้ว / Rebuild เสร็จ = สโตร์เท่านั้น · ตามงาน (follow_up) = จัดซื้อ (core-return แก้ได้) หรือสโตร์
 //   รอบขายซาก (round: สร้าง / ขายทั้งรอบ / ยกเลิก) = สโตร์ หรือจัดซื้อ
 //   (2026-11-05) S1 ต้องผ่านบัญชีรับเข้าคลังซาก: รับซากกลับจากอู่นอก (pickup) = จัดซื้อ/สโตร์ · ยืนยันส่งต่อ (confirm) = ยานยนต์/สโตร์
-//   รับเข้าคลังซาก (receive) / บันทึกขาย / รอบขาย = บัญชี (isAccounting: แผนก HR หรือรายชื่อ) · สโตร์ทำแทนได้ · จัดซื้อยังจัดรอบได้
+//   รับเข้าคลังซาก (receive) / บันทึกขาย / รอบขาย = บัญชี (isAccounting: แผนก HR หรือรายชื่อ) · สโตร์ทำแทนได้
+//   (2026-11-07) รอบขาย (สร้าง / นับซากออก / ขายทั้งรอบ / ยกเลิก) = บัญชีหรือสโตร์เท่านั้น จัดซื้อไม่จัดรอบแล้ว
 export type CoreReturnAction = "read" | "return" | "pickup" | "confirm" | "receive" | "sold" | "rebuilt" | "follow_up" | "round"
 
 export function coreReturnCan(a: Access, action: CoreReturnAction, ctx: { accounting?: boolean } = {}): boolean {
@@ -279,14 +280,14 @@ export function coreReturnCan(a: Access, action: CoreReturnAction, ctx: { accoun
     case "receive":
     case "sold": return store || acc
     case "rebuilt": return store
-    case "follow_up":
-    case "round": return store || acc || atLeast(a["core-return"], "edit")
+    case "follow_up": return store || acc || atLeast(a["core-return"], "edit")
+    case "round": return store || acc
   }
 }
 
-/** POST /api/core-return/rounds[/:no/(sold|cancel)] → round · POST /api/core-return/:key/(return|sold|rebuilt|follow-up) → action · POST /api/core-return/:key/attachments/(presign|confirm) → return · ทางเขียนอื่นใต้ /api/core-return = ไม่มี (ปฏิเสธ) */
+/** POST /api/core-return/rounds[/:no/(sold|cancel|checkout)] → round · POST /api/core-return/:key/(return|sold|rebuilt|follow-up) → action · POST /api/core-return/:key/attachments/(presign|confirm) → return · ทางเขียนอื่นใต้ /api/core-return = ไม่มี (ปฏิเสธ) */
 export function coreReturnActionForApi(pathname: string): CoreReturnAction | null {
-  if (/^\/api\/core-return\/rounds(\/[^/]+\/(sold|cancel))?$/.test(pathname)) return "round"
+  if (/^\/api\/core-return\/rounds(\/[^/]+\/(sold|cancel|checkout))?$/.test(pathname)) return "round"
   if (pathname.startsWith("/api/core-return/rounds/")) return null
   if (/^\/api\/core-return\/[^/]+\/attachments\/(presign|confirm)$/.test(pathname)) return "return"
   const m = /^\/api\/core-return\/[^/]+\/(return|pickup|confirm|receive|sold|rebuilt|follow-up)$/.exec(pathname)
