@@ -317,6 +317,11 @@ console.log("store-withdraw access: OK")
     assert.equal(run(p, "POST", proc), false, `จัดซื้อ ${p}`)
     assert.equal(run(p, "POST", veh), false, p)
   }
+  // รับเงินค่าซาก = บัญชีเท่านั้น (2026-11-09) · สโตร์ จัดซื้อ ยานยนต์ การเงินไม่ได้
+  assert.equal(coreReturnActionForApi("/api/core-return/rounds/SR-2611-01/paid"), "pay")
+  assert.equal(runAcc("/api/core-return/rounds/SR-2611-01/paid", "POST", fin, true), true, "บัญชีรับเงิน")
+  assert.equal(runAcc("/api/core-return/rounds/SR-2611-01/paid", "POST", fin, false), false, "การเงินรับเงินค่าซากไม่ได้")
+  for (const a of [store, proc, veh]) assert.equal(run("/api/core-return/rounds/SR-2611-01/paid", "POST", a), false)
   // แนบรูป: presign/confirm = สิทธิ์คืนซาก (ยานยนต์/สโตร์ได้ · จัดซื้ออย่างเดียวไม่ได้) · ดูรายการรูป = อ่าน
   for (const p of ["/api/core-return/k1/attachments/presign", "/api/core-return/k1/attachments/confirm"]) {
     assert.equal(coreReturnActionForApi(p), "return", p)

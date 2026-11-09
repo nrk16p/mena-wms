@@ -7,7 +7,7 @@ import type { CoreRow, CoreStatus } from "./core"
 
 export type CoreLogDoc = {
   row_key: string
-  action: "return" | "attach" | "pickup" | "handover" | "receive" | "sold" | "rebuilt" | "follow_up" | "create" | "round_add" | "round_cancel" | "round_checkout" | "round_missing"
+  action: "return" | "attach" | "pickup" | "handover" | "receive" | "sold" | "rebuilt" | "follow_up" | "create" | "round_add" | "round_cancel" | "round_checkout" | "round_missing" | "round_paid"
   from: CoreStatus | null
   to: CoreStatus | null
   actor: { email: string; name: string; via: string }
@@ -111,6 +111,13 @@ export type SaleRound = {
   checkoutNote?: string
   /** แถวที่นับแล้วไม่เจอ ถูกปล่อยกลับไปรอขาย */
   missingKeys?: string[]
+  /** บัญชีรับเงินค่าซากแล้ว (หลังขายทั้งรอบ) · ทำได้ครั้งเดียวต่อรอบ */
+  paidDate?: string | null
+  paidAmount?: number | null
+  receiptNo?: string | null
+  paidNote?: string
+  paidBy?: { email: string; name: string } | null
+  paidAt?: Date | null
 }
 
 export async function roundCol(): Promise<Collection<SaleRound>> {

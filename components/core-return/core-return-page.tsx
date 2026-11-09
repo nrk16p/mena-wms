@@ -714,7 +714,7 @@ export function CoreReturnPage({ initial = {} }: { initial?: { mine?: boolean; v
           </Lane>
           <Lane tone="store" title={LANES[1].title} role={LANES[1].role} count={l2.count} amount={l2.amount} hidden={lane !== 1}>
             <StoreLane f={f} tick={tick} perms={perms} onAct={setAct} onOpen={setDetail} summary={summary} />
-            <RoundsPanel warehouses={meta.warehouses} canRound={perms.round} onChanged={refresh} compact />
+            <RoundsPanel warehouses={meta.warehouses} canRound={perms.round} canPay={perms.pay} onChanged={refresh} compact />
           </Lane>
           <Lane tone="procure" title={LANES[2].title} role={LANES[2].role} count={l3.count} amount={l3.amount} hidden={lane !== 2}>
             <SectionCard title={`รอรับซากจากอู่นอก (${(summary?.await_pickup?.count ?? 0).toLocaleString()})`} hint="ยานยนต์แจ้งคืนซากแล้ว นัดไปรับและนำกลับคลัง" testid="lane-pickup">

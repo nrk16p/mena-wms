@@ -18,6 +18,7 @@ const DENY: Record<CoreReturnAction, string> = {
   rebuilt: "บันทึกรีบิ้วเสร็จได้เฉพาะสโตร์",
   follow_up: "บันทึกการตามได้เฉพาะจัดซื้อ หรือสโตร์",
   round: "จัดรอบขายซากได้เฉพาะฝ่ายบัญชีหรือสโตร์",
+  pay: "บันทึกรับเงินค่าซากได้เฉพาะฝ่ายบัญชี",
 }
 
 export type CoreCtx = { actor: Actor; access: Access }

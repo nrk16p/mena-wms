@@ -114,8 +114,10 @@ export type Perms = {
   read: boolean; ret: boolean; store: boolean; follow: boolean; round: boolean; vehicleTeam: boolean; ready: boolean
   /** S1 ขั้นส่งต่อ: จัดซื้อรับซากกลับ · ยานยนต์ยืนยันส่งต่อ · บัญชีรับเข้าคลังซาก · บันทึกขาย */
   pickup: boolean; confirm: boolean; receive: boolean; sold: boolean; accounting: boolean
+  /** บัญชีรับเงินค่าซาก */
+  pay: boolean
 }
-const NO_PERMS = { read: false, ret: false, store: false, follow: false, round: false, vehicleTeam: false, pickup: false, confirm: false, receive: false, sold: false, accounting: false }
+const NO_PERMS = { read: false, ret: false, store: false, follow: false, round: false, vehicleTeam: false, pickup: false, confirm: false, receive: false, sold: false, accounting: false, pay: false }
 
 /** สิทธิ์ของคนที่ล็อกอิน (ฝั่ง API เช็กซ้ำเสมอ) · vehicleTeam = ยานยนต์ (คืนซากได้ แต่ไม่ใช่สโตร์/จัดซื้อ) · store = สโตร์ (คิวสโตร์แก้ได้) */
 export function usePerms(): Perms {
@@ -130,7 +132,7 @@ export function usePerms(): Perms {
   const ret = coreReturnCan(a, "return")
   return {
     read: coreReturnCan(a, "read", ctx), ret, store, follow, round: coreReturnCan(a, "round", ctx), vehicleTeam: ret && !store && !follow, ready: true,
-    pickup: coreReturnCan(a, "pickup", ctx), confirm: coreReturnCan(a, "confirm", ctx), receive: coreReturnCan(a, "receive", ctx), sold: coreReturnCan(a, "sold", ctx), accounting,
+    pickup: coreReturnCan(a, "pickup", ctx), confirm: coreReturnCan(a, "confirm", ctx), receive: coreReturnCan(a, "receive", ctx), sold: coreReturnCan(a, "sold", ctx), pay: coreReturnCan(a, "pay", ctx), accounting,
   }
 }
 

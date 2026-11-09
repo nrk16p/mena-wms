@@ -13,6 +13,7 @@ type Round = {
   roundNo: string; warehouses: string[]; cutoffDate: string; status: "open" | "sold" | "cancelled"; count: number; costAmount: number
   createdBy: { name: string }; createdAt: string; soldDate?: string | null; buyer?: string | null; totalPrice?: number | null; note?: string; cancelReason?: string
   checkedOutAt?: string | null; checkedOutBy?: { name: string } | null; checkoutNote?: string; missingKeys?: string[]
+  paidDate?: string | null; paidAmount?: number | null; receiptNo?: string | null; paidNote?: string; paidBy?: { name: string } | null; paidAt?: string | null
 }
 const ROUND_ST: Record<Round["status"], { label: string; cls: string }> = {
   open: { label: "รอขาย", cls: "bg-sky-50 text-sky-800 ring-sky-200" },
@@ -22,7 +23,7 @@ const ROUND_ST: Record<Round["status"], { label: string; cls: string }> = {
 const settle = () => new Promise<void>((r) => setTimeout(r, 150))
 const EMPTY = new Set<string>()
 
-export function RoundsPanel({ warehouses, canRound, onChanged, compact }: { warehouses: string[]; canRound: boolean; onChanged: () => void; compact?: boolean }) {
+export function RoundsPanel({ warehouses, canRound, canPay = false, onChanged, compact }: { warehouses: string[]; canRound: boolean; canPay?: boolean; onChanged: () => void; compact?: boolean }) {
   const [tick, setTick] = useState(0)
   const { data, error } = useFetch<{ items: Round[] }>("/api/core-return/rounds", tick)
   const items = data?.items ?? null
@@ -44,7 +45,7 @@ export function RoundsPanel({ warehouses, canRound, onChanged, compact }: { ware
           {shown.map((r) => (
             <li key={r.roundNo} className={`flex items-center justify-between gap-2 border-t ${K["border-cEEF2F0"]} py-1 text-[13px]`}>
               <button type="button" onClick={() => setOpen(r.roundNo)} data-round={r.roundNo} className={`min-h-11 min-w-0 flex-1 rounded text-left ${K["hover:text-primaryHover"]} focus-visible:outline-none focus-visible:ring-2 ${K["focus-visible:ring-primary"]} lg:min-h-9`}>
-                <b>{r.roundNo}</b> · {r.status === "open" ? (r.checkedOutAt ? "นับออกแล้ว รอขาย" : "เปิดอยู่ รอนับซากออก") : r.status === "sold" ? `ขายแล้ว ${thDate(r.soldDate)}` : "ยกเลิก"} · {r.count} รายการ
+                <b>{r.roundNo}</b> · {r.status === "open" ? (r.checkedOutAt ? "นับออกแล้ว รอขาย" : "เปิดอยู่ รอนับซากออก") : r.status === "sold" ? (r.paidAt ? `ขายแล้ว ${thDate(r.soldDate)} · รับเงินแล้ว` : `ขายแล้ว ${thDate(r.soldDate)} · รอรับเงิน`) : "ยกเลิก"} · {r.count} รายการ
               </button>
               {r.status === "open"
                 ? <button type="button" onClick={() => download(`/api/core-return/rounds/${encodeURIComponent(r.roundNo)}/export`)} className={`min-h-11 shrink-0 rounded px-1 font-semibold ${K["text-primary"]} ${K["hover:text-primaryHover"]} hover:underline focus-visible:outline-none focus-visible:ring-2 ${K["focus-visible:ring-primary"]} lg:min-h-9`}>Export Excel</button>
@@ -55,7 +56,7 @@ export function RoundsPanel({ warehouses, canRound, onChanged, compact }: { ware
       )}
       <button type="button" onClick={() => download("/api/core-return/report/scrap-aging")} data-testid="aging-export" className={`inline-flex min-h-11 items-center gap-1.5 self-start rounded text-[13px] font-semibold ${K["text-primary"]} ${K["hover:text-primaryHover"]} hover:underline focus-visible:outline-none focus-visible:ring-2 ${K["focus-visible:ring-primary"]} lg:min-h-9`}><Download size={14} aria-hidden />ซากรอขาย ณ วันนี้</button>
       <CreateRoundDialog key={creating ? "open" : "closed"} open={creating} warehouses={warehouses} onClose={() => setCreating(false)} onDone={(no) => { changed(); setOpen(no) }} />
-      <RoundDialog key={open ?? "none"} roundNo={open} canRound={canRound} onClose={() => setOpen(null)} onChanged={changed} />
+      <RoundDialog key={open ?? "none"} roundNo={open} canRound={canRound} canPay={canPay} onClose={() => setOpen(null)} onChanged={changed} />
     </section>
   )
 }
@@ -132,7 +133,7 @@ function CreateRoundDialog({ open, warehouses, onClose, onDone }: { open: boolea
   )
 }
 
-function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: string | null; canRound: boolean; onClose: () => void; onChanged: () => void }) {
+function RoundDialog({ roundNo, canRound, canPay, onClose, onChanged }: { roundNo: string | null; canRound: boolean; canPay: boolean; onClose: () => void; onChanged: () => void }) {
   const [tick, setTick] = useState(0)
   const { data } = useFetch<{ round: Round; items: Row[] }>(roundNo ? `/api/core-return/rounds/${encodeURIComponent(roundNo)}` : null, tick)
   const [selling, setSelling] = useState(false)
@@ -143,8 +144,23 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
   const [buyer, setBuyer] = useState("")
   const [total, setTotal] = useState("")
   const [prices, setPrices] = useState<Record<string, string>>({})
+  const [paying, setPaying] = useState(false)
+  const [paidDate, setPaidDate] = useState(todayYmd())
+  const [paidAmount, setPaidAmount] = useState("")
+  const [receiptNo, setReceiptNo] = useState("")
+  const [paidNote, setPaidNote] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const pay = async () => {
+    if (!roundNo) return
+    setBusy(true); setError("")
+    try {
+      const j = await postJson(`/api/core-return/rounds/${encodeURIComponent(roundNo)}/paid`, { paidDate, amount: paidAmount, receiptNo, note: paidNote })
+      toast("success", `บันทึกรับเงินแล้ว ${baht(j.paidAmount)} บาท`)
+      setPaying(false); setTick((t) => t + 1); onChanged()
+    } catch (e) { setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ") } finally { setBusy(false) }
+  }
+  const startPay = () => { setPaidAmount(rd?.totalPrice != null ? String(rd.totalPrice) : ""); setPaying(true) }
   const sell = async () => {
     if (!roundNo) return
     setBusy(true); setError("")
@@ -177,7 +193,8 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
   }
   const rd = data?.round
   const counted = !!rd?.checkedOutAt
-  const idle = !selling && !counting
+  const idle = !selling && !counting && !paying
+  const paid = !!rd?.paidAt
   return (
     <Dialog open={!!roundNo} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl" data-testid="round-dialog">
@@ -194,6 +211,9 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
             {rd!.status === "open" && (counted
               ? <p className="rounded-xl bg-green-50 px-3 py-2 text-sm text-green-800" data-testid="round-counted">บัญชีนับซากออกแล้ว โดย {rd!.checkedOutBy?.name ?? "-"} · {thDateTime(rd!.checkedOutAt)}{rd!.missingKeys?.length ? ` · ไม่เจอ ${rd!.missingKeys.length} ชิ้น กลับไปรอขาย` : ""}{rd!.checkoutNote ? ` · ${rd!.checkoutNote}` : ""}</p>
               : <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">ก่อนส่งมอบผู้ซื้อ บัญชีต้องนับซากออกจากคลังซากก่อน ถึงจะบันทึกขายได้</p>)}
+            {rd!.status === "sold" && (paid
+              ? <p className="rounded-xl bg-green-50 px-3 py-2 text-sm text-green-800" data-testid="round-paid">รับเงินแล้ว {baht(rd!.paidAmount)} บาท · {thDate(rd!.paidDate)} · ใบเสร็จ {rd!.receiptNo} · โดย {rd!.paidBy?.name ?? "-"}{rd!.totalPrice != null && rd!.paidAmount != null && rd!.paidAmount !== rd!.totalPrice ? ` · ไม่เท่าราคาขาย (${baht(rd!.totalPrice)} บาท)` : ""}{rd!.paidNote ? ` · ${rd!.paidNote}` : ""}</p>
+              : <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">ขายแล้ว รอบัญชีบันทึกรับเงินค่าซาก</p>)}
             {counting && <p className="text-sm text-gray-600 dark:text-gray-300">นับของจริงเทียบรายการ ชิ้นไหนไม่เจอให้เอาติ๊กออก ชิ้นนั้นจะกลับไปรอขาย ไม่ขายไปกับรอบนี้</p>}
             <div className={`max-h-[42vh] overflow-y-auto rounded-xl border ${K["border-cE2E8E4"]} dark:border-white/10`}>
               <table className="w-full text-sm">
@@ -229,6 +249,14 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
                 <label className="space-y-1 text-sm"><span className="font-medium">หมายเหตุ{notFound.size ? " (ต้องใส่ เพราะมีชิ้นที่ไม่เจอ)" : " (ถ้ามี)"}</span><input className={inputCls} value={countNote} onChange={(e) => setCountNote(e.target.value)} placeholder="เช่น หาไม่เจอในคลังซาก" /></label>
               </div>
             )}
+            {paying && (
+              <div className={`grid gap-3 rounded-xl ${K["bg-cF6F8F7"]} p-3 sm:grid-cols-2 dark:bg-white/[0.04]`}>
+                <label className="space-y-1 text-sm"><span className="font-medium">วันที่รับเงิน</span><DateInput value={paidDate} max={todayYmd()} onChange={setPaidDate} /></label>
+                <label className="space-y-1 text-sm"><span className="font-medium">ยอดที่รับ (บาท)</span><input className={inputCls} inputMode="decimal" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} /></label>
+                <label className="space-y-1 text-sm"><span className="font-medium">เลขที่ใบเสร็จ</span><input className={inputCls} value={receiptNo} onChange={(e) => setReceiptNo(e.target.value)} /></label>
+                <label className="space-y-1 text-sm"><span className="font-medium">หมายเหตุ (ถ้ามี)</span><input className={inputCls} value={paidNote} onChange={(e) => setPaidNote(e.target.value)} placeholder="เช่น โอนเข้าบัญชีบริษัท" /></label>
+              </div>
+            )}
             {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => download(`/api/core-return/rounds/${encodeURIComponent(roundNo!)}/export`)} className={btnGhost} data-testid="round-export"><Download size={14} />Export Excel รอบนี้</button>
@@ -237,6 +265,9 @@ function RoundDialog({ roundNo, canRound, onClose, onChanged }: { roundNo: strin
               {canRound && rd!.status === "open" && idle && counted && <button type="button" className={btnPrimary} onClick={() => setSelling(true)}>บันทึกขายแล้วทั้งรอบ</button>}
               {counting && <button type="button" className={btnGhost} onClick={() => { setCounting(false); setNotFound(EMPTY) }}>ยังไม่บันทึก</button>}
               {counting && <button type="button" className={btnPrimary} disabled={busy || notFound.size >= data.items.length || (notFound.size > 0 && !countNote.trim())} onClick={checkout}>{busy && <Loader2 size={16} className="animate-spin" />}ยืนยันนับซากออก</button>}
+              {canPay && rd!.status === "sold" && !paid && idle && <button type="button" className={btnPrimary} onClick={startPay} data-testid="round-pay">บันทึกรับเงินค่าซาก</button>}
+              {paying && <button type="button" className={btnGhost} onClick={() => setPaying(false)}>ยังไม่บันทึก</button>}
+              {paying && <button type="button" className={btnPrimary} disabled={busy || !receiptNo.trim() || !(Number(paidAmount) > 0)} onClick={pay}>{busy && <Loader2 size={16} className="animate-spin" />}ยืนยันรับเงิน</button>}
               {selling && <button type="button" className={btnGhost} onClick={() => setSelling(false)}>ยังไม่บันทึก</button>}
               {selling && <button type="button" className={btnPrimary} disabled={busy} onClick={sell}>{busy && <Loader2 size={16} className="animate-spin" />}ยืนยันขายทั้งรอบ</button>}
             </div>

@@ -258,6 +258,21 @@ void (async () => {
     eq((await rounds.sellRound(rc.roundNo, { soldDate: "2026-11-03" }, store, now)).sold, 0)
     eq((await svc.getRow(rcRound.items[0].row_key)).chain.ok, true)
     eq((await rounds.listRounds()).length, (rb2 as { roundNo?: string }).roundNo ? 3 : 2)
+    // รับเงินค่าซาก (บัญชี) · รอบที่ยังไม่ขาย/ยกเลิก = 409 · ต้องมีวันที่ ยอด > 0 เลขใบเสร็จ · วันรับเงินก่อนวันขายไม่ได้ · กดพร้อมกันสองคน ได้คนเดียว
+    eq(await status(rounds.payRound(roundA, { paidDate: "2026-11-03", amount: 10, receiptNo: "RC1" }, acc, now)), 409, "รอบยกเลิกรับเงินไม่ได้")
+    eq(await status(rounds.payRound(rc.roundNo, { amount: 200, receiptNo: "RC1" }, acc, now)), 400, "ต้องมีวันที่รับเงิน")
+    eq(await status(rounds.payRound(rc.roundNo, { paidDate: "2026-11-03", amount: 0, receiptNo: "RC1" }, acc, now)), 400, "ยอดต้องมากกว่า 0")
+    eq(await status(rounds.payRound(rc.roundNo, { paidDate: "2026-11-03", amount: 200 }, acc, now)), 400, "ต้องมีเลขใบเสร็จ")
+    eq(await status(rounds.payRound(rc.roundNo, { paidDate: "2026-11-02", amount: 200, receiptNo: "RC1" }, acc, now)), 400, "รับเงินก่อนวันขายไม่ได้")
+    const pays = await Promise.all([
+      rounds.payRound(rc.roundNo, { paidDate: "2026-11-03", amount: "200", receiptNo: "RC-001", note: "โอน" }, acc, now).catch((e) => e),
+      rounds.payRound(rc.roundNo, { paidDate: "2026-11-03", amount: 200, receiptNo: "RC-002" }, acc, now).catch((e) => e),
+    ])
+    eq(pays.filter((p) => p instanceof Error).length, 1, "รับเงินซ้ำพร้อมกันได้คนเดียว")
+    const paidRound = (await rounds.getRound(rc.roundNo)).round
+    eq([paidRound.paidAmount, paidRound.paidDate, !!paidRound.paidAt, paidRound.paidBy?.email], [200, "2026-11-03", true, acc.email])
+    eq(await status(rounds.payRound(rc.roundNo, { paidDate: "2026-11-03", amount: 200, receiptNo: "RC-003" }, acc, now)), 409, "รับเงินซ้ำไม่ได้")
+    eq((await svc.getRow(rcRound.items[0].row_key)).chain.ok, true)
 
     // ── 7. Excel ─────────────────────────────────────────────────────────
     const ExcelJS = (await import("exceljs")).default

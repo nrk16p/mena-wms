@@ -352,7 +352,7 @@ export function BulkFollowDialog({ keys, onClose, onDone }: { keys: string[] | n
 }
 
 type Hist = { seq: number; action: string; from: CoreStatus | null; to: CoreStatus | null; actor: { name: string; email: string }; at: string; note?: string; data?: Record<string, unknown> }
-const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", pickup: "จัดซื้อรับซากกลับ", handover: "ยานยนต์ยืนยันส่งต่อบัญชี", receive: "บัญชีรับเข้าคลังซาก", sold: "ขายแล้ว", rebuilt: "รีบิ้วเสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", round_checkout: "บัญชีนับซากออก", round_missing: "นับซากออกไม่เจอ ออกจากรอบ", attach: "แนบรูป" }
+const ACTION: Record<string, string> = { create: "สร้างจากใบเบิก", return: "คืนซาก", pickup: "จัดซื้อรับซากกลับ", handover: "ยานยนต์ยืนยันส่งต่อบัญชี", receive: "บัญชีรับเข้าคลังซาก", sold: "ขายแล้ว", rebuilt: "รีบิ้วเสร็จ", follow_up: "ติดตาม", round_add: "เข้ารอบขาย", round_cancel: "ยกเลิกรอบขาย", round_checkout: "บัญชีนับซากออก", round_missing: "นับซากออกไม่เจอ ออกจากรอบ", round_paid: "บัญชีรับเงินค่าซาก", attach: "แนบรูป" }
 const CHOICE_TH: Record<string, string> = { sell: "S1 ซากมีมูลค่า", rebuild: "A2 ของรีบิ้ว", no_core: "S2 ซากไม่มีมูลค่า", missing: "ไม่มีซากคืน" }
 
 function histDetail(h: Hist): string {

@@ -187,3 +187,31 @@ export async function cancelRound(roundNo: string, body: Record<string, unknown>
 }
 
 export type { SaleRound }
+
+/**
+ * บัญชีรับเงินค่าซาก (หลังขายทั้งรอบ) · ทำได้ครั้งเดียวต่อรอบ ตัวที่มาก่อนชนะ
+ * ต้องมีวันที่รับเงิน (ไม่ก่อนวันขาย ไม่เกินวันนี้) · ยอดที่รับ > 0 · เลขใบเสร็จ
+ */
+export async function payRound(roundNo: string, body: Record<string, unknown>, actor: Actor, now = new Date()) {
+  const paidDate = body.paidDate
+  if (!isYmd(paidDate)) throw bad("ใส่วันที่รับเงินก่อน")
+  if (paidDate > todayBkk(now)) throw bad("วันที่รับเงินต้องไม่เกินวันนี้")
+  const amount = body.amount === "" || body.amount == null ? NaN : Number(body.amount)
+  if (!(Number.isFinite(amount) && amount > 0)) throw bad("ใส่ยอดเงินที่รับ มากกว่า 0")
+  const receiptNo = typeof body.receiptNo === "string" ? body.receiptNo.trim().slice(0, 60) : ""
+  if (!receiptNo) throw bad("ใส่เลขที่ใบเสร็จ")
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : ""
+  const rounds = await roundCol()
+  const cur = await rounds.findOne({ roundNo })
+  if (!cur) throw new CoreHttpError("ไม่พบรอบขายนี้", 404)
+  if (cur.status !== "sold") throw new CoreHttpError(cur.status === "open" ? "รอบนี้ยังไม่ได้บันทึกขาย" : "รอบนี้ยกเลิกไปแล้ว", 409)
+  if (cur.paidAt) throw new CoreHttpError("รอบนี้บันทึกรับเงินไปแล้ว", 409)
+  if (cur.soldDate && paidDate < cur.soldDate) throw bad("วันที่รับเงินต้องไม่ก่อนวันที่ขาย")
+  const paidAmount = round2(amount)
+  const claimed = await rounds.findOneAndUpdate({ roundNo, status: "sold", paidAt: { $in: [null] } } as Filter<SaleRound>,
+    { $set: { paidDate, paidAmount, receiptNo, paidNote: note, paidBy: who(actor), paidAt: now } }, { returnDocument: "after" })
+  if (!claimed) throw new CoreHttpError("รอบนี้มีคนบันทึกรับเงินไปก่อนแล้ว ลองรีเฟรช", 409)
+  const by = { ...who(actor), via: actor.via }
+  for (const k of cur.keys) await writeCoreLog({ row_key: k, action: "round_paid", from: "sold", to: "sold", actor: by, note: note || undefined, data: { roundNo, paidDate, paidAmount, receiptNo } }, now)
+  return { roundNo, paidDate, paidAmount, receiptNo }
+}

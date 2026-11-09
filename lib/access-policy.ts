@@ -267,7 +267,7 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
 //   (2026-11-05) S1 ต้องผ่านบัญชีรับเข้าคลังซาก: รับซากกลับจากอู่นอก (pickup) = จัดซื้อ/สโตร์ · ยืนยันส่งต่อ (confirm) = ยานยนต์/สโตร์
 //   รับเข้าคลังซาก (receive) / บันทึกขาย / รอบขาย = บัญชี (isAccounting: แผนก HR หรือรายชื่อ) · สโตร์ทำแทนได้
 //   (2026-11-07) รอบขาย (สร้าง / นับซากออก / ขายทั้งรอบ / ยกเลิก) = บัญชีหรือสโตร์เท่านั้น จัดซื้อไม่จัดรอบแล้ว
-export type CoreReturnAction = "read" | "return" | "pickup" | "confirm" | "receive" | "sold" | "rebuilt" | "follow_up" | "round"
+export type CoreReturnAction = "read" | "return" | "pickup" | "confirm" | "receive" | "sold" | "rebuilt" | "follow_up" | "round" | "pay"
 
 export function coreReturnCan(a: Access, action: CoreReturnAction, ctx: { accounting?: boolean } = {}): boolean {
   const store = atLeast(a["store-queue"], "edit")
@@ -282,11 +282,13 @@ export function coreReturnCan(a: Access, action: CoreReturnAction, ctx: { accoun
     case "rebuilt": return store
     case "follow_up": return store || acc || atLeast(a["core-return"], "edit")
     case "round": return store || acc
+    case "pay": return acc // รับเงินค่าซาก = บัญชีเท่านั้น (2026-11-09)
   }
 }
 
-/** POST /api/core-return/rounds[/:no/(sold|cancel|checkout)] → round · POST /api/core-return/:key/(return|sold|rebuilt|follow-up) → action · POST /api/core-return/:key/attachments/(presign|confirm) → return · ทางเขียนอื่นใต้ /api/core-return = ไม่มี (ปฏิเสธ) */
+/** POST /api/core-return/rounds/:no/paid → pay · POST /api/core-return/rounds[/:no/(sold|cancel|checkout)] → round · POST /api/core-return/:key/(return|sold|rebuilt|follow-up) → action · POST /api/core-return/:key/attachments/(presign|confirm) → return · ทางเขียนอื่นใต้ /api/core-return = ไม่มี (ปฏิเสธ) */
 export function coreReturnActionForApi(pathname: string): CoreReturnAction | null {
+  if (/^\/api\/core-return\/rounds\/[^/]+\/paid$/.test(pathname)) return "pay"
   if (/^\/api\/core-return\/rounds(\/[^/]+\/(sold|cancel|checkout))?$/.test(pathname)) return "round"
   if (pathname.startsWith("/api/core-return/rounds/")) return null
   if (/^\/api\/core-return\/[^/]+\/attachments\/(presign|confirm)$/.test(pathname)) return "return"
