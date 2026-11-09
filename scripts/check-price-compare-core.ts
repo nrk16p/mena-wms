@@ -265,7 +265,7 @@ assert.equal(canTransition("ร่าง", "ร่าง", tr).ok, true)
 // --- normalizeDoc: เติม default, แปลงเลขจาก string, ตัด supplier เกิน 4, prices ยาวเท่า items ---
 const n = normalizeDoc({
   title: " งาน ", items: [{ name: "a", qty: "2", unit: "" }, { name: "b", qty: 1 }],
-  suppliers: [{ name: "x", prices: ["10"], vatMode: "incl", quoteDate: "2026-09-03", validUntil: "2026-10-03T00:00:00Z" }, { vatMode: "weird" }, {}, {}, { name: "เกิน" }],
+  suppliers: [{ name: "x", prices: ["10"], vatMode: "incl", quoteDate: "2026-09-03", validUntil: "2026-10-03T00:00:00Z" }, { vatMode: "weird" }, {}, {}, { name: "ที่ห้า" }, { name: "เกิน" }],
   committee: [{ name: "ก" }],
   selectedSupplier: "2",
   selectionReason: "  ของใหม่  ",
@@ -277,7 +277,8 @@ assert.equal(n.selectionReason, "ของใหม่")
 assert.equal(n.fewerQuotesReason, "")
 assert.equal(n.title, "งาน")
 assert.equal(n.items[0].qty, 2)
-assert.equal(n.suppliers.length, 4)
+assert.equal(n.suppliers.length, 5, "ส่งมา 6 เจ้า → ตัดเหลือ 5 (MAX_SUPPLIERS)")
+assert.equal(n.suppliers[4].name, "ที่ห้า")
 assert.deepEqual(n.suppliers[0].prices, [10, null])
 assert.equal(n.suppliers[1].discount, 0)
 assert.equal(n.suppliers[1].conditions.payment, "")

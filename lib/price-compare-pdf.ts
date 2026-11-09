@@ -3,7 +3,7 @@
 import fs from "fs"
 import path from "path"
 import { seg } from "./pdfmake-printer"
-import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, hasGrades, supplierCoversSelection, hasSections, sectionsOf, sectionTotals, type PcGroup, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, isProvisionalSupplier, MAX_SUPPLIERS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
+import { supplierTotals, fmtMoney, lineTotal, lowestNet, groupsOf, hasGrades, supplierCoversSelection, hasSections, sectionsOf, sectionTotals, type PcGroup, completeSupplierCount, allLinesAwarded, mixedTotals, pickLowestPerLine, isProvisionalSupplier, PDF_MIN_SUPPLIER_COLS, MIN_QUOTES, DEFAULT_COMMITTEE_ROLES, type PriceCompare, type PcTotals } from "./price-compare"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ImagePage = { heading: string; pngBase64: string }
@@ -29,7 +29,8 @@ export const SECTION_HEAD = (name: string) => `หมวด${name || SECTION_UNN
 export const SECTION_SUB = (name: string) => `รวม${name || ` (${SECTION_UNNAMED})`}`
 export const SECTION_UNNAMED = "ไม่ระบุหมวด"
 const SECTION_FILL = "#EFEFEF"
-const SUP_W = 50           // ความกว้างคอลัมน์ราคาแต่ละช่อง (4 supplier × 2 ช่อง)
+const SUP_W = 50           // ความกว้างคอลัมน์ราคาแต่ละช่อง (4–5 supplier × 2 ช่อง) — ใบ 5 เจ้าช่องชื่อรายการ ("*") แคบลงแทน
+                           // ไม่ลดช่องราคา เพราะยอดหลักล้านตัวหนาจะตัดบรรทัด
 const COL1_W = 36          // คอลัมน์ซ้ายสุด: "ลำดับ" / ป้ายเทาของบล็อกเงื่อนไข-กรรมการ (กว้างเท่ากันทั้ง 3 ตาราง)
 
 // โลโก้ในช่องซ้ายบนเป็นตราวงกลม "Mena" อย่างเดียว (mena-mark.png = ครอปจาก mena-logo.jpg ซึ่งเป็นแบนเนอร์ยาว
@@ -66,7 +67,8 @@ export function pdfFilename(doc: PriceCompare): string {
 
 /** opts.trimBlankRows = ตัดแถวว่างเติมฟอร์มออกกี่แถว (ใช้โดย fitBlankRowTrim เมื่อฟอร์มล้นหน้า — ค่าเริ่มต้น 0 = เลย์เอาต์เดิมทุกไบต์) */
 export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage[] = [], opts: { trimBlankRows?: number } = {}): any {
-  const N = MAX_SUPPLIERS
+  // พิมพ์ 4 คอลัมน์เสมอเหมือนฟอร์มกระดาษ — ขยายเป็น 5 เฉพาะใบที่มีเจ้าที่ 5 (ใบเดิมได้ PDF เหมือนเดิมทุกไบต์)
+  const N = Math.max(PDF_MIN_SUPPLIER_COLS, doc.suppliers.length)
   const sup = (i: number) => doc.suppliers[i]   // undefined ถ้าไม่มี
   const totals = Array.from({ length: N }, (_, i) => (sup(i) ? supplierTotals(doc, i) : null))
   const fill = (i: number) => (i === 1 ? { fillColor: GRAY } : {})   // ฟอร์มเดิมทำคอลัมน์ Supplier 2 เป็นสีเทา
@@ -243,7 +245,7 @@ export function buildPriceCompareDocDef(doc: PriceCompare, imagePages: ImagePage
       return [{ text: "", ...fill(i) }, ps && ps.lines > 0 ? money(ps[key], { bold, ...fill(i) }) : { text: "", ...fill(i) }]
     }).flat(),
   ]
-  // คอลัมน์ Supplier 4 ว่าง (มีไม่ถึง 4 ราย) → ยัดยอดรวมผสมลงในที่ว่างนั้น ไม่งั้นต้องพิมพ์เป็นบรรทัดใต้ตาราง
+  // คอลัมน์ Supplier สุดท้ายว่าง (มีไม่ถึง 4 ราย) → ยัดยอดรวมผสมลงในที่ว่างนั้น ไม่งั้นต้องพิมพ์เป็นบรรทัดใต้ตาราง
   const grandInTable = !!mixed && !sup(N - 1)
   const mixRows = mixed
     ? [mixRow(MIX_SUBTOTAL_LABEL, "subtotal"), mixRow(MIX_NET_LABEL, "net", true)]

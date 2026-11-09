@@ -173,6 +173,24 @@ async function main() {
     assert.ok(line, "supplier ครบ 4 ราย → ยอดรวมผสมต้องเป็นบรรทัดใต้ตาราง")
   }
 
+  // 5 เจ้า (เพิ่ม 2026-11-09) → พิมพ์ 5 คอลัมน์ ความกว้างรวมเท่าเดิม ยังจบหน้าเดียว
+  {
+    const d5 = uh03()
+    d5.suppliers.push({ ...emptySupplier(5), name: "เจ้าที่สี่", prices: [40000, 40000, 200, 200, 9000] })
+    d5.suppliers.push({ ...emptySupplier(5), name: "เจ้าที่ห้า", prices: [1234567, 41000, 210, 210, 9100] })
+    const dd5 = buildPriceCompareDocDef(d5)
+    const f5 = JSON.stringify(dd5)
+    assert.ok(f5.includes("Supplier 5") && f5.includes(seg("เจ้าที่ห้า")), "ใบ 5 เจ้าต้องมีคอลัมน์ Supplier 5")
+    const pt = (dd5.content as { table?: { headerRows?: number; widths: unknown[]; body: unknown[][] } }[]).find((c) => c.table?.headerRows === 3)!
+    assert.equal(pt.table!.widths.length, 4 + 10, "ตารางราคา 5 เจ้า = 4 + 10 คอลัมน์")
+    assert.ok(pt.table!.body.every((r) => r.length === 14), "ทุกแถวต้องมี 14 ช่อง")
+    assert.ok(!JSON.stringify(dd).includes("Supplier 5"), "ใบ 3 เจ้ายังพิมพ์ 4 คอลัมน์เหมือนเดิม")
+    // แถวเจ้าที่ 5 ทำให้บล็อกเงื่อนไขสูงขึ้น → ใช้ทางเดียวกับปุ่มดาวน์โหลดจริง (assemblePdf ตัดแถวว่างเมื่อล้น)
+    const out5 = await assemblePdf(d5, { imagePages: [], pdfInserts: [], failed: [] })
+    assert.equal((await PDFDocument.load(out5)).getPageCount(), 1, "ฟอร์ม 5 เจ้าต้องเป็นหน้าเดียว (หลังตัดแถวว่าง)")
+    fs.mkdirSync("tmp", { recursive: true }); fs.writeFileSync("tmp/price-compare-5-suppliers.pdf", out5)
+  }
+
   // ฟอร์มโหมดผสมต้องยังจบในหน้าเดียวเหมือนเอกสารเลือกทั้งใบ
   for (const [name, def] of [["uh03", dd], ["mixed", ddMix], ["mixed-reason", ddMixReason]] as const) {
     const out = await renderPdfmake(def)

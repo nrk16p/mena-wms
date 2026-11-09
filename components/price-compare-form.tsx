@@ -13,7 +13,7 @@ import { swalConfirm, swalDeleteConfirm, swalToast, swalError } from "@/lib/swal
 import { bkkToday, toBkkIso } from "@/lib/bkk-time"
 import {
   normalizeDoc, validateDoc, canTransition, isComplete, lowestNet, supplierTotals, fmtMoney,
-  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, allLinesAwarded, mixedTotals, bestMixNet, mixedGap, pickLowestPerLine, renumberAfterRemoval, hasGrades,
+  completeSupplierCount, isQuoteExpired, isDocNo, MIN_QUOTES, MAX_SUPPLIERS, allLinesAwarded, mixedTotals, bestMixNet, mixedGap, pickLowestPerLine, renumberAfterRemoval, hasGrades,
   type PriceCompare, type PcCommittee, type PcFile, type PcStatus, type PcConditions,
 } from "@/lib/price-compare"
 
@@ -331,7 +331,12 @@ export function PriceCompareForm({ id }: { id: string }) {
         </Card>
 
         <Card title="4. หลักฐาน (ใบเสนอราคา / แชท LINE)" color="#0891B2">
-          <div className="grid gap-4 md:grid-cols-2">
+          {doc.suppliers.length > 0 && (
+            <p className="mb-3 text-xs text-gray-500">
+              แนบใบเสนอราคาแล้ว {doc.suppliers.filter((s) => s.quotationFiles.length > 0).length} จาก {doc.suppliers.length} เจ้า · ช่องแนบเพิ่มตามจำนวนเจ้าในตาราง (สูงสุด {MAX_SUPPLIERS} เจ้า)
+            </p>
+          )}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {doc.suppliers.map((s, i) => (
               <div key={`${i}-${doc.suppliers.length}-${uploadKey}`} className="rounded-xl border border-dashed border-[#E2E8E4] dark:border-white/10 p-3">
                 <p className="mb-2 text-xs font-semibold">ใบเสนอราคา Supplier {i + 1} — {s.name || "(ยังไม่ระบุ)"} <span className="font-normal text-gray-400">รูปหรือ PDF</span></p>

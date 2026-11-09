@@ -3,9 +3,10 @@
 
 export type PcStatus = "ร่าง" | "รอลงนาม" | "เสร็จสิ้น"
 export const PC_STATUSES: PcStatus[] = ["ร่าง", "รอลงนาม", "เสร็จสิ้น"]
-export const MAX_SUPPLIERS = 4
+export const MAX_SUPPLIERS = 5     // ผู้ใช้สั่งเพิ่มจาก 4 เป็น 5 เมื่อ 2026-11-09 (PDF ยังพิมพ์ 4 คอลัมน์ถ้าใบมีไม่เกิน 4 เจ้า)
+export const PDF_MIN_SUPPLIER_COLS = 4
 export const MIN_QUOTES = 3          // แนวปฏิบัติจัดซื้อ: ใบเสนอราคาครบอย่างน้อย 3 ราย ไม่งั้นต้องระบุเหตุผล
-export const MAX_PROVISIONAL = 5     // ชื่อชั่วคราวต่อใบ (ผู้ใช้สั่งเป็น 5 เมื่อ 2026-11-03 · MAX_SUPPLIERS = 4 อยู่ จึงเต็มทุกช่องได้)
+export const MAX_PROVISIONAL = 5     // ชื่อชั่วคราวต่อใบ (ผู้ใช้สั่งเป็น 5 เมื่อ 2026-11-03 · เท่ากับ MAX_SUPPLIERS จึงเต็มทุกช่องได้)
 export const VAT_RATE = 0.07
 export type PcVatMode = "excl" | "incl" | "none"
 export const VAT_MODE_LABEL: Record<PcVatMode, string> = { excl: "ราคาก่อน VAT", incl: "ราคารวม VAT แล้ว", none: "ไม่มี VAT" }

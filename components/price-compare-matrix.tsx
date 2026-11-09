@@ -467,7 +467,7 @@ export function PriceCompareMatrix({ doc, onChange, readOnly }: Props) {
                   <span className="shrink-0 rounded bg-[#0E7490]/10 px-1.5 py-0.5 text-[10px] text-[#0E7490]">S{s + 1}</span>
                   <div className="flex-1">
                     {readOnly || isProvisionalSupplier(sp) ? <span className="font-medium">{sp.name}</span> : (
-                      // S1–S4 เลือกจากรายชื่อ AVL (/vendors) — เจ้าใหม่ที่ยังไม่มีในทะเบียนใช้ปุ่ม "เจ้าใหม่" ข้างล่าง
+                      // S1–S5 เลือกจากรายชื่อ AVL (/vendors) — เจ้าใหม่ที่ยังไม่มีในทะเบียนใช้ปุ่ม "เจ้าใหม่" ข้างล่าง
                       // (ชื่อชั่วคราว 16/10/2026) · garageId ของเดิม (garage_master) เลิกผูก: คีย์ถาวรคือชื่ออู่ตาม AVL
                       <VendorCombobox
                         value={sp.name}
