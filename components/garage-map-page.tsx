@@ -11,16 +11,17 @@
 //   - ใบอู่: ระยะ/เวลาตัวใหญ่สุด ปุ่มโทรเต็มแถวอยู่ที่เดิมทุกใบ ป้ายบอกความน่าเชื่อถือแค่ 3 แบบ
 //   - โชว์อู่ทุกแหล่งที่มี (AVL + ชีตยานยนต์ + หมุด My Map) ผู้ใช้สั่ง "โชว์ให้มากที่สุดก่อน ค่อยคลีน"
 // สีชุด menaIT V.2 (ฟ้า #1c6ef2 · มินต์ = เชื่อได้ · ส้ม = ต้องโทรถามก่อน)
+// 10/11/2569 ปุ่ม "เพิ่มอู่" (ผู้อนุมัติอู่/แอดมิน) — อู่ที่เพิ่มเองเก็บแยกที่ garage_manual ไม่แตะ AVL
 // 05/11/2569 เพิ่มช่อง "ไปอู่ไหน?" เลือกปลายทางจากอู่ที่มี → วาดเส้นทาง + ระยะ/เวลา · แชร์ลิงก์ได้ด้วย ?to=<ชื่ออู่>
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import {
   Check, ChevronDown, Copy, Crosshair, Factory, Flag, Fuel, History, Layers, Loader2, LocateFixed,
-  MapPin, MoreHorizontal, Phone, Route, Search, ShieldCheck, TriangleAlert, Wrench, X,
+  MapPin, MoreHorizontal, Phone, Plus, Route, Search, ShieldCheck, Trash2, TriangleAlert, Wrench, X,
 } from "lucide-react"
 import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline, LayerGroup as LeafletLayerGroup } from "leaflet"
 import { canApproveVendor } from "@/lib/roles"
-import { swalError, swalToast } from "@/lib/swal"
+import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import type { GarageHit } from "@/lib/garage-geo"
 import { parseLatLng, isShortMapLink } from "@/lib/garage-geo"
 import { GarageHistoryModal } from "@/components/garage-history-modal"
@@ -111,6 +112,7 @@ export function GarageMapPage() {
   const [routing, setRouting] = useState("")
   // ปลายทาง = ชื่ออู่ที่ผู้ใช้เลือกในช่อง "ไปอู่ไหน?" · เส้นทางไปอู่นี้วาดใหม่เองทุกครั้งที่จุดรถเสียเปลี่ยน
   const [dest, setDest] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
   const destRef = useRef<string | null>(null)
   useEffect(() => { destRef.current = dest }, [dest])
   const destMarkerRef = useRef<LeafletMarker | null>(null)
@@ -409,6 +411,17 @@ export function GarageMapPage() {
     void search(at, codes)
   }
 
+  const deleteManual = async (g: GarageHit) => {
+    if (!g.manualId) return
+    const ok = await swalConfirm(`ลบ "${g.name}" ออกจากแผนที่?`, "ลบเฉพาะอู่ที่เพิ่มเองในหน้านี้ ไม่กระทบ AVL หรือ ATMS")
+    if (!ok.isConfirmed) return
+    const r = await fetch(`/api/vendors/map/manual?id=${encodeURIComponent(g.manualId)}`, { method: "DELETE" })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) { void swalError(j.error ?? "ลบไม่สำเร็จ"); return }
+    void swalToast("success", `ลบ ${g.name} แล้ว`)
+    void search(at, codes)
+  }
+
   const toggleChip = (label: string) =>
     setChips((cur) => (cur.includes(label) ? cur.filter((c) => c !== label) : [...cur, label]))
   const filtersOn = chips.length > 0 || onlyPhone || onlyAvl
@@ -422,10 +435,18 @@ export function GarageMapPage() {
         <div style={{ padding: "16px 18px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h1 style={{ fontFamily: DISPLAY, fontSize: 19, fontWeight: 600, margin: 0 }}>รถเสียที่ไหน?</h1>
-            <button onClick={useMyLocation}
-              style={{ display: "flex", alignItems: "center", gap: 5, border: `1px solid ${C.brandLine}`, background: C.brandSoft, color: C.brandDark, borderRadius: 999, padding: "5px 11px", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
-              <LocateFixed size={13} /> ตำแหน่งของฉัน
-            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              {canEdit && (
+                <button onClick={() => setAdding(true)} title="เพิ่มอู่ที่ยังไม่มีในแผนที่"
+                  style={{ display: "flex", alignItems: "center", gap: 4, border: 0, background: C.brand, color: "#fff", borderRadius: 999, padding: "5px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+                  <Plus size={13} /> เพิ่มอู่
+                </button>
+              )}
+              <button onClick={useMyLocation}
+                style={{ display: "flex", alignItems: "center", gap: 5, border: `1px solid ${C.brandLine}`, background: C.brandSoft, color: C.brandDark, borderRadius: 999, padding: "5px 11px", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+                <LocateFixed size={13} /> ตำแหน่งของฉัน
+              </button>
+            </div>
           </div>
           <SmartSearch addr={addr} place={place} onPick={(p) => void choosePlace(p)} onClear={clearPlace} />
           <DestPicker garages={res?.items ?? []} dest={dest} destGarage={destGarage} hasOrigin={!!res?.origin}
@@ -514,7 +535,8 @@ export function GarageMapPage() {
                 if (g.geo) mapRef.current?.setView([g.geo.lat, g.geo.lng], Math.max(mapRef.current.getZoom(), 13))
               }}
               onRoute={() => void showRoute(g)}
-              onHistory={() => setHistoryFor(g.name)} />
+              onHistory={() => setHistoryFor(g.name)}
+              onDelete={canEdit && g.manualId ? () => void deleteManual(g) : undefined} />
           </div>))}
 
           {repairOnly && carsLost.length > 0 && (
@@ -557,6 +579,10 @@ export function GarageMapPage() {
       </div>
 
       {historyFor && <GarageHistoryModal vendor={historyFor} onClose={() => setHistoryFor(null)} />}
+      {adding && (
+        <AddGarageModal origin={res?.origin ?? null} onClose={() => setAdding(false)}
+          onSaved={(name) => { setAdding(false); void swalToast("success", `เพิ่ม ${name} แล้ว`); void search(at, codes) }} />
+      )}
 
       {/* ── ขวา: แผนที่ */}
       <div style={{ flex: 1, position: "relative" }}>
@@ -593,7 +619,8 @@ function garageIcon(L: typeof import("leaflet"), g: GarageHit, rank: number, on:
 }
 
 type Trust = "avl" | "fleet" | "pin"
-const trustOf = (g: GarageHit): Trust => g.source
+// อู่ที่เพิ่มเองยังไม่ผ่าน AVL แต่คนในระบบยืนยันตำแหน่งแล้ว → ป้ายเดียวกับอู่ที่ยังไม่ได้ยืนยัน
+const trustOf = (g: GarageHit): Trust => (g.source === "manual" ? "fleet" : g.source)
 
 /** รถ 1 คันที่ยังซ่อมไม่เสร็จ — กดแล้วเปิดใบซ่อมของคันนั้นในหน้าอู่นอก (แท็บใหม่ แผนที่ไม่หาย) */
 function CarRow({ c, showGarage }: { c: InRepairCar; showGarage?: boolean }) {
@@ -636,10 +663,10 @@ function TrustBadge({ g }: { g: GarageHit }) {
   )
 }
 
-function GarageCard({ g, rank, active, chips, cars, carsOpen, hasOrigin, routing, routeOn, onSelect, onRoute, onHistory }: {
+function GarageCard({ g, rank, active, chips, cars, carsOpen, hasOrigin, routing, routeOn, onSelect, onRoute, onHistory, onDelete }: {
   g: GarageHit; rank: number; active: boolean; chips: string[]; cars: InRepairCar[]; carsOpen: boolean
   hasOrigin: boolean; routing: boolean; routeOn: boolean
-  onSelect: () => void; onRoute: () => void; onHistory: () => void
+  onSelect: () => void; onRoute: () => void; onHistory: () => void; onDelete?: () => void
 }) {
   const [menu, setMenu] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -745,8 +772,13 @@ function GarageCard({ g, rank, active, chips, cars, carsOpen, hasOrigin, routing
               เปิดใน Google Maps
             </MenuItem>
           )}
+          {onDelete && (
+            <MenuItem onClick={() => { setMenu(false); onDelete() }} icon={<Trash2 size={14} color={C.red} />}>
+              ลบอู่นี้ (เพิ่มเองไว้)
+            </MenuItem>
+          )}
           <div style={{ fontSize: 11, color: C.muted, padding: "6px 10px 4px", lineHeight: 1.5 }}>
-            ข้อมูลจาก: {g.sources.map((s) => ({ avl: "ทะเบียน AVL", fleet: "ชีตยานยนต์", pin: "หมุด My Map" }[s])).join(" · ")}
+            ข้อมูลจาก: {g.sources.map((s) => ({ avl: "ทะเบียน AVL", fleet: "ชีตยานยนต์", pin: "หมุด My Map", manual: g.geo?.source ?? "เพิ่มเองในแผนที่" }[s])).join(" · ")}
             {g.address?.full ? <><br />{g.address.full}</> : null}
           </div>
         </div>
@@ -1076,6 +1108,99 @@ function SmartSearch({ addr, place, onPick, onClear }: {
               })}
         </div>
       )}
+    </div>
+  )
+}
+
+/** ฟอร์มเพิ่มอู่ — ชื่อ + ตำแหน่งบังคับ ที่เหลือใส่ทีหลังได้ · จังหวัด/อำเภอระบบหาเองจากพิกัด */
+function AddGarageModal({ origin, onClose, onSaved }: {
+  origin: { lat: number; lng: number } | null
+  onClose: () => void; onSaved: (name: string) => void
+}) {
+  const [name, setName] = useState("")
+  const [phone, setPhone] = useState("")
+  const [loc, setLoc] = useState("")
+  const [works, setWorks] = useState<string[]>([])
+  const [onsite, setOnsite] = useState(false)
+  const [note, setNote] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState("")
+  const locOk = !!parseLatLng(loc) || isShortMapLink(loc)
+
+  const save = async () => {
+    if (!name.trim()) { setErr("ใส่ชื่ออู่ก่อน"); return }
+    if (!loc.trim()) { setErr("ใส่ตำแหน่งอู่ก่อน วางลิงก์ Google Maps หรือพิกัด"); return }
+    setSaving(true); setErr("")
+    try {
+      const codes = [...new Set(WORK_CHIPS.filter((c) => works.includes(c.label)).flatMap((c) => c.codes))]
+      const r = await fetch("/api/vendors/map/manual", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, phone, at: loc, codes, onsite, note }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j.error ?? "เพิ่มอู่ไม่สำเร็จ")
+      onSaved(name.trim())
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const label: React.CSSProperties = { fontSize: 12.5, fontWeight: 600, color: C.ink2, marginBottom: 4, display: "block" }
+  const input: React.CSSProperties = { width: "100%", border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "8px 11px", fontSize: 13.5, fontFamily: BODY, color: C.ink, outline: "none", boxSizing: "border-box" }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,39,72,.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="เพิ่มอู่"
+        style={{ width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", background: "#fff", borderRadius: 20, padding: "18px 20px", boxShadow: "0 24px 60px -20px rgba(15,39,72,.5)", fontFamily: BODY, color: C.ink }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+          <h2 style={{ flex: 1, margin: 0, fontFamily: DISPLAY, fontSize: 18, fontWeight: 600 }}>เพิ่มอู่</h2>
+          <button onClick={onClose} aria-label="ปิด" style={{ border: 0, background: "none", cursor: "pointer", color: C.muted, display: "flex" }}><X size={18} /></button>
+        </div>
+        <p style={{ margin: "0 0 14px", fontSize: 12, color: C.muted }}>อู่จะขึ้นบนแผนที่ทันที เป็นอู่ที่ยังไม่ได้ยืนยัน ไม่เข้า AVL หรือ ATMS</p>
+
+        <label style={label}>ชื่ออู่ *</label>
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น อู่ช่างเอก บางนา" style={input} maxLength={120} />
+
+        <label style={{ ...label, marginTop: 12 }}>เบอร์โทร</label>
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="08x-xxx-xxxx" style={input} inputMode="tel" />
+
+        <label style={{ ...label, marginTop: 12 }}>ตำแหน่งอู่ *</label>
+        <input value={loc} onChange={(e) => setLoc(e.target.value)} placeholder="วางลิงก์ Google Maps หรือพิกัด 13.72451, 100.78032"
+          style={{ ...input, borderColor: loc && !locOk ? C.sun : C.line }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, fontSize: 11.5, color: C.muted }}>
+          {loc && !locOk ? <span style={{ color: C.sunText }}>ยังอ่านพิกัดไม่ออก ลองวางลิงก์จากปุ่มแชร์ของ Google Maps</span> : <span>เปิด Google Maps ที่หน้าอู่ กดแชร์ แล้ววางลิงก์ที่นี่</span>}
+          {origin && (
+            <button onClick={() => setLoc(`${origin.lat.toFixed(6)}, ${origin.lng.toFixed(6)}`)}
+              style={{ marginLeft: "auto", border: 0, background: "none", color: C.brand, cursor: "pointer", fontSize: 11.5, whiteSpace: "nowrap", padding: 0 }}>
+              ใช้จุดที่เลือกบนแผนที่
+            </button>
+          )}
+        </div>
+
+        <label style={{ ...label, marginTop: 12 }}>ซ่อมอะไรได้บ้าง</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {WORK_CHIPS.map((c) => (
+            <Chip key={c.label} on={works.includes(c.label)}
+              onClick={() => setWorks((cur) => (cur.includes(c.label) ? cur.filter((x) => x !== c.label) : [...cur, c.label]))}>{c.label}</Chip>
+          ))}
+          <Chip on={onsite} onClick={() => setOnsite((v) => !v)}>{ONSITE}</Chip>
+        </div>
+
+        <label style={{ ...label, marginTop: 12 }}>หมายเหตุ</label>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="เช่น รับรถใหญ่ได้ เปิด 8 โมง ถึง 5 โมงเย็น" style={{ ...input, resize: "vertical" }} maxLength={500} />
+
+        {err && <div style={{ marginTop: 10, color: C.red, fontSize: 12.5, display: "flex", gap: 5, alignItems: "center" }}><TriangleAlert size={13} /> {err}</div>}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button onClick={onClose} style={{ border: `1px solid ${C.line}`, background: "#fff", color: C.ink2, borderRadius: 999, padding: "8px 18px", cursor: "pointer", fontFamily: DISPLAY, fontSize: 13.5 }}>ยกเลิก</button>
+          <button onClick={() => void save()} disabled={saving}
+            style={{ display: "flex", alignItems: "center", gap: 6, border: 0, background: C.brand, color: "#fff", borderRadius: 999, padding: "8px 20px", cursor: saving ? "wait" : "pointer", fontFamily: DISPLAY, fontSize: 13.5, opacity: saving ? 0.7 : 1 }}>
+            {saving && <Loader2 size={14} className="animate-spin" />} บันทึกอู่
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -154,11 +154,53 @@ export async function getGarages(refresh = false): Promise<GarageHit[]> {
 
   mergeFleet(items)
   addShopPins(items)
+  addManual(items, await db.collection<ManualGarageDoc>(MANUAL_COLL).find({}).toArray())
   // อู่ AVL ที่ได้พิกัดจากหมุด My Map แต่ไม่มีที่อยู่ — ใช้จังหวัดของหมุดนั้นแทน ตัวกรองจังหวัดจะได้ไม่ทำอู่หาย
   for (const g of items) if (!g.address && g.geo) g.address = areaOfPin(g.geo)
 
   cache = { at: Date.now(), items }
   return items
+}
+
+/** อู่ที่คนเพิ่มเองจากหน้าแผนที่ — พิกัดหน้าอู่ (คนวางลิงก์/พิกัดเอง) แต่ยังไม่ผ่าน AVL */
+export const MANUAL_COLL = "garage_manual"
+export type ManualGarageDoc = {
+  _id?: import("mongodb").ObjectId
+  name: string; phone: string; lat: number; lng: number; mapUrl: string
+  codes: string[]; onsite: boolean; note: string
+  address: { province: string; district: string; full: string } | null
+  createdBy: string; createdByEmail: string; createdAt: string
+}
+function addManual(items: GarageHit[], docs: ManualGarageDoc[]) {
+  for (const d of docs) {
+    items.push({
+      source: "manual", sources: ["manual"], manualId: String(d._id),
+      fleetWorks: d.onsite ? ["นอกสถานที่"] : [], onsite: !!d.onsite, zone: "",
+      name: d.name, atmsId: null, phone: d.phone ?? "", branch: "", codes: d.codes ?? [],
+      works: [...new Set((d.codes ?? []).map((c) => byCode(c)?.work).filter((w): w is string => !!w))],
+      status: "เพิ่มเองในแผนที่",
+      geo: { lat: d.lat, lng: d.lng, precision: "หน้าอู่", source: `เพิ่มเองโดย ${d.createdBy}` },
+      address: d.address?.province ? { full: d.address.full ?? "", subdistrict: "", district: d.address.district ?? "", province: d.address.province } : areaOfPin(d),
+      distanceKm: null, roadKm: null, roadMin: null, matchesAll: false,
+      jobs: 0, lastJob: "", poCount: 0, poBaht: 0,
+    })
+  }
+}
+
+/** จังหวัด/อำเภอจากพิกัด (Nominatim) — ไม่ได้ก็คืน null ไม่ให้การบันทึกอู่ล้ม */
+export async function reverseArea(lat: number, lng: number): Promise<{ province: string; district: string; full: string } | null> {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=th&zoom=14&lat=${lat}&lon=${lng}`,
+      { headers: { "User-Agent": "mena-wms-garage-map/1.0 (internal fleet tool)" }, signal: AbortSignal.timeout(6000) })
+    if (!r.ok) return null
+    const j = await r.json() as { display_name?: string; address?: Record<string, string> }
+    const a = j.address ?? {}
+    let province = String(a.province || a.state || "").replace(/^จังหวัด/, "")
+    let district = String(a.county || a.city_district || a.district || a.city || a.town || "").replace(/^(อำเภอ|เขต)/, "")
+    if (!province && /กรุงเทพ/.test(a.city ?? "")) province = "กรุงเทพมหานคร"
+    if (province === "กรุงเทพมหานคร" && /^กรุงเทพ/.test(district)) district = String(a.suburb || "").replace(/^เขต/, "")
+    return province ? { province, district, full: String(j.display_name ?? "") } : null
+  } catch { return null }
 }
 
 /** ชีตยานยนต์: ถ้าเป็นเจ้าเดียวกับใน AVL (เบอร์ตรง หรือแก่นชื่อตรง) เติมข้อมูลให้ ไม่งั้นเพิ่มเป็นอู่ใหม่ */

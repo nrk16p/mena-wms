@@ -328,7 +328,7 @@ function Detail({ r, works }: { r: CoverageRow; works: string[] }) {
         <div style={{ maxHeight: 300, overflowY: "auto", display: "grid", gap: 4 }}>
           {(r.list ?? []).map((g) => (
             <div key={g.name} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "6px 10px" }}>
-              <span style={{ width: 8, height: 8, borderRadius: 999, flexShrink: 0, background: { avl: C.mint, fleet: C.brand, pin: C.sun }[g.source] }} />
+              <span style={{ width: 8, height: 8, borderRadius: 999, flexShrink: 0, background: { avl: C.mint, fleet: C.brand, pin: C.sun, manual: C.brand }[g.source] }} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</div>
                 <div style={{ fontSize: 11, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

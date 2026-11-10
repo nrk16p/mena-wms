@@ -6,7 +6,7 @@ import { COVERAGE_WORKS, doesWork } from "@/lib/garage-coverage-works"
 import type { CoverageRow } from "@/lib/garage-coverage"
 import type { GarageHit, GarageSource } from "@/lib/garage-geo"
 
-export const SOURCE_LABEL: Record<GarageSource, string> = { avl: "อู่ AVL", fleet: "อู่ที่ยังไม่ได้ยืนยัน", pin: "ยังไม่ผ่านอนุมัติ" }
+export const SOURCE_LABEL: Record<GarageSource, string> = { avl: "อู่ AVL", fleet: "อู่ที่ยังไม่ได้ยืนยัน", pin: "ยังไม่ผ่านอนุมัติ", manual: "เพิ่มเองในแผนที่" }
 
 type Level = { label: string; tone?: "warn" | "danger" }
 function level(r: CoverageRow): Level {

@@ -29,13 +29,16 @@ export type GarageAddress = {
  *   avl   = อยู่ในทะเบียน AVL ผ่านการอนุมัติ มีประวัติซ่อม
  *   fleet = อยู่ในชีตทะเบียนอู่ของฝ่ายยานยนต์ (มีประเภทงาน 9 หมวด) แต่ยังไม่อยู่ใน AVL
  *   pin   = หมุดร้านซ่อมใน My Map ของยานยนต์ มีแค่ชื่อกับเบอร์
+ *   manual = คนเพิ่มเองจากปุ่ม "เพิ่มอู่" ในหน้าแผนที่ (10/11/2569) — ยังไม่ผ่าน AVL เก็บที่ garage_manual
  */
-export type GarageSource = "avl" | "fleet" | "pin"
+export type GarageSource = "avl" | "fleet" | "pin" | "manual"
 
 /** อู่ 1 รายที่ส่งให้หน้าจอ */
 export type GarageHit = {
   /** แหล่งหลักที่ใช้จัดป้าย (avl > fleet > pin) */
   source: GarageSource
+  /** _id ใน garage_manual — มีเฉพาะอู่ที่เพิ่มเอง ใช้ตอนลบ */
+  manualId?: string
   /** ทุกแหล่งที่เจออู่นี้ — ใช้บอกว่าข้อมูลยืนยันกันหลายทาง */
   sources: GarageSource[]
   /** หมวดงานตามชีตยานยนต์ (ภาษาที่ช่างใช้) — ว่าง = ไม่มีข้อมูลจากชีต */

@@ -35,7 +35,7 @@ export type CoverageRow = {
 }
 
 function emptyRow(province: string, district?: string): CoverageRow {
-  return { province, district, trucks: 0, plants: [], garages: 0, bySource: { avl: 0, fleet: 0, pin: 0 }, withPhone: 0, works: COVERAGE_WORKS.map(() => 0), per100: null, trucksPerGarage: null }
+  return { province, district, trucks: 0, plants: [], garages: 0, bySource: { avl: 0, fleet: 0, pin: 0, manual: 0 }, withPhone: 0, works: COVERAGE_WORKS.map(() => 0), per100: null, trucksPerGarage: null }
 }
 function finish(r: CoverageRow) {
   r.per100 = r.trucks ? Math.round((r.garages / r.trucks) * 1000) / 10 : null
