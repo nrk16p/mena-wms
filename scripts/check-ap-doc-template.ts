@@ -22,7 +22,7 @@ assert.deepEqual(cleanTemplateDocs("billingNote"), [])
 assert.deepEqual(cleanTemplateDocs(undefined), [])
 
 // --- templateRequiredChecks: ใบวางบิล + ใบแจ้งหนี้ = ช่องเดียว · เรียงตาม AP_DOC_FIELDS ---
-assert.deepEqual(templateRequiredChecks(["billingNote", "receipt", "taxInvoice", "invoice"]), ["invoice", "taxInvoice", "receipt"])
+assert.deepEqual(templateRequiredChecks(["billingNote", "receipt", "taxInvoice", "invoice"]), ["invoice", "billingNote", "taxInvoice", "receipt"])
 // บิลเงินสด/ใบส่งของ แยกช่องกันแล้ว 12/10/2026 — ชี้ช่องติ๊กของตัวเองคนละช่อง
 assert.deepEqual(templateRequiredChecks(["cashBill"]), ["cashBill"])
 assert.deepEqual(templateRequiredChecks(["cashBill", "deliveryNote"]), ["cashBill", "deliveryNote"])
@@ -32,11 +32,12 @@ assert.deepEqual(templateRequiredChecks(undefined), [])
 
 // --- templateMissing: ใช้ป้ายของช่องติ๊ก ---
 const pongchom = cleanTemplateDocs(["billingNote", "receipt", "taxInvoice"])     // VEN-00008 ในไฟล์ = 11100011
-assert.deepEqual(templateMissing(pongchom, {}), ["ใบแจ้งหนี้/ใบวางบิล", "ต้นฉบับใบกำกับภาษี", "ใบเสร็จรับเงิน"])
-assert.deepEqual(templateMissing(pongchom, { invoice: on, taxInvoice: on } as ApDocs), ["ใบเสร็จรับเงิน"])
-assert.deepEqual(templateMissing(pongchom, { invoice: on, taxInvoice: on, receipt: off } as ApDocs), ["ใบเสร็จรับเงิน"],
+assert.deepEqual(templateMissing(pongchom, {}), ["ใบวางบิล", "ต้นฉบับใบกำกับภาษี", "ใบเสร็จรับเงิน"])
+assert.deepEqual(templateMissing(pongchom, { billingNote: on, taxInvoice: on } as ApDocs), ["ใบเสร็จรับเงิน"])
+assert.deepEqual(templateMissing(pongchom, { invoice: on, taxInvoice: on, receipt: on } as ApDocs), ["ใบวางบิล"], "ติ๊กใบแจ้งหนี้ไม่แทนใบวางบิลแล้ว")
+assert.deepEqual(templateMissing(pongchom, { billingNote: on, taxInvoice: on, receipt: off } as ApDocs), ["ใบเสร็จรับเงิน"],
   "ติ๊กแล้วเอาออก (checked=false) ต้องนับว่าขาด")
-// ใบเก่าที่ติ๊กไว้ที่คีย์ billingNote (ก่อนรวมช่อง) ต้องนับว่ามีใบแจ้งหนี้/ใบวางบิลแล้ว
+// แม่แบบต้องมีใบวางบิล → ติ๊กใบวางบิลก็ครบ
 assert.deepEqual(templateMissing(pongchom, { billingNote: on, taxInvoice: on, receipt: on } as ApDocs), [])
 assert.deepEqual(templateMissing([], {}), [], "ไม่มีแม่แบบ = ไม่ขาดอะไร")
 
@@ -46,7 +47,8 @@ assert.equal(isDocSetComplete(partial), true, "มีเอกสาร ≥1 ย
 assert.ok(templateMissing(pongchom, partial).length > 0, "แต่แม่แบบยังบอกว่าขาด")
 
 // --- templateDocsForCheck: ช่องรวมบอกได้ว่าผู้ขายส่งชนิดไหน ---
-assert.deepEqual(templateDocsForCheck(["billingNote", "invoice"], "invoice"), ["ใบวางบิล", "ใบแจ้งหนี้"])
+assert.deepEqual(templateDocsForCheck(["billingNote", "invoice"], "invoice"), ["ใบแจ้งหนี้"])
+assert.deepEqual(templateDocsForCheck(["billingNote", "invoice"], "billingNote"), ["ใบวางบิล"])
 assert.deepEqual(templateDocsForCheck(["cashBill"], "cashBill"), ["บิลเงินสด"])
 assert.deepEqual(templateDocsForCheck(["deliveryNote"], "deliveryNote"), ["ใบส่งของ"])
 assert.deepEqual(templateDocsForCheck(["cashBill"], "deliveryNote"), [], "ติ๊กบิลเงินสดไม่ลามไปใบส่งของ")

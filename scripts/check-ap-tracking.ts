@@ -70,23 +70,26 @@ for (const d of upcomingThursdays("2026-08-11", 6)) {
 // --- โครงช่องเอกสาร (ถอด DD/PO ออก 2026-08-17: ระบบมีข้อมูลใบรับของ+PO อยู่แล้ว ไม่ต้องให้คนติ๊กซ้ำ
 //     และใบที่ไม่มี PO ผูกใน ATMS จะติดค้าง "รอประกบ" ตลอดไปจนส่งบัญชีไม่ได้) ---
 // แยกบิลเงินสด/ใบส่งของ ออกจากช่องรวม "บิล/ใบส่งของ" 12/10/2026 (ผู้ใช้สั่ง)
-assert.equal(AP_DOC_FIELDS.length, 6, "แยกบิลเงินสด/ใบส่งของ + ใบวางบิลรวมกับใบแจ้งหนี้ + ใบรับสภาพหนี้")
-assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["cashBill","deliveryNote","invoice","taxInvoice","receipt","debtAck"])
-assert.equal(AP_DOC_FIELDS[5].label, "ใบรับสภาพหนี้")
-assert.equal(AP_DOC_FIELDS[2].label, "ใบแจ้งหนี้/ใบวางบิล")
+assert.equal(AP_DOC_FIELDS.length, 7, "แยกบิลเงินสด/ใบส่งของ + แยกใบแจ้งหนี้/ใบวางบิล (10/11/2026) + ใบรับสภาพหนี้")
+assert.deepEqual(AP_DOC_FIELDS.map((f) => f.key), ["cashBill","deliveryNote","invoice","billingNote","taxInvoice","receipt","debtAck"])
+assert.equal(AP_DOC_FIELDS[6].label, "ใบรับสภาพหนี้")
+assert.equal(AP_DOC_FIELDS[2].label, "ใบแจ้งหนี้")
+assert.equal(AP_DOC_FIELDS[3].label, "ใบวางบิล")
 assert.equal(AP_DOC_FIELDS[0].label, "บิลเงินสด")
 assert.equal(AP_DOC_FIELDS[1].label, "ใบส่งของ")
 // คีย์เก่ายังต้องถูกนับ ไม่งั้นใบที่เคยติ๊กใบวางบิล/บิลรวมไว้จะหลุดจากสถานะครบชุดเงียบ ๆ
-assert.deepEqual(FINANCE_DOC_KEYS, ["cashBill","deliveryNote","invoice","taxInvoice","receipt","debtAck","billingNote","bill"])
-// ช่องเก่าที่ยังมีช่องติ๊กของตัวเอง (โชว์เฉพาะใบที่เคยติ๊ก) — billingNote ไม่อยู่ในนี้ เพราะรวมเข้า invoice แล้ว
+assert.deepEqual(FINANCE_DOC_KEYS, ["cashBill","deliveryNote","invoice","billingNote","taxInvoice","receipt","debtAck","bill"])
+// ช่องเก่าที่ยังมีช่องติ๊กของตัวเอง (โชว์เฉพาะใบที่เคยติ๊ก) — ใบวางบิลกลับเป็นช่องปกติแล้ว 10/11/2026
 assert.deepEqual(AP_LEGACY_DOC_FIELDS.map((f) => f.key), ["bill"])
 assert.deepEqual(AP_TICK_FIELDS.map((f) => f.key),
-  ["cashBill","deliveryNote","invoice","taxInvoice","receipt","debtAck","bill"])
+  ["cashBill","deliveryNote","invoice","billingNote","taxInvoice","receipt","debtAck","bill"])
 assert.equal(isDocSetComplete({ debtAck: mark }), true, "ใบรับสภาพหนี้ใบเดียวก็นับว่าครบชุด")
 
-// --- docChecked: ช่องรวมต้องขึ้นติ๊กเมื่อใบเก่าติ๊กไว้ที่ billingNote ---
+// --- docChecked: ใบแจ้งหนี้กับใบวางบิลแยกกันแล้ว (10/11/2026) ไม่ลามถึงกัน ---
 assert.equal(docChecked({ invoice: mark }, "invoice"), true)
-assert.equal(docChecked({ billingNote: mark }, "invoice"), true, "ของเก่าที่ติ๊กใบวางบิลต้องยังเห็นว่าติ๊ก")
+assert.equal(docChecked({ billingNote: mark }, "invoice"), false, "ติ๊กใบวางบิลไม่ทำให้ใบแจ้งหนี้ติ๊ก")
+assert.equal(docChecked({ billingNote: mark }, "billingNote"), true, "ใบเก่าที่ติ๊กใบวางบิลไว้ขึ้นที่ช่องใบวางบิล")
+assert.equal(docChecked({ invoice: mark }, "billingNote"), false)
 assert.equal(docChecked({}, "invoice"), false)
 assert.equal(docChecked({ billingNote: mark }, "cashBill"), false, "ไม่ลามไปช่องอื่น")
 // ติ๊กเก่าที่ช่องรวม bill ไม่ลามไปช่องใหม่ทั้งสอง — บัญชีย้ายติ๊กเอง ระบบไม่เดาว่าเป็นบิลเงินสดหรือใบส่งของ

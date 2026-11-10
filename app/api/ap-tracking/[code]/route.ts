@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic"
 const MD = process.env.MONGO_DB ?? "master_data"
 const COLL = "ap_tracking"
 const LOG_KEEP = 200            // เก็บ log ล่าสุดเท่านี้ต่อใบ — ไม่งั้น array โตไม่มีเพดาน
-// รวมคีย์เก่า (billingNote) ไว้ด้วย — หน้าเว็บต้องล้างค่าที่ค้างจากยุคก่อนรวมช่องได้
+// รวมคีย์เก่า (bill) ไว้ด้วย — หน้าเว็บต้องล้างติ๊กที่ค้างจากยุคก่อนแยกช่องได้
 const DOC_KEYS = new Set<string>(AP_WRITABLE_DOC_KEYS)
 const SENT_TYPES = new Set(["", "นอกรอบ", "ตามรอบ"])
 const s = (v: unknown) => (v == null ? "" : String(v)).trim()

@@ -18,26 +18,26 @@ export type ApFile = SkuImage & { docType: ApDocKey | ""; by?: string; at?: stri
 export type ApSentType = "" | "นอกรอบ" | "ตามรอบ"
 export type ApStatus = "รอประกบ" | "ครบชุด" | "ส่งบัญชีแล้ว"
 
-// ใบวางบิลรวมเข้ากับใบแจ้งหนี้ 2026-08-17 (ผู้ใช้สั่ง) — เจ้าหนี้ส่วนใหญ่ส่งมาเป็นชุดเดียวกัน
-// คีย์ที่ใช้เขียนคือ "invoice" ส่วน "billingNote" กลายเป็นคีย์เก่า (ไม่มีช่องติ๊กของตัวเองแล้ว)
+// ใบวางบิลเคยรวมกับใบแจ้งหนี้ 17/08/2026 แล้วแยกกลับเป็นช่องติ๊กของตัวเอง 10/11/2026 (ผู้ใช้สั่งทั้งสองครั้ง)
+// คีย์ billingNote ใช้คีย์เดิม ใบเก่าที่ติ๊กใบวางบิลก่อน 17/08 จึงกลับมาขึ้นถูกช่องเอง
+// ใบที่ติ๊กช่องรวม "ใบแจ้งหนี้/ใบวางบิล" ช่วง 17/08–10/11 ค้างอยู่ที่ invoice (= ใบแจ้งหนี้) — ไม่เดาแทนว่าเป็นใบไหน
 // แยก "บิลเงินสด" กับ "ใบส่งของ" ออกจากกัน 12/10/2026 (ผู้ใช้สั่ง) — เดิมเป็นช่องรวม "บิล/ใบส่งของ" (คีย์ bill)
 // คีย์ bill กลายเป็นช่องเก่า: โชว์เฉพาะใบที่เคยติ๊กไว้ (AP_LEGACY_DOC_FIELDS) ให้บัญชีย้ายติ๊กเอง ไม่เดาแทน
 export const AP_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = [
   { key: "cashBill",     label: "บิลเงินสด",           short: "บิลเงินสด" },
   { key: "deliveryNote", label: "ใบส่งของ",            short: "ใบส่งของ" },
-  { key: "invoice",    label: "ใบแจ้งหนี้/ใบวางบิล",   short: "แจ้งหนี้/วางบิล" },
+  { key: "invoice",     label: "ใบแจ้งหนี้",           short: "ใบแจ้งหนี้" },
+  { key: "billingNote", label: "ใบวางบิล",             short: "ใบวางบิล" },
   { key: "taxInvoice", label: "ต้นฉบับใบกำกับภาษี",   short: "ใบกำกับ" },
   { key: "receipt",    label: "ใบเสร็จรับเงิน",        short: "ใบเสร็จ" },
   // เพิ่ม 19/08/2026 — รถร่วม/เจ้าหนี้บางรายวางบิลเป็นใบรับสภาพหนี้ (เช่น SBAD26080007)
   { key: "debtAck",    label: "ใบรับสภาพหนี้",         short: "รับสภาพหนี้" },
 ]
 
-// คีย์เก่าที่ยังต้อง "นับ" และ "เขียนได้": ใบที่เคยติ๊กใบวางบิลไว้ต้องไม่หลุดสถานะครบชุด
-// และต้องล้างค่าได้เมื่อผู้ใช้เอาติ๊กช่องรวมออก (ไม่งั้นจะเหลือติ๊กผีที่มองไม่เห็นแต่ทำให้ยังครบชุด)
-export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["billingNote", "bill"]
+// คีย์เก่าที่ยังต้อง "นับ" และ "เขียนได้": ใบที่เคยติ๊กไว้ต้องไม่หลุดสถานะครบชุด และต้องล้างติ๊กได้
+export const AP_LEGACY_DOC_KEYS: ApDocKey[] = ["bill"]
 
 // ช่องเก่าที่ยังมีช่องติ๊กของตัวเอง แต่โชว์เฉพาะใบที่เคยติ๊กไว้ (หรือมีไฟล์แนบชนิดนั้น)
-// billingNote ไม่อยู่ในนี้เพราะถูกรวมเข้าช่อง invoice ผ่าน docChecked อยู่แล้ว ไม่ต้องมีแถวของตัวเอง
 export const AP_LEGACY_DOC_FIELDS: { key: ApDocKey; label: string; short: string }[] = [
   { key: "bill", label: "บิล/ใบส่งของ (แบบเก่า)", short: "บิลเก่า" },
 ]
@@ -113,7 +113,6 @@ const AP_RETIRED_DOC_LABELS: Record<string, string> = {
   taxInvoiceNo:  "เลขที่ใบกำกับภาษี",         // ช่องเดี่ยวรุ่นแรก (ก่อนเปลี่ยนเป็นลิสต์)
   vatInvoiceNos: "เลขที่ใบกำกับภาษี",         // ช่องซ้ำ 18–25/08/2026 — รวมกลับเข้า taxInvoiceNos แล้ว
   invoiceNo: "เลขที่ใบแจ้งหนี้/ใบวางบิล",     // ถอดออกแล้ว
-  billingNote: "ใบวางบิล (รวมกับใบแจ้งหนี้แล้ว)",
 }
 
 export function apDocLabel(key: string): string {
@@ -130,10 +129,8 @@ export const AP_WRITABLE_DOC_KEYS: ApDocKey[] = FINANCE_DOC_KEYS
 
 const isOn = (m?: ApDocMark) => Boolean(m?.checked)
 
-// ค่าติ๊กที่ควรโชว์ในช่องหนึ่ง ๆ — ช่องรวม "ใบแจ้งหนี้/ใบวางบิล" ต้องขึ้นว่าติ๊กแล้วด้วย
-// ถ้าใบนั้นเคยติ๊กไว้ที่คีย์เก่า billingNote (ไม่งั้นเปิดใบเก่ามาจะเหมือนติ๊กหาย)
+// ค่าติ๊กที่ควรโชว์ในช่องหนึ่ง ๆ — ตอนนี้ทุกช่อง 1:1 กับคีย์ (เคยมีช่องรวมใบแจ้งหนี้/ใบวางบิล 17/08–10/11/2026)
 export function docChecked(docs: ApDocs, key: ApDocKey): boolean {
-  if (key === "invoice") return Boolean(docs.invoice?.checked || docs.billingNote?.checked)
   return Boolean(docs[key]?.checked)
 }
 

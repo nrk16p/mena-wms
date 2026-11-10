@@ -56,7 +56,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "log",   label: "ประวัติ" },
 ]
 
-// ค่าตั้งต้นของช่องติ๊ก — ใช้ docChecked เพื่อให้ช่องรวม "ใบแจ้งหนี้/ใบวางบิล" ขึ้นถูกกับใบเก่า
+// ค่าตั้งต้นของช่องติ๊ก — อ่านผ่าน docChecked ตัวเดียวกับตารางและแม่แบบ
 const draftOf = (docs: ApDocs): Draft =>
   Object.fromEntries(AP_TICK_FIELDS.map((f) => [f.key, docChecked(docs, f.key)])) as Draft
 
@@ -401,9 +401,6 @@ export function ApTrackingDetail({
       const body: Record<string, unknown> = {}
       if (changed.length) {
         const docsBody: Record<string, boolean> = Object.fromEntries(changed.map((k) => [k, draft[k]]))
-        // เอาติ๊กช่องรวมออก แต่ใบนี้ติ๊กค้างไว้ที่คีย์เก่า → ต้องล้างคีย์เก่าด้วย
-        // ไม่งั้นเหลือติ๊กผีที่มองไม่เห็นแต่ยังทำให้สถานะเป็น "ครบชุด"
-        if (changed.includes("invoice") && !draft.invoice && saved.billingNote?.checked) docsBody.billingNote = false
         body.docs = docsBody
       }
       for (const k of nosChangedKeys) body[k] = cleanDocNos(nos[k])
@@ -689,10 +686,10 @@ export function ApTrackingDetail({
                 )}
                 <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
                   {AP_DOC_FIELDS.map((f) => {
-                    const mark = f.key === "invoice" ? (saved.invoice ?? saved.billingNote) : saved[f.key]
+                    const mark = saved[f.key]
                     const n = fileCounts[f.key] ?? 0
                     const need = tplRequired.has(f.key)
-                    // ช่องรวม (บิล/ใบส่งของ · ใบแจ้งหนี้/ใบวางบิล) — บอกว่าผู้ขายเจ้านี้ส่งชนิดไหนมา
+                    // ช่องรวม (ถ้ามีแม่แบบหลายชนิดชี้ช่องเดียว) — บอกว่าผู้ขายเจ้านี้ส่งชนิดไหนมา · ตอนนี้ทุกช่อง 1:1 แล้ว
                     // ช่องที่มีชนิดเดียวไม่ต้องบอก (ชื่อซ้ำกับป้ายอยู่แล้ว)
                     const merged = AP_TEMPLATE_DOCS.filter((d) => d.check === f.key).length > 1
                     const kinds = need && merged ? templateDocsForCheck(tplDocs, f.key) : []

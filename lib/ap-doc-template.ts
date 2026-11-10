@@ -4,7 +4,7 @@
 // ที่มา: ~/Documents/project/เอกสารปะกบชุดส่งบัญชีตามผู้ขาย.xlsx (ผู้ขาย × ชนิดเอกสาร, ติ๊ก ☑/☐)
 // แม่แบบเก็บชื่อเอกสาร "ตามที่ผู้ขายรู้จัก" (ใบวางบิล กับ ใบแจ้งหนี้ แยกกัน) เพราะรูปที่ส่งให้ผู้ขายต้องบอกชัด
 // บิลเงินสด/ใบส่งของ เคยชี้ช่องติ๊กรวมอันเดียว (bill) — 12/10/2026 แยกเป็นช่องติ๊กของตัวเองแล้ว ชี้ตรงตัว 1:1
-// ส่วนช่องติ๊กบนใบ DD ถูกรวมไว้ตั้งแต่ 17/08/2026 → แต่ละชนิดชี้ไปที่ช่องติ๊ก (check) ของ AP_DOC_FIELDS
+// ใบวางบิล/ใบแจ้งหนี้ แยกช่องติ๊กกลับแล้ว 10/11/2026 → ตอนนี้ทุกชนิดชี้ช่องติ๊ก (check) ของตัวเอง 1:1
 //
 // กติกาที่ผู้ใช้เลือก 22/09/2026: แม่แบบเป็น "ตัวช่วยบอก" เท่านั้น — ไม่เปลี่ยนกติกาครบชุด/ส่งบัญชี
 // (ยังคงเป็น isDocSetComplete = เอกสารการเงิน ≥1 ใบ) · ใบรับสินค้า/ใบสั่งซื้อ ไม่อยู่ในแม่แบบ
@@ -17,7 +17,7 @@ export type ApTplDocKey =
 
 // ลำดับตามคอลัมน์ใน Excel (ผู้ใช้คุ้นตา) · ใบรับสภาพหนี้ไม่มีใน Excel — เพิ่มเองได้ในหน้าเว็บ
 export const AP_TEMPLATE_DOCS: { key: ApTplDocKey; label: string; excel: string; check: ApDocKey }[] = [
-  { key: "billingNote",  label: "ใบวางบิล",                excel: "ใบวางบิล",       check: "invoice" },
+  { key: "billingNote",  label: "ใบวางบิล",                excel: "ใบวางบิล",       check: "billingNote" },
   { key: "receipt",      label: "ใบเสร็จรับเงิน",          excel: "ใบเสร็จรับเงิน",  check: "receipt" },
   { key: "taxInvoice",   label: "ใบกำกับภาษี (ต้นฉบับ)",   excel: "ใบกำกับภาษี",    check: "taxInvoice" },
   { key: "invoice",      label: "ใบแจ้งหนี้",              excel: "ใบแจ้งหนี้",      check: "invoice" },
@@ -58,7 +58,7 @@ export function templateRequiredChecks(docs: ApTplDocKey[] | undefined): ApDocKe
 }
 
 // ป้ายของช่องติ๊กที่แม่แบบต้องการแต่ยังไม่ติ๊ก — ใช้ป้ายของช่องติ๊ก (สิ่งที่คนต้องไปกด)
-// ไม่ใช่ชื่อตามแม่แบบ: ใบวางบิล+ใบแจ้งหนี้ ต้องการช่องเดียวกัน จะขึ้นเป็น "ใบแจ้งหนี้/ใบวางบิล" ครั้งเดียว
+// (ตอนนี้ชื่อตรงกับแม่แบบทุกช่อง เพราะแยกใบวางบิล/ใบแจ้งหนี้แล้ว 10/11/2026)
 export function templateMissing(docs: ApTplDocKey[] | undefined, marks: ApDocs): string[] {
   return templateRequiredChecks(docs)
     .filter((k) => !docChecked(marks, k))
@@ -66,7 +66,7 @@ export function templateMissing(docs: ApTplDocKey[] | undefined, marks: ApDocs):
 }
 
 // ชนิดเอกสารในแม่แบบที่ชี้มาที่ช่องติ๊กนี้ — ขึ้นใต้ป้าย "ต้องมี" ให้รู้ว่าผู้ขายส่งอะไรมา
-// เหลือช่องรวมแค่ "ใบแจ้งหนี้/ใบวางบิล" ช่องเดียว (บิลเงินสด/ใบส่งของ แยกช่องกันแล้ว 12/10/2026)
+// ไม่มีช่องรวมเหลือแล้ว (บิลเงินสด/ใบส่งของ แยก 12/10/2026 · ใบวางบิล/ใบแจ้งหนี้ แยก 10/11/2026) — เก็บไว้เผื่อมีช่องรวมอีก
 export function templateDocsForCheck(docs: ApTplDocKey[] | undefined, check: ApDocKey): string[] {
   const want = new Set(docs ?? [])
   return AP_TEMPLATE_DOCS.filter((d) => d.check === check && want.has(d.key)).map((d) => d.excel || d.label)
