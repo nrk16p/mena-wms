@@ -7,7 +7,7 @@ import { Download } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { canApproveVendor } from "@/lib/roles"
 import { bkkToday } from "@/lib/bkk-time"
-import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, isCustomJob, isAnswered, jobCost, LUMP_TIERS, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
+import { STATUS_META, SHEET_ORDER, addMonths, partKey, progress, effectiveStatus, mapsLink, vendorLabel, isCustomJob, isAnswered, jobCost, LUMP_TIERS, type RfqInvite, type RfqJob, type RfqPart, type RfqLogEntry } from "@/lib/rfq-core"
 import { mitr } from "@/components/vendor-shared"
 import { thDate, thDateTime } from "@/components/rfq-vendor-shared"
 import { RfqExcelBox } from "@/components/rfq-excel-box"
@@ -59,7 +59,7 @@ export function RfqReviewPage({ id }: { id: string }) {
     <div style={mitr}>
       <div style={{ fontSize: 12.5, marginBottom: 6 }}><Link href="/rfq" style={{ color: "#0E7490" }}>‹ ใบขอราคาอู่</Link></div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>{inv.vendor}</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>{vendorLabel(inv)}{inv.newVendor && <span style={{ marginLeft: 8, fontSize: 12, padding: "2px 8px", borderRadius: 999, background: "#FFFBEB", color: "#B45309", border: "1px solid #FDE68A", fontWeight: 500, verticalAlign: 3 }}>อู่ใหม่ · ยังไม่อยู่ใน AVL</span>}</h1>
         <span style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: m.bg, color: m.fg }}>{eff}</span>
         <span style={{ fontSize: 12.5, color: "#6B7C72" }}>{inv.title} · ปิดรับ {thDate(inv.deadline)} · ชีต {sheets.join(" ")}</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>

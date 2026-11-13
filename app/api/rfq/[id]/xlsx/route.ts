@@ -13,6 +13,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!inv) return NextResponse.json({ error: "not found" }, { status: 404 })
   const cat = await getCatalog(inv.catalogVersion)
   const buf = await buildRfqWorkbook(inv, jobsForInvite(inv, cat.jobs), partsForInvite(inv, cat.parts))
-  const name = encodeURIComponent(`ใบเสนอราคา_${inv.vendor}_${inv.title}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"))
+  const name = encodeURIComponent(`ใบเสนอราคา_${inv.vendor || "อู่ใหม่"}_${inv.title}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"))
   return new NextResponse(new Uint8Array(buf), { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename*=UTF-8''${name}` } })
 }

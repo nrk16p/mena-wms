@@ -126,7 +126,7 @@ export function useAutosave(token: string) {
  *  subtitle "ชื่อ — คำอธิบาย" → ชื่อเป็นหัวข้อใหญ่ คำอธิบายเป็นบรรทัดรอง */
 export function VendorHeader({ invite, subtitle, backHref }: { invite: PublicInvite; subtitle?: string; backHref?: string }) {
   const left = daysLeft(invite.deadline)
-  const [title, ...rest] = (subtitle ?? invite.vendor).split(" — ")
+  const [title, ...rest] = (subtitle ?? (invite.vendor || "ใบขอราคา")).split(" — ")
   return (
     <div style={{ marginBottom: 16 }}>
       {backHref && <Link href={backHref} style={{ ...V.muted, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 2 }}><ChevronLeft size={15} /> กลับหน้าหลัก</Link>}

@@ -54,7 +54,7 @@ function HubHero({ invite }: { invite: PublicInvite }) {
       background: `linear-gradient(100deg, rgba(2,58,30,.95) 0%, rgba(4,97,50,.86) 48%, rgba(4,97,50,.35) 100%), url(/brand/fleet.jpg) center 60% / cover` }}>
       <div style={{ padding: "22px 20px 20px" }}>
         <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, opacity: .85 }}>ใบขอราคา · REQUEST FOR QUOTATION</div>
-        <h1 style={{ fontSize: 26, fontWeight: 500, margin: "6px 0 2px", lineHeight: 1.3 }}>{invite.vendor}</h1>
+        <h1 style={{ fontSize: 26, fontWeight: 500, margin: "6px 0 2px", lineHeight: 1.3 }}>{invite.vendor || "ใบขอราคา"}</h1>
         <div style={{ fontSize: 14.5, opacity: .9 }}>{invite.title}</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
           <span style={{ fontSize: 13, padding: "5px 12px", borderRadius: 999, background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.3)" }}>
@@ -118,12 +118,13 @@ function SectionRow({ part: s, last, ro }: { part: Part; last: boolean; ro: bool
 }
 
 function IdentityStep({ token, invite, onDone }: { token: string; invite: PublicInvite; onDone: (inv: PublicInvite) => void }) {
+  const [vendorName, setVendorName] = useState(invite.vendor)
   const [name, setName] = useState(""); const [phone, setPhone] = useState(""); const [email, setEmail] = useState("")
   const [ok, setOk] = useState(false); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false)
   async function go() {
     setBusy(true); setErr("")
     try {
-      const r = await fetch(`/api/q/${token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact: { name, phone, email, confirmedVendor: ok } }) })
+      const r = await fetch(`/api/q/${token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact: { name, phone, email, confirmedVendor: ok }, ...(invite.newVendor ? { vendorName } : {}) }) })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.error ?? "บันทึกไม่สำเร็จ")
       onDone(d.invite)
@@ -135,6 +136,11 @@ function IdentityStep({ token, invite, onDone }: { token: string; invite: Public
       <div style={V.card}>
         <h2 style={V.h2}>ข้อมูลผู้ติดต่อ</h2>
         <div style={{ ...V.muted, marginBottom: 14 }}>กรุณากรอกก่อนเริ่มกรอกใบเสนอราคา</div>
+        {invite.newVendor && <>
+          <label style={V.label}>ชื่ออู่ / ชื่อร้าน *</label>
+          <input style={V.input} value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="เช่น อู่ช่างเอ การช่าง" maxLength={120} autoComplete="organization" />
+          <div style={{ height: 12 }} />
+        </>}
         <label style={V.label}>ชื่อผู้ติดต่อ *</label>
         <input style={V.input} value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น ช่างเอ" autoComplete="name" />
         <label style={{ ...V.label, marginTop: 12 }}>เบอร์โทร</label>
@@ -143,7 +149,7 @@ function IdentityStep({ token, invite, onDone }: { token: string; invite: Public
         <input style={V.input} value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" placeholder="(กรอกเบอร์โทรหรืออีเมลอย่างน้อย 1 อย่าง)" autoComplete="email" />
         <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, fontSize: 14, cursor: "pointer" }}>
           <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} style={{ width: 20, height: 20, marginTop: 2, accentColor: BRAND.green }} />
-          <span>ยืนยันว่าเสนอราคาในนาม <b style={{ fontWeight: 500 }}>{invite.vendor}</b></span>
+          <span>ยืนยันว่าเสนอราคาในนาม <b style={{ fontWeight: 500 }}>{(invite.newVendor ? vendorName.trim() : invite.vendor) || "อู่ของท่าน"}</b></span>
         </label>
         {err && <div style={{ color: "#B91C1C", fontSize: 13, marginTop: 10 }}>{err}</div>}
         <button style={{ ...V.btnPrimary, marginTop: 16, opacity: busy ? .6 : 1 }} disabled={busy} onClick={() => void go()}>เริ่มกรอกใบเสนอราคา</button>

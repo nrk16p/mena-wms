@@ -96,7 +96,7 @@ export async function listLog(id: string): Promise<RfqLogEntry[]> {
 
 // ── สร้าง / รายการ / อ่าน ────────────────────────────────────────────────────
 export async function createInvites(
-  input: { title: string; deadline: string; invites: { vendor: string; sheets: string[]; sections: RfqSection[]; jobCodes?: string[]; customJobs?: RfqJob[] }[] },
+  input: { title: string; deadline: string; invites: { vendor: string; newVendor?: boolean; sheets: string[]; sections: RfqSection[]; jobCodes?: string[]; customJobs?: RfqJob[] }[] },
   by: { name: string; email: string }
 ): Promise<RfqInvite[]> {
   const col = await invites()
@@ -104,6 +104,7 @@ export async function createInvites(
   const now = toBkkIso(new Date())
   const docs: RfqInvite[] = input.invites.map((i) => ({
     token: newToken(), vendor: i.vendor,
+    ...(i.newVendor ? { newVendor: true } : {}),
     sheets: SHEET_ORDER.filter((s) => i.sheets.includes(s) || s === SVC_SHEET),
     sections: i.sections.length ? i.sections : ["labour", "parts"],
     ...(i.jobCodes?.length ? { jobCodes: i.jobCodes } : {}),
@@ -158,18 +159,21 @@ export async function markOpened(token: string) {
   if (r) await writeLog([{ inviteId: String(r._id), action: "open", by: "อู่ (ลิงก์)", byEmail: "", at: new Date() }])
 }
 
-export async function saveContact(token: string, c: Omit<RfqContact, "at">): Promise<RfqInvite> {
+export async function saveContact(token: string, c: Omit<RfqContact, "at">, vendorName?: string): Promise<RfqInvite> {
   const col = await invites()
   const before = await col.findOne({ token })
   if (!before) throw new Error("404:ไม่พบลิงก์")
   if (!canVendorWrite(before, bkkToday())) throw new Error("409:ลิงก์นี้ปิดรับแล้ว")
   const now = toBkkIso(new Date())
   const status = before.status === "สร้างแล้ว" ? "กำลังกรอก" : before.status
-  await col.updateOne({ token }, { $set: { contact: { ...c, at: now }, status, updatedAt: now } })
+  // ลิงก์อู่ใหม่: อู่ตั้งชื่อตัวเอง
+  const vendor = before.newVendor && vendorName ? vendorName : before.vendor
+  await col.updateOne({ token }, { $set: { contact: { ...c, at: now }, status, vendor, updatedAt: now } })
   const log: RfqLogEntry[] = [{ inviteId: String(before._id), action: "contact", by: c.name, byEmail: c.email, at: new Date(), note: c.phone || c.email }]
   if (status !== before.status) log.push({ inviteId: String(before._id), action: "contact", from: before.status, to: status, by: c.name, byEmail: c.email, at: new Date() })
+  if (vendor !== before.vendor) log.push({ inviteId: String(before._id), action: "contact", from: before.vendor || "(อู่ใหม่)", to: vendor, by: c.name, byEmail: c.email, at: new Date(), note: "อู่ใหม่ตั้งชื่ออู่" })
   await writeLog(log)
-  return serialize({ ...before, contact: { ...c, at: now }, status, updatedAt: now })
+  return serialize({ ...before, contact: { ...c, at: now }, status, vendor, updatedAt: now })
 }
 
 export async function saveAnswers(token: string, items: Record<string, RfqAnswer>, parts: Record<string, RfqPartAnswer>, rates: Record<string, RfqRate> = {}) {
@@ -219,7 +223,8 @@ export async function saveProfile(token: string, p: Omit<RfqProfile, "at">): Pro
  *  ไม่แตะ codes/สถานะที่จัดซื้อดูแล · ลง vendor_capability_log ด้วย */
 async function copyProfileToVendor(inv: RfqInvite, by: string, byEmail: string): Promise<void> {
   const p = inv.profile
-  if (!p) return
+  // อู่ใหม่ (ชื่อที่อู่พิมพ์เอง) ไม่เขียนเข้า AVL — จัดซื้อเพิ่มอู่เข้า AVL เองเมื่อเปิดเครดิต
+  if (!p || inv.newVendor) return
   try {
     const d = await db()
     const at = new Date()

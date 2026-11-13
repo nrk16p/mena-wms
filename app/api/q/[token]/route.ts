@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { bkkToday } from "@/lib/bkk-time"
 import { getInviteByToken, getCatalog, markOpened, saveContact, saveAnswers, saveProfile, httpError } from "@/lib/rfq"
-import { effectiveStatus, canVendorWrite, validateContact, validateAnswer, validatePartAnswer, validateRate, validateProfile, parseLatLng, partKey, jobsForInvite, partsForInvite, labourSheets, type RfqAnswer, type RfqPartAnswer, type RfqRate, type RfqInvite } from "@/lib/rfq-core"
+import { effectiveStatus, canVendorWrite, validateContact, validateVendorName, validateAnswer, validatePartAnswer, validateRate, validateProfile, parseLatLng, partKey, jobsForInvite, partsForInvite, labourSheets, type RfqAnswer, type RfqPartAnswer, type RfqRate, type RfqInvite } from "@/lib/rfq-core"
 import { loadThaiAddress } from "@/lib/thai-address"
 
 export const dynamic = "force-dynamic"
@@ -65,7 +65,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (body.contact !== undefined) {
       const c = validateContact(body.contact)
       if (typeof c === "string") return NextResponse.json({ error: c }, { status: 400 })
-      const after = await saveContact(token, c)
+      let vendorName: string | undefined
+      if (inv.newVendor) {
+        vendorName = validateVendorName(body.vendorName)
+        if (!vendorName) return NextResponse.json({ error: "กรุณากรอกชื่ออู่" }, { status: 400 })
+      }
+      const after = await saveContact(token, c, vendorName)
       return NextResponse.json({ ok: true, invite: publicView(after, bkkToday()) })
     }
     const items: Record<string, RfqAnswer> = {}

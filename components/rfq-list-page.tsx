@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSession } from "next-auth/react"
-import { Copy, RefreshCw, CalendarPlus, XCircle } from "lucide-react"
+import { Copy, RefreshCw, CalendarPlus, XCircle, UserPlus } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import { canApproveVendor } from "@/lib/roles"
-import { STATUS_META, addDays, type EffectiveStatus, type RfqInvite } from "@/lib/rfq-core"
+import { STATUS_META, addDays, vendorLabel, type EffectiveStatus, type RfqInvite } from "@/lib/rfq-core"
+import { RfqCreateModal } from "@/components/rfq-create-modal"
 import { mitr, num } from "@/components/vendor-shared"
 import { thDate, thDateTime } from "@/components/rfq-vendor-shared"
 
@@ -17,6 +18,7 @@ export function RfqListPage() {
   const { data: session } = useSession()
   const approver = canApproveVendor(session?.user?.email)
   const [rows, setRows] = useState<Row[]>([]); const [loading, setLoading] = useState(true)
+  const [newOpen, setNewOpen] = useState(false)
   const [q, setQ] = useState(""); const [st, setSt] = useState<EffectiveStatus | "">(""); const [title, setTitle] = useState("")
   const fetchRows = useCallback(async (): Promise<Row[]> => {
     const r = await fetch("/api/rfq", { cache: "no-store" }); const d = await r.json()
@@ -58,7 +60,8 @@ export function RfqListPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>ใบขอราคาอู่</h1>
         <span style={{ fontSize: 12.5, color: "#6B7C72" }}>สร้างลิงก์ใหม่ได้จากหน้า <Link href="/vendors" style={{ color: "#0E7490" }}>ตารางความสามารถอู่</Link> (เลือกอู่ → ขอราคา)</span>
-        <button onClick={() => void load()} style={{ ...mitr, marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "center", padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB", background: "#fff", fontSize: 13, cursor: "pointer" }}><RefreshCw size={14} /> โหลดใหม่</button>
+        <button onClick={() => setNewOpen(true)} title="ส่งลิงก์ให้อู่ที่ยังไม่อยู่ใน AVL (ยังไม่เปิดเครดิต) — อู่กรอกชื่ออู่เอง" style={{ ...mitr, marginLeft: "auto", display: "inline-flex", gap: 6, alignItems: "center", padding: "7px 12px", borderRadius: 8, border: "1px solid #F59E0B", background: "#FFFBEB", color: "#B45309", fontSize: 13, cursor: "pointer" }}><UserPlus size={14} /> ลิงก์อู่ใหม่</button>
+        <button onClick={() => void load()} style={{ ...mitr, display: "inline-flex", gap: 6, alignItems: "center", padding: "7px 12px", borderRadius: 8, border: "1px solid #E5E7EB", background: "#fff", fontSize: 13, cursor: "pointer" }}><RefreshCw size={14} /> โหลดใหม่</button>
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         <button onClick={() => setSt("")} style={{ ...mitr, padding: "5px 11px", borderRadius: 999, fontSize: 12, border: !st ? "1px solid #0E7490" : "1px solid #E5E7EB", background: !st ? "#ECFEFF" : "#fff", cursor: "pointer" }}>ทั้งหมด {num(rows.length)}</button>
@@ -76,7 +79,7 @@ export function RfqListPage() {
             {!loading && !shown.length && <tr><td colSpan={11} style={{ padding: 20, color: "#9AA8A0" }}>ไม่มีรายการ</td></tr>}
             {shown.map((r) => (
               <tr key={r._id} style={{ borderTop: "1px solid #F3F4F6" }}>
-                <td style={{ padding: "8px 10px", fontWeight: 600 }}><Link href={`/rfq/${r._id}`} style={{ color: "#14271C", textDecoration: "none" }}>{r.vendor}</Link>{r.contact && <div style={{ fontSize: 11, color: "#9AA8A0", fontWeight: 400 }}>{r.contact.name} · {r.contact.phone || r.contact.email}</div>}</td>
+                <td style={{ padding: "8px 10px", fontWeight: 600 }}><Link href={`/rfq/${r._id}`} style={{ color: r.vendor ? "#14271C" : "#9AA8A0", textDecoration: "none" }}>{vendorLabel(r)}</Link>{r.newVendor && <span title="ยังไม่อยู่ใน AVL · อู่กรอกชื่อเอง" style={{ marginLeft: 6, fontSize: 10.5, padding: "1px 7px", borderRadius: 999, background: "#FFFBEB", color: "#B45309", border: "1px solid #FDE68A", fontWeight: 500 }}>อู่ใหม่</span>}{r.contact && <div style={{ fontSize: 11, color: "#9AA8A0", fontWeight: 400 }}>{r.contact.name} · {r.contact.phone || r.contact.email}</div>}</td>
                 <td style={{ padding: "8px 10px" }}>{r.title}</td>
                 <td style={{ padding: "8px 10px", fontSize: 11.5, color: "#6B7C72" }}>{r.sheets.join(" ")}</td>
                 <td style={{ padding: "8px 10px" }}>{pill(r.effective)}</td>
@@ -96,6 +99,7 @@ export function RfqListPage() {
           </tbody>
         </table>
       </div>
+      {newOpen && <RfqCreateModal vendors={[{ vendor: "", codes: [], isNew: true }]} onClose={() => { setNewOpen(false); void load() }} />}
     </div>
   )
 }

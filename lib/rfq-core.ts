@@ -67,6 +67,8 @@ export type RfqInvite = {
   jobCodes?: string[]
   /** หัวข้อที่จัดซื้อเพิ่มเองตอนสร้างลิงก์ (นอกแคตตาล็อก) — อยู่กับใบนี้เท่านั้น jobCode ขึ้นต้น "X-" (ผู้ใช้ขอ 2026-09-11) */
   customJobs?: RfqJob[]
+  /** อู่ใหม่ที่ยังไม่อยู่ใน AVL (ยังไม่เปิดเครดิต) — อู่พิมพ์ชื่อตัวเองตอนยืนยันตัวตน · ไม่คัดลอกข้อมูลเข้า AVL ตอนส่ง (ผู้ใช้ขอ 2026-11-13) */
+  newVendor?: boolean
   title: string; deadline: string; status: RfqStatus
   contact: RfqContact | null; openedAt: string | null
   profile?: RfqProfile | null
@@ -333,6 +335,15 @@ export function validateContact(x: unknown): Omit<RfqContact, "at"> | string {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "อีเมลไม่ถูกต้อง"
   if (!o.confirmedVendor) return "กรุณาติ๊กยืนยันชื่ออู่"
   return { name, phone, email, confirmedVendor: true }
+}
+
+/** ชื่อที่โชว์ — ลิงก์อู่ใหม่ที่อู่ยังไม่ได้กรอกชื่อ */
+export const vendorLabel = (inv: { vendor: string; newVendor?: boolean }) => inv.vendor || (inv.newVendor ? "อู่ใหม่ (รออู่กรอกชื่อ)" : "-")
+
+/** ชื่ออู่ที่อู่ใหม่พิมพ์เอง (ลิงก์อู่ใหม่) */
+export function validateVendorName(x: unknown): string {
+  const v = String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 120)
+  return v.length >= 2 ? v : ""
 }
 
 // ── พิกัดจากลิงก์แผนที่ ───────────────────────────────────────────────────────

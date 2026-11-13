@@ -39,7 +39,9 @@ export async function POST(req: NextRequest) {
     const invites = []
     for (const r of raw) {
       const vendor = String(r?.vendor ?? "").trim()
-      if (!vendor || !vendorsInDb.has(vendor)) return NextResponse.json({ error: `ไม่พบอู่ใน AVL: ${vendor || "(ว่าง)"}` }, { status: 400 })
+      const newVendor = r?.newVendor === true
+      // อู่ใหม่ (ยังไม่อยู่ใน AVL): ชื่อเว้นว่างได้ อู่พิมพ์เองตอนเปิดลิงก์
+      if (!newVendor && (!vendor || !vendorsInDb.has(vendor))) return NextResponse.json({ error: `ไม่พบอู่ใน AVL: ${vendor || "(ว่าง)"}` }, { status: 400 })
       const sheets = (Array.isArray(r.sheets) ? r.sheets : []).map(String).filter((s: string) => knownSet.has(s) && SHEET_ORDER.includes(s))
       const sections = (Array.isArray(r.sections) ? r.sections : ["labour", "parts"]).filter((s: string): s is RfqSection => s === "labour" || s === "parts")
       // ข้อย่อย: รับเฉพาะรหัสงานที่มีจริงและอยู่ในชีตที่ให้ · ว่าง = ทุกงาน
@@ -49,7 +51,7 @@ export async function POST(req: NextRequest) {
       const customJobs = validateCustomJobs(r.customJobs, sheetsWithSvc, version)
       if (typeof customJobs === "string") return NextResponse.json({ error: customJobs }, { status: 400 })
       for (const cj of customJobs) cj.sheetTitle = known.find((k) => k.sheet === cj.sheet)?.title ?? cj.sheetTitle
-      invites.push({ vendor, sheets, sections, jobCodes, customJobs })
+      invites.push({ vendor: vendor.slice(0, 120), ...(newVendor ? { newVendor: true } : {}), sheets, sections, jobCodes, customJobs })
     }
     const created = await createInvites({ title, deadline, invites }, user)
     const origin = req.nextUrl.origin

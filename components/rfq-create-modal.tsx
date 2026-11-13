@@ -21,7 +21,9 @@ const SHEET_SHORT: Record<string, string> = {
 }
 type Created = { id: string; vendor: string; token: string; url: string }
 
-export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string; codes: string[] }[]; onClose: () => void }) {
+/** isNew = อู่ใหม่ที่ยังไม่อยู่ใน AVL (เปิดจาก /rfq ปุ่ม "ลิงก์อู่ใหม่") — vendor เป็นกุญแจแถว ชื่อจริงพิมพ์ในช่อง (เว้นว่างได้ อู่กรอกเอง) */
+export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string; codes: string[]; isNew?: boolean }[]; onClose: () => void }) {
+  const [newName, setNewName] = useState("")
   const [catalog, setCatalog] = useState<SheetInfo[]>([])
   const [jobs, setJobs] = useState<JobInfo[]>([])
   // เลือกข้อย่อย (งานช่าง) รายอู่ — ไม่มี key = ทุกงานของชีตที่ให้ · เปิดแผงแล้วค่อยสร้างชุดเต็ม
@@ -88,20 +90,21 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
     if (!sections.length) { swalError("เลือกอย่างน้อย 1 ส่วน (ค่าแรง/อะไหล่)"); return }
     setBusy(true)
     try {
-      const r = await fetch("/api/rfq", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, deadline, invites: vendors.map((v) => ({ vendor: v.vendor, sheets: [...sheets[v.vendor]], sections, jobCodes: pickInfo(v.vendor).codes, customJobs: (custom[v.vendor] ?? []).filter((c) => sheets[v.vendor].has(c.sheet)) })) }) })
+      const r = await fetch("/api/rfq", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, deadline, invites: vendors.map((v) => ({ vendor: v.isNew ? newName.trim() : v.vendor, ...(v.isNew ? { newVendor: true } : {}), sheets: [...sheets[v.vendor]], sections, jobCodes: pickInfo(v.vendor).codes, customJobs: (custom[v.vendor] ?? []).filter((c) => sheets[v.vendor].has(c.sheet)) })) }) })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d?.error ?? "สร้างไม่สำเร็จ")
       setCreated(d.invites)
     } catch (e) { swalError(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
-  const lineText = (c: Created) => `เรียน ${c.vendor}\nMena Transport ขอเชิญเสนอราคา ${title}\nกรอกได้ที่ลิงก์นี้ (เปิดจากมือถือได้ ไม่ต้องสมัคร): ${c.url}\nปิดรับ ${thDate(deadline)}\nขอบคุณครับ/ค่ะ — ฝ่ายจัดซื้อ`
+  const isNewRound = vendors.some((v) => v.isNew)
+  const lineText = (c: Created) => `เรียน ${c.vendor || "ผู้ประกอบการ"}\nMena Transport ขอเชิญเสนอราคา ${title}\nกรอกได้ที่ลิงก์นี้ (เปิดจากมือถือได้ ไม่ต้องสมัคร${isNewRound ? " เปิดลิงก์แล้วกรอกชื่ออู่ของท่านก่อน" : ""}): ${c.url}\nปิดรับ ${thDate(deadline)}\nขอบคุณครับ/ค่ะ — ฝ่ายจัดซื้อ`
   const copy = (t: string) => { void navigator.clipboard.writeText(t); swalToast("success", "คัดลอกแล้ว") }
   const inp = { ...mitr, padding: "8px 10px", borderRadius: 8, border: "1px solid #E5E7EB", fontSize: 13 }
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ ...mitr, background: "#fff", borderRadius: 14, padding: 18, width: "100%", maxWidth: 960, maxHeight: "90vh", overflow: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <div style={{ fontSize: 17, fontWeight: 600 }}>{created ? `สร้างลิงก์แล้ว ${created.length} อู่` : `ขอราคา — ${vendors.length} อู่`}</div>
+          <div style={{ fontSize: 17, fontWeight: 600 }}>{created ? `สร้างลิงก์แล้ว ${created.length} อู่` : isNewRound ? "ขอราคา — อู่ใหม่ (ยังไม่อยู่ใน AVL)" : `ขอราคา — ${vendors.length} อู่`}</div>
           <button onClick={onClose} style={{ marginLeft: "auto", border: "none", background: "transparent", cursor: "pointer" }}><X size={18} /></button>
         </div>
         {!created ? (
@@ -113,6 +116,7 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
                 {(["labour", "parts"] as const).map((s) => <label key={s} style={{ marginRight: 12, fontSize: 13 }}><input type="checkbox" checked={sections.includes(s)} onChange={(e) => setSections((c) => e.target.checked ? [...new Set([...c, s])] : c.filter((x) => x !== s))} /> {s === "labour" ? "ค่าแรง" : "อะไหล่"}</label>)}
               </div>
             </div>
+            {isNewRound && <div style={{ fontSize: 12.5, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>ลิงก์สำหรับอู่ที่ยังไม่อยู่ใน AVL (ยังไม่เปิดเครดิต) · อู่จะกรอกชื่ออู่ของตัวเองตอนเปิดลิงก์ · ติ๊กชีตที่อยากให้เสนอราคาในตารางด้านล่าง · ราคาที่ได้ใช้เทียบได้เหมือนอู่อื่น แต่ระบบจะไม่เพิ่มอู่นี้เข้า AVL ให้เอง</div>}
             <div style={{ fontSize: 12, color: "#6B7C72", marginBottom: 6 }}>ค่าตั้งต้นของชีตมาจากช่องที่ติ๊กในตารางความสามารถ · SVC (งานพื้นฐาน) ให้ทุกอู่ · คลิก ✓ เพื่อเพิ่ม/ลดทั้งชีต · <b>คลิกตัวเลขใต้ ✓ (เช่น 28/28) เพื่อเลือกส่งเฉพาะบางงาน</b></div>
             <div style={{ overflowX: "auto", border: "1px solid #E5E7EB", borderRadius: 10 }}>
               <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: 760 }}>
@@ -131,7 +135,9 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
                   return (
                     <Fragment key={v.vendor}>
                       <tr style={{ borderTop: "1px solid #F3F4F6" }}>
-                        <td style={{ padding: 6, fontWeight: 600, whiteSpace: "nowrap", position: "sticky", left: 0, background: "#fff" }}>{v.vendor}</td>
+                        <td style={{ padding: 6, fontWeight: 600, whiteSpace: "nowrap", position: "sticky", left: 0, background: "#fff" }}>{v.isNew
+                          ? <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ชื่ออู่ (เว้นว่างได้ ให้อู่กรอกเอง)" maxLength={120} style={{ ...inp, width: 200, fontWeight: 400 }} />
+                          : v.vendor}</td>
                         {cols.map((s) => {
                           const on = sheets[v.vendor].has(s)
                           const c = on ? sheetCount(v.vendor, s) : null
@@ -225,7 +231,7 @@ export function RfqCreateModal({ vendors, onClose }: { vendors: { vendor: string
             </div>
             {created.map((c) => (
               <div key={c.id} style={{ border: "1px solid #E5E7EB", borderRadius: 10, padding: 10, marginBottom: 8 }}>
-                <div style={{ fontWeight: 600 }}>{c.vendor}</div>
+                <div style={{ fontWeight: 600 }}>{c.vendor || "อู่ใหม่ (อู่กรอกชื่อเองตอนเปิดลิงก์)"}</div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
                   <code style={{ fontSize: 12, background: "#F6FAF7", padding: "4px 8px", borderRadius: 6, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.url}</code>
                   <button onClick={() => copy(c.url)} style={{ ...inp, cursor: "pointer" }}>ลิงก์</button>
