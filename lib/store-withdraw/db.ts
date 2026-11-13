@@ -28,6 +28,9 @@ export type CredDoc = {
   branch: string | null
   profile: Record<string, unknown> | null
   updatedAt: Date
+  /** PHPSESSID ล่าสุดที่หน้ายาง login ได้จากบัญชีนี้ (เข้ารหัส) — ดู lib/atms-login.ts */
+  sessionEnc?: string
+  sessionAt?: Date
 }
 
 export type LogDoc = {

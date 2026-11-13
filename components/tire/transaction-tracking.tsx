@@ -35,6 +35,7 @@ import {
   type RequestItem, type StatTone, type TireRequest,
 } from "@/components/tire/shared"
 import { AtmsJobLink } from "@/components/atms-job-link"
+import { BookingDialog } from "@/components/tire/booking-dialog"
 
 // ── กติกาของหน้า ────────────────────────────────────────────────────────────
 
@@ -65,8 +66,8 @@ const STAGE_CHIPS: { value: TxStage | "all"; label: string; tone: StatTone }[] =
   { value: "all",         label: "ทั้งหมด",     tone: "slate" },
   { value: "pending",     label: "รออนุมัติ",   tone: "amber" },
   { value: "approved",    label: "อนุมัติแล้ว", tone: "blue" },
-  { value: "appointment", label: "นัดหมายแล้ว", tone: "purple" },
-  { value: "done",        label: "เสร็จสิ้น",   tone: "green" },
+  { value: "appointment", label: "รอเปลี่ยน",   tone: "purple" },
+  { value: "done",        label: "เปลี่ยนแล้ว", tone: "green" },
   { value: "rejected",    label: "ปฏิเสธ",      tone: "red" },
 ]
 
@@ -451,6 +452,9 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
   // MR ของยางสาเหตุ "รถกินยาง" — key = "สาขา|ทะเบียน" (ทะเบียนซ้ำข้ามสาขาได้)
   // undefined = ยังไม่ได้เช็ค, null = ยังไม่มีใบ
   const [mrMap, setMrMap] = useState<Record<string, MrSummary | null>>({})
+
+  // จองเปลี่ยนยางฝั่งแอดมิน — ข้ามขั้นอนุมัติ ขึ้น "รอเปลี่ยน" ทันที
+  const [bookingOpen, setBookingOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1166,6 +1170,14 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setBookingOpen(true)}
+            className="inline-flex items-center gap-1 rounded-[10px] border border-[#1B8C4B]/40 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#17793F] transition-colors hover:bg-[#F0FDF4] dark:border-[#1B8C4B]/40 dark:bg-transparent dark:text-green-400 dark:hover:bg-white/5"
+            style={fontThai}
+          >
+            <CalendarClock size={12} /> จองเปลี่ยนยาง
+          </button>
+          <button
+            type="button"
             onClick={load}
             disabled={loading}
             className="inline-flex items-center gap-1 rounded-[10px] border border-[#EEF2F0] px-2.5 py-1.5 text-[12px] text-[#6B7C72] transition-colors hover:bg-[#F0FDF4] disabled:opacity-50 dark:border-white/10 dark:text-gray-400 dark:hover:bg-white/5"
@@ -1666,6 +1678,13 @@ export function TireTransactionTracking({ branchFilter, onChanged }: {
         mrAdvance={mrAdvance}
         mrReload={(row) => { reloadMr(row.branch, row.plate) }}
         {...actions}
+      />
+
+      <BookingDialog
+        open={bookingOpen}
+        onClose={() => setBookingOpen(false)}
+        onSaved={() => { load(); onChanged() }}
+        branches={branchesFor(branchFilter)}
       />
 
       <AppointmentDialog
@@ -2261,7 +2280,7 @@ function pageWindow(current: number, count: number): (number | "gap")[] {
   return out
 }
 
-function Pager({ current, count, onGo }: { current: number; count: number; onGo: (page: number) => void }) {
+export function Pager({ current, count, onGo }: { current: number; count: number; onGo: (page: number) => void }) {
   if (count <= 1) return null
 
   const step = "flex size-8 shrink-0 items-center justify-center rounded-[9px] border border-[#EEF2F0] text-[#6B7C72] transition-colors hover:border-[#1B8C4B]/30 hover:text-[#14271C] disabled:pointer-events-none disabled:opacity-40 dark:border-white/10 dark:text-gray-400 dark:hover:text-white"
@@ -2319,7 +2338,7 @@ function timelineOf(row: TxRow): TimelineStep[] {
     label: "ยื่นคำขอเปลี่ยนยาง",
     at: it.createdAt || r.createdAt,
     by: r.requestedBy || r.driverName || "",
-    note: r.source === "mobile" ? "จากมือถือคนขับ" : r.source === "web" ? "จากหน้าเว็บ" : undefined,
+    note: r.source === "mobile" ? "จากมือถือคนขับ" : r.source === "web" ? "จากหน้าเว็บ" : r.source === "booking" ? "แอดมินจองเปลี่ยน (อนุมัติในตัว)" : undefined,
     state: "done",
   }
 

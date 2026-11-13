@@ -22,6 +22,7 @@ import {
   downloadExcelTable, xlsDate, XLS_DATE_FMT, type ExcelCol,
 } from "@/lib/excel-table"
 import Swal from "sweetalert2"
+import { askAtmsAuth } from "@/lib/atms-auth-dialog"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import {
   DUE_LABEL, SNOOZE_OPTIONS, SOURCE_LABEL, dueBarCls, dueChipCls, positionOrder,
@@ -256,19 +257,11 @@ export function TireDuePage({ branchFilter, onOpenVehicle }: {
           body:    JSON.stringify({ branch: b, rebuild: i === branches.length - 1, ...(phpsessid ? { phpsessid } : {}) }),
         })
         let res = await post()
-        if (res.status === 401) {
-          const { value, isConfirmed: ok } = await Swal.fire<string>({
-            title: "Session หมดอายุ",
-            text: "วาง PHPSESSID ใหม่จาก mena-atms.com (DevTools → Cookies)",
-            input: "text",
-            inputPlaceholder: "PHPSESSID",
-            showCancelButton: true,
-            confirmButtonText: "Sync",
-            cancelButtonText: "ยกเลิก",
-            reverseButtons: true,
-          })
-          if (!ok || !value?.trim()) return
-          phpsessid = value.trim()
+        // ยังไม่ผูก/รหัสเปลี่ยน → กรอกบัญชี ATMS ครั้งเดียว (หรือวาง PHPSESSID แทน) แล้วลองใหม่ จนสำเร็จหรือกดยกเลิก
+        while (res.status === 401) {
+          const next = await askAtmsAuth(await res.json().catch(() => ({})))
+          if (!next) return
+          phpsessid = next.phpsessid
           res = await post()
         }
         const d = await res.json().catch(() => ({}))

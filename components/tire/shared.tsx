@@ -36,7 +36,7 @@ export function branchesFor(filter: string, allowed?: string[]): string[] {
 // ── สถานะคำขอ ───────────────────────────────────────────────────────────────
 
 export const STATUS_LABEL: Record<string, string> = {
-  pending: "รออนุมัติ", approved: "อนุมัติแล้ว", appointment: "นัดหมายแล้ว", done: "เสร็จสิ้น", rejected: "ปฏิเสธ",
+  pending: "รออนุมัติ", approved: "อนุมัติแล้ว", appointment: "รอเปลี่ยน", done: "เปลี่ยนแล้ว", rejected: "ปฏิเสธ",
 }
 
 export function statusChip(status: string) {
@@ -118,7 +118,7 @@ export type TireRequest = {
   rejectReason?:   string
   appointmentDate?: string
   requestedBy?:    string
-  source?:         string    // "web" | "mobile" — คำขอจากมือถือคนขับ vs หน้าเว็บ
+  source?:         string    // "web" | "mobile" | "booking" — มือถือคนขับ / หน้าเว็บ / แอดมินจองเปลี่ยน (อนุมัติในตัว)
   // ใครทำอะไรกับ "ทั้งคำขอ" — คำขอเก่าตัดสินทีเดียวทั้งใบ ก่อนจะมีการอนุมัติรายเส้น
   approvedBy?:     string
   approvedAt?:     string

@@ -53,7 +53,7 @@ const ZONE_FALLBACK: Record<string, string> = {
 const NO_ZONE  = "ไม่ระบุโซน"
 const NO_PLANT = "ไม่ระบุแพล้นท์"
 
-function zoneOf(plant: string): string {
+export function zoneOf(plant: string): string {
   const p = PLANTS[plant]
   if (!p?.province && ZONE_FALLBACK[plant]) return ZONE_FALLBACK[plant]
   if (!p?.province) return NO_ZONE

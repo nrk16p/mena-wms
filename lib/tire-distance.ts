@@ -7,6 +7,7 @@
 import type { Db } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
+import { snapshotTireDue } from "@/lib/tire-due-daily"
 import {
   dueLevel, monthRange, normalizePlateForGps, normalizeProductKey,
   sumMonthlyDistance, isTrailerUnit, isSpareTire, isNotATire, isIgnoredPlate, isFrontTire,
@@ -414,6 +415,8 @@ export async function rebuildTireDistance(): Promise<RebuildResult> {
       }
       // ยางที่ถูกถอดออกไปแล้วรอบนี้ไม่มีในผลลัพธ์ → ลบทิ้ง ไม่งั้นค้างเตือนทั้งที่ไม่ได้อยู่บนรถแล้ว
       await col.deleteMany({ computedAt: { $lt: runAt } })
+      // ถ่ายยอดเกิน/ถึงกำหนดของวันนี้ไว้ดูแนวโน้ม (Dashboard) — พังก็ไม่ให้รอบคำนวณล้ม
+      await snapshotTireDue(db, runAt).catch((e) => console.error("[tire-due-daily] snapshot failed", e))
     } finally {
       // เขียนไปแล้ว (แม้พังกลางทาง) → ล้างแคชยาง หน้าจอเห็นผลรอบใหม่ทันที
       await invalidateCache([CACHE_TAGS.tire])

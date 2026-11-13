@@ -1,6 +1,6 @@
 import Swal from "sweetalert2"
 
-function darkOpts(): { background?: string; color?: string } {
+export function darkOpts(): { background?: string; color?: string } {
   if (typeof document === "undefined") return {}
   if (!document.documentElement.classList.contains("dark")) return {}
   return { background: "#0f1117", color: "#f9fafb" }

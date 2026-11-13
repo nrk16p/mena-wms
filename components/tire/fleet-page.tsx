@@ -1,52 +1,30 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useMemo } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
   Truck, Search, ArrowLeft, RefreshCw, History,
-  Check, X, Camera, ChevronDown, ChevronUp, CalendarClock, Gauge, ListChecks, MapPin, AlertTriangle, Code2,
+  Check, X, Camera, ChevronDown, ChevronUp, CalendarClock, Gauge, ListChecks, MapPin, Code2, LayoutDashboard,
 } from "lucide-react"
 import Swal from "sweetalert2"
+import { askAtmsAuth } from "@/lib/atms-auth-dialog"
 import { swalToast, swalError } from "@/lib/swal"
 import { MR_LABEL, type MrStatus, type MrSummary } from "@/lib/tire-mr"
 import { DUE_LABEL, DUE_WHEEL, dueChipCls, dueGradientCls, dueHex, type DueLevel } from "@/lib/tire-due"
 import {
-  AppointmentDialog, BRANCHES, FreshnessBar, STATUS_LABEL, oldestTime,
+  AppointmentDialog, BRANCHES, STATUS_LABEL,
   branchChipCls, branchLabel, branchesFor, btnPrimary, btnSmall, card,
-  fmtDate, fmtDateOnly, fmtNum, fmtStamp, fontHead, fontThai, freshBtn, inp, statusChip,
+  fmtDate, fmtDateOnly, fmtNum, fmtStamp, fontHead, fontThai, inp, statusChip,
   tdCls, thCls, theadCls,
   type AppointmentTarget,
 } from "@/components/tire/shared"
-import { TireTransactionTracking } from "@/components/tire/transaction-tracking"
-import { TireDuePage } from "@/components/tire/due-page"
 import { useBranchScope } from "@/components/use-branch-scope"
 
 // ===========================================================================
 // SECTION 1: Types
 // ===========================================================================
-
-type FleetVehicle = {
-  branch:         string
-  plate:          string
-  unit:           "head" | "trailer"
-  vehicleType:    string
-  fleet:          string
-  plant:          string
-  tireCount:      number
-  danger:         number
-  warn:           number
-  normal:         number
-  unknown:        number
-  oldestAgeText:  string | null
-  due:            { over: number; due: number; warn: number; ok: number; unknown: number; maxPct: number } | null
-  activeRequests: number
-}
-
-type Freshness = {
-  atms:        { branch: string; syncedAt: string | null }[]
-  computedAt:  string | null
-  dataThrough: string | null
-}
 
 // สถานะรอบเปลี่ยนรายเส้น — ตัวเลขชุดเดียวกับที่แอปคนขับ (mena-go-lb / mena-go-srb) แสดง
 type DueInfo = {
@@ -177,51 +155,100 @@ function resizeImage(file: File, maxSize = 1280): Promise<string> {
 // SECTION 3: Main page — tab switcher
 // ===========================================================================
 
+// โหลดโค้ดแต่ละแท็บเมื่อเปิดครั้งแรก — เข้า ?tab=tracking ตรง ๆ ไม่ต้องโหลด Dashboard (recharts/excel)
+const TabLoading = () => (
+  <div className={card + " px-4 py-16 text-center text-sm text-gray-400"} style={fontThai}>กำลังโหลด...</div>
+)
+const TireDashboard = dynamic(
+  () => import("@/components/tire/dashboard-page").then((m) => m.TireDashboard),
+  { ssr: false, loading: TabLoading },
+)
+const TireTransactionTracking = dynamic(
+  () => import("@/components/tire/transaction-tracking").then((m) => m.TireTransactionTracking),
+  { ssr: false, loading: TabLoading },
+)
+
+const TAB_VALUES = ["dashboard", "tracking", "history"] as const
+type TabValue = (typeof TAB_VALUES)[number]
+const asTab = (v: string | null): TabValue =>
+  (TAB_VALUES as readonly string[]).includes(v ?? "") ? (v as TabValue) : "dashboard"
+
+// สถานะหน้าอยู่ใน URL ทั้งหมด — ส่งลิงก์ต่อได้ และปุ่มย้อนกลับของเบราว์เซอร์ใช้ได้
+//   ?tab=dashboard|tracking|history  &branch=latkrabang|saraburi
+//   &plate=<ทะเบียน>&plateBranch=<สาขาของรถ>  (เปิดหน้ารถจาก Dashboard)
+// เขียนด้วย history API ตรง ๆ (Next sync กับ useSearchParams ให้) — ไม่ยิง RSC request ใหม่ทุกครั้งที่สลับแท็บ
 export function TireFleetPage() {
-  const [tab, setTab] = useState<"fleet" | "tracking" | "history" | "due">("fleet")
-  const [branchFilter, setBranchFilter] = useState("")
-  const [selected, setSelected] = useState<{ branch: string; plate: string } | null>(null)
+  const pathname = usePathname()
+  const params   = useSearchParams()
+  const tab          = asTab(params.get("tab"))
+  const branchFilter = params.get("branch") ?? ""
+  const plate        = params.get("plate")
+  const selected     = tab === "dashboard" && plate ? { branch: params.get("plateBranch") ?? branchFilter, plate } : null
   const [pendingBadge, setPendingBadge] = useState(0)
-  const [dueBadge, setDueBadge] = useState(0)
+
+  // แท็บที่เคยเปิดแล้วเก็บไว้ (ซ่อน ไม่ unmount) — สลับกลับมาไม่ต้องโหลดใหม่ ตัวกรอง/หน้าที่ดูอยู่ยังอยู่
+  const [visited, setVisited] = useState<Set<TabValue>>(() => new Set([tab]))
+  if (!visited.has(tab)) setVisited(new Set(visited).add(tab))
+
+  const setQuery = useCallback((patch: Record<string, string | null>, push = true) => {
+    const next = new URLSearchParams(window.location.search)
+    for (const [k, v] of Object.entries(patch)) {
+      if (v) next.set(k, v)
+      else next.delete(k)
+    }
+    const qs = next.toString()
+    const url = qs ? `${pathname}?${qs}` : pathname
+    if (push) window.history.pushState(null, "", url)
+    else window.history.replaceState(null, "", url)
+  }, [pathname])
+
+  // ใส่ ?tab= ให้เห็นตั้งแต่เปิดหน้า (ไม่เพิ่ม history)
+  useEffect(() => {
+    if (params.get("tab") !== tab) setQuery({ tab }, false)
+  }, [params, tab, setQuery])
+
+  const setTab = (t: TabValue) => setQuery({ tab: t, plate: null, plateBranch: null })
+  const setBranchFilter = (b: string) => setQuery({ branch: b || null, plate: null, plateBranch: null }, false)
+  // เปิดรถจาก Dashboard = push → ปุ่ม "ย้อนกลับ" ใช้ history.back() / เปิดจากลิงก์ตรง = replace ไม่ให้หลุดออกจากเว็บ
+  const pushedVehicle = useRef(false)
+  const openVehicle = (v: { branch: string; plate: string }) => {
+    pushedVehicle.current = true
+    setQuery({ plate: v.plate, plateBranch: v.branch })
+  }
+  const closeVehicle = () => {
+    if (pushedVehicle.current) window.history.back()
+    else setQuery({ plate: null, plateBranch: null }, false)
+    pushedVehicle.current = false
+  }
 
   // พนักงานที่ผูกกับสาขา (site_id 2/3) เห็นได้สาขาเดียว — ล็อกตัวกรองไว้ที่สาขานั้น
   const scope = useBranchScope()
   const branchOptions = scope.all
     ? [{ value: "", label: "ทุกสาขา" }, ...BRANCHES]
     : BRANCHES.filter((b) => scope.branches.includes(b.value))
-  const activeBranch = scope.only ?? branchFilter
+  // ?branch= ที่ไม่มีสิทธิ์ / ค่ามั่ว ไม่นับ
+  const activeBranch = scope.only ?? (branchOptions.some((b) => b.value === branchFilter) ? branchFilter : "")
 
   // badge จำนวนคำขอรออนุมัติ (เฉพาะสาขาที่เห็นได้)
+  const branchKey = scope.branches.join(",")
   const loadBadge = useCallback(async () => {
     if (!scope.ready) return
     const totals = await Promise.all(
-      scope.branches.map((b) =>
+      branchKey.split(",").filter(Boolean).map((b) =>
         fetch(`/api/tire-change-request?branch=${b}&status=pending&limit=1`)
           .then((r) => r.json()).then((d) => d.total ?? 0).catch(() => 0)
       )
     )
     setPendingBadge(totals.reduce((a: number, b: number) => a + b, 0))
-
-    // ยางที่เกิน/ถึงกำหนดเปลี่ยน — ขอแค่ตัวเลข ไม่ต้องลากรายการมาทั้งกอง
-    const due = await Promise.all(
-      scope.branches.map((b) =>
-        fetch(`/api/tire-due?branch=${b}&group=alert&countsOnly=1`)
-          .then((r) => r.json())
-          .then((d) => (d.summary?.over ?? 0) + (d.summary?.due ?? 0))
-          .catch(() => 0)
-      )
-    )
-    setDueBadge(due.reduce((a: number, b: number) => a + b, 0))
-  }, [scope.ready, scope.branches])
+  }, [scope.ready, branchKey])
   useEffect(() => { loadBadge() }, [loadBadge])
 
   const TABS = [
-    { value: "fleet"    as const, label: "รถทุกคัน",          icon: Truck },
+    // ภาพรวมแบบรายงาน Excel — Slicer ด้านบน + Pivot + รายเส้น
+    { value: "dashboard" as const, label: "Dashboard",         icon: LayoutDashboard },
     // แกนเป็น "รายการ" (1 แถว = ยาง 1 เส้น) ไม่ต้องกางหาเอง
     { value: "tracking" as const, label: "คำขอ / อนุมัติ",    icon: ListChecks, badge: pendingBadge },
     { value: "history"  as const, label: "ประวัติการเปลี่ยน", icon: History },
-    // มุมกลับของแท็บอื่น: ไม่ใช่ "เกิดอะไรขึ้นแล้ว" แต่คือ "อะไรกำลังจะถึงกำหนด"
-    { value: "due"      as const, label: "ยางถึงกำหนดเปลี่ยน", icon: AlertTriangle, badge: dueBadge },
   ]
 
   return (
@@ -253,7 +280,7 @@ export function TireFleetPage() {
             return (
               <button
                 key={t.value}
-                onClick={() => { setTab(t.value); setSelected(null) }}
+                onClick={() => setTab(t.value)}
                 className={[
                   "flex items-center gap-1.5 rounded-[10px] px-3.5 py-1.5 text-[13px] font-medium transition-colors",
                   active ? "bg-[#1B8C4B] text-white" : "text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5",
@@ -283,10 +310,10 @@ export function TireFleetPage() {
             {branchOptions.map((b) => (
               <button
                 key={b.value}
-                onClick={() => { setBranchFilter(b.value); setSelected(null) }}
+                onClick={() => setBranchFilter(b.value)}
                 className={[
                   "rounded-[10px] px-3 py-1.5 text-[12px] font-medium transition-colors",
-                  branchFilter === b.value ? "bg-[#14271C] dark:bg-white text-white dark:text-gray-900" : "text-[#6B7C72] dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5",
+                  activeBranch === b.value ? "bg-[#14271C] dark:bg-white text-white dark:text-gray-900" : "text-[#6B7C72] dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5",
                 ].join(" ")}
                 style={fontThai}
               >
@@ -302,202 +329,26 @@ export function TireFleetPage() {
         <div className={card + " px-4 py-16 text-center text-sm text-gray-400"} style={fontThai}>กำลังโหลด...</div>
       ) : (
         <>
-          {tab === "fleet" && (
-            selected
-              ? <VehicleDetail branch={selected.branch} plate={selected.plate} onBack={() => setSelected(null)} onChanged={loadBadge} />
-              : <FleetGrid branchFilter={activeBranch} onSelect={(v) => setSelected(v)} />
+          {/* Dashboard ซ่อนไว้ตอนเปิดดูรถ ไม่ unmount — กลับมาแล้วตัวกรองที่เลือกไว้ยังอยู่ */}
+          {visited.has("dashboard") && (
+            <div className={tab === "dashboard" ? "" : "hidden"}>
+              {selected && <VehicleDetail key={`${selected.branch}|${selected.plate}`} branch={selected.branch} plate={selected.plate} onBack={closeVehicle} onChanged={loadBadge} />}
+              <div className={selected ? "hidden" : ""}>
+                <TireDashboard key={activeBranch} branchFilter={activeBranch} onOpenVehicle={openVehicle} />
+              </div>
+            </div>
           )}
-          {tab === "tracking" && <TireTransactionTracking branchFilter={activeBranch} onChanged={loadBadge} />}
-          {tab === "history"  && <HistoryTab branchFilter={activeBranch} />}
-          {tab === "due" && (
-            selected
-              ? <VehicleDetail branch={selected.branch} plate={selected.plate} onBack={() => setSelected(null)} onChanged={loadBadge} />
-              : <TireDuePage branchFilter={activeBranch} onOpenVehicle={(v) => setSelected(v)} />
+          {visited.has("tracking") && (
+            <div className={tab === "tracking" ? "" : "hidden"}>
+              <TireTransactionTracking branchFilter={activeBranch} onChanged={loadBadge} />
+            </div>
+          )}
+          {visited.has("history") && (
+            <div className={tab === "history" ? "" : "hidden"}>
+              <HistoryTab branchFilter={activeBranch} />
+            </div>
           )}
         </>
-      )}
-    </div>
-  )
-}
-
-// ===========================================================================
-// SECTION 4: Fleet grid — รถ unique ทุกคัน
-// ===========================================================================
-
-function FleetGrid({ branchFilter, onSelect }: {
-  branchFilter: string
-  onSelect: (v: { branch: string; plate: string }) => void
-}) {
-  const [items, setItems]   = useState<FleetVehicle[]>([])
-  const [fresh, setFresh]   = useState<Freshness | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [reloadKey, setReloadKey] = useState(0)
-  const [q, setQ] = useState("")
-  // กรองทะเบียน: หัว (รถ) / หาง (พ่วง) — default หัว
-  const [unitFilter, setUnitFilter] = useState<"head" | "trailer" | "all">("head")
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    const qs = new URLSearchParams()
-    if (branchFilter) qs.set("branch", branchFilter)
-    if (q) qs.set("q", q)
-    fetch(`/api/tire-fleet?${qs}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled) return
-        setItems(Array.isArray(d.items) ? d.items : [])
-        setFresh(d.freshness ?? null)
-      })
-      .catch(() => { if (!cancelled) setItems([]) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [branchFilter, q, reloadKey])
-
-
-
-  const headCount    = useMemo(() => items.filter((v) => v.unit === "head").length, [items])
-  const trailerCount = items.length - headCount
-  const shown = useMemo(
-    () => (unitFilter === "all" ? items : items.filter((v) => v.unit === unitFilter)),
-    [items, unitFilter],
-  )
-
-  return (
-    <div>
-      {/* หลายสาขา = ใช้สาขาที่ดึงไว้เก่าสุด จะได้ไม่อวดว่าใหม่เกินจริง */}
-      <FreshnessBar
-        loading={loading && !fresh}
-        items={[
-          { label: "ข้อมูลจาก ATMS ล่าสุด",    at: oldestTime((fresh?.atms ?? []).map((a) => a.syncedAt)) },
-          { label: "ข้อมูลระยะทาง GPS ล่าสุด", at: fresh?.computedAt ?? null },
-        ]}
-        actions={
-          <button type="button" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} className={freshBtn} style={fontThai}>
-            <RefreshCw size={13} className={"text-[#1B8C4B] " + (loading ? "animate-spin" : "")} />
-            รีเฟรช
-          </button>
-        }
-      />
-
-      {/* unit filter + search */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        {/* กรองทะเบียน หัว / หาง */}
-        <div className="flex items-center rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#151a10] p-0.5">
-          {([
-            { key: "head",    label: `หัว (${headCount})` },
-            { key: "trailer", label: `หาง (${trailerCount})` },
-            { key: "all",     label: `ทั้งหมด (${items.length})` },
-          ] as const).map((opt) => (
-            <button
-              key={opt.key}
-              type="button"
-              onClick={() => setUnitFilter(opt.key)}
-              className={[
-                "rounded-[9px] px-3 py-1 text-[12px] font-medium transition-colors",
-                unitFilter === opt.key
-                  ? "bg-[#1B8C4B] text-white"
-                  : "text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5",
-              ].join(" ")}
-              style={fontThai}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="relative ml-auto min-w-[220px]">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียนรถ..." className={inp + " w-full pl-8"} />
-        </div>
-      </div>
-
-      {loading ? (
-        <div className={card + " px-4 py-16 text-center text-sm text-gray-400"}>กำลังโหลดข้อมูลรถ...</div>
-      ) : items.length === 0 ? (
-        <div className={card + " px-4 py-16 text-center text-sm text-gray-400"}>
-          ไม่พบรถ — ตรวจสอบการ Sync ที่แท็บ &quot;ประวัติการเปลี่ยน&quot;
-        </div>
-      ) : shown.length === 0 ? (
-        <div className={card + " px-4 py-16 text-center text-sm text-gray-400"} style={fontThai}>
-          ไม่มีทะเบียน{unitFilter === "trailer" ? "หาง" : "หัว"}ตามเงื่อนไขนี้ — ลองสลับตัวกรอง หัว/หาง ด้านบน
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {shown.map((v) => {
-            // แถบสุขภาพ: ใช้สัดส่วนรอบเปลี่ยนเป็นหลัก ตกไปที่อายุยางเมื่อยังไม่มีข้อมูลระยะ
-            const d = v.due
-            const dueKnown = d ? d.over + d.due + d.warn + d.ok : 0
-            const bars = dueKnown > 0
-              ? [
-                  { cls: "bg-green-500",  n: d!.ok },
-                  { cls: "bg-amber-500",  n: d!.warn },
-                  { cls: "bg-orange-500", n: d!.due },
-                  { cls: "bg-red-500",    n: d!.over },
-                ]
-              : [
-                  { cls: "bg-green-500", n: v.normal },
-                  { cls: "bg-amber-500", n: v.warn },
-                  { cls: "bg-red-500",   n: v.danger },
-                ]
-            const barTotal = bars.reduce((a, b) => a + b.n, 0)
-            // สถานะทั้งคัน = เส้นที่หนักที่สุด ตกไปที่อายุยางเมื่อยังไม่มีข้อมูลระยะ
-            const level: DueLevel | null = dueKnown > 0
-              ? d!.over > 0 ? "over" : d!.due > 0 ? "due" : d!.warn > 0 ? "warn" : "ok"
-              : v.danger > 0 ? "over" : v.warn > 0 ? "warn" : v.normal > 0 ? "ok" : null
-            const levelCount = !level ? 0
-              : dueKnown > 0 ? (level === "ok" ? d!.ok : d![level as "over" | "due" | "warn"])
-              : level === "over" ? v.danger : level === "warn" ? v.warn : v.normal
-            return (
-              <button
-                key={`${v.branch}|${v.plate}`}
-                onClick={() => onSelect({ branch: v.branch, plate: v.plate })}
-                className={card + " group flex flex-col p-4 text-left transition-all hover:border-[#1B8C4B]/45 hover:shadow-[0_6px_18px_-10px_rgba(20,39,28,.35)] active:scale-[0.99]"}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <span className="block truncate font-mono text-[15px] font-bold text-[#14271C] dark:text-white">{v.plate}</span>
-                    <span className="mt-0.5 block truncate text-[11px] text-[#9AA8A0]" style={fontThai}>
-                      {v.vehicleType || "ไม่ระบุประเภท"}{v.fleet ? ` · ${v.fleet}` : ""}
-                    </span>
-                  </div>
-                  {level && (
-                    <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold ${dueChipCls[level]}`} style={fontThai}>
-                      {level === "ok" ? "ปกติ" : `${dueKnown > 0 ? DUE_LABEL[level] : level === "over" ? "ยางอายุเกิน" : "ยางอายุมาก"} ${levelCount}`}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-2.5 flex flex-wrap items-center gap-1" style={fontThai}>
-                  <span className="rounded-md border border-[#E3E9E5] px-1.5 py-px text-[10px] font-medium text-[#6B7C72] dark:border-white/10 dark:text-gray-400">
-                    {v.unit === "trailer" ? "หาง" : "หัว"}
-                  </span>
-                  <span className={`rounded-md px-1.5 py-px text-[10px] font-medium ${branchChipCls(v.branch)}`}>{branchLabel(v.branch)}</span>
-                  {v.activeRequests > 0 && (
-                    <span className="rounded-md bg-blue-50 px-1.5 py-px text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                      คำขอค้าง {v.activeRequests}
-                    </span>
-                  )}
-                </div>
-
-                {/* health bar — สัดส่วนยางตามรอบเปลี่ยน ปกติ/เฝ้าระวัง/ถึงกำหนด/เกินกำหนด */}
-                <div className="mt-3 flex h-2 w-full gap-px overflow-hidden rounded-full bg-[#EEF2F0] dark:bg-white/10">
-                  {barTotal > 0 && bars.map((b) => (
-                    b.n > 0 ? <div key={b.cls} className={b.cls} style={{ width: `${(b.n / barTotal) * 100}%` }} /> : null
-                  ))}
-                </div>
-
-                <div className="mt-2 flex items-center justify-between gap-2 text-[11px] tabular-nums" style={fontThai}>
-                  <span className="text-[#6B7C72] dark:text-gray-400">ยาง {v.tireCount} เส้น</span>
-                  <span className="text-[#6B7C72] dark:text-gray-400">
-                    {d && d.maxPct > 0
-                      ? <>ใช้ไปสูงสุด <b className="font-semibold text-[#14271C] dark:text-white">{d.maxPct}%</b></>
-                      : v.oldestAgeText ? `เก่าสุด ${v.oldestAgeText}` : "—"}
-                  </span>
-                </div>
-              </button>            )
-          })}
-        </div>
       )}
     </div>
   )
@@ -818,7 +669,7 @@ function VehicleDetail({ branch, plate, onBack, onChanged }: {
       {/* Back + vehicle header */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <button onClick={onBack} className="flex items-center gap-1.5 rounded-[11px] border border-[#EEF2F0] dark:border-white/10 px-3 py-1.5 text-[13px] text-[#6B7C72] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 transition-colors" style={fontThai}>
-          <ArrowLeft size={13} /> รถทุกคัน
+          <ArrowLeft size={13} /> ย้อนกลับ
         </button>
         <span className="font-mono text-[18px] font-bold text-[#14271C] dark:text-white">{plate}</span>
         <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${branchChipCls(branch)}`} style={fontThai}>{branchLabel(branch)}</span>
@@ -1407,17 +1258,9 @@ function HistoryTab({ branchFilter }: { branchFilter: string }) {
     const d = await res.json().catch(() => ({}))
 
     if (res.status === 401) {
-      const { value, isConfirmed } = await Swal.fire<string>({
-        title: "Session หมดอายุ",
-        text: "วาง PHPSESSID ใหม่จาก mena-atms.com (DevTools → Cookies)",
-        input: "text",
-        inputPlaceholder: "PHPSESSID",
-        showCancelButton: true,
-        confirmButtonText: "Sync",
-        cancelButtonText: "ยกเลิก",
-        reverseButtons: true,
-      })
-      if (isConfirmed && value?.trim()) await doSync(branch, value.trim())
+      // ยังไม่ผูก/รหัสเปลี่ยน → กรอกบัญชี ATMS ครั้งเดียว (หรือวาง PHPSESSID แทน) แล้วลองใหม่
+      const next = await askAtmsAuth(d)
+      if (next) await doSync(branch, next.phpsessid)
       return
     }
     if (!res.ok) { swalError(d.error ?? "Sync ไม่สำเร็จ"); return }

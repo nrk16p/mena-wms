@@ -89,7 +89,7 @@ This tab lets you pull a full report for any single Purchase Request (PR).
 The system automatically pulls the latest data from ATMS once every day at 02:00 (UTC). You do not need to do anything — it runs in the background. The page header shows a status chip: a **green dot** means the last auto-sync succeeded; a **red dot + "Session หมดอายุ"** means the session has expired and someone needs to update it (see below).
 
 **Manual Sync:**
-If you need fresher data between auto-syncs, click the **Sync from ATMS** button at the top right. You may need to paste a fresh PHPSESSID if the session has expired (open ATMS in the browser → DevTools → Application → Cookies → copy PHPSESSID value).
+If you need fresher data between auto-syncs, click the **Sync from ATMS** button at the top right. The first time, a box asks for your ATMS username and password — enter them once and the system logs in for you whenever the session expires (the email on your ATMS account must match your WMS login). If ATMS rejects the saved password (e.g. you changed it), the box appears again. The "วาง PHPSESSID แทน" option is still there as a fallback.
 
 **What happens after any sync (auto or manual):**
 - The change history table refreshes with the latest data

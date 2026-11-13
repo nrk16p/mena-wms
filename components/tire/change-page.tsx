@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Search, RefreshCw, History, ChevronLeft, ChevronRight } from "lucide-react"
-import Swal from "sweetalert2"
+import { askAtmsAuth } from "@/lib/atms-auth-dialog"
 import { swalToast, swalError } from "@/lib/swal"
 
 type TireChange = {
@@ -75,18 +75,9 @@ export function TireChangePage({ branch, branchLabel }: { branch: string; branch
     const d = await res.json().catch(() => ({}))
 
     if (res.status === 401) {
-      // session expired — ask for a fresh PHPSESSID and retry once
-      const { value, isConfirmed } = await Swal.fire<string>({
-        title: "Session หมดอายุ",
-        text: "วาง PHPSESSID ใหม่จาก mena-atms.com (DevTools → Cookies)",
-        input: "text",
-        inputPlaceholder: "PHPSESSID",
-        showCancelButton: true,
-        confirmButtonText: "Sync",
-        cancelButtonText: "ยกเลิก",
-        reverseButtons: true,
-      })
-      if (isConfirmed && value?.trim()) await doSync(value.trim())
+      // ยังไม่ผูก/รหัสเปลี่ยน → กรอกบัญชี ATMS ครั้งเดียว (หรือวาง PHPSESSID แทน) แล้วลองใหม่
+      const next = await askAtmsAuth(d)
+      if (next) await doSync(next.phpsessid)
       return
     }
     if (!res.ok) {

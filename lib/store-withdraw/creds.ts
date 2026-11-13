@@ -26,6 +26,8 @@ export async function saveCreds(email: string, username: string, password: strin
         profile: profile ? { ...profile } : null,
         updatedAt: new Date(),
       },
+      // ผูกบัญชีใหม่ = session ที่แคชไว้ของบัญชีเดิมใช้ไม่ได้แล้ว
+      $unset: { sessionEnc: "", sessionAt: "" },
     },
     { upsert: true },
   )

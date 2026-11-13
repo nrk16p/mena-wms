@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { Collection } from "mongodb"
+import { ObjectId, type Collection } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import { sharedCache, invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { rebuildTireDistance } from "@/lib/tire-distance"
@@ -229,6 +229,7 @@ export async function POST(req: NextRequest) {
 }
 
 // PATCH /api/tire-due  body { plate, branch?, snooze|accept, days?: 7|14|30, by?, note? }
+//                    หรือ { ids: [tire_distance _id...], accept, by? } — รับเรื่องรายเส้น (Dashboard)
 //   จัดการ "ทั้งคัน" ทีเดียว — พักการแจ้งเตือน (snooze) หรือรับเรื่องไปดำเนินการ (accept)
 //
 //   snooze = ตรวจแล้วยังไม่ถึงกำหนดจริง ขอเงียบไว้ก่อน → หายจากรายการที่ต้องจัดการ
@@ -240,10 +241,26 @@ export async function POST(req: NextRequest) {
 // เส้นที่เพิ่งข้ามเกณฑ์ระหว่างช่วงพักจะได้ไม่โผล่มาเตือนซ้ำทั้งที่เพิ่งตรวจไปแล้ว
 export async function PATCH(req: NextRequest) {
   const body  = await req.json().catch(() => ({}))
+  const now = new Date()
+
+  // รับเรื่อง "รายเส้น" หลายเส้นพร้อมกัน — Dashboard ติ๊กเลือกยางข้ามคันได้ { ids: [...], accept, by }
+  if (Array.isArray(body.ids) && "accept" in body) {
+    const ids = (body.ids as unknown[]).map(String).filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id))
+    if (ids.length === 0) return NextResponse.json({ error: "ไม่มีรายการที่เลือก" }, { status: 400 })
+    const acc = body.accept !== false
+    const client = await clientPromise
+    const res = await client.db(DB).collection("tire_distance").updateMany({ _id: { $in: ids } }, {
+      $set: acc
+        ? { acceptedAt: now, acceptedBy: String(body.by ?? "").trim(), acceptedNote: String(body.note ?? "").trim() }
+        : { acceptedAt: null, acceptedBy: "", acceptedNote: "" },
+    })
+    if (!res.matchedCount) return NextResponse.json({ error: "ไม่พบรายการ" }, { status: 404 })
+    await invalidateCache([CACHE_TAGS.tire])
+    return NextResponse.json({ ok: true, tires: res.matchedCount, acceptedAt: acc ? now : null, acceptedBy: acc ? String(body.by ?? "").trim() : "" })
+  }
+
   const plate = String(body.plate ?? "").trim()
   if (!plate) return NextResponse.json({ error: "ต้องระบุทะเบียน" }, { status: 400 })
-
-  const now = new Date()
 
   // รับเรื่อง / ยกเลิกรับเรื่อง — คนละแกนกับการพักแจ้งเตือน ทำทีละอย่าง
   if ("accept" in body) {
