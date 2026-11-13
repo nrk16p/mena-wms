@@ -418,7 +418,7 @@ export function fmtAgo(s: string | null | undefined, nowMs: number): string {
 }
 
 /** นาฬิกาที่เดินทุกนาที — ให้ "กี่นาทีที่แล้ว" ขยับเองโดยไม่ต้องรีโหลดข้อมูล */
-function useMinuteClock(): number {
+export function useMinuteClock(): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60_000)

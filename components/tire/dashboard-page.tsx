@@ -17,12 +17,14 @@ import {
   type AcceptOverride, type Payload, type Row, type SlicerDef, type SlicerKey, type Selection,
 } from "@/components/tire/dashboard-shared"
 import { TireDashTable } from "@/components/tire/dashboard-table"
+import { AtmsSyncButton, AtmsSyncProgress, useAtmsSync } from "@/components/tire/atms-sync"
+import { useBranchScope } from "@/components/use-branch-scope"
 import { bkkToday } from "@/lib/bkk-time"
 import { XLS_DATE_FMT, downloadExcelBook, xlsDate, type ExcelCol, type ExcelRow } from "@/lib/excel-table"
 import { swalError, swalToast } from "@/lib/swal"
 import { DUE_LABEL, SOURCE_LABEL, type DueLevel } from "@/lib/tire-due"
 import {
-  FreshnessBar, StatCard, branchLabel, card, fmtNum, fontHead, fontThai, freshBtn, oldestTime,
+  FreshnessBar, StatCard, branchLabel, branchesFor, card, useMinuteClock, fmtNum, fontHead, fontThai, freshBtn, oldestTime,
 } from "@/components/tire/shared"
 
 // recharts หนัก ~100KB+ — แยก chunk โหลดหลัง KPI/ตาราง
@@ -195,6 +197,13 @@ export function TireDashboard({ branchFilter, onOpenVehicle }: {
   const loading = result.key !== reqKey
   // รีเฟรชรอบใหม่ยังโชว์ชุดเดิมไว้ก่อน ไม่วูบเป็นหน้าว่าง
   const data = loading ? result.last : result.data
+  // ดึง ATMS เฉพาะสาขาที่ผู้ใช้เห็นได้ — เสร็จแล้วโหลดหน้าใหม่ (sync ล้างแคช tire ให้แล้ว)
+  const scope = useBranchScope()
+  const now = useMinuteClock()
+  const atmsSync = useAtmsSync(
+    branchesFor(branchFilter, scope.all ? undefined : scope.branches),
+    () => setReloadKey((k) => k + 1),
+  )
   const [sel, setSel]         = useState<Selection>({})
   const [dim, setDim]         = useState<PivotDim>("plant")
   const [pSort, setPSort]     = useState<{ key: PivotSortKey; dir: 1 | -1 }>({ key: "over", dir: -1 })
@@ -432,6 +441,9 @@ export function TireDashboard({ branchFilter, onOpenVehicle }: {
   }
 
   const fresh = data?.freshness
+  const atmsAt = oldestTime((fresh?.atms ?? []).map((a) => a.syncedAt))
+  // เกิน 1 วัน = เกณฑ์เดียวกับตัวเลขสีแดงใน FreshnessBar → จุดแดงบนปุ่มชวนให้กดอัปเดต
+  const atmsStale = !!fresh && (!atmsAt || now - new Date(atmsAt).getTime() >= 86_400_000)
   const dimLabel = PIVOT_DIMS.find((d) => d.key === dim)?.label ?? ""
 
   return (
@@ -439,7 +451,7 @@ export function TireDashboard({ branchFilter, onOpenVehicle }: {
       <FreshnessBar
         loading={loading && !fresh}
         items={[
-          { label: "ข้อมูลจาก ATMS ล่าสุด",    at: oldestTime((fresh?.atms ?? []).map((a) => a.syncedAt)) },
+          { label: "ข้อมูลจาก ATMS ล่าสุด",    at: atmsAt },
           { label: "ข้อมูลระยะทาง GPS ล่าสุด", at: fresh?.computedAt ?? null },
         ]}
         actions={
@@ -452,9 +464,12 @@ export function TireDashboard({ branchFilter, onOpenVehicle }: {
               <FileSpreadsheet size={13} className="text-[#1B8C4B]" />
               ส่งออก Excel
             </button>
+            <span className="mx-1 hidden h-5 w-px bg-[#E3E9E5] sm:block dark:bg-white/10" aria-hidden />
+            <AtmsSyncButton onClick={atmsSync.sync} step={atmsSync.step} stale={atmsStale} disabled={loading && !data} />
           </>
         }
       />
+      <AtmsSyncProgress step={atmsSync.step} />
 
       {loading && !data ? (
         <div className={card + " px-4 py-16 text-center text-sm text-gray-400"} style={fontThai}>กำลังโหลดข้อมูลยาง...</div>
