@@ -4,6 +4,8 @@ import { sharedCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { tireFreshness } from "@/lib/tire-freshness"
 import { BKK_OFFSET_MS } from "@/lib/bkk-time"
 import { loadRequestTimeline, type TimelineItem } from "@/lib/tire-request-timeline"
+import { loadLatestPlantsSafe } from "@/lib/vehicle-plant"
+import { isIgnoredPlate } from "@/lib/tire-due"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 
@@ -41,13 +43,14 @@ export async function GET(req: NextRequest) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const match: Record<string, any> = { isSpare: { $ne: true } }
       if (branch) match.branch = branch
-      const [rows, timeline] = await Promise.all([
+      const [rows, timeline, latestPlant] = await Promise.all([
         db.collection("tire_distance").find(match).project({
           branch: 1, plate: 1, fleetNo: 1, vehicleType: 1, fleet: 1, plant: 1, unit: 1,
           product: 1, level: 1, usedPct: 1, kmUsed: 1, specDistance: 1, source: 1, changeIn: 1,
           tirePosition: 1, serialNo: 1, snoozedUntil: 1, acceptedAt: 1, acceptedBy: 1, partial: 1,
         }).toArray(),
         loadRequestTimeline(db, branch),
+        loadLatestPlantsSafe(client),
       ])
 
       // งานติดตามรายเส้น — จับคู่คำขอกับยางด้วยซีเรียล (กติกาเดียวกับหน้ารถรายคัน)
@@ -88,7 +91,8 @@ export async function GET(req: NextRequest) {
 
       for (const r of rows) {
         const plate = String(r.plate ?? "").trim()
-        if (!plate) continue
+        // snapshot เก่าอาจยังมีทะเบียนที่เพิ่งตั้งกฎตัด — กรองซ้ำตอนอ่านจนกว่าจะ rebuild รอบหน้า
+        if (!plate || isIgnoredPlate(plate)) continue
         const vk = `${r.branch}|${plate}`
         let vi = vIdx.get(vk)
         if (vi === undefined) {
@@ -96,7 +100,8 @@ export async function GET(req: NextRequest) {
           vIdx.set(vk, vi)
           vehicles.push([
             String(r.branch ?? ""), plate, String(r.fleetNo ?? ""), String(r.vehicleType ?? "").trim(),
-            String(r.fleet ?? "").trim(), String(r.plant ?? "").trim(), reqCount.get(vk) ?? 0,
+            // แพล้นท์ยึด vehicle_daily_asia วันล่าสุด — snapshot อาจค้างค่าก่อนย้ายแพล้นท์
+            String(r.fleet ?? "").trim(), latestPlant.get(plate)?.plant ?? String(r.plant ?? "").trim(), reqCount.get(vk) ?? 0,
           ])
         }
         // ชื่อรุ่นจากต้นทางบางเส้นมีช่องว่างท้าย — ตัดก่อน ไม่งั้นแตกเป็นสองรุ่นใน Slicer

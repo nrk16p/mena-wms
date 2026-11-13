@@ -110,8 +110,17 @@ const IGNORED_PLATES = new Set([
   "62-3382", "62-3384", "62-3386", "62-5691", "62-5692", "62-5693",
 ])
 
-export const isIgnoredPlate = (plate: string | null | undefined): boolean =>
-  IGNORED_PLATES.has(String(plate ?? "").replace(/\s+/g, "").trim())
+// ทะเบียนเลขศูนย์ล้วน (สบ.0000 / สบ.00000 / "สบ.0000 (ขอนแก่น)") = ทะเบียนหลอกตอนยังไม่รู้คัน
+// ไม่ใช่รถจริง ตัดด้วยกฎ (ผู้ใช้สั่งตัด 2026-11-13)
+const isPlaceholderPlate = (plate: string) => {
+  const digits = plate.replace(/\D/g, "")
+  return digits.length > 0 && /^0+$/.test(digits)
+}
+
+export const isIgnoredPlate = (plate: string | null | undefined): boolean => {
+  const p = String(plate ?? "").replace(/\s+/g, "").trim()
+  return IGNORED_PLATES.has(p) || isPlaceholderPlate(p)
+}
 
 // ── ชื่อสินค้า ──────────────────────────────────────────────────────────────
 // ชื่อยางจาก ATMS เขียนไม่นิ่ง ("P.1000.20" / "P.1000-20" / "1000 - 20")

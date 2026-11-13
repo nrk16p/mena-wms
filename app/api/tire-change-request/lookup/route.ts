@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
+import { loadLatestPlantsSafe } from "@/lib/vehicle-plant"
 import { splitPosition, tireAge, remainingLevel } from "@/lib/tire"
 
 const DB = process.env.MONGO_DB ?? "master_data"
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest) {
   const client = await clientPromise
   const db = client.db(DB)
 
+  const latestPlantP = loadLatestPlantsSafe(client)
   const [history, vehicle, requests] = await Promise.all([
     db.collection("tire_change")
       .find({ branch, vehicle: plate, sellRepairStatus: "อื่นๆ" })
@@ -116,7 +118,7 @@ export async function GET(req: NextRequest) {
   })
 
   return NextResponse.json({
-    vehicle: vehicle ?? null,
+    vehicle: vehicle ? { ...vehicle, plant: (await latestPlantP).get(plate)?.plant ?? vehicle.plant } : null,
     odometer,
     total: items.length,
     items,

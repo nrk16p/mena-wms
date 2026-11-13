@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
+import { loadLatestPlantsSafe } from "@/lib/vehicle-plant"
 import { splitPosition, tireAge, remainingLevel } from "@/lib/tire"
 import { DUE_LABEL, SOURCE_LABEL, type DueLevel, type DistanceSource } from "@/lib/tire-due"
 
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest) {
   const client = await clientPromise
   const db = client.db(DB)
 
+  const latestPlantP = loadLatestPlantsSafe(client)
   const [history, vehicle, requests, latestReq] = await Promise.all([
     db.collection("tire_change")
       .find({ branch, vehicle: plate })
@@ -192,7 +194,7 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => changeInMs(b.changeIn) - changeInMs(a.changeIn))
 
   return NextResponse.json({
-    vehicle: vehicle ?? null,
+    vehicle: vehicle ? { ...vehicle, plant: (await latestPlantP).get(plate)?.plant ?? vehicle.plant } : null,
     plate,
     branch,
     odometer,

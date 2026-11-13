@@ -4,6 +4,7 @@ import { sharedCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { isTrailerUnit } from "@/lib/tire-due"
 import { DAILY_COLLECTION, bkkDay, snapshotTireDue, type DailySnapshot } from "@/lib/tire-due-daily"
 import { loadRequestTimeline } from "@/lib/tire-request-timeline"
+import { loadLatestPlantsSafe } from "@/lib/vehicle-plant"
 
 const DB = process.env.MONGO_DB ?? "master_data"
 const DAYS = 30
@@ -44,12 +45,13 @@ export async function GET(req: NextRequest) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const vMatch: Record<string, any> = {}
       if (branch) vMatch.branch = branch
-      const [timeline, vehicles] = await Promise.all([
+      const [timeline, vehicles, latestPlant] = await Promise.all([
         loadRequestTimeline(db, branch),
         db.collection("tire_distance").aggregate<{ _id: { b: string; p: string }; plant: string; fleet: string; vt: string }>([
           { $match: vMatch },
           { $group: { _id: { b: "$branch", p: "$plate" }, plant: { $first: "$plant" }, fleet: { $first: "$fleet" }, vt: { $first: "$vehicleType" } } },
         ]).toArray(),
+        loadLatestPlantsSafe(client),
       ])
       const vInfo = new Map(vehicles.map((v) => [`${v._id.b}|${String(v._id.p ?? "").trim()}`, v]))
 
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
         const v = vInfo.get(`${t.branch}|${t.plate}`)
         items.push([
           s(t.branch), s(t.plate),
-          s(String(v?.plant ?? t.plant ?? "").trim()), s(String(v?.fleet ?? t.fleet ?? "").trim()),
+          s(String(latestPlant.get(t.plate)?.plant ?? v?.plant ?? t.plant ?? "").trim()), s(String(v?.fleet ?? t.fleet ?? "").trim()),
           s(String(v?.vt ?? "").trim()), s(t.product),
           isTrailerUnit(t.position) ? "t" : "h",
           created, t.approvedAt ? bkkDay(t.approvedAt) : "", closed,

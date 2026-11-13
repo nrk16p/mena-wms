@@ -8,6 +8,7 @@ import type { Db } from "mongodb"
 import clientPromise from "@/lib/mongo"
 import { invalidateCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { snapshotTireDue } from "@/lib/tire-due-daily"
+import { loadLatestPlantsSafe } from "@/lib/vehicle-plant"
 import {
   dueLevel, monthRange, normalizePlateForGps, normalizeProductKey,
   sumMonthlyDistance, isTrailerUnit, isSpareTire, isNotATire, isIgnoredPlate, isFrontTire,
@@ -253,6 +254,20 @@ export async function loadVehicleInfo(db: Db, plates: string[]): Promise<Map<str
         })
       }
     }
+  }
+
+  // แพล้นท์: ยึดวันล่าสุดของ vehicle_daily_asia ก่อนเสมอ (ค่าใน master เป็นตอนลงทะเบียน ย้ายแล้วไม่ตาม)
+  const latest = await loadLatestPlantsSafe(db.client)
+  for (const p of plates) {
+    const l = latest.get(p)
+    if (!l) continue
+    const prev = out.get(p)
+    out.set(p, {
+      fleetNo:     prev?.fleetNo ?? "",
+      vehicleType: prev?.vehicleType ?? "",
+      fleet:       prev?.fleet || l.fleet,
+      plant:       l.plant,
+    })
   }
   return out
 }

@@ -3,6 +3,8 @@ import { ObjectId } from "mongodb"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
+import { loadLatestPlantsSafe } from "@/lib/vehicle-plant"
+import { isIgnoredPlate } from "@/lib/tire-due"
 import { invalidateCache, sharedCache, CACHE_TAGS } from "@/lib/shared-cache"
 import { uploadImage } from "@/lib/spaces"
 
@@ -31,7 +33,7 @@ export async function GET(req: NextRequest) {
         } },
       ]).toArray()
       return rows
-        .filter((r) => String(r._id.p ?? "").trim())
+        .filter((r) => String(r._id.p ?? "").trim() && !isIgnoredPlate(r._id.p))
         .map((r) => ({
           branch: r._id.b, plate: String(r._id.p).trim(), fleetNo: String(r.n ?? "").trim(),
           fleet: String(r.f ?? "").trim(), plant: String(r.pl ?? "").trim(), vehicleType: String(r.t ?? "").trim(),
@@ -122,6 +124,8 @@ export async function POST(req: NextRequest) {
       plant: String(m.plant ?? ""), vehicleType: String(m.vehicleType ?? ""),
     }
   }
+  // แพล้นท์ยึด vehicle_daily_asia วันล่าสุด (snapshot/master อาจเป็นแพล้นท์เดิมก่อนย้าย)
+  v.plant = (await loadLatestPlantsSafe(client)).get(v.plate)?.plant ?? v.plant
 
   const id = new ObjectId()
   const photoUrls: string[] = []
