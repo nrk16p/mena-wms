@@ -53,7 +53,7 @@ async function fetchLocations(inventoryId: string, phpsessid: string): Promise<{
 
 async function main() {
   const targets = process.argv.slice(2).length ? process.argv.slice(2) : WAREHOUSES.map((w) => w.id)
-  const phpsessid = atmsSkuSession()
+  const phpsessid = await atmsSkuSession()
   const client = await clientPromise
   const db = client.db(DB)
   const masterCol = db.collection("atms_sku_master")

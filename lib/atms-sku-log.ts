@@ -4,12 +4,17 @@ import { AtmsSessionError, AtmsNetworkError } from "@/lib/atms-sync"
 import { stripTags, parseTotal, stockHistoryUrl, parseStockLocationRows, type StockLocationRow } from "@/lib/atms-parse"
 export { ictDdmmyyyy, type StockLocationRow } from "@/lib/atms-parse"
 
-// Session cookie for the ATMS activity log. The fallback value is committed
-// intentionally (approved) so the cron works without extra env setup;
-// set ATMS_SKU_SESSION in Vercel to override when the cookie rotates.
-const ATMS_FALLBACK_SESSION = "06loqvjfva9b4l6mgnrjm9h07c"
-export function atmsSkuSession(): string {
-  return process.env.ATMS_SKU_SESSION || ATMS_FALLBACK_SESSION
+// Session ของ ATMS สำหรับงาน SKU (activity log / SKU index / ประวัติสต๊อก)
+// ตั้ง ATMS_USERNAME + ATMS_PASSWORD ไว้ = ล็อกอินใหม่ทุกรอบ ไม่ต้องคอยเปลี่ยนคุกกี้เมื่อหมดอายุ
+// (คุกกี้ที่ฝังไว้เดิมตายเงียบ ทำให้ซิงก์ min/max พังทุกคืนจน 13/11/2026)
+// ไม่มีรหัสผ่าน = ใช้ ATMS_SKU_SESSION แทน (เผื่อทดสอบจากเครื่อง)
+export async function atmsSkuSession(): Promise<string> {
+  const user = process.env.ATMS_USERNAME
+  const pass = process.env.ATMS_PASSWORD
+  if (user && pass) return atmsLogin(user, pass)
+  const sid = process.env.ATMS_SKU_SESSION
+  if (!sid) throw new AtmsSessionError()
+  return sid
 }
 
 /** ATMS inventory_id → warehouse display name (from the SKU index dropdown) */
@@ -72,6 +77,48 @@ function fetchHtml(url: string, phpsessid: string): Promise<string> {
     req.on("error", (e) => reject(new AtmsNetworkError(e.message)))
     req.end()
   })
+}
+
+function rawRequest(
+  path: string, method: "GET" | "POST", phpsessid: string | null, body?: string
+): Promise<{ status: number; location: string; setSid: string | null }> {
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string | number> = {
+      "User-Agent": "Mozilla/5.0", "Accept-Language": "th,en;q=0.8",
+    }
+    if (phpsessid) headers.Cookie = `PHPSESSID=${phpsessid}`
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/x-www-form-urlencoded"
+      headers["Content-Length"] = Buffer.byteLength(body)
+    }
+    const req = https.request(
+      { hostname: "www.mena-atms.com", path, method, agent, timeout: 30000, headers },
+      (res) => {
+        const sid = String(res.headers["set-cookie"] ?? "").match(/PHPSESSID=([^;]+)/)?.[1] ?? null
+        res.resume()
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, location: String(res.headers.location ?? ""), setSid: sid }))
+      }
+    )
+    req.on("timeout", () => { req.destroy(); reject(new AtmsNetworkError("Login request timed out")) })
+    req.on("error", (e) => reject(new AtmsNetworkError(e.message)))
+    if (body !== undefined) req.write(body)
+    req.end()
+  })
+}
+
+/** ล็อกอิน ATMS แล้วคืน PHPSESSID ที่ผ่านการตรวจแล้ว — ต้องโพสต์ไป /account/user/login พร้อม submit:"login"
+ *  (โพสต์ไป / ได้คุกกี้กลับมาแต่ยังเป็น anonymous) ตรวจด้วยการเปิดหน้าที่ต้องล็อกอิน ไม่ใช่ดูแค่ status code */
+async function atmsLogin(username: string, password: string): Promise<string> {
+  const seed = await rawRequest("/account/user/login", "GET", null)
+  let sid = seed.setSid
+  if (!sid) throw new AtmsNetworkError("ATMS ไม่ส่ง PHPSESSID กลับมาตอนเปิดหน้า login")
+  const form = new URLSearchParams({ username, password, submit: "login", next: "", forgotPasswd: "ลืมรหัสผ่าน" }).toString()
+  const res = await rawRequest("/account/user/login", "POST", sid, form)
+  if (res.setSid) sid = res.setSid
+  // ยังเด้งไปหน้า login = รหัสผิดหรือบัญชีถูกล็อก (ถ้า ATMS ตอบ 200 เป็นหน้า login แทน fetchHtml ของคำขอถัดไปจะจับได้อีกชั้น)
+  const chk = await rawRequest("/inv/purchase.order/index", "GET", sid)
+  if (chk.location.includes("/account/user/login") || chk.status >= 400) throw new AtmsSessionError()
+  return sid
 }
 
 /** dd/mm/yyyy as used by the ATMS log filters and display */

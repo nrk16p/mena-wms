@@ -34,7 +34,7 @@ const LOC_MIN_REMAINING_MS = 150_000
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const SESSION_EXPIRED_MSG =
-  "Session expired — ตั้ง ATMS_SKU_SESSION ใหม่ (หรือแก้ fallback ใน lib/atms-sku-log.ts)"
+  "ล็อกอิน ATMS ไม่ผ่าน / session หมดอายุ — ตรวจ ATMS_USERNAME + ATMS_PASSWORD ใน Vercel"
 
 /** ใช้เมื่อ /api/cron/atms-sku-report ส่ง deadline มา (chain ต่อท้ายในสล็อตเดียวกับงานเดิม) แล้วเวลาหมดก่อนถึงคลังนี้
  *  ตั้งใจให้ error ไม่ใช่ null — ทำให้ ok คำนวณเป็น false อัตโนมัติ ไม่ต้องเขียนโค้ดแยกเพื่อบังคับ ok=false */
@@ -74,7 +74,8 @@ export type SkuSyncResult = {
 export async function runSkuSync(inventoryParam: string | null, deadline?: number): Promise<SkuSyncResult> {
   const targets = inventoryParam ? [inventoryParam] : WAREHOUSES.map((w) => w.id)
 
-  const phpsessid = atmsSkuSession()
+  // ล็อกอินข้างใน try ด้านล่าง — ล็อกอินพังต้องลง log เป็น error ของรอบนี้ ไม่ใช่ throw หลุดไปเงียบๆ
+  let phpsessid = ""
   const client = await clientPromise
   const db = client.db(DB)
   const col = db.collection("atms_sku_master")
@@ -218,6 +219,7 @@ export async function runSkuSync(inventoryParam: string | null, deadline?: numbe
     }
   } else {
     try {
+      phpsessid = await atmsSkuSession()
       await ensureRowsPerPage(phpsessid, ROWS_PER_PAGE)
 
       for (let i = 0; i < targets.length; i++) {

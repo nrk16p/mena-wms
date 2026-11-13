@@ -13,7 +13,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 async function main() {
   const targets = process.argv.slice(2).length ? process.argv.slice(2) : WAREHOUSES.map((w) => w.id)
-  const phpsessid = atmsSkuSession()
+  const phpsessid = await atmsSkuSession()
   await ensureRowsPerPage(phpsessid, 1000)
 
   for (const inventoryId of targets) {

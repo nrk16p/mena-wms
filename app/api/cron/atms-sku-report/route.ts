@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const phpsessid = atmsSkuSession()
+  let phpsessid = ""
   const client    = await clientPromise
   const db        = client.db(DB)
   const eventsCol = db.collection("atms_sku_add_events")
@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
   let error: string | null = null
 
   try {
+    phpsessid = await atmsSkuSession()
     await ensureRowsPerPage(phpsessid, 1000)
 
     // 1. last 7 days of add events, upserted by skuPk (warehouse etc. preserved if already set)
@@ -103,7 +104,7 @@ export async function GET(req: NextRequest) {
     }
   } catch (err) {
     ok = false
-    if (err instanceof AtmsSessionError)      error = "Session expired — update ATMS_SKU_SESSION env var (or the fallback cookie in lib/atms-sku-log.ts)"
+    if (err instanceof AtmsSessionError)      error = "ล็อกอิน ATMS ไม่ผ่าน / session หมดอายุ — ตรวจ ATMS_USERNAME + ATMS_PASSWORD ใน Vercel"
     else if (err instanceof AtmsNetworkError) error = `Network error: ${err.message}`
     else if (err instanceof Error)            error = err.message
     else                                      error = "Unknown error"
