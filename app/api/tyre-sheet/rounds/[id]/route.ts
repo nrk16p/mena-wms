@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { sheetDb, toObjectId } from "@/lib/tyre-sheet-db"
+import { sheetDb, toObjectId, cleanPlateNotes } from "@/lib/tyre-sheet-db"
 import { ROUNDS_COLL, parseDate, type AnyRow } from "@/lib/tyre-sheet"
 
 type Params = { params: Promise<{ id: string }> }
@@ -17,6 +17,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if ("fromDate" in b) set.fromDate = parseDate(b.fromDate)
   if ("toDate" in b) set.toDate = parseDate(b.toDate)
   for (const k of ["pr", "preparer", "approver1", "approver2"]) if (k in b) set[k] = String(b[k] ?? "").trim()
+  if ("plateNotes" in b) set.plateNotes = cleanPlateNotes(b.plateNotes)
   if (("fromDate" in set && !set.fromDate) || ("toDate" in set && !set.toDate)) return NextResponse.json({ error: "วันที่ไม่ถูกต้อง" }, { status: 400 })
   set.updatedAt = new Date()
   set.updatedBy = session.user?.name ?? session.user?.email ?? ""

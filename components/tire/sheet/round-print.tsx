@@ -291,7 +291,7 @@ export function RoundPrint({ id }: { id: string }) {
 
             <div style={{ breakInside: "avoid" }}>
               <Sec n={3} title="หมายเหตุ" en="Remarks" />
-              <div className="h-14 rounded-[3px]" style={{ border: `1px solid ${LINE}` }} />
+              <div className="min-h-14 rounded-[3px] px-2 py-1.5 text-[11px] whitespace-pre-wrap" style={{ border: `1px solid ${LINE}` }}>{header.note}</div>
               <div className="mt-1 text-[9.5px]" style={{ color: MUTED }}>
                 บาท/กม. รวมทุกรอบ = ราคา ÷ ระยะรวมทุกรอบที่ใช้ · มาตรฐาน = ราคา ÷ ระยะกำหนด · สีส้ม = แย่กว่าเกณฑ์ สีเขียว = ดีกว่าเกณฑ์ · เอกสารมีผลเมื่ออนุมัติครบทุกลำดับ
               </div>

@@ -2,11 +2,11 @@
 
 /** แท็บรอบอนุมัติ — แทน [template]อนุมัติจองยาง: ช่องเดิม (จากวันที่ ถึงวันที่ PR ผู้จัดทำ ผู้อนุมัติ 1/2) → เปิด PDF */
 import { useCallback, useEffect, useState } from "react"
-import { FileText, Pencil, Trash2, Plus, X } from "lucide-react"
+import { FileText, Pencil, Trash2, Plus, X, MessageSquareText } from "lucide-react"
 import { swalToast, swalDeleteConfirm } from "@/lib/swal"
 import { fmtDate } from "@/lib/tyre-sheet"
 
-type Round = { _id: string; fromDate: string; toDate: string; pr: string; preparer: string; approver1: string; approver2: string; count: number }
+type Round = { _id: string; fromDate: string; toDate: string; pr: string; preparer: string; approver1: string; approver2: string; count: number; plates?: string[]; plateNotes?: Record<string, string> }
 type PrHint = { pr: string; count: number; from: string; to: string; sizes: string[]; hasRound: boolean }
 const EMPTY = { fromDate: "", toDate: "", pr: "", preparer: "", approver1: "", approver2: "" }
 
@@ -17,6 +17,10 @@ export function SheetRounds() {
   const [open, setOpen] = useState(false)
   const [prHints, setPrHints] = useState<PrHint[]>([])
   const [prFallback, setPrFallback] = useState(false)
+  // หมายเหตุรายทะเบียน — เปิดทีละรอบ
+  const [noteId, setNoteId] = useState<string | null>(null)
+  const [notes, setNotes] = useState<Record<string, string>>({})
+  const [savingNotes, setSavingNotes] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch("/api/tyre-sheet/rounds")
@@ -64,6 +68,23 @@ export function SheetRounds() {
     swalToast("success", "บันทึกรอบแล้ว")
     setOpen(false); load()
   }
+  const pk = (p: string) => p.replace(/\s+/g, "")
+  const openNotes = (r: Round) => {
+    if (noteId === r._id) { setNoteId(null); return }
+    setNotes({ ...(r.plateNotes ?? {}) }); setNoteId(r._id)
+  }
+  const saveNotes = async (r: Round) => {
+    setSavingNotes(true)
+    const res = await fetch(`/api/tyre-sheet/rounds/${r._id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plateNotes: notes }),
+    }).catch(() => null)
+    setSavingNotes(false)
+    if (!res?.ok) { swalToast("error", "บันทึกหมายเหตุไม่สำเร็จ"); return }
+    swalToast("success", "บันทึกหมายเหตุแล้ว")
+    setNoteId(null); load()
+  }
+  const noteCount = (r: Round) => Object.values(r.plateNotes ?? {}).filter(Boolean).length
+
   const del = async (r: Round) => {
     const ok = await swalDeleteConfirm(`ลบรอบ ${r.pr} ? (ข้อมูลยางไม่ถูกลบ)`)
     if (!ok.isConfirmed) return
@@ -128,11 +149,11 @@ export function SheetRounds() {
           <thead className="bg-gray-100 dark:bg-white/5 text-left">
             <tr>
               <th className="px-3 py-2">รอบ</th><th className="px-3 py-2">PR</th><th className="px-3 py-2 text-right">จำนวนเส้น</th>
-              <th className="px-3 py-2">ผู้จัดทำ</th><th className="px-3 py-2">ผู้อนุมัติ_1</th><th className="px-3 py-2">ผู้อนุมัติ_2</th><th className="px-3 py-2"></th>
+              <th className="px-3 py-2">ผู้จัดทำ</th><th className="px-3 py-2">ผู้อนุมัติ_1</th><th className="px-3 py-2">ผู้อนุมัติ_2</th><th className="px-3 py-2">หมายเหตุ</th><th className="px-3 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {rounds.map((r) => (
+            {rounds.map((r) => [
               <tr key={r._id} className="border-t border-gray-100 dark:border-white/10">
                 <td className="px-3 py-2 whitespace-nowrap">{fmtDate(r.fromDate)} – {fmtDate(r.toDate)}</td>
                 <td className="px-3 py-2">{r.pr}</td>
@@ -140,6 +161,13 @@ export function SheetRounds() {
                 <td className="px-3 py-2">{r.preparer}</td>
                 <td className="px-3 py-2">{r.approver1}</td>
                 <td className="px-3 py-2">{r.approver2}</td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <button onClick={() => openNotes(r)}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs ${noteId === r._id ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-gray-300 dark:border-white/15 hover:bg-gray-50 dark:hover:bg-white/10"}`}>
+                    <MessageSquareText className="w-3.5 h-3.5" />
+                    {noteCount(r) ? `${noteCount(r)}/${r.plates?.length ?? 0} คัน` : "ใส่หมายเหตุ"}
+                  </button>
+                </td>
                 <td className="px-3 py-2 whitespace-nowrap text-right">
                   <a href={`/tire/saraburi/sheet/print/${r._id}`} target="_blank" rel="noreferrer"
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-600 text-white hover:bg-green-700 text-xs">
@@ -148,9 +176,32 @@ export function SheetRounds() {
                   <button onClick={() => startEdit(r)} className="ml-1 p-1 rounded hover:bg-gray-100 dark:hover:bg-white/10" aria-label="แก้"><Pencil className="w-3.5 h-3.5" /></button>
                   <button onClick={() => del(r)} className="ml-1 p-1 rounded text-gray-400 hover:text-red-600" aria-label="ลบ"><Trash2 className="w-3.5 h-3.5" /></button>
                 </td>
-              </tr>
-            ))}
-            {!rounds.length && <tr><td colSpan={7} className="text-center text-gray-400 py-8">ยังไม่มีรอบ กดตั้งรอบใหม่</td></tr>}
+              </tr>,
+              noteId === r._id ? (
+                <tr key={`${r._id}-notes`} className="bg-gray-50 dark:bg-white/[0.03]">
+                  <td colSpan={8} className="px-3 py-3">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">หมายเหตุรายทะเบียน · ขึ้นในกล่องหมายเหตุของหน้ารถคันนั้นใน PDF · เว้นว่างได้</div>
+                    <div className="grid gap-2 max-w-3xl">
+                      {(r.plates ?? []).map((p) => (
+                        <label key={p} className="grid grid-cols-[7rem_1fr] items-start gap-2 text-sm">
+                          <span className="pt-1.5 font-medium">{p}</span>
+                          <textarea rows={1} value={notes[pk(p)] ?? ""} placeholder="หมายเหตุ"
+                            onChange={(e) => setNotes({ ...notes, [pk(p)]: e.target.value })}
+                            className="px-2 py-1.5 rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-white/5 field-sizing-content min-h-9" />
+                        </label>
+                      ))}
+                      {!r.plates?.length && <span className="text-xs text-gray-400">รอบนี้ไม่มียางในข้อมูล</span>}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => saveNotes(r)} disabled={savingNotes}
+                        className="px-4 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">{savingNotes ? "กำลังบันทึก…" : "บันทึกหมายเหตุ"}</button>
+                      <button onClick={() => setNoteId(null)} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-white/15">ยกเลิก</button>
+                    </div>
+                  </td>
+                </tr>
+              ) : null,
+            ])}
+            {!rounds.length && <tr><td colSpan={8} className="text-center text-gray-400 py-8">ยังไม่มีรอบ กดตั้งรอบใหม่</td></tr>}
           </tbody>
         </table>
       </div>

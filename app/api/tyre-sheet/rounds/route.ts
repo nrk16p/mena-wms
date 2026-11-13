@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { sheetDb } from "@/lib/tyre-sheet-db"
+import { sheetDb, cleanPlateNotes } from "@/lib/tyre-sheet-db"
 import { ROUNDS_COLL, ROWS_COLL, parseDate } from "@/lib/tyre-sheet"
 
 // GET /api/tyre-sheet/rounds — รอบอนุมัติ ใหม่ → เก่า พร้อมจำนวนเส้นในรอบ
 export async function GET() {
   const db = await sheetDb()
   const rounds = await db.collection(ROUNDS_COLL).find({}).sort({ fromDate: -1, _id: -1 }).limit(100).toArray()
-  const withCounts = await Promise.all(rounds.map(async (r) => ({
-    ...r,
-    count: await db.collection(ROWS_COLL).countDocuments({ stage: "sent", bookingDate: { $gte: r.fromDate, $lte: r.toDate }, pr: r.pr }),
-  })))
+  // ทะเบียนในรอบ — ไว้ให้ใส่หมายเหตุรายทะเบียน
+  const withCounts = await Promise.all(rounds.map(async (r) => {
+    const q = { stage: "sent", bookingDate: { $gte: r.fromDate, $lte: r.toDate }, pr: r.pr }
+    const [count, plates] = await Promise.all([
+      db.collection(ROWS_COLL).countDocuments(q),
+      db.collection(ROWS_COLL).distinct("plate", q),
+    ])
+    return { ...r, count, plates: [...new Set(plates.map((p) => String(p ?? "").trim()).filter(Boolean))].sort() }
+  }))
   return NextResponse.json(withCounts)
 }
 
@@ -31,6 +36,7 @@ export async function POST(req: NextRequest) {
     preparer: String(b.preparer ?? "").trim(),
     approver1: String(b.approver1 ?? "").trim(),
     approver2: String(b.approver2 ?? "").trim(),
+    plateNotes: cleanPlateNotes(b.plateNotes),
     createdAt: now, createdBy: user, updatedAt: now, updatedBy: user,
   }
   const db = await sheetDb()

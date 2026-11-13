@@ -42,6 +42,22 @@ export type Round = {
   approver1: string
   approver2: string
   note?: string
+  /** หมายเหตุรายทะเบียน (กุญแจ = ทะเบียนตัดช่องว่าง) → ขึ้นในกล่องหมายเหตุของหน้ารถคันนั้นใน PDF */
+  plateNotes?: Record<string, string>
+}
+
+/** กุญแจทะเบียนสำหรับหมายเหตุรายทะเบียน */
+export const plateKey = (p: unknown) => String(p ?? "").replace(/\s+/g, "")
+
+/** รับ plateNotes จาก body — เก็บเฉพาะข้อความไม่ว่าง ตัดยาวเกิน 1,000 ตัวอักษร */
+export function cleanPlateNotes(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!v || typeof v !== "object") return out
+  for (const [k, t] of Object.entries(v as Record<string, unknown>)) {
+    const key = plateKey(k), text = String(t ?? "").trim().slice(0, 1000)
+    if (key && text) out[key] = text
+  }
+  return out
 }
 
 export type ReportItem = {
@@ -69,7 +85,7 @@ export type ReportItem = {
 }
 
 export type ReportDoc = {
-  header: { customer: string; employee: string; plate: string; docNo: string; bookingDate: string; changeDate: string }
+  header: { customer: string; employee: string; plate: string; docNo: string; bookingDate: string; changeDate: string; note: string }
   items: ReportItem[]
   summary: { totalPrice: number; totalBpk: number; count: number; statusnormal: number; statusdefect: number }
 }
@@ -137,6 +153,7 @@ export async function buildRoundReport(round: Round) {
         header: {
           customer: r.customer ?? "", employee: r.driver ?? "", plate: r.plate ?? "", docNo,
           bookingDate: fmtDate(r.bookingDate), changeDate: fmtDate(r.installDate),
+          note: round.plateNotes?.[plateKey(r.plate)] ?? "",
         },
         items: [],
         summary: { totalPrice: 0, totalBpk: 0, count: 0, statusnormal: 0, statusdefect: 0 },
