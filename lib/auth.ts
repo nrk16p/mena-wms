@@ -140,6 +140,8 @@ export const authOptions: NextAuthOptions = {
         session.apiAuthError = token.apiAuthError
         session.user.access = accessFor({ department: token.employee?.department, departmentId: token.employee?.department_id, email: token.email, overrides: token.accessOverrides as Overrides })
         session.user.isSuperAdmin = isSuperAdmin(token.email)
+        // override ดิบ ให้ middleware ที่รันบน mena-backend-services (อ่าน session นี้แทน JWT) คำนวณสิทธิ์ได้ตรงกับที่นี่
+        session.user.accessOverrides = (token.accessOverrides as Overrides | undefined) ?? {}
       }
       return session
     },

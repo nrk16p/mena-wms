@@ -15,6 +15,8 @@ declare module "next-auth" {
       /** สิทธิ์ต่อส่วนงานที่คำนวณแล้ว (แผนก + override + admin) — lib/access-policy.ts */
       access: Access
       isSuperAdmin: boolean
+      /** override รายส่วนงานดิบ (เหมือน JWT.accessOverrides) — ให้ middleware ฝั่ง backend คำนวณสิทธิ์ได้เท่ากัน */
+      accessOverrides?: Record<string, unknown>
     }
     /** ข้อความ error ถ้าแลก id_token กับ Mena API ไม่ผ่าน */
     apiAuthError?: string
