@@ -350,6 +350,23 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
   const th: React.CSSProperties = { textAlign: "right", fontWeight: 600, color: "#6B7280", padding: "4px 6px", whiteSpace: "nowrap" }
   const td: React.CSSProperties = { textAlign: "right", padding: "4px 6px", whiteSpace: "nowrap" }
 
+  // Excel ทุกครั้งที่เก็บไว้ (ไม่ใช่แค่ที่กางอยู่) — สโตร์ขอ 17/11/2026
+  function exportHistory() {
+    const ws = XLSX.utils.json_to_sheet(rows!.map((r) => ({
+      "วันที่รับ": r.date,
+      "ใบ PO": r.poCode ?? "",
+      "ใบ PR": r.prCode ?? "",
+      "ประเภท": r.kind === "vehicle" ? "ลงคัน" : "Safety stock",
+      SUP: r.supplier ?? "",
+      "จำนวน": r.qty,
+      [`ราคาทุน/${unit}`]: r.cost ?? "",
+      "รอของ (วัน)": r.leadDays ?? "",
+    })))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "ประวัติรับเข้า")
+    XLSX.writeFile(wb, `receipts-${code}-${bkkToday()}.xlsx`)
+  }
+
   const row = (r: ReceiptEntry, i: number) => (
               <tr key={`${r.date}-${r.poCode ?? r.prCode ?? ""}-${i}`} style={{ borderBottom: "1px solid #F3F4F6" }}>
                 <td style={{ ...td, textAlign: "left" }}>{thaiDate(r.date)}</td>
@@ -370,6 +387,9 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
                     </span>
                   </td>
                 )}
+                <td style={{ ...td, textAlign: "left", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", color: r.supplier ? "#374151" : "#D1D5DB" }} title={r.supplier}>
+                  {r.supplier ?? "—"}
+                </td>
                 <td style={td}>{num(r.qty)}</td>
                 <td style={td}>{r.cost == null ? "—" : baht(r.cost)}</td>
                 {/* แถวที่จับคู่ PR ไม่ได้ ไม่มีวันเปิดใบให้นับ — ต้องเว้นไว้ ไม่ใช่เติม 0 ซึ่งจะอ่านว่า "ได้ของวันเดียวกัน" */}
@@ -387,6 +407,7 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
               <th style={{ ...th, textAlign: "left" }}>วันที่รับ</th>
               <th style={{ ...th, textAlign: "left" }}>{legacy ? "ใบ PR" : "ใบ PO"}</th>
               <th style={{ ...th, textAlign: "left" }}>ประเภท</th>
+              <th style={{ ...th, textAlign: "left" }}>SUP</th>
               <th style={th}>จำนวน</th>
               <th style={th}>ราคาทุน/{unit}</th>
               <th style={th}>รอของ</th>
@@ -398,6 +419,12 @@ function ReceiptHistory({ code, inventoryId, unit }: { code: string; inventoryId
         </table>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+        <button
+          onClick={exportHistory}
+          style={{ display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #E5E7EB", borderRadius: 6, background: "#fff", padding: "2px 8px", fontSize: 12, fontWeight: 700, color: "#374151", cursor: "pointer" }}
+        >
+          <Download size={12} /> Excel
+        </button>
         {hasMore && (
           <button
             onClick={() => setExpanded((v) => !v)}

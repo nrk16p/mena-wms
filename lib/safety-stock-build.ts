@@ -199,15 +199,15 @@ export async function buildSnapshotRows(
     recvBySku.set(code, xs.filter((e) => ++cnt[e.kind ?? "stock"] <= RECEIPT_HISTORY_MAX))
   }
 
-  // 5.5) ซัพพลายเออร์ของการซื้อเข้าสต๊อกครั้งล่าสุด (คอลัมน์ SUP) — แถวรับไม่มีชื่อร้าน ต้องไปดูที่หัวใบ PO
-  //      ครั้งละ 1 PO ต่อรหัส ($in บน index "รหัส") · พังก็แค่ไม่มี SUP ไม่ล้มทั้ง build
+  // 5.5) ซัพพลายเออร์ (คอลัมน์ SUP + ประวัติรับเข้า) — แถวรับไม่มีชื่อร้าน ต้องไปดูที่หัวใบ PO
+  //      PO ทุกใบที่อยู่ในประวัติรับเข้า (ตัดเพดานแล้ว) $in บน index "รหัส" · พังก็แค่ไม่มี SUP ไม่ล้มทั้ง build
   const lastPoBySku = new Map<string, string>()
   for (const [code, xs] of recvBySku) {
     const po = xs.find((e) => (e.kind ?? "stock") === "stock")?.poCode
     if (po) lastPoBySku.set(code, po)
   }
   const supplierByPo = new Map<string, string>()
-  const lastPoCodes = [...new Set(lastPoBySku.values())]
+  const lastPoCodes = [...new Set([...recvBySku.values()].flatMap((xs) => xs.map((e) => e.poCode).filter((x): x is string => !!x)))]
   if (lastPoCodes.length) {
     try {
       const docs = (await atms.collection("purchase_orders")
@@ -220,6 +220,10 @@ export async function buildSnapshotRows(
       }
     } catch (e) {
       console.warn("[safety-stock-build] ดึงซัพพลายเออร์ไม่สำเร็จ", inventoryId, e)
+    }
+    for (const xs of recvBySku.values()) for (const e of xs) {
+      const sup = e.poCode ? supplierByPo.get(e.poCode) : undefined
+      if (sup) e.supplier = sup
     }
   }
 
