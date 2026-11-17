@@ -11,7 +11,7 @@ import type { NextConfig } from "next";
  *   store-withdraw/* (NCAC_API_KEY, STORE_ATMS_CRED_KEY, STORE_WITHDRAW_*, ATMS_LOOKUP_*)
  *   vendor-portal/* (คุกกี้ vp_session เซ็นด้วย NEXTAUTH_SECRET ของ prod)
  *   ai-mixer-maintenance/analyze (ANTHROPIC_API_KEY) · sku/suggest (GROQ_API_KEY)
- *   pr/refresh/* + ap-tracking/audit (MENA_API_URL/KEY)
+ *   pr/refresh/* + ap-tracking/audit + safety-stock/live-sync (MENA_API_URL/KEY)
  *   sku/atms-lookup · ap-tracking/[code] · atms/maintenance-request/* · tire-due · tire-change/sync|atms-link (NCAC_API_KEY)
  *   repair-external, repair-external/[id], [id]/update, sync, sync/comment (webhook MENA_NEXT_WEBHOOK_*)
  * route ใหม่ที่ชื่อชนกับ [code]/[id] ด้านล่าง จะค้างอยู่ที่นี่จนกว่าจะเพิ่มในรายชื่อ (ปลอดภัย ไม่ 404)
@@ -22,6 +22,7 @@ const STAY_PREFIXES = [
   "auth", "cron", "revalidate-hook", "store-withdraw", "vendor-portal",
   "ai-mixer-maintenance/analyze", "sku/suggest", "sku/atms-lookup", "pr/refresh", "ap-tracking/audit",
   "atms/maintenance-request", "tire-change/atms-link", "tire-change/sync", "tire-change-request/auto-status",
+  "safety-stock/live-sync",
 ].join("|");
 const AP_STATIC = "by-supplier|cover|dashboard|paid-round|payment-import|search|voucher-import";
 const REPAIR_STATIC = "atms-board|atms-timeline|daily-status|daily-summary|garage-load|garage-sync|no-pr|stats|status-history|sync|users|utilize-ref";
