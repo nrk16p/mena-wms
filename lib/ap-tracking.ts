@@ -898,7 +898,8 @@ export type ApPayStored = {
   type?: string; dueDate?: string; cutoff?: string; payDate?: string
   manual?: boolean               // บัญชีเลือกวันจ่ายเองในปฏิทิน — ไม่ใช่ผลของกติกา จึงไม่มีอะไรให้เทียบ
   // cutoffFrom/sentDate มีเฉพาะใบที่กดผ่านหลังกติกา 28/10/2026 — ใบเก่าไม่มี = คิดจากวันกดผ่าน
-  basis?: { passedDate?: string; creditTerm?: string; cutoffFrom?: string; sentDate?: string } | null
+  // source = "voucher-import" → ผ่านมาจากนำเข้าการตั้งเบิก (17/11/2026) นอกรอบนับจากวันส่ง (sentDate)
+  basis?: { passedDate?: string; creditTerm?: string; cutoffFrom?: string; sentDate?: string; source?: string } | null
   at?: string
 }
 export function apPayRecalc(pay: ApPayStored | null | undefined, sentDocISO: string): ApPaySchedule | null {
@@ -910,6 +911,12 @@ export function apPayRecalc(pay: ApPayStored | null | undefined, sentDocISO: str
   // ไม่ใช่เลื่อนวันจ่ายหนีไปเรื่อย ๆ ตามวันที่เปิดหน้าเว็บ
   const passed = String(pay.basis?.passedDate ?? "").trim() || ictDate(String(pay.at ?? ""))
   if (!passed) return null
+  if (type === "นอกรอบ" && pay.basis?.source === "voucher-import") {
+    // นำเข้าการตั้งเบิก: นอกรอบนับพฤหัสจากวันส่งบัญชีที่เก็บไว้ตอนนำเข้า ไม่ใช่ตัวเลือกจากวันกดผ่าน
+    const { payDate } = apThursdayFromSent(passed, String(pay.basis.sentDate ?? ""))
+    if (!payDate || String(pay.payDate ?? "").trim() === payDate) return null
+    return { type, dueDate: "", cutoff: "", payDate }
+  }
   if (type === "นอกรอบ") {
     // บัญชีเลือกวันโอนเอง — ถือว่ายังใช้ได้ถ้าเป็นหนึ่งในตัวเลือกที่กติกาวันนี้ยอมรับ
     const { options, def } = payThursdayChoices(passed)
@@ -1222,4 +1229,67 @@ export function apCoverLineAmounts(itemTotals: number[], gross: number, net: num
   const diff = round2(round2(net) - round2(scaled.reduce((n, t) => n + t, 0)))
   if (diff) scaled[scaled.length - 1] = round2(scaled[scaled.length - 1] + diff)
   return scaled
+}
+
+// ── วันจ่ายของใบที่ผ่านจาก "นำเข้าการตั้งเบิก" (ผู้ใช้สั่ง 17/11/2026) ──────────────────
+// เดิม (01/10/2026) นำเข้าแล้วไม่คิดวันจ่าย ใบไปค้าง "ผ่านแล้ว แต่ยังไม่กำหนดวันจ่าย" ให้บัญชีกดทีละใบ
+// ตอนนี้ให้คิดทันที ด้วยสูตรเดียวกับตอนกดผ่านเอง โดยยึด "วันกดส่งบัญชีครั้งล่าสุด" เสมอ
+// (ใบที่ตีกลับแล้วส่งใหม่ = นับจากวันส่งใหม่)
+//   ตามรอบ = คิดตามเครดิตเทอม (apPaySchedule เดิม: 7D/15D รอบพฤหัส · 30D/60D ตัดรอบ 25 จากวันส่ง
+//            · Immediate/90D ตัดรอบ 25 จากวันกดผ่าน = วันนำเข้า ตามกติกาเดิม)
+//   นอกรอบ = โอนพฤหัสตามเส้นตายอังคาร นับจากวันส่ง (ผู้ใช้เลือก 17/11/2026)
+// รอบของวันส่งเลยไปแล้วตอนนำเข้า → นับจากวันนำเข้าแทน ไม่ออกวันจ่ายย้อนหลังเอง
+// ประเภทใช้ค่าที่จัดซื้อขอตอนส่ง (sentType) — ไม่มีค่า = ตามรอบ
+
+/** เวลากดส่งบัญชีครั้งล่าสุด = ค่าที่ใหม่กว่าระหว่าง sentMarkedAt กับประวัติการกดส่ง
+ *  (ใบเก่าที่ยังไม่ได้ backfill sentMarkedAt อาจค้างเวลาครั้งแรก) · คืน "" ถ้าไม่มีทั้งคู่ */
+export function apLatestSentAt(sentMarkedAt: string | null | undefined, log: ApLogLike[] | null | undefined): string {
+  const cur = String(sentMarkedAt ?? "").trim()
+  const press = apLatestSendPress(log)
+  const curMs = Date.parse(cur)
+  if (press && (Number.isNaN(curMs) || Date.parse(press.at) > curMs)) return press.at
+  return Number.isNaN(curMs) ? "" : cur
+}
+
+/** พฤหัสที่จ่ายเมื่อนับจากวันส่ง — รอบนั้นเลยวันกดผ่านไปแล้วนับจากวันกดผ่านแทน */
+export function apThursdayFromSent(passedISO: string, sentDocISO: string): { payDate: string; from: ApCutoffFrom } {
+  const sent = String(sentDocISO ?? "").trim()
+  const bySent = sent ? payThursday(sent) : ""
+  if (bySent && bySent >= passedISO) return { payDate: bySent, from: "sent" }
+  return { payDate: payThursday(passedISO), from: "passed" }
+}
+
+export type ApImportPayResult =
+  | { ok: true; schedule: ApPaySchedule; payFrom: ApCutoffFrom; creditTerm: string }
+  | { ok: false; reason: string }
+
+export function apImportPaySchedule(o: {
+  passedISO: string; sentType: string; creditTerm: string; sentDocISO: string
+}): ApImportPayResult {
+  const passed = String(o.passedISO ?? "").trim()
+  const sent = String(o.sentDocISO ?? "").trim()
+  const term = String(o.creditTerm ?? "").trim()
+  if (String(o.sentType ?? "").trim() === "นอกรอบ") {
+    const { payDate, from } = apThursdayFromSent(passed, sent)
+    if (!payDate) return { ok: false, reason: "วันที่ไม่ถูกต้อง" }
+    return { ok: true, schedule: { type: "นอกรอบ", dueDate: "", cutoff: "", payDate }, payFrom: from, creditTerm: term }
+  }
+  if (!term) return { ok: false, reason: "ซัพพลายเออร์ยังไม่มีเครดิตเทอม" }
+  const schedule = apPaySchedule(passed, "ตามรอบ", term, undefined, sent)
+  if (!schedule) return { ok: false, reason: `คิดวันจ่ายจากเครดิต ${term} ไม่ได้` }
+  const payFrom: ApCutoffFrom = isShortCredit(term)
+    ? (sent && payThursday(sent) >= passed ? "sent" : "passed")
+    : longCreditCutoffBase(passed, term, sent).from
+  return { ok: true, schedule, payFrom, creditTerm: term }
+}
+
+/** ข้อความสั้นของวันจ่ายที่ใช้ทั้งพรีวิวและประวัติ */
+export function apImportPayText(r: ApImportPayResult, sentDocISO: string): string {
+  if (!r.ok) return `ยังไม่กำหนดวันจ่าย (${r.reason})`
+  const { schedule: p, payFrom, creditTerm } = r
+  const from = payFrom === "sent" && sentDocISO ? `นับจากวันส่งบัญชี ${thaiDate(sentDocISO)}` : "นับจากวันนำเข้า"
+  if (p.type === "นอกรอบ") return `นอกรอบ · โอนพฤหัส ${thaiDate(p.payDate)} (${from})`
+  return p.cutoff
+    ? `ตามรอบ ${creditTerm} · ตัดรอบ ${thaiDate(p.cutoff)} · จ่าย ${thaiDate(p.payDate)} (${from})`
+    : `ตามรอบ ${creditTerm} · จ่ายรอบพฤหัส ${thaiDate(p.payDate)} (${from})`
 }

@@ -18,6 +18,8 @@ type Result = {
   depositCode: string; action: Action; stage: string; supplier: string; warehouse: string; amount: number
   receivedAt: string; vouchers: string[]; newVouchers: string[]; docDate: string; reason?: string
   oldVouchers?: string[]     // กลุ่ม update: เลขที่อยู่ในระบบตอนนี้
+  payDate?: string           // กลุ่ม pass: วันจ่ายที่ระบบคิด ("" = ต้องกำหนดเองทีหลัง)
+  payText?: string
 }
 type Unmatched = {
   depositCode: string; supplier: string; warehouse: string; amount: number; receivedAt: string
@@ -26,7 +28,7 @@ type Unmatched = {
 }
 type Reply = {
   written?: number
-  summary: { total: number; pass: number; update: number; updateSkipped?: number; notSent: number; rejected: number; notFound: number; passed: number; paid: number; unmatched: number; unmatchedAfterFile: number; passAmount: number }
+  summary: { total: number; pass: number; update: number; updateSkipped?: number; notSent: number; rejected: number; notFound: number; passed: number; paid: number; unmatched: number; unmatchedAfterFile: number; passAmount: number; passNoPay?: number }
   results: Result[]
   unmatched: Unmatched[]
 }
@@ -100,7 +102,8 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
   const confirmPass = async () => {
     if (!sheet || !reply || saving || !reply.summary.pass) return
     const ok = await swalConfirm(`ยืนยันผ่าน ${reply.summary.pass.toLocaleString()} ใบ?`,
-      "ใบที่ส่งบัญชีแล้วและพบในไฟล์ จะเปลี่ยนเป็น \"ผ่าน\" + เติมเลข Voucher (ยังไม่กำหนดวันจ่าย — กำหนดทีหลังในหน้าใบ)")
+      "ใบที่ส่งบัญชีแล้วและพบในไฟล์ จะเปลี่ยนเป็น \"ผ่าน\" + เติมเลข Voucher + กำหนดวันจ่ายตามเครดิตเทอม นับจากวันกดส่งบัญชีล่าสุด"
+        + (reply.summary.passNoPay ? ` (${reply.summary.passNoPay} ใบยังไม่มีเครดิตเทอม ต้องกำหนดวันจ่ายเองทีหลัง)` : ""))
     if (!ok.isConfirmed) return
     setSaving(true)
     try {
@@ -258,8 +261,10 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
           "วันตั้งหนี้": r.docDate,
           "ขั้นตอนปัจจุบัน": stageLabel(r.stage),
           "หลังนำเข้า": r.action === "pass" ? "ผ่าน" : r.action === "update" ? "แทนที่เลข Voucher" : "ไม่เปลี่ยน",
+          ...(t.key === "pass" ? { "วันจ่าย": r.payDate ?? "", "ที่มาวันจ่าย": r.payText ?? "" } : {}),
           "หมายเหตุ": r.reason ?? "",
-        })), t.key === "update" ? [12, 15, 32, 16, 12, 12, 26, 26, 12, 14, 16, 36] : [12, 15, 32, 16, 12, 12, 26, 12, 14, 11, 36])
+        })), t.key === "update" ? [12, 15, 32, 16, 12, 12, 26, 26, 12, 14, 16, 36]
+          : t.key === "pass" ? [12, 15, 32, 16, 12, 12, 26, 12, 14, 11, 12, 50, 36] : [12, 15, 32, 16, 12, 12, 26, 12, 14, 11, 36])
       }
     }
     const today = new Date().toLocaleDateString("sv-SE")
@@ -281,7 +286,7 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
         <p className="text-xs text-gray-500 dark:text-gray-400">
           ไฟล์ <b>รายงานตั้งเจ้าหนี้อื่นๆ</b> จากระบบบัญชี · ใช้เฉพาะแถวของ <b>อาทิติยา</b> <b>วราพร</b> และ <b>กนกวรรณ</b> ·
           ดึงเลข DD (KKDD/LBDD/SBDD + 8 หลัก) จากคอลัมน์ GoodRemark แล้วจับคู่ข้ามทุกเดือน ·
-          ใบที่ค้าง <b>ส่งบัญชีแล้ว</b> และพบในไฟล์ → <b>ผ่าน</b> + เติมเลขที่ Voucher/ตั้งหนี้ (ยังไม่กำหนดวันจ่าย) ·
+          ใบที่ค้าง <b>ส่งบัญชีแล้ว</b> และพบในไฟล์ → <b>ผ่าน</b> + เติมเลขที่ Voucher/ตั้งหนี้ + กำหนดวันจ่ายตามเครดิตเทอม นับจากวันกดส่งบัญชีล่าสุด ·
           ใบที่ <b>ผ่านแล้ว</b> แต่เลขในไฟล์ไม่ตรงกับในระบบ → <b>อัปเดต Voucher</b> (กดยืนยันแยก บันทึกทับด้วยเลขในไฟล์)
         </p>
 
@@ -522,6 +527,9 @@ export function ApVoucherImportDialog({ onClose, onDone }: { onClose: () => void
                           : r.action === "update"
                             ? <span><span className="text-gray-600 dark:text-gray-300">{stageLabel(r.stage)}</span> · <b className="text-sky-700 dark:text-sky-300">อัปเดตเลข</b></span>
                             : <span className="text-gray-600 dark:text-gray-300">{stageLabel(r.stage)}</span>}
+                        {r.action === "pass" && r.payText && (
+                          <div className={`text-[11px] ${r.payDate ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>{r.payText}</div>
+                        )}
                         {r.reason && <div className="text-[11px] text-gray-500">{r.reason}</div>}
                       </td>
                     </tr>

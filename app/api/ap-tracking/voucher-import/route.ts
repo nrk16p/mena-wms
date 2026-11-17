@@ -5,7 +5,9 @@
 // ไฟล์ไม่ถูกอัปโหลด · dryRun (ค่าตั้งต้น) = พรีวิวอย่างเดียว · dryRun:false = เขียนจริง (คิดสูตรเดียวกับพรีวิวเสมอ)
 //
 // กติกาผู้ใช้ (01/10/2026):
-//   - ใบ "ส่งบัญชีแล้ว" ที่พบในไฟล์ → ผ่าน + เติมเลขที่ Voucher/ตั้งหนี้ · ไม่คิดกำหนดจ่าย (บัญชีกำหนดทีหลังทีละใบ)
+//   - ใบ "ส่งบัญชีแล้ว" ที่พบในไฟล์ → ผ่าน + เติมเลขที่ Voucher/ตั้งหนี้
+//     ⤷ แก้ 17/11/2026 (ผู้ใช้สั่ง): คิดกำหนดจ่ายให้เลย นับจากวันกดส่งบัญชีครั้งล่าสุด ตามเครดิตเทอม
+//       (lib apImportPaySchedule) · หาเครดิตเทอมไม่เจอ = ผ่านแต่ยังไม่กำหนดวันจ่าย ให้บัญชีกำหนดทีหลังเหมือนเดิม
 //   - ใบที่ผ่าน/จ่ายแล้ว ไม่ต้องโชว์และไม่แตะ
 //   - ใบที่ส่งบัญชีแล้วแต่ไม่พบในไฟล์ → บัญชีตอบในเว็บ: ไม่ผ่าน (PATCH review) / รอรอบเครดิตถัดไป (PATCH nextRound)
 // เพิ่ม 22/10/2026 (ผู้ใช้สั่ง): ใบที่ "ผ่าน" แล้ว (ยังไม่จ่าย) แต่เลข Voucher ในไฟล์ไม่ตรงกับในระบบ → กลุ่ม "update"
@@ -15,7 +17,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import clientPromise from "@/lib/mongo"
-import { apNetOf, AP_NOS_MAX, apStage, cleanDocNos, ictDate, inApScope, parseDmy, type ApDocs, type ApStage } from "@/lib/ap-tracking"
+import {
+  apImportPaySchedule, apImportPayText, apLatestSentAt, apNetOf, AP_NOS_MAX, apStage, cleanDocNos, ictDate, inApScope,
+  parseDmy, resolveCreditTerm, type ApDocs, type ApImportPayResult, type ApStage,
+} from "@/lib/ap-tracking"
 import { AP_VOUCHER_MAX, sameDocNoSet, voucherNeedsUpdate } from "@/lib/ap-voucher-import"
 import { isAccounting } from "@/lib/roles"
 import { CACHE_TAGS, invalidateCache } from "@/lib/shared-cache"
@@ -50,6 +55,8 @@ export type VoucherResult = {
   oldVouchers?: string[]    // กลุ่ม update: เลขที่อยู่ในระบบตอนนี้ (จะถูกแทนที่ด้วย vouchers)
   docDate: string
   reason?: string
+  payDate?: string          // กลุ่ม pass: วันจ่ายที่ระบบคิด ("" = ยังคิดไม่ได้ ต้องกำหนดเอง)
+  payText?: string
 }
 export type VoucherUnmatched = {
   depositCode: string
@@ -145,6 +152,55 @@ export async function POST(req: NextRequest) {
     return { ...base, action: "notSent" as const, stage, reason: "บัญชีตั้งหนี้แล้ว แต่จัดซื้อยังไม่กดส่งบัญชี" }
   })
 
+  // ── วันจ่ายของใบที่จะผ่าน (คิดทั้งตอนพรีวิวและตอนเขียน — สูตรเดียวกัน) ──
+  const passedAt = new Date().toISOString()
+  const passedISO = ictDate(passedAt)
+  const payBy = new Map<string, { r: ApImportPayResult; sentDoc: string; creditTerm: string }>()
+  const passRows = results.filter((r) => r.action === "pass")
+  if (passRows.length) {
+    const passCodes = passRows.map((r) => r.depositCode)
+    const supNames = [...new Set(passRows.map((r) => r.supplier).filter(Boolean))]
+    const poCodes = [...new Set(passCodes.map((c) => s(headBy.get(c)?.purchase_order)).filter(Boolean))]
+    const [logs, sups, pos] = await Promise.all([
+      md.collection(COLL).find({ depositCode: { $in: passCodes } }, { projection: { _id: 0, depositCode: 1, log: 1 } })
+        .maxTimeMS(20_000).toArray() as Promise<Doc[]>,
+      supNames.length ? md.collection("ap_supplier").find({ name: { $in: supNames } },
+        { projection: { _id: 0, name: 1, creditTerm: 1, override: 1, atmsTerm: 1 } }).maxTimeMS(20_000).toArray() as Promise<Doc[]> : [],
+      poCodes.length ? atms.collection("purchase_orders").find({ "รหัส": { $in: poCodes } },
+        { projection: { _id: 0, "รหัส": 1, "ap term": 1 } }).maxTimeMS(20_000).toArray() as Promise<Doc[]> : [],
+    ])
+    const logBy = new Map(logs.map((d) => [s(d.depositCode), d.log as { action?: string; field?: string; at?: string }[]]))
+    const supBy = new Map(sups.map((x) => [s(x.name), x]))
+    const poBy = new Map(pos.map((p) => [s(p["รหัส"]), p]))
+    for (const r of passRows) {
+      const t = trackBy.get(r.depositCode)
+      const sup = supBy.get(r.supplier)
+      // ลำดับเดียวกับตาราง/กดผ่าน: override > "ap term" บน PO ใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
+      const creditTerm = resolveCreditTerm(
+        s(sup?.override), s(poBy.get(s(headBy.get(r.depositCode)?.purchase_order))?.["ap term"]), s(sup?.atmsTerm) || s(sup?.creditTerm),
+      ).creditTerm
+      const sentDoc = ictDate(apLatestSentAt(s(t?.sentMarkedAt), logBy.get(r.depositCode)))
+      const pr = apImportPaySchedule({ passedISO, sentType: s(t?.sentType), creditTerm, sentDocISO: sentDoc })
+      payBy.set(r.depositCode, { r: pr, sentDoc, creditTerm })
+      r.payDate = pr.ok ? pr.schedule.payDate : ""
+      r.payText = apImportPayText(pr, sentDoc)
+    }
+  }
+  const payDocOf = (code: string, by: string) => {
+    const p = payBy.get(code)
+    if (!p?.r.ok) return null
+    const { schedule, payFrom, creditTerm } = p.r
+    return {
+      ...schedule,
+      basis: {
+        passedAt, passedDate: passedISO, creditTerm, requestedType: s(trackBy.get(code)?.sentType),
+        source: "voucher-import", sentDate: p.sentDoc,
+        ...(schedule.cutoff && payFrom === "sent" ? { cutoffFrom: "sent" } : schedule.cutoff ? { cutoffFrom: "passed" } : {}),
+      },
+      by, at: passedAt,
+    }
+  }
+
   // ── เขียนจริง (ทีละเรื่องตาม apply) ──
   //   update = แทนที่เลข Voucher ของใบที่ผ่านแล้ว · pass = ส่งบัญชีแล้ว → ผ่าน + เติมเลข Voucher
   // pass: filter ซ้ำเงื่อนไข "ส่งบัญชีแล้ว ยังไม่ตรวจ" ตอนเขียน — กันทับผลตรวจที่บัญชีเพิ่งกดในหน้าเว็บระหว่างพรีวิว
@@ -195,16 +251,18 @@ export async function POST(req: NextRequest) {
       }
     }
   } else if (!dryRun) {
-    const at = new Date().toISOString()
+    const at = passedAt
     const toPass = results.filter((r) => r.action === "pass")
     const ops = toPass.map((r) => {
       const prev = cleanDocNos(trackBy.get(r.depositCode)?.voucherNos)
       const voucherNos = [...prev, ...r.newVouchers].slice(0, AP_NOS_MAX)
       const log: Record<string, string>[] = [{
         action: "บัญชีตรวจเอกสาร: ผ่าน", field: "review",
-        detail: `นำเข้าการตั้งเบิก${fileName ? ` (${fileName})` : ""}${r.docDate ? ` · ตั้งหนี้ ${r.docDate}` : ""} · ยังไม่กำหนดวันจ่าย`,
+        detail: `นำเข้าการตั้งเบิก${fileName ? ` (${fileName})` : ""}${r.docDate ? ` · ตั้งหนี้ ${r.docDate}` : ""}`,
         by, byEmail, at,
       }]
+      const pay = payDocOf(r.depositCode, by)
+      log.push({ action: pay ? "กำหนดจ่ายเงิน" : "ยังไม่กำหนดวันจ่าย", field: "pay", detail: r.payText ?? "", by, byEmail, at })
       if (r.newVouchers.length) {
         log.push({ action: "แก้เลขที่ Voucher/ตั้งหนี้", field: "voucherNos", detail: voucherNos.join(", "), by, byEmail, at })
       }
@@ -212,7 +270,7 @@ export async function POST(req: NextRequest) {
         updateOne: {
           filter: { depositCode: r.depositCode, sentDate: { $nin: [null, ""] }, "review.status": { $nin: ["ผ่าน", "ไม่ผ่าน"] } },
           update: {
-            $set: { review: { status: "ผ่าน", note: "", by, at }, voucherNos, nextRound: null, updatedAt: at, updatedBy: by },
+            $set: { review: { status: "ผ่าน", note: "", by, at }, voucherNos, nextRound: null, pay, updatedAt: at, updatedBy: by },
             $push: { log: { $each: log, $slice: -LOG_KEEP } },
           },
         },
@@ -255,6 +313,7 @@ export async function POST(req: NextRequest) {
       notSent: count("notSent"), rejected: count("rejected"), notFound: count("notFound"), passed: count("passed"), paid: count("paid"),
       unmatched: unmatched.length, unmatchedAfterFile: unmatched.filter((u) => u.afterFile).length,
       passAmount: results.filter((r) => r.action === "pass").reduce((t, r) => t + r.amount, 0),
+      passNoPay: results.filter((r) => r.action === "pass" && !r.payDate).length,
     },
     results: results.filter((r) => r.action !== "paid" && r.action !== "passed"),
     unmatched,
