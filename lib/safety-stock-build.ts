@@ -10,7 +10,7 @@ import {
   RECEIPT_HISTORY_MAX, receiptKindOf, poCodeFromCell, latestCostTracker,
   type SnapshotRow, type LeadTimeSource, type BuildSource, type ReceiptEntry, type ReceiptsHidden,
 } from "@/lib/safety-stock-core"
-import { fetchOnOrderBySku } from "@/lib/on-order"
+import { fetchOnOrderBySku, PO_SUPPLIER_KEY } from "@/lib/on-order"
 
 const MASTER_DB = process.env.MONGO_DB ?? "master_data"
 const ATMS_DB = "atms"
@@ -199,6 +199,30 @@ export async function buildSnapshotRows(
     recvBySku.set(code, xs.filter((e) => ++cnt[e.kind ?? "stock"] <= RECEIPT_HISTORY_MAX))
   }
 
+  // 5.5) ซัพพลายเออร์ของการซื้อเข้าสต๊อกครั้งล่าสุด (คอลัมน์ SUP) — แถวรับไม่มีชื่อร้าน ต้องไปดูที่หัวใบ PO
+  //      ครั้งละ 1 PO ต่อรหัส ($in บน index "รหัส") · พังก็แค่ไม่มี SUP ไม่ล้มทั้ง build
+  const lastPoBySku = new Map<string, string>()
+  for (const [code, xs] of recvBySku) {
+    const po = xs.find((e) => (e.kind ?? "stock") === "stock")?.poCode
+    if (po) lastPoBySku.set(code, po)
+  }
+  const supplierByPo = new Map<string, string>()
+  const lastPoCodes = [...new Set(lastPoBySku.values())]
+  if (lastPoCodes.length) {
+    try {
+      const docs = (await atms.collection("purchase_orders")
+        .find({ "รหัส": { $in: lastPoCodes } }, { maxTimeMS: 20_000 })
+        .project({ _id: 0, "รหัส": 1, [PO_SUPPLIER_KEY]: 1 })
+        .toArray()) as Record<string, unknown>[]
+      for (const d of docs) {
+        const sup = String(d[PO_SUPPLIER_KEY] ?? "").trim()
+        if (sup) supplierByPo.set(String(d["รหัส"]), sup)
+      }
+    } catch (e) {
+      console.warn("[safety-stock-build] ดึงซัพพลายเออร์ไม่สำเร็จ", inventoryId, e)
+    }
+  }
+
   // ใช้ floor เดียวกับรายรหัส/รายกลุ่ม (LT_MIN_SAMPLES) — ตัวอย่างเดียวก็ยึดเป็นค่ากลางทั้งคลังไม่ได้
   // ค่าผิดปกติตัวเดียว (เช่น PR ค้าง 200 วัน) ในคลังเล็กจะลาก ROP ของทุกรหัสที่ fallback มาที่นี่ให้พองทั้งคลัง
   const warehouseLt = allLt.length >= LT_MIN_SAMPLES ? median(allLt) : 30 // ตัวอย่างไม่พอ (หรือไม่มีเลย) ใช้ 30 วันเป็นค่าตั้งต้น
@@ -298,6 +322,7 @@ export async function buildSnapshotRows(
       value: Math.round(stockQty * cost * 100) / 100,
       // ไม่ใส่คีย์เลยเมื่อไม่มีของค้าง — ฝั่งเขียนจะ $unset ทิ้งให้ (ดู runSafetyStockBuild)
       ...(onOrderBySku.get(code) ? { onOrder: onOrderBySku.get(code) } : {}),
+      ...(supplierByPo.get(lastPoBySku.get(code) ?? "") ? { lastSupplier: supplierByPo.get(lastPoBySku.get(code)!) } : {}),
       // เช่นเดียวกัน — ไม่ใส่คีย์เลยเมื่อ 24 เดือนที่ผ่านมาไม่มีของเข้า (ดู $unset ใน runSafetyStockBuild)
       ...(recvBySku.get(code)?.length ? { receipts: recvBySku.get(code) } : {}),
       ...(hiddenBySku.get(code) ? { receiptsHidden: hiddenBySku.get(code) } : {}),
@@ -398,6 +423,7 @@ export async function runSafetyStockBuild(
                 const gone: Record<string, ""> = {}
                 if (!r.onOrder) gone.onOrder = ""
                 if (!r.receipts) gone.receipts = ""
+                if (!r.lastSupplier) gone.lastSupplier = ""
                 if (!r.receiptsHidden) gone.receiptsHidden = ""
                 return Object.keys(gone).length ? { $set, $unset: gone } : { $set }
               })(),

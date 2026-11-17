@@ -153,9 +153,15 @@ const locationOf = (r: SnapshotRow): string => r.storageLocation?.trim() || NO_L
 
 /** จำนวนที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — แถวที่ build ไว้ก่อนมีฟีเจอร์นี้ยังไม่มี onOrder ต้องอ่านเป็น 0 ได้ */
 const onOrderQtyOf = (r: SnapshotRow): number => r.onOrder?.qty ?? 0
+/** คอลัมน์ SUP — ซัพของ PO ที่ค้างรับก่อน (ร้านที่ต้องตามของ) ไม่มีค่อยใช้ร้านที่ซื้อเข้าสต๊อกครั้งล่าสุด */
+const supplierOf = (r: SnapshotRow): { name: string; from: "po" | "last" | null; more: number } => {
+  const sups = r.onOrder?.suppliers ?? []
+  if (sups.length) return { name: sups[0], from: "po", more: sups.length - 1 }
+  return r.lastSupplier ? { name: r.lastSupplier, from: "last", more: 0 } : { name: "", from: null, more: 0 }
+}
 
 type SortKey =
-  | "code" | "name" | "group" | "storageLocation" | "stockQty" | "onOrder" | "minQty" | "maxQty" | "adu" | "issueCount"
+  | "code" | "name" | "group" | "storageLocation" | "supplier" | "stockQty" | "onOrder" | "minQty" | "maxQty" | "adu" | "issueCount"
   | "rop" | "ss" | "dos" | "status" | "minVerdict" | "suggestQty" | "orderValue"
 
 // daysOfSupply เป็น null สำหรับแถวไม่มีการเบิก (ADU=0 หารไม่ได้) — คืน null ตรงๆ แล้วให้ตัวเปรียบเทียบใน `sorted`
@@ -167,6 +173,7 @@ function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
     case "group": return row.r.group
     case "storageLocation": return locationOf(row.r)
     case "onOrder": return onOrderQtyOf(row.r)
+    case "supplier": return supplierOf(row.r).name || null
     case "stockQty": return row.r.stockQty
     case "minQty": return row.r.minQty
     case "maxQty": return row.r.maxQty
@@ -203,6 +210,7 @@ const ORDER_BY_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "name", label: "ชื่อ" },
   { key: "group", label: "กลุ่ม" },
   { key: "storageLocation", label: "สถานที่จัดเก็บ" },
+  { key: "supplier", label: "SUP (ซัพพลายเออร์)" },
 ]
 
 /** หัวคอลัมน์ที่คลิกเรียงได้ — ตรึงซ้ายได้ถ้าระบุ stickyLeft (ข้อ 3) */
@@ -488,6 +496,9 @@ function RowDialog({
               ))}
               {onOrderCodes(row.onOrder).count > onOrderCodes(row.onOrder).codes.length ? " · …" : ""}
             </div>
+            {(row.onOrder.suppliers?.length ?? 0) > 0 && (
+              <div style={{ fontSize: 12, color: "#374151", marginTop: 3 }}>SUP: {row.onOrder.suppliers!.join(", ")}</div>
+            )}
             <div style={{ fontSize: 11.5, color: row.onOrder.oldestDays > 30 ? "#B45309" : "#6B7280", marginTop: 3 }}>
               ใบเก่าสุดค้างมา {row.onOrder.oldestDays} วัน
               {row.onOrder.oldestDays > 30 && " — นานกว่าเวลารอของตามนโยบายมาก ควรตามของก่อนสั่งเพิ่ม"}
@@ -821,6 +832,8 @@ export default function SafetyStockPage() {
         กำลังสั่งซื้อ: onOrderQtyOf(r),
         "คงเหลือ+กำลังสั่งซื้อ": Math.round((r.stockQty + onOrderQtyOf(r)) * 100) / 100,
         "ใบ PO ที่ค้างรับ (เข้าสต๊อก)": r.onOrder ? onOrderCodesText(r.onOrder) : "",
+        "SUP ของ PO ที่ค้างรับ": (r.onOrder?.suppliers ?? []).join(", "),
+        "SUP ซื้อเข้าสต๊อกล่าสุด": r.lastSupplier ?? "",
         "PO เก่าสุด (วัน)": r.onOrder ? r.onOrder.oldestDays : "",
         min: r.minQty,
         max: r.maxQty,
@@ -858,11 +871,12 @@ export default function SafetyStockPage() {
   const COL_LOC = 108    // พอสำหรับ "ห้องเก็บเครื่องมือช่าง" ของสระบุรี (ยาวสุดที่พบ) โดยไม่กิน 1280px จนล้น
   const COL_STOCK = 144
   const COL_ONORDER = 104
+  const COL_SUP = 130    // ชื่อร้านยาว ตัด … แล้วดูเต็มใน tooltip
   const COL_ROP = 100
   const COL_DOS = 70
   const COL_USAGE = 104
   const COL_SUGGEST = 128
-  const TABLE_W = COL_STATUS + COL_ID + COL_LOC + COL_STOCK + COL_ONORDER + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 1,078 (พื้น/floor)
+  const TABLE_W = COL_STATUS + COL_ID + COL_LOC + COL_STOCK + COL_ONORDER + COL_SUP + COL_ROP + COL_DOS + COL_USAGE + COL_SUGGEST // 1,208 (พื้น/floor)
 
   return (
     <div>
@@ -1108,6 +1122,7 @@ export default function SafetyStockPage() {
                   <col style={{ width: COL_LOC }} />
                   <col style={{ width: COL_STOCK }} />
                   <col style={{ width: COL_ONORDER }} />
+                  <col style={{ width: COL_SUP }} />
                   <col style={{ width: COL_ROP }} />
                   <col style={{ width: COL_DOS }} />
                   <col style={{ width: COL_USAGE }} />
@@ -1131,6 +1146,10 @@ export default function SafetyStockPage() {
                     <SortableTh
                       label="กำลังสั่งซื้อ" colKey="onOrder" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
                       title={"จำนวนที่สั่งไปแล้วแต่ยังไม่เข้าคลัง — รวมยอดค้างรับจากใบ PO ของคลังนี้ที่ยังรับของไม่ครบ อายุไม่เกิน 90 วัน\nPR ที่ยังไม่ออก PO ไม่นับ · PO ยกเลิกหรือถูกลบใน ATMS แล้วไม่นับ\nนับเฉพาะของที่ซื้อเข้าสต๊อก — ใบที่ระบุทะเบียนรถ (อะไหล่ลงคัน) กับบรรทัดกลุ่มค่าแรง ไม่นับ\nตัวเลขนี้ถูกหักออกจาก \"แนะนำสั่ง\" ให้แล้ว แต่ไม่ถูกนับใน \"คงเหลือ\"/\"พอใช้\" เพราะของยังเบิกไม่ได้"}
+                    />
+                    <SortableTh
+                      label="SUP" colKey="supplier" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                      title={"ซัพพลายเออร์ — มีใบ PO ค้างรับ = ร้านของใบนั้น (ร้านที่ต้องตามของ)\nไม่มี PO ค้าง = ร้านที่ซื้อเข้าสต๊อกครั้งล่าสุด (ตัวเทา)\n— = 24 เดือนไม่มีการซื้อเข้าสต๊อก"}
                     />
                     <SortableTh
                       label="ROP" colKey="rop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right"
@@ -1224,6 +1243,29 @@ export default function SafetyStockPage() {
                         )}
                       </td>
 
+                      {/* SUP — ร้านของ PO ค้างรับ (ตัวดำ) หรือร้านที่ซื้อล่าสุด (ตัวเทา) · ยาวตัด … ดูเต็มใน tooltip */}
+                      {(() => {
+                        const sup = supplierOf(r)
+                        const all = r.onOrder?.suppliers ?? []
+                        return (
+                          <td
+                            style={{ padding: "8px 10px", verticalAlign: "top" }}
+                            title={sup.from === "po"
+                              ? `ร้านของใบ PO ที่ค้างรับ: ${all.join(", ")}${r.lastSupplier ? `\nซื้อเข้าสต๊อกล่าสุด: ${r.lastSupplier}` : ""}`
+                              : sup.from === "last" ? `ไม่มี PO ค้างรับ · ซื้อเข้าสต๊อกล่าสุดจาก ${sup.name}` : "24 เดือนไม่มีการซื้อเข้าสต๊อก"}
+                          >
+                            {sup.name ? (
+                              <>
+                                <div style={{ fontSize: 12, color: sup.from === "po" ? "#111827" : "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sup.name}</div>
+                                <div style={{ fontSize: 10, color: "#9CA3AF", marginTop: 1 }}>
+                                  {sup.from === "po" ? `PO ค้างรับ${sup.more > 0 ? ` +${sup.more} ร้าน` : ""}` : "ซื้อล่าสุด"}
+                                </div>
+                              </>
+                            ) : <span style={{ color: "#D1D5DB" }}>—</span>}
+                          </td>
+                        )
+                      })()}
+
                       {/* ROP — จุดสั่งซื้อ (ตัวหลัก) + กันขาด/SS (บรรทัดรอง) */}
                       <td
                         style={{ padding: "8px 10px", textAlign: "right", verticalAlign: "top", overflowWrap: "anywhere" }}
@@ -1261,7 +1303,7 @@ export default function SafetyStockPage() {
                   ))}
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={7} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
+                      <td colSpan={10} style={{ padding: 28, textAlign: "center", color: "#9CA3AF" }}>
                         ไม่พบรายการตามเงื่อนไข
                       </td>
                     </tr>

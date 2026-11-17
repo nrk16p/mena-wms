@@ -728,4 +728,27 @@ assert.equal(
 assert.equal(onOrderCodesText({ qty: 8, prCount: 3, prCodes: ["LBPR1"], oldestDays: 12 } as unknown as OnOrder), "LBPR1 และอีก 2 ใบ",
   "snapshot รุ่นเก่า (PR) ใช้กติกาเดียวกัน")
 
+// SUP: ร้านของ PO ค้างรับ ใหม่→เก่า ไม่ซ้ำ (17/11/2026)
+{
+  const asOf2 = new Date("2026-11-17T00:00:00Z")
+  const m2 = openPoQtyBySku({
+    poHeads: [
+      { code: "LBPO1", prCode: "", receiveStatus: "ยังไม่ได้รับสินค้า", date: "01/11/2026", supplier: "ร้านเก่า" },
+      { code: "LBPO2", prCode: "", receiveStatus: "รับสินค้าแล้วบางส่วน", date: "15/11/2026", supplier: "ร้านใหม่" },
+      { code: "LBPO3", prCode: "", receiveStatus: "ยังไม่ได้รับสินค้า", date: "10/11/2026", supplier: "ร้านใหม่" },
+    ],
+    prHeads: [],
+    poItems: [
+      { poCode: "LBPO1", sku: "S1", amount: 2, received: 0, warehouse: "คลังลาดกระบัง" },
+      { poCode: "LBPO2", sku: "S1", amount: 2, received: 0, warehouse: "คลังลาดกระบัง" },
+      { poCode: "LBPO3", sku: "S1", amount: 2, received: 0, warehouse: "คลังลาดกระบัง" },
+      { poCode: "LBPO1", sku: "S2", amount: 1, received: 0, warehouse: "คลังลาดกระบัง" },
+    ],
+    warehouse: "คลังลาดกระบัง",
+    asOf: asOf2,
+  })
+  assert.deepEqual(m2.get("S1")?.suppliers, ["ร้านใหม่", "ร้านเก่า"], "SUP ใหม่→เก่า ไม่ซ้ำ")
+  assert.deepEqual(m2.get("S2")?.suppliers, ["ร้านเก่า"])
+}
+
 console.log("✅ check-safety-stock-core ผ่านทั้งหมด")

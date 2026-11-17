@@ -19,6 +19,7 @@ const WH_KEY = "คลังสินค้า"
 const DATE_KEY = "วันที่"
 const PLATE_KEY = "ทะเบียน"
 const PO_RECEIVE_STATUS_KEY = "สถานะการรับสินค้า"
+export const PO_SUPPLIER_KEY = "ซัพพลายเออร์"
 /** ไอคอนอนุมัติที่ scraper แกะเป็น boolean — null สำหรับใบก่อน ก.ค. 2026 ที่ยังไม่ได้ re-scrape */
 const PR_APPROVED_KEY = "is approved"
 const PR_NOTE_KEY = "หมายเหตุ"
@@ -39,13 +40,15 @@ async function recentProcurementRuns(atms: Db): Promise<ProcurementRunRef[]> {
     const docs = (await atms.collection("procurement_runs")
       .find({ ok: true, "counts.purchase_orders": { $exists: true } }, { maxTimeMS: MAX_TIME_MS })
       .sort({ created_at: -1 }).limit(30)
-      .project({ _id: 0, started_at: 1, from_date: 1, "counts.purchase_orders": 1 })
+      .project({ _id: 0, started_at: 1, from_date: 1, "counts.purchase_orders": 1, "counts.po_from": 1 })
       .toArray()) as Record<string, unknown>[]
     return docs.flatMap((d) => {
       const po = ((d.counts as Record<string, unknown> | undefined)?.purchase_orders ?? {}) as Record<string, unknown>
       const startedAt = d.started_at instanceof Date ? d.started_at : null
       return startedAt
-        ? [{ startedAt, fromDate: s(d.from_date), poSeen: Number(po.inserted ?? 0) + Number(po.updated ?? 0) }]
+        // po_from = หน้าต่าง PO จริงของรอบ (รอบเต็มดึง PO ลึก 120 วัน · pr_quick รายชั่วโมงก็ดึง) — from_date เป็นหน้าต่าง PR
+        // เดิมใช้ from_date อย่างเดียว ใบ PO ที่เก่ากว่า 01 ของ 2 เดือนก่อนจึงไม่เคยถูกตรวจว่าถูกลบ (LBPO26080510)
+        ? [{ startedAt, fromDate: s((d.counts as Record<string, unknown> | undefined)?.po_from) || s(d.from_date), poSeen: Number(po.inserted ?? 0) + Number(po.updated ?? 0) }]
         : []
     })
   } catch {
@@ -74,11 +77,12 @@ export async function fetchOnOrderBySku(
         [PO_RECEIVE_STATUS_KEY]: { $regex: "บางส่วน|ยังไม่ได้รับ" },
         $expr: { $gte: [{ $substrCP: [`$${DATE_KEY}`, 6, 4] }, minYear] },
       }, { maxTimeMS: MAX_TIME_MS })
-      .project({ _id: 0, [PO_KEY]: 1, [PR_KEY]: 1, [PO_RECEIVE_STATUS_KEY]: 1, [DATE_KEY]: 1, scraped_at: 1 })
+      .project({ _id: 0, [PO_KEY]: 1, [PR_KEY]: 1, [PO_RECEIVE_STATUS_KEY]: 1, [DATE_KEY]: 1, [PO_SUPPLIER_KEY]: 1, scraped_at: 1 })
       .toArray()) as Record<string, unknown>[]
     const fresh = poHeadDocs
       .map((d) => ({
         code: s(d[PO_KEY]), prCode: s(d[PR_KEY]), receiveStatus: s(d[PO_RECEIVE_STATUS_KEY]), date: s(d[DATE_KEY]),
+        supplier: s(d[PO_SUPPLIER_KEY]),
         scrapedAt: d.scraped_at instanceof Date ? d.scraped_at : null,
       }))
       .filter((p) => {

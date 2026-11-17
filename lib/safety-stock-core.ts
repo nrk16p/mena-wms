@@ -107,8 +107,8 @@ export function fmtMovementDate(v: string | null | undefined): string {
  *  มีทั้งเชื่อได้และเดา ปนกันจนเทียบรหัสต่อรหัสไม่ตรงกัน — ใช้ค่าคงที่ตัวเดียวทั้งระบบให้เทียบกันได้ตรงๆ
  *  ค่าที่วัดได้จริง (SnapshotRow.leadTimeDays จาก build) ยังคงเก็บไว้เหมือนเดิมทุกประการเพื่อใช้เป็นข้อมูลอ้างอิง
  *  (แสดงในหน้าต่างรายละเอียดรายรหัสของ /safety-stock) และเพราะ /tire/* ยังใช้ค่าที่วัดได้จริงนี้ตรงๆ ต่อไป
- *  ไม่ผ่านนโยบาย 7 วันนี้เลย — ห้ามเขียนทับ SnapshotRow.leadTimeDays ที่ build เก็บไว้ */
-export const LEAD_TIME_DAYS = 7
+ *  ไม่ผ่านนโยบาย LEAD_TIME_DAYS นี้เลย — ห้ามเขียนทับ SnapshotRow.leadTimeDays ที่ build เก็บไว้ */
+export const LEAD_TIME_DAYS = 15 // 7 → 15 วัน ตามที่สโตร์ขอ 17/11/2026
 
 /** กลุ่มสินค้าที่ตัดออกจากมุมมอง "นโยบายอะไหล่" ของหน้า /safety-stock (ไม่รวม "เครื่องมือยาง" — เก็บไว้ตามที่ตกลง)
  *  กรองที่ layer อ่าน (lib/safety-stock.ts) เท่านั้น ไม่ใช่ตอน build — เพราะ safety_stock_snapshot เป็นชุดข้อมูล
@@ -162,8 +162,8 @@ export const MIN_VERDICT_META: Record<MinVerdict, { th: string; hint: string }> 
 /** อภิธานศัพท์ย่อ — นิยามเดียวใช้ร่วมกันทุกที่ (การ์ดใน /safety-stock, tooltip หัวตาราง, หน้า /safety-stock/baseline)
  *  เพื่อไม่ให้คำอธิบายเพี้ยนคนละความหมายในแต่ละหน้า — เขียนสำหรับทีมหน้างานอ่าน บอกว่าตัวเลขหมายถึงอะไรและควรทำอะไรต่อ
  *  ไม่ใช่สูตรพีชคณิต (สูตรอยู่ที่หน้า /safety-stock/baseline โดยเฉพาะ)
- *  ต้องใช้ได้ทั้งกับหน้า /safety-stock (อะไหล่ทั่วไป, เวลารอของคงที่ 7 วัน) และหน้า /tire/*  (สต็อกยาง,
- *  เวลารอของที่วัดได้จริง) — จึงเขียนแบบกลางๆ ไม่ผูกกับตัวเลข 7 วันหรือสมมติว่าเป็นอะไหล่เท่านั้น */
+ *  ต้องใช้ได้ทั้งกับหน้า /safety-stock (อะไหล่ทั่วไป, เวลารอของคงที่ LEAD_TIME_DAYS) และหน้า /tire/*  (สต็อกยาง,
+ *  เวลารอของที่วัดได้จริง) — จึงเขียนแบบกลางๆ ไม่ผูกกับตัวเลขวันตายตัวหรือสมมติว่าเป็นอะไหล่เท่านั้น */
 export type GlossaryKey = "adu" | "sd" | "ss" | "rop" | "dos" | "lt" | "min" | "max" | "suggestQty"
 export const GLOSSARY: Record<GlossaryKey, { label: string; desc: string }> = {
   adu: {
@@ -225,6 +225,9 @@ export type SnapshotRow = {
    *  build ใช้ $unset ล้างทิ้งเมื่อของมาครบแล้ว จะได้ไม่มีค่าค้างหลอกในรอบถัดไป
    *  (แถวที่ build ไว้ก่อน 25/08/2026 ก็ไม่มีฟิลด์นี้ ฝั่งอ่านต้องทนค่า undefined ได้) */
   onOrder?: OnOrder
+  /** ซัพพลายเออร์ของการซื้อเข้าสต๊อกครั้งล่าสุด (PO ของแถวรับล่าสุด kind "stock") — คอลัมน์ SUP (สโตร์ขอ 17/11/2026)
+   *  ไม่มี = 24 เดือนไม่มีการซื้อเข้าสต๊อก หรือ PO ใบนั้นไม่อยู่ในสำเนาแล้ว · คอลัมน์ SUP ใช้ onOrder.suppliers ก่อนถ้ามี */
+  lastSupplier?: string
   /** ประวัติรับเข้า ใหม่→เก่า ตัดที่ RECEIPT_HISTORY_MAX — ไม่ใส่ (undefined) เมื่อ 24 เดือนที่ผ่านมาไม่มีของเข้าเลย
    *  ไม่ถูกส่งไปกับ payload รายการ (getSafetyStock project ทิ้ง) หน้าต่างรายละเอียดดึงเองผ่าน /api/safety-stock/sku
    *  แถวที่ build ไว้ก่อนมีฟีเจอร์นี้ก็ไม่มีฟิลด์นี้ ฝั่งอ่านต้องทนค่า undefined ได้ */
@@ -312,6 +315,8 @@ export type OnOrder = {
   poCodes: string[]
   /** อายุใบ PO ที่เก่าสุดในกอง (วัน) — สั่งไปนานแล้วยังไม่มาคือสัญญาณว่าต้องตามของ ไม่ใช่สั่งเพิ่ม */
   oldestDays: number
+  /** ซัพพลายเออร์ของ PO ที่ค้างรับ (ใหม่→เก่า ไม่ซ้ำ) — snapshot ก่อน 17/11/2026 ไม่มีฟิลด์นี้ */
+  suppliers?: string[]
   /** snapshot รุ่นก่อน (นับจาก PR) — อ่านได้จนกว่า build รอบถัดไปจะเขียนทับ ดู onOrderCodes */
   prCount?: number
   prCodes?: string[]
@@ -570,6 +575,8 @@ export type PoHeadRef = {
   code: string; prCode: string; receiveStatus: string
   /** วันที่ของใบ PO รูป "DD/MM/YYYY" — ใช้ตัดอายุ (ON_ORDER_MAX_AGE_DAYS) */
   date?: string
+  /** คอลัมน์ "ซัพพลายเออร์" ของหน้ารายการ PO */
+  supplier?: string
 }
 
 /** PO ที่ ATMS บอกว่ายังรับของไม่ครบ — "มีใบรับของ (DD) แล้ว" อย่างเดียวไม่พอที่จะถือว่าจบ
@@ -704,7 +711,7 @@ export function openPoQtyBySku(input: {
   const prByCode = new Map(input.prHeads.map((p) => [p.code, p]))
 
   // ใบ PO ที่ยังเปิด → อายุ + คลังสำรองจาก PR
-  const openPo = new Map<string, { age: number; prWarehouse: string }>()
+  const openPo = new Map<string, { age: number; prWarehouse: string; supplier: string }>()
   for (const po of input.poHeads) {
     if (!po.code) continue
     if (po.receiveStatus.includes("ยกเลิก") || !isPoOutstanding(po.receiveStatus)) continue
@@ -716,7 +723,7 @@ export function openPoQtyBySku(input: {
       if (pr.approved === false) continue
       if (CANCELLED_NOTE_RE.test(pr.note ?? "")) continue
     }
-    openPo.set(po.code, { age, prWarehouse: pr?.warehouse ?? "" })
+    openPo.set(po.code, { age, prWarehouse: pr?.warehouse ?? "", supplier: (po.supplier ?? "").trim() })
   }
 
   const out = new Map<string, OnOrder>()
@@ -743,9 +750,11 @@ export function openPoQtyBySku(input: {
     if (!pos.has(it.poCode)) {
       pos.add(it.poCode)
       cur.poCount = pos.size
-      cur.poCodes = [...pos]
-        .sort((a, b) => (openPo.get(a)?.age ?? 0) - (openPo.get(b)?.age ?? 0))
-        .slice(0, ON_ORDER_CODES_MAX)
+      const byAge = [...pos].sort((a, b) => (openPo.get(a)?.age ?? 0) - (openPo.get(b)?.age ?? 0))
+      cur.poCodes = byAge.slice(0, ON_ORDER_CODES_MAX)
+      const sups = [...new Set(byAge.map((c) => openPo.get(c)?.supplier ?? "").filter(Boolean))]
+      if (sups.length) cur.suppliers = sups
+      else delete cur.suppliers
     }
     out.set(sku, cur)
   }
