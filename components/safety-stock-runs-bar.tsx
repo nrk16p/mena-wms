@@ -71,16 +71,18 @@ const STATUS_TEXT: Record<SlotStatus, string> = {
 const SOURCE_TEXT: Record<BuildSource, string> = {
   pipeline: "api-ncac ยิงมาหลังข้อมูลลง Mongo",
   "daily-cron": "cron รายวันของ Vercel",
-  "pr-hourly": "api-ncac ดึงรายการ PR รายชั่วโมง",
+  "pr-hourly": "api-ncac sync คงเหลือ/min/max + รายการ PR รายชั่วโมง",
   "morning-sync": "api-ncac รอบเช้า",
+  "live-sync": "ผู้ใช้กดดึงข้อมูลล่าสุดจาก ATMS",
   manual: "เรียกเอง",
 }
 
 const SOURCE_SHORT: Record<BuildSource, string> = {
   pipeline: "ความเคลื่อนไหว",
   "daily-cron": "คงเหลือ/min/max",
-  "pr-hourly": "รายการ PR",
+  "pr-hourly": "คงเหลือ/min/max + PR",
   "morning-sync": "คงเหลือ/min/max",
+  "live-sync": "กดดึงเอง",
   manual: "เรียกเอง",
 }
 
@@ -237,9 +239,6 @@ export function SafetyStockRunsBar({ inventoryId }: { inventoryId: string }) {
                   <span className="ssFull">{s.hhmm}</span>
                   <span className="ssShort">{s.hhmm.slice(0, 2)}</span>
                 </div>
-                {(s.source === "daily-cron" || s.source === "morning-sync") && (
-                  <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 1, whiteSpace: "nowrap" }}>+ คงเหลือ</div>
-                )}
               </div>
             </div>
           )

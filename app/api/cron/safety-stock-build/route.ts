@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
   const sourceParam = req.nextUrl.searchParams.get("source")
   const source: BuildSource =
     sourceParam === "pipeline" || sourceParam === "daily-cron" || sourceParam === "pr-hourly" || sourceParam === "morning-sync"
+    || sourceParam === "live-sync"
       ? sourceParam : "manual"
 
   const result = await runSafetyStockBuild(inventoryParam, undefined, source)

@@ -37,7 +37,9 @@ type SyncLogResultEntry = {
 export async function getSafetyStock(
   inventoryId: string = INVENTORY_ID,
   force = false,
-  scope: SafetyStockScope = "full"
+  scope: SafetyStockScope = "full",
+  /** epoch ms — แคชที่เก่ากว่านี้ใช้ไม่ได้ (หน้าเว็บส่งเวลาที่ live sync คำนวณเสร็จมา ให้เห็นผลทันทีไม่ต้องรอแคชหมดอายุ) */
+  freshAfter?: number
 ): Promise<SafetyStockPayload> {
   globalThis._safetyStockCache ??= {}
   // key ต้องแยกตาม scope ด้วย ไม่ใช่แค่ inventoryId — "full" (/tire/*) กับ "parts" (/safety-stock) เป็นคนละ
@@ -45,7 +47,8 @@ export async function getSafetyStock(
   const cacheKey = `${inventoryId}:${scope}`
   const hit = globalThis._safetyStockCache[cacheKey]
   // ผู้เรียกอาจ sort/mutate ได้ ห้ามคืนตัวเดียวกับที่ cache ไว้
-  if (!force && hit && Date.now() - hit.at < TTL_MS) return structuredClone(hit.data)
+  const staleForCaller = freshAfter != null && hit != null && hit.at < freshAfter
+  if (!force && hit && !staleForCaller && Date.now() - hit.at < TTL_MS) return structuredClone(hit.data)
 
   const client = await clientPromise
   const db = client.db(DB)

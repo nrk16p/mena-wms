@@ -22,7 +22,12 @@ export async function GET(req: NextRequest) {
     // scope "parts": ตัดกลุ่ม "ยาง" + ต้องมีทั้ง min และ max พร้อมกัน — มุมมอง "นโยบายอะไหล่" ของหน้า /safety-stock
     // เอง เท่านั้น ไม่ใช่พฤติกรรมของ getSafetyStock โดยรวม — /api/tire-stock/safety ยังเรียกแบบ scope เดิม
     // ("full") เพื่อให้ /tire/{branch}/stock-tire เห็นข้อมูลครบเหมือนเดิมทุกประการ (ดู lib/safety-stock.ts)
-    const data = await getSafetyStock(inventoryId, forceRefresh, "parts")
+    // ?after=<ISO> — หน้าเว็บขอข้อมูลที่ใหม่กว่าเวลาที่ live sync คำนวณเสร็จ · รับเฉพาะเวลาใน 30 นาทีที่ผ่านมา
+    // (ค่าจากเบราว์เซอร์ ส่งเวลาอนาคตมาจะเจาะแคชได้ทุกครั้ง) · เจาะได้ครั้งเดียวต่อรอบ เพราะแคชใหม่ใหม่กว่า after แล้ว
+    const afterMs = Date.parse(req.nextUrl.searchParams.get("after") ?? "")
+    const now = Date.now()
+    const freshAfter = Number.isFinite(afterMs) && afterMs <= now && now - afterMs < 30 * 60_000 ? afterMs : undefined
+    const data = await getSafetyStock(inventoryId, forceRefresh, "parts", freshAfter)
     return NextResponse.json(data)
   } catch (e) {
     console.error("[safety-stock] ", e)

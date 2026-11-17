@@ -256,6 +256,9 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   if (api && !read && ATTACH_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
   // ตรวจย้อนหลัง (audit) ต้องมีสิทธิ์ store-audit เท่านั้น ไม่ผ่านทางลัดของคิวสโตร์
   if (api && read && under(p.pathname, "/api/store-withdraw") && !under(p.pathname, "/api/store-withdraw/audit") && atLeast(p.access["store-queue"], "view")) return { ok: true }
+  // ปุ่ม "ดึงข้อมูลล่าสุดจาก ATMS" ในหน้า /safety-stock — ผู้ใช้ทุกคนที่เห็นหน้านี้กดได้ (ผู้ใช้สั่ง 17/11/2026)
+  // route กันกดถี่เองด้วย cooldown ไม่ได้แก้ข้อมูลอะไรนอกจากสั่งดึงรอบใหม่
+  if (api && p.pathname === "/api/safety-stock/live-sync" && atLeast(p.access["safety-stock"], "view")) return { ok: true }
   const need: Level = read ? "view" : "edit"
   return atLeast(p.access[section], need) ? { ok: true } : { ok: false, api, section, need }
 }

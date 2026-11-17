@@ -373,3 +373,15 @@ console.log("core-return access: OK")
   assert.ok(!hrefs.includes("/pr"))
 }
 console.log("order-tracking open to all: OK")
+
+// ปุ่ม live sync หน้า /safety-stock — คนที่ดูได้กดได้ แต่ POST อื่นใต้ /api/safety-stock ยังต้องแก้ได้
+{
+  const go = (pathname: string, method: string, access: Access) => checkRequest({ pathname, method, access, isSuperAdmin: false }).ok
+  const viewer = { "safety-stock": "view" } as unknown as Access
+  const none = {} as unknown as Access
+  assert.ok(go("/api/safety-stock/live-sync", "POST", viewer))
+  assert.ok(go("/api/safety-stock/live-sync", "GET", viewer))
+  assert.equal(go("/api/safety-stock/live-sync", "POST", none), false)
+  assert.equal(go("/api/safety-stock/sku", "POST", viewer), false)
+}
+console.log("safety-stock live-sync for viewers: OK")

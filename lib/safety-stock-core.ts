@@ -16,10 +16,12 @@ export const WAREHOUSES: { id: string; name: string }[] = [
 /** ใครเป็นคนสั่ง build รอบนี้ — แสดงบนแถบ "รอบอัปเดตวันนี้" ให้แยกออกว่ารอบไหนมาจากอะไร
  *  "pipeline"   = api-ncac ยิง webhook มาหลัง atms_stockmovement* เขียน stockmovement_v5 เสร็จ (ตัวหลัก)
  *  "daily-cron" = cron ของ Vercel ที่ chain ต่อท้าย atms-sku-report — รอบเดียวที่ sync คงเหลือ/min/max จาก ATMS ด้วย
- *  "pr-hourly"  = api-ncac ยิงมาหลัง atms_pr_quick (ดึงรายการ PR ทุกชั่วโมง 07:15–20:15 ไทย)
+ *  "pr-hourly"  = api-ncac ยิงมาหลัง atms_pr_quick (ดึงรายการ PR ทุกชั่วโมง 07:15–20:15 ไทย) — ตั้งแต่ 17/11/2026
+ *                 sync คงเหลือ/min/max ทุกคลังก่อน build ด้วย (SYNC_BEFORE_BUILD ใน api-ncac)
  *  "morning-sync" = api-ncac 05:55 ไทย สั่ง sync คงเหลือ/min/max จาก ATMS แล้วตามด้วย build — ให้เช้ามาเห็นของที่รับเข้าหลัง 10:00 เมื่อวาน
+ *  "live-sync"  = ผู้ใช้กดปุ่ม "ดึงข้อมูลล่าสุดจาก ATMS" (api-ncac /pipeline/wms-live-sync สั่ง build คลังเดียว 2 รอบ)
  *  "manual"     = คนเรียก route เอง */
-export type BuildSource = "pipeline" | "daily-cron" | "pr-hourly" | "morning-sync" | "manual"
+export type BuildSource = "pipeline" | "daily-cron" | "pr-hourly" | "morning-sync" | "live-sync" | "manual"
 
 /** ช่องรายชั่วโมงของแถบ "รอบอัปเดตวันนี้" บนหน้า /safety-stock (เวลาไทย) — ช่องละ 1 ชั่วโมง
  *  hhmm = รอบแรกที่คาดไว้ในชั่วโมงนั้น (ใช้บอก "รอบถัดไป") · รอบจริงทุกรอบที่เริ่มในชั่วโมงนั้นตกช่องนี้
@@ -47,7 +49,7 @@ export const BUILD_SCHEDULE: ScheduleSlot[] = [
     const hh = String(h).padStart(2, "0")
     if (h === 10) return { hhmm: "10:00", source: "daily-cron", label: "sync คงเหลือ/min/max จาก ATMS + รายการ PR" }
     const extra = MOVEMENT_LIGHT_HOURS.includes(h) ? ` + ความเคลื่อนไหว 7 วัน (${hh}:30)` : ""
-    return { hhmm: `${hh}:15`, source: "pr-hourly", label: `รายการ PR${extra}` }
+    return { hhmm: `${hh}:15`, source: "pr-hourly", label: `คงเหลือ/min/max + รายการ PR${extra}` }
   }),
 ]
 

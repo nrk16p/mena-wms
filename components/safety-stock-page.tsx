@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { ChevronDown, ChevronUp, Download, RefreshCw, Search, TriangleAlert, X } from "lucide-react"
 import * as XLSX from "xlsx"
 import { MultiSelectCombobox } from "@/components/multi-select-combobox"
 import { SafetyStockRunsBar } from "@/components/safety-stock-runs-bar"
+import { SafetyStockLiveSync } from "@/components/safety-stock-live-sync"
 import { swalError, swalToast } from "@/lib/swal"
 import { bkkToday } from "@/lib/bkk-time"
 import {
@@ -689,6 +690,17 @@ export default function SafetyStockPage() {
     }
   }
 
+  // live sync คำนวณเสร็จหนึ่งรอบ → ดึง payload ใหม่ (after= เจาะแคช 15 นาทีของ server) · เงียบๆ ไม่ขึ้น toast
+  // ผู้ใช้สลับคลังระหว่างรอ = ทิ้งผลนี้ (ข้อ A เดียวกับ doRefresh)
+  const reloadAfterLiveSync = useCallback(async (afterIso: string) => {
+    const requestedWarehouse = warehouseIdRef.current
+    try {
+      const res = await fetch(`/api/safety-stock?inventory=${requestedWarehouse}&after=${encodeURIComponent(afterIso)}`, { cache: "no-store" })
+      const json = await res.json()
+      if (res.ok && warehouseIdRef.current === requestedWarehouse) setData(json)
+    } catch { /* รอบหน้าหรือรีโหลดเองได้ */ }
+  }, [])
+
   const z = Z_BY_SERVICE[service] ?? DEFAULT_Z
 
   // คำนวณใหม่ในเครื่องเมื่อผู้ใช้เปลี่ยนหน้าต่างหรือ service level — ไม่ยิง DB ซ้ำ
@@ -911,6 +923,7 @@ export default function SafetyStockPage() {
         </p>
 
         {/* แถบรอบอัปเดต — ยิง API ของตัวเอง (ไม่แคช) จึงวางไว้ได้แม้ payload หลักยังโหลดไม่เสร็จ */}
+        <SafetyStockLiveSync inventoryId={warehouseId} onFresh={reloadAfterLiveSync} />
         <SafetyStockRunsBar inventoryId={warehouseId} />
 
         <GlossaryPanel open={glossaryOpen} onToggle={() => setGlossaryOpen((o) => !o)} />
