@@ -8,12 +8,14 @@ import { useEffect, useState } from "react"
 import { SheetGrid } from "./sheet-grid"
 import { SheetRounds } from "./sheet-rounds"
 import { SheetImport } from "./sheet-import"
+import { SheetCpk } from "./sheet-cpk"
 import { EMPTY_OPTIONS, type SheetOptions } from "@/lib/tyre-sheet"
 
 const TABS = [
   { key: "prep", label: "เตรียมข้อมูล" },
   { key: "tyres", label: "ยางนอก" },
   { key: "rounds", label: "รอบอนุมัติ / PDF" },
+  { key: "cpk", label: "Dashboard CPK" },
   { key: "storage", label: "บันทึกการจัดเก็บยาง" },
   { key: "sales", label: "ขายเหมา" },
   { key: "import", label: "นำเข้าจากชีต" },
@@ -58,6 +60,7 @@ export function TyreSheetPage() {
         {tab === "prep" && <SheetGrid kind="rows" stage="prep" options={options} title="เตรียมข้อมูล" />}
         {tab === "tyres" && <SheetGrid kind="rows" stage="sent" sizeFilter options={options} title="[2026]ยางนอก" />}
         {tab === "rounds" && <SheetRounds />}
+        {tab === "cpk" && <SheetCpk />}
         {tab === "storage" && <SheetGrid kind="storage" options={options} title="บันทึกการจัดเก็บยาง" />}
         {tab === "sales" && <SheetGrid kind="sales" options={options} title="ขายเหมา" />}
         {tab === "import" && <SheetImport onDone={() => setReloadKey((k) => k + 1)} />}
