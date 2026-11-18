@@ -253,7 +253,7 @@ export async function GET(req: NextRequest) {
       const receivedAt = parseDmy(h.received_at)
       const po         = poBy.get(s(h.purchase_order))
       const sup        = termBy.get(s(h.supplier))
-      // เทอมของใบนี้: override ของคน > "ap term" บน PO ใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
+      // เทอมของใบนี้: "ap term" บน PO ใบนี้ > override ของคน > ค่าปัจจุบันของซัพพลายเออร์
       const { creditTerm, termSource } = resolveCreditTerm(sup?.override ?? "", s(po?.["ap term"]), sup?.master ?? "")
       const dueDate    = dueDateOf(receivedAt, creditTerm)
       const vat        = apVatOf(h) > 0

@@ -114,7 +114,7 @@ async function payOnPass(o: { client: Awaited<typeof clientPromise>; depositCode
   const supplier = s(head?.supplier)
   const md = writeDb(client)
   if (payType === "ตามรอบ" && !creditTerm && supplier) {
-    // ลำดับเดียวกับตาราง (/api/ap-tracking) — override > "ap term" บน PO ของใบนี้ > ค่าปัจจุบันของซัพพลายเออร์
+    // ลำดับเดียวกับตาราง (/api/ap-tracking) — "ap term" บน PO ของใบนี้ > override > ค่าปัจจุบันของซัพพลายเออร์
     // ถ้าใช้คนละลำดับ วันครบกำหนดในกล่องยืนยันจะไม่ตรงกับที่คนเห็นในตาราง
     const [sup, po] = await Promise.all([
       md.collection("ap_supplier").findOne({ name: supplier }, { projection: { _id: 0, creditTerm: 1, override: 1, atmsTerm: 1 } }),

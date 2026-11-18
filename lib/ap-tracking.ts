@@ -567,19 +567,20 @@ export function termDays(term: string): number | null {
 }
 
 // แหล่งที่มาของเครดิตเทอมบนใบหนึ่ง เรียงตามความน่าเชื่อถือ:
-//   override  — คนตั้งทับไว้เองในหน้า suppliers (ชนะทุกอย่าง)
-//   po        — "ap term" บน PO ของใบนั้น = เทอมที่ตกลงกัน ณ ตอนสั่งซื้อจริง
+//   po        — "ap term" บน PO ของใบนั้น = เทอมที่ตกลงกัน ณ ตอนสั่งซื้อจริง (ชนะทุกอย่าง)
+//   override  — คนตั้งทับไว้เองในหน้า suppliers (ใช้เมื่อ PO ไม่ได้ระบุเทอม)
 //   supplier  — ค่าปัจจุบันของซัพพลายเออร์ (ใช้เมื่อใบไม่มี PO ผูก หรือ PO ไม่ได้ระบุเทอม)
+// ผู้ใช้สั่ง 18/11/2026 "ใช้จาก PO เสมอ" — KKDD26110035 PO=30D แต่ override ของเจ้า=7D ทำให้วันจ่ายเร็วผิด
 // ทำไม po ต้องมาก่อน supplier: เทอมของเจ้าหนึ่งถูกแก้ใน ATMS ได้ตลอด ใบเก่าต้องคิดด้วยเทอมเดิม
 // (วัดจริง 24/08/2026: 180 ใบปี 2026 ที่สองแหล่งไม่ตรงกัน เช่น สมบัติเซอร์วิส 141 ใบ PO=15D แต่ master=7D)
 export type ApTermSource = "override" | "po" | "supplier" | ""
 export function resolveCreditTerm(
   override: string, poTerm: string, supplierTerm: string,
 ): { creditTerm: string; termSource: ApTermSource } {
-  const o = String(override ?? "").trim()
-  if (o) return { creditTerm: o, termSource: "override" }
   const p = String(poTerm ?? "").trim()
   if (p) return { creditTerm: p, termSource: "po" }
+  const o = String(override ?? "").trim()
+  if (o) return { creditTerm: o, termSource: "override" }
   const m = String(supplierTerm ?? "").trim()
   if (m) return { creditTerm: m, termSource: "supplier" }
   return { creditTerm: "", termSource: "" }

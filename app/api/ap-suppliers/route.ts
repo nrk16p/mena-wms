@@ -1,7 +1,7 @@
 // app/api/ap-suppliers/route.ts
 // เครดิตเทอมเจ้าหนี้ = ค่าที่ sync มาจาก master ซัพพลายเออร์ของ ATMS (atmsTerm)
 // ทับได้ด้วย override ที่คนตั้งเองในหน้า /ap-tracking/suppliers
-// ตัวเลขที่ใช้จริงบนใบ DD คิดอีกชั้นใน resolveCreditTerm() (override > ap term บน PO > ค่าตรงนี้)
+// ตัวเลขที่ใช้จริงบนใบ DD คิดอีกชั้นใน resolveCreditTerm() (ap term บน PO > override > ค่าตรงนี้)
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
