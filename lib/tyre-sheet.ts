@@ -338,6 +338,9 @@ export function computeRow(r: AnyRow, opts?: Pick<SheetOptions, "plateHeadTail">
 
   const full = toNum(r.fullDepth), cur = toNum(r.depthBooking), rated = toNum(r.ratedKm)
   out.depthUsed = full !== null && cur !== null ? full - cur : toNum(r.depthUsed)
+  // มิลยางเดิม: ชีตไม่เคยกรอก (ว่างทั้งไฟล์) — ยางใส่ใหม่เริ่มที่มิลเต็ม จึงโชว์มิลยางเต็มแทนตอนว่าง
+  // คิดตอนแสดงเท่านั้น ไม่เขียนลง DB · ค่าที่พิมพ์เองชนะเสมอ
+  if (toNum(r.depthPrev) === null && full !== null) out.depthPrev = full
   const used = toNum(out.depthUsed)
   out.expectedKm = rated !== null && full && used !== null ? (rated / full) * used : toNum(r.expectedKm)
   const exp = toNum(out.expectedKm)
