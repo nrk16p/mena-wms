@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { isJpWarehouse, jpClassOf, type JpClass } from "@/lib/safety-stock-jp-class"
 import { useSession } from "next-auth/react"
 import { ChevronDown, ChevronUp, Download, RefreshCw, Search, TriangleAlert, X } from "lucide-react"
 import * as XLSX from "xlsx"
@@ -669,6 +670,8 @@ export default function SafetyStockPage() {
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
+  // คลัง จป. แบ่งเป็น 2 แท็บ — Safety (ของใช้ความปลอดภัย) / Compliance (ตามรายชื่อใน lib/safety-stock-jp-class.ts)
+  const [jpClass, setJpClass] = useState<JpClass>("safety")
   const [q, setQ] = useState("")
   const [groups, setGroups] = useState<string[]>([])
   const [locs, setLocs] = useState<string[]>([])
@@ -703,6 +706,7 @@ export default function SafetyStockPage() {
     setLocs([])   // ชื่อสถานที่คนละชุดกันคนละคลัง (ลาดกระบัง "B1-1" · สระบุรี "Shelf 4/B")
     setOnlyCovered(false)
     setStatuses([])
+    setJpClass("safety")
     setWarehouseId(id)
   }
 
@@ -744,29 +748,36 @@ export default function SafetyStockPage() {
   // คำนวณใหม่ในเครื่องเมื่อผู้ใช้เปลี่ยนหน้าต่างหรือ service level — ไม่ยิง DB ซ้ำ
   // LEAD_TIME_DAYS: นโยบายคงที่ 7 วันสำหรับทุกแถว — r.leadTimeDays (ค่าที่วัดได้จริง) ยังอยู่ในแถวเหมือนเดิม
   // แสดงเป็นข้อมูลอ้างอิงในหน้าต่างรายละเอียดรายรหัสเท่านั้น (RowDialog) ไม่ใช้คำนวณ SS/ROP/แนะนำสั่งอีกต่อไป
+  // แถวของแท็บที่เลือก — คลังอื่นที่ไม่ใช่ จป. ได้ทุกแถวเหมือนเดิม
+  const classRows = useMemo(() => {
+    if (!data) return []
+    if (!isJpWarehouse(data.inventoryId)) return data.rows
+    return data.rows.filter((r) => jpClassOf(data.inventoryId, r.code) === jpClass)
+  }, [data, jpClass])
+
   const enriched: EnrichedRow[] = useMemo(() => {
     if (!data) return []
-    return data.rows.map((r) => ({ r, d: derive(r, win, z, LEAD_TIME_DAYS, onOrderQtyOf(r)), annualIssue: annualCount(r, win) }))
-  }, [data, win, z])
+    return classRows.map((r) => ({ r, d: derive(r, win, z, LEAD_TIME_DAYS, onOrderQtyOf(r)), annualIssue: annualCount(r, win) }))
+  }, [data, classRows, win, z])
 
   const groupOptions = useMemo<Record<string, { th: string; en: string }>>(() => {
     if (!data) return {}
     const out: Record<string, { th: string; en: string }> = {}
-    for (const g of [...new Set(data.rows.map((r) => r.group))].sort((a, b) => a.localeCompare(b, "th"))) {
+    for (const g of [...new Set(classRows.map((r) => r.group))].sort((a, b) => a.localeCompare(b, "th"))) {
       out[g] = { th: g, en: "" }
     }
     return out
-  }, [data])
+  }, [data, classRows])
 
   // เรียงแบบ th ให้ "Shelf 1/A" กับ "A1-2" อยู่ในลำดับที่คนอ่านคาดเดาได้ · ดัน "(ยังไม่ระบุ)" ไปท้ายเสมอ
   const locationOptions = useMemo<Record<string, { th: string; en: string }>>(() => {
     if (!data) return {}
-    const all = [...new Set(data.rows.map(locationOf))]
+    const all = [...new Set(classRows.map(locationOf))]
       .sort((a, b) => (a === NO_LOCATION ? 1 : b === NO_LOCATION ? -1 : a.localeCompare(b, "th")))
     const out: Record<string, { th: string; en: string }> = {}
     for (const l of all) out[l] = { th: l, en: "" }
     return out
-  }, [data])
+  }, [data, classRows])
 
   // ค้นหา+กลุ่ม ก่อนสถานะ — เพื่อให้จำนวนในวงเล็บของชิปสถานะสะท้อนตัวกรองอื่นที่เลือกอยู่ (ไม่รวมสถานะเอง)
   const searched = useMemo(() => {
@@ -881,7 +892,8 @@ export default function SafetyStockPage() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Safety Stock")
     // ห้ามใช้ toISOString().slice(0,10) — เป็นวันที่ UTC ช่วง 00:00-07:00 เวลาไทยจะได้ชื่อไฟล์ของ "เมื่อวาน" (lib/bkk-time.ts)
-    XLSX.writeFile(wb, `safety-stock-${bkkToday()}.xlsx`)
+    const jpTag = data && isJpWarehouse(data.inventoryId) ? `-jp${data.inventoryId}-${jpClass}` : ""
+    XLSX.writeFile(wb, `safety-stock${jpTag}-${bkkToday()}.xlsx`)
   }
 
   // ── ความกว้างคอลัมน์ตาราง (ยุบจาก 15 เหลือ 7 — ต้องไม่เกิดสกอลล์แนวนอนที่จอแล็ปท็อป 1280px) ──
@@ -956,6 +968,38 @@ export default function SafetyStockPage() {
             )
           })}
         </div>
+
+        {/* คลัง จป. — แท็บย่อย Safety / Compliance (ตัวเลขในวงเล็บนับจากทุกแถวของคลัง ไม่สนตัวกรองอื่น) */}
+        {data && isJpWarehouse(data.inventoryId) && data.inventoryId === warehouseId && (
+          <div role="tablist" style={{ display: "flex", gap: 0, marginBottom: 12, borderBottom: "1px solid #E5E7EB" }}>
+            {([["safety", "Safety"], ["compliance", "Compliance"]] as const).map(([key, label]) => {
+              const active = jpClass === key
+              const count = data.rows.filter((r) => jpClassOf(data.inventoryId, r.code) === key).length
+              return (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => {
+                    if (active) return
+                    setJpClass(key)
+                    setSelectedRow(null)
+                    setGroups([])
+                    setLocs([])
+                    setStatuses([])
+                  }}
+                  style={{
+                    padding: "8px 18px", fontSize: 14, fontWeight: 700, background: "none", border: "none", cursor: "pointer",
+                    borderBottom: active ? "2px solid #111827" : "2px solid transparent", marginBottom: -1,
+                    color: active ? "#111827" : "#6B7280",
+                  }}
+                >
+                  {label} <span style={{ fontWeight: 500, color: "#9CA3AF" }}>({count.toLocaleString()})</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 12px" }}>
           {/* ความสดของข้อมูลย้ายไปอยู่ในแถบ "รอบอัปเดตวันนี้" ข้างล่างแล้ว (เคลื่อนไหวล่าสุด/เวลาที่คำนวณ
@@ -1061,7 +1105,7 @@ export default function SafetyStockPage() {
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: "#111827", minWidth: 32 }}>{service}%</span>
               </div>
               <span style={{ fontSize: 13, color: "#6B7280" }}>
-                แสดง {sorted.length.toLocaleString()} / {data.rows.length.toLocaleString()} รายการ
+                แสดง {sorted.length.toLocaleString()} / {classRows.length.toLocaleString()} รายการ
               </span>
               <button
                 onClick={exportXlsx}

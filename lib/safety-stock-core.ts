@@ -11,6 +11,10 @@ export const WAREHOUSE = "คลังลาดกระบัง"
 export const WAREHOUSES: { id: string; name: string }[] = [
   { id: "4", name: "คลังลาดกระบัง" },
   { id: "3", name: "คลังสระบุรี" },
+  // คลัง จป. (เพิ่ม 2026-11-19) — วางท้ายสุดตั้งใจ: cron 10:00 มีงบเวลา 240s ถ้าหมดเวลาให้ข้ามคลัง จป. ไม่ใช่คลังอะไหล่
+  // หน้าเว็บแบ่งแท็บ Safety / Compliance ด้วย lib/safety-stock-jp-class.ts
+  { id: "9", name: "คลัง จป.ลาดกระบัง" },
+  { id: "8", name: "คลัง จป.สระบุรี" },
 ]
 
 /** ใครเป็นคนสั่ง build รอบนี้ — แสดงบนแถบ "รอบอัปเดตวันนี้" ให้แยกออกว่ารอบไหนมาจากอะไร
@@ -554,7 +558,7 @@ const CANCELLED_NOTE_RE = /ยกเลิก/
 /** prefix เลข PR ที่สาขาของคลังนั้นเปิดเอง — เลข PR ขึ้นต้นด้วยรหัส "สาขาที่เปิดใบ" (LBPR/SBPR/KKPR) ไม่ใช่คลังปลายทาง
  *  ใบที่ prefix ไม่ตรงคลัง = สาขาอื่นเปิดใบให้ส่งเข้าคลังนี้ (วัดจริง 04/09/2026: ปี 2026 KKPR→คลังลาดกระบัง 6 ใบ,
  *  SBPR→คลังลาดกระบัง 17 ใบ) ของเข้าคลังนี้จริงจึงยังนับ แค่ต้องบอกผู้ใช้ให้รู้ว่าทำไมมีเลขสาขาอื่นโผล่ในแท็บนี้ */
-export const PR_PREFIX_BY_INVENTORY: Record<string, string> = { "4": "LBPR", "3": "SBPR", "11": "KKPR" }
+export const PR_PREFIX_BY_INVENTORY: Record<string, string> = { "4": "LBPR", "3": "SBPR", "11": "KKPR", "9": "LBPR", "8": "SBPR" }
 export function isCrossBranchPr(prCode: string, inventoryId: string): boolean {
   const own = PR_PREFIX_BY_INVENTORY[inventoryId]
   return !!own && !prCode.startsWith(own)

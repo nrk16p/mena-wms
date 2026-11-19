@@ -252,9 +252,9 @@ type R = { inventoryId: string; upserted: number; error: string | null; skipped?
   assert.equal(merged[1].inventoryId, "3")
 }
 
-// --- WAREHOUSES: ขอบเขตที่อนุมัติ 2569-08 — เหลือ 2 คลัง ขอนแก่น (11) และ DIST (24) ต้องไม่อยู่ในนี้อีก ---
-assert.equal(WAREHOUSES.length, 2, "ต้องเหลือแค่ 2 คลัง (ลาดกระบัง, สระบุรี)")
-assert.deepEqual(WAREHOUSES.map((w) => w.id).sort(), ["3", "4"], "ต้องเป็นลาดกระบัง(4)+สระบุรี(3) เท่านั้น")
+// --- WAREHOUSES: ขอบเขตที่อนุมัติ 2569-08 (ลาดกระบัง+สระบุรี) + คลัง จป. 2 คลัง (เพิ่ม 2026-11-19) ---
+// ลำดับสำคัญ: คลังอะไหล่ก่อน คลัง จป. ท้ายสุด — cron หมดงบเวลาแล้วต้องข้ามคลัง จป. ไม่ใช่คลังอะไหล่
+assert.deepEqual(WAREHOUSES.map((w) => w.id), ["4", "3", "9", "8"], "ลาดกระบัง(4) สระบุรี(3) จป.ลาดกระบัง(9) จป.สระบุรี(8) ตามลำดับนี้")
 assert.ok(!WAREHOUSES.some((w) => w.id === "11" || w.id === "24"), "ขอนแก่น(11)/DIST(24) ต้องไม่อยู่ในขอบเขตอีกต่อไป")
 
 // --- isPartsPolicyRow: เกณฑ์ "นโยบายอะไหล่" ที่ layer อ่าน (lib/safety-stock.ts) ใช้กรอง — ต้องมีทั้ง min และ max
