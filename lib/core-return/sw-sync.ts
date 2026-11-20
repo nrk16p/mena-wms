@@ -54,7 +54,8 @@ export function planCoreRows(r: SwRequest): Planned[] {
   }
   // บรรทัดปกติ = WD ของใบ (ตอน ISSUED/RECEIVED) · บรรทัด Hub = WD Hub (หลัง WD Hub สำเร็จเท่านั้น ไม่ขึ้นกับ WD ปกติ)
   const normalWd = (r.status === "ISSUED" || r.status === "RECEIVED") && r.atms.code && r.atms.approved ? r.atms.code : null
-  const hubWd = r.lines.some(isHubLine) && hubWdDone(r) ? (r.hubWd?.code ?? null) : null
+  const closed = r.status === "REJECTED" || r.status === "CANCELLED"
+  const hubWd = !closed && r.lines.some(isHubLine) && hubWdDone(r) ? (r.hubWd?.code ?? null) : null
   r.lines.forEach((l, i) => {
     const qty = l.issuedQty ?? l.requestedQty
     if (!(qty > 0)) return

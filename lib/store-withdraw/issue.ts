@@ -163,8 +163,9 @@ async function cutHub(claimed: SwRequest, prior: SwRequest["status"], actor: Act
   const plan = hubCutPlan(claimed.lines, claimed.inventoryId)
   const res = plan.length ? await cutHubForRequest(no, plan, claimed.inventoryId, by) : ({ ok: true } as const)
   if (!res.ok) {
+    // ยอดไม่พอ → กลับ PREPARING ให้สโตร์แก้จำนวนได้ (แก้ได้เฉพาะ PREPARING) · ชนกัน → กลับสถานะเดิม
     // ยึดใบที่ค้าง ISSUING มา = ยังไม่เคยยิง ATMS (ตัดยอดมาก่อนเสมอ) จึงกลับ READY ได้
-    const back = prior === "ISSUING" ? (claimed.atms.gmId == null ? "READY" : "ISSUE_FAILED") : prior
+    const back = !res.busy ? "PREPARING" : prior === "ISSUING" ? (claimed.atms.gmId == null ? "READY" : "ISSUE_FAILED") : prior
     const msg = res.busy ? MSG.hubBusy : MSG.hubShort([...new Set(res.short.map((x) => x.skuCode ?? String(x.skuId)))])
     await col.updateOne({ no, status: "ISSUING" }, { $set: { status: back, updatedAt: new Date() } })
     await writeLog({ no, action: res.busy ? "hubBusy" : "hubShort", from: "ISSUING", to: back, actor: { email: actor.email, name: actor.name, via: actor.via }, note: msg })
@@ -289,9 +290,38 @@ async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRe
     const out = interpret(r.status, r.data, prev)
     const ok = out.kind === "ok" && !!(out.atms.code && out.atms.approved)
     const atms = out.kind === "ok" && !ok ? { ...out.atms, error: MSG.noCode } : out.atms
-    const after = await save(ok ? { ...atms, drift: null } : atms, true)
-    await writeLog({ no, action: ok ? "hubWd" : "hubWdFailed", from: got.status, to: got.status, actor: who, ...(ok ? { note: atms.code ?? "" } : {}) })
-    if (ok) await syncCoreRowsSafe(after, actor) // แถวรอคืนซากของบรรทัด Hub — หลัง WD Hub สำเร็จเท่านั้น
+    if (!ok) {
+      const after = await save(atms, true)
+      await writeLog({ no, action: "hubWdFailed", from: got.status, to: got.status, actor: who })
+      return after
+    }
+    const done = { ...atms, drift: null }
+    const live = await col.findOneAndUpdate(
+      { no, hubWdBusyAt: lockAt, status: { $nin: ["REJECTED", "CANCELLED"] } },
+      { $set: { hubWd: done, hubWdBusyAt: null, updatedAt: new Date() } },
+      { returnDocument: "after" },
+    )
+    if (live) {
+      const hubStatus = hubStatusOf(live)
+      await col.updateOne({ no }, { $set: { hubStatus } })
+      const after = { ...live, hubStatus }
+      await writeLog({ no, action: "hubWd", from: got.status, to: got.status, actor: who, note: done.code ?? "" })
+      await syncCoreRowsSafe(after, actor) // แถวรอคืนซากของบรรทัด Hub — หลัง WD Hub สำเร็จเท่านั้น
+      return after
+    }
+    // ใบถูกปิดระหว่างรอ ATMS (หรือล็อกถูกยึด) — WD เกิดใน ATMS แล้ว ต้องบันทึกเลขไว้เสมอ
+    const latest = await col.findOneAndUpdate({ no }, { $set: { hubWd: done, hubWdBusyAt: null, updatedAt: new Date() } }, { returnDocument: "after" })
+    if (!latest) return got
+    const hubStatus = hubStatusOf(latest)
+    await col.updateOne({ no }, { $set: { hubStatus } })
+    const after = { ...latest, hubStatus }
+    if (latest.status === "REJECTED" || latest.status === "CANCELLED") {
+      // ไม่สร้างแถวซาก · ให้คนตามเก็บใน ATMS เอง
+      await writeLog({ no, action: "hubWd-after-close", from: latest.status, to: latest.status, actor: who, note: `${done.code ?? ""} ได้ WD Hub หลังปิดใบ ตรวจยอด Hub กับ ATMS` })
+      return after
+    }
+    await writeLog({ no, action: "hubWd", from: got.status, to: got.status, actor: who, note: done.code ?? "" })
+    await syncCoreRowsSafe(after, actor)
     return after
   } catch (e) {
     console.error("[store-withdraw] hub wd crashed", no, e instanceof Error ? e.message : e)

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto"
 import { lookupCreds } from "./env"
 import { linkAttachments, resolveLinkable } from "./attachments"
 import { atmsCacheCol, ddmmyyyyBkk, nextNo, skuMasterCol, swCol, withRef, writeLog, ConflictError, NotFoundError, type Actor } from "./db"
-import { RETURN_REASONS, docWarnings, isPendingFlow, matchesSearch, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut } from "./core"
+import { RETURN_REASONS, docWarnings, isPendingFlow, matchesSearch, parseRef, queueSort, resolveWorkType, returnableQty, tallyCut, validateLineEdit } from "./core"
 import { handedOutSort, parseDue } from "./pending"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
@@ -238,6 +238,35 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
 
 export const MAX_REASON = 300
 const RETURN_HOLD = ["RETURN_REQUESTED", "RETURNING", "RETURN_FAILED"]
+
+/** สโตร์แก้จำนวนจ่าย/ของขาด · ได้เฉพาะ PREPARING (progress ใน ATMS อ้าง index ของรายการที่ส่งไปแล้ว จึงห้ามแก้หลังจากนั้น) */
+export async function editLines(no: string, rawEdits: unknown, actor: Actor): Promise<Omit<SwRequest, "_id">> {
+  const edits = Array.isArray(rawEdits) ? (rawEdits as Record<string, unknown>[]) : []
+  if (edits.length === 0) throw new HttpError("ไม่มีรายการที่จะแก้", 400)
+  const col = await swCol()
+  const cur = await col.findOne({ no })
+  if (!cur) throw new NotFoundError("ไม่พบใบขอเบิกนี้ — ตรวจเลขที่ใบอีกครั้ง")
+  if (cur.status !== "PREPARING") throw new ConflictError("แก้จำนวนได้เฉพาะใบที่กำลังจัด — รับงานก่อน หรือรีเฟรชดูสถานะ")
+
+  const set: Record<string, unknown> = {}
+  for (const e of edits) {
+    const index = Number(e.index)
+    const issuedQty = Number(e.issuedQty)
+    if (!Number.isInteger(index) || index < 0 || index >= cur.lines.length) throw new HttpError("รายการที่จะแก้ไม่ถูกต้อง — รีเฟรชแล้วลองใหม่", 400)
+    const bad = validateLineEdit(cur.lines[index], issuedQty)
+    if (bad) throw new HttpError(bad, 400)
+    set[`lines.${index}.issuedQty`] = issuedQty
+    set[`lines.${index}.short`] = e.short === true
+  }
+  const after = await col.findOneAndUpdate(
+    { no, status: "PREPARING" },
+    { $set: { ...set, updatedAt: new Date() } },
+    { returnDocument: "after", projection: { _id: 0 } },
+  )
+  if (!after) throw new ConflictError()
+  await writeLog({ no, action: "lines", from: "PREPARING", to: "PREPARING", actor: { email: actor.email, name: actor.name, via: actor.via } })
+  return after
+}
 
 export async function requestReturn(no: string, body: CreateInput, actor: Actor): Promise<{ rid: string }> {
   const col = await swCol()

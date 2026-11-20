@@ -45,6 +45,7 @@ async function main() {
   const { setStoreWithdrawClient, swCol, swLogCol, transition } = await import("../lib/store-withdraw/db")
   const { saveCreds } = await import("../lib/store-withdraw/creds")
   const { issueRequest, retryHubWd, MSG } = await import("../lib/store-withdraw/issue")
+  const { editLines } = await import("../lib/store-withdraw/service")
   const { hubWdDone } = await import("../lib/store-withdraw/hub-core")
   const H = await import("../lib/store-withdraw/hub-db")
   const { baseCol } = await import("../lib/core-return/db")
@@ -151,11 +152,12 @@ async function main() {
   calls = []
   await assert.rejects(issueRequest(n5, store), (e: Error & { status?: number }) => e.message.includes("ยอด Hub ไม่พอ") && e.message.includes("S501") && e.status === 409)
   eq(MSG.hubShort(["A", "B"]), "ยอด Hub ไม่พอ: A, B แก้จำนวนแล้วกดส่งใหม่")
-  eq((await get(n5)).status, "READY"); eq(calls.length, 0); eq(await stock(), 5)
+  eq((await get(n5)).status, "PREPARING"); eq(calls.length, 0); eq(await stock(), 5) // กลับไปจัดของ ให้แก้จำนวนได้
   eq((await get(n5)).hubIssuedAt ?? null, null)
   assert.ok((await (await swLogCol()).find({ no: n5, action: "hubShort" }).toArray()).length === 1)
   // แก้จำนวนแล้วส่งใหม่ได้
-  await (await swCol()).updateOne({ no: n5 }, { $set: { "lines.1.issuedQty": 4 } })
+  await editLines(n5, [{ index: 1, issuedQty: 4 }], store) // ทางเดียวกับ PATCH /lines
+  await transition(n5, "ready", store)
   handler = (x) => (isHubCall(x) ? okWd(804, "LBWD-H5") : okWd(704, "LBWD-N5"))
   eq((await issueRequest(n5, store)).status, "ISSUED"); eq(await stock(), 1)
 
@@ -176,11 +178,13 @@ async function main() {
   await issueRequest(n6, store)
   eq(issues().length, 1); eq(issues()[0].body!.inventory_id, 4); eq(await stock(), 5)
   eq((await get(n6)).status, "ISSUED"); assert.ok(hubWdDone(await get(n6)))
+  eq((await get(n6)).hubStatus, "NONE") // ไม่ได้จ่ายของ Hub เลย ไม่ต้องตาม PR
   // Hub บรรทัดเดียวและจ่าย 0 → ไม่ยิงอะไรเลยของ Hub
   const n6b = await seed("H-ZERO2", [line({}), line({ skuId: 12 }), hubLine(3, { issuedQty: 0 })])
   calls = []
   await issueRequest(n6b, store)
   eq(issues().filter(isHubCall).length, 0); assert.ok(hubWdDone(await get(n6b))); eq(await stock(), 5)
+  eq((await get(n6b)).hubStatus, "NONE")
 
   // ---- 7. ไม่มีคลัง Hub active → ตัดยอดแล้ว WD Hub ไม่ยิง error ไทย · ส่วนปกติไปต่อ ----
   await c.sites.updateOne({ inventoryId: 4 }, { $set: { active: false } })
@@ -220,6 +224,48 @@ async function main() {
   eq((await get(n8b)).status, "ISSUE_FAILED"); eq(await stock(), 3)
   await transition(n8b, "reject", store, { rejectReason: "ยกเลิก" })
   eq(await stock(), 3); eq((await get(n8b)).hubRestoredAt ?? null, null)
+  // A: WD ปกติล้ม (gmId null) + WD Hub ไม่ได้คำตอบ → reject ไม่คืนยอด (WD Hub อาจเกิดใน ATMS) + log ข้าม
+  await setStock(5)
+  const nA = await seed("H-REJUNK", [line({}), hubLine(2)])
+  handler = (x) => { if (isHubCall(x)) throw new Error("ECONNRESET"); return { status: 500, body: { detail: "พัง" } } }
+  await issueRequest(nA, store)
+  eq((await get(nA)).status, "ISSUE_FAILED"); eq((await get(nA)).hubWd!.error, MSG.unknown); eq(await stock(), 3)
+  // ครบ 5 นาทีแล้ว (ล็อกเก่า) ก็ยังไม่คืน เพราะยังไม่รู้ผล
+  await (await swCol()).updateOne({ no: nA }, { $set: { hubWdBusyAt: new Date(Date.now() - 10 * 60_000) } })
+  await transition(nA, "reject", store, { rejectReason: "x" })
+  eq((await get(nA)).status, "REJECTED"); eq(await stock(), 3); eq((await get(nA)).hubRestoredAt ?? null, null)
+  const skipA = await (await swLogCol()).find({ no: nA, action: "hubRestore-skipped" }).toArray()
+  eq(skipA.length, 1); assert.ok(skipA[0].note!.includes("กำลังตัด WD Hub") || skipA[0].note!.includes("ยังไม่รู้ผล"))
+  // ล็อกว่างแต่ error ไม่รู้ผล → ข้ามเหมือนกัน
+  await setStock(5)
+  const nA2 = await seed("H-REJUNK2", [line({}), hubLine(2)])
+  await issueRequest(nA2, store)
+  await (await swCol()).updateOne({ no: nA2 }, { $set: { hubWdBusyAt: null } })
+  await transition(nA2, "reject", store, { rejectReason: "x" })
+  eq(await stock(), 3)
+  assert.ok((await (await swLogCol()).findOne({ no: nA2, action: "hubRestore-skipped" }))!.note!.includes("ยังไม่รู้ผล"))
+
+  // B: reject ระหว่าง WD Hub รอ ATMS → ไม่คืนยอด · ไม่มีแถวซาก Hub · แต่บันทึกเลข WD Hub ไว้
+  await setStock(5)
+  const nB = await seed("H-REJMID", [line({}), hubLine(2)])
+  let release: (v: { status: number; body: unknown }) => void = () => {}
+  const held = new Promise<{ status: number; body: unknown }>((r) => { release = r })
+  handler = (x) => (isHubCall(x) ? held : { status: 500, body: { detail: "พัง" } })
+  calls = []
+  const pB = issueRequest(nB, store)
+  while (!issues().some(isHubCall)) await sleep(10)
+  eq((await get(nB)).status, "ISSUE_FAILED")
+  await transition(nB, "reject", store, { rejectReason: "x" })
+  eq(await stock(), 3); eq((await get(nB)).hubRestoredAt ?? null, null)
+  assert.ok((await (await swLogCol()).findOne({ no: nB, action: "hubRestore-skipped" }))!.note!.includes("กำลังตัด WD Hub"))
+  release(okWd(810, "LBWD-HB"))
+  await pB
+  const dB = await get(nB)
+  eq(dB.status, "REJECTED"); eq(dB.hubWd!.code, "LBWD-HB"); eq(dB.hubWdBusyAt ?? null, null); eq(dB.hubStatus, "NONE")
+  eq((await (await baseCol()).find({ swNo: nB }).toArray()).length, 0)
+  eq((await (await swLogCol()).find({ no: nB, action: "hubWd-after-close" }).toArray()).length, 1)
+  eq(await stock(), 3)
+
   // ใบไม่มี Hub: reject เหมือนเดิม ไม่มี field hub เพิ่ม
   const n8n = await seed("H-PLAIN", [line({})])
   await transition(n8n, "reject", store, { rejectReason: "x" })

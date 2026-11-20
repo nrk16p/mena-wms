@@ -35,10 +35,15 @@ export function hubWdDone(r: Pick<SwRequest, "hubWd" | "settleGroups" | "lines">
   return groups.length > 0 && groups.every(g => g.status === "DONE")
 }
 
+/** จ่ายของ Hub ไปแล้วแต่ทุกบรรทัด Hub จ่าย 0 = ไม่มีอะไรต้องตาม (ไม่ต้อง PR/WD) */
+const hubNothingOut = (r: { hubIssuedAt?: Date | null; lines?: SwLine[] }): boolean =>
+  !!r.hubIssuedAt && !!r.lines?.some(isHubLine) && hubIssueLines(r.lines).length === 0
+
 export function hubStatusOf(r: SwRequest): SwHubStatus {
   if (r.status === "REJECTED" || r.status === "CANCELLED") return "NONE"
   if (!r.lines.some(isHubLine)) return "NONE"
   if (!r.hubIssuedAt) return "WAIT_ISSUE"
+  if (hubNothingOut(r)) return "NONE"
   const pr = !!r.hubPr
   const wd = hubWdDone(r)
   if (!pr && !wd) return "WAIT_PR_WD"
@@ -47,8 +52,8 @@ export function hubStatusOf(r: SwRequest): SwHubStatus {
   return "DONE"
 }
 
-export function hubPrOverdue(r: Pick<SwRequest, "hubIssuedAt" | "hubPr">, now: Date): boolean {
-  if (!r.hubIssuedAt || r.hubPr) return false
+export function hubPrOverdue(r: Pick<SwRequest, "hubIssuedAt" | "hubPr"> & Partial<Pick<SwRequest, "lines">>, now: Date): boolean {
+  if (!r.hubIssuedAt || r.hubPr || hubNothingOut(r)) return false
   return now.getTime() - new Date(r.hubIssuedAt).getTime() > HUB_PR_DUE_MS
 }
 

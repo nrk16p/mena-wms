@@ -175,6 +175,18 @@ export async function restoreHubForRequest(no: string, by: By, note: string): Pr
 
 export const HUB_RESTORE_NOTE = "ใบไม่สำเร็จ คืนยอด Hub"
 
+/** WD Hub อาจมีอยู่ใน ATMS แล้วไหม (กำลังยิง · ไม่รู้ผล · ATMS สร้างหัวใบแล้ว) — ใช่ = เขียน log ว่าข้ามการคืนยอด */
+async function hubWdMaybeInAtms(r: SwRequest, actor: Actor): Promise<boolean> {
+  const { MSG } = await import("./issue") // import ตอนใช้ — issue.ts import ไฟล์นี้อยู่แล้ว
+  const why = r.hubWdBusyAt ? "กำลังตัด WD Hub อยู่"
+    : r.hubWd?.error === MSG.unknown ? "ยังไม่รู้ผล WD Hub จาก ATMS"
+    : r.hubWd?.gmId != null ? `ATMS มีหัวใบ WD Hub แล้ว (gm ${r.hubWd.gmId})`
+    : null
+  if (!why) return false
+  await writeLog({ no: r.no, action: "hubRestore-skipped", from: r.status, to: r.status, actor: { email: actor.email, name: actor.name, via: actor.via }, note: `ไม่คืนยอด Hub อัตโนมัติ: ${why} ตรวจใน ATMS แล้วปรับยอดเอง` })
+  return true
+}
+
 /**
  * เรียกจาก transition หลังปิดใบแบบไม่สำเร็จ (reject / closeManual / cancel) ของใบที่มีบรรทัด Hub
  * ตัดยอดไปแล้ว + WD Hub ยังไม่สำเร็จ = คืนยอดทั้งหมด (เรียกซ้ำไม่คืนซ้ำ) · WD Hub สำเร็จแล้ว = ไม่คืน
@@ -184,7 +196,9 @@ export async function onHubClose(after: SwRequest, actor: Actor): Promise<SwRequ
   let doc = after
   try {
     const col = await swCol()
-    if (after.hubIssuedAt && !after.hubRestoredAt && !isPendingFlow(after) && !hubWdDone(after)) {
+    const eligible = !!after.hubIssuedAt && !after.hubRestoredAt && !isPendingFlow(after) && !hubWdDone(after)
+    // WD Hub อาจเกิดใน ATMS แล้ว = ไม่คืนยอดอัตโนมัติ ให้คนตามเก็บ (log hubRestore-skipped)
+    if (eligible && !(await hubWdMaybeInAtms(after, actor))) {
       const n = await restoreHubForRequest(after.no, { email: actor.email, name: actor.name }, HUB_RESTORE_NOTE)
       doc = (await col.findOneAndUpdate({ no: after.no }, { $set: { hubRestoredAt: new Date() } }, { returnDocument: "after" })) ?? doc
       await writeLog({ no: after.no, action: "hubRestore", from: after.status, to: after.status, actor: { email: actor.email, name: actor.name, via: actor.via }, note: `${HUB_RESTORE_NOTE} ${n} บรรทัด` })

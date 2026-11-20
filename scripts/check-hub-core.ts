@@ -33,6 +33,12 @@ assert.equal(hubPrOverdue({ hubIssuedAt: at, hubPr: null }, h(24 * 3600_000 - 60
 assert.equal(hubPrOverdue({ hubIssuedAt: at, hubPr: null }, h(24 * 3600_000 + 60_000)), true)
 assert.equal(hubPrOverdue({ hubIssuedAt: at, hubPr: pr }, h(48 * 3600_000)), false)
 assert.equal(hubPrOverdue({ hubIssuedAt: null, hubPr: null }, h(48 * 3600_000)), false)
+// ทุกบรรทัด Hub จ่าย 0 แล้วส่งของแล้ว = ไม่มีอะไรต้องตาม
+const zeroHub = [line(), hubL({ issuedQty: 0 })]
+assert.equal(hubStatusOf(req({ lines: zeroHub, hubIssuedAt: at })), "NONE")
+assert.equal(hubStatusOf(req({ lines: zeroHub })), "WAIT_ISSUE")
+assert.equal(hubPrOverdue({ hubIssuedAt: at, hubPr: null, lines: zeroHub }, h(48 * 3600_000)), false)
+assert.equal(hubPrOverdue({ hubIssuedAt: at, hubPr: null, lines: [line(), hubL()] }, h(48 * 3600_000)), true)
 
 // pending (Mobile/PM)
 const sum = { usages: [{ lineIndex: 1, plate: "x", mrCode: "m", mrItemId: 1, mrItemLabel: "", qty: 1 }], returns: [], note: "", by: { email: "", name: "" }, at }
