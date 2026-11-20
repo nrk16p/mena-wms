@@ -11,6 +11,7 @@ import { BillCard } from "./bill-card"
 import { FilterSheet } from "./filter-sheet"
 import { VP_FONT, baht, copyText, weekdayOf } from "./ui"
 import { downloadVpExcel } from "./export-excel"
+import { HubStockTab, type HubRow } from "./hub-stock-tab"
 import { COMPANY } from "@/lib/vendor-brand"
 
 type Data = {
@@ -32,6 +33,10 @@ export function VendorPortalPage() {
   const [sheet, setSheet] = useState(false)
   const [toast, setToast] = useState("")
   const [exporting, setExporting] = useState(false)
+  const [tab, setTab] = useState<"bills" | "hub">("bills")
+  const [hub, setHub] = useState<{ enabled: boolean; rows: HubRow[] } | null>(null)
+  const [hubAt, setHubAt] = useState<Date | null>(null)
+  const [hubBusy, setHubBusy] = useState(false)
 
   const toLogin = useCallback(() => router.replace("/vendor-portal/login"), [router])
 
@@ -47,6 +52,23 @@ export function VendorPortalPage() {
       setError("เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่")
     }
   }, [toLogin])
+  // แท็บสต๊อกฝากขาย — พังก็แค่ไม่โชว์แท็บ ไม่กระทบหน้าบิล
+  const loadHub = useCallback(async () => {
+    setHubBusy(true)
+    try {
+      const res = await fetch("/api/vendor-portal/hub-stock", { cache: "no-store" })
+      if (res.status === 401) { toLogin(); return }
+      if (!res.ok) return
+      const d = await res.json()
+      setHub({ enabled: !!d.enabled, rows: Array.isArray(d.rows) ? d.rows : [] })
+      setHubAt(new Date())
+    } catch { /* เงียบ */ } finally { setHubBusy(false) }
+  }, [toLogin])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadHub() }, [loadHub])
+  const hubOn = !!hub?.enabled
+  const onHub = hubOn && tab === "hub"
+
   // โหลดครั้งแรกตอนเปิดหน้า — setState เกิดหลัง await เท่านั้น (กฎ lint มองไม่ออก)
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
@@ -116,7 +138,14 @@ export function VendorPortalPage() {
             </div>
             <button onClick={logout} className="h-9 flex-none rounded-lg px-2 text-xs text-slate-600 hover:bg-slate-100">ออกจากระบบ</button>
           </div>
-          <div className="flex gap-2 bg-[#046132] px-3 py-2.5">
+          {hubOn && (
+            <div className="flex bg-white text-[13px] font-semibold">
+              {([["bills", "บิลการจ่ายเงิน"], ["hub", "สต๊อกฝากขาย"]] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setTab(k)} className={`h-11 flex-1 border-b-2 ${tab === k ? "border-[#046132] text-[#046132]" : "border-transparent text-slate-500"}`}>{label}</button>
+              ))}
+            </div>
+          )}
+          {!onHub && <div className="flex gap-2 bg-[#046132] px-3 py-2.5">
             <label className="flex h-11 flex-1 items-center gap-2 rounded-xl bg-white px-3 text-slate-900">
               <Search className="h-[18px] w-[18px] flex-none text-slate-400" />
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้น DD / เบอร์รถ / ทะเบียน"
@@ -128,7 +157,7 @@ export function VendorPortalPage() {
               <SlidersHorizontal className="h-[18px] w-[18px]" />
               {activeGroups > 0 && <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-amber-400 px-1 text-[11px] font-bold text-slate-900">{activeGroups}</span>}
             </button>
-          </div>
+          </div>}
         </header>
 
         {error && (
@@ -141,7 +170,9 @@ export function VendorPortalPage() {
           <div className="space-y-2 px-3 pt-3">{[0, 1, 2, 3].map((i) => <div key={i} className="h-24 animate-pulse rounded-xl bg-white" />)}</div>
         )}
 
-        {data && (
+        {onHub && hub && <HubStockTab rows={hub.rows} fetchedAt={hubAt} onRefresh={loadHub} refreshing={hubBusy} />}
+
+        {data && !onHub && (
           <>
             {data.next && !q && (
               <div className="mx-3 mt-3 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
@@ -210,7 +241,7 @@ export function VendorPortalPage() {
         )}
       </div>
 
-      {sheet && data && (
+      {sheet && data && !onHub && (
         <FilterSheet bills={bills} months={months} value={filter}
           onApply={(f) => { setFilter(f); setSheet(false) }} onClose={() => setSheet(false)} />
       )}
