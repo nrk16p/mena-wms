@@ -339,6 +339,8 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
       { status: { $in: open } },
       { status: { $in: ["ISSUED", "RECEIVED", "SETTLED"] }, updatedAt: { $gte: new Date(now.getTime() - 48 * 3600_000) } },
       { status: { $in: ["ISSUED", "RECEIVED"] }, "returns.status": { $in: RETURN_HOLD } },
+      // Hub ที่ยังรอ PR/WD Hub: อยู่ในคิวจนกว่าจะครบ ไม่ว่าส่งของมานานแค่ไหน (ค่า hubStatus ที่เก็บไว้ใช้คัดเบื้องต้น แล้วคิดสดทีหลัง)
+      { status: { $in: ["ISSUED", "RECEIVED", "SETTLED"] }, hubIssuedAt: { $ne: null }, hubStatus: { $in: ["WAIT_PR", "WAIT_PR_WD", "WAIT_WD"] } },
     ],
   }
   if (inventoryId != null) filter.inventoryId = inventoryId
@@ -356,7 +358,7 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
     // Mobile/PM: ของออกไปแล้วรอช่างสรุป = แยกช่อง · สรุปแล้ว = งานสโตร์ (ตัดสต๊อก) เรียงตามเวลาที่สรุป
     else if (d.status === "HANDED_OUT") cols.HANDED_OUT.push(item)
     else if (d.status === "SUMMARIZED" || d.status === "SETTLING" || d.status === "SETTLE_FAILED") cols.NEW.push({ ...item, createdAt: d.summary?.at ?? d.createdAt })
-    else if (ddmmyyyyBkk(d.updatedAt) === today) cols.DONE_TODAY.push(item)
+    else if (ddmmyyyyBkk(d.updatedAt) === today || (item.hubIssuedAt && ["WAIT_PR", "WAIT_PR_WD", "WAIT_WD"].includes(item.hubStatus))) cols.DONE_TODAY.push(item)
     for (const r of d.returns) {
       if (r.status === "RETURN_REQUESTED" || r.status === "RETURNING" || r.status === "RETURN_FAILED") {
         cols.NEW.push({ ...withHub(withRef(d), now), itemType: "return", return: r, createdAt: r.createdAt })

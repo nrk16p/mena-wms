@@ -302,9 +302,11 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
       const res = await api(`/api/store-withdraw/${encodeURIComponent(i.no)}/hub-wd-retry`, { method: "POST" })
       const r = res.request as QItem
       const errs = [r.hubWd, ...(r.settleGroups ?? []).filter((g) => g.hub && g.status !== "DONE").map((g) => g.atms)].filter((a) => a?.error)
-      if (errs.length === 0) await swalToast("success", "ตัด WD Hub แล้ว")
+      // สำเร็จเมื่อเซิร์ฟเวอร์บอกว่า WD Hub เสร็จจริงเท่านั้น
+      if (r.hubWdDone) await swalToast("success", "ตัด WD Hub แล้ว")
       else if (errs.some((a) => a?.needCreds)) { setLink({ linked: false }); askLink(() => { void retryHubWd(i) }) }
-      else await swalToast("error", errs[0]?.error || "ตัด WD Hub ไม่สำเร็จ")
+      else if (errs.length) await swalToast("error", errs[0]?.error || "ตัด WD Hub ไม่สำเร็จ")
+      else await swalToast("warning", "ยังไม่ได้ผลจาก ATMS ลองเช็กอีกครั้ง")
       await load()
     } catch (e) {
       await swalToast("warning", errMsg(e, "ตัด WD Hub ไม่สำเร็จ"))

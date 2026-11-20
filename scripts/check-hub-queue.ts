@@ -46,6 +46,13 @@ async function main() {
   await seed("Q-BOUND", [line(), hubLine()], { hubIssuedAt: new Date(now.getTime() - 40 * H), hubWd: wdOk, hubPr: { code: "PR1", id: 1, by: { email: "a", name: "a" }, at: now } })
   await seed("Q-WDFAIL", [line(), hubLine()], { hubIssuedAt: new Date(now.getTime() - 2 * H), hubWd: { ...base, error: "ATMS ล่ม" }, hubStatus: "DONE" /* ค่าเก่าในฐานต้องไม่ถูกใช้ */ })
 
+  const day = 24 * H
+  const upd = (ms: number) => ({ updatedAt: new Date(now.getTime() - ms) })
+  await seed("Q-3D", [line(), hubLine()], { hubIssuedAt: new Date(now.getTime() - 3 * day), hubWd: wdOk, hubStatus: "WAIT_PR", ...upd(3 * day) })
+  await seed("Q-1D", [line(), hubLine()], { hubIssuedAt: new Date(now.getTime() - 30 * H), hubWd: wdOk, hubStatus: "WAIT_PR", ...upd(day) })
+  await seed("Q-NH-1D", [line()], upd(day))
+  await seed("Q-DONE-3D", [line(), hubLine()], { hubIssuedAt: new Date(now.getTime() - 3 * day), hubWd: wdOk, hubPr: { code: "PR9", id: 9, by: { email: "a", name: "a" }, at: now }, hubStatus: "DONE", ...upd(3 * day) })
+
   const q = await buildQueue(4, now)
   const all = Object.values(q).flat()
   const by = (no: string) => all.find((i) => i.no === no)!
@@ -59,6 +66,12 @@ async function main() {
   // คำนวณสด ไม่เชื่อค่า hubStatus ที่เก็บไว้
   eq([by("Q-WDFAIL").hubStatus, by("Q-WDFAIL").hubRetry], ["WAIT_PR_WD", true])
   assert.equal(by("Q-NEW").hubRetry, false)
+  // งาน Hub ที่ค้างอยู่ต้องไม่หลุดคิวตามอายุ · ใบไม่มี Hub / Hub ครบแล้วที่เก่า = หายเหมือนเดิม
+  assert.ok(by("Q-3D")); eq([by("Q-3D").hubOverdue, by("Q-3D").hubStatus], [true, "WAIT_PR"])
+  assert.ok(q.DONE_TODAY.some((i) => i.no === "Q-3D"))
+  assert.ok(by("Q-1D"))
+  assert.equal(all.some((i) => i.no === "Q-NH-1D"), false)
+  assert.equal(all.some((i) => i.no === "Q-DONE-3D"), false)
 
   const s = await searchInventory(4, "Q-OLD", 90, now)
   assert.equal(s[0].hubOverdue, true)

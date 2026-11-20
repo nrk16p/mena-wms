@@ -66,6 +66,7 @@ export async function getDb(): Promise<Db> {
       db.collection("store_withdraw_requests").createIndex({ inventoryId: 1, status: 1, createdAt: 1 }),
       db.collection("store_withdraw_requests").createIndex({ "requestedBy.email": 1, createdAt: -1 }),
       db.collection("store_withdraw_requests").createIndex({ inventoryId: 1, createdAt: -1 }), // ค้นย้อนหลังของสโตร์
+      db.collection("store_withdraw_requests").createIndex({ inventoryId: 1, hubStatus: 1 }, { sparse: true }), // คิว Hub ที่ยังรอ PR/WD
       db.collection("store_withdraw_requests").createIndex({ "ref.code": 1, createdAt: -1 }, { sparse: true }),
       db.collection("store_withdraw_log").createIndex({ no: 1, at: 1 }),
       db.collection("store_withdraw_log").createIndex({ no: 1, seq: 1 }, { unique: true, partialFilterExpression: { seq: { $gt: 0 } } }),
