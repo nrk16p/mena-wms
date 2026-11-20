@@ -87,6 +87,34 @@ async function main() {
   eq(await stockOf(501), 2)
   await ledger()
 
+  // ใบเดียวกันยิงพร้อมกัน: บรรทัดที่สองไม่พอ → ห้ามได้ ok โดยมีบรรทัดไม่ถูกตัด
+  const plan9 = [cut(0, 501, 1), cut(1, 502, 1)]
+  const res9 = await Promise.all([h.cutHubForRequest("SW-9", plan9, 4, by), h.cutHubForRequest("SW-9", plan9, 4, by)])
+  for (const r of res9) {
+    if (r.ok) for (const p of plan9) assert.equal(await cols.moves.countDocuments({ type: "issue", refNo: "SW-9", lineIndex: p.lineIndex }), 1)
+  }
+  assert.ok(res9.every((r) => !r.ok))
+  eq(await stockOf(501), 2)
+  eq(await cols.locks.countDocuments(), 0)
+  await ledger()
+  // ทั้งสองบรรทัดมีของ: หักครั้งเดียวรวม (ตัวที่แพ้ล็อกอาจได้ busy)
+  await h.receiveHub({ inventoryId: 4, vendorCode: "V1", refNo: "R9", lines: [{ skuId: 502, skuCode: "S502", skuName: "y", qty: 5 }] }, by)
+  const res10 = await Promise.all([h.cutHubForRequest("SW-10", plan9, 4, by), h.cutHubForRequest("SW-10", plan9, 4, by)])
+  assert.ok(res10.some((r) => r.ok))
+  for (const p of plan9) assert.equal(await cols.moves.countDocuments({ type: "issue", refNo: "SW-10", lineIndex: p.lineIndex }), 1)
+  eq(await stockOf(501), 1)
+  eq(await stockOf(502), 4)
+  await ledger()
+  await h.restoreHubForRequest("SW-10", by, "x")
+  // ล็อกค้างเกิน 60 วิ ถูกยึดต่อ · ล็อกสดคืน busy
+  await cols.locks.insertOne({ _id: "cut:SW-11", at: new Date() })
+  eq(await h.cutHubForRequest("SW-11", [cut(0, 501, 1)], 4, by), { ok: false, short: [], busy: true })
+  await cols.locks.updateOne({ _id: "cut:SW-11" }, { $set: { at: new Date(Date.now() - 120_000) } })
+  eq(await h.cutHubForRequest("SW-11", [cut(0, 501, 1)], 4, by), { ok: true })
+  await h.restoreHubForRequest("SW-11", by, "x")
+  eq(await stockOf(501), 2)
+  await ledger()
+
   // restore
   eq(await h.restoreHubForRequest("SW-1", by, "ยกเลิกใบ"), 1)
   eq(await stockOf(501), 6)
@@ -117,6 +145,7 @@ async function main() {
   const mvs = await h.listHubMoves({ vendorCode: "V1", skuId: 501 }, 3)
   eq(mvs.length, 3)
   assert.ok(mvs[0].at >= mvs[1].at)
+  eq(await h.listHubMoves({ vendorCode: "" }, 10), [])
   eq((await h.listHubMoves({ from: new Date(Date.now() + 60_000) }, 10)).length, 0)
 
   console.log("hub-stock ok")

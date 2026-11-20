@@ -32,6 +32,7 @@ export async function hubCols() {
     items: db.collection<HubItem>("hub_items"),
     stock: db.collection<HubStock>("hub_stock"),
     moves: db.collection<HubMove>("hub_moves"),
+    locks: db.collection<{ _id: string; at: Date }>("hub_locks"),
   }
   if (!indexed.has(db)) {
     const key = { inventoryId: 1, vendorCode: 1, skuId: 1 } as const
@@ -89,10 +90,27 @@ export async function receiveHub(
   return out
 }
 
-export async function cutHubForRequest(
-  no: string, plan: Plan, inventoryId: number, by: By,
-): Promise<{ ok: true } | { ok: false; short: { skuCode?: string; skuId: number; have: number; need: number }[] }> {
+export type HubCutResult = { ok: true } | { ok: false; short: { skuCode?: string; skuId: number; have: number; need: number }[]; busy?: true }
+const LOCK_STALE_MS = 60_000
+
+/** ตัดยอดต่อใบแบบล็อกทีละใบ — ถ้ามีอีกการตัดของใบเดียวกันกำลังทำอยู่ คืน busy (ผู้เรียกตอบ 409 ให้ลองใหม่) */
+export async function cutHubForRequest(no: string, plan: Plan, inventoryId: number, by: By): Promise<HubCutResult> {
   const c = await hubCols()
+  const _id = `cut:${no}`
+  const take = async () => { try { await c.locks.insertOne({ _id, at: new Date() }); return true } catch (e) { if (isDup(e)) return false; throw e } }
+  if (!(await take())) {
+    // ล็อกค้างเกิน 60 วิ = ตัวเดิมตายไปแล้ว → ลบเฉพาะอันที่เก่า (เงื่อนไขกัน 2 ตัวแย่งลบล็อกใหม่) แล้วลองใหม่ครั้งเดียว
+    await c.locks.deleteOne({ _id, at: { $lt: new Date(Date.now() - LOCK_STALE_MS) } })
+    if (!(await take())) return { ok: false, short: [], busy: true }
+  }
+  try {
+    return await cutLocked(c, no, plan, inventoryId, by)
+  } finally {
+    await c.locks.deleteOne({ _id })
+  }
+}
+
+async function cutLocked(c: Awaited<ReturnType<typeof hubCols>>, no: string, plan: Plan, inventoryId: number, by: By): Promise<HubCutResult> {
   const done: Plan = []
   const keyOf = (p: Plan[number]) => ({ inventoryId, vendorCode: p.vendorCode, skuId: p.skuId })
   for (const p of plan) {
@@ -126,7 +144,7 @@ export async function cutHubForRequest(
         }
         throw e
       }
-      await c.stock.updateOne(keyOf(p), { $inc: { qty: p.qty } }) // อีก request ตัดบรรทัดนี้ไปแล้ว
+      await c.stock.updateOne(keyOf(p), { $inc: { qty: p.qty } }) // แถวนี้มีอยู่แล้ว (เช็กซ้ำกันพลาด) → คืนยอดที่เพิ่งหัก
     }
   }
   return { ok: true }
@@ -198,6 +216,7 @@ export async function listHubStock(filter: { inventoryId?: number; vendorCode?: 
 
 export async function listHubMoves(filter: { vendorCode?: string; skuId?: number; from?: Date; to?: Date }, limit: number): Promise<HubMove[]> {
   const c = await hubCols()
+  if ("vendorCode" in filter && !filter.vendorCode) return [] // ส่งมาแต่ว่าง = ไม่ตรงอะไรเลย ไม่ใช่ไม่กรอง
   const f: Record<string, unknown> = {}
   if (filter.vendorCode) f.vendorCode = filter.vendorCode
   if (filter.skuId != null) f.skuId = filter.skuId
