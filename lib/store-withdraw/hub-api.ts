@@ -86,9 +86,21 @@ export async function hubReceiveHandler(body: Record<string, unknown>, actor: Ac
   }
   if (!(await getHubSite(inventoryId))) return err("คลังนี้ยังไม่เปิดอะไหล่ Hub", 400)
   const c = await hubCols()
-  // รับซ้ำ: เลขเอกสารเดิมของ Sub เดิม
-  if (await c.moves.findOne({ type: "receive", refNo, vendorCode }, { projection: { _id: 1 } })) throw new ConflictError("เลขเอกสารส่งของนี้รับเข้าแล้ว")
-  const moves = await receiveHub({ inventoryId, vendorCode, refNo, lines }, { email: actor.email, name: actor.name })
+  // กันรับซ้ำ (กดสองที) ด้วย marker เลขเอกสาร+Sub แบบ unique · สำเร็จแล้วเก็บไว้ · พังกลางทางลบทิ้งให้ลองใหม่ (receiveHub ข้ามบรรทัดที่รับไปแล้ว)
+  const _id = `recv:${vendorCode}:${refNo}`
+  try {
+    await c.locks.insertOne({ _id, at: new Date() })
+  } catch (e) {
+    if ((e as { code?: number }).code === 11000) throw new ConflictError("เลขเอกสารส่งของนี้รับเข้าแล้ว")
+    throw e
+  }
+  let moves: HubMove[]
+  try {
+    moves = await receiveHub({ inventoryId, vendorCode, refNo, lines }, { email: actor.email, name: actor.name })
+  } catch (e) {
+    await c.locks.deleteOne({ _id })
+    throw e
+  }
   return NextResponse.json({ moves })
 }
 

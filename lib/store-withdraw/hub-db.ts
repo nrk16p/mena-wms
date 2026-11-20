@@ -73,6 +73,8 @@ export async function receiveHub(
   }
   const out: HubMove[] = []
   for (const l of input.lines) {
+    // ลองใหม่หลังรับไม่ครบ: บรรทัดที่รับไปแล้ว (เอกสาร+Sub+อะไหล่เดียวกัน) ข้าม ไม่นับซ้ำ
+    if (await c.moves.findOne({ type: "receive", vendorCode: input.vendorCode, refNo: input.refNo, skuId: l.skuId }, { projection: { _id: 1 } })) continue
     const now = new Date()
     const set: Partial<HubItem> = { skuCode: l.skuCode, skuName: l.skuName, active: true, updatedAt: now }
     if (l.unit) set.unit = l.unit
@@ -85,9 +87,14 @@ export async function receiveHub(
       { $set: set, ...(Object.keys(onInsert).length ? { $setOnInsert: onInsert } : {}) },
       { upsert: true },
     )
-    await c.stock.updateOne({ inventoryId: input.inventoryId, vendorCode: input.vendorCode, skuId: l.skuId }, { $inc: { qty: l.qty } }, { upsert: true })
     const m: HubMove = { type: "receive", inventoryId: input.inventoryId, vendorCode: input.vendorCode, skuId: l.skuId, qty: l.qty, refNo: input.refNo, lineIndex: null, by, at: now }
     await c.moves.insertOne({ ...m })
+    try {
+      await c.stock.updateOne({ inventoryId: input.inventoryId, vendorCode: input.vendorCode, skuId: l.skuId }, { $inc: { qty: l.qty } }, { upsert: true })
+    } catch (e) {
+      await c.moves.deleteOne({ type: "receive", vendorCode: input.vendorCode, refNo: input.refNo, skuId: l.skuId, at: now }) // ยอดไม่เข้า → ถอนแถวสมุด ลองใหม่ได้
+      throw e
+    }
     out.push(m)
   }
   return out

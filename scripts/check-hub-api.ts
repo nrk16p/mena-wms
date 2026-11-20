@@ -50,6 +50,28 @@ async function main() {
   // เลขเอกสารซ้ำ → 409 ยอดไม่เพิ่ม · Sub อื่นใช้เลขเดียวกันได้ (ถ้า active)
   r = await rcv(base); eq(r.status, 409); assert.match(r.body.error, /รับเข้าแล้ว/)
   eq((await cols.stock.findOne({ skuId: 501 }))?.qty, 10)
+  // กดสองที พร้อมกัน → สำเร็จครั้งเดียว ยอดนับครั้งเดียว
+  const par = { ...base, refNo: "DO-PAR", lines: [{ ...line, skuId: 601, skuCode: "P601", skuName: "ผ้าเบรก", qty: 3 }] }
+  const pr = await Promise.all([rcv(par), rcv(par), rcv(par)])
+  eq(pr.map((x) => x.status).sort(), [200, 409, 409])
+  eq((await cols.stock.findOne({ skuId: 601 }))?.qty, 3)
+  // พังกลางทาง (บรรทัด 2) → ลองใหม่ → ยอดเท่ารับครบหนึ่งครั้ง
+  const two = { ...base, refNo: "DO-FAIL", lines: [{ ...line, skuId: 701, skuCode: "F701", skuName: "ไส้กรอง", qty: 4 }, { ...line, skuId: 702, skuCode: "F702", skuName: "สายพาน", qty: 6 }] }
+  const { Collection } = await import("mongodb")
+  const orig = Collection.prototype.updateOne
+  let boom = true
+  Collection.prototype.updateOne = function (this: InstanceType<typeof Collection>, f: never, ...rest: never[]) {
+    if (boom && this.collectionName === "hub_stock" && (f as { skuId?: number }).skuId === 702) { boom = false; return Promise.reject(new Error("db down")) }
+    return (orig as (...a: unknown[]) => Promise<never>).call(this, f, ...rest)
+  } as never
+  const bad = await rcv(two)
+  Collection.prototype.updateOne = orig
+  eq(bad.status, 500)
+  const again = await rcv(two)
+  eq(again.status, 200)
+  eq([(await cols.stock.findOne({ skuId: 701 }))?.qty, (await cols.stock.findOne({ skuId: 702 }))?.qty], [4, 6])
+  eq((await rcv(two)).status, 409)
+  eq(await cols.moves.countDocuments({ refNo: "DO-FAIL", type: "receive" }), 2)
   // validation
   eq((await rcv({ ...base, vendorCode: "V2", refNo: "DO-2" })).status, 400) // vendor ไม่ active
   eq((await rcv({ ...base, vendorCode: "ZZ", refNo: "DO-2" })).status, 400)
@@ -84,7 +106,7 @@ async function main() {
   eq((await pt({ inventoryId: 4, vendorCode: "V1", skuId: 777 })).status, 404)
   eq((await pt({ inventoryId: 4, vendorCode: "V1", skuId: 501, price: -1 })).status, 400)
   eq((await run(() => a.hubItemsHandler(q("inventoryId=4&q=น้ำมัน")))).body.results, []) // ปิดแล้วไม่ขึ้นในฟอร์ม
-  eq((await run(() => a.hubMasterGet(q("type=items&inventoryId=4&vendorCode=V1")))).body.rows.length, 101) // master เห็นทั้งหมด
+  eq((await run(() => a.hubMasterGet(q("type=items&inventoryId=4&vendorCode=V1")))).body.rows.length, 104) // master เห็นทั้งหมด
 
   // moves + xlsx
   const mv = await a.hubMovesRows(q("vendorCode=V1&skuId=501"))

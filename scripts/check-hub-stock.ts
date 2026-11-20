@@ -51,7 +51,7 @@ async function main() {
   eq(await stockOf(501), 10)
   eq(await cols.moves.countDocuments(), 1)
   // รับซ้ำ refNo เดิมหลายบรรทัดได้ + ไม่ส่งราคา = ไม่ทับราคาเดิม
-  await h.receiveHub({ inventoryId: 4, vendorCode: "V1", refNo: "R1", lines: [{ skuId: 501, skuCode: "S501", skuName: "น็อต", qty: 0.0 + 1 }, { skuId: 503, skuCode: "S503", skuName: "สลัก", qty: 2 }] }, by)
+  await h.receiveHub({ inventoryId: 4, vendorCode: "V1", refNo: "R1b", lines: [{ skuId: 501, skuCode: "S501", skuName: "น็อต", qty: 0.0 + 1 }, { skuId: 503, skuCode: "S503", skuName: "สลัก", qty: 2 }] }, by)
   eq((await cols.items.findOne({ skuId: 501 }))?.price, 12)
   eq((await cols.items.findOne({ skuId: 503 }))?.price, null)
   eq(await stockOf(501), 11)
