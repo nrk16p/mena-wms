@@ -1,6 +1,6 @@
 // scripts/check-hub-core.ts — รัน: npx tsx scripts/check-hub-core.ts
 import assert from "node:assert/strict"
-import { normalIssueLines, hubIssueLines, hubStatusOf, hubPrOverdue, hubWdDone, hubCutPlan, isHubLine, HUB_PR_DUE_MS } from "../lib/store-withdraw/hub-core"
+import { returnMaxOf, normalIssueLines, hubIssueLines, hubStatusOf, hubPrOverdue, hubWdDone, hubCutPlan, isHubLine, HUB_PR_DUE_MS } from "../lib/store-withdraw/hub-core"
 import type { SwLine, SwRequest, AtmsProgress } from "../lib/store-withdraw/types"
 
 const eq = assert.deepEqual
@@ -60,4 +60,9 @@ assert.equal(hubWdDone({ lines: [line()], hubWd: null }), true)
 assert.equal(hubWdDone({ lines: [line(), hubL()], workType: "garage_in", settleGroups: [], hubWd: wdOk }), true)
 
 eq(hubCutPlan(mixed, 4), [{ lineIndex: 1, vendorCode: "V1", skuId: 2, qty: 1 }])
+// ขอคืน: บรรทัด Hub คืนไม่ได้ (0) · บรรทัดปกติหักที่ขอค้าง · ไม่มีบรรทัดปกติคืนได้ = ไม่มีปุ่ม
+eq(returnMaxOf({ lines: [line({ issuedQty: 3 }), hubL({ issuedQty: 2 })], returns: [] }), [3, 0])
+eq(returnMaxOf({ lines: [line({ issuedQty: 3 }), hubL()], returns: [{ status: "RETURN_REQUESTED", lines: [{ lineIndex: 0, qty: 1 }] }, { status: "RETURNED", lines: [{ lineIndex: 0, qty: 2 }] }] }), [2, 0])
+assert.equal(returnMaxOf({ lines: [hubL({ issuedQty: 2 })], returns: [] }).some((m) => m > 0), false)
+assert.equal(returnMaxOf({ lines: [line({ issuedQty: 1, returnedQty: 1 }), hubL()], returns: [] }).some((m) => m > 0), false)
 console.log("check-hub-core OK")

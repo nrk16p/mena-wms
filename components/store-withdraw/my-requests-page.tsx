@@ -5,7 +5,8 @@ import Link from "next/link"
 import { CalendarClock, ClipboardCheck, Copy, MessageCircle, Plus, PackageMinus, RefreshCw, Search, Undo2, X } from "lucide-react"
 import { swalConfirm, swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, matchesSearch, returnableQty, searchActive, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { isHubLine, returnMaxOf } from "@/lib/store-withdraw/hub-core"
+import { RETURN_REASONS, WORK_TYPE_LABEL, isPendingFlow, matchesSearch, searchActive, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { lateMinutes, lateText } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
@@ -35,16 +36,6 @@ async function post(url: string, body?: unknown) {
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error(j.error || "ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง")
   return j
-}
-
-// ยอดคืนที่ค้างอยู่ (ขอแล้วยังไม่จบ) ต่อบรรทัด — returnedQty นับเฉพาะที่คืนเสร็จ
-function pendingOf(r: Req): Map<number, number> {
-  const m = new Map<number, number>()
-  for (const o of r.returns) {
-    if (o.status === "RETURNED") continue // ตรงกับ RETURN_HOLD ใน service.ts (รวม RETURN_FAILED)
-    for (const l of o.lines) m.set(l.lineIndex, (m.get(l.lineIndex) ?? 0) + l.qty)
-  }
-  return m
 }
 
 export function MyRequestsPage() {
@@ -208,7 +199,8 @@ export function MyRequestsPage() {
             const busy = busyNo === r.no
             const pending = isPendingFlow(r)
             // Mobile/PM ไม่มีขอคืน — ของเหลือกรอกตอนสรุปการใช้
-            const canReturn = !pending && (r.status === "ISSUED" || r.status === "RECEIVED")
+            // ปุ่มขอคืนขึ้นเมื่อมีบรรทัดปกติที่ยังคืนได้ (บรรทัด Hub คืนไม่ได้)
+            const canReturn = !pending && (r.status === "ISSUED" || r.status === "RECEIVED") && returnMaxOf(r).some((m) => m > 0)
             const late = lateMinutes(r, now)
             return (
               <li key={r.no} className="rounded-2xl border border-[#EEF2F0] bg-white p-4 dark:border-white/10 dark:bg-[#161922]">
@@ -327,8 +319,7 @@ function ShareLink({ no }: { no: string }) {
 }
 
 function ReturnDialog({ req, onClose, onDone }: { req: Req; onClose: () => void; onDone: () => void }) {
-  const pending = pendingOf(req)
-  const max = req.lines.map((l, i) => returnableQty(l, pending.get(i) ?? 0))
+  const max = returnMaxOf(req)
   const [qty, setQty] = useState<number[]>(() => req.lines.map(() => 0))
   const [reasonCode, setReasonCode] = useState("")
   const [reasonNote, setReasonNote] = useState("")
@@ -356,7 +347,7 @@ function ReturnDialog({ req, onClose, onDone }: { req: Req; onClose: () => void;
         <ul className="space-y-3">
           {req.lines.map((l, i) => (
             <li key={`${l.skuId}-${i}`} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 text-sm"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}</span><span className="block text-xs text-gray-500">คืนได้อีก {max[i]}</span></span>
+              <span className="min-w-0 text-sm"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}</span><span className="block text-xs text-gray-500">{isHubLine(l) ? "อะไหล่ Hub คืนผ่านใบนี้ไม่ได้" : `คืนได้อีก ${max[i]}`}</span></span>
               <select aria-label={`จำนวนคืน ${l.skuName}`} disabled={max[i] === 0} value={qty[i]} onChange={(e) => setQty((c) => c.map((v, k) => (k === i ? Number(e.target.value) : v)))}
                 className="w-24 shrink-0 rounded-[11px] border border-[#E2E8E4] bg-white px-2 py-2 text-sm dark:border-white/10 dark:bg-[#0f1117]">
                 {Array.from({ length: Math.floor(max[i]) + 1 }, (_, n) => <option key={n} value={n}>{n}</option>)}

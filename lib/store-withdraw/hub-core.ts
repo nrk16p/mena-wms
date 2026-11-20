@@ -1,7 +1,7 @@
 // lib/store-withdraw/hub-core.ts — ตรรกะล้วนของอะไหล่ Hub (ไม่แตะ DB/env)
 import type { SwLine, SwRequest, SwHubStatus, SwWorkType } from "./types"
 import { issuedOf } from "./pending"
-import { isPendingFlow } from "./core"
+import { isPendingFlow, returnableQty } from "./core"
 
 /** PR เติมของ Hub ต้องเปิดภายใน 24 ชม. หลังจ่าย */
 export const HUB_PR_DUE_MS = 24 * 3600_000
@@ -115,4 +115,14 @@ export const HUB_ACTION_LABEL: Record<string, string> = {
   "hubRestore-skipped": "ข้ามการคืนยอด Hub (ต้องเช็กเอง)",
   "hubClosed-wdDone": "ปิดใบแล้ว แต่ WD Hub ตัดไปแล้ว ยังต้องผูก PR",
   hubPr: "ผูก PR อะไหล่ Hub",
+}
+
+/** จำนวนที่ขอคืนได้ต่อบรรทัด (หักที่ขอคืนค้างอยู่) · บรรทัด Hub = 0 (phase 1 คืนผ่านใบเบิกไม่ได้ API ปฏิเสธอยู่แล้ว) */
+export function returnMaxOf(r: { lines: SwLine[]; returns: { status: string; lines: { lineIndex: number; qty: number }[] }[] }): number[] {
+  const pending = new Map<number, number>()
+  for (const o of r.returns) {
+    if (o.status === "RETURNED") continue // ตรงกับ RETURN_HOLD ใน service.ts (รวม RETURN_FAILED)
+    for (const l of o.lines) pending.set(l.lineIndex, (pending.get(l.lineIndex) ?? 0) + l.qty)
+  }
+  return r.lines.map((l, i) => (isHubLine(l) ? 0 : returnableQty(l, pending.get(i) ?? 0)))
 }
