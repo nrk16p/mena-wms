@@ -249,6 +249,35 @@ async function main() {
   eq(dupe.length, 0)
   eq((await c.moves.find({ type: "adjust" }).toArray()).length, 0) // ใบ pending ไม่เคยคืนยอดแบบ restore
 
+  // ---- 9. ส่งของชนกับการปฏิเสธ: ตัดยอด Hub แล้ว แต่ reject ชนะก่อนสลับ HANDED_OUT → คืนยอดทันที (ยังไม่มี WD Hub) ----
+  {
+    const { Collection } = await import("mongodb")
+    await setStock(5)
+    const n9 = await seed("P-RACE", [line({}), hubLine(2)])
+    const realInsert = Collection.prototype.insertOne
+    // แทรก reject หลังเขียนแถวตัดยอด (ระหว่าง cut กับ transition) — จำลองสโตร์อีกคนกดปฏิเสธพร้อมกัน
+    Collection.prototype.insertOne = async function (this: InstanceType<typeof Collection>, doc: never, opts?: never) {
+      const r = await realInsert.call(this, doc, opts)
+      const d = doc as { type?: string; refNo?: string }
+      if (this.collectionName === "hub_moves" && d.type === "issue" && d.refNo === n9) {
+        await (await swCol()).updateOne({ no: n9, status: "READY" }, { $set: { status: "REJECTED", rejectReason: "ชน" } })
+      }
+      return r
+    } as typeof realInsert
+    try {
+      await assert.rejects(S.handOut(n9, store), (e: Error) => e.name === "ConflictError")
+    } finally {
+      Collection.prototype.insertOne = realInsert
+    }
+    const d9 = await get(n9)
+    eq(d9.status, "REJECTED"); eq(await stock(), 5); assert.ok(d9.hubRestoredAt instanceof Date); eq(d9.hubIssuedAt ?? null, null)
+    const { swLogCol } = await import("../lib/store-withdraw/db")
+    eq((await (await swLogCol()).find({ no: n9, action: "hubRestore" }).toArray()).length, 1)
+    eq((await (await swLogCol()).find({ no: n9, action: "hubCut-orphan" }).toArray()).length, 0)
+    // ยอด = ผลรวมสมุดของใบนี้ (ตัด −2 คืน +2)
+    eq((await c.moves.find({ $or: [{ refNo: n9 }, { refNo: `${n9}:restore` }] }).toArray()).reduce((n, m) => n + m.qty, 0), 0)
+  }
+
   await client.db("hub_settle_test").dropDatabase()
   await client.db("hub_settle_core_test").dropDatabase()
   await client.close()

@@ -10,7 +10,7 @@ import { isPendingFlow } from "./core"
 import { HttpError } from "./http"
 import { MSG, STUCK_MS, callNcac, interpret, takeHubWdLock, toWire } from "./issue"
 import { hubCutPlan, hubStatusOf, isHubLine } from "./hub-core"
-import { cutHubForRequest, getHubSite, returnHubLeftover } from "./hub-db"
+import { HUB_RESTORE_NOTE, cutHubForRequest, getHubSite, restoreHubForRequest, returnHubLeftover } from "./hub-db"
 import { linkAttachments, resolveLinkable } from "./attachments"
 import { buildSettleGroups, leftoverTotal, parseDue, parseSummary, settleRemark, summaryAttachIds } from "./pending"
 import type { AtmsProgress, SwRequest, SwSettleGroup } from "./types"
@@ -53,10 +53,26 @@ export async function handOut(no: string, actor: Actor): Promise<SwRequest> {
   try {
     return await transition(no, "handOut", actor, { hubIssuedAt, hubStatus: hubStatusOf({ ...cur, status: "HANDED_OUT", hubIssuedAt }) })
   } catch (e) {
-    // ตัดยอดแล้วแต่ใบถูกเปลี่ยนสถานะไปก่อน (เช่นถูกปฏิเสธพร้อมกัน) — ใบ pending ไม่คืนยอดอัตโนมัติ ให้คนตามปรับยอดเอง
+    // ตัดยอดแล้วแต่ใบถูกเปลี่ยนสถานะไปก่อน (เช่นถูกปฏิเสธพร้อมกัน)
+    // ใบปิดแล้วและไม่เคยส่งของ (hubIssuedAt ว่าง) = ยังไม่มี WD Hub แน่นอน (ใบ pending ยิง WD Hub ตอน settle) → คืนยอดที่เพิ่งตัดทันที
+    // สถานะอื่น (ไม่ควรเกิด) = ไม่แตะยอด ลง log ให้คนตาม
     const latest = await col.findOne({ no })
     if (plan.length && latest && latest.status !== "HANDED_OUT") {
-      await writeLog({ no, action: "hubCut-orphan", from: latest.status, to: latest.status, actor: who(actor), note: "ตัดยอด Hub แล้วแต่ส่งของไม่สำเร็จ ตรวจยอด Hub แล้วปรับเอง" })
+      const closed = (latest.status === "REJECTED" || latest.status === "CANCELLED") && !latest.hubIssuedAt
+      let restored = -1
+      if (closed) {
+        try {
+          restored = await restoreHubForRequest(no, { email: actor.email, name: actor.name }, HUB_RESTORE_NOTE)
+          await col.updateOne({ no }, { $set: { hubRestoredAt: new Date() } })
+        } catch (err) {
+          console.error("[store-withdraw] คืนยอด Hub (handOut ชน) ไม่สำเร็จ", no, err instanceof Error ? err.message : err)
+        }
+      }
+      if (restored >= 0) {
+        await writeLog({ no, action: "hubRestore", from: latest.status, to: latest.status, actor: who(actor), note: `ส่งของชนกับการปิดใบ ${HUB_RESTORE_NOTE} ${restored} บรรทัด` })
+      } else {
+        await writeLog({ no, action: "hubCut-orphan", from: latest.status, to: latest.status, actor: who(actor), note: "ตัดยอด Hub แล้วแต่ส่งของไม่สำเร็จ ตรวจยอด Hub แล้วปรับเอง" })
+      }
     }
     throw e
   }
