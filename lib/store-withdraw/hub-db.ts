@@ -23,6 +23,8 @@ export type HubMove = {
   by: { email: string; name: string }; at: Date
 }
 type By = { email: string; name: string }
+/** ประวัติแก้ master ของ Hub (คลัง Hub / Sub / รายการอะไหล่) — append-only · before ว่าง = สร้างใหม่ */
+export type HubMasterLog = { type: "sites" | "vendors" | "items"; key: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null; by: By; at: Date }
 type Plan = ReturnType<typeof hubCutPlan>
 
 const indexed = new WeakSet<Db>()
@@ -36,6 +38,7 @@ export async function hubCols() {
     stock: db.collection<HubStock>("hub_stock"),
     moves: db.collection<HubMove>("hub_moves"),
     locks: db.collection<{ _id: string; at: Date; owner?: string }>("hub_locks"),
+    masterLog: db.collection<HubMasterLog>("hub_master_log"),
   }
   if (!indexed.has(db)) {
     const key = { inventoryId: 1, vendorCode: 1, skuId: 1 } as const
@@ -48,6 +51,7 @@ export async function hubCols() {
       cols.moves.createIndex({ refNo: 1 }),
       cols.vendors.createIndex({ code: 1 }, { unique: true }),
       cols.sites.createIndex({ inventoryId: 1 }, { unique: true }),
+      cols.masterLog.createIndex({ type: 1, key: 1, at: -1 }),
     ])
     indexed.add(db)
   }

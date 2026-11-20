@@ -18,7 +18,7 @@ const write = (method: "POST" | "PATCH" | "PUT") => (req: NextRequest) =>
   guard(async () => {
     const actor = await getHubActor(req, "edit")
     if (isResponse(actor)) return actor
-    return hubMasterWrite(method, req.nextUrl.searchParams, await readJson(req))
+    return hubMasterWrite(method, req.nextUrl.searchParams, await readJson(req), actor)
   })
 export const POST = write("POST")
 export const PATCH = write("PATCH")

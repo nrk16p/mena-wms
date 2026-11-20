@@ -27,17 +27,26 @@ async function main() {
   const cols = await h.hubCols()
 
   // ตั้งค่า: site/vendor ผ่าน master API
-  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: 4, atmsHubInventoryId: 99 }))).status, 200)
-  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: -1, atmsHubInventoryId: 99 }))).status, 400)
-  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: 4.5, atmsHubInventoryId: 99 }))).status, 400)
-  eq((await run(() => a.hubMasterWrite("POST", q("type=vendors"), { code: "V1", name: "อู่หนึ่ง" }))).status, 200)
-  eq((await run(() => a.hubMasterWrite("POST", q("type=vendors"), { code: "V2", name: "อู่สอง" }))).status, 200)
-  eq((await run(() => a.hubMasterWrite("POST", q("type=vendors"), { code: "", name: "x" }))).status, 400)
-  eq((await run(() => a.hubMasterWrite("PATCH", q("type=vendors"), { code: "V2", active: false }))).status, 200)
-  eq((await run(() => a.hubMasterWrite("PATCH", q("type=vendors"), { code: "ZZ", active: false }))).status, 404)
+  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: 4, atmsHubInventoryId: 99 }, actor))).status, 200)
+  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: -1, atmsHubInventoryId: 99 }, actor))).status, 400)
+  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: 4.5, atmsHubInventoryId: 99 }, actor))).status, 400)
+  eq((await run(() => a.hubMasterWrite("POST", q("type=vendors"), { code: "V1", name: "อู่หนึ่ง" }, actor))).status, 200)
+  eq((await run(() => a.hubMasterWrite("POST", q("type=vendors"), { code: "V2", name: "อู่สอง" }, actor))).status, 200)
+  eq((await run(() => a.hubMasterWrite("POST", q("type=vendors"), { code: "", name: "x" }, actor))).status, 400)
+  eq((await run(() => a.hubMasterWrite("PATCH", q("type=vendors"), { code: "V2", active: false }, actor))).status, 200)
+  eq((await run(() => a.hubMasterWrite("PATCH", q("type=vendors"), { code: "ZZ", active: false }, actor))).status, 404)
   eq((await run(() => a.hubMasterGet(q("type=vendors")))).body.rows.map((v: { code: string; active: boolean }) => [v.code, v.active]), [["V1", true], ["V2", false]])
   eq((await run(() => a.hubMasterGet(q("type=sites")))).body.rows, [{ inventoryId: 4, atmsHubInventoryId: 99, active: true }])
   eq((await run(() => a.hubMasterGet(q("")))).status, 400)
+  // ประวัติแก้ master (6.9): ทุกการแก้ที่สำเร็จลง hub_master_log ค่าก่อน/หลัง + ผู้แก้ · ที่ล้มไม่ลง
+  const mlog = async (type: string, key: string) => (await cols.masterLog.find({ type, key }, { projection: { _id: 0 } }).sort({ at: 1 }).toArray())
+  const sl = await mlog("sites", "4")
+  eq(sl.length, 1); eq(sl[0].before, null); eq(sl[0].after, { inventoryId: 4, atmsHubInventoryId: 99, active: true }); eq(sl[0].by, { email: actor.email, name: actor.name }); assert.ok(sl[0].at instanceof Date)
+  const vl = await mlog("vendors", "V2")
+  eq(vl.length, 2); eq(vl[0].before, null); eq((vl[0].after as { name: string }).name, "อู่สอง")
+  eq([(vl[1].before as { active: boolean }).active, (vl[1].after as { active: boolean }).active], [true, false])
+  eq((await mlog("vendors", "ZZ")).length, 0)
+  eq(await cols.masterLog.countDocuments({ type: "sites" }), 1) // PUT ที่ 400 ไม่ลง
 
   const line = { skuId: 501, skuCode: "S501", skuName: "น้ำมันเครื่อง", unit: "ลิตร", price: 120, qty: 10 }
   const rcv = (b: Record<string, unknown>) => run(() => a.hubReceiveHandler(b, actor))
@@ -99,10 +108,13 @@ async function main() {
   eq((await run(() => a.hubItemsHandler(q("inventoryId=4&q=(")))).status, 200)
 
   // master items PATCH
-  const pt = (b: Record<string, unknown>) => run(() => a.hubMasterWrite("PATCH", q("type=items"), b))
+  const pt = (b: Record<string, unknown>) => run(() => a.hubMasterWrite("PATCH", q("type=items"), b, actor))
   eq((await pt({ inventoryId: 4, vendorCode: "V1", skuId: 501, price: 99, unit: "แกลลอน", active: false })).status, 200)
   const it2 = await cols.items.findOne({ skuId: 501 })
   eq([it2?.price, it2?.unit, it2?.active], [99, "แกลลอน", false])
+  const il = await mlog("items", "4|V1|501")
+  eq(il.length, 1); eq([(il[0].after as { price: number }).price, (il[0].after as { unit: string }).unit], [99, "แกลลอน"])
+  assert.notEqual((il[0].before as { price: number }).price, 99)
   eq((await pt({ inventoryId: 4, vendorCode: "V1", skuId: 777 })).status, 404)
   eq((await pt({ inventoryId: 4, vendorCode: "V1", skuId: 501, price: -1 })).status, 400)
   eq((await run(() => a.hubItemsHandler(q("inventoryId=4&q=น้ำมัน")))).body.results, []) // ปิดแล้วไม่ขึ้นในฟอร์ม

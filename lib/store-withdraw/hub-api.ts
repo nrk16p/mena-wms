@@ -120,28 +120,43 @@ export async function hubMasterGet(p: Params): Promise<NextResponse> {
   return NextResponse.json({ rows: await c.sites.find({}, { projection: { _id: 0 } }).sort({ inventoryId: 1 }).toArray() })
 }
 
-export async function hubMasterWrite(method: "POST" | "PATCH" | "PUT", p: Params, body: Record<string, unknown>): Promise<NextResponse> {
+export async function hubMasterWrite(method: "POST" | "PATCH" | "PUT", p: Params, body: Record<string, unknown>, actor: Actor): Promise<NextResponse> {
   const t = masterType(p)
   if (!t) return err("ต้องระบุ type = items / vendors / sites", 400)
   const c = await hubCols()
+  const by = { email: actor.email, name: actor.name }
+  const noId = { projection: { _id: 0 } } as const
+  // ลงประวัติหลังแก้สำเร็จ (ค่าก่อน/หลังทั้งแถว) — พังตอนลง log ไม่ทำให้การแก้ล้ม (แก้ไปแล้ว)
+  const audit = async (key: string, before: object | null, after: object | null) => {
+    try {
+      await c.masterLog.insertOne({ type: t, key, before: before as Record<string, unknown> | null, after: after as Record<string, unknown> | null, by, at: new Date() })
+    } catch (e) {
+      console.error("[hub] ลงประวัติแก้ master ไม่สำเร็จ", t, key, e instanceof Error ? e.message : e)
+    }
+  }
   if (t === "sites" && method === "PUT") {
     const inventoryId = posInt(body.inventoryId), atms = posInt(body.atmsHubInventoryId)
     if (!inventoryId || !atms) return err("เลขคลังและเลขคลัง Hub ใน ATMS ต้องเป็นจำนวนเต็มมากกว่า 0", 400)
     const active = body.active !== false
+    const before = await c.sites.findOne({ inventoryId }, noId)
     await c.sites.updateOne({ inventoryId }, { $set: { atmsHubInventoryId: atms, active } }, { upsert: true })
+    await audit(String(inventoryId), before, await c.sites.findOne({ inventoryId }, noId))
     return NextResponse.json({ site: { inventoryId, atmsHubInventoryId: atms, active } })
   }
   if (t === "vendors" && method === "POST") {
     const code = str(body.code), name = str(body.name)
     if (!code || !name) return err("ต้องใส่รหัสและชื่อ Sub", 400)
+    const before = await c.vendors.findOne({ code }, noId)
     await c.vendors.updateOne({ code }, { $set: { name, active: true }, $setOnInsert: { createdAt: new Date() } }, { upsert: true })
+    await audit(code, before, await c.vendors.findOne({ code }, noId))
     return NextResponse.json({ vendor: { code, name, active: true } })
   }
   if (t === "vendors" && method === "PATCH") {
     const code = str(body.code)
     if (!code || typeof body.active !== "boolean") return err("ต้องระบุรหัส Sub และเปิด/ปิด", 400)
-    const r = await c.vendors.updateOne({ code }, { $set: { active: body.active } })
-    if (!r.matchedCount) return err("ไม่พบ Sub รายนี้", 404)
+    const before = await c.vendors.findOneAndUpdate({ code }, { $set: { active: body.active } }, { ...noId, returnDocument: "before" })
+    if (!before) return err("ไม่พบ Sub รายนี้", 404)
+    await audit(code, before, await c.vendors.findOne({ code }, noId))
     return NextResponse.json({ ok: true })
   }
   if (t === "items" && method === "PATCH") {
@@ -157,8 +172,9 @@ export async function hubMasterWrite(method: "POST" | "PATCH" | "PUT", p: Params
       if (typeof body.active !== "boolean") return err("เปิด/ปิดไม่ถูกต้อง", 400)
       set.active = body.active
     }
-    const r = await c.items.updateOne({ inventoryId, vendorCode, skuId }, { $set: set })
-    if (!r.matchedCount) return err("ไม่พบรายการนี้", 404)
+    const before = await c.items.findOneAndUpdate({ inventoryId, vendorCode, skuId }, { $set: set }, { ...noId, returnDocument: "before" })
+    if (!before) return err("ไม่พบรายการนี้", 404)
+    await audit(`${inventoryId}|${vendorCode}|${skuId}`, before, await c.items.findOne({ inventoryId, vendorCode, skuId }, noId))
     return NextResponse.json({ ok: true })
   }
   throw new HttpError("วิธีเรียกไม่ตรงกับ type นี้", 405)
