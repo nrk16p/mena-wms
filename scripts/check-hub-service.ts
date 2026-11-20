@@ -62,6 +62,24 @@ async function main() {
   const logs = await (await swLogCol()).find({ no: "P-1", action: "hubPr" }).toArray()
   eq(logs.length, 1); eq(logs[0].note, "- → PR-0001")
 
+  // 1b. hubPr กับ hubStatus เขียนในคำสั่งเดียว (ไม่มี updateOne ตามหลังแยก)
+  {
+    const { Collection } = await import("mongodb")
+    await seed("P-1b", [line({}), hubLine()])
+    const realFou = Collection.prototype.findOneAndUpdate, realUpd = Collection.prototype.updateOne
+    const sets: Record<string, unknown>[] = []
+    Collection.prototype.findOneAndUpdate = function (this: InstanceType<typeof Collection>, ...a: unknown[]) {
+      if (this.collectionName === "store_withdraw_requests") sets.push(((a[1] as { $set?: Record<string, unknown> }).$set) ?? {})
+      return (realFou as (...x: unknown[]) => unknown).apply(this, a)
+    } as typeof realFou
+    Collection.prototype.updateOne = function (this: InstanceType<typeof Collection>, ...a: unknown[]) {
+      if (this.collectionName === "store_withdraw_requests") sets.push({ extra: true })
+      return (realUpd as (...x: unknown[]) => unknown).apply(this, a)
+    } as typeof realUpd
+    try { await bindHubPr("P-1b", { code: "PR-0001", id: null }, owner, false) } finally { Collection.prototype.findOneAndUpdate = realFou; Collection.prototype.updateOne = realUpd }
+    eq(sets.length, 1); eq(sets[0].hubStatus, "DONE"); assert.ok("hubPr" in sets[0])
+  }
+
   // 2. เปลี่ยน PR ซ้ำได้ (สโตร์ก็ทำได้) log old → new
   await bindHubPr("P-1", { code: "PR-0002", id: null }, store, true)
   eq((await get("P-1")).hubPr!.code, "PR-0002")

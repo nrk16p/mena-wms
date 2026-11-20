@@ -20,10 +20,10 @@ export async function bindHubPr(no: string, body: { code: unknown; id: unknown }
   const ref = p.ref!
   const hubPr = { code: ref.code, id: ref.id, by: { email: actor.email, name: actor.name }, at: new Date() }
   // เงื่อนไข hubPr เดิม + status เดิม: ถ้ามีคนผูก/ปิดใบพร้อมกันจะไม่ผ่าน · hubStatus เขียนในคำสั่งเดียวกัน (ไม่มีช่วงค่าเก่าค้าง)
-  // WD Hub เปลี่ยนพร้อมกัน (ลองตัดใหม่สำเร็จ) → hubWd.code/approved อยู่ในเงื่อนไขด้วย ค่าที่คิดไว้จึงไม่ผิด
+  // ส่งของ/WD Hub เปลี่ยนพร้อมกัน → hubIssuedAt, hubWd.code/approved อยู่ในเงื่อนไขด้วย ค่าที่คิดไว้จึงไม่ผิด
   const hubStatus = hubStatusOf({ ...cur, hubPr })
   const after = await col.findOneAndUpdate(
-    { no, status: cur.status, hubPr: cur.hubPr ?? null, "hubWd.code": cur.hubWd?.code ?? null, "hubWd.approved": cur.hubWd?.approved ?? null } as never,
+    { no, status: cur.status, hubPr: cur.hubPr ?? null, hubIssuedAt: cur.hubIssuedAt ?? null, "hubWd.code": cur.hubWd?.code ?? null, "hubWd.approved": cur.hubWd?.approved ?? null } as never,
     { $set: { hubPr, hubStatus, updatedAt: new Date() } },
     { returnDocument: "after" },
   )

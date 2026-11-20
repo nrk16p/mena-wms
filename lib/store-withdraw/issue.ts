@@ -171,8 +171,15 @@ async function cutHub(claimed: SwRequest, prior: SwRequest["status"], actor: Act
     await writeLog({ no, action: res.busy ? "hubBusy" : "hubShort", from: "ISSUING", to: back, actor: { email: actor.email, name: actor.name, via: actor.via }, note: msg })
     throw new HttpError(msg, 409)
   }
-  const after = await col.findOneAndUpdate({ no, hubIssuedAt: null }, { $set: { hubIssuedAt: new Date() } }, { returnDocument: "after" })
-  if (after) await col.updateOne({ no }, { $set: { hubStatus: hubStatusOf(after) } })
+  // hubIssuedAt + hubStatus ในคำสั่งเดียว (ไม่มีช่วงที่ส่งแล้วแต่ hubStatus ยัง WAIT_ISSUE)
+  // ผู้ขอผูก PR พร้อมกันได้ → เงื่อนไข hubPr เดิม ไม่ผ่าน = อ่านใหม่แล้วคิดอีกรอบ
+  const hubIssuedAt = new Date()
+  let cur: SwRequest | null = claimed
+  for (let i = 0; i < 3 && cur && !cur.hubIssuedAt; i++) {
+    const r = await col.updateOne({ no, hubIssuedAt: null, hubPr: cur.hubPr ?? null } as never, { $set: { hubIssuedAt, hubStatus: hubStatusOf({ ...cur, hubIssuedAt }) } })
+    if (r.modifiedCount) return
+    cur = await col.findOne({ no })
+  }
 }
 
 const wireLine = (line: SwLine) => ({

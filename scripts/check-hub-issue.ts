@@ -99,6 +99,30 @@ async function main() {
   const rows1 = await (await baseCol()).find({ swNo: n1 }).sort({ row_key: 1 }).toArray()
   eq(rows1.map((r) => [r.row_key, r.wdCode, r.skuCode]), [[`sw:${n1}:0`, "LBWD-N1", "N-11"], [`sw:${n1}:1`, "LBWD-H1", "S501"]])
 
+  // ---- 1b. ตัดยอด Hub: hubIssuedAt กับ hubStatus เขียนคำสั่งเดียว · ผู้ขอผูก PR แทรกกลางทาง → คิดสถานะจากค่า PR ใหม่ ----
+  {
+    const { Collection } = await import("mongodb")
+    await setStock(5)
+    const nS = await seed("H-ONESTEP", [hubLine(1)])
+    const realUpd = Collection.prototype.updateOne
+    const seen: Record<string, unknown>[] = []
+    let raced = false
+    Collection.prototype.updateOne = async function (this: InstanceType<typeof Collection>, f: never, u: never, o?: never) {
+      const set = (u as { $set?: Record<string, unknown> }).$set
+      if (this.collectionName === "store_withdraw_requests" && set && "hubIssuedAt" in set) {
+        seen.push(set)
+        if (!raced) { raced = true; await realUpd.call(this, { no: nS } as never, { $set: { hubPr: { code: "PR-RACE", id: null, by: store, at: new Date() } } } as never) }
+      }
+      return realUpd.call(this, f, u, o)
+    } as typeof realUpd
+    calls = []
+    handler = () => ({ status: 500, body: { detail: "พัง" } }) // WD Hub ล้ม → hubStatus หลังตัดยอดต้องเป็น WAIT_WD (มี PR แล้ว)
+    try { await issueRequest(nS, store) } finally { Collection.prototype.updateOne = realUpd }
+    assert.ok(seen.length >= 1 && seen.every((x) => "hubStatus" in x), "hubIssuedAt ต้องมากับ hubStatus เสมอ")
+    eq(seen[seen.length - 1].hubStatus, "WAIT_WD")
+    eq((await get(nS)).hubStatus, "WAIT_WD"); eq((await get(nS)).hubPr!.code, "PR-RACE")
+  }
+
   // ---- 2. ใบมีแต่ Hub → ยิงครั้งเดียว (คลัง Hub) · ISSUED ----
   await setStock(5)
   const n2 = await seed("H-ONLY", [hubLine(2)])
