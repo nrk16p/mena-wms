@@ -36,6 +36,7 @@
 - ไม่ push main จนผู้ใช้สั่ง (main auto-deploy Vercel)
 - WD ใช้ endpoint เดิม `POST /atms/withdraw/issue` ของ api-ncac (ไม่ต้องแก้ api-ncac) ด้วยบัญชี ATMS ของสโตร์คนที่กด
 - ค้น PR ใช้ `/atms/withdraw/doc/search` + `/doc/pr/{id}` เดิม (อ่านอย่างเดียว)
+- API ของ WMS ส่วนใหญ่ถูก rewrite ไป mena-backend-services (`next.config.ts`, `BACKEND_API_URL`) ยกเว้น `STAY_PREFIXES` → route ใหม่ทั้งหมดต้องอยู่ใต้ `/api/store-withdraw/*` (รวม `/api/store-withdraw/hub/*`) หรือ `/api/vendor-portal/*` เท่านั้น เพื่อรันบน Vercel (ใช้ `NCAC_API_KEY` / `vp_session` ได้) และไม่ต้อง resync mena-backend-services · ห้ามสร้าง `/api/hub/*`
 - รหัสอะไหล่ Hub = SKU เดียวกับ ATMS (มี skuId จาก `atms_sku_master`) — ไม่งั้นตัด WD ไม่ได้
 - WD ของ Hub จะผ่านได้เมื่อ ATMS มีสต๊อก SKU นั้นแล้ว (ขารับทำแยก) → ต้องรองรับ "ลองใหม่"
 
@@ -65,6 +66,8 @@
 - ใบถูก reject / closeManual หลังตัดยอด Hub แล้ว และ WD Hub ยังไม่สำเร็จ → คืนยอด Hub อัตโนมัติ (move `adjust` +) · WD Hub สำเร็จแล้ว = ไม่คืน
 - phase 1 บรรทัด Hub ใช้ flow คืนของ (returns) ไม่ได้ — ปุ่มคืนซ่อน + API ปฏิเสธ (ยกเว้นของเหลือจากสรุป Mobile/PM ที่คืนเข้ายอด Hub ตามข้อบน)
 - บรรทัดซาก (core-return) ของบรรทัด Hub สร้างเหมือนของปกติ แต่หลัง WD Hub สำเร็จเท่านั้น
+- กล่อง Hub ใช้ได้กับงานอู่ใน + Mobile/PM เท่านั้น · อู่นอก (ซื้อมาใช้เลย) ซ่อนกล่อง Hub
+- ยอด Hub ไม่พอตอนจ่าย = ไม่ตัดสักบรรทัด ใบกลับเป็น READY ให้แก้จำนวน
 - Sub ที่ยังไม่มีบัญชี vendor-portal → สร้างจากปุ่มเดิมที่ `/ap-tracking/suppliers` ไม่ต้องทำอะไรเพิ่ม
 
 ## 6. การออกแบบ
