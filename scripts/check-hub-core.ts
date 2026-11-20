@@ -26,6 +26,13 @@ assert.equal(hubStatusOf(req({ hubIssuedAt: at, hubWd: wdOk })), "WAIT_PR")
 assert.equal(hubStatusOf(req({ hubIssuedAt: at, hubWd: wdOk, hubPr: pr })), "DONE")
 assert.equal(hubStatusOf(req({ status: "REJECTED" })), "NONE")
 assert.equal(hubStatusOf(req({ status: "CANCELLED", hubIssuedAt: at })), "NONE")
+// ปิดใบแล้วแต่ WD Hub ตัดไปแล้ว = ยังค้าง PR (ผูกแล้ว = DONE) · เกินกำหนดนับต่อ · WD Hub ยังไม่ตัด = NONE ไม่เตือน
+assert.equal(hubStatusOf(req({ status: "REJECTED", hubIssuedAt: at, hubWd: wdOk })), "WAIT_PR")
+assert.equal(hubStatusOf(req({ status: "REJECTED", hubIssuedAt: at, hubWd: wdOk, hubPr: pr })), "DONE")
+assert.equal(hubStatusOf(req({ status: "REJECTED", hubIssuedAt: at, hubWd: prog({ code: "WD1" }) })), "NONE")
+assert.equal(hubStatusOf(req({ status: "REJECTED", hubIssuedAt: at, lines: [line(), hubL({ issuedQty: 0 })], hubWd: wdOk })), "NONE")
+assert.equal(hubPrOverdue(req({ status: "REJECTED", hubIssuedAt: at, hubWd: wdOk }), new Date(at.getTime() + 48 * 3600_000)), true)
+assert.equal(hubPrOverdue(req({ status: "REJECTED", hubIssuedAt: at, hubWd: prog() }), new Date(at.getTime() + 48 * 3600_000)), false)
 
 const h = (ms: number) => new Date(at.getTime() + ms)
 assert.equal(HUB_PR_DUE_MS, 24 * 3600_000)

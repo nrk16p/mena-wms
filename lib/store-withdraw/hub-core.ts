@@ -39,8 +39,23 @@ export function hubWdDone(r: Pick<SwRequest, "hubWd" | "settleGroups" | "lines">
 const hubNothingOut = (r: { hubIssuedAt?: Date | null; lines?: SwLine[] }): boolean =>
   !!r.hubIssuedAt && !!r.lines?.some(isHubLine) && hubIssueLines(r.lines).length === 0
 
+const isClosed = (s: string | undefined) => s === "REJECTED" || s === "CANCELLED"
+
+/**
+ * ใบปิดแบบไม่สำเร็จ (ปฏิเสธจาก ISSUE_FAILED / closeManual) แต่ WD Hub ตัดใน ATMS ไปแล้ว = ของ Hub ออกไปจริง ยังต้องตาม PR
+ * อู่ใน: hubWd ได้เลข + อนุมัติแล้ว · Mobile/PM: กลุ่ม Hub ทุกกลุ่ม DONE
+ */
+export function hubClosedWdDone(r: Pick<SwRequest, "status" | "lines" | "hubWd" | "settleGroups"> & Partial<Pick<SwRequest, "hubIssuedAt" | "summary" | "summaryDueAt" | "workType">>): boolean {
+  if (!isClosed(r.status) || !r.hubIssuedAt) return false
+  if (hubIssueLines(r.lines).length === 0) return false
+  if (!isPendingFlow(r)) return !!(r.hubWd?.code && r.hubWd.approved)
+  const groups = (r.settleGroups ?? []).filter(g => g.hub)
+  return groups.length > 0 && groups.every(g => g.status === "DONE")
+}
+
 export function hubStatusOf(r: SwRequest): SwHubStatus {
-  if (r.status === "REJECTED" || r.status === "CANCELLED") return "NONE"
+  // ปิดใบแล้ว: WD Hub ตัดไปแล้ว = ยังค้าง PR (ผูกแล้ว = DONE) · ยังไม่ตัด = ไม่มีอะไรต้องตาม
+  if (isClosed(r.status)) return hubClosedWdDone(r) ? (r.hubPr ? "DONE" : "WAIT_PR") : "NONE"
   if (!r.lines.some(isHubLine)) return "NONE"
   if (!r.hubIssuedAt) return "WAIT_ISSUE"
   if (hubNothingOut(r)) return "NONE"
@@ -52,8 +67,10 @@ export function hubStatusOf(r: SwRequest): SwHubStatus {
   return "DONE"
 }
 
-export function hubPrOverdue(r: Pick<SwRequest, "hubIssuedAt" | "hubPr"> & Partial<Pick<SwRequest, "lines">>, now: Date): boolean {
+export function hubPrOverdue(r: Pick<SwRequest, "hubIssuedAt" | "hubPr"> & Partial<Pick<SwRequest, "lines" | "status" | "hubWd" | "settleGroups" | "summary" | "summaryDueAt" | "workType">>, now: Date): boolean {
   if (!r.hubIssuedAt || r.hubPr || hubNothingOut(r)) return false
+  // ใบปิดแล้วที่ WD Hub ยังไม่ได้ตัด = ไม่ต้องตาม PR · ตัดแล้ว = ยังนับเกินกำหนดตามปกติ
+  if (isClosed(r.status) && !hubClosedWdDone({ ...r, status: r.status, lines: r.lines ?? [] })) return false
   return now.getTime() - new Date(r.hubIssuedAt).getTime() > HUB_PR_DUE_MS
 }
 
@@ -96,5 +113,6 @@ export const HUB_ACTION_LABEL: Record<string, string> = {
   "hubWd-after-close": "ได้ WD Hub หลังปิดใบ (ต้องเช็กเอง)",
   hubRestore: "คืนยอด Hub",
   "hubRestore-skipped": "ข้ามการคืนยอด Hub (ต้องเช็กเอง)",
+  "hubClosed-wdDone": "ปิดใบแล้ว แต่ WD Hub ตัดไปแล้ว ยังต้องผูก PR",
   hubPr: "ผูก PR อะไหล่ Hub",
 }

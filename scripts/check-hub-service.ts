@@ -74,8 +74,12 @@ async function main() {
   // 4. ไม่มี Hub → 409 · ปิดแล้ว → 409
   await seed("P-2", [line({})], { hubStatus: "NONE" })
   await rejects(bindHubPr("P-2", { code: "PR-0001", id: null }, owner, false), 409, /ไม่มีอะไหล่ Hub/)
-  await seed("P-3", [hubLine()], { status: "CANCELLED" })
+  await seed("P-3", [hubLine()], { status: "CANCELLED", hubWd: { ...baseAtms } })
   await rejects(bindHubPr("P-3", { code: "PR-0001", id: null }, owner, false), 409, /ปิดไปแล้ว/)
+  // ปิดแล้วแต่ WD Hub ตัดไปแล้ว (ของออกไปจริง) → ยังผูก PR ได้ → DONE
+  await seed("P-3b", [line({}), hubLine()], { status: "REJECTED" })
+  const r3b = await bindHubPr("P-3b", { code: "PR-0009", id: null }, store, true)
+  eq(r3b.hubStatus, "DONE"); eq((await get("P-3b")).hubStatus, "DONE")
 
   // 5. code สั้นเกิน → 400
   await seed("P-4", [hubLine()])

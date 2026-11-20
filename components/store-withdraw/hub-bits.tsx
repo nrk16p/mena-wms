@@ -50,8 +50,9 @@ export function HubBanner({ items, onShow, showing = false }: { items: HubItem[]
   )
 }
 
-/** ปุ่มผูก PR ขึ้นเมื่อใบมี Hub และยังไม่ปิด */
-export const canBindHubPr = (i: Pick<HubReq, "hubCount"> & { status: string }) => i.hubCount > 0 && i.status !== "REJECTED" && i.status !== "CANCELLED"
+/** ปุ่มผูก PR ขึ้นเมื่อใบมี Hub และยังไม่ปิด · ใบปิดแล้วที่ WD Hub ตัดไปแล้ว (WAIT_PR/DONE) ยังผูก/เปลี่ยนได้ */
+export const canBindHubPr = (i: Pick<HubReq, "hubCount"> & { status: string; hubStatus?: HubReq["hubStatus"] }) =>
+  i.hubCount > 0 && (i.status !== "REJECTED" && i.status !== "CANCELLED" || i.hubStatus === "WAIT_PR" || i.hubStatus === "DONE")
 
 export function HubBindDialog({ no, plate, inventoryId, current, onClose, onDone }: {
   no: string; plate: string; inventoryId: number; current?: string | null; onClose: () => void; onDone: () => void

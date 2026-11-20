@@ -46,7 +46,10 @@ async function main() {
   const { saveCreds } = await import("../lib/store-withdraw/creds")
   const { issueRequest, retryHubWd, MSG } = await import("../lib/store-withdraw/issue")
   const { editLines } = await import("../lib/store-withdraw/service")
-  const { hubWdDone } = await import("../lib/store-withdraw/hub-core")
+  const { hubWdDone, hubPrOverdue } = await import("../lib/store-withdraw/hub-core")
+  const { buildQueue } = await import("../lib/store-withdraw/service")
+  const { bindHubPr } = await import("../lib/store-withdraw/hub-service")
+  const { planCoreRows } = await import("../lib/core-return/sw-sync")
   const H = await import("../lib/store-withdraw/hub-db")
   const { baseCol } = await import("../lib/core-return/db")
   setStoreWithdrawClient(client)
@@ -224,6 +227,37 @@ async function main() {
   eq((await get(n8b)).status, "ISSUE_FAILED"); eq(await stock(), 3)
   await transition(n8b, "reject", store, { rejectReason: "ยกเลิก" })
   eq(await stock(), 3); eq((await get(n8b)).hubRestoredAt ?? null, null)
+  // ปิดใบแล้วแต่ WD Hub ตัดไปแล้ว = ยังค้าง PR: WAIT_PR · log · อยู่ในคิว · เกินกำหนดนับต่อ · แถวซาก Hub คงอยู่ · ผูก PR ได้ → DONE
+  const closedFollow = async (no: string, wdH: string) => {
+    const d = await get(no)
+    eq(d.status, "REJECTED"); eq(d.hubStatus, "WAIT_PR")
+    eq((await (await swLogCol()).find({ no, action: "hubClosed-wdDone" }).toArray()).length, 1)
+    const q = await buildQueue(4)
+    const inQ = q.DONE_TODAY.find((x) => x.no === no)
+    assert.ok(inQ, `${no} ต้องอยู่ในคิวรอ PR`); eq(inQ!.hubStatus, "WAIT_PR"); eq(inQ!.hubOverdue, false)
+    // ส่งของไปนานแล้ว (updatedAt เก่า) ก็ยังอยู่ในคิว + ขึ้นเกินกำหนด
+    const old = new Date(Date.now() - 3 * 86400_000)
+    await (await swCol()).updateOne({ no }, { $set: { hubIssuedAt: old, updatedAt: old } })
+    const q2 = (await buildQueue(4)).DONE_TODAY.find((x) => x.no === no)
+    assert.ok(q2); eq(q2!.hubOverdue, true)
+    eq(planCoreRows((await get(no))).filter((p) => p.wdCode === wdH).length, 1)
+    const b = await bindHubPr(no, { code: "PR-H01", id: null }, store, true)
+    eq(b.hubStatus, "DONE"); eq((await get(no)).hubStatus, "DONE")
+    eq(hubPrOverdue(await get(no), new Date()), false)
+  }
+  await closedFollow(n8b, "LBWD-H8")
+  // closeManual (WD ปกติมีหัวใบแล้ว) + WD Hub ok → เหมือนกัน
+  await setStock(5)
+  const n8d = await seed("H-CLOSEOK", [line({}), hubLine(2)])
+  handler = (x) => (isHubCall(x) ? okWd(807, "LBWD-H8D") : { status: 409, body: { detail: "ค้าง", progress: { gm_id: 709, done: [], approved: false, code: null } } })
+  await issueRequest(n8d, store)
+  eq((await get(n8d)).status, "ISSUE_FAILED"); eq(await stock(), 3)
+  await transition(n8d, "closeManual", store, { rejectReason: "ปิดมือ: x" })
+  eq(await stock(), 3); eq((await get(n8d)).hubRestoredAt ?? null, null)
+  await closedFollow(n8d, "LBWD-H8D")
+  // ใบปิดที่ WD Hub ยังไม่ตัด (คืนยอดแล้ว) → NONE · ไม่เกินกำหนด · ผูก PR ไม่ได้
+  eq(hubPrOverdue({ ...(await get(n8)), hubIssuedAt: new Date(0) }, new Date()), false)
+  await assert.rejects(bindHubPr(n8, { code: "PR-H02", id: null }, store, true), (e: Error) => e.name === "ConflictError")
   // A: WD ปกติล้ม (gmId null) + WD Hub ไม่ได้คำตอบ → reject ไม่คืนยอด (WD Hub อาจเกิดใน ATMS) + log ข้าม
   await setStock(5)
   const nA = await seed("H-REJUNK", [line({}), hubLine(2)])
@@ -261,8 +295,9 @@ async function main() {
   release(okWd(810, "LBWD-HB"))
   await pB
   const dB = await get(nB)
-  eq(dB.status, "REJECTED"); eq(dB.hubWd!.code, "LBWD-HB"); eq(dB.hubWdBusyAt ?? null, null); eq(dB.hubStatus, "NONE")
-  eq((await (await baseCol()).find({ swNo: nB }).toArray()).length, 0)
+  // ได้ WD Hub หลังปิด = ของออกไปจริง ยังค้าง PR + มีแถวซากของบรรทัด Hub
+  eq(dB.status, "REJECTED"); eq(dB.hubWd!.code, "LBWD-HB"); eq(dB.hubWdBusyAt ?? null, null); eq(dB.hubStatus, "WAIT_PR")
+  eq((await (await baseCol()).find({ swNo: nB }).toArray()).map((r) => r.wdCode), ["LBWD-HB"])
   eq((await (await swLogCol()).find({ no: nB, action: "hubWd-after-close" }).toArray()).length, 1)
   eq(await stock(), 3)
 

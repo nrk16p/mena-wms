@@ -340,7 +340,8 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
       { status: { $in: ["ISSUED", "RECEIVED", "SETTLED"] }, updatedAt: { $gte: new Date(now.getTime() - 48 * 3600_000) } },
       { status: { $in: ["ISSUED", "RECEIVED"] }, "returns.status": { $in: RETURN_HOLD } },
       // Hub ที่ยังรอ PR/WD Hub: อยู่ในคิวจนกว่าจะครบ ไม่ว่าส่งของมานานแค่ไหน (ค่า hubStatus ที่เก็บไว้ใช้คัดเบื้องต้น แล้วคิดสดทีหลัง)
-      { status: { $in: ["ISSUED", "RECEIVED", "SETTLED"] }, hubIssuedAt: { $ne: null }, hubStatus: { $in: ["WAIT_PR", "WAIT_PR_WD", "WAIT_WD"] } },
+      // ใบที่ปิดไปแล้ว (REJECTED) แต่ WD Hub ตัดแล้ว ยังต้องตาม PR → อยู่ในคิวด้วย (hubStatusOf ให้ WAIT_PR)
+      { status: { $in: ["ISSUED", "RECEIVED", "SETTLED", "REJECTED"] }, hubIssuedAt: { $ne: null }, hubStatus: { $in: ["WAIT_PR", "WAIT_PR_WD", "WAIT_WD"] } },
     ],
   }
   if (inventoryId != null) filter.inventoryId = inventoryId

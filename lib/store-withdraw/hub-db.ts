@@ -5,7 +5,7 @@ import type { Collection, Db } from "mongodb"
 import { getDb, swCol, writeLog, type Actor } from "./db"
 import { HttpError } from "./http"
 import { isPendingFlow } from "./core"
-import { hubStatusOf, hubWdDone, type hubCutPlan } from "./hub-core"
+import { hubClosedWdDone, hubStatusOf, hubWdDone, type hubCutPlan } from "./hub-core"
 import type { SwRequest } from "./types"
 
 export type HubSite = { inventoryId: number; atmsHubInventoryId: number; active: boolean }
@@ -209,6 +209,10 @@ export async function onHubClose(after: SwRequest, actor: Actor): Promise<SwRequ
       const n = await restoreHubForRequest(after.no, { email: actor.email, name: actor.name }, HUB_RESTORE_NOTE)
       doc = (await col.findOneAndUpdate({ no: after.no }, { $set: { hubRestoredAt: new Date() } }, { returnDocument: "after" })) ?? doc
       await writeLog({ no: after.no, action: "hubRestore", from: after.status, to: after.status, actor: { email: actor.email, name: actor.name, via: actor.via }, note: `${HUB_RESTORE_NOTE} ${n} บรรทัด` })
+    }
+    // WD Hub ตัดไปแล้ว = ไม่คืนยอด ของออกไปจริง ใบยังค้าง PR (อยู่ในคิว "รอ PR" จนผูก)
+    if (hubClosedWdDone(doc)) {
+      await writeLog({ no: after.no, action: "hubClosed-wdDone", from: after.status, to: after.status, actor: { email: actor.email, name: actor.name, via: actor.via }, note: `ปิดใบแล้ว แต่ WD Hub ${doc.hubWd?.code ?? "(Mobile/PM)"} ตัดไปแล้ว ไม่คืนยอด ยังต้องผูก PR` })
     }
     const hubStatus = hubStatusOf(doc)
     if (doc.hubStatus !== hubStatus) {

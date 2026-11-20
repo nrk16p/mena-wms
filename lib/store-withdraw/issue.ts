@@ -326,8 +326,9 @@ async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRe
     await col.updateOne({ no }, { $set: { hubStatus } })
     const after = { ...latest, hubStatus }
     if (latest.status === "REJECTED" || latest.status === "CANCELLED") {
-      // ไม่สร้างแถวซาก · ให้คนตามเก็บใน ATMS เอง
-      await writeLog({ no, action: "hubWd-after-close", from: latest.status, to: latest.status, actor: who, note: `${done.code ?? ""} ได้ WD Hub หลังปิดใบ ตรวจยอด Hub กับ ATMS` })
+      // ของ Hub ออกไปจริงแล้ว (ไม่ได้คืนยอด) → ใบยังค้าง PR (hubStatus WAIT_PR) + มีแถวซากเหมือนใบที่ WD Hub สำเร็จก่อนปิด
+      await writeLog({ no, action: "hubWd-after-close", from: latest.status, to: latest.status, actor: who, note: `${done.code ?? ""} ได้ WD Hub หลังปิดใบ ตรวจยอด Hub กับ ATMS · ยังต้องผูก PR` })
+      await syncCoreRowsSafe(after, actor)
       return after
     }
     await writeLog({ no, action: "hubWd", from: got.status, to: got.status, actor: who, note: done.code ?? "" })
