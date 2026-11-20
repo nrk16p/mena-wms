@@ -1,6 +1,7 @@
 // lib/store-withdraw/hub-core.ts — ตรรกะล้วนของอะไหล่ Hub (ไม่แตะ DB/env)
 import type { SwLine, SwRequest, SwHubStatus, SwWorkType } from "./types"
 import { issuedOf } from "./pending"
+import { isPendingFlow } from "./core"
 
 /** PR เติมของ Hub ต้องเปิดภายใน 24 ชม. หลังจ่าย */
 export const HUB_PR_DUE_MS = 24 * 3600_000
@@ -23,10 +24,9 @@ export function hubIssueLines(lines: SwLine[]): { index: number; line: SwLine }[
 }
 
 /** WD ของ Hub เสร็จหรือยัง (ไม่มีอะไรต้องตัด = เสร็จ) */
-export function hubWdDone(r: Pick<SwRequest, "hubWd" | "settleGroups" | "lines"> & Partial<Pick<SwRequest, "summary" | "summaryDueAt">>): boolean {
+export function hubWdDone(r: Pick<SwRequest, "hubWd" | "settleGroups" | "lines"> & Partial<Pick<SwRequest, "summary" | "summaryDueAt" | "workType">>): boolean {
   if (hubIssueLines(r.lines).length === 0) return true
-  const pending = r.summaryDueAt != null || r.summary != null || r.settleGroups !== undefined
-  if (!pending) return !!(r.hubWd?.code && r.hubWd.approved)
+  if (!isPendingFlow(r)) return !!(r.hubWd?.code && r.hubWd.approved)
   // pending: ยังไม่สรุป = ยังไม่มีอะไรให้ตัด Hub → ไม่เสร็จ · สรุปแล้วไม่ใช้ Hub เลย = เสร็จ
   if (!r.summary) return false
   const used = r.summary.usages.reduce((n, u) => n + (isHubLine(r.lines[u.lineIndex] ?? ({} as SwLine)) ? u.qty : 0), 0)

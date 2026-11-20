@@ -37,13 +37,14 @@ assert.equal(hubPrOverdue({ hubIssuedAt: null, hubPr: null }, h(48 * 3600_000)),
 // pending (Mobile/PM)
 const sum = { usages: [{ lineIndex: 1, plate: "x", mrCode: "m", mrItemId: 1, mrItemLabel: "", qty: 1 }], returns: [], note: "", by: { email: "", name: "" }, at }
 const grp = (status: "PENDING" | "DONE", hub = true) => ({ n: 1, plate: "x", token: "t", mrCodes: [], lines: [], status, atms: prog(), hub })
-const pend = (p: Partial<SwRequest>) => ({ lines: [line(), hubL()], summaryDueAt: at, ...p })
+const pend = (p: Partial<SwRequest>) => ({ lines: [line(), hubL()], workType: "mobile_pm" as const, summaryDueAt: at, ...p })
 assert.equal(hubWdDone(pend({})), false)
 assert.equal(hubWdDone(pend({ summary: sum, settleGroups: [grp("PENDING")] })), false)
 assert.equal(hubWdDone(pend({ summary: sum, settleGroups: [grp("DONE")] })), true)
 assert.equal(hubWdDone(pend({ summary: sum, settleGroups: [grp("DONE", false)] })), false)
 assert.equal(hubWdDone(pend({ summary: { ...sum, usages: [] }, settleGroups: [] })), true)
 assert.equal(hubWdDone({ lines: [line()], hubWd: null }), true)
+assert.equal(hubWdDone({ lines: [line(), hubL()], workType: "garage_in", settleGroups: [], hubWd: wdOk }), true)
 
 eq(hubCutPlan(mixed, 4), [{ lineIndex: 1, vendorCode: "V1", skuId: 2, qty: 1 }])
 console.log("check-hub-core OK")
