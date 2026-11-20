@@ -275,12 +275,19 @@ export async function listHubStock(filter: { inventoryId?: number; vendorCode?: 
   return withQty(items, c.stock)
 }
 
-export async function listHubMoves(filter: { vendorCode?: string; skuId?: number; from?: Date; to?: Date }, limit: number): Promise<HubMove[]> {
+export async function listHubMoves(filter: { vendorCode?: string; skuId?: number; skuCode?: string; from?: Date; to?: Date }, limit: number): Promise<HubMove[]> {
   const c = await hubCols()
   if ("vendorCode" in filter && !filter.vendorCode) return [] // ส่งมาแต่ว่าง = ไม่ตรงอะไรเลย ไม่ใช่ไม่กรอง
   const f: Record<string, unknown> = {}
   if (filter.vendorCode) f.vendorCode = filter.vendorCode
   if (filter.skuId != null) f.skuId = filter.skuId
+  if (filter.skuCode) {
+    // รหัสสินค้า (พิมพ์ตรงตัว ไม่สนตัวพิมพ์เล็ก/ใหญ่) → skuId จากรายการอะไหล่ Hub · ไม่เจอ = ไม่มีแถว
+    const re = new RegExp(`^${esc(filter.skuCode.trim())}$`, "i")
+    const ids = [...new Set((await c.items.find({ skuCode: re }, { projection: { _id: 0, skuId: 1 } }).limit(50).toArray()).map((i) => i.skuId))]
+    if (!ids.length) return []
+    f.skuId = filter.skuId != null ? (ids.includes(filter.skuId) ? filter.skuId : -1) : { $in: ids }
+  }
   if (filter.from || filter.to) f.at = { ...(filter.from ? { $gte: filter.from } : {}), ...(filter.to ? { $lte: filter.to } : {}) }
   return c.moves.find(f, { projection: { _id: 0 } }).sort({ at: -1 }).limit(limit).toArray()
 }

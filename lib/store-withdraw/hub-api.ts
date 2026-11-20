@@ -184,8 +184,13 @@ export const MOVE_LABEL: Record<HubMove["type"], string> = { receive: "รับ
 
 /** ประวัติเคลื่อนไหว ≤ 2000 แถว · เติมชื่อ Sub/รหัสอะไหล่ให้อ่านง่าย */
 export async function hubMovesRows(p: Params) {
-  const filter: { vendorCode?: string; skuId?: number; from?: Date; to?: Date } = {}
+  const filter: { vendorCode?: string; skuId?: number; skuCode?: string; from?: Date; to?: Date } = {}
   if (p.has("vendorCode")) filter.vendorCode = str(p.get("vendorCode"))
+  const skuCode = str(p.get("skuCode"))
+  if (skuCode) {
+    if (skuCode.length > 60) throw new HttpError("รหัสสินค้ายาวเกินไป", 400)
+    filter.skuCode = skuCode
+  }
   if (p.has("skuId")) {
     const s = posInt(p.get("skuId"))
     if (!s) throw new HttpError("รหัสอะไหล่ไม่ถูกต้อง", 400)

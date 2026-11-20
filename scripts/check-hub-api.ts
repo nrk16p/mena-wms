@@ -131,6 +131,15 @@ async function main() {
   eq([ws.getRow(2).getCell(2).value, ws.getRow(2).getCell(5).value, ws.getRow(2).getCell(6).value], ["รับเข้า", 10, "DO-1"])
   eq(Object.values(a.MOVE_LABEL), ["รับเข้า", "จ่ายออก", "คืนเข้า", "ปรับยอด"])
   await assert.rejects(a.hubMovesRows(q("from=ไม่ใช่วัน")))
+  // กรองด้วยรหัสสินค้า (ตรงตัว ไม่สนตัวเล็ก/ใหญ่) → skuId จากรายการอะไหล่ Hub · ไม่เจอ = ว่าง
+  const bySku = await a.hubMovesRows(q("skuCode=s501"))
+  assert.ok(bySku.length >= 1 && bySku.every((r) => r.skuId === 501))
+  eq((await a.hubMovesRows(q("skuCode=S5"))).length, 0) // ไม่ใช่ค้นบางส่วน
+  eq((await a.hubMovesRows(q("skuCode=NOPE"))).length, 0)
+  eq((await a.hubMovesRows(q("skuCode=S501&vendorCode=V2"))).length, 0)
+  eq((await a.hubMovesRows(q("skuCode=P601"))).map((r) => r.skuCode), ["P601"])
+  eq((await a.hubMovesRows(q("skuCode=S501&skuId=601"))).length, 0)
+  await assert.rejects(a.hubMovesRows(q(`skuCode=${"x".repeat(61)}`)))
 
   // ── สิทธิ์ ──
   const { checkRequest, sectionForApi, sectionForPage, SECTIONS, SECTION_LABELS, accessFor } = await import("../lib/access-policy")

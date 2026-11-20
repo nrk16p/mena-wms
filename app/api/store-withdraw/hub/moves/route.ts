@@ -1,4 +1,4 @@
-// GET /api/store-withdraw/hub/moves?vendorCode=&skuId=&from=&to=&format=xlsx — ประวัติเคลื่อนไหว ≤ 2000 แถว
+// GET /api/store-withdraw/hub/moves?vendorCode=&skuId=&skuCode=&from=&to=&format=xlsx — ประวัติเคลื่อนไหว ≤ 2000 แถว
 import { NextResponse, type NextRequest } from "next/server"
 import { guard, isResponse } from "@/lib/store-withdraw/http"
 import { getHubActor, hubMovesRows, hubMovesXlsx } from "@/lib/store-withdraw/hub-api"

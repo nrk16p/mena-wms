@@ -1,6 +1,6 @@
 "use client"
 
-// แท็บความเคลื่อนไหว: กรอง Sub + ช่วงวันที่ + ปุ่ม Excel
+// แท็บความเคลื่อนไหว: กรอง Sub + รหัสสินค้า + ช่วงวันที่ + ปุ่ม Excel
 import { useCallback, useEffect, useState } from "react"
 import { Download, Loader2, Search } from "lucide-react"
 import { btnCls, hubFetch, inputCls, num, tableWrap, th, thead, tr, type HubVendor } from "./hub-shared"
@@ -14,6 +14,7 @@ export function HubMovesTab() {
   const [from, setFrom] = useState(() => ymd(new Date(Date.now() - 29 * 86_400_000)))
   const [to, setTo] = useState(() => ymd(new Date()))
   const [vendorCode, setVendorCode] = useState("")
+  const [skuCode, setSkuCode] = useState("")
   const [vendors, setVendors] = useState<HubVendor[]>([])
   const [rows, setRows] = useState<Move[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -22,8 +23,9 @@ export function HubMovesTab() {
   const qs = useCallback(() => {
     const p = new URLSearchParams({ from: `${from}T00:00:00+07:00`, to: `${to}T23:59:59+07:00` })
     if (vendorCode) p.set("vendorCode", vendorCode)
+    if (skuCode.trim()) p.set("skuCode", skuCode.trim())
     return p.toString()
-  }, [from, to, vendorCode])
+  }, [from, to, vendorCode, skuCode])
 
   const search = useCallback(async () => {
     setLoading(true); setError("")
@@ -48,11 +50,13 @@ export function HubMovesTab() {
             <option value="">ทุก Sub</option>
             {vendors.map((v) => <option key={v.code} value={v.code}>{v.name}</option>)}
           </select></label>
+        <label className="text-xs text-gray-500">รหัสสินค้า
+          <input type="text" aria-label="รหัสสินค้า" placeholder="ทุกรหัส" maxLength={60} className={`${inputCls} mt-1 block w-36`} value={skuCode} onChange={(e) => setSkuCode(e.target.value)} /></label>
         <button type="submit" disabled={loading} className={btnCls}>{loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}ค้นหา</button>
         <a href={`/api/store-withdraw/hub/moves?${qs()}&format=xlsx`} data-testid="export" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2.5 text-sm text-gray-700 hover:text-[#1B8C4B] dark:border-white/10 dark:text-gray-200"><Download size={14} />Excel</a>
       </form>
       {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
-      {rows && rows.length === 0 && <p className="rounded-2xl border border-dashed border-[#E2E8E4] px-4 py-10 text-center text-sm text-gray-500 dark:border-white/10">ไม่มีความเคลื่อนไหวในช่วงนี้</p>}
+      {rows && rows.length === 0 && <p className="rounded-2xl border border-dashed border-[#E2E8E4] px-4 py-10 text-center text-sm text-gray-500 dark:border-white/10">{skuCode.trim() ? `ไม่มีความเคลื่อนไหวของรหัส ${skuCode.trim()} ในช่วงนี้` : "ไม่มีความเคลื่อนไหวในช่วงนี้"}</p>}
       {rows && rows.length >= 2000 && <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">แสดงได้สูงสุด 2,000 แถว ลดช่วงวันที่ให้แคบลงจะเห็นครบ</p>}
       {rows && rows.length > 0 && (
         <div className={tableWrap}>
