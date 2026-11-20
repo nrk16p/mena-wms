@@ -145,6 +145,7 @@ async function main() {
   const mvs = await h.listHubMoves({ vendorCode: "V1", skuId: 501 }, 3)
   eq(mvs.length, 3)
   assert.ok(mvs[0].at >= mvs[1].at)
+  eq(await h.listHubStock({ vendorCode: "" }), [])
   eq(await h.listHubMoves({ vendorCode: "" }, 10), [])
   eq((await h.listHubMoves({ from: new Date(Date.now() + 60_000) }, 10)).length, 0)
 

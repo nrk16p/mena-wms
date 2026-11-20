@@ -1,5 +1,6 @@
 // lib/store-withdraw/hub-db.ts — ยอด Hub ของ Sub ใน Mongo (master + stock + สมุดเคลื่อนไหว)
 // ไม่มี transaction (memory server single node) → ตัดแบบ conditional $inc + ถอยเองถ้าไม่ครบ
+import { randomUUID } from "node:crypto"
 import type { Collection, Db } from "mongodb"
 import { getDb } from "./db"
 import { HttpError } from "./http"
@@ -32,7 +33,7 @@ export async function hubCols() {
     items: db.collection<HubItem>("hub_items"),
     stock: db.collection<HubStock>("hub_stock"),
     moves: db.collection<HubMove>("hub_moves"),
-    locks: db.collection<{ _id: string; at: Date }>("hub_locks"),
+    locks: db.collection<{ _id: string; at: Date; owner?: string }>("hub_locks"),
   }
   if (!indexed.has(db)) {
     const key = { inventoryId: 1, vendorCode: 1, skuId: 1 } as const
@@ -97,7 +98,8 @@ const LOCK_STALE_MS = 60_000
 export async function cutHubForRequest(no: string, plan: Plan, inventoryId: number, by: By): Promise<HubCutResult> {
   const c = await hubCols()
   const _id = `cut:${no}`
-  const take = async () => { try { await c.locks.insertOne({ _id, at: new Date() }); return true } catch (e) { if (isDup(e)) return false; throw e } }
+  const owner = randomUUID() // ผู้ถือล็อก — ตัวที่ถูกยึดล็อกไปแล้วจะลบล็อกของเจ้าใหม่ไม่ได้
+  const take = async () => { try { await c.locks.insertOne({ _id, at: new Date(), owner }); return true } catch (e) { if (isDup(e)) return false; throw e } }
   if (!(await take())) {
     // ล็อกค้างเกิน 60 วิ = ตัวเดิมตายไปแล้ว → ลบเฉพาะอันที่เก่า (เงื่อนไขกัน 2 ตัวแย่งลบล็อกใหม่) แล้วลองใหม่ครั้งเดียว
     await c.locks.deleteOne({ _id, at: { $lt: new Date(Date.now() - LOCK_STALE_MS) } })
@@ -106,7 +108,7 @@ export async function cutHubForRequest(no: string, plan: Plan, inventoryId: numb
   try {
     return await cutLocked(c, no, plan, inventoryId, by)
   } finally {
-    await c.locks.deleteOne({ _id })
+    await c.locks.deleteOne({ _id, owner })
   }
 }
 
@@ -206,6 +208,7 @@ export async function searchHubItems(inventoryId: number, q: string, limit: numb
 }
 
 export async function listHubStock(filter: { inventoryId?: number; vendorCode?: string }): Promise<(HubItem & { qty: number })[]> {
+  if ("vendorCode" in filter && !filter.vendorCode) return [] // ส่งมาแต่ว่าง = ไม่ตรงอะไรเลย ไม่ใช่ไม่กรอง
   const c = await hubCols()
   const f: Record<string, unknown> = {}
   if (filter.inventoryId != null) f.inventoryId = filter.inventoryId
