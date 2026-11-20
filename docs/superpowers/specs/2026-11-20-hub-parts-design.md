@@ -63,12 +63,16 @@
 
 ## 5.1 การตัดสินของผู้เขียน (ผู้ใช้ยังไม่ได้ยืนยันทีละข้อ)
 
-- อู่ใน: ใบถูก reject / closeManual หลังตัดยอด Hub แล้ว → คืนยอด Hub อัตโนมัติ (move `adjust` +) ยกเว้น WD Hub อาจเกิดใน ATMS แล้ว = ไม่คืน และลง log hubRestore-skipped (หน้า audit ขึ้น "ข้ามการคืนยอด Hub (ต้องเช็กเอง)")
+- อู่ใน: ใบถูก reject / closeManual หลังตัดยอด Hub แล้ว → คืนยอด Hub อัตโนมัติ (move `adjust` +) ยกเว้น WD Hub อาจเกิดใน ATMS แล้ว (กำลังยิง · ไม่รู้ผล · `hubWd.gmId` มีค่า) = ไม่คืน และลง log hubRestore-skipped (หน้า audit ขึ้น "ข้ามการคืนยอด Hub (ต้องเช็กเอง)")
+  - closeManual ใช้ได้เฉพาะใบที่ WD **ปกติ** มีหัวใบแล้ว (`atms.gmId`) — ไม่เกี่ยวกับ WD Hub · ตัดสินเรื่องคืนยอดด้วย `hubWd` ตามข้อบนเหมือน reject: WD Hub ล้มก่อนสร้างหัวใบ = คืน · มีหัวใบ WD Hub แล้ว = ข้าม (ทดสอบใน check-hub-issue: H-CLOSE คืน, H-CLOSEOK ไม่คืน)
+- อู่ใน (ตัดสินโดยผู้คุมงาน 2026-11-20): ใบปิดแบบไม่สำเร็จ (REJECTED จาก ISSUE_FAILED หรือ closeManual) ที่ **WD Hub สำเร็จแล้ว** (`hubWd.code && approved` · Mobile/PM = กลุ่ม Hub ทุกกลุ่ม DONE) → ไม่คืนยอด ของออกไปจริง · ใบยังค้าง PR: `hubStatus` = WAIT_PR (ผูกแล้ว = DONE) ไม่ใช่ NONE · เกินกำหนด PR นับต่อ · อยู่ในคิวสโตร์ "รอ PR" · ผูก PR ได้ · แถวซากของบรรทัด Hub คงอยู่ · ลง log `hubClosed-wdDone` ตอนปิด · WD Hub ที่ได้หลังปิดใบ (`hubWd-after-close`) ถือเป็นแบบเดียวกัน
 - Mobile/PM: `onHubClose` ข้ามใบ pending-flow และหลัง HANDED_OUT ปฏิเสธ/ยกเลิกไม่ได้ (nextStatus) · ของเหลือคืนเข้ายอด Hub ตอนสโตร์ยืนยันรับคืนในขั้นสรุป
+  - กดส่งของ (handOut) ชนกับปฏิเสธ: ตัดยอด Hub แล้วแต่ใบถูกปิดก่อนสลับ HANDED_OUT → คืนยอดที่เพิ่งตัดทันที (`restoreHubForRequest` ตรง ๆ · ยังไม่มี WD Hub แน่นอนเพราะ WD Hub ของสายนี้ยิงตอน settle) ลง log hubRestore · สถานะอื่นที่ไม่คาด = ไม่แตะยอด ลง log hubCut-orphan
 - phase 1 บรรทัด Hub ใช้ flow คืนของ (returns) ไม่ได้ — ปุ่มคืนซ่อน + API ปฏิเสธ (ยกเว้นของเหลือจากสรุป Mobile/PM ที่คืนเข้ายอด Hub ตามข้อบน)
 - บรรทัดซาก (core-return) ของบรรทัด Hub สร้างเหมือนของปกติ แต่หลัง WD Hub สำเร็จเท่านั้น
 - กล่อง Hub ใช้ได้กับงานอู่ใน + Mobile/PM เท่านั้น · อู่นอก (ซื้อมาใช้เลย) ซ่อนกล่อง Hub
 - ยอด Hub ไม่พอตอนจ่าย = ไม่ตัดสักบรรทัด ใบกลับเป็น PREPARING ให้แก้จำนวน
+- ตัดยอดชนกัน (ล็อกตัดยอดของใบนี้ถูกถืออยู่ = busy) = ไม่ตัด ใบอยู่ READY เหมือนเดิม (ใบที่ยึดมาจาก ISSUING ค้าง: READY หรือ ISSUE_FAILED ถ้า WD ปกติมีหัวใบแล้ว) ตอบ 409 "กำลังตัดยอด Hub อยู่ ลองใหม่อีกครั้ง"
 - Sub ที่ยังไม่มีบัญชี vendor-portal → สร้างจากปุ่มเดิมที่ `/ap-tracking/suppliers` ไม่ต้องทำอะไรเพิ่ม
 
 ## 6. การออกแบบ
