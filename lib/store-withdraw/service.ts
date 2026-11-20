@@ -7,7 +7,9 @@ import { RETURN_REASONS, docWarnings, isPendingFlow, matchesSearch, parseRef, qu
 import { handedOutSort, parseDue } from "./pending"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
-import type { AtmsProgress, SwLine, SwRequest } from "./types"
+import { HUB_WORK_TYPES, hubStatusOf } from "./hub-core"
+import { getHubSite, hubCols } from "./hub-db"
+import type { AtmsProgress, SwHubPr, SwLine, SwRequest } from "./types"
 
 export const emptyAtms = (): AtmsProgress => ({
   gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null,
@@ -153,6 +155,32 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
   if (!inv) throw new HttpError("เลือกคลังจากรายการที่มีให้", 400)
   if (!pick) throw new HttpError("เลือกจุดประสงค์การเบิกจากรายการที่มีให้", 400)
 
+  // อะไหล่ Hub: ใช้ได้เฉพาะงานเข้าอู่/Mobile-PM · SKU ต้องอยู่ใน hub_items ที่เปิดอยู่ของคลังนี้และของ Sub ที่ส่งมา
+  const hubVendorOf = (r: Row): string => {
+    const h = r.hub as { vendorCode?: unknown } | null | undefined
+    return h && typeof h === "object" && typeof h.vendorCode === "string" ? h.vendorCode.trim() : ""
+  }
+  const hasHub = rawLines.some((r) => r.hub != null)
+  const hubVendors = new Map<string, string>() // `${skuId}:${vendorCode}` → vendorCode จาก DB
+  let hubPr: SwHubPr | null = null
+  if (hasHub) {
+    if (!HUB_WORK_TYPES.includes(workType)) throw new HttpError("งานอู่นอกเบิกอะไหล่ Hub ไม่ได้", 400)
+    if (!(await getHubSite(inv.id))) throw new HttpError("คลังนี้ยังไม่เปิดอะไหล่ Hub", 400)
+    const BAD = "รายการอะไหล่ Hub ไม่ถูกต้อง เลือกจากผลค้นหาใหม่"
+    const ids = rawLines.filter((r) => r.hub != null).map((r) => Number(r.skuId))
+    const codes = rawLines.filter((r) => r.hub != null).map(hubVendorOf)
+    if (ids.some((n) => !Number.isInteger(n) || n <= 0) || codes.some((c) => !c)) throw new HttpError(BAD, 400)
+    const rows = await (await hubCols()).items.find({ inventoryId: inv.id, active: true, skuId: { $in: ids }, vendorCode: { $in: codes } }, { projection: { skuId: 1, vendorCode: 1 } }).toArray()
+    for (const x of rows) hubVendors.set(`${x.skuId}:${x.vendorCode}`, x.vendorCode)
+    for (const r of rawLines) if (r.hub != null && !hubVendors.has(`${Number(r.skuId)}:${hubVendorOf(r)}`)) throw new HttpError(BAD, 400)
+    if (body.hubPr != null) {
+      const hp = body.hubPr as Record<string, unknown>
+      const pr = parseRef(typeof hp === "object" ? { type: "pr", code: hp.code, id: hp.id } : hp)
+      if ("error" in pr) throw new HttpError(pr.error, 400)
+      hubPr = { code: pr.ref!.code, id: pr.ref!.id ?? null, by: { email: actor.email, name: actor.name }, at: new Date() }
+    }
+  }
+
   const merged = new Map<string, SwLine>()
   for (const r of rawLines) {
     const skuId = Number(r.skuId)
@@ -163,12 +191,14 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
     if (qty == null) throw new HttpError("จำนวนที่ขอต้องมากกว่า 0", 400)
     if (!skuCode || !skuName) throw new HttpError("รายการอะไหล่ขาดรหัสหรือชื่อ เลือกจากผลค้นหาใหม่", 400)
     // sku ซ้ำในใบเดียว + ประเภทการซ่อมเดียวกัน = รวมให้ · คนละประเภทการซ่อม = แยกบรรทัด (ใบเบิกเดียวกัน หลายประเภท)
-    const key = `${skuId}:${optInt(r.mrItemId) ?? 0}`
+    const hubVendor = r.hub != null ? hubVendors.get(`${skuId}:${hubVendorOf(r)}`)! : null
+    const key = `${skuId}:${optInt(r.mrItemId) ?? 0}:${hubVendor ?? "-"}`
     const prev = merged.get(key)
     if (prev) { prev.requestedQty += qty; continue }
     merged.set(key, {
       skuId, skuCode, skuName, requestedQty: qty, issuedQty: null, short: false, returnedQty: 0,
       mrItemId: optInt(r.mrItemId), mrItemLabel: str(r.mrItemLabel) || null, serialNoId: optInt(r.serialNoId), remark: str(r.remark),
+      ...(hubVendor ? { hub: { vendorCode: hubVendor } } : {}),
     })
   }
 
@@ -191,6 +221,11 @@ export async function createRequest(body: CreateInput, actor: Actor): Promise<Sw
     atms: emptyAtms(), returns: [],
     ...(pending ? { summaryDueAt, summaryExtensions: 0, summary: null } : {}),
     createdAt: now, updatedAt: now,
+  }
+  if (hasHub) {
+    doc.hubWd = emptyAtms()
+    if (hubPr) doc.hubPr = hubPr
+    doc.hubStatus = hubStatusOf(doc)
   }
   await (await swCol()).insertOne(doc as Parameters<Awaited<ReturnType<typeof swCol>>["insertOne"]>[0])
   await writeLog({ no: doc.no, action: "create", from: null, to: "NEW", actor: { email: actor.email, name: actor.name, via: actor.via } })
