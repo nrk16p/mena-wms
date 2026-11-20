@@ -208,6 +208,8 @@ const STORE_QUEUE_API = [
 
 /** แนบไฟล์หลักฐาน: ผู้ขอ (store-withdraw) หรือสโตร์ (store-queue แก้ได้) ก็เขียนได้ — route เช็กซ้ำว่าเป็นเจ้าของใบหรือสโตร์ */
 const ATTACH_WRITE = /^\/api\/store-withdraw\/[^/]+\/attachments\/(presign|confirm)$/
+/** ผูก PR อะไหล่ Hub: ผู้ขอ (store-withdraw) หรือสโตร์ (store-queue แก้ได้) — route เช็กซ้ำว่าเป็นเจ้าของใบหรือสโตร์ */
+const HUB_PR_WRITE = /^\/api\/store-withdraw\/[^/]+\/hub-pr$/
 
 /** API ที่หลายส่วนงานเรียกอ่าน (dropdown / รายชื่อ / ค้นหา) — อ่านได้ทุกคนที่ล็อกอิน การเขียนยังคุมตามเจ้าของ */
 const SHARED_READ = [
@@ -257,6 +259,7 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   if (api && read && SHARED_READ.some((s) => under(p.pathname, s))) return { ok: true }
   // เบิกอะไหล่: คนที่เห็นคิวสโตร์อย่างเดียว (ไม่มีสิทธิ์ยื่นคำขอ) ยังต้องอ่านตัวเลือก/ค้นหา/รายละเอียดใบได้
   if (api && !read && ATTACH_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
+  if (api && !read && HUB_PR_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
   // ตรวจย้อนหลัง (audit) ต้องมีสิทธิ์ store-audit เท่านั้น ไม่ผ่านทางลัดของคิวสโตร์
   if (api && read && under(p.pathname, "/api/store-withdraw") && !under(p.pathname, "/api/store-withdraw/audit") && (!under(p.pathname, "/api/store-withdraw/hub") || under(p.pathname, "/api/store-withdraw/hub/items")) && atLeast(p.access["store-queue"], "view")) return { ok: true }
   // ปุ่ม "ดึงข้อมูลล่าสุดจาก ATMS" ในหน้า /safety-stock — ผู้ใช้ทุกคนที่เห็นหน้านี้กดได้ (ผู้ใช้สั่ง 17/11/2026)
