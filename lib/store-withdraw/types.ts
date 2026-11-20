@@ -22,6 +22,8 @@ export type SwLine = {
   mrItemLabel: string | null
   serialNoId: number | null
   remark: string
+  /** บรรทัดที่ตัดจากกล่อง Hub ของ Sub (ไม่มี = ของคลังปกติ) */
+  hub?: { vendorCode: string } | null
 }
 
 export type AtmsProgress = {
@@ -75,7 +77,14 @@ export type SwSettleGroup = {
   lines: { lineIndex: number; mrItemId: number; qty: number }[]
   status: "PENDING" | "DONE"
   atms: AtmsProgress
+  /** WD ของบรรทัด Hub (ใบเดียวต่อกลุ่ม hub) */
+  hub?: boolean
 }
+
+/** PR ที่สโตร์เปิดเพื่อเติมของ Hub */
+export type SwHubPr = { code: string; id: number | null; by: { email: string; name: string }; at: Date }
+
+export type SwHubStatus = "NONE" | "WAIT_ISSUE" | "WAIT_PR" | "WAIT_WD" | "WAIT_PR_WD" | "DONE"
 
 /** ใบ PO / DD / PR ที่ผู้ขออ้างอิง (ไม่บังคับ) */
 export type SwRef = { type: "po" | "dd" | "pr"; code: string; id: number | null }
@@ -110,9 +119,15 @@ export type SwRequest = {
   settleGroups?: SwSettleGroup[]
   returnConfirmedBy?: { email: string; name: string } | null
   returnConfirmedAt?: Date | null
+  hubWd?: AtmsProgress | null
+  hubPr?: SwHubPr | null
+  hubIssuedAt?: Date | null
+  hubStatus?: SwHubStatus
+  hubRestoredAt?: Date | null
   createdAt: Date
   updatedAt: Date
 }
 
 export type SwAction = "claim" | "ready" | "issue" | "issued" | "issueFailed" | "receive" | "reject" | "closeManual" | "cancel"
   | "handOut" | "summarize" | "settle" | "settled" | "settleFailed"
+  | "hubPr" | "hubWd" | "hubRestore" // ชื่อใน log เท่านั้น ไม่เข้า nextStatus
