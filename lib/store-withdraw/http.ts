@@ -68,6 +68,15 @@ export async function getStoreActor(req: NextRequest): Promise<Actor | NextRespo
   return actor
 }
 
+/** ผู้ทำรายการ + รู้ว่าเป็นสโตร์ไหม (มีสิทธิ์คิวงานสโตร์แก้ได้) — ใช้กับ route ที่ผู้ขอหรือสโตร์ทำได้ */
+export async function getActorWithStore(req: NextRequest): Promise<{ actor: Actor; isStore: boolean } | NextResponse> {
+  const actor = await getActor(req, false)
+  if (isResponse(actor)) return actor
+  const session = await getServerSession(authOptions)
+  const access = (session?.user as { access?: Access } | undefined)?.access
+  return { actor, isStore: !!access && atLeast(access["store-queue"], "edit") }
+}
+
 export const isResponse = (x: Actor | NextResponse): x is NextResponse => x instanceof NextResponse
 
 export type RouteCtx<P extends Record<string, string> = Record<string, string>> = { params: Promise<P> }

@@ -199,7 +199,7 @@ const API_PREFIXES: [string, Section | "admin"][] = [
 
 /** งานของสโตร์ที่มีเลขใบอยู่กลางทาง (/api/store-withdraw/:no/claim ฯลฯ) — เทียบ prefix ตรง ๆ ไม่ได้ จึงใช้ pattern */
 const STORE_QUEUE_API = [
-  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check|settle)$/,
+  /^\/api\/store-withdraw\/[^/]+\/(claim|lines|ready|issue|reject|close-manual|check|settle|hub-wd-retry)$/,
   /^\/api\/store-withdraw\/[^/]+\/returns\/[^/]+\/accept$/,
 ]
 

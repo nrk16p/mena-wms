@@ -7,7 +7,7 @@ import { RETURN_REASONS, docWarnings, isPendingFlow, matchesSearch, parseRef, qu
 import { handedOutSort, parseDue } from "./pending"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
-import { HUB_WORK_TYPES, hubStatusOf } from "./hub-core"
+import { HUB_WORK_TYPES, hubStatusOf, isHubLine } from "./hub-core"
 import { getHubSite, hubCols } from "./hub-db"
 import type { AtmsProgress, SwHubPr, SwLine, SwRequest } from "./types"
 
@@ -294,6 +294,7 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
     const q = posNum(r.qty)
     if (!Number.isInteger(i) || i < 0 || i >= cur.lines.length) throw new HttpError("รายการที่จะคืนไม่ถูกต้อง", 400)
     if (q == null) throw new HttpError("จำนวนที่คืนต้องมากกว่า 0", 400)
+    if (isHubLine(cur.lines[i])) throw new HttpError("อะไหล่ Hub คืนผ่านใบนี้ไม่ได้ แจ้งสโตร์", 400)
     want.set(i, (want.get(i) ?? 0) + q)
   }
   const pending = new Map<number, number>()
