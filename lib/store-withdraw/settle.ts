@@ -2,11 +2,15 @@
 // ตัดสต๊อก = WD หนึ่งใบต่อทะเบียน ด้วยบัญชี ATMS ของสโตร์ · กติกากันยิงซ้ำเดียวกับ issue.ts:
 //   สลับสถานะด้วย findOneAndUpdate({no, status}) · แต่ละกลุ่มมี remark_token + progress ของตัวเอง (ส่งซ้ำตอน retry)
 //   ไม่รู้ผล = ค้าง SETTLING ห้ามยิงซ้ำจนค้างเกิน 5 นาที · POST ไม่ลองซ้ำเอง · กลุ่มที่ DONE แล้วไม่ยิงอีกเด็ดขาด
+// อะไหล่ Hub: ตัดยอด Hub ตอนส่งของ · กลุ่ม Hub (คลัง Hub ใน ATMS) ยิงหลังใบ SETTLED แล้ว ล้มไม่ดึงใบกลับ (ดู runHubSettle)
+//   ของเหลือของบรรทัด Hub คืนเข้ายอด Hub ตอนสโตร์ยืนยันรับคืน · ใบ pending ไม่เคยคืนยอดแบบ restore
 import { getCreds } from "./creds"
 import { ConflictError, NotFoundError, ddmmyyyyBkk, swCol, transition, writeLog, type Actor } from "./db"
 import { isPendingFlow } from "./core"
 import { HttpError } from "./http"
-import { MSG, STUCK_MS, callNcac, interpret, toWire } from "./issue"
+import { MSG, STUCK_MS, callNcac, interpret, takeHubWdLock, toWire } from "./issue"
+import { hubCutPlan, hubStatusOf, isHubLine } from "./hub-core"
+import { cutHubForRequest, getHubSite, returnHubLeftover } from "./hub-db"
 import { linkAttachments, resolveLinkable } from "./attachments"
 import { buildSettleGroups, leftoverTotal, parseDue, parseSummary, settleRemark, summaryAttachIds } from "./pending"
 import type { AtmsProgress, SwRequest, SwSettleGroup } from "./types"
@@ -26,9 +30,36 @@ async function load(no: string): Promise<SwRequest> {
 
 // ---------- ส่งของ (สโตร์) ----------
 
-/** ใบ pending: ส่งของ = READY → HANDED_OUT ไม่เขียน ATMS (จำนวนจ่าย/ของขาดแก้ไว้แล้วตอนจัดของ) */
+/**
+ * ใบ pending: ส่งของ = READY → HANDED_OUT ไม่เขียน ATMS (จำนวนจ่าย/ของขาดแก้ไว้แล้วตอนจัดของ)
+ * มีบรรทัด Hub: ตัดยอด Hub ทุกบรรทัดก่อน (ได้ทั้งหมดหรือไม่ได้เลย) แล้วสลับสถานะพร้อม hubIssuedAt (เริ่มนับ 1 วัน PR)
+ *   ยอดไม่พอ = 409 กลับไปจัดของ (แก้จำนวนได้เฉพาะ PREPARING) · ชนกัน = 409 สถานะเดิม · ใบไม่มี Hub = ทางเดิม
+ */
 export async function handOut(no: string, actor: Actor): Promise<SwRequest> {
-  return transition(no, "handOut", actor)
+  const cur = await load(no)
+  if (!cur.lines.some(isHubLine) || cur.hubIssuedAt) return transition(no, "handOut", actor)
+  if (!isPendingFlow(cur) || cur.status !== "READY") throw new ConflictError()
+  const col = await swCol()
+  const plan = hubCutPlan(cur.lines, cur.inventoryId)
+  const res = plan.length ? await cutHubForRequest(no, plan, cur.inventoryId, { email: actor.email, name: actor.name }) : ({ ok: true } as const)
+  if (!res.ok) {
+    const msg = res.busy ? MSG.hubBusy : MSG.hubShort([...new Set(res.short.map((x) => x.skuCode ?? String(x.skuId)))])
+    const back = res.busy ? "READY" : "PREPARING"
+    if (!res.busy) await col.updateOne({ no, status: "READY" }, { $set: { status: back, updatedAt: new Date() } })
+    await writeLog({ no, action: res.busy ? "hubBusy" : "hubShort", from: "READY", to: back, actor: who(actor), note: msg })
+    throw new HttpError(msg, 409)
+  }
+  const hubIssuedAt = new Date()
+  try {
+    return await transition(no, "handOut", actor, { hubIssuedAt, hubStatus: hubStatusOf({ ...cur, status: "HANDED_OUT", hubIssuedAt }) })
+  } catch (e) {
+    // ตัดยอดแล้วแต่ใบถูกเปลี่ยนสถานะไปก่อน (เช่นถูกปฏิเสธพร้อมกัน) — ใบ pending ไม่คืนยอดอัตโนมัติ ให้คนตามปรับยอดเอง
+    const latest = await col.findOne({ no })
+    if (plan.length && latest && latest.status !== "HANDED_OUT") {
+      await writeLog({ no, action: "hubCut-orphan", from: latest.status, to: latest.status, actor: who(actor), note: "ตัดยอด Hub แล้วแต่ส่งของไม่สำเร็จ ตรวจยอด Hub แล้วปรับเอง" })
+    }
+    throw e
+  }
 }
 
 // ---------- สรุปการใช้ (ผู้ขอ) ----------
@@ -96,7 +127,7 @@ async function claimSettle(no: string, returnConfirmed: unknown, actor: Actor): 
   const confirm = left > 0 && !cur.returnConfirmedAt ? { returnConfirmedBy: { email: actor.email, name: actor.name }, returnConfirmedAt: new Date() } : {}
   // ครั้งแรก: บันทึกกลุ่ม (เลขกลุ่ม/token/บรรทัด) พร้อมสลับสถานะในคำสั่งเดียว · ลองใหม่: ใช้กลุ่มเดิม แค่ล้างข้อความ error เก่า
   const patch = cur.settleGroups == null
-    ? { ...confirm, settleGroups: buildSettleGroups(no, cur.summary.usages, emptyAtms) }
+    ? { ...confirm, settleGroups: buildSettleGroups(no, cur.summary.usages, emptyAtms, cur.lines) }
     : { ...confirm, "settleGroups.$[].atms.error": null, "settleGroups.$[].atms.needCreds": false }
   return transition(no, "settle", actor, patch)
 }
@@ -105,6 +136,7 @@ export async function settleRequest(no: string, returnConfirmed: unknown, actor:
   const claimed = await claimSettle(no, returnConfirmed, actor)
   const at = { n: null as number | null }
   try {
+    await returnHubLeft(claimed, actor)
     return await runSettle(claimed, actor, at)
   } catch (e) {
     if (e instanceof ConflictError) throw e
@@ -128,9 +160,21 @@ async function setGroup(no: string, n: number, set: Record<string, unknown>): Pr
   return after
 }
 
-function groupBody(r: SwRequest, g: SwSettleGroup, prev: AtmsProgress, startedAt: Date) {
+/**
+ * ของเหลือของบรรทัด Hub (summary.returns) → คืนเข้ายอด Hub · claimSettle บังคับยืนยันรับคืนแล้ว
+ * เรียกทุกครั้งที่ยึดงานตัดได้ คืนซ้ำไม่ได้ (unique ใน hub_moves) · พัง = SETTLE_FAILED แล้วกดใหม่ทำต่อ
+ */
+async function returnHubLeft(r: SwRequest, actor: Actor): Promise<void> {
+  if (!r.hubIssuedAt) return // ไม่เคยตัดยอด Hub = ไม่มีอะไรต้องคืน
+  const items = (r.summary?.returns ?? [])
+    .filter((x) => x.qty > 0 && r.lines[x.lineIndex] && isHubLine(r.lines[x.lineIndex]))
+    .map((x) => ({ lineIndex: x.lineIndex, vendorCode: r.lines[x.lineIndex].hub!.vendorCode, skuId: r.lines[x.lineIndex].skuId, qty: x.qty }))
+  if (items.length) await returnHubLeftover(r.no, items, r.inventoryId, { email: actor.email, name: actor.name })
+}
+
+function groupBody(r: SwRequest, g: SwSettleGroup, prev: AtmsProgress, startedAt: Date, inventoryId = r.inventoryId) {
   return {
-    inventory_id: r.inventoryId,
+    inventory_id: inventoryId,
     pick_to_id: r.pickToId,
     remark_token: g.token,
     remark: settleRemark(r, g),
@@ -153,9 +197,10 @@ function groupBody(r: SwRequest, g: SwSettleGroup, prev: AtmsProgress, startedAt
 async function runSettle(claimed: SwRequest, actor: Actor, at: { n: number | null }): Promise<SwRequest> {
   const no = claimed.no
   const groups = claimed.settleGroups ?? []
-  const todo = groups.filter((g) => g.status !== "DONE")
+  // กลุ่ม Hub ไม่อยู่ในรอบนี้ — ยิงหลัง SETTLED (ล้มไม่ดึงใบกลับ)
+  const todo = groups.filter((g) => !g.hub && g.status !== "DONE")
   // ใช้ 0 ทั้งใบ (คืนหมด) หรือทุกกลุ่มเสร็จแล้ว = ไม่ต้องยิง ATMS
-  if (todo.length === 0) return settled(no, actor)
+  if (todo.length === 0) return settledThenHub(no, actor)
 
   const creds = await getCreds(actor.email)
   if (!creds) {
@@ -188,7 +233,90 @@ async function runSettle(claimed: SwRequest, actor: Actor, at: { n: number | nul
     return transition(no, "settleFailed", actor)
   }
   at.n = null
-  return settled(no, actor)
+  return settledThenHub(no, actor)
+}
+
+/** ส่วนปกติเสร็จ → SETTLED · ใบที่มีบรรทัด Hub ยิงกลุ่ม Hub ต่อ (ไม่มีกลุ่ม Hub ก็อัปเดต hubStatus) */
+async function settledThenHub(no: string, actor: Actor): Promise<SwRequest> {
+  const after = await settled(no, actor)
+  return after.lines.some(isHubLine) ? runHubSettle(no, actor, false) : after
+}
+
+/**
+ * ยิงกลุ่ม Hub ที่ยังไม่ DONE ของใบที่ SETTLED แล้ว (คลัง Hub ใน ATMS) · ไม่แตะ status ของใบ
+ * ล็อก hubWdBusyAt ตัวเดียวกับ WD Hub ของอู่ใน · ผลเขียนลงกลุ่มเฉพาะตอนยังถือล็อก · ไม่ได้คำตอบ = ล็อกค้าง ครบ 5 นาทีจึงลองใหม่
+ * ห้าม throw (ยกเว้น strict + ล็อกไม่ได้) — เรียกจากตัดสต๊อก และจาก retryHubWd (ปุ่ม "ลองตัด WD Hub ใหม่")
+ */
+export async function runHubSettle(no: string, actor: Actor, strict: boolean): Promise<SwRequest> {
+  const col = await swCol()
+  const lock = await takeHubWdLock(no)
+  if (!lock) {
+    if (strict) throw new ConflictError(MSG.hubWdBusy)
+    return (await col.findOne({ no }))!
+  }
+  const { got, lockAt } = lock
+  const filters = (n: number) => ({ arrayFilters: [{ "g.n": n, "g.hub": true }], returnDocument: "after" as const })
+  const setHub = (n: number, set: Record<string, unknown>, release: boolean, force = false) => {
+    const $set: Record<string, unknown> = { updatedAt: new Date() }
+    for (const [k, v] of Object.entries(set)) $set[`settleGroups.$[g].${k}`] = v
+    if (release) $set.hubWdBusyAt = null
+    // ล็อกถูกยึดไปแล้ว = อีกตัวรับช่วง ไม่เขียนทับ · ยกเว้น force (ได้ WD ใน ATMS แล้ว ต้องบันทึกเลขไว้เสมอ)
+    return col.findOneAndUpdate(force ? { no } : { no, hubWdBusyAt: lockAt }, { $set }, filters(n))
+  }
+  const release = () => col.findOneAndUpdate({ no, hubWdBusyAt: lockAt }, { $set: { hubWdBusyAt: null } }, { returnDocument: "after" })
+  let doneAny = false
+  const finish = async (doc: SwRequest | null): Promise<SwRequest> => {
+    const d = doc ?? (await col.findOne({ no })) ?? got
+    const hubStatus = hubStatusOf(d)
+    if (d.hubStatus !== hubStatus) await col.updateOne({ no }, { $set: { hubStatus } })
+    const after = { ...d, hubStatus }
+    if (doneAny) await syncCoreRowsSafe(after, actor) // แถวรอคืนซากของบรรทัด Hub — หลังกลุ่ม Hub สำเร็จเท่านั้น
+    return after
+  }
+  let at: number | null = null
+  try {
+    const todo = (got.settleGroups ?? []).filter((g) => g.hub && g.status !== "DONE")
+    if (got.status !== "SETTLED" || todo.length === 0) return await finish(await release())
+    const site = await getHubSite(got.inventoryId)
+    if (!site) return await finish(await setHub(todo[0].n, { "atms.error": MSG.hubNoSite, "atms.needCreds": false }, true))
+    const creds = await getCreds(actor.email)
+    if (!creds) return await finish(await setHub(todo[0].n, { "atms.error": MSG.noCreds, "atms.needCreds": true }, true))
+
+    for (const g of todo) {
+      at = g.n
+      const startedAt = g.atms.startedAt ?? new Date()
+      // บันทึกวันเริ่มก่อนยิง — ลองใหม่ต้องใช้วันเดิม (ATMS ค้นหมายเหตุตามวันสร้าง)
+      if (!g.atms.startedAt) {
+        await col.updateOne({ no, hubWdBusyAt: lockAt }, { $set: { "settleGroups.$[g].atms.startedAt": startedAt } }, { arrayFilters: [{ "g.n": g.n, "g.hub": true, "g.atms.startedAt": null }] })
+      }
+      const prev: AtmsProgress = { ...g.atms, startedAt, error: null }
+      const r = await callNcac("POST", "/atms/withdraw/issue", { creds, body: groupBody(got, g, prev, startedAt, site.atmsHubInventoryId) })
+      if (!r) {
+        await writeLog({ no, action: "hubWd-unknown", from: got.status, to: got.status, actor: who(actor), note: g.token })
+        return await finish(await setHub(g.n, { "atms.error": MSG.unknown, "atms.needCreds": false }, false)) // ล็อกค้างไว้
+      }
+      const out = interpret(r.status, r.data, prev)
+      if (out.kind === "ok" && out.atms.code && out.atms.approved) {
+        const done = { status: "DONE", atms: { ...out.atms, drift: null } }
+        const after = (await setHub(g.n, done, false)) ?? (await setHub(g.n, done, false, true))
+        doneAny = true
+        await writeLog({ no, action: "hubWd", from: got.status, to: got.status, actor: who(actor), note: `${g.token} ${g.plate} ${out.atms.code}` })
+        if (after?.hubWdBusyAt?.getTime() !== lockAt.getTime()) return await finish(after) // ล็อกหลุด = หยุด ให้ตัวใหม่ทำต่อ
+        continue
+      }
+      await writeLog({ no, action: "hubWdFailed", from: got.status, to: got.status, actor: who(actor), note: g.token })
+      return await finish(await setHub(g.n, { atms: out.kind === "ok" ? { ...out.atms, error: MSG.noCode } : out.atms }, true))
+    }
+    at = null
+    return await finish(await release())
+  } catch (e) {
+    console.error("[store-withdraw] hub settle crashed", no, e instanceof Error ? e.message : e)
+    try {
+      return await finish(at != null ? await setHub(at, { "atms.error": MSG.crashed, "atms.needCreds": false }, true) : await release())
+    } catch {
+      return (await col.findOne({ no })) ?? got
+    }
+  }
 }
 
 /** SETTLING → SETTLED แล้วสร้างแถวรอคืนซากต่อแถวสรุปการใช้ (พังไม่กระทบใบ) */

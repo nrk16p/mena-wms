@@ -230,13 +230,12 @@ async function runNormal(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
 const emptyAtms = (): AtmsProgress => ({ gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null })
 
 /**
- * ยิง WD Hub ของใบนี้ · เขียนแค่ hubWd/hubStatus ไม่แตะ status ของใบ · ห้าม throw (ยกเว้น strict + ล็อกไม่ได้)
- * ล็อก hubWdBusyAt กันยิงซ้อน · ไม่ได้คำตอบ = ล็อกค้างไว้ ครบ 5 นาทีจึงลองใหม่ได้ (เหมือน ISSUING ค้าง)
+ * ยึดล็อก hubWdBusyAt (ว่าง หรือค้างเกิน 5 นาที) ของใบที่ตัดยอด Hub แล้วและยังไม่ถูกปิด
+ * ใช้ร่วม: WD Hub ใบเดียว (runHubWd) และกลุ่ม Hub ตอนตัดสต๊อก Mobile/PM (runHubSettle ใน settle.ts) · null = มีตัวอื่นถืออยู่
  */
-async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRequest> {
-  const col = await swCol()
+export async function takeHubWdLock(no: string): Promise<{ got: SwRequest; lockAt: Date } | null> {
   const lockAt = new Date()
-  const got = await col.findOneAndUpdate(
+  const got = await (await swCol()).findOneAndUpdate(
     {
       no, hubIssuedAt: { $ne: null }, status: { $nin: ["REJECTED", "CANCELLED"] },
       $or: [{ hubWdBusyAt: null }, { hubWdBusyAt: { $lt: new Date(lockAt.getTime() - STUCK_MS) } }],
@@ -244,10 +243,21 @@ async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRe
     { $set: { hubWdBusyAt: lockAt } },
     { returnDocument: "after" },
   )
-  if (!got) {
+  return got ? { got, lockAt } : null
+}
+
+/**
+ * ยิง WD Hub ของใบนี้ · เขียนแค่ hubWd/hubStatus ไม่แตะ status ของใบ · ห้าม throw (ยกเว้น strict + ล็อกไม่ได้)
+ * ล็อก hubWdBusyAt กันยิงซ้อน · ไม่ได้คำตอบ = ล็อกค้างไว้ ครบ 5 นาทีจึงลองใหม่ได้ (เหมือน ISSUING ค้าง)
+ */
+async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRequest> {
+  const col = await swCol()
+  const lock = await takeHubWdLock(no)
+  if (!lock) {
     if (strict) throw new ConflictError(MSG.hubWdBusy)
     return (await col.findOne({ no }))!
   }
+  const { got, lockAt } = lock
   const who = { email: actor.email, name: actor.name, via: actor.via }
   const save = async (atms: AtmsProgress, release: boolean): Promise<SwRequest> => {
     const after = await col.findOneAndUpdate(
@@ -334,11 +344,19 @@ async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRe
   }
 }
 
-/** ปุ่ม "ลองตัด WD Hub ใหม่" — ใบ non-pending ที่ตัดยอด Hub แล้วแต่ WD Hub ยังไม่สำเร็จ · ไม่ตัดยอดซ้ำ */
+/**
+ * ปุ่ม "ลองตัด WD Hub ใหม่" — ตัดยอด Hub แล้วแต่ WD Hub ยังไม่สำเร็จ · ไม่ตัดยอดซ้ำ
+ * ใบ Mobile/PM: ได้เฉพาะใบที่ตัดสต๊อกแล้ว (SETTLED) ยิงเฉพาะกลุ่ม Hub ที่ยังไม่ DONE
+ */
 export async function retryHubWd(no: string, actor: Actor): Promise<SwRequest> {
   const cur = await (await swCol()).findOne({ no })
   if (!cur) throw new NotFoundError()
-  if (isPendingFlow(cur) || !cur.hubIssuedAt || hubWdDone(cur) || cur.status === "REJECTED" || cur.status === "CANCELLED") throw new ConflictError()
+  if (!cur.hubIssuedAt || hubWdDone(cur) || cur.status === "REJECTED" || cur.status === "CANCELLED") throw new ConflictError()
+  if (isPendingFlow(cur)) {
+    if (cur.status !== "SETTLED") throw new ConflictError()
+    const { runHubSettle } = await import("./settle") // import ตอนใช้ — settle.ts import ไฟล์นี้อยู่แล้ว
+    return runHubSettle(no, actor, true)
+  }
   return runHubWd(no, actor, true)
 }
 

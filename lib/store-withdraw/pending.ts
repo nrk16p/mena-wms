@@ -119,22 +119,28 @@ export const leftoverTotal = (s: { returns: { qty: number }[] } | null | undefin
 /**
  * แบ่งแถวที่ใช้เป็นกลุ่มต่อทะเบียน (1 กลุ่ม = 1 WD) · เรียงตามทะเบียน เลขกลุ่มเริ่ม 1 · token = `${no}-${n}`
  * บรรทัดซ้ำ (บรรทัดเดียวกัน + ประเภทการซ่อมเดียวกัน) ในคันเดียวกันรวมจำนวนให้ · ใช้ 0 ทั้งใบ = ไม่มีกลุ่ม
+ * ส่ง lines มา = แยกบรรทัด Hub เป็นกลุ่มของตัวเองต่อทะเบียน (`hub: true`, token `${no}-H${k}` k นับแยกเริ่ม 1, คลัง Hub)
+ *   n ของกลุ่ม Hub ต่อจากกลุ่มปกติ (n ต้องไม่ซ้ำทั้งใบ — ใช้ชี้กลุ่มตอนบันทึกผล) · ไม่ส่ง lines = แบบเดิมทุกอย่าง
  */
-export function buildSettleGroups(no: string, usages: SwUsage[], emptyAtms: () => SwSettleGroup["atms"]): SwSettleGroup[] {
+export function buildSettleGroups(no: string, usages: SwUsage[], emptyAtms: () => SwSettleGroup["atms"], lines?: SwLine[]): SwSettleGroup[] {
+  const isHub = (u: SwUsage) => !!lines?.[u.lineIndex]?.hub?.vendorCode
   const by = new Map<string, { plate: string; mr: string[]; lines: SwSettleGroup["lines"] }>()
+  const hubBy = new Map<string, { plate: string; mr: string[]; lines: SwSettleGroup["lines"] }>()
   for (const u of usages) {
     if (!(u.qty > 0)) continue
+    const m = isHub(u) ? hubBy : by
     const key = normPlate(u.plate)
-    const g = by.get(key) ?? { plate: u.plate.trim(), mr: [], lines: [] }
+    const g = m.get(key) ?? { plate: u.plate.trim(), mr: [], lines: [] }
     if (!g.mr.includes(u.mrCode)) g.mr.push(u.mrCode)
     const same = g.lines.find((x) => x.lineIndex === u.lineIndex && x.mrItemId === u.mrItemId)
     if (same) same.qty = round(same.qty + u.qty)
     else g.lines.push({ lineIndex: u.lineIndex, mrItemId: u.mrItemId, qty: u.qty })
-    by.set(key, g)
+    m.set(key, g)
   }
-  return [...by.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, g], i) => ({ n: i + 1, plate: g.plate, token: `${no}-${i + 1}`, mrCodes: g.mr, lines: g.lines, status: "PENDING" as const, atms: emptyAtms() }))
+  const sorted = (m: typeof by) => [...m.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, g]) => g)
+  const normal = sorted(by).map((g, i) => ({ n: i + 1, plate: g.plate, token: `${no}-${i + 1}`, mrCodes: g.mr, lines: g.lines, status: "PENDING" as const, atms: emptyAtms() }))
+  const hub = sorted(hubBy).map((g, k) => ({ n: normal.length + k + 1, plate: g.plate, token: `${no}-H${k + 1}`, mrCodes: g.mr, lines: g.lines, status: "PENDING" as const, atms: emptyAtms(), hub: true }))
+  return [...normal, ...hub]
 }
 
 /** หมายเหตุหัวใบ WD ของกลุ่ม (แบบเดียวกับ headerRemark: MR · อ้างอิง · ทะเบียน · หมายเหตุ) — เลขใบ SW มากับ remark_token ที่ api-ncac ใส่หน้าหมายเหตุให้เอง */
