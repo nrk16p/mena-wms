@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Download, FileText, Loader2, Search, ShieldAlert, ShieldCheck } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { WORK_TYPE_LABEL } from "@/lib/store-withdraw/core"
+import { HUB_ACTION_LABEL } from "@/lib/store-withdraw/hub-core"
 import type { SwStatus } from "@/lib/store-withdraw/types"
 import { StatusChip } from "./status-chip"
 
@@ -240,7 +241,7 @@ function DetailDialog({ no, onClose }: { no: string; onClose: () => void }) {
               <ol data-testid="timeline" className="space-y-1.5 border-l-2 border-[#E2E8E4] pl-3 dark:border-white/10">
                 {d.timeline.map((t, i) => (
                   <li key={i} className="text-xs">
-                    <span className="font-semibold text-gray-800 dark:text-gray-100">{t.action}</span>
+                    <span className="font-semibold text-gray-800 dark:text-gray-100"><span title={t.action}>{HUB_ACTION_LABEL[t.action] ?? t.action}</span></span>
                     {t.from !== t.to && <span className="text-gray-500"> · {t.from ?? "-"} → {t.to ?? "-"}</span>}
                     <span className="block text-gray-500">{fmt(t.at)} · {t.actor} ({t.via}){t.seq ? ` · ลำดับ ${t.seq}` : ""}</span>
                     {t.note && <span className="block break-words text-gray-700 dark:text-gray-300">{t.note}</span>}

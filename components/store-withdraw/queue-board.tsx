@@ -5,6 +5,7 @@ import { Bell, BellOff, KeyRound, Link2, Loader2, MoreVertical, RefreshCw, Searc
 import { swalConfirm, swalError, swalTextInput, swalToast } from "@/lib/swal"
 import { AtmsLinkDialog } from "./atms-link-dialog"
 import { DetailPanel } from "./detail-panel"
+import { HubBanner, HubBindDialog, waitPr } from "./hub-bits"
 import { PrepareDialog } from "./prepare-dialog"
 import { RejectDialog } from "./reject-dialog"
 import { isPendingFlow, matchesSearch, normSearch, searchActive, waitMinutes, workTypeFromKind, WORK_TYPE_LABEL, WORK_TYPES } from "@/lib/store-withdraw/core"
@@ -14,7 +15,7 @@ import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-t
 import { KeyedCard, TicketCard, WAIT_WARN_MIN, hm, waitText, type BusyKind, type CardActions, type ColKey } from "./ticket-card"
 
 type Opt = { id: number; name: string }
-type QuickFilter = "all" | "urgent" | "late" | "cutoff" | "return" | "error"
+type QuickFilter = "all" | "urgent" | "late" | "cutoff" | "return" | "error" | "hubpr"
 
 const POLL_MS = 10_000
 const LATKRABANG = 4
@@ -35,14 +36,14 @@ const COLS = [...STORE_COLS, ...FOLLOW_COLS]
 const ACTIVE: ColKey[] = ["NEW", "PREPARING", "READY", "HANDED_OUT"]
 const QUICK: { id: QuickFilter; label: string }[] = [
   { id: "all", label: "ทั้งหมด" }, { id: "urgent", label: "รถจอดรอ" }, { id: "late", label: `เกิน ${WAIT_WARN_MIN} นาที` },
-  { id: "cutoff", label: "ตัดยอด" }, { id: "return", label: "ใบคืน" }, { id: "error", label: "ATMS ผิดพลาด" },
+  { id: "cutoff", label: "ตัดยอด" }, { id: "return", label: "ใบคืน" }, { id: "error", label: "ATMS ผิดพลาด" }, { id: "hubpr", label: "รอ PR Hub" },
 ]
 const isReturnItem = (i: QItem) => i.itemType === "return" && !!i.return
 const isErr = (i: QItem) => (isReturnItem(i) ? i.return!.status === "RETURN_FAILED" : i.status === "ISSUE_FAILED" || i.status === "SETTLE_FAILED")
 const isLate = (i: QItem, k: ColKey, now: Date) => (k === "NEW" || k === "PREPARING" || k === "READY") && waitMinutes(new Date(i.createdAt), now) > WAIT_WARN_MIN
 const quickMatch = (f: QuickFilter, i: QItem, k: ColKey, now: Date) =>
   f === "all" || (f === "urgent" && i.urgent) || (f === "late" && isLate(i, k, now)) || (f === "cutoff" && !isReturnItem(i) && i.kind === "cutoff")
-  || (f === "return" && isReturnItem(i)) || (f === "error" && isErr(i))
+  || (f === "return" && isReturnItem(i)) || (f === "error" && isErr(i)) || (f === "hubpr" && waitPr(i))
 const ctl = "h-10 rounded-lg border border-[#D5DCD8] bg-white text-sm text-[#14271C] dark:border-white/10 dark:bg-[#0f1117] dark:text-white"
 const iconBtn = `${ctl} inline-flex w-10 items-center justify-center text-[#2B3D32] hover:border-[#17793F] hover:text-[#17793F] dark:text-gray-300`
 
@@ -64,6 +65,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
   const [busy, setBusy] = useState<Map<string, BusyKind>>(new Map())
   const [prep, setPrep] = useState<QItem | null>(null)
   const [rej, setRej] = useState<QItem | null>(null)
+  const [bindHub, setBindHub] = useState<QItem | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [soundOn, setSoundOn] = useState(false)
@@ -291,6 +293,25 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
     } finally { setBusyKey(k, null) }
   }
 
+  // ลองตัด WD Hub ใหม่ (ใบปกติหลังส่งของ · Mobile/PM หลังสรุปแล้ว) — ฝั่งเซิร์ฟเวอร์กันตัดซ้ำเอง
+  const retryHubWd = async (i: QItem) => {
+    if (!linkRef.current?.linked) { askLink(() => { void retryHubWd(i) }); return }
+    const k = itemKey(i)
+    setBusyKey(k, "other")
+    try {
+      const res = await api(`/api/store-withdraw/${encodeURIComponent(i.no)}/hub-wd-retry`, { method: "POST" })
+      const r = res.request as QItem
+      const errs = [r.hubWd, ...(r.settleGroups ?? []).filter((g) => g.hub && g.status !== "DONE").map((g) => g.atms)].filter((a) => a?.error)
+      if (errs.length === 0) await swalToast("success", "ตัด WD Hub แล้ว")
+      else if (errs.some((a) => a?.needCreds)) { setLink({ linked: false }); askLink(() => { void retryHubWd(i) }) }
+      else await swalToast("error", errs[0]?.error || "ตัด WD Hub ไม่สำเร็จ")
+      await load()
+    } catch (e) {
+      await swalToast("warning", errMsg(e, "ตัด WD Hub ไม่สำเร็จ"))
+      await load()
+    } finally { setBusyKey(k, null) }
+  }
+
   const reject = async (i: QItem) => { setRej(i) }
 
   const doReject = async (i: QItem, reason: string, attachmentIds: string[]) => {
@@ -379,7 +400,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
     } finally { setDeepBusy(false) }
   }
 
-  const actions: CardActions = { claim, prepare: setPrep, issue, reject, closeManual, acceptReturn, settle: settleStock, open }
+  const actions: CardActions = { claim, prepare: setPrep, issue, reject, closeManual, acceptReturn, settle: settleStock, open, bindHubPr: setBindHub, retryHubWd }
   const filtering = searchActive(q)
   const narrowed = filtering || quick !== "all" || wtype !== "all"
   const colAll = (k: ColKey) => (data?.columns[k] ?? []) as QItem[]
@@ -434,7 +455,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
     { key: "HANDED_OUT", dot: "bg-orange-600", label: "รอช่างสรุป", sub: overdue ? `เลยกำหนด ${overdue} ใบ` : "ยังไม่เลยกำหนด", tone: overdue ? "bad" : "" },
     { key: "DONE_TODAY", dot: "bg-gray-500", label: "ส่งแล้ววันนี้", sub: lastDone ? `ล่าสุด ${hm(lastDone)}` : "ยังไม่มี", tone: "" },
   ]
-  const quickCount = (f: QuickFilter) => ACTIVE.reduce((n, k) => n + colAll(k).filter((i) => quickMatch(f, i, k, now)).length, 0)
+  const quickCount = (f: QuickFilter) => (f === "hubpr" ? COLS.map((c) => c.key) : ACTIVE).reduce((n, k) => n + colAll(k).filter((i) => quickMatch(f, i, k, now)).length, 0)
 
   const renderCol = (c: Col) => {
     const items = colItems(c.key)
@@ -557,6 +578,8 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
           </p>
         )}
 
+        {data && <HubBanner items={COLS.flatMap((c) => colAll(c.key))} showing={quick === "hubpr"} onShow={() => setQuick(quick === "hubpr" ? "all" : "hubpr")} />}
+
         {link && !link.linked && (
           <div className="flex flex-wrap items-center gap-3 rounded-[10px] border border-amber-300 bg-amber-50 py-2.5 pl-4 pr-3 text-[13.5px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
             <Link2 size={16} className="shrink-0" />
@@ -621,6 +644,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
 
       {busy.size > 0 && <span className="sr-only" aria-live="polite"><Loader2 className="animate-spin" />กำลังทำรายการ</span>}
 
+      {bindHub && <HubBindDialog no={bindHub.no} plate={bindHub.plate} inventoryId={bindHub.inventoryId} current={bindHub.hubPr?.code} onClose={() => setBindHub(null)} onDone={() => { setBindHub(null); void load() }} />}
       {rej && <RejectDialog no={rej.no} onClose={() => setRej(null)} onSubmit={(reason, ids) => { void doReject(rej, reason, ids) }} />}
       {prep && <PrepareDialog item={prep} onClose={() => setPrep(null)} onReady={markReady} />}
       {linkOpen && (

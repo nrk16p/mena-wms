@@ -5,6 +5,7 @@ import { AlertTriangle, Clock, Flag, Loader2, Paperclip, Truck, Undo2, User } fr
 import { WORK_TYPE_LABEL, isPendingFlow, waitMinutes, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { lateMinutes, lateText, leftoverTotal } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
+import { HubBadges, HubSentLine } from "./hub-bits"
 import { StatusChip } from "./status-chip"
 import { SummaryView } from "./summary-dialog"
 import { itemKey, type QItem, type QKeyed } from "./queue-types"
@@ -25,6 +26,9 @@ export type CardActions = {
   acceptReturn: (i: QItem) => void
   /** Mobile/PM: ตัดสต๊อกหลังช่างสรุป (returnConfirmed = ติ๊กรับของคืนแล้ว) */
   settle: (i: QItem, returnConfirmed: boolean) => void
+  /** อะไหล่ Hub: เปิดหน้าต่างผูก PR · ลองตัด WD Hub ใหม่ (ใช้ในแผงรายละเอียด) */
+  bindHubPr?: (i: QItem) => void
+  retryHubWd?: (i: QItem) => void
   /** เปิดดูการ์ด — คิวใช้ตรวจใบกับ ATMS (ไม่บังคับ) */
   open?: (i: QItem) => void
 }
@@ -195,8 +199,10 @@ export function TicketCard({ item, now, busy, actions, column, selected = false,
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           {st.atms.code && <span className="text-xs text-[#4A5A50] dark:text-gray-400">{isReturn ? "DD" : "WD"} <span data-testid="wd-code" className="font-mono font-semibold text-[#2B3D32] dark:text-gray-200">{st.atms.code}</span></span>}
+          <HubBadges item={item} />
           <span className="ml-auto"><StatusChip status={item.status} /></span>
         </div>
+        <HubSentLine item={item} now={now} />
         {item.status === "REJECTED" && item.rejectReason && <p className="mt-1.5 line-clamp-2 text-xs text-[#4A5A50] dark:text-gray-400">เหตุผล: {item.rejectReason}</p>}
         {st.atms.drift && <div className="mt-2"><AtmsAlerts st={{ ...st, showError: false }} /></div>}
       </li>
@@ -219,6 +225,7 @@ export function TicketCard({ item, now, busy, actions, column, selected = false,
         {isReturn && <span className="inline-flex h-[22px] items-center gap-1 rounded-full bg-violet-100 px-2 text-xs font-semibold text-[#5B3AA8] dark:bg-violet-500/15 dark:text-violet-300"><Undo2 size={13} aria-hidden="true" />ใบคืน</span>}
         <span className="text-xs text-[#4A5A50] dark:text-gray-400">{kindLabel(item)}</span>
         {!isReturn && <span data-testid="worktype" className="inline-flex h-5 items-center rounded bg-[#E8F3EC] px-1.5 text-[11.5px] font-semibold text-[#14532D] dark:bg-emerald-500/10 dark:text-emerald-300">{workLabel(item)}</span>}
+        <HubBadges item={item} />
         <span className="ml-auto"><WaitChip st={st} item={item} /></span>
       </div>
 

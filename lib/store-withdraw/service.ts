@@ -7,7 +7,7 @@ import { RETURN_REASONS, docWarnings, isPendingFlow, matchesSearch, parseRef, qu
 import { handedOutSort, parseDue } from "./pending"
 import { HttpError } from "./http"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
-import { HUB_WORK_TYPES, hubStatusOf, isHubLine } from "./hub-core"
+import { HUB_WORK_TYPES, hubStatusOf, isHubLine, withHub, type HubWire } from "./hub-core"
 import { getHubSite, hubCols } from "./hub-db"
 import type { AtmsProgress, SwHubPr, SwLine, SwRequest } from "./types"
 
@@ -329,7 +329,7 @@ export async function requestReturn(no: string, body: CreateInput, actor: Actor)
 
 const PENDING_OPEN = ["HANDED_OUT", "SUMMARIZED", "SETTLING", "SETTLE_FAILED"]
 
-export type QueueItem = SwRequest & { itemType: "request" | "return"; return?: SwRequest["returns"][number] }
+export type QueueItem = SwRequest & HubWire & { itemType: "request" | "return"; return?: SwRequest["returns"][number] }
 
 export async function buildQueue(inventoryId: number | null, now = new Date()) {
   const col = await swCol()
@@ -348,7 +348,7 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
   const cols: Record<"NEW" | "PREPARING" | "READY" | "DONE_TODAY" | "HANDED_OUT", QueueItem[]> = { NEW: [], PREPARING: [], READY: [], DONE_TODAY: [], HANDED_OUT: [] }
   const today = ddmmyyyyBkk(now)
   for (const d of docs) {
-    const item: QueueItem = { ...withRef(d), itemType: "request" }
+    const item: QueueItem = { ...withHub(withRef(d), now), itemType: "request" }
     if (d.status === "NEW") cols.NEW.push(item)
     else if (d.status === "PREPARING") cols.PREPARING.push(item)
     else if (d.status === "READY") cols.READY.push(item)
@@ -359,7 +359,7 @@ export async function buildQueue(inventoryId: number | null, now = new Date()) {
     else if (ddmmyyyyBkk(d.updatedAt) === today) cols.DONE_TODAY.push(item)
     for (const r of d.returns) {
       if (r.status === "RETURN_REQUESTED" || r.status === "RETURNING" || r.status === "RETURN_FAILED") {
-        cols.NEW.push({ ...withRef(d), itemType: "return", return: r, createdAt: r.createdAt })
+        cols.NEW.push({ ...withHub(withRef(d), now), itemType: "return", return: r, createdAt: r.createdAt })
       }
     }
   }
@@ -390,7 +390,7 @@ export async function searchInventory(inventoryId: number, q: string, days: numb
   const col = await swCol()
   const since = new Date(now.getTime() - days * 24 * 3600_000)
   const docs = await col.find({ inventoryId, createdAt: { $gte: since } }, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(SEARCH_SCAN).toArray()
-  return docs.filter((d) => matchesSearch(d, q)).slice(0, SEARCH_INV_MAX).map((d) => ({ ...withRef(d), itemType: "request" as const }))
+  return docs.filter((d) => matchesSearch(d, q)).slice(0, SEARCH_INV_MAX).map((d) => ({ ...withHub(withRef(d), now), itemType: "request" as const }))
 }
 
 // ---------- WD ที่คีย์ตรงใน ATMS (อ่านอย่างเดียว) ----------

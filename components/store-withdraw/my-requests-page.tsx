@@ -10,13 +10,14 @@ import { lateMinutes, lateText } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import type { SwLine, SwRequest } from "@/lib/store-withdraw/types"
 import { AttachButton, AttachChip, AttachPicker, doneIds, isUploading, type Picked } from "./attach-picker"
+import { HubBadges, HubBanner, HubBindDialog, HubSentLine, canBindHubPr } from "./hub-bits"
 import { StatusChip } from "./status-chip"
 import { RequestForm } from "./request-form"
-import { ExtendDueDialog, SummaryView, type PendingReq } from "./summary-dialog"
+import { ExtendDueDialog, SummaryView, type HubReq, type PendingReq } from "./summary-dialog"
 import { LineCoreChips, MineCoreBanner, RequestCoreReturn, useRequestCore } from "@/components/core-return/request-core"
 import type { Row as CoreRowView } from "@/components/core-return/shared"
 
-type Req = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "summaryDueAt" | "summary" | "settleGroups"> & PendingReq & {
+type Req = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "summaryDueAt" | "summary" | "settleGroups" | "hubWd" | "hubPr" | "hubIssuedAt" | "hubStatus" | "hubRestoredAt" | "hubWdBusyAt"> & PendingReq & HubReq & {
   attachCount?: number
   createdAt: string
   returns: { status: string; lines: { lineIndex: number; qty: number }[] }[]
@@ -53,6 +54,7 @@ export function MyRequestsPage() {
   const [busyNo, setBusyNo] = useState("")
   const [ret, setRet] = useState<Req | null>(null)
   const [ext, setExt] = useState<Req | null>(null)
+  const [bindHub, setBindHub] = useState<Req | null>(null)
   const [now, setNow] = useState(() => new Date())
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   const inflight = useRef<AbortController | null>(null)
@@ -164,6 +166,7 @@ export function MyRequestsPage() {
 
       {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
       <MineCoreBanner tick={coreTick} />
+      <HubBanner items={items} />
 
       {!loading && (items.length > 0 || q !== "") && (
         <div className="space-y-1.5">
@@ -223,6 +226,13 @@ export function MyRequestsPage() {
                   <StatusChip status={r.status} />
                 </div>
 
+                {r.hubCount > 0 && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <HubBadges item={r} />
+                    {r.hubPr && <span data-testid="hub-pr-code" className="text-xs text-gray-600 dark:text-gray-300">PR Hub {r.hubPr.code}</span>}
+                  </div>
+                )}
+                {r.hubCount > 0 && <HubSentLine item={r} now={now} />}
                 {r.atms?.code && <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">เลข WD: <span className="font-medium">{r.atms.code}</span></p>}
                 {r.status === "REJECTED" && r.rejectReason && (
                   <p className="mt-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">เหตุผลที่สโตร์ปฏิเสธ: {r.rejectReason}</p>
@@ -239,7 +249,7 @@ export function MyRequestsPage() {
                 <ul className="mt-2 divide-y divide-[#EEF2F0] text-sm dark:divide-white/10">
                   {r.lines.map((l: SwLine, li) => (
                     <li key={`${l.skuId}-${li}`} className="flex items-start justify-between gap-3 py-1.5">
-                      <span className="min-w-0"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}</span><span className="block text-xs text-gray-500">{l.skuCode}</span>
+                      <span className="min-w-0"><span className="block truncate text-gray-900 dark:text-white">{l.skuName}{l.hub && <span className="ml-1.5 rounded bg-sky-100 px-1 text-[10.5px] font-semibold text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">Hub</span>}</span><span className="block text-xs text-gray-500">{l.skuCode}</span>
                         <LineCoreChips rows={(core.byNo.get(r.no) ?? []).filter((c) => (c as { swLineIndex?: number }).swLineIndex === li)} canReturn={core.canReturn} onReturn={setCoreRet} /></span>
                       <span className="shrink-0 text-right text-xs text-gray-600 dark:text-gray-300">
                         ขอ {l.requestedQty}{l.issuedQty != null && ` · ได้ ${l.issuedQty}`}{l.short && <span className="text-amber-600"> (ไม่ครบ)</span>}
@@ -252,11 +262,12 @@ export function MyRequestsPage() {
                 {r.summary && <SummaryView req={r} />}
                 <AttachChip no={r.no} count={r.attachCount ?? 0} />
 
-                {(r.status === "NEW" || r.status === "ISSUED" || canReturn || (pending && r.status === "HANDED_OUT")) && (
+                {(r.status === "NEW" || r.status === "ISSUED" || canReturn || canBindHubPr(r) || (pending && r.status === "HANDED_OUT")) && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {pending && r.status === "HANDED_OUT" && <Link href={summaryPath(r.no)} data-testid="summary-btn" className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-[#1B8C4B] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#157a40]"><ClipboardCheck size={14} />สรุปการใช้</Link>}
                     {pending && r.status === "HANDED_OUT" && <button type="button" data-testid="extend-btn" disabled={busy} onClick={() => setExt(r)} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><CalendarClock size={14} />เลื่อนกำหนด</button>}
                     {pending && r.status === "HANDED_OUT" && <ShareLink no={r.no} />}
+                    {canBindHubPr(r) && <button type="button" data-testid="hub-bind" disabled={busy} onClick={() => setBindHub(r)} className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-sky-300 px-3.5 py-2 text-sm font-medium text-sky-800 hover:bg-sky-50 disabled:opacity-60 dark:border-sky-500/40 dark:text-sky-300 dark:hover:bg-sky-500/10">{r.hubPr ? "เปลี่ยน PR อะไหล่ Hub" : "ผูก PR อะไหล่ Hub"}</button>}
                     {r.status === "NEW" && <button type="button" disabled={busy} onClick={() => cancel(r)} className="rounded-xl border border-red-200 px-3.5 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-500/30 dark:hover:bg-red-500/10">ยกเลิก</button>}
                     {r.status === "ISSUED" && r.kind === "stock" && <button type="button" disabled={busy} onClick={() => receive(r)} className="rounded-xl bg-[#1B8C4B] px-3.5 py-2 text-sm font-medium text-white hover:bg-[#157a40] disabled:opacity-60">รับแล้ว</button>}
                     {canReturn && <button type="button" disabled={busy} onClick={() => setRet(r)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#E2E8E4] px-3.5 py-2 text-sm text-gray-700 hover:text-[#1B8C4B] disabled:opacity-60 dark:border-white/10 dark:text-gray-200"><Undo2 size={14} />ขอคืน</button>}
@@ -282,6 +293,7 @@ export function MyRequestsPage() {
           {creating && <RequestForm onDone={() => { setCreating(false); load() }} onCancel={() => setCreating(false)} />}
         </DialogContent>
       </Dialog>
+      {bindHub && <HubBindDialog no={bindHub.no} plate={bindHub.plate} inventoryId={bindHub.inventoryId} current={bindHub.hubPr?.code} onClose={() => setBindHub(null)} onDone={() => { setBindHub(null); load() }} />}
       {ext && <ExtendDueDialog req={ext} onClose={() => setExt(null)} onDone={() => { setExt(null); load() }} />}
     </div>
   )

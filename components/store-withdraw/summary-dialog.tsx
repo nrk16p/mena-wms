@@ -6,7 +6,7 @@ import { useState } from "react"
 import { swalError, swalToast } from "@/lib/swal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DUE_MAX_DAYS, normPlate } from "@/lib/store-withdraw/pending"
-import type { SwLine, SwUsage } from "@/lib/store-withdraw/types"
+import type { SwHubStatus, SwLine, SwUsage } from "@/lib/store-withdraw/types"
 import { UsageFiles } from "./attach-picker"
 import { DuePicker, dueError, toLocalInput } from "./due-picker"
 
@@ -15,7 +15,19 @@ export type PendingReq = {
   summaryDueAt?: string | null
   summaryExtensions?: number
   summary?: { usages: SwUsage[]; returns: { lineIndex: number; qty: number }[]; note: string; by: { email: string; name: string }; at: string } | null
-  settleGroups?: { n: number; plate: string; token: string; mrCodes: string[]; lines: { lineIndex: number; mrItemId: number; qty: number }[]; status: "PENDING" | "DONE"; atms: { gmId: number | null; code: string | null; error: string | null; needCreds: boolean; drift: string | null } }[]
+  settleGroups?: { n: number; plate: string; token: string; mrCodes: string[]; lines: { lineIndex: number; mrItemId: number; qty: number }[]; status: "PENDING" | "DONE"; atms: { gmId: number | null; code: string | null; error: string | null; needCreds: boolean; drift: string | null }; hub?: boolean }[]
+}
+
+/** field Hub ที่เซิร์ฟเวอร์ส่งมากับใบ (วันที่เป็นสตริง) · ใบไม่มี Hub = hubCount 0 */
+export type HubReq = {
+  hubStatus: SwHubStatus
+  hubOverdue: boolean
+  hubCount: number
+  hubWdDone: boolean
+  hubRetry: boolean
+  hubIssuedAt?: string | null
+  hubPr?: { code: string; id: number | null; by: { email: string; name: string }; at: string } | null
+  hubWd?: { code: string | null; error: string | null; approved: boolean; needCreds: boolean } | null
 }
 
 // "LBMR26100001 อู่ใน-CM-ระบบไฟ : 257041" → "อู่ใน-CM-ระบบไฟ"
@@ -46,23 +58,30 @@ export function SummaryView({ req, compact = false }: { req: { no: string; lines
   const s = req.summary
   if (!s) return null
   const groups = groupByPlate(s.usages)
-  const wd = new Map((req.settleGroups ?? []).map((g) => [normPlate(g.plate), g]))
+  // WD แยกตามกลุ่ม (n) ไม่ใช่ทะเบียนอย่างเดียว: ทะเบียนเดียวกันมีทั้ง WD ปกติและ WD Hub
+  const wds = new Map<string, NonNullable<PendingReq["settleGroups"]>>()
+  for (const g of req.settleGroups ?? []) {
+    const k = normPlate(g.plate)
+    wds.set(k, [...(wds.get(k) ?? []), g])
+  }
   return (
     <div data-testid="summary-view" className={`mt-2 space-y-2 rounded-xl bg-[#F6F8F7] p-2.5 text-xs dark:bg-white/[0.04] ${compact ? "" : "sm:p-3"}`}>
       {groups.length === 0 && <p className="text-gray-600 dark:text-gray-300">ไม่ได้ใช้เลย คืนสโตร์ทั้งหมด</p>}
       {groups.map((g) => {
-        const w = wd.get(g.key)
+        const ws = wds.get(g.key) ?? []
         return (
           <div key={g.key} data-testid="usage-group" data-plate={g.plate}>
             <p className="font-semibold text-gray-800 dark:text-gray-100">
               {g.plate}
-              {w?.atms.code && <span data-testid="group-wd" className="ml-1.5 font-normal text-gray-500">WD {w.atms.code}</span>}
+              {ws.filter((w) => w.atms.code).map((w) => (
+                <span key={w.n} data-testid="group-wd" className="ml-1.5 font-normal text-gray-500">{w.hub ? "WD Hub" : "WD"} {w.atms.code}</span>
+              ))}
             </p>
             <ul className="mt-0.5 space-y-0.5">
               {g.rows.map((u, i) => (
                 <li key={i} className="flex justify-between gap-2 text-gray-600 dark:text-gray-300">
                   <span className="min-w-0">
-                    <span className="block truncate">{req.lines[u.lineIndex]?.skuName ?? "?"}</span>
+                    <span className="block truncate">{req.lines[u.lineIndex]?.skuName ?? "?"}{req.lines[u.lineIndex]?.hub && <span className="ml-1 rounded bg-sky-100 px-1 text-[10.5px] font-semibold text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">Hub</span>}</span>
                     <span className="block truncate text-[11px] text-[#1B8C4B]">{u.mrCode} · {mrTypeName(u.mrItemLabel)}</span>
                     <UsageFiles no={req.no} ids={u.attachmentIds} />
                   </span>
@@ -70,7 +89,7 @@ export function SummaryView({ req, compact = false }: { req: { no: string; lines
                 </li>
               ))}
             </ul>
-            {w?.atms.error && <p className="mt-0.5 text-red-600">{w.atms.error}</p>}
+            {ws.filter((w) => w.atms.error).map((w) => <p key={w.n} className="mt-0.5 text-red-600">{w.hub ? "WD Hub: " : ""}{w.atms.error}</p>)}
           </div>
         )
       })}

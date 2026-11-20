@@ -1,9 +1,9 @@
 import type { AtmsProgress, SwLine, SwRequest, SwReturn } from "@/lib/store-withdraw/types"
-import type { PendingReq } from "./summary-dialog"
+import type { HubReq, PendingReq } from "./summary-dialog"
 
 // รูปแบบที่ /api/store-withdraw/queue ส่งมาหลัง JSON (วันที่เป็นสตริง ISO)
 export type QReturn = Omit<SwReturn, "createdAt" | "atms"> & { createdAt: string; atms: Omit<AtmsProgress, "lastCheckAt" | "startedAt"> & { lastCheckAt: string | null; startedAt: string | null } }
-export type QItem = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "atms" | "lines" | "summaryDueAt" | "summary" | "settleGroups"> & PendingReq & {
+export type QItem = Omit<SwRequest, "createdAt" | "updatedAt" | "returns" | "atms" | "lines" | "summaryDueAt" | "summary" | "settleGroups" | "hubWd" | "hubPr" | "hubIssuedAt" | "hubStatus" | "hubRestoredAt" | "hubWdBusyAt"> & PendingReq & HubReq & {
   atms: QReturn["atms"]
   lines: SwLine[]
   createdAt: string

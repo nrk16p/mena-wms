@@ -6,6 +6,7 @@ import { Check, Truck, X } from "lucide-react"
 import { isPendingFlow } from "@/lib/store-withdraw/core"
 import { DOC_KIND_NAME } from "./doc-ref-types"
 import { AttachButton, AttachChip } from "./attach-picker"
+import { HubBadges, canBindHubPr } from "./hub-bits"
 import { StatusChip } from "./status-chip"
 import { SummaryView, mrTypeName } from "./summary-dialog"
 import { ActionBar, AtmsAlerts, cardState, dmhm, hm, kindLabel, waitText, workLabel, type BusyKind, type CardActions, type ColKey } from "./ticket-card"
@@ -64,6 +65,51 @@ function Dot({ state }: { state: Step["state"] }) {
   return <span aria-label="ยังไม่ถึง" className="h-[18px] w-[18px] rounded-full border-2 border-[#C9D1CC] bg-white dark:border-white/20 dark:bg-transparent" />
 }
 
+function HubSection({ item, rows, busy, actions }: { item: QItem; rows: { key: string; code: string; name: string; qty: string; vendor: string }[]; busy: BusyKind | null; actions: CardActions }) {
+  const pending = isPendingFlow(item)
+  const groups = (item.settleGroups ?? []).filter((g) => g.hub)
+  // WD Hub: ใบปกติ = hubWd ใบเดียว · Mobile/PM = กลุ่ม hub ต่อทะเบียน
+  const wd: { key: string; code: string | null; error: string | null }[] = pending
+    ? groups.map((g) => ({ key: g.token, code: g.atms.code, error: g.atms.error }))
+    : [{ key: "hubWd", code: item.hubWd?.code ?? null, error: item.hubWd?.error ?? null }]
+  const sent = !!item.hubIssuedAt
+  return (
+    <section data-testid="hub-section" className="space-y-2">
+      <h3 className="text-[13px] font-semibold text-[#14271C] dark:text-white">รายการอะไหล่ Hub <span className="font-normal text-[#4A5A50] dark:text-gray-400">· {rows.length} รายการ</span></h3>
+      <div className="overflow-hidden rounded-lg border border-sky-200 dark:border-sky-500/30">
+        {rows.map((r, n) => (
+          <div key={r.key} className={`grid grid-cols-[110px_minmax(0,1fr)_80px] gap-2 px-3 py-2 text-[13px] ${n > 0 ? "border-t border-sky-100 dark:border-white/10" : ""}`}>
+            <span className="break-all font-mono text-xs text-[#2B3D32] dark:text-gray-300">{r.code}</span>
+            <span className="min-w-0"><span className="block text-[#14271C] dark:text-gray-100">{r.name}</span><span className="block text-[11.5px] text-sky-800 dark:text-sky-300">Hub {r.vendor}</span></span>
+            <span className="text-right tabular-nums text-[#14271C] dark:text-gray-100">{r.qty}</span>
+          </div>
+        ))}
+      </div>
+      <p data-testid="hub-pr-line" className="text-[13px] text-[#2B3D32] dark:text-gray-300">
+        PR Hub: {item.hubPr
+          ? <><span className="font-mono font-semibold">{item.hubPr.code}</span> · {item.hubPr.by.name} {dmhm(item.hubPr.at)}</>
+          : item.hubOverdue ? <span className="font-semibold text-red-700 dark:text-red-300">ยังไม่ผูก · เกินกำหนด PR</span> : sent ? "ยังไม่ผูก" : "ยังไม่ส่งของ"}
+      </p>
+      {sent && wd.map((w) => (
+        <p key={w.key} data-testid="hub-wd-line" className="text-[13px] text-[#2B3D32] dark:text-gray-300">
+          WD Hub: {w.code ? <span className="font-mono font-semibold">{w.code}</span> : "ยังไม่ได้ตัด"}
+          {w.error && <span role="alert" className="mt-0.5 block text-xs text-red-700 dark:text-red-300">{w.error}</span>}
+        </p>
+      ))}
+      <div className="flex flex-wrap gap-2 pt-0.5">
+        {item.hubRetry && actions.retryHubWd && (
+          <button type="button" data-testid="hub-retry" disabled={busy != null} onClick={() => actions.retryHubWd!(item)}
+            className="inline-flex min-h-10 items-center rounded-lg border border-[#17793F] bg-[#17793F] px-3.5 text-[13.5px] font-semibold text-white hover:bg-[#126433] disabled:opacity-60">ลองตัด WD Hub ใหม่</button>
+        )}
+        {canBindHubPr(item) && actions.bindHubPr && (
+          <button type="button" data-testid="hub-bind" disabled={busy != null} onClick={() => actions.bindHubPr!(item)}
+            className="inline-flex min-h-10 items-center rounded-lg border border-[#D5DCD8] bg-white px-3.5 text-[13.5px] font-medium text-[#2B3D32] hover:border-[#17793F] hover:text-[#17793F] disabled:opacity-60 dark:border-white/10 dark:bg-transparent dark:text-gray-200">{item.hubPr ? "เปลี่ยน PR อะไหล่ Hub" : "ผูก PR อะไหล่ Hub"}</button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export function DetailPanel({ item, column, now, busy, actions, onClose }: {
   item: QItem; column: ColKey; now: Date; busy: BusyKind | null; actions: CardActions; onClose: () => void
 }) {
@@ -79,12 +125,18 @@ export function DetailPanel({ item, column, now, busy, actions, onClose }: {
 
   const st = cardState(item, now, busy, column)
   const { isReturn, ret } = st
+  const toRow = (l: QItem["lines"][number], n: number) => ({
+    key: `${l.skuId}-${n}`, code: l.skuCode, name: l.skuName, mr: l.mrItemLabel ? mrTypeName(l.mrItemLabel) : "",
+    qty: `${l.issuedQty != null && l.issuedQty !== l.requestedQty ? `${l.issuedQty}/` : ""}${l.requestedQty}${l.short ? " (ขาด)" : ""}`,
+    vendor: l.hub?.vendorCode ?? "",
+  })
+  // อะไหล่ Hub แยกหัวข้อของตัวเอง · ใบที่ไม่มี Hub ได้รายการปกติชุดเดียวเหมือนเดิม
+  const allRows = isReturn ? [] : item.lines.map((l, n) => ({ hub: !!l.hub?.vendorCode, row: toRow(l, n) }))
   const rows = isReturn
-    ? ret!.lines.map((l) => ({ key: `r${l.lineIndex}`, code: item.lines[l.lineIndex]?.skuCode ?? "", name: item.lines[l.lineIndex]?.skuName ?? "?", mr: "", qty: `คืน ${l.qty}` }))
-    : item.lines.map((l, n) => ({
-        key: `${l.skuId}-${n}`, code: l.skuCode, name: l.skuName, mr: l.mrItemLabel ? mrTypeName(l.mrItemLabel) : "",
-        qty: `${l.issuedQty != null && l.issuedQty !== l.requestedQty ? `${l.issuedQty}/` : ""}${l.requestedQty}${l.short ? " (ขาด)" : ""}`,
-      }))
+    ? ret!.lines.map((l) => ({ key: `r${l.lineIndex}`, code: item.lines[l.lineIndex]?.skuCode ?? "", name: item.lines[l.lineIndex]?.skuName ?? "?", mr: "", qty: `คืน ${l.qty}`, vendor: "" }))
+    : allRows.filter((x) => !x.hub).map((x) => x.row)
+  const hubRows = allRows.filter((x) => x.hub).map((x) => x.row)
+  const showHub = !isReturn && item.hubCount > 0
   const facts: [string, string][] = [
     ["ประเภท", isReturn ? kindLabel(item) : `${kindLabel(item)} · ${workLabel(item)}`],
     ["ทะเบียน", item.plate || "-"],
@@ -106,6 +158,7 @@ export function DetailPanel({ item, column, now, busy, actions, onClose }: {
           {isReturn
             ? <span className="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-[#5B3AA8] dark:bg-violet-500/15 dark:text-violet-300">{RETURN_LABEL[ret!.status] ?? ret!.status}</span>
             : <StatusChip status={item.status} />}
+          {!isReturn && <HubBadges item={item} />}
           {item.urgent && !st.done && <span className="inline-flex h-6 items-center gap-1 rounded-full bg-red-700 px-2.5 text-xs font-semibold text-white"><Truck size={13} aria-hidden="true" />รถจอดรอ</span>}
           <button type="button" onClick={onClose} aria-label="ปิดรายละเอียด" className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#D5DCD8] text-[#2B3D32] hover:bg-gray-50 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/5"><X size={16} /></button>
         </div>
@@ -125,7 +178,7 @@ export function DetailPanel({ item, column, now, busy, actions, onClose }: {
           ))}
         </dl>
 
-        <section className="space-y-2">
+        {(rows.length > 0 || !showHub || st.showSummary) && <section className="space-y-2">
           <h3 className="text-[13px] font-semibold text-[#14271C] dark:text-white">รายการอะไหล่ <span className="font-normal text-[#4A5A50] dark:text-gray-400">· {rows.length} รายการ</span></h3>
           {st.showSummary ? <SummaryView req={item} /> : (
             <div className="overflow-hidden rounded-lg border border-[#E1E6E3] dark:border-white/10">
@@ -144,7 +197,9 @@ export function DetailPanel({ item, column, now, busy, actions, onClose }: {
               ))}
             </div>
           )}
-        </section>
+        </section>}
+
+        {showHub && <HubSection item={item} rows={hubRows} busy={busy} actions={actions} />}
 
         {note && (
           <section className="space-y-1">
