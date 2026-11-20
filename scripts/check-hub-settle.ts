@@ -36,7 +36,7 @@ const line = (o: Partial<SwLine>): SwLine => ({
   mrItemId: null, mrItemLabel: null, serialNoId: null, remark: "", ...o,
 })
 const hubLine = (qty: number, o: Partial<SwLine> = {}) => line({ skuId: 501, skuCode: "S501", skuName: "ผ้าเบรก Hub", requestedQty: qty, issuedQty: qty, hub: { vendorCode: "V1" }, ...o })
-const use = (lineIndex: number, qty: number, plate = "71-1234", o: Partial<SwUsage> = {}): SwUsage =>
+const mkUse = (lineIndex: number, qty: number, plate = "71-1234", o: Partial<SwUsage> = {}): SwUsage =>
   ({ lineIndex, plate, mrCode: "MR-1", mrItemId: 11, mrItemLabel: "MR-1 PM-เบรค : 11", qty, attachmentIds: ["a1"], ...o })
 
 async function main() {
@@ -56,7 +56,7 @@ async function main() {
 
   // ---- 0. buildSettleGroups (ตรรกะล้วน) ----
   const atms0 = () => ({ gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null })
-  const us = [use(0, 1, "72-0002"), use(1, 2, "72-0002"), use(1, 1, "71-0001"), use(0, 1, "71-0001"), use(2, 1, "72-0002")]
+  const us = [mkUse(0, 1, "72-0002"), mkUse(1, 2, "72-0002"), mkUse(1, 1, "71-0001"), mkUse(0, 1, "71-0001"), mkUse(2, 1, "72-0002")]
   const plain = [line({}), hubLine(3), line({ skuId: 12 })]
   const old = P.buildSettleGroups("SW-X", us, atms0)
   // ไม่ส่ง lines = ผลเดิมทุกอย่าง (บรรทัด Hub ปนในกลุ่มทะเบียนเดียวกัน)
@@ -115,7 +115,7 @@ async function main() {
   eq((await c.moves.find({ type: "issue", refNo: n1 }).toArray()).map((m) => [m.lineIndex, m.qty]), [[1, -3]])
 
   // ---- 2. สรุป: Hub ใช้ 2 เหลือ 1 · ปกติใช้ 1 → ตัดสต๊อก = WD ปกติ + WD Hub แยกใบ · คืนของเหลือเข้ายอด Hub ----
-  await summarize(n1, [use(0, 1), use(1, 2)])
+  await summarize(n1, [mkUse(0, 1), mkUse(1, 2)])
   await assert.rejects(S.settleRequest(n1, false, store), /รับของคืนแล้ว/) // มีของเหลือ ต้องติ๊กรับคืน
   eq(await stock(), 2)
   calls = []
@@ -143,7 +143,7 @@ async function main() {
   await setStock(5)
   const n3 = await seed("P-HFAIL", [line({}), hubLine(3)])
   await S.handOut(n3, store); eq(await stock(), 2)
-  await summarize(n3, [use(0, 1), use(1, 2)])
+  await summarize(n3, [mkUse(0, 1), mkUse(1, 2)])
   handler = (x) => (isHubCall(x) ? { status: 409, body: { detail: "คลัง Hub ไม่พอ", progress: { gm_id: 903, done: [], approved: false, code: null } } } : okWd(803, "LBWD-N3"))
   const r3 = await S.settleRequest(n3, true, store)
   eq(r3.status, "SETTLED")
@@ -171,7 +171,7 @@ async function main() {
   await setStock(5)
   const n4 = await seed("P-NFAIL", [line({}), hubLine(3)])
   await S.handOut(n4, store)
-  await summarize(n4, [use(0, 1), use(1, 2)])
+  await summarize(n4, [mkUse(0, 1), mkUse(1, 2)])
   calls = []
   handler = (x) => (isHubCall(x) ? okWd(904, "LBWD-H4") : { status: 409, body: { detail: "ติดบรรทัดแรก", progress: { gm_id: 804, done: [], approved: false, code: null } } })
   const r4 = await S.settleRequest(n4, true, store)
@@ -189,7 +189,7 @@ async function main() {
   await setStock(5)
   const n5 = await seed("P-ONLY", [hubLine(3)])
   await S.handOut(n5, store); eq(await stock(), 2)
-  await summarize(n5, [use(0, 2, "71-1234"), use(0, 1, "70-0001")])
+  await summarize(n5, [mkUse(0, 2, "71-1234"), mkUse(0, 1, "70-0001")])
   calls = []
   handler = (x) => okWd(950, `LBWD-${x.body!.remark_token}`)
   const r5 = await S.settleRequest(n5, undefined, store)
@@ -202,7 +202,7 @@ async function main() {
   await setStock(5)
   const n6 = await seed("P-UNK", [hubLine(1)])
   await S.handOut(n6, store)
-  await summarize(n6, [use(0, 1)])
+  await summarize(n6, [mkUse(0, 1)])
   handler = () => { throw new Error("ECONNRESET") }
   const r6 = await S.settleRequest(n6, undefined, store)
   eq(r6.status, "SETTLED")
@@ -236,7 +236,7 @@ async function main() {
   await S.handOut(n8, store)
   let d8 = await get(n8)
   eq(d8.status, "HANDED_OUT"); eq("hubIssuedAt" in d8, false); eq("hubStatus" in d8, false)
-  await summarize(n8, [use(0, 1), use(1, 1, "70-0001")])
+  await summarize(n8, [mkUse(0, 1), mkUse(1, 1, "70-0001")])
   calls = []
   handler = (x) => okWd(880, `LBWD-${x.body!.remark_token}`)
   await S.settleRequest(n8, undefined, store)
