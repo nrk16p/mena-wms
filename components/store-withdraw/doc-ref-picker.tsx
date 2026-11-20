@@ -12,7 +12,7 @@ const inputCls =
 
 const money = (n: number | null) => (n == null ? "" : n.toLocaleString("th-TH", { maximumFractionDigits: 2 }))
 
-export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick, onClear, panelOpen, onTogglePanel }: {
+export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick, onClear, panelOpen, onTogglePanel, lockKind }: {
   inventoryId?: number
   /** ทะเบียน/เบอร์รถในฟอร์ม — PR ใช้เป็นคำค้นเมื่อไม่ได้พิมพ์ช่องค้นเอง */
   plate: string
@@ -23,6 +23,8 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
   onClear: () => void
   panelOpen: boolean
   onTogglePanel: () => void
+  /** ล็อกชนิดใบ (ซ่อนปุ่มสลับ PR|PO|DD) และไม่โชว์ปุ่ม "ดูรายการ" — ใช้กับ PR ของกล่อง Hub · ไม่ส่ง = ทำงานเหมือนเดิม */
+  lockKind?: boolean
 }) {
   const [q, setQ] = useState("")
   const [open, setOpen] = useState(false)
@@ -40,9 +42,11 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
   return (
     <div className="space-y-2">
       <div className="flex flex-col gap-2 sm:flex-row">
-        <div role="group" aria-label="ชนิดใบอ้างอิง" className="flex shrink-0 rounded-md border border-[#D5DCD8] p-0.5 dark:border-white/10 sm:w-48">
-          {(["pr", "po", "dd"] as DocKind[]).map(seg)}
-        </div>
+        {!lockKind && (
+          <div role="group" aria-label="ชนิดใบอ้างอิง" className="flex shrink-0 rounded-md border border-[#D5DCD8] p-0.5 dark:border-white/10 sm:w-48">
+            {(["pr", "po", "dd"] as DocKind[]).map(seg)}
+          </div>
+        )}
         <div className="relative min-w-0 flex-1">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -106,7 +110,7 @@ export function DocRefPicker({ inventoryId, plate, kind, onKind, picked, onPick,
             {picked.kind === "pr" && picked.remark && <p className="break-words text-xs text-gray-600 dark:text-gray-300">{picked.remark}</p>}
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <button type="button" onClick={onTogglePanel} className="text-xs font-medium text-[#1B8C4B] hover:underline">{panelOpen ? "ซ่อนรายการ" : "ดูรายการ"}</button>
+            {!lockKind && <button type="button" onClick={onTogglePanel} className="text-xs font-medium text-[#1B8C4B] hover:underline">{panelOpen ? "ซ่อนรายการ" : "ดูรายการ"}</button>}
             <button type="button" onClick={onClear} aria-label="ล้างใบอ้างอิง" className="text-gray-500 hover:text-red-600"><X size={16} /></button>
           </div>
         </div>

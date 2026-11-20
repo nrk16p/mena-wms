@@ -7,8 +7,11 @@ import { ArrowLeft, ChevronRight, Trash2, Loader2 } from "lucide-react"
 import { swalError, swalToast } from "@/lib/swal"
 import type { SwWorkType } from "@/lib/store-withdraw/types"
 import { WORK_TYPE_KIND, WORK_TYPE_LABEL } from "@/lib/store-withdraw/core"
+import { HUB_WORK_TYPES } from "@/lib/store-withdraw/hub-core"
+import { dropHubLines, formLineKey, hubSummary, overHubStock, type HubTag } from "@/lib/store-withdraw/hub-form"
 import { DUE_MAX_DAYS } from "@/lib/store-withdraw/pending"
 import { SkuPicker, type SkuHit } from "./sku-picker"
+import { HubPicker, type HubHit } from "./hub-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
 import { OptionCombobox } from "./option-combobox"
 import { DuePicker, dueError } from "./due-picker"
@@ -17,7 +20,7 @@ import { DocLinesPanel } from "./doc-lines-panel"
 import { DOC_LABEL, type DocHit, type DocKind, type ImportLine } from "./doc-ref-types"
 
 type Opt = { id: number; name: string }
-type FormLine = { skuId: number; skuCode: string; skuName: string; qty: string; stockQty: number | null; mrItemId: number | null; mrItemLabel: string | null; remark: string; fromDoc?: boolean }
+type FormLine = { skuId: number; skuCode: string; skuName: string; qty: string; stockQty: number | null; mrItemId: number | null; mrItemLabel: string | null; remark: string; fromDoc?: boolean; hub?: HubTag | null }
 
 const inputCls =
   "w-full rounded-md border border-[#D5DCD8] dark:border-white/10 bg-white dark:bg-[#0f1117] px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 focus:border-[#1B8C4B] focus:outline-none focus:ring-1 focus:ring-[#1B8C4B]"
@@ -58,6 +61,8 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
   const [doc, setDoc] = useState<DocHit | null>(null)
   const [docPanel, setDocPanel] = useState(false)
   const [docMsg, setDocMsg] = useState("")
+  const [hubPr, setHubPr] = useState<DocHit | null>(null)   // PR ของบรรทัด Hub (แยกจากใบอ้างอิงด้านบน)
+  const [hubOnFor, setHubOnFor] = useState<number | null>(null)   // คลังที่เช็กแล้วว่าเปิด Hub
   const [docOpen, setDocOpen] = useState(false)   // อ้างอิง PR/PO/DD พับไว้ (ไม่บังคับ)
   const [tried, setTried] = useState(false)       // กดยื่นแล้วอย่างน้อยครั้งหนึ่ง → ขึ้นกรอบแดงช่องที่ยังขาด
   const [busy, setBusy] = useState(false)
@@ -74,13 +79,42 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
     return () => ctl.abort()
   }, [])
 
+  // คลังนี้เปิด Hub ไหม — ยิงค้นด้วย q ว่าง ได้แค่ enabled กลับมา · เปลี่ยนคลัง = ลบบรรทัด Hub ทิ้ง (ผู้ขาย/ยอดเป็นของคลังเก่า)
+  useEffect(() => {
+    if (typeof inventoryId !== "number") return
+    const ctl = new AbortController()
+    fetch(`/api/store-withdraw/hub/items?inventoryId=${inventoryId}&q=`, { signal: ctl.signal })
+      .then(async (r) => { const j = await r.json().catch(() => ({})); return r.ok && j.enabled === true })
+      .then((on) => { if (!ctl.signal.aborted) setHubOnFor(on ? inventoryId : null) })
+      .catch(() => {})
+    return () => ctl.abort()
+  }, [inventoryId])
+  const hubOn = typeof inventoryId === "number" && hubOnFor === inventoryId && HUB_WORK_TYPES.includes(workType)
+
   const addSku = useCallback((s: SkuHit) => {
     setLines((cur) => {
-      const same = (l: FormLine) => l.skuId === s.skuId && (l.mrItemId ?? null) === (addTo?.id ?? null)   // อะไหล่เดียวกัน + ประเภทเดียวกัน = รวมจำนวน
+      const key = formLineKey({ skuId: s.skuId, mrItemId: addTo?.id ?? null })   // อะไหล่เดียวกัน + ประเภทเดียวกัน = รวมจำนวน
+      const same = (l: FormLine) => formLineKey(l) === key
       if (cur.some(same)) return cur.map((l) => (same(l) ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l))
       return [...cur, { skuId: s.skuId, skuCode: s.skuCode, skuName: s.skuName, qty: "1", stockQty: s.stockQty, mrItemId: addTo?.id ?? null, mrItemLabel: addTo?.label ?? null, remark: "" }]
     })
   }, [addTo])
+
+  // บรรทัด Hub: key มี vendorCode ด้วย · stockQty = ยอด Hub ตอนเลือก (ไม่ดึงซ้ำรายบรรทัด)
+  const addHub = useCallback((h: HubHit) => {
+    setLines((cur) => {
+      const key = formLineKey({ skuId: h.skuId, mrItemId: addTo?.id ?? null, hub: h })
+      const same = (l: FormLine) => formLineKey(l) === key
+      if (cur.some(same)) return cur.map((l) => (same(l) ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l))
+      return [...cur, { skuId: h.skuId, skuCode: h.skuCode, skuName: h.skuName, qty: "1", stockQty: h.qty, mrItemId: addTo?.id ?? null, mrItemLabel: addTo?.label ?? null, remark: "", hub: { vendorCode: h.vendorCode, vendorName: h.vendorName } }]
+    })
+  }, [addTo])
+
+  const dropHub = () => { setLines((c) => dropHubLines(c)); setHubPr(null) }
+  const changeWork = (w: SwWorkType) => {
+    if (!HUB_WORK_TYPES.includes(w) && lines.some((l) => l.hub)) { dropHub(); swalToast("info", "อู่นอกเบิกอะไหล่ Hub ไม่ได้ เอารายการ Hub ออกแล้ว") }
+    setWorkType(w)
+  }
 
   // เปลี่ยน/ล้างใบอ้างอิง หรือเปลี่ยนคลัง → ทิ้งรายการที่นำเข้าจากใบ เหลือเฉพาะที่พิมพ์เอง
   const dropFromDoc = () => setLines((c) => c.filter((l) => !l.fromDoc))
@@ -93,7 +127,8 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
     setLines((cur) => {
       const next = cur.map((l) => ({ ...l }))
       for (const g of got) {
-        const at = next.findIndex((l) => l.skuId === g.skuId && (l.mrItemId ?? null) === (addTo?.id ?? null))
+        const gKey = formLineKey({ skuId: g.skuId, mrItemId: addTo?.id ?? null })
+        const at = next.findIndex((l) => formLineKey(l) === gKey)
         if (at >= 0) next[at].qty = String((Number(next[at].qty) || 0) + g.qty)
         else next.push({ skuId: g.skuId, skuCode: g.skuCode, skuName: g.skuName, qty: String(g.qty), stockQty: g.stockQty, mrItemId: addTo?.id ?? null, mrItemLabel: addTo?.label ?? null, remark: "", fromDoc: true })
       }
@@ -118,6 +153,10 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
       return l.mrItemId && ids.includes(l.mrItemId) ? l : { ...l, mrItemId: null, mrItemLabel: null }
     }))
   }
+
+  const sum = hubSummary(lines)
+  const plainRows = lines.map((l, i) => ({ l, i })).filter(({ l }) => !l.hub)
+  const hubRows = lines.map((l, i) => ({ l, i })).filter(({ l }) => !!l.hub)
 
   // สิ่งที่ยังขาด (ตามลำดับเดียวกับ submit) — โชว์ในแถบล่างก่อนกดยื่น
   const missing = useMemo(() => {
@@ -155,7 +194,8 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workType, kind, inventoryId, pickToId, plate: plate.trim(), summaryDueAt: pendingFlow && dueAt ? dueAt.toISOString() : undefined, mrCode: mrCode || undefined, ref: doc ? { type: doc.kind, code: doc.code, id: doc.id } : undefined, urgent, remark: remark.trim(),
-          lines: lines.map((l) => ({ skuId: l.skuId, skuCode: l.skuCode, skuName: l.skuName, requestedQty: Number(l.qty), mrItemId: l.mrItemId ?? undefined, mrItemLabel: l.mrItemLabel ?? undefined, remark: l.remark.trim() })),
+          lines: lines.map((l) => ({ skuId: l.skuId, skuCode: l.skuCode, skuName: l.skuName, requestedQty: Number(l.qty), mrItemId: l.mrItemId ?? undefined, mrItemLabel: l.mrItemLabel ?? undefined, remark: l.remark.trim(), hub: l.hub ? { vendorCode: l.hub.vendorCode } : undefined })),
+          hubPr: sum.hub > 0 && hubPr ? { code: hubPr.code, id: hubPr.id } : undefined,
         }),
       })
       const j = await r.json().catch(() => ({}))
@@ -173,7 +213,7 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
   const workBtn = (w: SwWorkType, hint: string) => {
     const on = workType === w
     return (
-      <button type="button" key={w} role="radio" aria-checked={on} onClick={() => setWorkType(w)} data-testid={`wt-${w}`}
+      <button type="button" key={w} role="radio" aria-checked={on} onClick={() => changeWork(w)} data-testid={`wt-${w}`}
         className={`flex flex-1 items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition ${on ? "border-[#1B8C4B] bg-[#1B8C4B]/[0.06] ring-1 ring-[#1B8C4B]" : "border-[#D5DCD8] hover:border-gray-300 dark:border-white/10"}`}>
         <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${on ? "border-[#1B8C4B]" : "border-gray-300 dark:border-white/30"}`}>
           {on && <span className="h-2 w-2 rounded-full bg-[#1B8C4B]" />}
@@ -191,8 +231,8 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
     <li key={`${l.skuId}-${i}`} className="rounded-md border border-[#D5DCD8] bg-white p-3 dark:border-white/10 dark:bg-[#161922]">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{l.skuName}</p>
-          <p className="text-xs text-gray-500">{l.skuCode}{l.stockQty != null && ` · คงเหลือ ${l.stockQty.toLocaleString("th-TH")}`}{l.fromDoc && doc && ` · จาก ${DOC_LABEL[doc.kind]} ${doc.code}`}</p>
+          <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{l.skuName}{l.hub && <span data-testid="hub-badge" className="ml-2 rounded border border-[#1B8C4B]/40 bg-[#1B8C4B]/10 px-1.5 py-0.5 align-middle text-[11px] font-medium text-[#14532d] dark:text-emerald-300">Hub · {l.hub.vendorName}</span>}</p>
+          <p className="text-xs text-gray-500">{l.skuCode}{l.stockQty != null && ` · ${l.hub ? "คงเหลือ Hub" : "คงเหลือ"} ${l.stockQty.toLocaleString("th-TH")}`}{l.fromDoc && doc && ` · จาก ${DOC_LABEL[doc.kind]} ${doc.code}`}</p>
         </div>
         <button type="button" aria-label="ลบรายการ" onClick={() => setLines((c) => c.filter((_, k) => k !== i))} className="shrink-0 p-1 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
       </div>
@@ -212,7 +252,8 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
           {chosen.map((m) => <option key={m.id} value={m.id}>{mrItemName(m.label)}</option>)}
         </select>
       )}
-      {l.stockQty != null && Number(l.qty) > l.stockQty && kind === "stock" && (
+      {overHubStock(l) && <p className="mt-1.5 text-xs text-amber-700">ขอเกินยอด Hub สโตร์อาจจ่ายไม่ครบ</p>}
+      {!l.hub && l.stockQty != null && Number(l.qty) > l.stockQty && kind === "stock" && (
         <p className="mt-1.5 text-xs text-amber-700">ขอเกินจำนวนคงเหลือในคลัง สโตร์อาจจัดให้ไม่ครบ</p>
       )}
     </li>
@@ -268,7 +309,7 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
           <div>
             <label className={labelCls} htmlFor="sw-inv">คลัง{req}</label>
             <OptionCombobox id="sw-inv" options={invs} value={inventoryId} placeholder="เลือกคลัง" searchPlaceholder="พิมพ์ชื่อคลัง"
-              onChange={(v) => { setInventoryId(v); dropFromDoc(); setDocMsg(""); if (doc) setDocPanel(true) }} />
+              onChange={(v) => { setInventoryId(v); dropFromDoc(); dropHub(); setDocMsg(""); if (doc) setDocPanel(true) }} />
           </div>
           <div>
             <label className={labelCls} htmlFor="sw-pick">จุดประสงค์{req}</label>
@@ -350,12 +391,12 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
           </div>
         )}
 
-        {lines.length === 0 ? (
+        {plainRows.length === 0 ? (
           <p className="rounded-md border border-dashed border-[#D5DCD8] px-3 py-6 text-center text-sm text-gray-500 dark:border-white/10">ยังไม่มีรายการ ค้นหาอะไหล่ด้านบนแล้วเลือก</p>
         ) : chosen.length > 1 ? (
           <div className="space-y-4">
             {[...chosen.map((m) => ({ id: m.id as number | null, title: mrItemName(m.label) })), { id: null, title: "ยังไม่ระบุประเภทการซ่อม" }].map((g) => {
-              const rows = lines.map((l, i) => ({ l, i })).filter(({ l }) => (g.id === null ? !l.mrItemId || !chosen.some((m) => m.id === l.mrItemId) : l.mrItemId === g.id))
+              const rows = plainRows.filter(({ l }) => (g.id === null ? !l.mrItemId || !chosen.some((m) => m.id === l.mrItemId) : l.mrItemId === g.id))
               if (g.id === null && rows.length === 0) return null
               return (
                 <section key={g.id ?? "none"} data-testid="line-group" aria-label={g.title}
@@ -373,14 +414,30 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
             })}
           </div>
         ) : (
-          <ul className="space-y-2">{lines.map((l, i) => renderLine(l, i, false))}</ul>
+          <ul className="space-y-2">{plainRows.map(({ l, i }) => renderLine(l, i, false))}</ul>
         )}
 
         <div>
           <label className={labelCls} htmlFor="sw-remark">หมายเหตุ{opt}</label>
           <textarea id="sw-remark" rows={2} className={inputCls} value={remark} onChange={(e) => setRemark(e.target.value)} />
         </div>
-      </>, lines.length > 0 ? <span className="text-xs text-gray-500">{lines.length} รายการ</span> : undefined)}
+      </>, plainRows.length > 0 ? <span className="text-xs text-gray-500">{plainRows.length} รายการ</span> : undefined)}
+
+      {hubOn && card(4, "รายการอะไหล่ Hub", <>
+        <HubPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} onPick={addHub} />
+        {hubRows.length === 0 ? (
+          <p className="rounded-md border border-dashed border-[#D5DCD8] px-3 py-6 text-center text-sm text-gray-500 dark:border-white/10">ยังไม่มีอะไหล่ Hub ค้นหาด้านบนแล้วเลือก</p>
+        ) : (
+          <>
+            <ul className="space-y-2">{hubRows.map(({ l, i }) => renderLine(l, i, chosen.length > 1 && !(l.mrItemId && chosen.some((m) => m.id === l.mrItemId))))}</ul>
+            <div data-testid="hub-pr" className="space-y-2 border-t border-[#D5DCD8] pt-3 dark:border-white/10">
+              <p className="text-xs text-gray-600 dark:text-gray-300">มี PR แล้วผูกเลย ถ้ายังไม่มี ต้องผูกภายใน 1 วันหลังรับของ</p>
+              <DocRefPicker lockKind plate={plate} inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} kind="pr" onKind={() => {}}
+                picked={hubPr} onPick={setHubPr} onClear={() => setHubPr(null)} panelOpen={false} onTogglePanel={() => {}} />
+            </div>
+          </>
+        )}
+      </>, hubRows.length > 0 ? <span className="text-xs text-gray-500">{hubRows.length} รายการ</span> : undefined)}
 
       </div>
 
@@ -388,7 +445,7 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
       <div className={`z-20 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-gray-200 bg-white py-3 dark:border-white/10 dark:bg-[#161922] ${embedded ? "shrink-0 px-4 sm:px-6" : "sticky bottom-0 -mx-4 px-4 sm:-mx-6 sm:px-6"}`}>
         <div className="min-w-0 text-xs" data-testid="form-summary">
           <p className="flex flex-wrap items-center gap-1.5 text-gray-700 dark:text-gray-200">
-            <span className="font-medium">{lines.length} รายการ</span>
+            <span className="font-medium">{sum.total} รายการ{sum.hub > 0 && ` · Hub ${sum.hub}`}</span>
             {lines.length > 0 && <span className="text-gray-400">· รวม {lines.reduce((s, l) => s + (Number(l.qty) || 0), 0).toLocaleString("th-TH")} ชิ้น</span>}
             {urgent && <span className="rounded border border-amber-400 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">รถจอดรอ</span>}
           </p>
