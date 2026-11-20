@@ -174,6 +174,11 @@ export async function transition(
   )
   if (!after) throw new ConflictError()
   await writeLog({ no, action, from: cur.status, to, actor: { email: actor.email, name: actor.name, via: actor.via } })
+  // ใบที่มีบรรทัด Hub ปิดแบบไม่สำเร็จ → คืนยอด Hub (ถ้ายังไม่ได้ WD Hub) + อัปเดต hubStatus · ใบไม่มี Hub ไม่เข้าทางนี้
+  if ((action === "reject" || action === "closeManual" || action === "cancel") && after.lines?.some((l) => !!l.hub?.vendorCode)) {
+    const { onHubClose } = await import("./hub-db") // import ตอนใช้ — hub-db import db.ts อยู่แล้ว (กันวนตอนโหลด)
+    return onHubClose(after, actor)
+  }
   return after
 }
 

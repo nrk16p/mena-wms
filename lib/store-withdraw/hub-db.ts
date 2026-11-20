@@ -2,9 +2,11 @@
 // ไม่มี transaction (memory server single node) → ตัดแบบ conditional $inc + ถอยเองถ้าไม่ครบ
 import { randomUUID } from "node:crypto"
 import type { Collection, Db } from "mongodb"
-import { getDb } from "./db"
+import { getDb, swCol, writeLog, type Actor } from "./db"
 import { HttpError } from "./http"
-import type { hubCutPlan } from "./hub-core"
+import { isPendingFlow } from "./core"
+import { hubStatusOf, hubWdDone, type hubCutPlan } from "./hub-core"
+import type { SwRequest } from "./types"
 
 export type HubSite = { inventoryId: number; atmsHubInventoryId: number; active: boolean }
 export type HubVendor = { code: string; name: string; active: boolean; createdAt: Date }
@@ -169,6 +171,33 @@ export async function restoreHubForRequest(no: string, by: By, note: string): Pr
     n++
   }
   return n
+}
+
+export const HUB_RESTORE_NOTE = "ใบไม่สำเร็จ คืนยอด Hub"
+
+/**
+ * เรียกจาก transition หลังปิดใบแบบไม่สำเร็จ (reject / closeManual / cancel) ของใบที่มีบรรทัด Hub
+ * ตัดยอดไปแล้ว + WD Hub ยังไม่สำเร็จ = คืนยอดทั้งหมด (เรียกซ้ำไม่คืนซ้ำ) · WD Hub สำเร็จแล้ว = ไม่คืน
+ * ห้าม throw — ใบเปลี่ยนสถานะไปแล้ว คืนยอดพลาดให้ log ไว้ (hubRestoredAt ยังว่าง = ตามเก็บได้)
+ */
+export async function onHubClose(after: SwRequest, actor: Actor): Promise<SwRequest> {
+  let doc = after
+  try {
+    const col = await swCol()
+    if (after.hubIssuedAt && !after.hubRestoredAt && !isPendingFlow(after) && !hubWdDone(after)) {
+      const n = await restoreHubForRequest(after.no, { email: actor.email, name: actor.name }, HUB_RESTORE_NOTE)
+      doc = (await col.findOneAndUpdate({ no: after.no }, { $set: { hubRestoredAt: new Date() } }, { returnDocument: "after" })) ?? doc
+      await writeLog({ no: after.no, action: "hubRestore", from: after.status, to: after.status, actor: { email: actor.email, name: actor.name, via: actor.via }, note: `${HUB_RESTORE_NOTE} ${n} บรรทัด` })
+    }
+    const hubStatus = hubStatusOf(doc)
+    if (doc.hubStatus !== hubStatus) {
+      await col.updateOne({ no: after.no }, { $set: { hubStatus } })
+      doc = { ...doc, hubStatus }
+    }
+  } catch (e) {
+    console.error("[store-withdraw] คืนยอด Hub ไม่สำเร็จ", after.no, e instanceof Error ? e.message : e)
+  }
+  return doc
 }
 
 export async function returnHubLeftover(

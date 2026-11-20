@@ -1,9 +1,11 @@
 // lib/core-return/sw-sync.ts — ใบเบิก WMS ที่ได้ WD แล้ว → แถว "รอคืนซาก" ใน core_return_base
 //   อู่ใน/อู่นอก: ตอน ISSUED · หนึ่งแถวต่อบรรทัดที่จ่ายจริง (issuedQty > 0)  key = sw:<no>:<lineIndex>
+//                บรรทัด Hub ใช้เลข WD Hub (hubWd.code) และสร้างหลัง WD Hub สำเร็จเท่านั้น
 //   Mobile/PM:   ตอน SETTLED · หนึ่งแถวต่อแถวสรุปการใช้ (ทะเบียน/MR ของแถวนั้น) key = sw:<no>:<lineIndex>:<usageIndex>
 // รันซ้ำได้ ($setOnInsert ไม่ทับสถานะที่บันทึกแล้ว) · เรียกหลังบันทึกผล ATMS สำเร็จเท่านั้น · พังก็ไม่กระทบใบเบิก (syncCoreRowsSafe)
 // กันซ้ำกับฐาน ATMS (load_base.py): แถว ATMS ที่มี wdCode+skuCode ตรงกับแถว source "wms.store-withdraw" = ข้าม (hasWmsRow)
 import type { SwRequest } from "@/lib/store-withdraw/types"
+import { hubWdDone, isHubLine } from "@/lib/store-withdraw/hub-core"
 import { todayBkk, type Actor, type CoreStatus } from "./core"
 import { baseCol, writeCoreLog } from "./db"
 
@@ -50,13 +52,16 @@ export function planCoreRows(r: SwRequest): Planned[] {
     })
     return out
   }
-  if ((r.status === "ISSUED" || r.status === "RECEIVED") && r.atms.code && r.atms.approved) {
-    r.lines.forEach((l, i) => {
-      const qty = l.issuedQty ?? l.requestedQty
-      if (!(qty > 0)) return
-      out.push({ row_key: swCoreKey(r.no, i), lineIndex: i, usageIndex: null, plate: r.plate, mrCode: r.mrCode, mrItemLabel: l.mrItemLabel, wdCode: r.atms.code, qty })
-    })
-  }
+  // บรรทัดปกติ = WD ของใบ (ตอน ISSUED/RECEIVED) · บรรทัด Hub = WD Hub (หลัง WD Hub สำเร็จเท่านั้น ไม่ขึ้นกับ WD ปกติ)
+  const normalWd = (r.status === "ISSUED" || r.status === "RECEIVED") && r.atms.code && r.atms.approved ? r.atms.code : null
+  const hubWd = r.lines.some(isHubLine) && hubWdDone(r) ? (r.hubWd?.code ?? null) : null
+  r.lines.forEach((l, i) => {
+    const qty = l.issuedQty ?? l.requestedQty
+    if (!(qty > 0)) return
+    const wd = isHubLine(l) ? hubWd : normalWd
+    if (!wd) return
+    out.push({ row_key: swCoreKey(r.no, i), lineIndex: i, usageIndex: null, plate: r.plate, mrCode: r.mrCode, mrItemLabel: l.mrItemLabel, wdCode: wd, qty })
+  })
   return out
 }
 

@@ -2,7 +2,10 @@
 // กันยิงซ้ำ: สลับสถานะด้วย findOneAndUpdate({no, status: เดิม}) ใน transition · progress เก็บไว้ส่งซ้ำตอน retry
 import { getCreds } from "./creds"
 import { ConflictError, NotFoundError, ddmmyyyyBkk, swCol, transition, writeLog, type Actor } from "./db"
-import { issueLines } from "./core"
+import { isPendingFlow } from "./core"
+import { HttpError } from "./http"
+import { hubCutPlan, hubIssueLines, hubStatusOf, hubWdDone, isHubLine, normalIssueLines } from "./hub-core"
+import { cutHubForRequest, getHubSite } from "./hub-db"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
 import type { AtmsProgress, SwLine, SwRequest } from "./types"
 import { syncCoreRowsSafe } from "@/lib/core-return/sw-sync"
@@ -29,6 +32,10 @@ export const MSG = {
   over: "คืนเกินจำนวนที่เบิก",
   wdFail: "อ่านใบเบิกจาก ATMS ไม่ได้ ลองใหม่อีกครั้ง",
   partial: "ATMS ทำไม่ครบ กดส่งใหม่เพื่อทำต่อ",
+  hubShort: (codes: string[]) => `ยอด Hub ไม่พอ: ${codes.join(", ")} แก้จำนวนแล้วกดส่งใหม่`,
+  hubBusy: "กำลังตัดยอด Hub อยู่ ลองใหม่อีกครั้ง",
+  hubNoSite: "คลังนี้ยังไม่ตั้งคลัง Hub ใน ATMS แจ้งผู้ดูแล",
+  hubWdBusy: "กำลังตัด WD Hub อยู่ หรือยังรอผลจาก ATMS รอ 5 นาทีแล้วลองใหม่",
 } as const
 
 export const toWire = (a: AtmsProgress) =>
@@ -103,11 +110,12 @@ async function holdReturnUnknown(no: string, rid: string, actor: Actor): Promise
   return after
 }
 
-/** ใบที่ ISSUING ค้างเกิน 5 นาที (โปรเซสตายกลางคัน) ให้ยึดมาทำต่อได้ ไม่งั้นค้างตลอด */
-async function claimIssue(no: string, actor: Actor): Promise<SwRequest> {
+/** ใบที่ ISSUING ค้างเกิน 5 นาที (โปรเซสตายกลางคัน) ให้ยึดมาทำต่อได้ ไม่งั้นค้างตลอด · prior = สถานะก่อนยึด (ยอด Hub ไม่พอ → ถอยกลับ) */
+async function claimIssue(no: string, actor: Actor): Promise<{ claimed: SwRequest; prior: SwRequest["status"] }> {
   const col = await swCol()
   const cur = await col.findOne({ no })
   if (!cur) throw new NotFoundError()
+  const prior = cur.status
   if (cur.status === "ISSUING" && Date.now() - cur.updatedAt.getTime() > STUCK_MS) {
     const after = await col.findOneAndUpdate(
       { no, status: "ISSUING", updatedAt: cur.updatedAt },
@@ -116,17 +124,17 @@ async function claimIssue(no: string, actor: Actor): Promise<SwRequest> {
     )
     if (!after) throw new ConflictError()
     await writeLog({ no, action: "issue-resume", from: "ISSUING", to: "ISSUING", actor: { email: actor.email, name: actor.name, via: actor.via } })
-    return after
+    return { claimed: after, prior }
   }
-  return transition(no, "issue", actor, { "atms.error": null }) // ลองใหม่ปกติ ไม่ให้การ์ดโชว์ error เก่า
+  return { claimed: await transition(no, "issue", actor, { "atms.error": null }), prior } // ลองใหม่ปกติ ไม่ให้การ์ดโชว์ error เก่า
 }
 
 export async function issueRequest(no: string, actor: Actor): Promise<SwRequest> {
-  const claimed = await claimIssue(no, actor)
+  const { claimed, prior } = await claimIssue(no, actor)
   try {
-    return await runIssue(claimed, actor)
+    return await runIssue(claimed, prior, actor)
   } catch (e) {
-    if (e instanceof ConflictError) throw e
+    if (e instanceof ConflictError || e instanceof HttpError) throw e // HttpError = ยอด Hub ไม่พอ (ถอยสถานะไปแล้ว)
     // ห้ามค้าง ISSUING — แปลงเป็น ISSUE_FAILED พร้อมข้อความไทย (ไม่ใส่ข้อความ error ดิบ)
     // เขียนเฉพาะ atms.error / needCreds ห้ามเขียนทั้งก้อน atms ทับ (claimed อ่านก่อนบันทึก startedAt/gmId/done)
     console.error("[store-withdraw] issue crashed", no, e instanceof Error ? e.message : e)
@@ -138,8 +146,49 @@ export async function issueRequest(no: string, actor: Actor): Promise<SwRequest>
   }
 }
 
-async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
+/** ลำดับ: ตัดยอด Hub (ครั้งเดียว) → WD ปกติ → WD Hub · สองใบหลังไม่ขึ้นต่อกัน · ใบไม่มี Hub = ทางเดิมทุกอย่าง */
+async function runIssue(claimed: SwRequest, prior: SwRequest["status"], actor: Actor): Promise<SwRequest> {
+  const hasHub = claimed.lines.some(isHubLine)
+  if (hasHub && !claimed.hubIssuedAt) await cutHub(claimed, prior, actor)
+  const after = await runNormal(claimed, actor)
+  if (!hasHub || hubWdDone(after)) return after
+  return runHubWd(claimed.no, actor, false)
+}
+
+/** ตัดยอด hub_stock ทุกบรรทัด Hub แบบได้ทั้งหมดหรือไม่ได้เลย · ไม่พอ/ชนกัน = ถอยสถานะ (ยังไม่มีอะไรเกิดใน ATMS) แล้ว 409 */
+async function cutHub(claimed: SwRequest, prior: SwRequest["status"], actor: Actor): Promise<void> {
   const no = claimed.no
+  const col = await swCol()
+  const by = { email: actor.email, name: actor.name }
+  const plan = hubCutPlan(claimed.lines, claimed.inventoryId)
+  const res = plan.length ? await cutHubForRequest(no, plan, claimed.inventoryId, by) : ({ ok: true } as const)
+  if (!res.ok) {
+    // ยึดใบที่ค้าง ISSUING มา = ยังไม่เคยยิง ATMS (ตัดยอดมาก่อนเสมอ) จึงกลับ READY ได้
+    const back = prior === "ISSUING" ? (claimed.atms.gmId == null ? "READY" : "ISSUE_FAILED") : prior
+    const msg = res.busy ? MSG.hubBusy : MSG.hubShort([...new Set(res.short.map((x) => x.skuCode ?? String(x.skuId)))])
+    await col.updateOne({ no, status: "ISSUING" }, { $set: { status: back, updatedAt: new Date() } })
+    await writeLog({ no, action: res.busy ? "hubBusy" : "hubShort", from: "ISSUING", to: back, actor: { email: actor.email, name: actor.name, via: actor.via }, note: msg })
+    throw new HttpError(msg, 409)
+  }
+  const after = await col.findOneAndUpdate({ no, hubIssuedAt: null }, { $set: { hubIssuedAt: new Date() } }, { returnDocument: "after" })
+  if (after) await col.updateOne({ no }, { $set: { hubStatus: hubStatusOf(after) } })
+}
+
+const wireLine = (line: SwLine) => ({
+  sku_id: line.skuId,
+  amount: line.issuedQty ?? line.requestedQty,
+  sku_name: line.skuName,
+  ...(line.mrItemId != null ? { mr_item_id: line.mrItemId } : {}),
+  ...(line.serialNoId != null ? { serial_no_id: line.serialNoId } : {}),
+  ...(line.remark ? { remark: line.remark } : {}),
+})
+
+async function runNormal(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
+  const no = claimed.no
+  // ใบที่มีแต่ของ Hub = ส่วนปกติไม่มีอะไรต้องยิง ถือว่าเสร็จ
+  if (claimed.lines.some(isHubLine) && normalIssueLines(claimed.lines).length === 0 && hubIssueLines(claimed.lines).length > 0) {
+    return transition(no, "issued", actor)
+  }
   const col = await swCol()
   const startedAt = claimed.atms.startedAt ?? new Date()
   if (!claimed.atms.startedAt) await col.updateOne({ no, "atms.startedAt": null }, { $set: { "atms.startedAt": startedAt } })
@@ -150,7 +199,7 @@ async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
   const creds = await getCreds(actor.email)
   if (!creds) return fail({ ...prev, needCreds: true, error: MSG.noCreds })
 
-  const sent = issueLines(claimed.lines) // progress.done เป็น index ของลิสต์นี้
+  const sent = normalIssueLines(claimed.lines) // progress.done เป็น index ของลิสต์นี้ (ไม่รวมบรรทัด Hub)
   if (sent.length === 0) return fail({ ...prev, needCreds: false, error: MSG.noLines })
 
   const body = {
@@ -159,14 +208,7 @@ async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
     remark_token: claimed.no,
     remark: headerRemark(claimed),
     date: ddmmyyyyBkk(startedAt),
-    lines: sent.map(({ line }) => ({
-      sku_id: line.skuId,
-      amount: line.issuedQty ?? line.requestedQty,
-      sku_name: line.skuName,
-      ...(line.mrItemId != null ? { mr_item_id: line.mrItemId } : {}),
-      ...(line.serialNoId != null ? { serial_no_id: line.serialNoId } : {}),
-      ...(line.remark ? { remark: line.remark } : {}),
-    })),
+    lines: sent.map(({ line }) => wireLine(line)),
     ...(toWire(prev) ? { progress: toWire(prev) } : {}),
   }
 
@@ -180,6 +222,94 @@ async function runIssue(claimed: SwRequest, actor: Actor): Promise<SwRequest> {
     return after
   }
   return fail(out.atms)
+}
+
+// ---------- WD ของ Hub (ใบแยก คลัง Hub) ----------
+
+const emptyAtms = (): AtmsProgress => ({ gmId: null, done: [], approved: false, code: null, error: null, needCreds: false, lastCheckAt: null, drift: null, startedAt: null })
+
+/**
+ * ยิง WD Hub ของใบนี้ · เขียนแค่ hubWd/hubStatus ไม่แตะ status ของใบ · ห้าม throw (ยกเว้น strict + ล็อกไม่ได้)
+ * ล็อก hubWdBusyAt กันยิงซ้อน · ไม่ได้คำตอบ = ล็อกค้างไว้ ครบ 5 นาทีจึงลองใหม่ได้ (เหมือน ISSUING ค้าง)
+ */
+async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRequest> {
+  const col = await swCol()
+  const lockAt = new Date()
+  const got = await col.findOneAndUpdate(
+    {
+      no, hubIssuedAt: { $ne: null }, status: { $nin: ["REJECTED", "CANCELLED"] },
+      $or: [{ hubWdBusyAt: null }, { hubWdBusyAt: { $lt: new Date(lockAt.getTime() - STUCK_MS) } }],
+    },
+    { $set: { hubWdBusyAt: lockAt } },
+    { returnDocument: "after" },
+  )
+  if (!got) {
+    if (strict) throw new ConflictError(MSG.hubWdBusy)
+    return (await col.findOne({ no }))!
+  }
+  const who = { email: actor.email, name: actor.name, via: actor.via }
+  const save = async (atms: AtmsProgress, release: boolean): Promise<SwRequest> => {
+    const after = await col.findOneAndUpdate(
+      { no, hubWdBusyAt: lockAt }, // ล็อกถูกยึดไปแล้ว = อีกตัวรับช่วง ไม่เขียนทับ
+      { $set: { hubWd: atms, ...(release ? { hubWdBusyAt: null } : {}), updatedAt: new Date() } },
+      { returnDocument: "after" },
+    )
+    if (!after) return (await col.findOne({ no }))!
+    const hubStatus = hubStatusOf(after)
+    await col.updateOne({ no }, { $set: { hubStatus } })
+    return { ...after, hubStatus }
+  }
+  const base = got.hubWd ?? emptyAtms()
+  try {
+    if (hubWdDone(got)) return await save(base, true)
+    const site = await getHubSite(got.inventoryId)
+    if (!site) return await save({ ...base, needCreds: false, error: MSG.hubNoSite }, true)
+    const creds = await getCreds(actor.email)
+    if (!creds) return await save({ ...base, needCreds: true, error: MSG.noCreds }, true)
+
+    // บันทึกวันเริ่มก่อนยิง — ลองใหม่ต้องใช้วันเดิม (ATMS ค้นหมายเหตุตามวันสร้าง)
+    const startedAt = base.startedAt ?? new Date()
+    if (!got.hubWd) await col.updateOne({ no }, { $set: { hubWd: { ...base, startedAt } } })
+    else if (!base.startedAt) await col.updateOne({ no, "hubWd.startedAt": null }, { $set: { "hubWd.startedAt": startedAt } })
+    const prev: AtmsProgress = { ...base, startedAt, error: null }
+    const body = {
+      inventory_id: site.atmsHubInventoryId,
+      pick_to_id: got.pickToId,
+      remark_token: `${no}-H`,
+      remark: headerRemark(got),
+      date: ddmmyyyyBkk(startedAt),
+      lines: hubIssueLines(got.lines).map(({ line }) => wireLine(line)),
+      ...(toWire(prev) ? { progress: toWire(prev) } : {}),
+    }
+    const r = await callNcac("POST", "/atms/withdraw/issue", { creds, body })
+    if (!r) {
+      await writeLog({ no, action: "hubWd-unknown", from: got.status, to: got.status, actor: who })
+      return await save({ ...prev, needCreds: false, error: MSG.unknown }, false)
+    }
+    const out = interpret(r.status, r.data, prev)
+    const ok = out.kind === "ok" && !!(out.atms.code && out.atms.approved)
+    const atms = out.kind === "ok" && !ok ? { ...out.atms, error: MSG.noCode } : out.atms
+    const after = await save(ok ? { ...atms, drift: null } : atms, true)
+    await writeLog({ no, action: ok ? "hubWd" : "hubWdFailed", from: got.status, to: got.status, actor: who, ...(ok ? { note: atms.code ?? "" } : {}) })
+    if (ok) await syncCoreRowsSafe(after, actor) // แถวรอคืนซากของบรรทัด Hub — หลัง WD Hub สำเร็จเท่านั้น
+    return after
+  } catch (e) {
+    console.error("[store-withdraw] hub wd crashed", no, e instanceof Error ? e.message : e)
+    try {
+      const latest = (await col.findOne({ no })) ?? got
+      return await save({ ...(latest.hubWd ?? base), needCreds: false, error: MSG.crashed }, true)
+    } catch {
+      return (await col.findOne({ no })) ?? got
+    }
+  }
+}
+
+/** ปุ่ม "ลองตัด WD Hub ใหม่" — ใบ non-pending ที่ตัดยอด Hub แล้วแต่ WD Hub ยังไม่สำเร็จ · ไม่ตัดยอดซ้ำ */
+export async function retryHubWd(no: string, actor: Actor): Promise<SwRequest> {
+  const cur = await (await swCol()).findOne({ no })
+  if (!cur) throw new NotFoundError()
+  if (isPendingFlow(cur) || !cur.hubIssuedAt || hubWdDone(cur) || cur.status === "REJECTED" || cur.status === "CANCELLED") throw new ConflictError()
+  return runHubWd(no, actor, true)
 }
 
 // ---------- รับคืน ----------

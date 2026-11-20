@@ -124,6 +124,8 @@ export type SwRequest = {
   hubIssuedAt?: Date | null
   hubStatus?: SwHubStatus
   hubRestoredAt?: Date | null
+  /** ล็อกกันยิง WD Hub ซ้อน (ค้างเกิน 5 นาที = ยึดได้) · ไม่ได้คำตอบจาก ATMS = ปล่อยค้างไว้ให้ครบ 5 นาทีก่อนลองใหม่ */
+  hubWdBusyAt?: Date | null
   createdAt: Date
   updatedAt: Date
 }
