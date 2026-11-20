@@ -15,6 +15,12 @@ export function HubReceiveTab({ inventoryId, onDone }: { inventoryId: number | n
   const [refNo, setRefNo] = useState("")
   const [lines, setLines] = useState<Line[]>([])
   const [busy, setBusy] = useState(false)
+  // เปลี่ยนคลังของหน้า = ล้างบรรทัดที่ยังไม่บันทึก (บรรทัดเดิมค้นมาจากคลังเก่า ห้ามไปรับเข้าคลังใหม่)
+  const [linesInv, setLinesInv] = useState(inventoryId)
+  if (linesInv !== inventoryId) {
+    setLinesInv(inventoryId)
+    setLines([])
+  }
 
   useEffect(() => {
     hubFetch<{ rows: HubVendor[] }>("/api/store-withdraw/hub/master?type=vendors")
