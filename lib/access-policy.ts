@@ -12,7 +12,7 @@ import { auditorActive, isExternalAuditor } from "./external-auditors"
 
 export const SECTIONS = [
   "sku", "pr", "ap", "price-compare", "vendor", "safety-stock", "deadstock",
-  "tire", "repair", "driver-handover", "ai-mixer", "store-withdraw", "store-queue", "store-audit", "core-return",
+  "tire", "repair", "driver-handover", "ai-mixer", "store-withdraw", "store-queue", "store-audit", "store-hub", "core-return",
 ] as const
 export type Section = (typeof SECTIONS)[number]
 export type Level = "none" | "view" | "edit"
@@ -24,6 +24,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   tire: "จัดการยาง", repair: "อู่นอก & อะไหล่ลงคัน", "driver-handover": "ส่งมอบรถ พจส.ใหม่", "ai-mixer": "AI รถโม่ (ทดสอบ)",
   "store-withdraw": "เบิกอะไหล่ (ยื่นคำขอ)", "store-queue": "คิวงานสโตร์",
   "store-audit": "ตรวจสอบย้อนหลังงานเบิก (Audit)",
+  "store-hub": "อะไหล่ Hub (สโตร์)",
   "core-return": "ติดตามซากอะไหล่ (ดู/ตามงาน)",
 }
 export const LEVEL_LABELS: Record<Level, string> = { none: "ไม่เห็น", view: "ดูอย่างเดียว", edit: "แก้ได้" }
@@ -38,8 +39,8 @@ const row = (p: Partial<Access>): Access => ({ ...all("none"), ...p })
 // ── ตารางสิทธิ์ (อนุมัติ 2026-10-07) ─────────────────────────────────────────────
 const GENERAL = row({ sku: "view", pr: "edit" })
 const DISPATCH = row({ sku: "view", pr: "edit", tire: "view", repair: "view", "driver-handover": "edit" })
-// store-audit ไม่ให้ตามแผนก — ผู้ดูแลกำหนดรายคนที่ /admin/users (ผู้จัดการ/บัญชี)
-const OVERSIGHT: Access = { ...all("view"), "ai-mixer": "none", "store-audit": "none" }
+// store-audit / store-hub ไม่ให้ตามแผนก — ผู้ดูแลกำหนดรายคนที่ /admin/users (ผู้จัดการ/บัญชี)
+const OVERSIGHT: Access = { ...all("view"), "ai-mixer": "none", "store-audit": "none", "store-hub": "none" }
 
 // บัญชี / การเงิน สิทธิ์เท่ากัน (ผู้ใช้สั่ง 2026-10-07) — ปุ่มตรวจผ่าน (บัญชี) / ยืนยันจ่าย (การเงิน) ยังแยกตามเดิม (lib/roles.ts)
 const ACCOUNTING_FINANCE = row({
@@ -167,7 +168,7 @@ const PAGE_PREFIXES: [string, Section | "admin"][] = [
   ["/ai-mixer-maintenance", "ai-mixer"],
   ["/store-withdraw", "store-withdraw"], ["/store-withdraw/queue", "store-queue"],
   ["/store-withdraw-link", "store-withdraw"], ["/store-withdraw-link/queue", "store-queue"], // ลิงก์แยก ไม่มี sidebar — สิทธิ์เดียวกับหน้าเดิม
-  ["/store-withdraw/audit", "store-audit"],
+  ["/store-withdraw/audit", "store-audit"], ["/store-withdraw/hub", "store-hub"],
   ["/store-withdraw/core-return", "core-return"],
   ["/admin", "admin"],
 ]
@@ -193,6 +194,8 @@ const API_PREFIXES: [string, Section | "admin"][] = [
   ["/api/store-withdraw", "store-withdraw"], ["/api/store-withdraw/queue", "store-queue"], ["/api/store-withdraw/search", "store-queue"],
   ["/api/store-withdraw/atms-link", "store-queue"], ["/api/store-withdraw/live-stock", "store-queue"],
   ["/api/store-withdraw/audit", "store-audit"],
+  // Hub: หน้าจัดการ/รับเข้า/ยอด/ประวัติ = store-hub · ค้นอะไหล่ Hub (hub/items) คนยื่นใช้ในฟอร์ม = สิทธิ์ยื่นคำขอ (longest prefix ชนะ)
+  ["/api/store-withdraw/hub", "store-hub"], ["/api/store-withdraw/hub/items", "store-withdraw"],
   ["/api/core-return", "core-return"],
   ["/api/admin", "admin"],
 ]
@@ -255,7 +258,7 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   // เบิกอะไหล่: คนที่เห็นคิวสโตร์อย่างเดียว (ไม่มีสิทธิ์ยื่นคำขอ) ยังต้องอ่านตัวเลือก/ค้นหา/รายละเอียดใบได้
   if (api && !read && ATTACH_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
   // ตรวจย้อนหลัง (audit) ต้องมีสิทธิ์ store-audit เท่านั้น ไม่ผ่านทางลัดของคิวสโตร์
-  if (api && read && under(p.pathname, "/api/store-withdraw") && !under(p.pathname, "/api/store-withdraw/audit") && atLeast(p.access["store-queue"], "view")) return { ok: true }
+  if (api && read && under(p.pathname, "/api/store-withdraw") && !under(p.pathname, "/api/store-withdraw/audit") && (!under(p.pathname, "/api/store-withdraw/hub") || under(p.pathname, "/api/store-withdraw/hub/items")) && atLeast(p.access["store-queue"], "view")) return { ok: true }
   // ปุ่ม "ดึงข้อมูลล่าสุดจาก ATMS" ในหน้า /safety-stock — ผู้ใช้ทุกคนที่เห็นหน้านี้กดได้ (ผู้ใช้สั่ง 17/11/2026)
   // route กันกดถี่เองด้วย cooldown ไม่ได้แก้ข้อมูลอะไรนอกจากสั่งดึงรอบใหม่
   if (api && p.pathname === "/api/safety-stock/live-sync" && atLeast(p.access["safety-stock"], "view")) return { ok: true }
