@@ -1,6 +1,6 @@
 // scripts/check-hub-core.ts — รัน: npx tsx scripts/check-hub-core.ts
 import assert from "node:assert/strict"
-import { returnMaxOf, normalIssueLines, hubIssueLines, hubStatusOf, hubPrOverdue, hubWdDone, hubCutPlan, isHubLine, HUB_PR_DUE_MS } from "../lib/store-withdraw/hub-core"
+import { issuedToast, settledToast, returnMaxOf, normalIssueLines, hubIssueLines, hubStatusOf, hubPrOverdue, hubWdDone, hubCutPlan, isHubLine, HUB_PR_DUE_MS } from "../lib/store-withdraw/hub-core"
 import type { SwLine, SwRequest, AtmsProgress } from "../lib/store-withdraw/types"
 
 const eq = assert.deepEqual
@@ -65,4 +65,18 @@ eq(returnMaxOf({ lines: [line({ issuedQty: 3 }), hubL({ issuedQty: 2 })], return
 eq(returnMaxOf({ lines: [line({ issuedQty: 3 }), hubL()], returns: [{ status: "RETURN_REQUESTED", lines: [{ lineIndex: 0, qty: 1 }] }, { status: "RETURNED", lines: [{ lineIndex: 0, qty: 2 }] }] }), [2, 0])
 assert.equal(returnMaxOf({ lines: [hubL({ issuedQty: 2 })], returns: [] }).some((m) => m > 0), false)
 assert.equal(returnMaxOf({ lines: [line({ issuedQty: 1, returnedQty: 1 }), hubL()], returns: [] }).some((m) => m > 0), false)
+// แจ้งหลังส่งของ/ตัดสต๊อก: ใบมีแต่ Hub ไม่มี "เลข WD -" · WD Hub ยังไม่ได้ = "จ่ายของแล้ว รอตัด WD Hub"
+eq(issuedToast({ atms: { code: "WD1" } }), { ok: true, text: "ตัดใน ATMS แล้ว เลข WD WD1" })
+eq(issuedToast({ atms: { code: "WD1" }, hubCount: 0, hubWdDone: true }), { ok: true, text: "ตัดใน ATMS แล้ว เลข WD WD1" })
+eq(issuedToast({ atms: { code: null }, hubCount: 1, hubWdDone: false, hubWd: null }), { ok: false, text: "จ่ายของแล้ว รอตัด WD Hub" })
+eq(issuedToast({ atms: { code: null }, hubCount: 1, hubWdDone: true, hubWd: { code: "WDH" } }), { ok: true, text: "จ่ายของแล้ว เลข WD Hub WDH" })
+eq(issuedToast({ atms: { code: "WD1" }, hubCount: 1, hubWdDone: false }), { ok: false, text: "ตัดใน ATMS แล้ว เลข WD WD1 · ของ Hub รอตัด WD Hub" })
+eq(issuedToast({ atms: { code: "WD1" }, hubCount: 1, hubWdDone: true, hubWd: { code: "WDH" } }), { ok: true, text: "ตัดใน ATMS แล้ว เลข WD WD1 · WD Hub WDH" })
+assert.ok(!issuedToast({ atms: { code: null }, hubCount: 1, hubWdDone: false }).text.includes("-"))
+const sg = (status: string, code: string | null, hub = false) => ({ status, hub, atms: { code } })
+eq(settledToast({ atms: { code: null }, settleGroups: [] }), { ok: true, text: "ยืนยันแล้ว ไม่มีของต้องตัด (คืนทั้งหมด)" })
+eq(settledToast({ atms: { code: null }, settleGroups: [sg("DONE", "W1"), sg("DONE", "W2")] }), { ok: true, text: "ตัดสต๊อกแล้ว W1, W2" })
+eq(settledToast({ atms: { code: null }, hubCount: 1, hubWdDone: false, settleGroups: [sg("DONE", "W1"), sg("PENDING", null, true)] }), { ok: false, text: "ตัดสต๊อกแล้ว W1 · จ่ายของแล้ว รอตัด WD Hub" })
+eq(settledToast({ atms: { code: null }, hubCount: 1, hubWdDone: false, settleGroups: [sg("PENDING", null, true)] }), { ok: false, text: "จ่ายของแล้ว รอตัด WD Hub" })
+eq(settledToast({ atms: { code: null }, hubCount: 1, hubWdDone: true, settleGroups: [sg("DONE", "W1"), sg("DONE", "H1", true)] }), { ok: true, text: "ตัดสต๊อกแล้ว W1 · WD Hub H1" })
 console.log("check-hub-core OK")

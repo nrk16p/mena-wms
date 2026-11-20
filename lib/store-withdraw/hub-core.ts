@@ -126,3 +126,33 @@ export function returnMaxOf(r: { lines: SwLine[]; returns: { status: string; lin
   }
   return r.lines.map((l, i) => (isHubLine(l) ? 0 : returnableQty(l, pending.get(i) ?? 0)))
 }
+
+type ToastReq = {
+  atms: { code: string | null }
+  hubCount?: number; hubWdDone?: boolean
+  hubWd?: { code: string | null } | null
+  settleGroups?: { status: string; hub?: boolean; atms: { code: string | null } }[]
+}
+
+/** ข้อความแจ้งหลังส่งของ (อู่ใน/อู่นอก ISSUED) · ใบมีแต่ Hub ไม่มีเลข WD ปกติ · WD Hub ยังไม่ได้ = บอกว่ารอ */
+export function issuedToast(r: ToastReq): { ok: boolean; text: string } {
+  const parts: string[] = []
+  if (r.atms.code) parts.push(`ตัดใน ATMS แล้ว เลข WD ${r.atms.code}`)
+  const hub = (r.hubCount ?? 0) > 0
+  if (hub && r.hubWdDone === false) parts.push(r.atms.code ? "ของ Hub รอตัด WD Hub" : "จ่ายของแล้ว รอตัด WD Hub")
+  else if (hub && r.hubWd?.code) parts.push(r.atms.code ? `WD Hub ${r.hubWd.code}` : `จ่ายของแล้ว เลข WD Hub ${r.hubWd.code}`)
+  return { ok: !(hub && r.hubWdDone === false), text: parts.join(" · ") || "จ่ายของแล้ว" }
+}
+
+/** ข้อความแจ้งหลังตัดสต๊อก Mobile/PM (SETTLED) · กลุ่ม Hub ยิงหลังใบ SETTLED ล้มได้ = บอกว่ารอ */
+export function settledToast(r: ToastReq): { ok: boolean; text: string } {
+  const groups = r.settleGroups ?? []
+  if (groups.length === 0) return { ok: true, text: "ยืนยันแล้ว ไม่มีของต้องตัด (คืนทั้งหมด)" }
+  const codes = (hub: boolean) => groups.filter((g) => !!g.hub === hub && g.status === "DONE").map((g) => g.atms.code).filter(Boolean)
+  const parts: string[] = []
+  if (codes(false).length) parts.push(`ตัดสต๊อกแล้ว ${codes(false).join(", ")}`)
+  const hubWait = (r.hubCount ?? 0) > 0 && r.hubWdDone === false
+  if (hubWait) parts.push("จ่ายของแล้ว รอตัด WD Hub")
+  else if (codes(true).length) parts.push(`WD Hub ${codes(true).join(", ")}`)
+  return { ok: !hubWait, text: parts.join(" · ") || "ตัดสต๊อกแล้ว" }
+}

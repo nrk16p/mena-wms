@@ -3,6 +3,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { getStoreActor, guard, isResponse, readJson, type RouteCtx } from "@/lib/store-withdraw/http"
 import { settleRequest } from "@/lib/store-withdraw/settle"
+import { withHub } from "@/lib/store-withdraw/hub-core"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -12,7 +13,7 @@ export function POST(req: NextRequest, ctx: RouteCtx<{ no: string }>) {
     const actor = await getStoreActor(req)
     if (isResponse(actor)) return actor
     const { no } = await ctx.params
-    const { _id: _drop, ...request } = await settleRequest(no, (await readJson(req)).returnConfirmed, actor)
+    const { _id: _drop, ...request } = withHub(await settleRequest(no, (await readJson(req)).returnConfirmed, actor), new Date())
     void _drop
     return NextResponse.json({ request })
   })

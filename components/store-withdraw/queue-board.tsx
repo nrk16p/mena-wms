@@ -10,6 +10,7 @@ import { PrepareDialog } from "./prepare-dialog"
 import { RejectDialog } from "./reject-dialog"
 import { isPendingFlow, matchesSearch, normSearch, searchActive, waitMinutes, workTypeFromKind, WORK_TYPE_LABEL, WORK_TYPES } from "@/lib/store-withdraw/core"
 import { lateMinutes } from "@/lib/store-withdraw/pending"
+import { issuedToast, settledToast } from "@/lib/store-withdraw/hub-core"
 import type { SwWorkType } from "@/lib/store-withdraw/types"
 import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-types"
 import { KeyedCard, TicketCard, WAIT_WARN_MIN, hm, waitText, type BusyKind, type CardActions, type ColKey } from "./ticket-card"
@@ -255,7 +256,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
       const r = res.request as QItem
       const groups = r.settleGroups ?? []
       const err = groups.find((g) => g.status !== "DONE" && g.atms.error)?.atms
-      if (r.status === "SETTLED") await swalToast("success", groups.length ? `ตัดสต๊อกแล้ว ${groups.map((g) => g.atms.code).filter(Boolean).join(", ")}` : "ยืนยันแล้ว ไม่มีของต้องตัด (คืนทั้งหมด)")
+      if (r.status === "SETTLED") { const t = settledToast(r); await swalToast(t.ok ? "success" : "warning", t.text) }
       else if (r.status === "SETTLING") await swalToast("warning", err?.error || "ยังไม่รู้ผลจาก ATMS รอ 5 นาทีแล้วกดลองใหม่")
       else if (r.status === "SETTLE_FAILED") {
         if (err?.needCreds) { setLink({ linked: false }); askLink(() => { void settleStock(i, returnConfirmed) }) }
@@ -280,7 +281,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
     try {
       const res = await api(`/api/store-withdraw/${i.no}/issue`, { method: "POST" })
       const r = res.request as QItem
-      if (r.status === "ISSUED") await swalToast("success", `ตัดใน ATMS แล้ว เลข WD ${r.atms.code ?? "-"}`)
+      if (r.status === "ISSUED") { const t = issuedToast(r); await swalToast(t.ok ? "success" : "warning", t.text) }
       else if (r.status === "ISSUING") await swalToast("warning", r.atms.error || "ยังไม่รู้ผลจาก ATMS รอ 5 นาทีแล้วกดลองใหม่")
       else if (r.status === "ISSUE_FAILED") {
         if (r.atms.needCreds) { setLink({ linked: false }); askLink(() => { void issue(i) }) }

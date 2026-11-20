@@ -6,6 +6,7 @@ import { isPendingFlow } from "@/lib/store-withdraw/core"
 import { NotFoundError, swCol } from "@/lib/store-withdraw/db"
 import { issueRequest } from "@/lib/store-withdraw/issue"
 import { handOut } from "@/lib/store-withdraw/settle"
+import { withHub } from "@/lib/store-withdraw/hub-core"
 import { getStoreActor, guard, isResponse, type RouteCtx } from "@/lib/store-withdraw/http"
 
 export const dynamic = "force-dynamic"
@@ -18,7 +19,8 @@ export function POST(req: NextRequest, ctx: RouteCtx<{ no: string }>) {
     const { no } = await ctx.params
     const cur = await (await swCol()).findOne({ no }, { projection: { workType: 1, summaryDueAt: 1 } })
     if (!cur) throw new NotFoundError()
-    const { _id: _drop, ...request } = isPendingFlow(cur) ? await handOut(no, actor) : await issueRequest(no, actor)
+    // withHub: ส่ง hubWdDone/hubCount ไปด้วย ให้หน้าจอบอกได้ว่า WD Hub ยังค้าง
+    const { _id: _drop, ...request } = withHub(isPendingFlow(cur) ? await handOut(no, actor) : await issueRequest(no, actor), new Date())
     void _drop
     return NextResponse.json({ request })
   })
