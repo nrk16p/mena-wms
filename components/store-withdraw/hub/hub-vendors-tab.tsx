@@ -68,6 +68,7 @@ export function HubVendorsTab({ invs, canEdit }: { invs: InvOpt[]; canEdit: bool
             <button type="submit" disabled={busy} className={btnCls}>เพิ่ม Sub</button>
           </form>
         )}
+        {canEdit && <p className="text-xs text-gray-500">ใส่รหัสผู้ขายให้ตรงกับ ATMS เช่น VEN-00008 ไม่งั้น Sub จะไม่เห็นสต๊อก</p>}
         {vendors.length === 0 ? <p className="text-sm text-gray-500">ยังไม่มี Sub</p> : (
           <div className={tableWrap}>
             <table className="w-full text-left text-sm">

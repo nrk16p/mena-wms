@@ -17,8 +17,7 @@ async function main() {
   setStoreWithdrawClient(client)
   const { hubCols } = await import("../lib/store-withdraw/hub-db")
   const { hubStockForVendor } = await import("../lib/store-withdraw/hub-portal")
-  const { vpUsernameFromCode } = await import("../lib/vendor-portal")
-  const c = await hubCols()
+    const c = await hubCols()
   const now = new Date()
 
   await c.vendors.insertMany([
@@ -37,30 +36,40 @@ async function main() {
     { inventoryId: 4, vendorCode: "VEN-00009", skuId: 4, qty: 3 },
   ])
 
-  // รูปมาตรฐานจริงของ portal: "VEN-00008" กับ "8" ได้ Vendor-00008 เหมือนกัน
-  eq(vpUsernameFromCode("VEN-00008"), "Vendor-00008")
-  eq(vpUsernameFromCode("8"), "Vendor-00008")
-
-  // เห็นเฉพาะของตัวเอง แม้ V2 มีของด้วย · ชื่อเลขเฉย ๆ จับคู่กับ VEN-00008 ได้
-  const r8 = await hubStockForVendor("8")
+  // ตรงตัวเท่านั้น: "8" ไม่เห็น VEN-00008 · ตัวพิมพ์/ช่องว่างไม่สำคัญ
+  eq(await hubStockForVendor("8"), { enabled: false, rows: [] })
+  const r8 = await hubStockForVendor(" ven-00008 ")
   eq(r8.enabled, true)
   eq(r8.rows.map((r) => r.skuCode), ["A-1", "A-2"])
   eq(r8.rows.map((r) => r.qty), [5, 0])
   for (const r of r8.rows) eq(Object.keys(r).sort(), ["qty", "skuCode", "skuName", "unit"])
-  eq(await hubStockForVendor("VEN-00008"), r8)
 
-  const r2 = await hubStockForVendor("2")
+  const r2 = await hubStockForVendor("V2")
   eq(r2.rows.map((r) => r.skuCode), ["B-1"])
   eq(JSON.stringify(r8).includes("B-1"), false)
+  for (const alias of ["2", "VEN-00002", "X-2"]) eq(await hubStockForVendor(alias), { enabled: false, rows: [] }, alias)
 
-  // ไม่ใช่ Hub vendor / ปิดใช้งาน / ขยะ → ไม่เปิดแท็บ ไม่เห็นอะไร
-  for (const bad of ["77", "VEN-00009", "", "   ", null, undefined, "abc", "1,2", "VEN-", "0", 0]) {
+  // 182 กับ VEN-00182 แยกกัน
+  await c.vendors.insertOne({ code: "VEN-00182", name: "อู่ 182", active: true, createdAt: now })
+  await c.items.insertOne(item("VEN-00182", 8, "D-1", null))
+  await c.stock.insertOne({ inventoryId: 4, vendorCode: "VEN-00182", skuId: 8, qty: 1 })
+  eq(await hubStockForVendor("182"), { enabled: false, rows: [] })
+  eq((await hubStockForVendor("VEN-00182")).rows.length, 1)
+
+  // SKU เดียวกันหลาย Hub → รวมเป็นแถวเดียว
+  await c.items.insertOne({ ...item("VEN-00008", 1, "A-1", 99), inventoryId: 5 })
+  await c.stock.insertOne({ inventoryId: 5, vendorCode: "VEN-00008", skuId: 1, qty: 4 })
+  const merged = await hubStockForVendor("VEN-00008")
+  eq(merged.rows.map((r) => [r.skuCode, r.qty]), [["A-1", 9], ["A-2", 0]])
+
+  // ขยะ/ปิดใช้งาน → ปิดแท็บ
+  for (const bad of ["77", "VEN-00009", "", "   ", null, undefined, "abc", 0]) {
     eq(await hubStockForVendor(bad), { enabled: false, rows: [] }, `bad=${String(bad)}`)
   }
 
   // Sub ที่ active แต่ยังไม่มีของ → เปิดแท็บ แถวว่าง
   await c.vendors.insertOne({ code: "VEN-00050", name: "ใหม่", active: true, createdAt: now })
-  eq(await hubStockForVendor("50"), { enabled: true, rows: [] })
+  eq(await hubStockForVendor("VEN-00050"), { enabled: true, rows: [] })
 
   setStoreWithdrawClient(null)
   await client.close()
