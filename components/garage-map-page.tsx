@@ -80,6 +80,7 @@ const telOf = (phone: string) => (phone.match(/0\d[\d-]{7,}/) ?? [""])[0].replac
 const fmtKm = (n: number) => (n < 10 ? n.toFixed(1) : Math.round(n).toString())
 
 export function GarageMapPage() {
+  const mobile = useIsMobile()
   const { data: session } = useSession()
   const canEdit = canApproveVendor(session?.user?.email)
 
@@ -104,6 +105,8 @@ export function GarageMapPage() {
   const [addr, setAddr] = useState<ProvinceNode[]>([])
 
   const mapRef = useRef<LeafletMap | null>(null)
+
+  useEffect(() => { const t = setTimeout(() => mapRef.current?.invalidateSize(), 50); return () => clearTimeout(t) }, [mobile])
   const layerRef = useRef<{ plants: LeafletLayerGroup | null; fuel: LeafletLayerGroup | null }>({ plants: null, fuel: null })
   const markersRef = useRef<Map<string, LeafletMarker>>(new Map())
   const originMarkerRef = useRef<LeafletMarker | null>(null)
@@ -428,9 +431,9 @@ export function GarageMapPage() {
   const clearFilters = () => { setChips([]); setOnlyPhone(false); setOnlyAvl(false) }
 
   return (
-    <div style={{ fontFamily: BODY, display: "flex", height: "calc(100vh - 56px)", background: C.canvas, color: C.ink }}>
+    <div style={{ fontFamily: BODY, display: "flex", flexDirection: mobile ? "column" : "row", height: mobile ? "calc(100dvh - 56px)" : "calc(100vh - 56px)", margin: mobile ? "-16px -12px" : undefined, background: C.canvas, color: C.ink }}>
       {/* ── ซ้าย */}
-      <div style={{ width: 460, minWidth: 460, display: "flex", flexDirection: "column", background: "#fff", borderRight: `1px solid ${C.line}`, boxShadow: "4px 0 24px -16px rgba(21,86,201,.35)", zIndex: 2 }}>
+      <div style={{ width: mobile ? "100%" : 460, minWidth: mobile ? 0 : 460, flex: mobile ? 1 : undefined, minHeight: 0, order: mobile ? 2 : undefined, display: "flex", flexDirection: "column", overflowY: mobile ? "auto" : undefined, background: "#fff", borderRight: `1px solid ${C.line}`, boxShadow: "4px 0 24px -16px rgba(21,86,201,.35)", zIndex: 2 }}>
         {/* ส่วนที่ 1: รถเสียที่ไหน */}
         <div style={{ padding: "16px 18px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -507,7 +510,7 @@ export function GarageMapPage() {
         </div>
 
         {/* รายการอู่ */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 16px" }}>
+        <div style={{ flex: mobile ? "none" : 1, overflowY: mobile ? "visible" : "auto", padding: "0 12px 16px" }}>
           {!loading && res && shown.length === 0 && (
             <div style={{ textAlign: "center", padding: "36px 18px", color: C.muted, fontSize: 13, lineHeight: 1.6 }}>
               {filtersOn ? <>ไม่มีอู่ที่ตรงกับตัวกรองนี้<br /><button onClick={clearFilters} style={{ marginTop: 10, border: 0, borderRadius: 999, background: C.brand, color: "#fff", padding: "7px 18px", cursor: "pointer", fontFamily: DISPLAY }}>ล้างตัวกรอง</button></>
@@ -584,8 +587,8 @@ export function GarageMapPage() {
           onSaved={(name) => { setAdding(false); void swalToast("success", `เพิ่ม ${name} แล้ว`); void search(at, codes) }} />
       )}
 
-      {/* ── ขวา: แผนที่ */}
-      <div style={{ flex: 1, position: "relative" }}>
+      {/* ── ขวา: แผนที่ (มือถือ: บน ครึ่งจอ) */}
+      <div style={{ flex: mobile ? "none" : 1, height: mobile ? "42dvh" : undefined, order: mobile ? 1 : undefined, position: "relative" }}>
         <div ref={boxRef} style={{ position: "absolute", inset: 0 }} />
         <Legend open={legendOpen} onToggle={() => setLegendOpen((v) => !v)}
           plantCusts={plantCusts} onPlantCust={(k) => setPlantCusts((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]))}
@@ -1203,4 +1206,17 @@ function AddGarageModal({ origin, onClose, onSaved }: {
       </div>
     </div>
   )
+}
+
+/** จอเล็กกว่า 1024px (มือถือ/แท็บเล็ตแนวตั้ง) → แผนที่บน รายการอู่ล่าง */
+function useIsMobile() {
+  const [m, setM] = useState(false)
+  useEffect(() => {
+    const q = window.matchMedia("(max-width: 1023px)")
+    const on = () => setM(q.matches)
+    on()
+    q.addEventListener("change", on)
+    return () => q.removeEventListener("change", on)
+  }, [])
+  return m
 }
