@@ -8,7 +8,7 @@ import { Loader2, RefreshCw, Search, Settings2, UserCheck, UserPlus, Copy, Check
 import { ColHead, Empty, Pager, PAGE_SIZES, buildFacetOptions, dtTdCls, dtTheadCls, passFacets, type HeadCtx, type SortState } from "@/components/datatable-shared"
 import { ENTITY_LABEL, STATUS_ORDER, type ActorRole, type OnboardingSummary } from "@/lib/vendor-onboarding/types"
 import { errMsg, fmtTaxId, listOnboarding, thDate, type ListResponse } from "@/lib/vendor-onboarding/client"
-import { LEGACY_STATUSES, STATUS_TONE, StatusPill, btn, fontHead, fontThai, inputCls, statusLabel } from "./admin-ui"
+import { STATUS_TONE, StatusPill, btn, fontHead, fontThai, inputCls, statusLabel } from "./admin-ui"
 import { DetailModal } from "./detail-modal"
 import { SettingsModal } from "./settings-modal"
 
@@ -134,7 +134,6 @@ export function OnboardingAdminPage() {
     for (const r of rows) m.set(r.status, (m.get(r.status) ?? 0) + 1)
     return m
   }, [rows])
-  const legacyCount = LEGACY_STATUSES.reduce((n, s) => n + (counts.get(s) ?? 0), 0)
   const pickStatus = (labels: string[]) => { setFacets({ ...emptyFacets(), status: labels }); setPage(1) }
   const statusPicked = facets.status
   const same = (a: string[], b: string[]) => a.length === b.length && a.every((v) => b.includes(v))
@@ -175,7 +174,7 @@ export function OnboardingAdminPage() {
       )}
 
       {/* การ์ดสรุป */}
-      <section aria-label="สรุปใบสมัครตามสถานะ" className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#E8EEEA] bg-[#E8EEEA] sm:grid-cols-5 xl:grid-cols-10 dark:border-white/8 dark:bg-white/8">
+      <section aria-label="สรุปใบสมัครตามสถานะ" className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#E8EEEA] bg-[#E8EEEA] sm:grid-cols-5 xl:grid-cols-9 dark:border-white/8 dark:bg-white/8">
         <KpiCard label="ทั้งหมด" value={rows.length} lead sub={filtering ? "ล้างตัวกรอง" : undefined} onClick={filtering ? clearAll : undefined} />
         {STATUS_ORDER.map((s) => {
           const n = counts.get(s) ?? 0
@@ -184,9 +183,6 @@ export function OnboardingAdminPage() {
               active={same(statusPicked, [statusLabel(s)])} onClick={() => pickStatus([statusLabel(s)])} />
           )
         })}
-        <KpiCard label="แบบเก่า" value={legacyCount} share={legacyCount / (rows.length || 1)} dot="bg-gray-400"
-          active={statusPicked.length > 0 && statusPicked.every((l) => LEGACY_STATUSES.some((s) => statusLabel(s) === l))}
-          onClick={() => pickStatus(LEGACY_STATUSES.map(statusLabel))} />
       </section>
 
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">

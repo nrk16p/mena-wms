@@ -66,9 +66,10 @@ const LIST_PROJECTION = {
   "docSlotSnapshot.key": 1, "docSlotSnapshot.requirement": 1, "docSlotSnapshot.active": 1,
 }
 
+// แสดงเฉพาะใบจากฟอร์มใหม่ (schemaVersion 2) — ใบจากฟอร์มเดิมไม่แสดง (ผู้ใช้สั่ง 2026-11-22)
 export async function listApplications(session: SessionInfo) {
   const [rowsRaw, settings] = await Promise.all([
-    (await appCol()).find({}, { projection: LIST_PROJECTION }).sort({ _id: -1 }).limit(LIST_CAP).toArray(),
+    (await appCol()).find({ schemaVersion: 2 }, { projection: LIST_PROJECTION }).sort({ _id: -1 }).limit(LIST_CAP).toArray(),
     getSettings(),
   ])
   const rows = rowsRaw.map(summarize)
