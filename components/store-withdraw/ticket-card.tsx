@@ -5,7 +5,7 @@ import { AlertTriangle, Clock, Flag, Loader2, Paperclip, Truck, Undo2, User } fr
 import { WORK_TYPE_LABEL, isPendingFlow, waitMinutes, waitText, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { lateMinutes, lateText, leftoverTotal } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
-import { HubBadges, HubSentLine } from "./hub-bits"
+import { HubBadges, HubSentLine, waitPr } from "./hub-bits"
 import { StatusChip } from "./status-chip"
 import { SummaryView } from "./summary-dialog"
 import { itemKey, type QItem, type QKeyed } from "./queue-types"
@@ -185,7 +185,7 @@ export function TicketCard({ item, now, busy, actions, column, selected = false,
   const base = `rounded-[10px] border bg-white p-3 xl:p-2.5 text-[13px] leading-[1.45] text-[#14271C] shadow-[0_1px_2px_rgba(20,39,28,.06)] dark:bg-[#161922] dark:text-gray-100 ${frame}`
   const dataAttrs = { "data-testid": "ticket", "data-no": item.no, "data-kind": isReturn ? "return" : item.kind, "data-status": isReturn ? ret!.status : item.status }
 
-  // ส่งแล้ววันนี้: การ์ดย่อ เลขใบ · เลข WD · เวลา
+  // ช่องรอ PR Hub (และผลค้นย้อนหลังที่จบแล้ว): การ์ดย่อ เลขใบ · เลข WD · เวลา
   if (st.done) {
     return (
       <li {...dataAttrs} className={base}>
@@ -201,6 +201,10 @@ export function TicketCard({ item, now, busy, actions, column, selected = false,
           <span className="ml-auto"><StatusChip status={item.status} /></span>
         </div>
         <HubSentLine item={item} now={now} />
+        {waitPr(item) && actions.bindHubPr && (
+          <button type="button" data-testid="hub-bind-card" disabled={busy != null} onClick={() => actions.bindHubPr!(item)}
+            className="mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-lg border border-[#17793F] bg-white px-3 text-[13px] font-semibold text-[#17793F] hover:bg-[#E8F3EC] disabled:opacity-60 dark:border-emerald-400/60 dark:bg-transparent dark:text-emerald-300">ผูก PR อะไหล่ Hub</button>
+        )}
         {item.status === "REJECTED" && item.rejectReason && <p className="mt-1.5 line-clamp-2 text-xs text-[#4A5A50] dark:text-gray-400">เหตุผล: {item.rejectReason}</p>}
         {st.atms.drift && <div className="mt-2"><AtmsAlerts st={{ ...st, showError: false }} /></div>}
       </li>

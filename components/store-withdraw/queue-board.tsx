@@ -8,12 +8,12 @@ import { DetailPanel } from "./detail-panel"
 import { HubBanner, HubBindDialog, waitPr } from "./hub-bits"
 import { PrepareDialog } from "./prepare-dialog"
 import { RejectDialog } from "./reject-dialog"
-import { isPendingFlow, matchesSearch, normSearch, searchActive, waitMinutes, waitText, workTypeFromKind, WORK_TYPE_LABEL, WORK_TYPES } from "@/lib/store-withdraw/core"
+import { isPendingFlow, matchesSearch, searchActive, waitMinutes, waitText, workTypeFromKind, WORK_TYPE_LABEL, WORK_TYPES } from "@/lib/store-withdraw/core"
 import { lateMinutes } from "@/lib/store-withdraw/pending"
 import { issuedToast, settledToast } from "@/lib/store-withdraw/hub-core"
 import type { SwWorkType } from "@/lib/store-withdraw/types"
 import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-types"
-import { KeyedCard, TicketCard, WAIT_WARN_MIN, hm, type BusyKind, type CardActions, type ColKey } from "./ticket-card"
+import { TicketCard, WAIT_WARN_MIN, type BusyKind, type CardActions, type ColKey } from "./ticket-card"
 
 type Opt = { id: number; name: string }
 type QuickFilter = "all" | "urgent" | "late" | "cutoff" | "return" | "error" | "hubpr"
@@ -31,13 +31,14 @@ const STORE_COLS: Col[] = [
 const FOLLOW_COLS: Col[] = [
   // Mobile/PM: ของออกไปแล้ว รอช่างสรุป (เลยกำหนดอยู่บนสุด) · สรุปแล้วจะย้ายไปช่องใหม่เป็นงานตัดสต๊อก
   { key: "HANDED_OUT", title: "รอช่างสรุป", dot: "bg-orange-600", hint: "เลยกำหนดก่อน" },
-  { key: "DONE_TODAY", title: "ส่งแล้ววันนี้", dot: "bg-gray-500", hint: "ล่าสุดก่อน" },
+  // ช่องขวาสุด = ใบที่ส่งของ Hub แล้วยังไม่ผูก PR (ใบส่งแล้ววันนี้ที่จบแล้วไม่ต้องโชว์ · ค้นย้อนหลังได้)
+  { key: "DONE_TODAY", title: "รอ PR Hub", dot: "bg-sky-600", hint: "เกินกำหนดก่อน" },
 ]
 const COLS = [...STORE_COLS, ...FOLLOW_COLS]
 const ACTIVE: ColKey[] = ["NEW", "PREPARING", "READY", "HANDED_OUT"]
 const QUICK: { id: QuickFilter; label: string }[] = [
   { id: "all", label: "ทั้งหมด" }, { id: "urgent", label: "รถจอดรอ" }, { id: "late", label: `เกิน ${WAIT_WARN_MIN} นาที` },
-  { id: "cutoff", label: "ตัดยอด" }, { id: "return", label: "ใบคืน" }, { id: "error", label: "ATMS ผิดพลาด" }, { id: "hubpr", label: "รอ PR Hub" },
+  { id: "cutoff", label: "ตัดยอด" }, { id: "return", label: "ใบคืน" }, { id: "error", label: "ATMS ผิดพลาด" },
 ]
 const isReturnItem = (i: QItem) => i.itemType === "return" && !!i.return
 const isErr = (i: QItem) => (isReturnItem(i) ? i.return!.status === "RETURN_FAILED" : i.status === "ISSUE_FAILED" || i.status === "SETTLE_FAILED")
@@ -406,18 +407,17 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
   const actions: CardActions = { claim, prepare: setPrep, issue, reject, closeManual, acceptReturn, settle: settleStock, open, bindHubPr: setBindHub, retryHubWd }
   const filtering = searchActive(q)
   const narrowed = filtering || quick !== "all" || wtype !== "all"
-  const colAll = (k: ColKey) => (data?.columns[k] ?? []) as QItem[]
+  const colAll = (k: ColKey): QItem[] => {
+    const list = (data?.columns[k] ?? []) as QItem[]
+    if (k !== "DONE_TODAY") return list
+    // รอ PR Hub: เกินกำหนดก่อน แล้วส่งของนานสุดก่อน
+    const at = (i: QItem) => (i.hubIssuedAt ? new Date(i.hubIssuedAt).getTime() : 0)
+    return list.filter(waitPr).sort((a, b) => Number(!!b.hubOverdue) - Number(!!a.hubOverdue) || at(a) - at(b))
+  }
   const colItems = (k: ColKey) => colAll(k).filter((i) =>
     (!filtering || matchesSearch(i, q))
     && quickMatch(quick, i, k, now)
     && (wtype === "all" || (!isReturnItem(i) && (i.workType ?? workTypeFromKind(i.kind)) === wtype)))
-  // WD ที่คีย์ใน ATMS โดยตรง: ค้นได้ด้วยเลข WD / หมายเหตุ · ไม่มีประเภทงาน จึงซ่อนเมื่อกรองด่วน/ประเภทงาน
-  const keyedItems = (k: ColKey) => {
-    if (k !== "DONE_TODAY" || !data || quick !== "all" || wtype !== "all") return []
-    if (!filtering) return data.atmsKeyed
-    const words = q.split(/\s+/).map(normSearch).filter(Boolean)
-    return data.atmsKeyed.filter((r) => words.every((w) => normSearch(`${r.code} ${r.remark}`).includes(w)))
-  }
   const total = data ? COLS.reduce((n, c) => n + colItems(c.key).length, 0) : 0
   const deepOn = filtering && deepQ !== "" && deepQ === q.trim()
   // ผลค้นย้อนหลัง: ใบที่จบแล้ว = อ่านอย่างเดียว (ใช้การ์ดแบบ "ส่งแล้ว" ไม่มีปุ่ม) · ใบที่ยังเปิดอยู่ใช้ปุ่มปกติ
@@ -445,7 +445,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
   const closeSel = useCallback(() => setSelKey(null), [])
 
   // ---------- บรรทัดสรุปใต้หัวช่อง (ไม่ขึ้นกับตัวกรอง · แทนการ์ดสรุป 5 ใบเดิม) ----------
-  const count = (k: ColKey) => colAll(k).length + (k === "DONE_TODAY" ? data?.atmsKeyed.length ?? 0 : 0)
+  const count = (k: ColKey) => colAll(k).length
   type Tone = "warn" | "bad" | ""
   const colMeta = (k: ColKey): { text: string; tone: Tone }[] => {
     const all = colAll(k)
@@ -457,19 +457,15 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
     if (k === "PREPARING") { const n = all.filter((i) => isLate(i, k, now)).length; if (n) out.push({ text: `เกิน ${WAIT_WARN_MIN} นาที ${n} ใบ`, tone: "warn" }) }
     if (k === "NEW" || k === "READY") { const n = all.filter(isErr).length; if (n) out.push({ text: `ATMS ผิดพลาด ${n} ใบ`, tone: "bad" }) }
     if (k === "HANDED_OUT") { const n = all.filter((i) => lateMinutes(i, now) > 0).length; if (n) out.push({ text: `เลยกำหนด ${n} ใบ`, tone: "bad" }) }
-    if (k === "DONE_TODAY") {
-      const last = [...all.map((i) => i.updatedAt), ...(data?.atmsKeyed ?? []).map((r) => r.created_at)].sort().at(-1)
-      if (last) out.push({ text: `ล่าสุด ${hm(last)}`, tone: "" })
-    }
+    if (k === "DONE_TODAY") { const n = all.filter((i) => i.hubOverdue).length; if (n) out.push({ text: `เกินกำหนด PR ${n} ใบ`, tone: "bad" }) }
     return out
   }
-  const quickCount = (f: QuickFilter) => (f === "hubpr" ? COLS.map((c) => c.key) : ACTIVE).reduce((n, k) => n + colAll(k).filter((i) => quickMatch(f, i, k, now)).length, 0)
+  const quickCount = (f: QuickFilter) => ACTIVE.reduce((n, k) => n + colAll(k).filter((i) => quickMatch(f, i, k, now)).length, 0)
 
   const subTone = { warn: "text-amber-800 dark:text-amber-300", bad: "text-red-700 dark:text-red-300", "": "text-[#4A5A50] dark:text-gray-400" }
   const renderCol = (c: Col) => {
     const items = colItems(c.key)
-    const keyed = keyedItems(c.key)
-    const shown = items.length + keyed.length
+    const shown = items.length
     const all = count(c.key)
     const meta = colMeta(c.key)
     return (
@@ -489,12 +485,11 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
             </p>
           )}
         </div>
-        {items.length + keyed.length === 0 ? (
+        {items.length === 0 ? (
           <p className="rounded-[10px] border border-dashed border-[#C9D1CC] px-3 py-6 text-center text-xs text-[#4A5A50] dark:border-white/10 dark:text-gray-400">{narrowed ? "ไม่มีใบที่ตรงกับตัวกรอง" : "ไม่มีงานในช่องนี้"}</p>
         ) : (
           <ul className="space-y-2">
             {items.map((i) => <TicketCard key={itemKey(i)} item={i} now={now} busy={busy.get(itemKey(i)) ?? null} actions={actions} column={c.key} selected={itemKey(i) === selKey} onSelect={pick} />)}
-            {keyed.map((k, n) => <KeyedCard key={`${k.id ?? k.code}-${n}`} row={k} />)}
           </ul>
         )}
       </section>
@@ -576,7 +571,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
         </div>
         {filtering && data && (
           <p data-testid="search-count" className="-mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 px-0.5 text-[13px] text-[#4A5A50] dark:text-gray-400">
-            <span>เจอในคิวตอนนี้ {total + keyedItems("DONE_TODAY").length} ใบ</span>
+            <span>เจอในคิวตอนนี้ {total} ใบ</span>
             {!deepOn && (
               <button type="button" data-testid="search-deep" disabled={deepBusy} onClick={searchAll} className="font-semibold text-[#157A40] hover:underline disabled:opacity-60 dark:text-emerald-400">
                 {deepBusy ? "กำลังค้น..." : "ค้นย้อนหลัง 90 วัน"}
@@ -585,7 +580,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
           </p>
         )}
 
-        {data && <HubBanner items={COLS.flatMap((c) => colAll(c.key))} showing={quick === "hubpr"} onShow={() => setQuick(quick === "hubpr" ? "all" : "hubpr")} />}
+        {data && <HubBanner items={COLS.flatMap((c) => colAll(c.key))} />}
 
         {link && !link.linked && (
           <div className="flex flex-wrap items-center gap-3 rounded-[10px] border border-amber-300 bg-amber-50 py-2.5 pl-4 pr-3 text-[13.5px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
@@ -604,7 +599,7 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
               {COLS.map((c) => (
                 <button key={c.key} type="button" aria-pressed={mCol === c.key} onClick={() => setMCol(c.key)}
                   className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium ${mCol === c.key ? "border-[#14271C] bg-[#14271C] text-white dark:border-white dark:bg-white dark:text-[#14271C]" : "border-[#D5DCD8] bg-white text-[#2B3D32] dark:border-white/10 dark:bg-transparent dark:text-gray-300"}`}>
-                  <span aria-hidden="true" className={`h-[7px] w-[7px] rounded-[2px] ${c.dot}`} />{c.title}<span className="font-semibold tabular-nums">{colItems(c.key).length + keyedItems(c.key).length}</span>
+                  <span aria-hidden="true" className={`h-[7px] w-[7px] rounded-[2px] ${c.dot}`} />{c.title}<span className="font-semibold tabular-nums">{colItems(c.key).length}</span>
                 </button>
               ))}
             </nav>
