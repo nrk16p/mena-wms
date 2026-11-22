@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Check, Search, Sparkles, X } from "lucide-react"
+import { Check, Search, Sparkles, Star, X } from "lucide-react"
 import { useBranchScope } from "./use-branch-scope"
 import { canSeeBranch } from "@/lib/branch-scope"
 import { NAV_VERSION, byCategory, sidebarGroups } from "@/lib/nav"
@@ -73,6 +73,11 @@ export function NavUpdateNotice() {
           <ol className="list-decimal space-y-0.5 pl-[18px] text-[13px] text-[#14271C] dark:text-gray-200">
             <li>กลุ่มเมนูเดิมทั้งหมด จัดเข้า {categories.length} หมวด หมวดไหนไม่ได้ใช้พับเก็บได้</li>
             <li>มีช่องค้นหาเมนูบนสุดของแถบซ้าย หรือกด Ctrl+K</li>
+            <li>
+              กดดาว <Star size={12} className="inline -mt-0.5 fill-[#E8A317] text-[#E8A317]" /> ข้างเมนูที่ใช้ประจำ
+              (ชี้เมาส์ที่เมนูแล้วดาวจะโผล่) เมนูนั้นจะไปอยู่ใน &quot;เมนูโปรด&quot; บนสุดของแถบซ้ายและหน้าหลัก
+            </li>
+            <li>ตอนแถบซ้ายหุบ จะเหลือแค่เมนูโปรดกับไอคอนหมวด ชี้เมาส์ที่แถบเพื่อกางดูทั้งหมด</li>
           </ol>
         </div>
         <div>

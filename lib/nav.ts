@@ -26,7 +26,7 @@ import {
 // กลุ่มเดิมทุกกลุ่มอยู่ใต้หมวดใดหมวดหนึ่ง (ช่อง category บน NavGroup)
 // กลุ่มที่ไม่มี category (ภาพรวม/หน้าหลัก) แสดงบนสุดโดยไม่มีหัวหมวด
 // เปลี่ยนโครงเมนูเมื่อไหร่ ให้เปลี่ยน NAV_VERSION → การ์ดแจ้งเปลี่ยนเมนูจะขึ้นใหม่ให้ทุกคน 1 ครั้ง
-export const NAV_VERSION = "2026-11-categories"
+export const NAV_VERSION = "2026-11-categories-fav"
 
 export type NavCategoryKey = "repair" | "stock" | "buy" | "sys"
 
