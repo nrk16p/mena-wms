@@ -91,7 +91,7 @@ export function ActionBar({ item, st, busy, actions, size = "md" }: { item: QIte
   const { isReturn, failed, issuing, stale, unknown, settleItem, leftover } = st
 
   if (busy === "other") return <span data-testid="working" className={`inline-flex ${h} items-center gap-1.5 text-sm text-[#4A5A50]`}><Loader2 size={14} className="animate-spin" />กำลังทำรายการ</span>
-  if (unknown && !stale) return <button type="button" data-testid="retry-wait" className={`${primary} w-full`} disabled title="รอครบ 5 นาทีก่อนลองใหม่" aria-label="ลองใหม่ได้เมื่อครบ 5 นาที">ลองใหม่ (รอ 5 นาที)</button>
+  if (unknown && !stale) return <button type="button" data-testid="retry-wait" className={`${primary} w-full`} disabled title="รอครบ 5 นาทีก่อนลองใหม่">ลองใหม่ (รอ 5 นาที)</button>
   if (issuing && !stale) {
     return (
       <span data-testid="issuing" className={`flex ${h} w-full items-center gap-2 rounded-lg bg-violet-50 px-3 text-[13px] font-medium text-violet-800 dark:bg-violet-500/10 dark:text-violet-300`}>

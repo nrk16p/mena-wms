@@ -1,5 +1,5 @@
 // ตรรกะล้วนของแท็บคงเหลือ Hub: กรอง Sub · ค้น · เรียง · สรุปยอด · ระดับของใกล้หมด
-export type StockViewRow = { vendorCode: string; skuCode: string; skuName: string; qty: number }
+export type StockViewRow = { vendorCode: string; skuCode: string; skuName: string; qty: number; active?: boolean }
 export type StockLevel = "out" | "one" | "ok"
 export type StockSort = "code" | "qtyAsc"
 
@@ -14,13 +14,13 @@ export function filterStockRows<T extends StockViewRow>(rows: T[], opts: { q: st
   return [...out].sort(opts.sort === "qtyAsc" ? (a, b) => a.qty - b.qty || byCode(a, b) : byCode)
 }
 
-/** สรุปบนตาราง: จำนวนรายการ · รวมชิ้น (ไม่นับยอดติดลบ) · ใกล้หมด (≤ 1) */
+/** สรุปบนตาราง: จำนวนรายการ · รวมหน่วย (ไม่นับยอดติดลบ) · ใกล้หมด (≤ 1 ไม่นับแถวที่ปิดใช้) */
 export function summarizeStock(rows: StockViewRow[]) {
   let qty = 0
   let low = 0
   for (const r of rows) {
     qty += Math.max(0, r.qty)
-    if (r.qty <= 1) low++
+    if (r.qty <= 1 && r.active !== false) low++
   }
   return { count: rows.length, qty, low }
 }

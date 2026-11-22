@@ -11,6 +11,7 @@ const rows = [
 const names = { A: "อู่เอ", B: "อู่บี" }
 assert.equal(stockLevel(0), "out"); assert.equal(stockLevel(-2), "out"); assert.equal(stockLevel(1), "one"); assert.equal(stockLevel(1.5), "ok")
 assert.deepEqual(summarizeStock(rows), { count: 4, qty: 8.5, low: 2 })
+assert.equal(summarizeStock([{ ...rows[1], active: false }, rows[2]]).low, 1)   // แถวปิดใช้ไม่นับใกล้หมด
 assert.deepEqual(summarizeStock([]), { count: 0, qty: 0, low: 0 })
 assert.equal(summarizeStock([{ ...rows[0], qty: -3 }]).qty, 0)
 assert.deepEqual(filterStockRows(rows, { q: "", vendor: "", names, sort: "code" }).map((r) => r.skuCode), ["S1", "S2", "S3", "S10"])

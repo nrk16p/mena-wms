@@ -23,7 +23,7 @@ export function SkuPicker({ inventoryId, onPick, onPickHub }: { inventoryId?: nu
   const stock = useLookup<SkuHit>("sku", q, { inv: inventoryId })
   const hub = useHubLookup(q, inventoryId, !!onPickHub)
   const tooShort = stock.tooShort
-  const { groups, empty } = partsDropdown(onPickHub ? hub : null, stock)
+  const { groups, empty, loading } = partsDropdown(onPickHub ? hub : null, stock)
   const done = () => { setQ(""); setOpen(false) }
 
   return (
@@ -41,6 +41,7 @@ export function SkuPicker({ inventoryId, onPick, onPickHub }: { inventoryId?: nu
       {open && q.trim().length > 0 && (
         <div className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-md border border-[#D5DCD8] bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#161922]">
           {tooShort && <p className={msgCls}>พิมพ์อีกนิดนะ ต้อง 2 ตัวขึ้นไป</p>}
+          {!tooShort && loading && <p className={msgCls}>กำลังค้น…</p>}
           {!tooShort && empty && <p className={msgCls}>ไม่เจออะไหล่ที่ค้น</p>}
           {!tooShort && groups.map((g) => (
             <div key={g.kind} role="group" aria-label={g.title ?? undefined} data-testid={`parts-group-${g.kind}`}>

@@ -274,7 +274,7 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
   )
 
   return (
-    <div className={embedded ? "flex min-h-0 flex-1 flex-col" : "mx-auto max-w-3xl p-4 sm:p-6 lg:max-w-[1200px]"}>
+    <div className={embedded ? "flex min-h-0 flex-1 flex-col" : "mx-auto max-w-3xl p-4 sm:p-6 xl:max-w-[1200px]"}>
       <div data-testid="form-body" className={embedded ? "min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#F4F6F5] px-4 py-4 sm:px-6 dark:bg-[#0f1117]" : "space-y-4 pb-4"}>
       {!embedded && (
         <div>
@@ -287,7 +287,7 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
       {!embedded && <p className="text-xs text-gray-500">ช่องที่มีเครื่องหมาย <span className="text-red-600">*</span> ต้องกรอก</p>}
 
       {/* จอ ≥1024 (หน้าเต็ม): ซ้าย = 1 ประเภทงาน + 2 ข้อมูลคำขอ · ขวา = 3 อะไหล่ + 4 หมายเหตุ · จอเล็ก/Dialog = เรียงลงมา 1→2→3→4 */}
-      <div className={embedded ? "space-y-4" : "space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0"}>
+      <div className={embedded ? "space-y-4" : "space-y-4 xl:grid xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0"}>
       <div className="min-w-0 space-y-4">
       {card(1, "ประเภทงาน", <>
         <div role="radiogroup" aria-label="ประเภทงาน" className="flex flex-col gap-2 sm:flex-row">

@@ -75,7 +75,7 @@ export function waitMinutes(createdAt: Date, now: Date): number {
 
 /** ระยะเวลาเป็นคำอ่านง่าย: < 1 ชม. = "25 นาที" · < 24 ชม. = "5 ชม. 20 นาที" · ≥ 24 ชม. = "19 วัน 3 ชม." (ตัดหน่วยที่เป็นศูนย์ทิ้ง) */
 export function durationText(min: number): string {
-  const m0 = Math.max(0, Math.floor(min))
+  const m0 = Number.isFinite(min) ? Math.max(0, Math.floor(min)) : 0
   if (m0 < 60) return `${m0} นาที`
   const d = Math.floor(m0 / 1440)
   const h = Math.floor((m0 % 1440) / 60)

@@ -49,13 +49,13 @@ export function HubStockTab({ inventoryId }: { inventoryId: number | null }) {
       </div>
       {rows && shown.length > 0 && (
         <p className="text-sm text-gray-600 dark:text-gray-300">
-          {num(sum.count)} รายการ · รวม {num(sum.qty)} ชิ้น
+          {num(sum.count)} รายการ · รวม {num(sum.qty)} หน่วย
           {sum.low > 0 && <span className="ml-2 font-medium text-amber-700 dark:text-amber-300">ใกล้หมด {num(sum.low)} รายการ</span>}
         </p>
       )}
       {error && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
       {!rows && !error && <p className="flex items-center gap-2 text-sm text-gray-500"><Loader2 size={14} className="animate-spin" />กำลังโหลด…</p>}
-      {rows && shown.length === 0 && <p className="rounded-2xl border border-dashed border-[#E2E8E4] px-4 py-10 text-center text-sm text-gray-500 dark:border-white/10">ยังไม่มีอะไหล่ Hub ในคลังนี้</p>}
+      {rows && shown.length === 0 && <p className="rounded-2xl border border-dashed border-[#E2E8E4] px-4 py-10 text-center text-sm text-gray-500 dark:border-white/10">{rows.length > 0 ? "ไม่เจอที่ค้น ลองเปลี่ยนคำค้นหรือ Sub" : "ยังไม่มีอะไหล่ Hub ในคลังนี้"}</p>}
       {shown.length > 0 && (
         <div className={tableWrap}>
           <table className="w-full text-left text-sm">

@@ -43,8 +43,14 @@ assert.deepEqual(kinds(both), ["hub", "stock"])
 assert.deepEqual(both.groups.map((g) => g.title), [HUB_GROUP_TITLE, STOCK_GROUP_TITLE])
 assert.deepEqual(kinds(partsDropdown(src([]), src([1]))), ["stock"])      // Hub ไม่เจอ = ซ่อนกลุ่ม Hub
 assert.deepEqual(kinds(partsDropdown(src(["h"]), src([]))), ["hub"])
-assert.deepEqual(kinds(partsDropdown(src([], true), src([1]))), ["hub", "stock"])   // Hub ยังค้นอยู่ = โชว์ "กำลังค้น" ในกลุ่ม
 assert.deepEqual(kinds(partsDropdown(src([], false, "x"), src([]))), ["hub"])       // Hub error ยังโชว์
 assert.equal(partsDropdown(src([]), src([])).empty, true)
 assert.equal(partsDropdown(src([]), src([], true)).empty, false)
+// เปิด Hub: ฝั่งใดฝั่งหนึ่งยังค้นอยู่ = ยังไม่โชว์แถว (กันแถวกระโดด) โชว์ "กำลังค้น" รวม
+const wait1 = partsDropdown(src([], true), src([1]))
+assert.deepEqual(kinds(wait1), []); assert.equal(wait1.loading, true); assert.equal(wait1.empty, false)
+const wait2 = partsDropdown(src(["h"]), src([1], true))
+assert.deepEqual(kinds(wait2), []); assert.equal(wait2.loading, true)
+assert.equal(partsDropdown(src(["h"]), src([1])).loading, false)
+assert.equal(partsDropdown(null, src([], true)).loading, false)
 console.log("ok: parts-search")

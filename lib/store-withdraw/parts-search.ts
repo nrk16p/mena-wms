@@ -20,9 +20,11 @@ export function partsDropdown<H, S>(hub: PartsSource<H> | null, stock: PartsSour
   const show = (s: PartsSource<unknown>) => s.loading || !!s.error || s.rows.length > 0
   if (!hub) {
     groups.push({ kind: "stock", title: null, ...stock })
-    return { groups, empty: !stock.loading && !stock.error && stock.rows.length === 0 }
+    return { groups, empty: !stock.loading && !stock.error && stock.rows.length === 0, loading: false }
   }
+  // เปิด Hub: รอให้ทั้งสองฝั่งค้นเสร็จก่อนค่อยโชว์ ไม่งั้นแถวกระโดดแล้วกดผิดตัวได้
+  if (hub.loading || stock.loading) return { groups, empty: false, loading: true }
   if (show(hub)) groups.push({ kind: "hub", title: HUB_GROUP_TITLE, ...hub })
   if (show(stock)) groups.push({ kind: "stock", title: STOCK_GROUP_TITLE, ...stock })
-  return { groups, empty: groups.length === 0 }
+  return { groups, empty: groups.length === 0, loading: false }
 }
