@@ -73,6 +73,20 @@ export function waitMinutes(createdAt: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / 60000))
 }
 
+/** ระยะเวลาเป็นคำอ่านง่าย: < 1 ชม. = "25 นาที" · < 24 ชม. = "5 ชม. 20 นาที" · ≥ 24 ชม. = "19 วัน 3 ชม." (ตัดหน่วยที่เป็นศูนย์ทิ้ง) */
+export function durationText(min: number): string {
+  const m0 = Math.max(0, Math.floor(min))
+  if (m0 < 60) return `${m0} นาที`
+  const d = Math.floor(m0 / 1440)
+  const h = Math.floor((m0 % 1440) / 60)
+  if (d > 0) return h > 0 ? `${d} วัน ${h} ชม.` : `${d} วัน`
+  const m = m0 % 60
+  return m > 0 ? `${h} ชม. ${m} นาที` : `${h} ชม.`
+}
+
+/** ป้ายเวลารอบนการ์ดคิว: "รอ 25 นาที" / "รอ 5 ชม. 20 นาที" / "รอ 19 วัน 3 ชม." */
+export const waitText = (min: number): string => `รอ ${durationText(min)}`
+
 /** ไม่มีบรรทัดไหนจ่ายได้เลย (จ่าย 0 ทุกบรรทัด) */
 export const allZeroIssue = (lines: SwLine[]): boolean => issueLines(lines).length === 0
 

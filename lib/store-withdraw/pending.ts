@@ -1,5 +1,6 @@
 // lib/store-withdraw/pending.ts — ตรรกะล้วนของ Mobile/PM แบบ pending (กำหนดสรุป · สรุปการใช้ · แบ่ง WD ต่อทะเบียน · เลยกำหนด)
 // ไม่แตะ DB/env ทดสอบตรง ๆ ด้วย tsx ได้
+import { durationText } from "./core"
 import type { SwLine, SwRequest, SwSettleGroup, SwUsage } from "./types"
 
 export const DUE_MAX_DAYS = 60
@@ -158,12 +159,7 @@ export function lateMinutes(r: { status: string; summaryDueAt?: Date | string | 
 
 /** "เลยมา 2 วัน 3 ชม." / "เลยมา 45 นาที" */
 export function lateText(min: number): string {
-  if (min < 60) return `${min} นาที`
-  const d = Math.floor(min / 1440)
-  const h = Math.floor((min % 1440) / 60)
-  if (d > 0) return h > 0 ? `${d} วัน ${h} ชม.` : `${d} วัน`
-  const m = min % 60
-  return m > 0 ? `${h} ชม. ${m} นาที` : `${h} ชม.`
+  return durationText(min)
 }
 
 /** คิว "รอช่างสรุป": ใกล้/เลยกำหนดก่อน (เลยกำหนดอยู่บนสุดเสมอ) แล้วเก่าก่อน */

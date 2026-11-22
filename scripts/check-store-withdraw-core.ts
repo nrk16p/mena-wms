@@ -1,7 +1,7 @@
 // scripts/check-store-withdraw-core.ts
 // รัน: STORE_ATMS_CRED_KEY=$(openssl rand -base64 32) npx tsx scripts/check-store-withdraw-core.ts
 import assert from "node:assert/strict"
-import { nextStatus, queueSort, issueLines, allZeroIssue, clampLimit, validApiUser, validateLineEdit, returnableQty, formatNo, waitMinutes, matchesSearch, normSearch, searchActive } from "../lib/store-withdraw/core"
+import { nextStatus, queueSort, issueLines, allZeroIssue, clampLimit, validApiUser, validateLineEdit, returnableQty, formatNo, waitMinutes, durationText, waitText, matchesSearch, normSearch, searchActive } from "../lib/store-withdraw/core"
 import { encryptSecret, decryptSecret } from "../lib/store-withdraw/crypto"
 import type { SwLine, SwRequest } from "../lib/store-withdraw/types"
 
@@ -134,5 +134,18 @@ if (savedNa === undefined) delete process.env.NEXTAUTH_SECRET; else process.env.
   ok(!searchActive("a") && !searchActive(" - ") && searchActive("71"), "สั้นกว่า 2 ตัว = ไม่กรอง")
   ok(!matchesSearch({ ...base, plate: "" , mrCode: null }, "xx"), "ช่องว่างไม่ทำให้ตรงมั่ว")
 }
+
+// ---- เวลารอ (นาที → นาที/ชม./วัน) ----
+eq(waitText(0), "รอ 0 นาที")
+eq(waitText(25), "รอ 25 นาที")
+eq(waitText(59), "รอ 59 นาที")
+eq(waitText(60), "รอ 1 ชม.")
+eq(waitText(320), "รอ 5 ชม. 20 นาที")
+eq(waitText(1439), "รอ 23 ชม. 59 นาที")
+eq(waitText(1440), "รอ 1 วัน")
+eq(waitText(455 * 60 + 29), "รอ 18 วัน 23 ชม.") // เดิมขึ้น "รอ 455 ชม. 29 นาที"
+eq(waitText(19 * 1440 + 3 * 60 + 40), "รอ 19 วัน 3 ชม.") // เกิน 1 วัน ไม่แสดงนาที
+eq(durationText(-5), "0 นาที")
+eq(durationText(90.9), "1 ชม. 30 นาที")
 
 console.log("check-store-withdraw-core: all passed")

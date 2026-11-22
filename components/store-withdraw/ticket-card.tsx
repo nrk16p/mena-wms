@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { AlertTriangle, Clock, Flag, Loader2, Paperclip, Truck, Undo2, User } from "lucide-react"
-import { WORK_TYPE_LABEL, isPendingFlow, waitMinutes, workTypeFromKind } from "@/lib/store-withdraw/core"
+import { WORK_TYPE_LABEL, isPendingFlow, waitMinutes, waitText, workTypeFromKind } from "@/lib/store-withdraw/core"
 import { lateMinutes, lateText, leftoverTotal } from "@/lib/store-withdraw/pending"
 import { DOC_LABEL } from "./doc-ref-types"
 import { HubBadges, HubSentLine } from "./hub-bits"
@@ -33,7 +33,7 @@ export type CardActions = {
   open?: (i: QItem) => void
 }
 
-const btn = "inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+const btn = "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-[13.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
 const primaryCls = `${btn} flex-1 border border-[#17793F] bg-[#17793F] font-semibold text-white hover:bg-[#126433]`
 const ghostCls = `${btn} border border-[#D5DCD8] bg-white text-[#2B3D32] hover:border-red-300 hover:text-red-700 dark:border-white/10 dark:bg-transparent dark:text-gray-200`
 const docBtn = "font-mono font-semibold text-[#14271C] underline decoration-[#C9D1CC] underline-offset-[3px] hover:decoration-[#17793F] dark:text-white dark:decoration-white/20"
@@ -49,10 +49,8 @@ export const dmhm = (iso: string | Date | null | undefined) => {
   return isNaN(d.getTime()) ? "-" : d.toLocaleString("th-TH", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
-export function waitText(min: number) {
-  if (min < 60) return `รอ ${min} นาที`
-  return `รอ ${Math.floor(min / 60)} ชม. ${min % 60} นาที`
-}
+// ตัวจัดรูปเวลารออยู่ใน lib (ทดสอบได้) — export ต่อให้ไฟล์เดิมที่ import จากที่นี่ใช้ได้เหมือนเดิม
+export { waitText }
 
 export const kindLabel = (i: QItem) => (i.itemType === "return" && i.return ? "ขอคืนอะไหล่" : i.kind === "cutoff" ? "เบิกตัดยอด" : "เบิกจากสต๊อก")
 export const workLabel = (i: QItem) => WORK_TYPE_LABEL[i.workType ?? workTypeFromKind(i.kind)]
@@ -93,7 +91,7 @@ export function ActionBar({ item, st, busy, actions, size = "md" }: { item: QIte
   const { isReturn, failed, issuing, stale, unknown, settleItem, leftover } = st
 
   if (busy === "other") return <span data-testid="working" className={`inline-flex ${h} items-center gap-1.5 text-sm text-[#4A5A50]`}><Loader2 size={14} className="animate-spin" />กำลังทำรายการ</span>
-  if (unknown && !stale) return <button type="button" data-testid="retry-wait" className={`${primary} w-full`} disabled title="รอครบ 5 นาทีก่อนลองใหม่">ลองใหม่ (รอครบ 5 นาที)</button>
+  if (unknown && !stale) return <button type="button" data-testid="retry-wait" className={`${primary} w-full`} disabled title="รอครบ 5 นาทีก่อนลองใหม่" aria-label="ลองใหม่ได้เมื่อครบ 5 นาที">ลองใหม่ (รอ 5 นาที)</button>
   if (issuing && !stale) {
     return (
       <span data-testid="issuing" className={`flex ${h} w-full items-center gap-2 rounded-lg bg-violet-50 px-3 text-[13px] font-medium text-violet-800 dark:bg-violet-500/10 dark:text-violet-300`}>
@@ -101,7 +99,7 @@ export function ActionBar({ item, st, busy, actions, size = "md" }: { item: QIte
       </span>
     )
   }
-  if (isReturn) return <div className="flex gap-2"><button type="button" className={primary} onClick={() => actions.acceptReturn(item)}>{failed || stale ? "ลองใหม่" : "รับคืน"}</button></div>
+  if (isReturn) return <div className="flex flex-wrap gap-2"><button type="button" className={primary} onClick={() => actions.acceptReturn(item)}>{failed || stale ? "ลองใหม่" : "รับคืน"}</button></div>
   if (settleItem) {
     return (
       <div className="flex w-full flex-col gap-2 rounded-lg border border-sky-200 bg-sky-50/70 p-2.5 dark:border-sky-500/30 dark:bg-sky-500/10">
@@ -119,11 +117,11 @@ export function ActionBar({ item, st, busy, actions, size = "md" }: { item: QIte
   }
   if (failed || stale) {
     return (
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button type="button" className={primary} onClick={() => actions.issue(item)}>ลองใหม่</button>
         {failed && (item.atms.gmId == null
           ? <button type="button" className={ghost} onClick={() => actions.reject(item)}>ปฏิเสธ</button>
-          : <button type="button" data-testid="close-manual" className={ghost} onClick={() => actions.closeManual(item)}>ปิดใบ (แก้ใน ATMS แล้ว)</button>)}
+          : <button type="button" data-testid="close-manual" className={ghost} onClick={() => actions.closeManual(item)} title="ปิดใบ (แก้ใน ATMS แล้ว)" aria-label="ปิดใบ (แก้ใน ATMS แล้ว)">ปิดใบ</button>)}
       </div>
     )
   }
@@ -134,7 +132,7 @@ export function ActionBar({ item, st, busy, actions, size = "md" }: { item: QIte
     : null
   if (!main) return null
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       <button type="button" className={primary} onClick={() => main.run(item)}>{main.label}</button>
       <button type="button" className={ghost} onClick={() => actions.reject(item)}>ปฏิเสธ</button>
     </div>
@@ -184,7 +182,7 @@ export function TicketCard({ item, now, busy, actions, column, selected = false,
   const frame = selected
     ? "border-[#17793F] ring-[3px] ring-[#17793F]/20"
     : st.failed ? "border-red-300 ring-[3px] ring-red-500/10 dark:border-red-500/50" : "border-[#DDE3E0] dark:border-white/10"
-  const base = `rounded-[10px] border bg-white p-3 text-[13px] leading-[1.45] text-[#14271C] shadow-[0_1px_2px_rgba(20,39,28,.06)] dark:bg-[#161922] dark:text-gray-100 ${frame}`
+  const base = `rounded-[10px] border bg-white p-3 xl:p-2.5 text-[13px] leading-[1.45] text-[#14271C] shadow-[0_1px_2px_rgba(20,39,28,.06)] dark:bg-[#161922] dark:text-gray-100 ${frame}`
   const dataAttrs = { "data-testid": "ticket", "data-no": item.no, "data-kind": isReturn ? "return" : item.kind, "data-status": isReturn ? ret!.status : item.status }
 
   // ส่งแล้ววันนี้: การ์ดย่อ เลขใบ · เลข WD · เวลา
@@ -219,7 +217,7 @@ export function TicketCard({ item, now, busy, actions, column, selected = false,
   const attach = item.attachCount ?? 0
 
   return (
-    <li {...dataAttrs} className={`${base} flex flex-col gap-2.5`}>
+    <li {...dataAttrs} className={`${base} flex flex-col gap-2.5 xl:gap-2`}>
       <div className="flex flex-wrap items-center gap-1.5">
         {item.urgent && <span className="inline-flex h-[22px] items-center gap-1 rounded-full bg-red-700 px-2 text-xs font-semibold text-white"><Truck size={13} aria-hidden="true" />รถจอดรอ</span>}
         {isReturn && <span className="inline-flex h-[22px] items-center gap-1 rounded-full bg-violet-100 px-2 text-xs font-semibold text-[#5B3AA8] dark:bg-violet-500/15 dark:text-violet-300"><Undo2 size={13} aria-hidden="true" />ใบคืน</span>}

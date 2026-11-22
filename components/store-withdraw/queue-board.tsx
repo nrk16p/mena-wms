@@ -8,12 +8,12 @@ import { DetailPanel } from "./detail-panel"
 import { HubBanner, HubBindDialog, waitPr } from "./hub-bits"
 import { PrepareDialog } from "./prepare-dialog"
 import { RejectDialog } from "./reject-dialog"
-import { isPendingFlow, matchesSearch, normSearch, searchActive, waitMinutes, workTypeFromKind, WORK_TYPE_LABEL, WORK_TYPES } from "@/lib/store-withdraw/core"
+import { isPendingFlow, matchesSearch, normSearch, searchActive, waitMinutes, waitText, workTypeFromKind, WORK_TYPE_LABEL, WORK_TYPES } from "@/lib/store-withdraw/core"
 import { lateMinutes } from "@/lib/store-withdraw/pending"
 import { issuedToast, settledToast } from "@/lib/store-withdraw/hub-core"
 import type { SwWorkType } from "@/lib/store-withdraw/types"
 import { api, itemKey, type LinkStatus, type QData, type QItem } from "./queue-types"
-import { KeyedCard, TicketCard, WAIT_WARN_MIN, hm, waitText, type BusyKind, type CardActions, type ColKey } from "./ticket-card"
+import { KeyedCard, TicketCard, WAIT_WARN_MIN, hm, type BusyKind, type CardActions, type ColKey } from "./ticket-card"
 
 type Opt = { id: number; name: string }
 type QuickFilter = "all" | "urgent" | "late" | "cutoff" | "return" | "error" | "hubpr"
@@ -444,34 +444,51 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
   const pick = (i: QItem) => { setSelKey(itemKey(i)); open(i) }
   const closeSel = useCallback(() => setSelKey(null), [])
 
-  // ---------- ตัวเลขสรุปบนหัวบอร์ด (ไม่ขึ้นกับตัวกรอง) ----------
+  // ---------- บรรทัดสรุปใต้หัวช่อง (ไม่ขึ้นกับตัวกรอง · แทนการ์ดสรุป 5 ใบเดิม) ----------
   const count = (k: ColKey) => colAll(k).length + (k === "DONE_TODAY" ? data?.atmsKeyed.length ?? 0 : 0)
-  const oldestNew = Math.max(0, ...colAll("NEW").map((i) => waitMinutes(new Date(i.createdAt), now)))
-  const latePrep = colAll("PREPARING").filter((i) => isLate(i, "PREPARING", now)).length
-  const errReady = [...colAll("NEW"), ...colAll("READY")].filter(isErr).length
-  const overdue = colAll("HANDED_OUT").filter((i) => lateMinutes(i, now) > 0).length
-  const lastDone = [...colAll("DONE_TODAY").map((i) => i.updatedAt), ...(data?.atmsKeyed ?? []).map((r) => r.created_at)].sort().at(-1)
-  const stats: { key: ColKey; dot: string; label: string; sub: string; tone: "warn" | "bad" | "" }[] = [
-    { key: "NEW", dot: "bg-amber-600", label: "ใหม่ · รอรับ", sub: colAll("NEW").length ? `เก่าสุด ${waitText(oldestNew)}` : "ไม่มีงานค้าง", tone: oldestNew > WAIT_WARN_MIN ? "warn" : "" },
-    { key: "PREPARING", dot: "bg-blue-600", label: "กำลังจัด", sub: latePrep ? `เกิน ${WAIT_WARN_MIN} นาที ${latePrep} ใบ` : "ทันเวลาทั้งหมด", tone: latePrep ? "warn" : "" },
-    { key: "READY", dot: "bg-green-600", label: "พร้อมส่ง", sub: errReady ? `ATMS ผิดพลาด ${errReady} ใบ` : "รอช่างมารับ", tone: errReady ? "bad" : "" },
-    { key: "HANDED_OUT", dot: "bg-orange-600", label: "รอช่างสรุป", sub: overdue ? `เลยกำหนด ${overdue} ใบ` : "ยังไม่เลยกำหนด", tone: overdue ? "bad" : "" },
-    { key: "DONE_TODAY", dot: "bg-gray-500", label: "ส่งแล้ววันนี้", sub: lastDone ? `ล่าสุด ${hm(lastDone)}` : "ยังไม่มี", tone: "" },
-  ]
+  type Tone = "warn" | "bad" | ""
+  const colMeta = (k: ColKey): { text: string; tone: Tone }[] => {
+    const all = colAll(k)
+    const out: { text: string; tone: Tone }[] = []
+    if (k === "NEW" && all.length) {
+      const oldest = Math.max(0, ...all.map((i) => waitMinutes(new Date(i.createdAt), now)))
+      out.push({ text: `เก่าสุด ${waitText(oldest)}`, tone: oldest > WAIT_WARN_MIN ? "warn" : "" })
+    }
+    if (k === "PREPARING") { const n = all.filter((i) => isLate(i, k, now)).length; if (n) out.push({ text: `เกิน ${WAIT_WARN_MIN} นาที ${n} ใบ`, tone: "warn" }) }
+    if (k === "NEW" || k === "READY") { const n = all.filter(isErr).length; if (n) out.push({ text: `ATMS ผิดพลาด ${n} ใบ`, tone: "bad" }) }
+    if (k === "HANDED_OUT") { const n = all.filter((i) => lateMinutes(i, now) > 0).length; if (n) out.push({ text: `เลยกำหนด ${n} ใบ`, tone: "bad" }) }
+    if (k === "DONE_TODAY") {
+      const last = [...all.map((i) => i.updatedAt), ...(data?.atmsKeyed ?? []).map((r) => r.created_at)].sort().at(-1)
+      if (last) out.push({ text: `ล่าสุด ${hm(last)}`, tone: "" })
+    }
+    return out
+  }
   const quickCount = (f: QuickFilter) => (f === "hubpr" ? COLS.map((c) => c.key) : ACTIVE).reduce((n, k) => n + colAll(k).filter((i) => quickMatch(f, i, k, now)).length, 0)
 
+  const subTone = { warn: "text-amber-800 dark:text-amber-300", bad: "text-red-700 dark:text-red-300", "": "text-[#4A5A50] dark:text-gray-400" }
   const renderCol = (c: Col) => {
     const items = colItems(c.key)
     const keyed = keyedItems(c.key)
+    const shown = items.length + keyed.length
+    const all = count(c.key)
+    const meta = colMeta(c.key)
     return (
       <section key={c.key} data-col={c.key} aria-label={c.title}
-        className={`${c.key === mCol ? "" : "hidden"} min-w-0 rounded-xl bg-[#EAEFEC] p-2 pb-2.5 md:block dark:bg-white/[0.04]`}>
-        <h2 className="flex items-center gap-2 px-1.5 pb-2.5 pt-1.5">
-          <span aria-hidden="true" className={`h-2 w-2 rounded-[2px] ${c.dot}`} />
-          <span className="text-sm font-semibold text-[#14271C] dark:text-gray-100">{c.title}</span>
-          <span className="inline-flex h-[22px] min-w-6 items-center justify-center rounded-full bg-white px-1.5 text-xs font-semibold tabular-nums text-[#2B3D32] dark:bg-white/10 dark:text-gray-200">{items.length + keyed.length}</span>
-          <span className="ml-auto text-xs font-normal text-[#4A5A50] dark:text-gray-400">{c.hint}</span>
-        </h2>
+        className={`${c.key === mCol ? "" : "hidden"} min-w-0 rounded-xl bg-[#EAEFEC] p-2 pb-2.5 md:block xl:p-1.5 xl:pb-2 dark:bg-white/[0.04]`}>
+        <div className="px-1.5 pb-2.5 pt-1.5">
+          <h2 className="flex min-w-0 items-center gap-2">
+            <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-[2px] ${c.dot}`} />
+            <span className="whitespace-nowrap text-sm font-semibold text-[#14271C] dark:text-gray-100">{c.title}</span>
+            <span data-testid={`count-${c.key}`} title={shown !== all ? `แสดง ${shown} จาก ${all} ใบ` : undefined}
+              className="inline-flex h-[22px] min-w-6 shrink-0 items-center justify-center rounded-full bg-white px-1.5 text-xs font-semibold tabular-nums text-[#2B3D32] dark:bg-white/10 dark:text-gray-200">{shown !== all ? `${shown}/${all}` : shown}</span>
+            <span className="ml-auto truncate text-xs font-normal text-[#4A5A50] dark:text-gray-400">{c.hint}</span>
+          </h2>
+          {meta.length > 0 && (
+            <p data-testid={`colmeta-${c.key}`} className="mt-1 flex flex-wrap gap-x-2 text-xs leading-snug">
+              {meta.map((m) => <span key={m.text} className={subTone[m.tone]}>{m.text}</span>)}
+            </p>
+          )}
+        </div>
         {items.length + keyed.length === 0 ? (
           <p className="rounded-[10px] border border-dashed border-[#C9D1CC] px-3 py-6 text-center text-xs text-[#4A5A50] dark:border-white/10 dark:text-gray-400">{narrowed ? "ไม่มีใบที่ตรงกับตัวกรอง" : "ไม่มีงานในช่องนี้"}</p>
         ) : (
@@ -485,7 +502,6 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
   }
   const groupLabel = "hidden items-center gap-2.5 text-xs font-semibold text-[#4A5A50] after:h-px after:flex-1 after:bg-[#DCE3DF] md:flex dark:text-gray-400 dark:after:bg-white/10"
   const wrap = fullWidth ? "w-full" : "mx-auto max-w-[1600px]"
-  const subTone = { warn: "text-amber-800 dark:text-amber-300", bad: "text-red-700 dark:text-red-300", "": "text-[#4A5A50] dark:text-gray-400" }
 
   return (
     <div className={`${fullWidth ? "min-h-screen bg-[#F4F6F5] dark:bg-[#0b0d12]" : ""} text-[#14271C] transition-[padding] dark:text-gray-100 ${selected ? "xl:pr-[440px]" : ""}`}>
@@ -529,18 +545,6 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
       </header>
 
       <div className={`${wrap} space-y-4 px-4 py-4 sm:px-6`}>
-        {data && (
-          <section aria-label="สรุปคิว" className="hidden grid-cols-5 gap-px overflow-hidden rounded-xl border border-[#E1E6E3] bg-[#EDF1EE] sm:grid dark:border-white/10 dark:bg-white/10">
-            {stats.map((s) => (
-              <div key={s.key} data-testid={`stat-${s.key}`} className="flex flex-col gap-0.5 bg-white px-4 py-3 dark:bg-[#161922]">
-                <span className="flex items-center gap-2 text-[13px] text-[#4A5A50] dark:text-gray-400"><span aria-hidden="true" className={`h-2 w-2 rounded-[2px] ${s.dot}`} />{s.label}</span>
-                <span className="text-2xl font-semibold leading-tight tabular-nums">{count(s.key)}</span>
-                <span className={`text-xs ${subTone[s.tone]}`}>{s.sub}</span>
-              </div>
-            ))}
-          </section>
-        )}
-
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
           <div className="relative min-w-[240px] flex-[1_1_300px] lg:max-w-[440px]">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#5F6E65]" />
@@ -604,15 +608,16 @@ export function QueueBoard({ fullWidth = false }: { fullWidth?: boolean } = {}) 
                 </button>
               ))}
             </nav>
+            {/* จอ ≥1280px: ทุกช่องพอดีจอ ไม่เลื่อนข้าง · จอเล็กกว่า (หรือเปิดแผงรายละเอียดอยู่บนจอไม่กว้างพอ) เลื่อนข้างแบบเดิม */}
             <div className="md:overflow-x-auto md:pb-2" data-testid="board" data-total={total}>
-              <div className="md:flex md:min-w-[1240px] md:items-start md:gap-5">
+              <div className={`md:flex md:min-w-[1240px] md:items-start md:gap-5 xl:gap-3 ${selected ? "min-[1920px]:min-w-0" : "xl:min-w-0"}`}>
                 <div className="min-w-0 md:flex-[3_1_0%] md:space-y-2">
                   <p className={groupLabel}>งานสโตร์ · ต้องดำเนินการ</p>
-                  <div className="md:grid md:grid-cols-3 md:items-start md:gap-3">{STORE_COLS.map(renderCol)}</div>
+                  <div className="md:grid md:grid-cols-[repeat(3,minmax(0,1fr))] md:items-start md:gap-3 xl:gap-2">{STORE_COLS.map(renderCol)}</div>
                 </div>
                 <div className="min-w-0 md:flex-[2_1_0%] md:space-y-2">
                   <p className={groupLabel}>ติดตามหลังส่งของ</p>
-                  <div className="md:grid md:grid-cols-2 md:items-start md:gap-3">{FOLLOW_COLS.map(renderCol)}</div>
+                  <div className="md:grid md:grid-cols-[repeat(2,minmax(0,1fr))] md:items-start md:gap-3 xl:gap-2">{FOLLOW_COLS.map(renderCol)}</div>
                 </div>
               </div>
             </div>
