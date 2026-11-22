@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isPrintPage        = pathname.startsWith("/tire/saraburi/sheet/print/")
   // ฟอร์มขอราคาอู่ + ฟอร์มลงทะเบียน Vendor: ไม่มี sidebar/navbar/session guard
   // + พอร์ทัลเจ้าหนี้ (/vendor-portal) — คนนอกไม่มี session พนักงาน SessionGuard จะเตะออก
-  const isVendorPage       = pathname.startsWith("/q/") || pathname === "/form-vendor"
+  const isVendorPage       = pathname.startsWith("/q/") || pathname === "/form-vendor" || pathname.startsWith("/form-vendor/")
     || pathname === "/vendor-portal" || pathname.startsWith("/vendor-portal/")
 
   // เบิกอะไหล่แบบลิงก์แยก (/store-withdraw-link, /store-withdraw-link/queue) — ไม่มี sidebar/navbar แต่ยังต้อง login (เฝ้า session ด้วย)

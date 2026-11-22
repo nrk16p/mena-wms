@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand, CopyObjectCommand } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import crypto from "crypto"
 
@@ -82,8 +82,13 @@ function privateBucket(): string {
 }
 
 /** presigned PUT สำหรับ browser อัปโหลดตรง (ส่งไฟล์ด้วย Content-Type เดียวกับที่ขอ) */
-export async function presignPrivatePut(key: string, contentType: string, expiresIn = 600): Promise<string> {
-  return getSignedUrl(s3(), new PutObjectCommand({ Bucket: privateBucket(), Key: key, ContentType: contentType }), { expiresIn })
+export async function presignPrivatePut(key: string, contentType: string, expiresIn = 600, contentLength?: number): Promise<string> {
+  // contentLength = เซ็นขนาดไฟล์เข้าไปด้วย → อัปไฟล์ขนาดอื่น (ใหญ่กว่าที่แจ้ง) จะถูก Spaces ปฏิเสธ
+  return getSignedUrl(
+    s3(),
+    new PutObjectCommand({ Bucket: privateBucket(), Key: key, ContentType: contentType, ...(contentLength ? { ContentLength: contentLength } : {}) }),
+    { expiresIn, signableHeaders: contentLength ? new Set(["content-length"]) : undefined },
+  )
 }
 
 /** HeadObject — ไม่เจอไฟล์คืน null */
@@ -106,4 +111,22 @@ export async function presignPrivateGet(key: string, filename: string, expiresIn
     new GetObjectCommand({ Bucket: privateBucket(), Key: key, ResponseContentDisposition: `inline; filename*=UTF-8''${encodeURIComponent(safe)}` }),
     { expiresIn },
   )
+}
+
+/** คัดลอกไฟล์ใน bucket ส่วนตัว (CopyObject ฝั่ง server ไม่ต้องดาวน์โหลด) · Content-Type/metadata ตามต้นฉบับ
+ *  key ควรเป็นอักษร ASCII ที่ปลอดภัยอยู่แล้ว — encode ทีละช่วงกันอักขระพิเศษ */
+export async function copyPrivate(srcKey: string, dstKey: string): Promise<void> {
+  const bucket = privateBucket()
+  await s3().send(new CopyObjectCommand({
+    Bucket: bucket,
+    Key: dstKey,
+    CopySource: `${bucket}/${srcKey.split("/").map(encodeURIComponent).join("/")}`,
+    MetadataDirective: "COPY",
+  }))
+}
+
+/** ลบไฟล์ใน bucket ส่วนตัว — จำกัดเฉพาะ key ที่ขึ้นต้นด้วย allowPrefix (กันลบผิดที่) */
+export async function deletePrivate(key: string, allowPrefix: string): Promise<void> {
+  if (!allowPrefix || !key.startsWith(allowPrefix)) throw new Error("key นอกขอบเขตที่ลบได้")
+  await s3().send(new DeleteObjectCommand({ Bucket: privateBucket(), Key: key }))
 }

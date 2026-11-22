@@ -405,3 +405,22 @@ console.log("order-tracking open to all: OK")
   assert.equal(go("/api/safety-stock/sku", "POST", viewer), false)
 }
 console.log("safety-stock live-sync for viewers: OK")
+
+// คัดเลือก vendor ใหม่ — คนที่เห็นส่วน vendor แบบดูอย่างเดียว (ผู้รีวิว/ผู้อนุมัติ) กดเปลี่ยนสถานะ/แก้ค่าตั้งผ่าน middleware ได้
+// (route ตรวจบทบาทซ้ำ) · ให้คะแนน/ตรวจเอกสาร/รหัส vendor ยังต้อง vendor แก้ได้
+{
+  const go = (pathname: string, method: string, access: Access) => checkRequest({ pathname, method, access, isSuperAdmin: false }).ok
+  const viewer = { vendor: "view" } as unknown as Access
+  const none = { vendor: "none" } as unknown as Access
+  assert.equal(sectionForPage("/vendors/onboarding"), "vendor")
+  assert.equal(sectionForApi("/api/vendors/onboarding/abc/action"), "vendor")
+  assert.ok(go("/api/vendors/onboarding", "GET", viewer))
+  assert.ok(go("/api/vendors/onboarding/abc/action", "POST", viewer))
+  assert.ok(go("/api/vendors/onboarding/settings", "PUT", viewer))
+  assert.equal(go("/api/vendors/onboarding/abc/scores", "PATCH", viewer), false)
+  assert.equal(go("/api/vendors/onboarding/abc/documents", "PATCH", viewer), false)
+  assert.equal(go("/api/vendors/onboarding/abc/vendor-code", "PATCH", viewer), false)
+  assert.equal(go("/api/vendors/onboarding/abc/action", "POST", none), false)
+  assert.equal(go("/api/vendors/onboarding", "GET", none), false)
+}
+console.log("vendor onboarding access: OK")

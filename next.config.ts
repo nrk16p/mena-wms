@@ -5,7 +5,7 @@ import type { NextConfig } from "next";
  * ใน Vercel แล้ว redeploy → /api/* วิ่งไป <BACKEND_API_URL>/api/v1/wms/* · ไม่ตั้ง = ใช้ route เดิมในแอป
  * middleware.ts ยังรันที่นี่ก่อนส่งต่อ (และรันซ้ำที่ backend)
  *
- * ที่ยังอยู่ที่นี่ (ต้องตรงกับ exclude ของ wms ใน mena-backend-services/scripts/next-apps.mjs):
+ * ที่ยังอยู่ที่นี่ (ต้องตรงกับ exclude ของ wms ใน mena-backend-services/packages/next-bridge/scripts/apps.mjs):
  *   /api/auth/* (ล็อกอิน NextAuth) · /api/cron/* + tire-change-request/auto-status (CRON_SECRET)
  *   และ route ที่ใช้คีย์ซึ่งมีแค่บน Vercel:
  *   store-withdraw/* (NCAC_API_KEY, STORE_ATMS_CRED_KEY, STORE_WITHDRAW_*, ATMS_LOOKUP_*)
@@ -14,6 +14,7 @@ import type { NextConfig } from "next";
  *   pr/refresh/* + ap-tracking/audit + safety-stock/live-sync (MENA_API_URL/KEY)
  *   sku/atms-lookup · ap-tracking/[code] · atms/maintenance-request/* · tire-due · tire-change/sync|atms-link (NCAC_API_KEY)
  *   tyre-sheet/* (แก้บ่อย ไม่ต้องรอ resync backend)
+ *   form-vendor/* + vendors/onboarding/* (ไฟล์แนบ bucket ส่วนตัว DO_SPACES_* + NEXT_PUBLIC_LIFF_ID ของ Vercel)
  *   repair-external, repair-external/[id], [id]/update, sync, sync/comment (webhook MENA_NEXT_WEBHOOK_*)
  * route ใหม่ที่ชื่อชนกับ [code]/[id] ด้านล่าง จะค้างอยู่ที่นี่จนกว่าจะเพิ่มในรายชื่อ (ปลอดภัย ไม่ 404)
  */
@@ -26,6 +27,9 @@ const STAY_PREFIXES = [
   "safety-stock/live-sync",
   // ทะเบียนยางสระบุรี (แบบชีต) — แก้บ่อยช่วงนี้ ให้รันที่นี่ตามโค้ด main เลย ไม่ต้องรอ resync backend
   "tyre-sheet",
+  // คัดเลือก vendor ใหม่ — ไฟล์แนบอยู่ bucket ส่วนตัวของ DO_SPACES_* บน Vercel (แบบเดียวกับ store-withdraw)
+  // backend ตั้ง bucket ของตัวเอง (mn-bucket) ถ้าแยกที่รัน presign กับ head/copy จะคนละ bucket · LIFF ID อยู่บน Vercel
+  "form-vendor", "vendors/onboarding",
 ].join("|");
 const AP_STATIC = "by-supplier|cover|dashboard|paid-round|payment-import|search|voucher-import";
 const REPAIR_STATIC = "atms-board|atms-timeline|daily-status|daily-summary|garage-load|garage-sync|no-pr|stats|status-history|sync|users|utilize-ref";

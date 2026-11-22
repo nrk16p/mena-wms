@@ -213,6 +213,9 @@ const ATTACH_WRITE = /^\/api\/store-withdraw\/[^/]+\/attachments\/(presign|confi
 /** ผูก PR อะไหล่ Hub: ผู้ขอ (store-withdraw) หรือสโตร์ (store-queue แก้ได้) — route เช็กซ้ำว่าเป็นเจ้าของใบหรือสโตร์ */
 const HUB_PR_WRITE = /^\/api\/store-withdraw\/[^/]+\/hub-pr$/
 
+/** คัดเลือก vendor ใหม่: ผู้รีวิว/ผู้อนุมัติอาจมีสิทธิ์ vendor แค่ "ดู" — กดเปลี่ยนสถานะ/แก้ค่าตั้งได้
+ *  route ตรวจบทบาทซ้ำเอง (lib/vendor-onboarding/roles.ts: officer/reviewer/approver) */
+const VENDOR_ONBOARD_ROLE_WRITE = [/^\/api\/vendors\/onboarding\/[^/]+\/action$/, /^\/api\/vendors\/onboarding\/settings$/]
 /** API ที่หลายส่วนงานเรียกอ่าน (dropdown / รายชื่อ / ค้นหา) — อ่านได้ทุกคนที่ล็อกอิน การเขียนยังคุมตามเจ้าของ */
 const SHARED_READ = [
   "/api/vehicles", "/api/vehicle-daily", "/api/codes", "/api/garage-master", "/api/garages", "/api/vendors/names",
@@ -262,6 +265,7 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   // เบิกอะไหล่: คนที่เห็นคิวสโตร์อย่างเดียว (ไม่มีสิทธิ์ยื่นคำขอ) ยังต้องอ่านตัวเลือก/ค้นหา/รายละเอียดใบได้
   if (api && !read && ATTACH_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
   if (api && !read && HUB_PR_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
+  if (api && !read && VENDOR_ONBOARD_ROLE_WRITE.some((r) => r.test(p.pathname)) && atLeast(p.access.vendor, "view")) return { ok: true }
   // ตรวจย้อนหลัง (audit) ต้องมีสิทธิ์ store-audit เท่านั้น ไม่ผ่านทางลัดของคิวสโตร์
   if (api && read && under(p.pathname, "/api/store-withdraw") && !under(p.pathname, "/api/store-withdraw/audit") && (!under(p.pathname, "/api/store-withdraw/hub") || under(p.pathname, "/api/store-withdraw/hub/items")) && atLeast(p.access["store-queue"], "view")) return { ok: true }
   // หน้าอะไหล่ Hub ใช้รายการคลัง + ค้น SKU ของ ATMS ตอนรับเข้า → คนที่มี store-hub อ่านได้แม้ไม่มีสิทธิ์เบิก/คิว

@@ -94,9 +94,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // ฟอร์มลงทะเบียน Vendor: ลิงก์ภายนอก ใครมีลิงก์ก็กรอกได้ ไม่ต้อง login (2026-10-27)
-  // /api/form-vendor = บันทึกฟอร์ม (POST อย่างเดียว) → datawarehouse.vendor_registration · route จำกัดจำนวนส่งต่อไอพีเอง
-  if (pathname === "/form-vendor" || (pathname === "/api/form-vendor" && request.method === "POST")) {
+  // ฟอร์มสมัคร Vendor ใหม่: ลิงก์ภายนอก ใครมีลิงก์ก็กรอกได้ ไม่ต้อง login (2026-10-27 · แบบคัดเลือกผู้ส่งมอบ 2026-11-22)
+  // /form-vendor = ฟอร์ม · /form-vendor/docs/:token = ส่งเอกสารเพิ่มตามลิงก์ (token คือสิทธิ์)
+  // /api/form-vendor[/…] = ส่งใบ / ค่าฟอร์ม / ขอลิงก์อัปโหลด / ลิงก์ token — ทุก route ใต้นี้ตั้งใจให้ public
+  //   (จำกัดจำนวนครั้งต่อไอพีเอง) · ฝั่งพนักงานอยู่ที่ /api/vendors/onboarding ซึ่งยังต้อง login
+  if (pathname === "/form-vendor" || pathname.startsWith("/form-vendor/docs/")
+    || pathname === "/api/form-vendor" || pathname.startsWith("/api/form-vendor/")) {
     return NextResponse.next()
   }
 
