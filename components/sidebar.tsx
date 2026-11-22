@@ -5,14 +5,14 @@ import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { useSession, signOut } from "next-auth/react"
 import { UserAvatar } from "./user-avatar"
-import { ChevronDown, Clock, LogOut, PanelLeftClose, Search, Sparkles, X } from "lucide-react"
+import { ChevronDown, Clock, LayoutDashboard, LogOut, PanelLeftClose, Search, Sparkles, Star, X } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { useBranchScope } from "./use-branch-scope"
 import { canSeeBranch } from "@/lib/branch-scope"
 // เมนูทั้งหมดอยู่ที่ lib/nav.ts ที่เดียว — หน้าหลัก (app/page.tsx) ก็อ่านจากไฟล์เดียวกัน
 import { isManagerOrAbove } from "@/lib/roles"
-import { sidebarGroups, byCategory, searchNav, type NavGroup, type NavCategory } from "@/lib/nav"
-import { setNavQuery, useNavQuery, NAV_SEARCH_FOCUS, NAV_NOTICE_OPEN } from "@/lib/nav-search-store"
+import { sidebarGroups, byCategory, searchNav, favoriteItems, type NavGroup, type NavCategory } from "@/lib/nav"
+import { setNavQuery, useNavQuery, useNavFavorites, toggleFavorite, NAV_SEARCH_FOCUS, NAV_NOTICE_OPEN } from "@/lib/nav-search-store"
 
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const CAT_OPEN_KEY = "sidebarCatOpen"
@@ -77,6 +77,8 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   })
   const { top, categories } = byCategory(visibleGroups)
   const hits = searchNav(visibleGroups, query, isAdmin)
+  const favHrefs = useNavFavorites()
+  const favs = favoriteItems(visibleGroups, favHrefs)
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
   // เปลี่ยนหน้า = ล้างคำค้น
@@ -151,37 +153,6 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     }
   }
 
-  // ── ย่อ: ไอคอน 1 อันต่อกลุ่ม (คลิก = ไปเมนูแรกของกลุ่ม) ──
-  function renderRailGroup(group: NavGroup) {
-    const first = group.items.find((i) => !i.subheader && (!i.adminOnly || isAdmin))
-    if (!first) return null
-    const GroupIcon = first.icon
-    const groupActive = group.items.some((i) => !i.subheader && isActive(i.href, i.exact))
-    const showDot = group.label === "จัดการ SKU" && canApproveSku && pendingCount > 0
-    return (
-      <Link
-        key={group.label}
-        href={first.href}
-        onClick={onClose}
-        title={group.label}
-        className={[
-          "relative mx-auto mb-1 flex h-10 w-10 items-center justify-center rounded-[11px] transition-all duration-100",
-          groupActive
-            ? "bg-[#1B8C4B] text-white"
-            : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
-        ].join(" ")}
-      >
-        <GroupIcon size={17} className="shrink-0" />
-        {groupActive && (
-          <span className="absolute -right-1 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-white" />
-        )}
-        {showDot && (
-          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#E8A317] ring-2 ring-white dark:ring-[#111714]" />
-        )}
-      </Link>
-    )
-  }
-
   function renderGroup(group: NavGroup, gi: number) {
     const open = isGroupOpen(group)
     return (
@@ -240,13 +211,13 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
             const isAdminItem = item.adminOnly
 
             return (
+              <div key={item.href} className="group/item relative">
               <Link
-                key={item.href}
                 href={item.href}
                 onClick={onClose}
                 className={[
                   "relative flex items-center gap-[11px] rounded-[11px] transition-all duration-100 ease-out",
-                  item.indent ? "h-9 pl-7 pr-2.5" : "h-9 px-3",
+                  item.indent ? "h-9 pl-7 pr-8" : "h-9 pl-3 pr-8",
                   isAdminItem
                     ? active
                       ? "bg-[#E8A317] text-[#14271C]"
@@ -260,6 +231,8 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
                 <Icon size={item.indent ? 14 : 15} className="shrink-0" />
                 <span className="truncate leading-none">{item.label}</span>
               </Link>
+              <StarButton href={item.href} on={favHrefs.includes(item.href)} light={active && !isAdminItem} />
+              </div>
             )
           })}
 
@@ -442,19 +415,74 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-3 py-3">
         {collapsed ? (
+          /* ── ย่อ: หน้าหลัก + เมนูโปรด + ไอคอนหมวด (เอาเมาส์ชี้เพื่อกางดูทั้งหมด) ── */
           <>
-            {top.map(renderRailGroup)}
-            {categories.map(({ category, groups }) => (
-              <div key={category.key} className="mt-2 border-t border-[#EEF2F0] pt-2 dark:border-white/[0.07]">
-                {groups.map(renderRailGroup)}
+            <RailLink href="/" title="หน้าหลัก" active={pathname === "/"} onClick={onClose}>
+              <LayoutDashboard size={17} />
+            </RailLink>
+            {favs.length > 0 && (
+              <div className="mt-2 border-t border-[#EEF2F0] pt-2 dark:border-white/[0.07]">
+                {favs.map((f) => {
+                  const FIcon = f.icon
+                  return (
+                    <RailLink key={f.href} href={f.href} title={`★ ${f.label}`} active={isActive(f.href, true)} onClick={onClose}>
+                      <FIcon size={17} />
+                      <Star size={8} className="absolute right-1 top-1 fill-[#E8A317] text-[#E8A317]" />
+                    </RailLink>
+                  )
+                })}
               </div>
-            ))}
+            )}
+            <div className="mt-2 border-t border-[#EEF2F0] pt-2 dark:border-white/[0.07]">
+              {categories.map(({ category: c, groups }) => {
+                const CIcon = c.icon
+                const active = groups.some(groupHasActive)
+                return (
+                  <RailLink key={c.key} href={`/?cat=${c.key}`} title={c.label} active={active} onClick={onClose}
+                    dot={c.key === "stock" && canApproveSku && pendingCount > 0}>
+                    <CIcon size={17} />
+                  </RailLink>
+                )
+              })}
+            </div>
           </>
         ) : query.trim() ? (
           renderSearchResults()
         ) : (
           <>
             {top.map((g, gi) => renderGroup(g, gi))}
+            {/* ── เมนูโปรด (กดดาวที่เมนูไหนก็ได้) ── */}
+            {favs.length > 0 && (
+              <div className="mt-3">
+                <p className="flex items-center gap-1.5 px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-[#B07D12] dark:text-amber-400" style={sansThai}>
+                  <Star size={10} className="fill-current" />เมนูโปรด
+                </p>
+                <div className="space-y-px">
+                  {favs.map((f) => {
+                    const FIcon = f.icon
+                    const active = isActive(f.href, true)
+                    return (
+                      <div key={f.href} className="group/item relative">
+                        <Link
+                          href={f.href}
+                          onClick={onClose}
+                          title={`${f.category ? f.category.label + " › " : ""}${f.groupLabel}`}
+                          className={[
+                            "relative flex h-9 items-center gap-[11px] rounded-[11px] pl-3 pr-8 transition-all duration-100",
+                            active ? "bg-[#1B8C4B] text-white" : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
+                          ].join(" ")}
+                          style={{ fontSize: 13, fontFamily: "'IBM Plex Sans Thai', sans-serif", fontWeight: 500 }}
+                        >
+                          <FIcon size={15} className="shrink-0" />
+                          <span className="truncate leading-none">{f.label}</span>
+                        </Link>
+                        <StarButton href={f.href} on light={active} />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             {categories.map(({ category: c, groups }) => {
               const catIsOpen = isCatOpen(c, groups)
               const CIcon = c.icon
@@ -549,5 +577,48 @@ export function Highlight({ text, query }: { text: string; query: string }) {
       <mark className="rounded-[3px] bg-[#FDE68A] px-px text-inherit dark:bg-amber-500/40">{text.slice(i, i + q.length)}</mark>
       {text.slice(i + q.length)}
     </>
+  )
+}
+
+/** ไอคอนบนแถบย่อ */
+function RailLink({ href, title, active, onClick, dot, children }: {
+  href: string; title: string; active: boolean; onClick?: () => void; dot?: boolean; children: React.ReactNode
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      title={title}
+      className={[
+        "relative mx-auto mb-1 flex h-10 w-10 items-center justify-center rounded-[11px] transition-all duration-100",
+        active
+          ? "bg-[#1B8C4B] text-white"
+          : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
+      ].join(" ")}
+    >
+      {children}
+      {active && <span className="absolute -right-1 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-white" />}
+      {dot && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#E8A317] ring-2 ring-white dark:ring-[#111714]" />}
+    </Link>
+  )
+}
+
+/** ปุ่มดาว — กดเพื่อปักเมนูไว้ในเมนูโปรด (โชว์ตอนชี้เมาส์ หรือเมื่อติดดาวแล้ว) */
+function StarButton({ href, on, light }: { href: string; on: boolean; light?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFavorite(href) }}
+      title={on ? "เอาออกจากเมนูโปรด" : "ปักไว้ในเมนูโปรด"}
+      aria-label={on ? "เอาออกจากเมนูโปรด" : "ปักไว้ในเมนูโปรด"}
+      aria-pressed={on}
+      className={[
+        "absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md transition-opacity",
+        on ? "opacity-100" : "opacity-60 lg:opacity-0 focus:opacity-100 lg:group-hover/item:opacity-100",
+        light ? "text-white/90 hover:bg-white/15" : on ? "text-[#E8A317] hover:bg-amber-50 dark:hover:bg-white/5" : "text-[#9AA8A0] hover:bg-[#F0FDF4] hover:text-[#E8A317] dark:hover:bg-white/5",
+      ].join(" ")}
+    >
+      <Star size={13} className={on ? "fill-current" : ""} />
+    </button>
   )
 }

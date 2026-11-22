@@ -480,6 +480,25 @@ export function searchNav(groups: NavGroup[], query: string, isAdmin = false): N
   return hits.sort((a, b) => a.rank - b.rank).map((h) => { const { rank, ...rest } = h; void rank; return rest })
 }
 
+/** เมนูโปรดตามลำดับที่กดดาว — เฉพาะที่ผู้ใช้ยังเห็นอยู่ (สิทธิ์เปลี่ยน = หายจากรายการเอง) */
+export function favoriteItems(groups: NavGroup[], hrefs: string[]): NavSearchHit[] {
+  const { categories } = byCategory(groups)
+  const out: NavSearchHit[] = []
+  for (const href of hrefs) {
+    for (const g of groups) {
+      const i = g.items.find((x) => x.href === href && !x.subheader)
+      if (!i) continue
+      out.push({
+        href, label: i.homeLabel ?? i.label, desc: i.desc ?? "", icon: i.icon,
+        groupLabel: g.homeTitle ?? g.label, category: categories.find((c) => c.category.key === g.category)?.category,
+        color: g.color, bg: g.bg,
+      })
+      break
+    }
+  }
+  return out
+}
+
 export type HomeModule = {
   key: string
   category?: NavCategoryKey

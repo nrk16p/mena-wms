@@ -2,17 +2,18 @@
 
 import Link from "next/link"
 import { useSession } from "next-auth/react"
-import { Suspense, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import { ChevronDown, LayoutGrid } from "lucide-react"
+import { ChevronDown, LayoutGrid, Star } from "lucide-react"
 import { WelcomePopup } from "@/components/welcome-popup"
 import { Mascot } from "@/components/mascot"
 import { useBranchScope } from "@/components/use-branch-scope"
 import { canSeeBranch } from "@/lib/branch-scope"
 // เมนูทั้งหมดอยู่ที่ lib/nav.ts ที่เดียว — sidebar ก็อ่านจากไฟล์เดียวกัน
-import { homeModules, sidebarGroups, searchNav, NAV_CATEGORIES, type HomeModule } from "@/lib/nav"
-import { useNavQuery, setNavQuery } from "@/lib/nav-search-store"
+import { homeModules, sidebarGroups, searchNav, favoriteItems, NAV_CATEGORIES, type HomeModule } from "@/lib/nav"
+import { useNavQuery, setNavQuery, useNavFavorites } from "@/lib/nav-search-store"
 import { Highlight } from "@/components/sidebar"
+import { useSearchParams } from "next/navigation"
 
 const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
 const mitr = { fontFamily: "'Mitr', sans-serif" }
@@ -36,6 +37,15 @@ export default function Home() {
   const hits = useMemo(() => searchNav(sidebarGroups(viewer), query, viewer.isAdmin), [viewer, query])
   // ชิปหมวด — กรองการ์ดโมดูลตามหมวด
   const [catFilter, setCatFilter] = useState<string>("all")
+  // มาจากไอคอนหมวดบนแถบย่อ (/?cat=repair) → มือถือกรองหมวด · จอใหญ่เลื่อนไปคอลัมน์นั้น
+  const [catParam, setCatParam] = useState<string | null>(null)
+  useEffect(() => {
+    if (!catParam) return
+    setCatFilter(catParam)
+    document.getElementById(`cat-${catParam}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [catParam])
+  const favHrefs = useNavFavorites()
+  const favs = useMemo(() => favoriteItems(sidebarGroups(viewer), favHrefs), [viewer, favHrefs])
   const cats = NAV_CATEGORIES
     .map((c) => ({ c, mods: modules.filter((m) => m.category === c.key) }))
     .filter((x) => x.mods.length > 0)
@@ -130,8 +140,9 @@ export default function Home() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[1000px] flex-col gap-5">
+    <div className="mx-auto flex max-w-[1000px] flex-col gap-5 lg:max-w-[1200px]">
       <Suspense><WelcomePopup /></Suspense>
+      <Suspense><CatParam onChange={setCatParam} /></Suspense>
 
       {/* ── Hero ทักทาย (กะทัดรัด — มือถือซ่อน mascot ใหญ่) ── */}
       <div
@@ -186,7 +197,77 @@ export default function Home() {
         </section>
       ) : (
         <>
-          {/* ── ชิปหมวด ── */}
+          {/* ── เมนูโปรด ── */}
+          {favs.length > 0 && (
+            <section className="rounded-[20px] border border-[#EEF2F0] dark:border-white/[0.07] bg-white dark:bg-[#151a10] px-5 py-4" style={{ boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}>
+              <h2 className="mb-2.5 flex items-center gap-1.5 text-[14px] text-[#14271C] dark:text-white" style={{ ...mitr, fontWeight: 500 }}>
+                <Star size={15} className="fill-[#E8A317] text-[#E8A317]" />เมนูโปรด
+              </h2>
+              <div className="flex flex-wrap gap-2" style={sansThai}>
+                {favs.map((f) => {
+                  const FIcon = f.icon
+                  return (
+                    <Link key={f.href} href={f.href} title={f.desc}
+                      className="inline-flex items-center gap-2 rounded-[12px] border border-[#EEF2F0] dark:border-white/[0.07] px-3 py-2 text-[13px] text-[#14271C] dark:text-gray-200 transition-colors hover:border-[#1B8C4B]">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-[7px] dark:bg-white/5" style={{ background: f.bg, color: f.color }}><FIcon size={13} /></span>
+                      {f.label}
+                    </Link>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* ── จอใหญ่: ตารางหมวด (หมวดละคอลัมน์) เห็นทุกเมนูในหน้าเดียว ── */}
+          <div className="hidden gap-4 lg:grid" style={{ gridTemplateColumns: `repeat(${Math.max(cats.length, 1)}, minmax(0, 1fr))` }}>
+            {cats.map(({ c, mods }) => {
+              const CIcon = c.icon
+              return (
+                <section id={`cat-${c.key}`} key={c.key}
+                  className={["flex min-w-0 flex-col gap-3 rounded-[20px] border bg-white dark:bg-[#151a10] p-4 scroll-mt-4",
+                    catParam === c.key ? "border-[#1B8C4B]/60" : "border-[#EEF2F0] dark:border-white/[0.07]"].join(" ")}
+                  style={{ boxShadow: "0 2px 8px rgba(20,39,28,.04)" }}>
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] dark:bg-white/10" style={{ background: c.bg, color: c.color }}>
+                      <CIcon size={16} />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="text-[16px] leading-tight text-[#14271C] dark:text-white" style={{ ...mitr, fontWeight: 500 }}>{c.label}</h2>
+                      <p className="truncate text-[11px] text-[#9AA8A0]" style={sansThai}>{c.desc}</p>
+                    </div>
+                  </div>
+                  {mods.map((m) => {
+                    const MIcon = m.icon
+                    return (
+                      <div key={m.key} className="border-t border-[#EEF2F0] pt-2.5 dark:border-white/[0.07]">
+                        <h3 className="mb-1 flex items-center gap-2 text-[12.5px] font-semibold text-[#14271C] dark:text-white" style={sansThai} title={m.desc}>
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] dark:bg-white/10" style={{ background: m.bg, color: m.color }}><MIcon size={12} /></span>
+                          <span className="truncate">{m.title}</span>
+                        </h3>
+                        <ul className="space-y-px" style={sansThai}>
+                          {m.links.map((l) => {
+                            const LIcon = l.icon
+                            return (
+                              <li key={l.href}>
+                                <Link href={l.href} title={l.desc}
+                                  className="flex items-center gap-2 rounded-[9px] px-2 py-1.5 text-[13px] text-[#4B5F54] transition-colors hover:bg-[#F0FDF4] hover:text-[#0F6A3C] dark:text-gray-300 dark:hover:bg-white/5 dark:hover:text-white">
+                                  <LIcon size={14} className="shrink-0" style={{ color: m.color }} />
+                                  <span className="truncate">{l.label}</span>
+                                </Link>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </div>
+                    )
+                  })}
+                </section>
+              )
+            })}
+          </div>
+
+          {/* ── มือถือ/จอเล็ก: ชิปหมวด + การ์ดพับได้แบบเดิม ── */}
+          <div className="flex flex-col gap-5 lg:hidden">
           <div className="flex flex-wrap gap-2" style={sansThai}>
             <button
               type="button"
@@ -231,8 +312,16 @@ export default function Home() {
             )
           })}
           {catFilter === "all" && uncategorized.map((m) => renderModule(m, modules.indexOf(m)))}
+          </div>
         </>
       )}
     </div>
   )
+}
+
+/** อ่าน ?cat= (ต้องอยู่ใน Suspense ตามกติกา useSearchParams) แล้วส่งค่าขึ้นไปให้หน้าหลัก */
+function CatParam({ onChange }: { onChange: (cat: string | null) => void }) {
+  const cat = useSearchParams().get("cat")
+  useEffect(() => { onChange(cat) }, [cat, onChange])
+  return null
 }
