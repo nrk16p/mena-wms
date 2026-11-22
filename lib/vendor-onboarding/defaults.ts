@@ -61,6 +61,6 @@ export const DEFAULT_SETTINGS = {
   _id: "default",
   passThreshold: 15,
   reviewerEmails: ["nopparut.a@menatransport.co.th"], // พี่นพ ผู้ช่วยผู้จัดการ (ผู้ใช้ยืนยัน 2026-11-22)
-  approverEmails: [] as string[],                      // คุณอาม ผู้จัดการจัดซื้อ — รออีเมล
+  approverEmails: ["thaweesak.s@menatransport.co.th"],    // คุณอาม (Thaweesak, Procurement Manager) จาก wms_users 2026-11-22
   linkDays: 14,
 }
