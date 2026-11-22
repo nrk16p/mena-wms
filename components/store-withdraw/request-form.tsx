@@ -11,7 +11,7 @@ import { HUB_WORK_TYPES } from "@/lib/store-withdraw/hub-core"
 import { dropHubLines, formLineKey, hubSummary, overHubStock, type HubTag } from "@/lib/store-withdraw/hub-form"
 import { DUE_MAX_DAYS } from "@/lib/store-withdraw/pending"
 import { SkuPicker, type SkuHit } from "./sku-picker"
-import { HubPicker, type HubHit } from "./hub-picker"
+import type { HubHit } from "./hub-picker"
 import { MrPicker, type MrItem } from "./mr-picker"
 import { OptionCombobox } from "./option-combobox"
 import { DuePicker, dueError } from "./due-picker"
@@ -155,8 +155,8 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
   }
 
   const sum = hubSummary(lines)
-  const plainRows = lines.map((l, i) => ({ l, i })).filter(({ l }) => !l.hub)
-  const hubRows = lines.map((l, i) => ({ l, i })).filter(({ l }) => !!l.hub)
+  const hubRows = sum.hub
+  const allRows = lines.map((l, i) => ({ l, i }))   // รายการเดียว ปกติ + Hub ปนกันตามลำดับที่เพิ่ม
 
   // สิ่งที่ยังขาด (ตามลำดับเดียวกับ submit) — โชว์ในแถบล่างก่อนกดยื่น
   const missing = useMemo(() => {
@@ -274,7 +274,7 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
   )
 
   return (
-    <div className={embedded ? "flex min-h-0 flex-1 flex-col" : "mx-auto max-w-3xl p-4 sm:p-6"}>
+    <div className={embedded ? "flex min-h-0 flex-1 flex-col" : "mx-auto max-w-3xl p-4 sm:p-6 lg:max-w-[1200px]"}>
       <div data-testid="form-body" className={embedded ? "min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#F4F6F5] px-4 py-4 sm:px-6 dark:bg-[#0f1117]" : "space-y-4 pb-4"}>
       {!embedded && (
         <div>
@@ -286,6 +286,9 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
       {optErr && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{optErr}</p>}
       {!embedded && <p className="text-xs text-gray-500">ช่องที่มีเครื่องหมาย <span className="text-red-600">*</span> ต้องกรอก</p>}
 
+      {/* จอ ≥1024 (หน้าเต็ม): ซ้าย = 1 ประเภทงาน + 2 ข้อมูลคำขอ · ขวา = 3 อะไหล่ + 4 หมายเหตุ · จอเล็ก/Dialog = เรียงลงมา 1→2→3→4 */}
+      <div className={embedded ? "space-y-4" : "space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0"}>
+      <div className="min-w-0 space-y-4">
       {card(1, "ประเภทงาน", <>
         <div role="radiogroup" aria-label="ประเภทงาน" className="flex flex-col gap-2 sm:flex-row">
           {workBtn("garage_in", "ซ่อมในอู่ เบิกจากสต๊อก ต้องมี MR")}
@@ -373,8 +376,12 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
         </label>
       </>)}
 
+      </div>
+
+      <div className="min-w-0 space-y-4">
       {card(3, "รายการอะไหล่", <>
-        <SkuPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} onPick={addSku} />
+        {/* ช่องค้นช่องเดียว: คลังเปิด Hub + งานเบิก Hub ได้ → ค้นสต๊อกคลังกับ Hub พร้อมกัน */}
+        <SkuPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} onPick={addSku} onPickHub={hubOn ? addHub : undefined} />
 
         {chosen.length > 1 && (
           <div>
@@ -391,12 +398,12 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
           </div>
         )}
 
-        {plainRows.length === 0 ? (
+        {allRows.length === 0 ? (
           <p className="rounded-md border border-dashed border-[#D5DCD8] px-3 py-6 text-center text-sm text-gray-500 dark:border-white/10">ยังไม่มีรายการ ค้นหาอะไหล่ด้านบนแล้วเลือก</p>
         ) : chosen.length > 1 ? (
           <div className="space-y-4">
             {[...chosen.map((m) => ({ id: m.id as number | null, title: mrItemName(m.label) })), { id: null, title: "ยังไม่ระบุประเภทการซ่อม" }].map((g) => {
-              const rows = plainRows.filter(({ l }) => (g.id === null ? !l.mrItemId || !chosen.some((m) => m.id === l.mrItemId) : l.mrItemId === g.id))
+              const rows = allRows.filter(({ l }) => (g.id === null ? !l.mrItemId || !chosen.some((m) => m.id === l.mrItemId) : l.mrItemId === g.id))
               if (g.id === null && rows.length === 0) return null
               return (
                 <section key={g.id ?? "none"} data-testid="line-group" aria-label={g.title}
@@ -414,35 +421,30 @@ export function RequestForm({ onDone, onCancel, backHref = "/store-withdraw" }: 
             })}
           </div>
         ) : (
-          <ul className="space-y-2">{plainRows.map(({ l, i }) => renderLine(l, i, false))}</ul>
+          <ul className="space-y-2">{allRows.map(({ l, i }) => renderLine(l, i, false))}</ul>
         )}
 
+        {hubRows > 0 && (
+          <div data-testid="hub-pr" className="space-y-2 border-t border-[#D5DCD8] pt-3 dark:border-white/10">
+            <p className="text-xs text-gray-600 dark:text-gray-300">PR ของอะไหล่ Hub · มี PR แล้วผูกเลย ถ้ายังไม่มี ต้องผูกภายใน 1 วันหลังรับของ</p>
+            <DocRefPicker lockKind plate={plate} inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} kind="pr" onKind={() => {}}
+              picked={hubPr} onPick={setHubPr} onClear={() => setHubPr(null)} panelOpen={false} onTogglePanel={() => {}} />
+          </div>
+        )}
+      </>, allRows.length > 0 ? <span className="text-xs text-gray-500">{allRows.length} รายการ{hubRows > 0 && ` · Hub ${hubRows}`}</span> : undefined)}
+
+      {card(4, "หมายเหตุ (ถ้ามี)", <>
         <div>
-          <label className={labelCls} htmlFor="sw-remark">หมายเหตุ{opt}</label>
-          <textarea id="sw-remark" rows={2} className={inputCls} value={remark} onChange={(e) => setRemark(e.target.value)} />
+          <label className="sr-only" htmlFor="sw-remark">หมายเหตุ</label>
+          <textarea id="sw-remark" rows={2} className={inputCls} placeholder="ถ้ามี" value={remark} onChange={(e) => setRemark(e.target.value)} />
         </div>
-      </>, plainRows.length > 0 ? <span className="text-xs text-gray-500">{plainRows.length} รายการ</span> : undefined)}
-
-      {hubOn && card(4, "รายการอะไหล่ Hub", <>
-        <HubPicker inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} onPick={addHub} />
-        {hubRows.length === 0 ? (
-          <p className="rounded-md border border-dashed border-[#D5DCD8] px-3 py-6 text-center text-sm text-gray-500 dark:border-white/10">ยังไม่มีอะไหล่ Hub ค้นหาด้านบนแล้วเลือก</p>
-        ) : (
-          <>
-            <ul className="space-y-2">{hubRows.map(({ l, i }) => renderLine(l, i, chosen.length > 1 && !(l.mrItemId && chosen.some((m) => m.id === l.mrItemId))))}</ul>
-            <div data-testid="hub-pr" className="space-y-2 border-t border-[#D5DCD8] pt-3 dark:border-white/10">
-              <p className="text-xs text-gray-600 dark:text-gray-300">มี PR แล้วผูกเลย ถ้ายังไม่มี ต้องผูกภายใน 1 วันหลังรับของ</p>
-              <DocRefPicker lockKind plate={plate} inventoryId={typeof inventoryId === "number" ? inventoryId : undefined} kind="pr" onKind={() => {}}
-                picked={hubPr} onPick={setHubPr} onClear={() => setHubPr(null)} panelOpen={false} onTogglePanel={() => {}} />
-            </div>
-          </>
-        )}
-      </>, hubRows.length > 0 ? <span className="text-xs text-gray-500">{hubRows.length} รายการ</span> : undefined)}
-
+      </>)}
+      </div>
+      </div>
       </div>
 
-      {/* แถบล่าง: สรุปสั้น + สิ่งที่ยังขาด ก่อนกดยื่น · Dialog = ท้ายกรอบนิ่ง · หน้าเต็ม = sticky */}
-      <div className={`z-20 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-gray-200 bg-white py-3 dark:border-white/10 dark:bg-[#161922] ${embedded ? "shrink-0 px-4 sm:px-6" : "sticky bottom-0 -mx-4 px-4 sm:-mx-6 sm:px-6"}`}>
+      {/* แถบล่าง: สรุปสั้น + สิ่งที่ยังขาด ก่อนกดยื่น · Dialog = ท้ายกรอบนิ่ง · หน้าเต็ม = sticky กว้างเท่าการ์ด */}
+      <div className={`z-20 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-gray-200 bg-white py-3 dark:border-white/10 dark:bg-[#161922] ${embedded ? "shrink-0 px-4 sm:px-6" : "sticky bottom-0 rounded-t-lg border-x px-4 shadow-[0_-4px_12px_rgba(16,24,20,0.06)]"}`}>
         <div className="min-w-0 text-xs" data-testid="form-summary">
           <p className="flex flex-wrap items-center gap-1.5 text-gray-700 dark:text-gray-200">
             <span className="font-medium">{sum.total} รายการ{sum.hub > 0 && ` · Hub ${sum.hub}`}</span>

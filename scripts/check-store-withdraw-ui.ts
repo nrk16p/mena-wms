@@ -26,3 +26,25 @@ assert.equal(overHubStock({ qty: "4", stockQty: 4, hub: vend }), false)
 assert.equal(overHubStock({ qty: "9", stockQty: 4 }), false)          // ไม่ใช่ Hub = ไม่เตือนแบบ Hub
 assert.equal(overHubStock({ qty: "9", stockQty: null, hub: vend }), false)
 console.log("ok: hub-form")
+
+// ── ช่องค้นอะไหล่ช่องเดียว (lib/store-withdraw/parts-search) ──
+import { HUB_GROUP_TITLE, STOCK_GROUP_TITLE, partsDropdown } from "../lib/store-withdraw/parts-search"
+const src = <T,>(rows: T[], loading = false, error = "") => ({ rows, loading, error })
+const kinds = (r: { groups: { kind: string }[] }) => r.groups.map((g) => g.kind)
+// ไม่เปิด Hub = กลุ่มเดียว ไม่มีหัว (เหมือนช่องเดิม)
+const off = partsDropdown(null, src([1, 2]))
+assert.deepEqual(kinds(off), ["stock"]); assert.equal(off.groups[0].title, null); assert.equal(off.empty, false)
+assert.equal(partsDropdown(null, src([])).empty, true)
+assert.equal(partsDropdown(null, src([], true)).empty, false)            // ยังค้นอยู่ ไม่ใช่ "ไม่เจอ"
+assert.equal(partsDropdown(null, src([], false, "พัง")).empty, false)
+// เปิด Hub: Hub ขึ้นก่อน มีหัวกลุ่ม
+const both = partsDropdown(src(["h"]), src([1]))
+assert.deepEqual(kinds(both), ["hub", "stock"])
+assert.deepEqual(both.groups.map((g) => g.title), [HUB_GROUP_TITLE, STOCK_GROUP_TITLE])
+assert.deepEqual(kinds(partsDropdown(src([]), src([1]))), ["stock"])      // Hub ไม่เจอ = ซ่อนกลุ่ม Hub
+assert.deepEqual(kinds(partsDropdown(src(["h"]), src([]))), ["hub"])
+assert.deepEqual(kinds(partsDropdown(src([], true), src([1]))), ["hub", "stock"])   // Hub ยังค้นอยู่ = โชว์ "กำลังค้น" ในกลุ่ม
+assert.deepEqual(kinds(partsDropdown(src([], false, "x"), src([]))), ["hub"])       // Hub error ยังโชว์
+assert.equal(partsDropdown(src([]), src([])).empty, true)
+assert.equal(partsDropdown(src([]), src([], true)).empty, false)
+console.log("ok: parts-search")
