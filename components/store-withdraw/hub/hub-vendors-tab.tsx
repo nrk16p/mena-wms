@@ -6,12 +6,13 @@ import { swalError, swalToast } from "@/lib/swal"
 import { btnCls, btnGhost, hubFetch, inputCls, tableWrap, th, thead, tr, type HubSite, type HubVendor, type InvOpt } from "./hub-shared"
 
 function SiteRow({ inv, site, canEdit, onSaved }: { inv: InvOpt; site?: HubSite; canEdit: boolean; onSaved: () => void }) {
-  const [atms, setAtms] = useState(site ? String(site.atmsHubInventoryId) : "")
+  const [atms, setAtms] = useState(site?.atmsHubInventoryId ? String(site.atmsHubInventoryId) : "")
   const [active, setActive] = useState(site?.active ?? true)
   const [busy, setBusy] = useState(false)
   async function save() {
-    const n = Number(atms)
-    if (!Number.isInteger(n) || n <= 0) return swalError("เลขคลังใน ATMS ต้องเป็นจำนวนเต็มมากกว่า 0")
+    // ว่าง = บันทึกใน WMS อย่างเดียว (ไม่มีคลัง Hub ใน ATMS)
+    const n = atms.trim() === "" ? null : Number(atms)
+    if (n !== null && (!Number.isInteger(n) || n <= 0)) return swalError("เลขคลังใน ATMS ต้องเป็นจำนวนเต็มมากกว่า 0 หรือเว้นว่าง")
     setBusy(true)
     try {
       await hubFetch("/api/store-withdraw/hub/master?type=sites", { method: "PUT", body: { inventoryId: inv.id, atmsHubInventoryId: n, active } })
@@ -22,7 +23,7 @@ function SiteRow({ inv, site, canEdit, onSaved }: { inv: InvOpt; site?: HubSite;
   return (
     <tr className={tr}>
       <td className={th}>{inv.name}</td>
-      <td className={th}><input aria-label={`เลขคลัง Hub ใน ATMS ของ ${inv.name}`} disabled={!canEdit} inputMode="numeric" className={`${inputCls} w-28`} value={atms} onChange={(e) => setAtms(e.target.value)} /></td>
+      <td className={th}><input aria-label={`เลขคลัง Hub ใน ATMS ของ ${inv.name}`} disabled={!canEdit} inputMode="numeric" className={`${inputCls} w-28`} value={atms} placeholder="ว่าง = WMS อย่างเดียว" onChange={(e) => setAtms(e.target.value)} />{atms.trim() === "" && <span className="ml-2 text-xs text-gray-500">บันทึกใน WMS อย่างเดียว ไม่ตัด WD</span>}</td>
       <td className={th}><label className="inline-flex items-center gap-1.5 text-sm"><input type="checkbox" disabled={!canEdit} checked={active} onChange={(e) => setActive(e.target.checked)} />เปิดใช้</label></td>
       <td className={th}>{canEdit && <button type="button" disabled={busy} onClick={save} className={btnGhost}>บันทึก</button>}</td>
     </tr>
@@ -87,7 +88,7 @@ export function HubVendorsTab({ invs, canEdit }: { invs: InvOpt[]; canEdit: bool
       <section className="space-y-3">
         <div>
           <h2 className="text-sm font-semibold text-[#14271C] dark:text-white">คลัง Hub ใน ATMS</h2>
-          <p className="text-xs text-gray-500">เลขคลังใน ATMS ที่ใช้ตัด WD ของ Hub</p>
+          <p className="text-xs text-gray-500">เลขคลังใน ATMS ที่ใช้ตัด WD ของ Hub ถ้าไม่มีคลัง Hub ใน ATMS เว้นว่างไว้ ระบบจะบันทึกใน WMS อย่างเดียว</p>
         </div>
         <div className={tableWrap}>
           <table className="w-full text-left text-sm">

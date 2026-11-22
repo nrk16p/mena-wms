@@ -5,7 +5,7 @@ import { ConflictError, NotFoundError, ddmmyyyyBkk, swCol, transition, writeLog,
 import { isPendingFlow } from "./core"
 import { HttpError } from "./http"
 import { hubCutPlan, hubIssueLines, hubStatusOf, hubWdDone, isHubLine, normalIssueLines } from "./hub-core"
-import { cutHubForRequest, getHubSite } from "./hub-db"
+import { cutHubForRequest, getHubSite, hubSiteWmsOnly } from "./hub-db"
 import { NCAC_CONFIG_MSG, NcacConfigError, ncac } from "./ncac"
 import type { AtmsProgress, SwLine, SwRequest } from "./types"
 import { syncCoreRowsSafe } from "@/lib/core-return/sw-sync"
@@ -174,9 +174,11 @@ async function cutHub(claimed: SwRequest, prior: SwRequest["status"], actor: Act
   // hubIssuedAt + hubStatus ในคำสั่งเดียว (ไม่มีช่วงที่ส่งแล้วแต่ hubStatus ยัง WAIT_ISSUE)
   // ผู้ขอผูก PR พร้อมกันได้ → เงื่อนไข hubPr เดิม ไม่ผ่าน = อ่านใหม่แล้วคิดอีกรอบ
   const hubIssuedAt = new Date()
+  // คลังไม่มีคลัง Hub ใน ATMS = บันทึกใน WMS อย่างเดียว (จดไว้กับใบ ใช้ค่านี้ตลอดอายุใบ)
+  const hubWmsOnly = hubSiteWmsOnly(await getHubSite(claimed.inventoryId))
   let cur: SwRequest | null = claimed
   for (let i = 0; i < 3 && cur && !cur.hubIssuedAt; i++) {
-    const r = await col.updateOne({ no, hubIssuedAt: null, hubPr: cur.hubPr ?? null } as never, { $set: { hubIssuedAt, hubStatus: hubStatusOf({ ...cur, hubIssuedAt }) } })
+    const r = await col.updateOne({ no, hubIssuedAt: null, hubPr: cur.hubPr ?? null } as never, { $set: { hubIssuedAt, hubWmsOnly, hubStatus: hubStatusOf({ ...cur, hubIssuedAt, hubWmsOnly }) } })
     if (r.modifiedCount) return
     cur = await col.findOne({ no })
   }
@@ -281,7 +283,7 @@ async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRe
   try {
     if (hubWdDone(got)) return await save(base, true)
     const site = await getHubSite(got.inventoryId)
-    if (!site) return await save({ ...base, needCreds: false, error: MSG.hubNoSite }, true)
+    if (!site || !site.atmsHubInventoryId) return await save({ ...base, needCreds: false, error: MSG.hubNoSite }, true)
     const creds = await getCreds(actor.email)
     if (!creds) return await save({ ...base, needCreds: true, error: MSG.noCreds }, true)
 
@@ -291,7 +293,7 @@ async function runHubWd(no: string, actor: Actor, strict: boolean): Promise<SwRe
     else if (!base.startedAt) await col.updateOne({ no, "hubWd.startedAt": null }, { $set: { "hubWd.startedAt": startedAt } })
     const prev: AtmsProgress = { ...base, startedAt, error: null }
     const body = {
-      inventory_id: site.atmsHubInventoryId,
+      inventory_id: site.atmsHubInventoryId as number,
       pick_to_id: got.pickToId,
       remark_token: `${no}-H`,
       remark: headerRemark(got),

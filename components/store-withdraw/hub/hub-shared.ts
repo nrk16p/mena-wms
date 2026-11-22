@@ -1,7 +1,7 @@
 // ของใช้ร่วมกันในแท็บหน้า Hub: ชนิดข้อมูล · เรียก API · สไตล์ช่อง
 export type HubRow = { inventoryId: number; vendorCode: string; skuId: number; skuCode: string; skuName: string; unit: string; price: number | null; active: boolean; qty: number }
 export type HubVendor = { code: string; name: string; active: boolean }
-export type HubSite = { inventoryId: number; atmsHubInventoryId: number; active: boolean }
+export type HubSite = { inventoryId: number; atmsHubInventoryId: number | null; active: boolean }
 export type InvOpt = { id: number; name: string }
 
 export const inputCls = "rounded-xl border border-[#E2E8E4] bg-white px-3 py-2.5 text-sm dark:border-white/10 dark:bg-[#0f1117]"

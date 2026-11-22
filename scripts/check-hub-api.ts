@@ -47,6 +47,15 @@ async function main() {
   eq([(vl[1].before as { active: boolean }).active, (vl[1].after as { active: boolean }).active], [true, false])
   eq((await mlog("vendors", "ZZ")).length, 0)
   eq(await cols.masterLog.countDocuments({ type: "sites" }), 1) // PUT ที่ 400 ไม่ลง
+  // เลขคลัง Hub ใน ATMS เว้นว่างได้ = บันทึกใน WMS อย่างเดียว (คลังยังเปิด Hub)
+  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: 5, atmsHubInventoryId: "" }, actor))).status, 200)
+  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: 6, atmsHubInventoryId: null }, actor))).status, 200)
+  eq((await run(() => a.hubMasterWrite("PUT", q("type=sites"), { inventoryId: 7, atmsHubInventoryId: "abc" }, actor))).status, 400)
+  eq(await cols.sites.findOne({ inventoryId: 5 }, { projection: { _id: 0 } }), { inventoryId: 5, atmsHubInventoryId: null, active: true })
+  const { getHubSite, hubSiteWmsOnly } = await import("../lib/store-withdraw/hub-db")
+  eq(hubSiteWmsOnly(await getHubSite(5)), true); eq(hubSiteWmsOnly(await getHubSite(4)), false); eq(hubSiteWmsOnly(null), false)
+  await cols.sites.deleteMany({ inventoryId: { $in: [5, 6] } })
+  await cols.masterLog.deleteMany({ type: "sites", key: { $in: ["5", "6"] } })
 
   const line = { skuId: 501, skuCode: "S501", skuName: "น้ำมันเครื่อง", unit: "ลิตร", price: 120, qty: 10 }
   const rcv = (b: Record<string, unknown>) => run(() => a.hubReceiveHandler(b, actor))

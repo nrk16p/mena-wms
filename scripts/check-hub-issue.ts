@@ -360,6 +360,46 @@ async function main() {
   const d11 = await get(n11)
   eq(d11.status, "ISSUED"); eq("hubStatus" in d11, false); eq("hubIssuedAt" in d11, false); eq("hubWd" in d11, false)
 
+  // ---- 12. คลังไม่มีคลัง Hub ใน ATMS (เลขว่าง) = บันทึกใน WMS อย่างเดียว ไม่ยิง WD Hub ----
+  {
+    await c.sites.updateOne({ inventoryId: 4 }, { $set: { atmsHubInventoryId: null } })
+    eq(H.hubSiteWmsOnly(await H.getHubSite(4)), true)
+    // ใบปน: ยิง WD ปกติใบเดียว (คลัง 4 เฉพาะบรรทัดปกติ) · ยอด Hub ลด · ไม่มี WD Hub · ปิดงานเมื่อผูก PR
+    await setStock(5)
+    const w1 = await seed("H-WMS-MIX", [line({}), hubLine(2)])
+    calls = []
+    handler = (x) => (isHubCall(x) ? okWd(999, "SHOULD-NOT") : okWd(720, "LBWD-W1"))
+    await issueRequest(w1, store)
+    eq(issues().length, 1); eq(issues()[0].body!.inventory_id, 4); eq(issues()[0].body!.lines!.map((l) => l.sku_id), [11])
+    let dw = await get(w1)
+    eq(dw.status, "ISSUED"); eq(dw.hubWmsOnly, true); eq(dw.hubWd!.code, null); eq(hubWdDone(dw), true)
+    eq(dw.hubStatus, "WAIT_PR"); eq(await stock(), 3)
+    eq((await (await baseCol()).find({ swNo: w1 }).toArray()).map((r) => r.skuCode), ["N-11"]) // Hub ไม่มี WD = ไม่มีแถวซาก
+    await assert.rejects(() => retryHubWd(w1, store)) // ไม่มีอะไรให้ลองใหม่
+    dw = await bindHubPr(w1, { code: "LBPR-W1", id: 9 }, store, true)
+    eq(dw.hubStatus, "DONE")
+
+    // ใบมีแต่ Hub: ไม่ยิง ATMS เลย · ISSUED · ยอดลด
+    await setStock(5)
+    const w2 = await seed("H-WMS-ONLY", [hubLine(1)])
+    calls = []
+    handler = () => okWd(999, "SHOULD-NOT")
+    await issueRequest(w2, store)
+    eq(issues().length, 0); eq((await get(w2)).status, "ISSUED"); eq((await get(w2)).hubStatus, "WAIT_PR"); eq(await stock(), 4)
+
+    // WD ปกติล้ม (ยังไม่มีหัวใบ) → ปฏิเสธใบ → คืนยอด Hub (ไม่มี WD Hub ให้กังวล) · ไม่ค้าง PR
+    await setStock(5)
+    const w3 = await seed("H-WMS-REJ", [line({}), hubLine(2)])
+    handler = () => ({ status: 500, body: { detail: "พัง" } })
+    await issueRequest(w3, store)
+    eq((await get(w3)).status, "ISSUE_FAILED"); eq(await stock(), 3)
+    await transition(w3, "reject", store, { rejectReason: "ทดสอบ" })
+    const dr = await get(w3)
+    eq(await stock(), 5); assert.ok(dr.hubRestoredAt instanceof Date); eq(dr.hubStatus, "NONE")
+
+    await c.sites.updateOne({ inventoryId: 4 }, { $set: { atmsHubInventoryId: 44 } })
+  }
+
   // ledger Hub ตรงทุกขั้น (setStock เขียนทับยอด จึงเช็กแค่ว่ามี issue 1 แถวต่อบรรทัดต่อใบ)
   const dupe = await c.moves.aggregate([{ $match: { type: "issue" } }, { $group: { _id: { r: "$refNo", l: "$lineIndex" }, n: { $sum: 1 } } }, { $match: { n: { $gt: 1 } } }]).toArray()
   eq(dupe.length, 0)

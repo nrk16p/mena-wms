@@ -10,10 +10,10 @@ import { isPendingFlow } from "./core"
 import { HttpError } from "./http"
 import { MSG, STUCK_MS, callNcac, interpret, takeHubWdLock, toWire } from "./issue"
 import { hubCutPlan, hubStatusOf, isHubLine } from "./hub-core"
-import { HUB_RESTORE_NOTE, cutHubForRequest, getHubSite, restoreHubForRequest, returnHubLeftover } from "./hub-db"
+import { HUB_RESTORE_NOTE, cutHubForRequest, getHubSite, hubSiteWmsOnly, restoreHubForRequest, returnHubLeftover } from "./hub-db"
 import { linkAttachments, resolveLinkable } from "./attachments"
 import { buildSettleGroups, leftoverTotal, parseDue, parseSummary, settleRemark, summaryAttachIds } from "./pending"
-import type { AtmsProgress, SwRequest, SwSettleGroup } from "./types"
+import type { AtmsProgress, SwLine, SwRequest, SwSettleGroup } from "./types"
 import { syncCoreRowsSafe } from "@/lib/core-return/sw-sync"
 
 const emptyAtms = (): AtmsProgress => ({
@@ -50,8 +50,9 @@ export async function handOut(no: string, actor: Actor): Promise<SwRequest> {
     throw new HttpError(msg, 409)
   }
   const hubIssuedAt = new Date()
+  const hubWmsOnly = hubSiteWmsOnly(await getHubSite(cur.inventoryId))
   try {
-    return await transition(no, "handOut", actor, { hubIssuedAt, hubStatus: hubStatusOf({ ...cur, status: "HANDED_OUT", hubIssuedAt }) })
+    return await transition(no, "handOut", actor, { hubIssuedAt, hubWmsOnly, hubStatus: hubStatusOf({ ...cur, status: "HANDED_OUT", hubIssuedAt, hubWmsOnly }) })
   } catch (e) {
     // ตัดยอดแล้วแต่ใบถูกเปลี่ยนสถานะไปก่อน (เช่นถูกปฏิเสธพร้อมกัน)
     // ใบปิดแล้วและไม่เคยส่งของ (hubIssuedAt ว่าง) = ยังไม่มี WD Hub แน่นอน (ใบ pending ยิง WD Hub ตอน settle) → คืนยอดที่เพิ่งตัดทันที
@@ -143,7 +144,8 @@ async function claimSettle(no: string, returnConfirmed: unknown, actor: Actor): 
   const confirm = left > 0 && !cur.returnConfirmedAt ? { returnConfirmedBy: { email: actor.email, name: actor.name }, returnConfirmedAt: new Date() } : {}
   // ครั้งแรก: บันทึกกลุ่ม (เลขกลุ่ม/token/บรรทัด) พร้อมสลับสถานะในคำสั่งเดียว · ลองใหม่: ใช้กลุ่มเดิม แค่ล้างข้อความ error เก่า
   const patch = cur.settleGroups == null
-    ? { ...confirm, settleGroups: buildSettleGroups(no, cur.summary.usages, emptyAtms, cur.lines) }
+    // WMS อย่างเดียว: บรรทัด Hub ไม่ตัด WD ใน ATMS เลย (ห้ามหลุดไปรวมกับ WD ปกติ)
+    ? { ...confirm, settleGroups: buildSettleGroups(no, cur.hubWmsOnly ? cur.summary.usages.filter((u) => !isHubLine(cur.lines[u.lineIndex] ?? ({} as SwLine))) : cur.summary.usages, emptyAtms, cur.lines) }
     : { ...confirm, "settleGroups.$[].atms.error": null, "settleGroups.$[].atms.needCreds": false }
   return transition(no, "settle", actor, patch)
 }
@@ -294,7 +296,7 @@ export async function runHubSettle(no: string, actor: Actor, strict: boolean): P
     const todo = (got.settleGroups ?? []).filter((g) => g.hub && g.status !== "DONE")
     if (got.status !== "SETTLED" || todo.length === 0) return await finish(await release())
     const site = await getHubSite(got.inventoryId)
-    if (!site) return await finish(await setHub(todo[0].n, { "atms.error": MSG.hubNoSite, "atms.needCreds": false }, true))
+    if (!site || !site.atmsHubInventoryId) return await finish(await setHub(todo[0].n, { "atms.error": MSG.hubNoSite, "atms.needCreds": false }, true))
     const creds = await getCreds(actor.email)
     if (!creds) return await finish(await setHub(todo[0].n, { "atms.error": MSG.noCreds, "atms.needCreds": true }, true))
 
@@ -306,7 +308,7 @@ export async function runHubSettle(no: string, actor: Actor, strict: boolean): P
         await col.updateOne({ no, hubWdBusyAt: lockAt }, { $set: { "settleGroups.$[g].atms.startedAt": startedAt } }, { arrayFilters: [{ "g.n": g.n, "g.hub": true, "g.atms.startedAt": null }] })
       }
       const prev: AtmsProgress = { ...g.atms, startedAt, error: null }
-      const r = await callNcac("POST", "/atms/withdraw/issue", { creds, body: groupBody(got, g, prev, startedAt, site.atmsHubInventoryId) })
+      const r = await callNcac("POST", "/atms/withdraw/issue", { creds, body: groupBody(got, g, prev, startedAt, site.atmsHubInventoryId as number) })
       if (!r) {
         await writeLog({ no, action: "hubWd-unknown", from: got.status, to: got.status, actor: who(actor), note: g.token })
         return await finish(await setHub(g.n, { "atms.error": MSG.unknown, "atms.needCreds": false }, false)) // ล็อกค้างไว้

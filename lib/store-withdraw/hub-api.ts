@@ -135,8 +135,13 @@ export async function hubMasterWrite(method: "POST" | "PATCH" | "PUT", p: Params
     }
   }
   if (t === "sites" && method === "PUT") {
-    const inventoryId = posInt(body.inventoryId), atms = posInt(body.atmsHubInventoryId)
-    if (!inventoryId || !atms) return err("เลขคลังและเลขคลัง Hub ใน ATMS ต้องเป็นจำนวนเต็มมากกว่า 0", 400)
+    // เลขคลัง Hub ใน ATMS ว่างได้ = บันทึกใน WMS อย่างเดียว ไม่ตัด WD Hub
+    const inventoryId = posInt(body.inventoryId)
+    const rawAtms = body.atmsHubInventoryId
+    const blank = rawAtms == null || (typeof rawAtms === "string" && rawAtms.trim() === "")
+    const atms = blank ? null : posInt(rawAtms)
+    if (!inventoryId) return err("เลขคลังต้องเป็นจำนวนเต็มมากกว่า 0", 400)
+    if (!blank && !atms) return err("เลขคลัง Hub ใน ATMS ต้องเป็นจำนวนเต็มมากกว่า 0 หรือเว้นว่างถ้าบันทึกใน WMS อย่างเดียว", 400)
     const active = body.active !== false
     const before = await c.sites.findOne({ inventoryId }, noId)
     await c.sites.updateOne({ inventoryId }, { $set: { atmsHubInventoryId: atms, active } }, { upsert: true })

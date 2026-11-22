@@ -8,7 +8,11 @@ import { isPendingFlow } from "./core"
 import { hubClosedWdDone, hubStatusOf, hubWdDone, type hubCutPlan } from "./hub-core"
 import type { SwRequest } from "./types"
 
-export type HubSite = { inventoryId: number; atmsHubInventoryId: number; active: boolean }
+/** atmsHubInventoryId ว่าง (null) = ไม่มีคลัง Hub ใน ATMS · ของ Hub บันทึกใน WMS อย่างเดียว ไม่ตัด WD Hub */
+export type HubSite = { inventoryId: number; atmsHubInventoryId: number | null; active: boolean }
+
+/** คลังที่เปิด Hub ไว้แต่ไม่ใส่เลขคลัง Hub ใน ATMS = บันทึกใน WMS อย่างเดียว · ไม่มีการตั้งค่า/ปิดใช้ = ไม่ใช่ (ยังพยายามตัด WD แล้วขึ้น error ให้คนเห็น) */
+export const hubSiteWmsOnly = (s: Pick<HubSite, "atmsHubInventoryId"> | null): boolean => !!s && !(Number.isInteger(s.atmsHubInventoryId) && (s.atmsHubInventoryId as number) > 0)
 export type HubVendor = { code: string; name: string; active: boolean; createdAt: Date }
 export type HubItem = {
   inventoryId: number; vendorCode: string; skuId: number; skuCode: string; skuName: string
@@ -207,7 +211,8 @@ export async function onHubClose(after: SwRequest, actor: Actor): Promise<SwRequ
   let doc = after
   try {
     const col = await swCol()
-    const eligible = !!after.hubIssuedAt && !after.hubRestoredAt && !isPendingFlow(after) && !hubWdDone(after)
+    // WMS อย่างเดียว: ไม่มี WD Hub ใน ATMS ให้กังวล = คืนยอดได้เสมอ
+    const eligible = !!after.hubIssuedAt && !after.hubRestoredAt && !isPendingFlow(after) && (!!after.hubWmsOnly || !hubWdDone(after))
     // WD Hub อาจเกิดใน ATMS แล้ว = ไม่คืนยอดอัตโนมัติ ให้คนตามเก็บ (log hubRestore-skipped)
     if (eligible && !(await hubWdMaybeInAtms(after, actor))) {
       const n = await restoreHubForRequest(after.no, { email: actor.email, name: actor.name }, HUB_RESTORE_NOTE)

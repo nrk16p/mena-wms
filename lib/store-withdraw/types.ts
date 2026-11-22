@@ -122,6 +122,8 @@ export type SwRequest = {
   hubWd?: AtmsProgress | null
   hubPr?: SwHubPr | null
   hubIssuedAt?: Date | null
+  /** คลังนี้ไม่มีคลัง Hub ใน ATMS = ของ Hub บันทึกใน WMS อย่างเดียว ไม่ตัด WD Hub (จดตอนตัดยอด จากการตั้งค่าคลังขณะนั้น) */
+  hubWmsOnly?: boolean
   hubStatus?: SwHubStatus
   hubRestoredAt?: Date | null
   /** ล็อกกันยิง WD Hub ซ้อน (ค้างเกิน 5 นาที = ยึดได้) · ไม่ได้คำตอบจาก ATMS = ปล่อยค้างไว้ให้ครบ 5 นาทีก่อนลองใหม่ */

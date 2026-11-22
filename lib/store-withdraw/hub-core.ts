@@ -24,8 +24,9 @@ export function hubIssueLines(lines: SwLine[]): { index: number; line: SwLine }[
 }
 
 /** WD ของ Hub เสร็จหรือยัง (ไม่มีอะไรต้องตัด = เสร็จ) */
-export function hubWdDone(r: Pick<SwRequest, "hubWd" | "settleGroups" | "lines"> & Partial<Pick<SwRequest, "summary" | "summaryDueAt" | "workType">>): boolean {
+export function hubWdDone(r: Pick<SwRequest, "hubWd" | "settleGroups" | "lines"> & Partial<Pick<SwRequest, "summary" | "summaryDueAt" | "workType" | "hubWmsOnly">>): boolean {
   if (hubIssueLines(r.lines).length === 0) return true
+  if (r.hubWmsOnly) return true // บันทึกใน WMS อย่างเดียว ไม่มี WD Hub ให้รอ
   if (!isPendingFlow(r)) return !!(r.hubWd?.code && r.hubWd.approved)
   // pending: ยังไม่สรุป = ยังไม่มีอะไรให้ตัด Hub → ไม่เสร็จ · สรุปแล้วไม่ใช้ Hub เลย = เสร็จ
   if (!r.summary) return false
@@ -45,8 +46,9 @@ const isClosed = (s: string | undefined) => s === "REJECTED" || s === "CANCELLED
  * ใบปิดแบบไม่สำเร็จ (ปฏิเสธจาก ISSUE_FAILED / closeManual) แต่ WD Hub ตัดใน ATMS ไปแล้ว = ของ Hub ออกไปจริง ยังต้องตาม PR
  * อู่ใน: hubWd ได้เลข + อนุมัติแล้ว · Mobile/PM: กลุ่ม Hub ทุกกลุ่ม DONE
  */
-export function hubClosedWdDone(r: Pick<SwRequest, "status" | "lines" | "hubWd" | "settleGroups"> & Partial<Pick<SwRequest, "hubIssuedAt" | "summary" | "summaryDueAt" | "workType">>): boolean {
+export function hubClosedWdDone(r: Pick<SwRequest, "status" | "lines" | "hubWd" | "settleGroups"> & Partial<Pick<SwRequest, "hubIssuedAt" | "summary" | "summaryDueAt" | "workType" | "hubWmsOnly">>): boolean {
   if (!isClosed(r.status) || !r.hubIssuedAt) return false
+  if (r.hubWmsOnly) return false // ไม่มี WD Hub ใน ATMS = ปิดใบแล้วคืนยอด ไม่ต้องตาม PR
   if (hubIssueLines(r.lines).length === 0) return false
   if (!isPendingFlow(r)) return !!(r.hubWd?.code && r.hubWd.approved)
   const groups = (r.settleGroups ?? []).filter(g => g.hub)

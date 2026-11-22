@@ -278,6 +278,30 @@ async function main() {
     eq((await c.moves.find({ $or: [{ refNo: n9 }, { refNo: `${n9}:restore` }] }).toArray()).reduce((n, m) => n + m.qty, 0), 0)
   }
 
+  // ---- 10. WMS อย่างเดียว (ไม่มีคลัง Hub ใน ATMS): จ่ายของตัดยอด · สรุปแล้ว WD เฉพาะของปกติ · ของ Hub ไม่หลุดเข้า WD · ของเหลือคืนยอด ----
+  {
+    await c.sites.updateOne({ inventoryId: 4 }, { $set: { atmsHubInventoryId: null } })
+    await setStock(5)
+    const w = await seed("P-WMS", [line({}), hubLine(3)])
+    calls = []
+    await S.handOut(w, store)
+    let dw = await get(w)
+    eq(dw.hubWmsOnly, true); eq(dw.hubStatus, "WAIT_PR"); eq(await stock(), 2); eq(calls.length, 0)
+    await summarize(w, [mkUse(0, 1), mkUse(1, 2)])
+    calls = []
+    handler = (x) => okWd(960, `LBWD-${x.body!.remark_token}`)
+    const after = await S.settleRequest(w, true, store)
+    eq(after.status, "SETTLED")
+    eq(issues().length, 1); eq(issues()[0].body!.inventory_id, 4)
+    eq(issues()[0].body!.lines!.map((l) => l.sku_id), [11]) // บรรทัด Hub ไม่อยู่ใน WD ปกติ
+    dw = await get(w)
+    eq((dw.settleGroups ?? []).some((g) => g.hub), false)
+    eq(hubWdDone(dw), true); eq(dw.hubStatus, "WAIT_PR")
+    eq(await stock(), 3) // คืนของเหลือ 1
+    eq((await coreRows(w)).map((r) => r[2]), ["N-11"]) // Hub ไม่มี WD = ไม่มีแถวซาก
+    await c.sites.updateOne({ inventoryId: 4 }, { $set: { atmsHubInventoryId: 44 } })
+  }
+
   await client.db("hub_settle_test").dropDatabase()
   await client.db("hub_settle_core_test").dropDatabase()
   await client.close()
