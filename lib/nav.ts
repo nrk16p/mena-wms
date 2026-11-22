@@ -19,8 +19,62 @@ import {
   Banknote, Recycle, BarChart3, BookOpen, Bot, Car, ClipboardCheck, ClipboardList,
   Code2, Database, Disc3, Factory, FileText, Flag, Gauge, GitCompare, Inbox,
   Landmark, Layers, LayoutDashboard, MapPin, PackageMinus, PackageSearch, PackageX,
-  Plus, PlusCircle, Scale, ShieldCheck, ShoppingCart, Shuffle, TableProperties, Truck, Users, Wrench,
+  Package, Plus, PlusCircle, Scale, Settings, ShieldCheck, ShoppingCart, Shuffle, TableProperties, Truck, Users, Wrench,
 } from "lucide-react"
+
+// ── หมวด (ชั้นบนสุดของเมนู) ─────────────────────────────────────────────────
+// กลุ่มเดิมทุกกลุ่มอยู่ใต้หมวดใดหมวดหนึ่ง (ช่อง category บน NavGroup)
+// กลุ่มที่ไม่มี category (ภาพรวม/หน้าหลัก) แสดงบนสุดโดยไม่มีหัวหมวด
+// เปลี่ยนโครงเมนูเมื่อไหร่ ให้เปลี่ยน NAV_VERSION → การ์ดแจ้งเปลี่ยนเมนูจะขึ้นใหม่ให้ทุกคน 1 ครั้ง
+export const NAV_VERSION = "2026-11-categories"
+
+export type NavCategoryKey = "repair" | "stock" | "buy" | "sys"
+
+export type NavCategory = {
+  key: NavCategoryKey
+  label: string
+  desc: string
+  icon: ElementType
+  color: string
+  bg: string
+}
+
+export const NAV_CATEGORIES: NavCategory[] = [
+  { key: "repair", label: "ซ่อมบำรุง",          desc: "งานรถ ยาง อู่นอก",          icon: Wrench,       color: "#C2410C", bg: "#FFEDD5" },
+  { key: "stock",  label: "คลังและอะไหล่",      desc: "เบิก SKU สต็อก",            icon: Package,      color: "#0F766E", bg: "#CCFBF1" },
+  { key: "buy",    label: "จัดซื้อและเจ้าหนี้",  desc: "PR PO ราคา อู่ จ่ายเงิน",     icon: ShoppingCart, color: "#7C3AED", bg: "#F3E8FF" },
+  { key: "sys",    label: "ระบบ",               desc: "ผู้ดูแลระบบ",                icon: Settings,     color: "#475569", bg: "#F1F5F9" },
+]
+
+// คำค้นเพิ่ม (ชื่อเอกสาร/อังกฤษ/คำที่คนพิมพ์จริง) ใช้กับช่องค้นหาเมนู — key = href
+const NAV_KEYWORDS: Record<string, string> = {
+  "/po": "po purchase order สั่งซื้อ",
+  "/pr": "pr dd รับของ ขอซื้อ",
+  "/order-tracking": "po pr ขอซื้อ เปิดpo",
+  "/tire": "tyre tire ยางรถ",
+  "/tire/master": "tyre tire",
+  "/tire/saraburi/sheet": "tyre tire ยาง",
+  "/tire/latkrabang/stock-tire": "tyre tire ยาง ศลบ",
+  "/tire/saraburi/stock-tire": "tyre tire ยาง สสบ",
+  "/store-withdraw": "wd เบิก",
+  "/store-withdraw/new": "wd เบิก",
+  "/store-withdraw/queue": "wd สโตร์ store",
+  "/store-withdraw/hub": "hub sub",
+  "/store-withdraw/core-return": "ซาก core",
+  "/ap-tracking": "ap วางบิล จ่ายเงิน บัญชี",
+  "/ap-tracking/suppliers": "supplier ผู้ขาย",
+  "/price-compare": "pc เทียบราคา quotation",
+  "/rfq": "rfq quotation ใบเสนอราคา",
+  "/vendors": "vendor garage อู่",
+  "/vendors/map": "vendor garage อู่ แผนที่",
+  "/repair-external": "mr ซ่อม garage อู่",
+  "/safety-stock": "rop ss จุดสั่งซื้อ",
+  "/deadstock": "dead stock fifo ค้างคลัง",
+  "/sku": "sku อะไหล่ part",
+  "/sku/oe-search": "oe part number เบอร์แท้",
+  "/vehicles": "รถ ทะเบียน truck",
+  "/admin/users": "user สิทธิ์ permission",
+}
 
 export type NavItem = {
   href: string
@@ -54,6 +108,8 @@ export type NavGroup = {
   key: string
   /** ชื่อกลุ่มใน sidebar */
   label: string
+  /** หมวดที่กลุ่มนี้อยู่ (ไม่ระบุ = แสดงบนสุด ไม่มีหัวหมวด) */
+  category?: NavCategoryKey
   items: NavItem[]
   collapsible?: boolean
   visibleToEmails?: string[]
@@ -89,6 +145,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "sku",
+    category: "stock",
     label: "จัดการ SKU",
     homeDesc: "ฐานข้อมูลอะไหล่และรหัสสินค้า",
     homeIcon: PackageSearch, color: "#1B8C4B", bg: "#EAF6EE", homeOrder: 20,
@@ -118,6 +175,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "tire",
+    category: "repair",
     label: "จัดการยาง",
     homeDesc: "สต็อกยางและการเปลี่ยนยางทุกสาขา",
     homeIcon: Disc3, color: "#1D4ED8", bg: "#DBEAFE", homeOrder: 30,
@@ -139,6 +197,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     // key = ส่วนงานใน lib/access-policy.ts (สิทธิ์ตามแผนก) — แยกจากเจ้าหนี้ 2026-10-07
     key: "pr",
+    category: "buy",
     label: "จัดการติดตามสินค้า",
     homeDesc: "ติดตามการสั่งซื้อ ตั้งแต่คำขอจนของถึงมือ",
     homeIcon: FileText, color: "#7C3AED", bg: "#F3E8FF", homeOrder: 10,
@@ -158,6 +217,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "ap",
+    category: "buy",
     label: "จัดการเจ้าหนี้",
     homeDesc: "ใบวางบิล รอบวางบิล และสถานะจ่ายเงิน",
     homeIcon: Banknote, color: "#B45309", bg: "#FEF3C7", homeOrder: 12,
@@ -175,6 +235,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "price-compare",
+    category: "buy",
     label: "เปรียบเทียบราคา",
     homeDesc: "แบบบันทึกผลการเปรียบเทียบราคา (5,000 บาทขึ้นไป) และ export PDF",
     homeIcon: Scale, color: "#0E7490", bg: "#E0F2FE", homeOrder: 11,
@@ -186,6 +247,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "deadstock",
+    category: "stock",
     label: "ของค้างคลัง (ลาดกระบัง)",
     homeDesc: "ของรับเข้าที่ยังไม่ถูกเบิกออก — มูลค่าและอายุของค้าง",
     homeIcon: PackageX, color: "#BE123C", bg: "#FFE4E6", homeOrder: 40,
@@ -203,6 +265,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "safety-stock",
+    category: "stock",
     label: "จุดสั่งซื้อ (Safety Stock)",
     homeDesc: "จุดสั่งซื้อและสต็อกกันขาดของอะไหล่",
     homeIcon: Gauge, color: "#0F766E", bg: "#CCFBF1", homeOrder: 50,
@@ -216,6 +279,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "repair",
+    category: "repair",
     label: "จัดการอู่นอกและสั่งซื้ออะไหล่ลงคัน",
     homeDesc: "งานซ่อมอู่ภายนอกและสั่งอะไหล่มาลงคัน",
     homeIcon: Wrench, color: "#C2410C", bg: "#FFEDD5", homeOrder: 60,
@@ -235,6 +299,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "vendor",
+    category: "buy",
     label: "Vendor List",
     homeTitle: "Vendor List (อู่ที่อนุมัติ)",
     homeDesc: "งานซ่อมประเภทนี้ควรเลือกอู่ไหน — ประวัติจริง 2 ปี + สถานะอนุมัติ",
@@ -260,6 +325,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "store-withdraw",
+    category: "stock",
     label: "เบิกอะไหล่",
     homeDesc: "ยื่นคำขอเบิกอะไหล่จากสโตร์ และตามสถานะใบที่ยื่น",
     homeIcon: PackageMinus, color: "#0F766E", bg: "#CCFBF1", homeOrder: 66,
@@ -281,6 +347,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "driver-handover",
+    category: "repair",
     label: "ส่งมอบรถ พจส.ใหม่",
     homeDesc: "จับคู่คนขับใหม่กับรถ ให้พร้อมตรงกันรายฟลีท/รายสัปดาห์",
     homeIcon: Truck, color: "#0E7490", bg: "#CFFAFE", homeOrder: 70,
@@ -292,6 +359,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     key: "ai-mixer",
+    category: "repair",
     label: "ทดสอบระบบ ระบบ AI ช่วยจัดการงานซ่อมรถโม่ (Fleet Mixer Truck Maintenance)",
     homeTitle: "AI ช่วยจัดการงานซ่อมรถโม่ (ทดสอบ)",
     homeDesc: "ระบบทดลอง — ผู้ช่วย AI สำหรับงานซ่อมรถโม่",
@@ -306,6 +374,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     // key "admin" = sectionForPage("/admin/...") ใน lib/access-policy.ts — superadmin เท่านั้น
     key: "admin",
+    category: "sys",
     label: "ผู้ดูแลระบบ",
     homeDesc: "ผู้ใช้ แผนก และสิทธิ์รายส่วนงาน — ตั้งทับรายคนได้",
     homeIcon: ShieldCheck, color: "#1B8C4B", bg: "#EAF6EE", homeOrder: 95,
@@ -359,8 +428,61 @@ export function sidebarGroups(viewer: Viewer): NavGroup[] {
     .filter((g) => g.items.some((i) => !i.subheader))
 }
 
+/** จัดกลุ่ม (ที่กรองสิทธิ์แล้ว) เข้าหมวด — คืนเฉพาะหมวดที่มีกลุ่ม · กลุ่มไม่มีหมวดอยู่ใน top */
+export function byCategory<T extends { category?: NavCategoryKey }>(groups: T[]) {
+  return {
+    top: groups.filter((g) => !g.category),
+    categories: NAV_CATEGORIES
+      .map((c) => ({ category: c, groups: groups.filter((g) => g.category === c.key) }))
+      .filter((x) => x.groups.length > 0),
+  }
+}
+
+export type NavSearchHit = {
+  href: string
+  label: string
+  desc: string
+  icon: ElementType
+  groupLabel: string
+  category?: NavCategory
+  color: string
+  bg: string
+}
+
+const normSearch = (s: string) => s.toLowerCase().replace(/\s+/g, "")
+
+/** ค้นหาเมนูจากกลุ่มที่ผู้ใช้เห็น (ส่งผล sidebarGroups เข้ามา) — ค้นชื่อ คำอธิบาย กลุ่ม หมวด path และคำค้นเพิ่ม */
+export function searchNav(groups: NavGroup[], query: string, isAdmin = false): NavSearchHit[] {
+  const q = normSearch(query)
+  if (!q) return []
+  const hits: (NavSearchHit & { rank: number })[] = []
+  for (const { groups: gs, category } of [
+    ...byCategory(groups).categories,
+    { category: undefined, groups: byCategory(groups).top },
+  ]) {
+    for (const g of gs) {
+      for (const i of g.items) {
+        if (i.subheader || i.href === "/" || (i.adminOnly && !isAdmin)) continue
+        const hay = normSearch([
+          i.label, i.homeLabel, i.desc, g.label, g.homeTitle, category?.label, i.href, NAV_KEYWORDS[i.href],
+        ].filter(Boolean).join(" "))
+        if (hay.includes(q)) {
+          // ชื่อเมนูตรงคำค้น = ขึ้นก่อน (เช่น "po" → ใบสั่งซื้อ (PO) ก่อนเมนูที่ตรงแค่คำค้นเพิ่ม)
+          const rank = normSearch(i.homeLabel ?? i.label).includes(q) || normSearch(i.label).includes(q) ? 0 : 1
+          hits.push({ rank,
+            href: i.href, label: i.homeLabel ?? i.label, desc: i.desc ?? "", icon: i.icon,
+            groupLabel: g.homeTitle ?? g.label, category, color: g.color, bg: g.bg,
+          })
+        }
+      }
+    }
+  }
+  return hits.sort((a, b) => a.rank - b.rank).map((h) => { const { rank, ...rest } = h; void rank; return rest })
+}
+
 export type HomeModule = {
   key: string
+  category?: NavCategoryKey
   title: string
   desc: string
   icon: ElementType
@@ -376,6 +498,7 @@ export function homeModules(viewer: Viewer): HomeModule[] {
     .sort((a, b) => a.homeOrder - b.homeOrder)
     .map((g) => ({
       key: g.key,
+      category: g.category,
       title: g.homeTitle ?? g.label,
       desc: g.homeDesc,
       icon: g.homeIcon,

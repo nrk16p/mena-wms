@@ -7,12 +7,20 @@ import { Navbar } from "./navbar"
 import { TourHighlight } from "./tour-highlight"
 import { SessionGuard } from "./session-guard"
 import { ViewOnlyBanner } from "./view-only-banner"
+import { NavUpdateNotice } from "./nav-update-notice"
+import { NAV_SEARCH_FOCUS } from "@/lib/nav-search-store"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [navOpen, setNavOpen] = useState(false)
   // ปิด drawer อัตโนมัติเมื่อเปลี่ยนหน้า
   useEffect(() => { setNavOpen(false) }, [pathname])
+  // มีคนขอโฟกัสช่องค้นหาเมนู (⌘K / ปุ่มในการ์ดแจ้งเปลี่ยนเมนู) → มือถือเปิด drawer ให้เห็นช่องค้นหา
+  useEffect(() => {
+    const openOnMobile = () => { if (window.innerWidth < 1024) setNavOpen(true) }
+    window.addEventListener(NAV_SEARCH_FOCUS, openOnMobile)
+    return () => window.removeEventListener(NAV_SEARCH_FOCUS, openOnMobile)
+  }, [])
 
   const isLoginPage        = pathname === "/login"
   const isPresentationPage = pathname === "/presentation"
@@ -55,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <SessionGuard />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Navbar onMenuClick={() => setNavOpen(true)} />
-        <main className="main-canvas flex-1 overflow-y-auto px-3 py-4 lg:px-7 lg:py-6"><ViewOnlyBanner />{children}</main>
+        <main className="main-canvas flex-1 overflow-y-auto px-3 py-4 lg:px-7 lg:py-6"><ViewOnlyBanner /><NavUpdateNotice />{children}</main>
       </div>
     </>
   )

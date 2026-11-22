@@ -1,17 +1,21 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useState, useEffect } from "react"
+import { usePathname, useRouter } from "next/navigation"
+import { useState, useEffect, useRef } from "react"
 import { useSession, signOut } from "next-auth/react"
 import { UserAvatar } from "./user-avatar"
-import { ChevronDown, Clock, LogOut, PanelLeftClose, X } from "lucide-react"
+import { ChevronDown, Clock, LogOut, PanelLeftClose, Search, Sparkles, X } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 import { useBranchScope } from "./use-branch-scope"
 import { canSeeBranch } from "@/lib/branch-scope"
 // เมนูทั้งหมดอยู่ที่ lib/nav.ts ที่เดียว — หน้าหลัก (app/page.tsx) ก็อ่านจากไฟล์เดียวกัน
 import { isManagerOrAbove } from "@/lib/roles"
-import { sidebarGroups, type NavGroup } from "@/lib/nav"
+import { sidebarGroups, byCategory, searchNav, type NavGroup, type NavCategory } from "@/lib/nav"
+import { setNavQuery, useNavQuery, NAV_SEARCH_FOCUS, NAV_NOTICE_OPEN } from "@/lib/nav-search-store"
+
+const sansThai = { fontFamily: "'IBM Plex Sans Thai', sans-serif" }
+const CAT_OPEN_KEY = "sidebarCatOpen"
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   // Sidebar auto-hide (desktop): ปกติย่อเป็นแถบเล็ก เอาเมาส์ไปชิดซ้าย/ชี้ที่แถบ → กางออกอัตโนมัติ
@@ -25,10 +29,38 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     setPinned(v)
     try { localStorage.setItem("sidebarPinned", v ? "1" : "0") } catch { /* ignore */ }
   }
-  // มือถือ (drawer เปิด) แสดงเต็มเสมอ · เดสก์ท็อปกางเมื่อ ปักหมุด หรือ เมาส์ชี้อยู่
-  const collapsed = !open && !pinned && !hovering
+
+  // ── ค้นหาเมนู ── ระหว่างค้นหา (โฟกัสอยู่/มีคำค้น) ให้กางค้างแม้เมาส์ออก
+  const query = useNavQuery()
+  const [searchActive, setSearchActive] = useState(false)
+  const [sel, setSel] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // ขอโฟกัสช่องค้นหา — ทำหลัง render (ตอนแถบย่ออยู่ ช่องค้นหายังไม่มีใน DOM จนกว่าจะกาง)
+  const [focusTick, setFocusTick] = useState(0)
+  useEffect(() => {
+    if (!focusTick) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [focusTick])
+  const router = useRouter()
+
+  // มือถือ (drawer เปิด) แสดงเต็มเสมอ · เดสก์ท็อปกางเมื่อ ปักหมุด หรือ เมาส์ชี้อยู่ หรือกำลังค้นหา
+  const collapsed = !open && !pinned && !hovering && !searchActive
   const [pendingCount, setPendingCount] = useState(0)
   const [groupOpen, setGroupOpen]       = useState<Record<string, boolean>>({})
+  // หมวดที่ผู้ใช้พับเอง — จำไว้ข้ามการเปิดหน้า (ไม่ระบุ = กาง)
+  const [catOpen, setCatOpen]           = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    try { setCatOpen(JSON.parse(localStorage.getItem(CAT_OPEN_KEY) || "{}")) } catch { /* ignore */ }
+  }, [])
+  const toggleCat = (key: string, next: boolean) => {
+    setCatOpen((prev) => {
+      const v = { ...prev, [key]: next }
+      try { localStorage.setItem(CAT_OPEN_KEY, JSON.stringify(v)) } catch { /* ignore */ }
+      return v
+    })
+  }
+
   const pathname  = usePathname()
   const { data: session } = useSession()
   const isAdmin = session?.user?.role === "admin"
@@ -43,8 +75,26 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     access: session?.user?.access,
     isSuperAdmin: session?.user?.isSuperAdmin,
   })
+  const { top, categories } = byCategory(visibleGroups)
+  const hits = searchNav(visibleGroups, query, isAdmin)
 
   useEffect(() => { setGroupOpen({}) }, [pathname])
+  // เปลี่ยนหน้า = ล้างคำค้น
+  useEffect(() => { setNavQuery(""); setSearchActive(false) }, [pathname])
+
+  // ⌘K / Ctrl+K และคำขอโฟกัสจากที่อื่น (การ์ดแจ้งเปลี่ยนเมนู)
+  useEffect(() => {
+    const focus = () => {
+      setSearchActive(true)
+      setFocusTick((t) => t + 1)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); focus() }
+    }
+    window.addEventListener("keydown", onKey)
+    window.addEventListener(NAV_SEARCH_FOCUS, focus)
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener(NAV_SEARCH_FOCUS, focus) }
+  }, [])
 
   useEffect(() => {
     if (!canApproveSku) return
@@ -59,16 +109,225 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     return pathname === href || pathname.startsWith(href + "/")
   }
 
+  function groupHasActive(group: NavGroup) {
+    return group.items.some((i) => !i.subheader && isActive(i.href, i.exact))
+      || (group.label === "จัดการ SKU" && isActive("/sku/pending"))
+  }
+
   function isGroupOpen(group: NavGroup) {
     if (!group.collapsible) return true
     const manual = groupOpen[group.label]
     if (manual !== undefined) return manual
     return (
       group.items.some((i) => isActive(i.href, i.exact)) ||
-      (group.label === "Master SKU" && isActive("/sku/pending"))
+      (group.label === "จัดการ SKU" && isActive("/sku/pending"))
     )
   }
 
+  function isCatOpen(c: NavCategory, groups: NavGroup[]) {
+    // หมวดที่มีหน้าเปิดอยู่ กางเสมอ
+    if (groups.some(groupHasActive)) return true
+    return catOpen[c.key] ?? true
+  }
+
+  function clearSearch() {
+    setNavQuery("")
+    setSearchActive(false)
+    inputRef.current?.blur()
+  }
+
+  function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") { e.preventDefault(); clearSearch(); return }
+    if (!hits.length) return
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault()
+      setSel((s) => (s + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % hits.length)
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      const h = hits[Math.min(sel, hits.length - 1)]
+      clearSearch()
+      onClose?.()
+      router.push(h.href)
+    }
+  }
+
+  // ── ย่อ: ไอคอน 1 อันต่อกลุ่ม (คลิก = ไปเมนูแรกของกลุ่ม) ──
+  function renderRailGroup(group: NavGroup) {
+    const first = group.items.find((i) => !i.subheader && (!i.adminOnly || isAdmin))
+    if (!first) return null
+    const GroupIcon = first.icon
+    const groupActive = group.items.some((i) => !i.subheader && isActive(i.href, i.exact))
+    const showDot = group.label === "จัดการ SKU" && canApproveSku && pendingCount > 0
+    return (
+      <Link
+        key={group.label}
+        href={first.href}
+        onClick={onClose}
+        title={group.label}
+        className={[
+          "relative mx-auto mb-1 flex h-10 w-10 items-center justify-center rounded-[11px] transition-all duration-100",
+          groupActive
+            ? "bg-[#1B8C4B] text-white"
+            : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
+        ].join(" ")}
+      >
+        <GroupIcon size={17} className="shrink-0" />
+        {groupActive && (
+          <span className="absolute -right-1 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-white" />
+        )}
+        {showDot && (
+          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#E8A317] ring-2 ring-white dark:ring-[#111714]" />
+        )}
+      </Link>
+    )
+  }
+
+  function renderGroup(group: NavGroup, gi: number) {
+    const open = isGroupOpen(group)
+    return (
+      <div key={group.label} className={gi > 0 ? "mt-1" : ""}>
+
+        {/* Section label (non-collapsible) */}
+        {!group.collapsible && (
+          <p className={[
+            "px-2.5 pb-1.5 text-[9px] font-bold uppercase tracking-[0.2em]",
+            "text-[#B3C0B8] dark:text-white/25",
+            gi > 0 ? "pt-4" : "pt-1",
+          ].join(" ")}>
+            — {group.label} —
+          </p>
+        )}
+
+        {/* Group header (collapsible) */}
+        {group.collapsible && (
+          <button
+            onClick={() => setGroupOpen((prev) => ({ ...prev, [group.label]: !open }))}
+            aria-expanded={open}
+            className={[
+              "relative flex w-full items-center gap-2 min-h-[38px] py-1.5 px-2.5 rounded-[11px] transition-colors duration-150",
+              gi > 0 ? "mt-1.5" : "mt-1",
+              "bg-[#F0FDF4] dark:bg-[#1B8C4B]/10",
+            ].join(" ")}
+          >
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] rounded-full bg-[#1B8C4B]" />
+            <span className="flex-1 text-left text-[11px] font-bold leading-snug text-[#1B8C4B] dark:text-[#1B8C4B]/90" style={sansThai}>
+              {group.label}
+            </span>
+            <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] bg-[#1B8C4B]">
+              <ChevronDown
+                size={10}
+                className={["text-white transition-transform duration-200", open ? "" : "-rotate-90"].join(" ")}
+              />
+            </span>
+          </button>
+        )}
+
+        <div className={["mt-0.5 space-y-px", !open ? "hidden" : ""].join(" ")}>
+          {group.items.map((item) => {
+            const Icon = item.icon
+            if (item.adminOnly && !isAdmin) return null
+
+            if (item.subheader) {
+              return (
+                <p key={item.href} className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#9AA8A0] dark:text-gray-500" style={sansThai}>
+                  <Icon size={10} className="shrink-0" />
+                  {item.label}
+                </p>
+              )
+            }
+
+            const active = isActive(item.href, item.exact)
+            const isAdminItem = item.adminOnly
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={[
+                  "relative flex items-center gap-[11px] rounded-[11px] transition-all duration-100 ease-out",
+                  item.indent ? "h-9 pl-7 pr-2.5" : "h-9 px-3",
+                  isAdminItem
+                    ? active
+                      ? "bg-[#E8A317] text-[#14271C]"
+                      : "bg-[#FFFBEB] dark:bg-amber-950/20 text-[#B07D12] dark:text-amber-400 hover:bg-amber-50"
+                    : active
+                      ? "bg-[#1B8C4B] text-white"
+                      : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
+                ].join(" ")}
+                style={{ fontSize: item.indent ? 12.5 : 13, fontFamily: "'IBM Plex Sans Thai', sans-serif", fontWeight: 500 }}
+              >
+                <Icon size={item.indent ? 14 : 15} className="shrink-0" />
+                <span className="truncate leading-none">{item.label}</span>
+              </Link>
+            )
+          })}
+
+          {/* รออนุมัติ SKU (admin only) */}
+          {group.label === "จัดการ SKU" && canApproveSku && (
+            <Link
+              href="/sku/pending"
+              className={[
+                "relative flex items-center gap-[11px] rounded-[11px] transition-all duration-100 h-9 px-3",
+                isActive("/sku/pending")
+                  ? "bg-[#E8A317] text-[#14271C]"
+                  : "bg-[#FFFBEB] dark:bg-amber-950/20 text-[#B07D12] dark:text-amber-400 hover:bg-amber-50",
+              ].join(" ")}
+              style={{ fontSize: 13, fontFamily: "'IBM Plex Sans Thai', sans-serif", fontWeight: 500 }}
+            >
+              <Clock size={15} className="shrink-0" />
+              <span className="flex-1 truncate leading-none">รออนุมัติ SKU</span>
+              {pendingCount > 0 && (
+                <span className="shrink-0 flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white bg-[#E8A317] dark:bg-amber-500">
+                  {pendingCount}
+                </span>
+              )}
+            </Link>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  function renderSearchResults() {
+    if (!hits.length) {
+      return (
+        <p className="px-2.5 py-6 text-center text-[12px] text-[#9AA8A0]" style={sansThai}>
+          ไม่พบเมนู &quot;{query}&quot;<br />ลองคำอื่น เช่น PO, ยาง, อู่
+        </p>
+      )
+    }
+    let last = ""
+    return hits.map((h, idx) => {
+      const head = h.groupLabel !== last
+      last = h.groupLabel
+      const Icon = h.icon
+      return (
+        <div key={h.href}>
+          {head && (
+            <p className="px-2.5 pt-3 pb-1 text-[10px] text-[#9AA8A0] dark:text-gray-500" style={sansThai}>
+              {h.category ? `${h.category.label} › ` : ""}<b className="font-bold text-[#1B8C4B]">{h.groupLabel}</b>
+            </p>
+          )}
+          <Link
+            href={h.href}
+            onClick={() => { setNavQuery(""); setSearchActive(false); onClose?.() }}
+            onMouseEnter={() => setSel(idx)}
+            className={[
+              "relative flex items-center gap-[11px] rounded-[11px] h-9 px-3 transition-colors duration-100",
+              idx === sel
+                ? "bg-[#F0FDF4] dark:bg-white/5 text-[#0F6A3C] dark:text-white ring-2 ring-inset ring-[#1B8C4B]/60"
+                : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5",
+            ].join(" ")}
+            style={{ fontSize: 13, fontFamily: "'IBM Plex Sans Thai', sans-serif", fontWeight: 500 }}
+          >
+            <Icon size={15} className="shrink-0" />
+            <span className="truncate leading-none"><Highlight text={h.label} query={query} /></span>
+          </Link>
+        </div>
+      )
+    })
+  }
 
   return (
     <aside
@@ -126,7 +385,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
                 <p className="truncate text-[16px] text-[#14271C] dark:text-white leading-tight" style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 600 }}>
                   Mena WMS
                 </p>
-                <p className="text-[10px] text-[#9AA8A0] tracking-[0.03em]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                <p className="text-[10px] text-[#9AA8A0] tracking-[0.03em]" style={sansThai}>
                   คลังอะไหล่ · ยาง
                 </p>
               </div>
@@ -150,158 +409,82 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         )}
       </div>
 
+      {/* ── ค้นหาเมนู ── */}
+      {collapsed ? (
+        <button
+          onClick={() => window.dispatchEvent(new Event(NAV_SEARCH_FOCUS))}
+          title="ค้นหาเมนู (Ctrl+K)"
+          className="mx-auto mt-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5"
+        >
+          <Search size={17} />
+        </button>
+      ) : (
+        <div className="relative shrink-0 px-3 pt-3">
+          <Search size={14} className="pointer-events-none absolute left-[22px] top-[calc(50%+6px)] -translate-y-1/2 text-[#9AA8A0]" />
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(e) => { setNavQuery(e.target.value); setSel(0) }}
+            onFocus={() => setSearchActive(true)}
+            onBlur={() => { if (!query) setSearchActive(false) }}
+            onKeyDown={onSearchKey}
+            placeholder="ค้นหาเมนู เช่น PO, ยาง, เบิก"
+            aria-label="ค้นหาเมนู"
+            autoComplete="off"
+            className="h-9 w-full rounded-[11px] border border-[#EEF2F0] dark:border-white/10 bg-[#F6FAF7] dark:bg-white/5 pl-8 pr-12 text-[13px] text-[#14271C] dark:text-white placeholder:text-[#9AA8A0] outline-none focus:border-[#1B8C4B] focus:ring-2 focus:ring-[#1B8C4B]/20"
+            style={sansThai}
+          />
+          <kbd className={`pointer-events-none absolute right-[22px] top-[calc(50%+6px)] -translate-y-1/2 ${query ? "hidden" : "hidden lg:block"} rounded-md border border-[#EEF2F0] dark:border-white/10 bg-white dark:bg-[#111714] px-1.5 text-[10px] text-[#9AA8A0]`}>⌘K</kbd>
+        </div>
+      )}
+
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-3 py-3">
-        {visibleGroups.map((group, gi) => {
-          const open = isGroupOpen(group)
-
-          // ── ย่อ: โชว์แค่ไอคอนหมวดใหญ่ 1 อันต่อกลุ่ม (คลิก = ไปเมนูแรกของหมวด) ──
-          if (collapsed) {
-            const first = group.items.find((i) => !i.subheader && (!i.adminOnly || isAdmin))
-            if (!first) return null
-            const GroupIcon = first.icon
-            const groupActive = group.items.some((i) => !i.subheader && isActive(i.href, i.exact))
-            const showDot = group.label === "จัดการ SKU" && canApproveSku && pendingCount > 0
-            return (
-              <Link
-                key={group.label}
-                href={first.href}
-                onClick={onClose}
-                title={group.label}
-                className={[
-                  "relative mx-auto mb-1 flex h-10 w-10 items-center justify-center rounded-[11px] transition-all duration-100",
-                  groupActive
-                    ? "bg-[#1B8C4B] text-white"
-                    : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
-                ].join(" ")}
-              >
-                <GroupIcon size={17} className="shrink-0" />
-                {groupActive && (
-                  <span className="absolute -right-1 top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-white" />
-                )}
-                {showDot && (
-                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#E8A317] ring-2 ring-white dark:ring-[#111714]" />
-                )}
-              </Link>
-            )
-          }
-
-          return (
-            <div key={group.label} className={gi > 0 ? "mt-1" : ""}>
-
-              {/* Section label (non-collapsible) */}
-              {!collapsed && !group.collapsible && (
-                <p className={[
-                  "px-2.5 pb-1.5 text-[9px] font-bold uppercase tracking-[0.2em]",
-                  "text-[#B3C0B8] dark:text-white/25",
-                  gi > 0 ? "pt-4" : "pt-1",
-                ].join(" ")}>
-                  — {group.label} —
-                </p>
-              )}
-
-              {/* Group header (collapsible) */}
-              {!collapsed && group.collapsible && (
-                <button
-                  onClick={() => setGroupOpen((prev) => ({ ...prev, [group.label]: !open }))}
-                  aria-expanded={open}
-                  className={[
-                    "relative flex w-full items-center gap-2 h-[38px] px-2.5 rounded-[11px] transition-colors duration-150",
-                    gi > 0 ? "mt-3" : "mt-1",
-                    "bg-[#F0FDF4] dark:bg-[#1B8C4B]/10",
-                  ].join(" ")}
-                >
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] rounded-full bg-[#1B8C4B]" />
-                  <span className="flex-1 text-left text-[11px] font-bold text-[#1B8C4B] dark:text-[#1B8C4B]/90" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
-                    {group.label}
-                  </span>
-                  <span className={[
-                    "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] bg-[#1B8C4B]",
-                  ].join(" ")}>
-                    <ChevronDown
-                      size={10}
-                      className={["text-white transition-transform duration-200", open ? "" : "-rotate-90"].join(" ")}
-                    />
-                  </span>
-                </button>
-              )}
-
-              <div className={["mt-0.5 space-y-px", !open ? "hidden" : ""].join(" ")}>
-                {group.items.map((item) => {
-                  const Icon = item.icon
-                  if (item.adminOnly && !isAdmin) return null
-
-                  if (item.subheader) {
-                    if (collapsed) return null
-                    return (
-                      <p key={item.href} className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#9AA8A0] dark:text-gray-500" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
-                        <Icon size={10} className="shrink-0" />
-                        {item.label}
-                      </p>
-                    )
-                  }
-
-                  const active = isActive(item.href, item.exact)
-                  const isAdminItem = item.adminOnly
-
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={onClose}
-                      title={collapsed ? item.label : undefined}
-                      className={[
-                        "relative flex items-center gap-[11px] rounded-[11px] transition-all duration-100 ease-out",
-                        collapsed ? "h-10 w-10 mx-auto justify-center" : item.indent ? "h-9 pl-7 pr-2.5" : "h-9 px-3",
-                        isAdminItem
-                          ? active
-                            ? "bg-[#E8A317] text-[#14271C]"
-                            : "bg-[#FFFBEB] dark:bg-amber-950/20 text-[#B07D12] dark:text-amber-400 hover:bg-amber-50"
-                          : active
-                            ? "bg-[#1B8C4B] text-white"
-                            : "text-[#4B5F54] dark:text-gray-400 hover:bg-[#F0FDF4] dark:hover:bg-white/5 hover:text-[#0F6A3C] dark:hover:text-white",
-                      ].join(" ")}
-                      style={{ fontSize: item.indent ? 12.5 : 13, fontFamily: "'IBM Plex Sans Thai', sans-serif", fontWeight: 500 }}
-                    >
-                      <Icon size={item.indent ? 14 : 15} className="shrink-0" />
-                      {!collapsed && <span className="truncate leading-none">{item.label}</span>}
-                      {collapsed && active && (
-                        <span className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-1 rounded-full bg-white" />
-                      )}
-                    </Link>
-                  )
-                })}
-
-                {/* รออนุมัติ SKU (admin only) */}
-                {group.label === "จัดการ SKU" && canApproveSku && (
-                  <Link
-                    href="/sku/pending"
-                    title={collapsed ? "รออนุมัติ" : undefined}
-                    className={[
-                      "relative flex items-center gap-[11px] rounded-[11px] transition-all duration-100",
-                      collapsed ? "h-10 w-10 mx-auto justify-center" : "h-9 px-3",
-                      isActive("/sku/pending")
-                        ? "bg-[#E8A317] text-[#14271C]"
-                        : "bg-[#FFFBEB] dark:bg-amber-950/20 text-[#B07D12] dark:text-amber-400 hover:bg-amber-50",
-                    ].join(" ")}
-                    style={{ fontSize: 13, fontFamily: "'IBM Plex Sans Thai', sans-serif", fontWeight: 500 }}
-                  >
-                    <Clock size={15} className="shrink-0" />
-                    {!collapsed && <span className="flex-1 truncate leading-none">รออนุมัติ SKU</span>}
-                    {pendingCount > 0 && !collapsed && (
-                      <span className="shrink-0 flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white bg-[#E8A317] dark:bg-amber-500">
-                        {pendingCount}
-                      </span>
-                    )}
-                    {pendingCount > 0 && collapsed && (
-                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#E8A317] ring-2 ring-white dark:ring-[#111714]" />
-                    )}
-                  </Link>
-                )}
+        {collapsed ? (
+          <>
+            {top.map(renderRailGroup)}
+            {categories.map(({ category, groups }) => (
+              <div key={category.key} className="mt-2 border-t border-[#EEF2F0] pt-2 dark:border-white/[0.07]">
+                {groups.map(renderRailGroup)}
               </div>
-            </div>
-          )
-        })}
+            ))}
+          </>
+        ) : query.trim() ? (
+          renderSearchResults()
+        ) : (
+          <>
+            {top.map((g, gi) => renderGroup(g, gi))}
+            {categories.map(({ category: c, groups }) => {
+              const catIsOpen = isCatOpen(c, groups)
+              const CIcon = c.icon
+              const count = groups.reduce((s, g) => s + g.items.filter((i) => !i.subheader && (!i.adminOnly || isAdmin)).length, 0)
+              return (
+                <div key={c.key} className="mt-3">
+                  <button
+                    onClick={() => toggleCat(c.key, !catIsOpen)}
+                    aria-expanded={catIsOpen}
+                    className="flex w-full items-center gap-2.5 rounded-[12px] border border-[#EEF2F0] dark:border-white/[0.07] bg-[#F6FAF7] dark:bg-white/[0.03] px-2.5 py-2 text-left transition-colors hover:bg-[#F0FDF4] dark:hover:bg-white/5"
+                  >
+                    <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] dark:bg-white/10" style={{ background: c.bg, color: c.color }}>
+                      <CIcon size={14} />
+                    </span>
+                    <span className="flex-1 text-[14px] text-[#14271C] dark:text-white" style={{ fontFamily: "'Mitr', sans-serif", fontWeight: 500 }}>
+                      {c.label}
+                    </span>
+                    <span className="text-[10.5px] text-[#9AA8A0]" style={sansThai}>{count}</span>
+                    <ChevronDown size={14} className={["text-[#9AA8A0] transition-transform duration-200", catIsOpen ? "" : "-rotate-90"].join(" ")} />
+                  </button>
+                  {catIsOpen && (
+                    <div className="ml-3 border-l border-dashed border-[#DDE5E0] pl-2 dark:border-white/10">
+                      {groups.map((g, gi) => renderGroup(g, gi))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </>
+        )}
       </nav>
 
       {/* ── Footer ── */}
@@ -319,10 +502,10 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
             {!collapsed && (
               <>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[12px] font-bold leading-snug text-[#14271C] dark:text-gray-200" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                  <p className="truncate text-[12px] font-bold leading-snug text-[#14271C] dark:text-gray-200" style={sansThai}>
                     {session.user.name}
                   </p>
-                  <p className="truncate text-[10px] leading-none text-[#9AA8A0]" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+                  <p className="truncate text-[10px] leading-none text-[#9AA8A0]" style={sansThai}>
                     {/* มีข้อมูลพนักงาน → โชว์ตำแหน่ง·แผนก ให้รู้ทันทีว่า login ด้วยสิทธิ์ไหน */}
                     {[session.user.employee?.position, session.user.employee?.department].filter(Boolean).join(" · ")
                       || session.user.email}
@@ -339,7 +522,32 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
             )}
           </div>
         )}
+        {!collapsed && (
+          <button
+            onClick={() => { window.dispatchEvent(new Event(NAV_NOTICE_OPEN)); onClose?.() }}
+            className="mt-1.5 flex items-center gap-1.5 px-2.5 text-[11px] text-[#1B8C4B] hover:underline"
+            style={sansThai}
+          >
+            <Sparkles size={12} />
+            เมนูใหม่ เปลี่ยนอะไรบ้าง
+          </button>
+        )}
       </div>
     </aside>
+  )
+}
+
+/** ไฮไลต์คำค้นในป้ายเมนู (ไม่สนตัวพิมพ์เล็กใหญ่ · เทียบแบบตรงตัว) */
+export function Highlight({ text, query }: { text: string; query: string }) {
+  const q = query.trim()
+  if (!q) return <>{text}</>
+  const i = text.toLowerCase().indexOf(q.toLowerCase())
+  if (i < 0) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="rounded-[3px] bg-[#FDE68A] px-px text-inherit dark:bg-amber-500/40">{text.slice(i, i + q.length)}</mark>
+      {text.slice(i + q.length)}
+    </>
   )
 }
