@@ -218,6 +218,17 @@ console.log("check-access-policy: ok")
   const queueViewOnly = accessFor({ department: "Procurement", email: "s3@menatransport.co.th", overrides: { "store-queue": "view" } })
   assert.equal(run("/api/store-withdraw/SW-2611-001/hub-pr", "POST", queueViewOnly).ok, false)
   assert.equal(sectionForApi("/api/store-withdraw/lookup/sku"), "store-withdraw")
+  // อะไหล่ Hub: แผนกจัดซื้อ (5) + สโตร์ (31) ทำได้ทั้งหมด · รับเข้าค้น SKU/คลังได้แม้ไม่มีสิทธิ์เบิก
+  for (const id of [5, 31]) assert.equal(accessFor({ departmentId: id, email: `p${id}@menatransport.co.th` })["store-hub"], "edit", `dept ${id} store-hub`)
+  const proc = u("Procurement")
+  assert.equal(run("/store-withdraw/hub", "GET", proc).ok, true)
+  assert.equal(run("/api/store-withdraw/hub/receive", "POST", proc).ok, true)
+  assert.equal(run("/api/store-withdraw/hub/master", "PUT", proc).ok, true)
+  assert.equal(run("/api/store-withdraw/lookup/sku", "GET", proc).ok, true)
+  assert.equal(run("/api/store-withdraw/options", "GET", proc).ok, true)
+  assert.equal(run("/api/store-withdraw/queue", "GET", proc).ok, false) // คิวสโตร์ยังให้รายคนเหมือนเดิม
+  assert.equal(run("/api/store-withdraw/lookup/sku", "GET", veh).ok, true) // คนยื่นเบิกเหมือนเดิม
+  assert.equal(veh["store-hub"], "none")
   assert.equal(sectionForPage("/store-withdraw"), "store-withdraw")
   assert.equal(sectionForPage("/store-withdraw/queue"), "store-queue")
   // หน้าสรุปการใช้รายคัน (ลิงก์มือถือ) = ฝั่งผู้ขอ · ไม่ชนกับ /queue /audit /new
@@ -355,7 +366,8 @@ console.log("store-withdraw access: OK")
   assert.equal(run("/api/core-return/k1/follow-up", "POST", ro), false)
   // เมนู: จัดซื้อเห็นเมนูติดตามซากเมนูเดียวในกลุ่มเบิกอะไหล่ · ยานยนต์เห็นด้วย · บัญชี/การเงินเห็นเมนูนี้เมนูเดียว (2026-11-05)
   const hrefs = (a: Access) => sidebarGroups({ access: a }).flatMap((g) => g.items.map((i) => i.href)).filter((h) => h.startsWith("/store-withdraw"))
-  assert.deepEqual(hrefs(proc), ["/store-withdraw/core-return"])
+  // จัดซื้อ/สโตร์เห็นเมนูอะไหล่ Hub ด้วย (2026-11-22)
+  assert.deepEqual([...hrefs(proc)].sort(), ["/store-withdraw/core-return", "/store-withdraw/hub"])
   assert.ok(hrefs(veh).includes("/store-withdraw/core-return"))
   assert.deepEqual(hrefs(fin), ["/store-withdraw/core-return"])
 }

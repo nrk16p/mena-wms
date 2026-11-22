@@ -158,7 +158,9 @@ async function main() {
     ["store-hub", "store-hub", "store-hub", "store-hub", "store-withdraw", "store-hub"])
   for (const dept of ["ยานยนต์", "Procurement", "Accounting", "Chief-Level", "Information Technology", null]) {
     const acc = accessFor({ department: dept, email: "someone@menatransport.co.th" })
-    if (dept !== "Information Technology") eq(acc["store-hub"], "none", String(dept))
+    // จัดซื้อ/สโตร์ได้ edit ตามแผนก (2026-11-22) · IT ได้ทุกอย่าง · ที่เหลือไม่มี
+    const want = dept === "Procurement" || dept === "Information Technology" ? "edit" : "none"
+    eq(acc["store-hub"], want, String(dept))
   }
   const chk = (access: ReturnType<typeof accessFor>, pathname: string, method: string) => checkRequest({ pathname, method, access, isSuperAdmin: false }).ok
   const plain = accessFor({ department: "ยานยนต์", email: "a@menatransport.co.th" }) // store-withdraw edit, store-hub none

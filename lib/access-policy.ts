@@ -64,6 +64,8 @@ const PROCUREMENT = row({
   deadstock: "edit", tire: "view", repair: "edit",
   // ติดตามซาก: จัดซื้อเห็นทั้งหมด + บันทึกการตาม (follow-up) ได้ — ไม่ได้เปิดหน้าเบิก/คิวสโตร์อื่นให้ (2026-11-03)
   "core-return": "edit",
+  // อะไหล่ Hub: จัดซื้อ + สโตร์ (แผนก 5 และ 31) ทำได้ทั้งหมด — รับเข้า ดูยอด แก้ master/Sub (ผู้ใช้สั่ง 2026-11-22)
+  "store-hub": "edit",
 })
 // สรรหา Mass เห็นติดตาม PR / คำขอเปิด PO ด้วย (ผู้ใช้สั่ง 2026-10-27)
 const RECRUITMENT_MASS = row({ pr: "edit", "driver-handover": "edit" })
@@ -262,6 +264,8 @@ export function checkRequest(p: { pathname: string; method: string; access: Acce
   if (api && !read && HUB_PR_WRITE.test(p.pathname) && atLeast(p.access["store-queue"], "edit")) return { ok: true }
   // ตรวจย้อนหลัง (audit) ต้องมีสิทธิ์ store-audit เท่านั้น ไม่ผ่านทางลัดของคิวสโตร์
   if (api && read && under(p.pathname, "/api/store-withdraw") && !under(p.pathname, "/api/store-withdraw/audit") && (!under(p.pathname, "/api/store-withdraw/hub") || under(p.pathname, "/api/store-withdraw/hub/items")) && atLeast(p.access["store-queue"], "view")) return { ok: true }
+  // หน้าอะไหล่ Hub ใช้รายการคลัง + ค้น SKU ของ ATMS ตอนรับเข้า → คนที่มี store-hub อ่านได้แม้ไม่มีสิทธิ์เบิก/คิว
+  if (api && read && (p.pathname === "/api/store-withdraw/options" || under(p.pathname, "/api/store-withdraw/lookup")) && atLeast(p.access["store-hub"], "view")) return { ok: true }
   // ปุ่ม "ดึงข้อมูลล่าสุดจาก ATMS" ในหน้า /safety-stock — ผู้ใช้ทุกคนที่เห็นหน้านี้กดได้ (ผู้ใช้สั่ง 17/11/2026)
   // route กันกดถี่เองด้วย cooldown ไม่ได้แก้ข้อมูลอะไรนอกจากสั่งดึงรอบใหม่
   if (api && p.pathname === "/api/safety-stock/live-sync" && atLeast(p.access["safety-stock"], "view")) return { ok: true }
