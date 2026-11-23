@@ -291,13 +291,8 @@ export function ImageUpload({
     }
     setItems((prev) => prev.filter((i) => i.localId !== item.localId))
     URL.revokeObjectURL(item.previewUrl)
-    if (item.batchId === "doc" && item.webpUrl) {
-      // เอกสาร PDF — ลบผ่านเส้นทางของเรา (key = path หลังโดเมน)
-      const key = decodeURIComponent(new URL(item.webpUrl).pathname.replace(/^\//, ""))
-      fetch(`/api/media/doc?key=${encodeURIComponent(key)}`, { method: "DELETE" }).catch(() => {})
-    } else if (item.mediaId != null && item.mediaId !== 0) {
-      fetch(`/api/media/${item.mediaId}`, { method: "DELETE" }).catch(() => {})
-    }
+    // ไม่ลบไฟล์ออกจาก storage ตรงนี้ — กด X แล้วยังไม่ได้กดบันทึก (หรือกดยกเลิก) ใบงานยังชี้ไฟล์นี้อยู่
+    // เคยลบทันทีแล้วทำให้ลิงก์ในใบงานเสีย (NoSuchKey) · ไฟล์ค้างใน bucket ดีกว่าลิงก์เสีย
   }
 
   const atLimit = items.length >= max

@@ -219,7 +219,8 @@ const EMPTY: Omit<RepairExternal, "_id"> = {
 // (สถานะ/วันคาดนับแยก · statusSince ระบบตั้งเอง · รูปแนบอยู่ใน state แยกจาก form)
 const FORM_FIELD_KEYS = (Object.keys(EMPTY) as (keyof typeof EMPTY)[])
   .filter((k) => k !== "status" && k !== "stageEta" && k !== "statusSince")
-const imagesKey = (a?: SkuImage[]) => JSON.stringify((a ?? []).map((i) => i.mediaId))
+// เทียบด้วย URL ด้วย — PDF ทุกไฟล์ mediaId = 0 ถ้าเทียบแค่ mediaId สลับ PDF แล้วจะไม่ถูกบันทึก
+const imagesKey = (a?: SkuImage[]) => JSON.stringify((a ?? []).map((i) => `${i.mediaId}|${i.webpUrl}`))
 
 const fmtNum = (n: number) =>
   (n ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
